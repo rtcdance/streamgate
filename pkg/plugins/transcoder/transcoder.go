@@ -1,14 +1,15 @@
 package transcoder
 
-import "go.uber.org/zap"
-
 import (
 	"context"
 	"fmt"
 	"sync"
 	"time"
 
+	"go.uber.org/zap"
+
 	"streamgate/pkg/core"
+	"streamgate/pkg/core/event"
 )
 
 // TranscodeTask represents a transcoding task
@@ -70,8 +71,8 @@ type QueueMetrics struct {
 type WorkerPool struct {
 	workers       []*Worker
 	taskQueue     *TaskQueue
-	eventBus      core.EventBus
-	logger        core.Logger
+	eventBus      event.EventBus
+	logger        *zap.Logger
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -131,8 +132,8 @@ type TranscoderPlugin struct {
 	config       *TranscoderConfig
 	taskQueue    *TaskQueue
 	workerPool   *WorkerPool
-	eventBus     core.EventBus
-	logger       core.Logger
+	eventBus     event.EventBus
+	logger       *zap.Logger
 	mu           sync.RWMutex
 }
 
@@ -172,9 +173,9 @@ func (tp *TranscoderPlugin) Dependencies() []string {
 }
 
 // Init initializes the transcoder plugin
-func (tp *TranscoderPlugin) Init(ctx context.Context, config core.Config) error {
-	tp.logger = config.Logger()
-	tp.eventBus = config.EventBus()
+func (tp *TranscoderPlugin) Init(ctx context.Context, kernel *core.Microkernel) error {
+	tp.logger = kernel.GetLogger()
+	tp.eventBus = kernel.GetEventBus()
 
 	// Initialize task queue
 	tp.taskQueue = &TaskQueue{
@@ -195,8 +196,8 @@ func (tp *TranscoderPlugin) Init(ctx context.Context, config core.Config) error 
 	}
 
 	tp.logger.Info("Transcoder plugin initialized",
-		"workers", tp.config.WorkerPoolSize,
-		"max_queue", tp.config.MaxQueueSize)
+		zap.Int("workers", tp.config.WorkerPoolSize),
+		zap.Int("max_queue", tp.config.MaxQueueSize))
 
 	return nil
 }
@@ -265,9 +266,10 @@ func (tp *TranscoderPlugin) SubmitTask(task *TranscodeTask) error {
 		return err
 	}
 
-	tp.eventBus.Publish(core.Event{
+	ctx := context.Background()
+	tp.eventBus.Publish(ctx, &event.Event{
 		Type: "transcode.task.submitted",
-		Data: task,
+		Data: map[string]interface{}{"task": task},
 	})
 
 	return nil
@@ -340,7 +342,7 @@ func (tp *TranscoderPlugin) performAutoScaling() {
 		if err := tp.ScaleWorkers(newCount); err != nil {
 			tp.logger.Error("Failed to scale up workers", zap.Error(err))
 		} else {
-			tp.logger.Info("Scaled up workers", "new_count", newCount, "queue_len", queueLen)
+			tp.logger.Info("Scaled up workers", zap.Int("new_count", newCount), zap.Int("queue_len", queueLen))
 		}
 	}
 
@@ -352,7 +354,7 @@ func (tp *TranscoderPlugin) performAutoScaling() {
 		if err := tp.ScaleWorkers(newCount); err != nil {
 			tp.logger.Error("Failed to scale down workers", zap.Error(err))
 		} else {
-			tp.logger.Info("Scaled down workers", "new_count", newCount)
+			tp.logger.Info("Scaled down workers", zap.Int("new_count", newCount))
 		}
 	}
 }
@@ -471,7 +473,7 @@ func (wp *WorkerPool) Start(ctx context.Context, workerCount int) error {
 	wp.metrics.ActiveWorkers = workerCount
 	wp.metrics.IdleWorkers = workerCount
 
-	wp.logger.Info("Worker pool started", "workers", workerCount)
+	wp.logger.Info("Worker pool started", zap.Int("workers", workerCount))
 	return nil
 }
 
@@ -521,7 +523,7 @@ func (wp *WorkerPool) Scale(targetCount int) error {
 		wp.metrics.TotalWorkers = targetCount
 	}
 
-	wp.logger.Info("Worker pool scaled", "target", targetCount, "current", currentCount)
+	wp.logger.Info("Worker pool scaled", zap.Int("target", targetCount), zap.Int("current", currentCount))
 	return nil
 }
 
@@ -558,9 +560,9 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 
 	wp.taskQueue.UpdateTask(task)
 
-	wp.eventBus.Publish(core.Event{
+	wp.eventBus.Publish(context.Background(), &event.Event{
 		Type: "transcode.task.started",
-		Data: task,
+		Data: map[string]interface{}{"task": task},
 	})
 
 	// Simulate transcoding work
@@ -576,9 +578,9 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 		}
 
 		wp.taskQueue.metrics.TotalFailed++
-		wp.eventBus.Publish(core.Event{
+		wp.eventBus.Publish(context.Background(), &event.Event{
 			Type: "transcode.task.failed",
-			Data: task,
+			Data: map[string]interface{}{"task": task},
 		})
 	} else {
 		task.Status = TaskStatusCompleted
@@ -586,9 +588,9 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 		task.CompletedAt = &now
 		wp.taskQueue.metrics.TotalProcessed++
 
-		wp.eventBus.Publish(core.Event{
+		wp.eventBus.Publish(context.Background(), &event.Event{
 			Type: "transcode.task.completed",
-			Data: task,
+			Data: map[string]interface{}{"task": task},
 		})
 	}
 
@@ -631,7 +633,7 @@ func (wp *WorkerPool) HealthCheck() {
 			worker.Status = WorkerStatusUnhealthy
 			worker.mu.Unlock()
 
-			wp.logger.Warn("Worker marked unhealthy", "worker_id", worker.ID)
+			wp.logger.Warn("Worker marked unhealthy", zap.String("worker_id", worker.ID))
 		}
 	}
 

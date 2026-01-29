@@ -7,6 +7,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.uber.org/zap"
+
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
@@ -23,22 +25,22 @@ func main() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatal("Failed to load configuration", "error", err)
+		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	// Force monolithic mode
 	cfg.Mode = "monolith"
-	log.Info("Configuration loaded", "mode", cfg.Mode, "port", cfg.Server.Port)
+	log.Info("Configuration loaded", zap.String("mode", cfg.Mode), zap.Int("port", cfg.Server.Port))
 
 	// Initialize microkernel
 	kernel, err := core.NewMicrokernel(cfg, log)
 	if err != nil {
-		log.Fatal("Failed to initialize microkernel", "error", err)
+		log.Fatal("Failed to initialize microkernel", zap.Error(err))
 	}
 
 	// Register plugins
 	if err := kernel.RegisterPlugin(api.NewGatewayPlugin(cfg, log)); err != nil {
-		log.Fatal("Failed to register API Gateway plugin", "error", err)
+		log.Fatal("Failed to register API Gateway plugin", zap.Error(err))
 	}
 
 	// Start microkernel
@@ -46,7 +48,7 @@ func main() {
 	defer cancel()
 
 	if err := kernel.Start(ctx); err != nil {
-		log.Fatal("Failed to start microkernel", "error", err)
+		log.Fatal("Failed to start microkernel", zap.Error(err))
 	}
 
 	log.Info("StreamGate Monolithic Mode started successfully")
@@ -56,14 +58,14 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-sigChan
-	log.Info("Received shutdown signal", "signal", sig)
+	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := kernel.Shutdown(shutdownCtx); err != nil {
-		log.Error("Error during shutdown", "error", err)
+		log.Error("Error during shutdown", zap.Error(err))
 		os.Exit(1)
 	}
 
