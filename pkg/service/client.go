@@ -47,7 +47,9 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 		return nil, fmt.Errorf("failed to dial service: %w", err)
 	}
 
-	p.logger.Info("Created gRPC connection", "service", serviceName, "address", address)
+	p.logger.Info("Created gRPC connection",
+		zap.String("service", serviceName),
+		zap.String("address", address))
 
 	// Cache connection
 	p.clients[serviceName] = conn
@@ -75,7 +77,9 @@ func (p *ClientPool) getServiceAddress(ctx context.Context, serviceName string) 
 func (p *ClientPool) Close() error {
 	for serviceName, conn := range p.clients {
 		if err := conn.Close(); err != nil {
-			p.logger.Error("Failed to close connection", "service", serviceName, "error", err)
+			p.logger.Error("Failed to close connection",
+				zap.String("service", serviceName),
+				zap.Error(err))
 		}
 	}
 

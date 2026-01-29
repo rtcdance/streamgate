@@ -170,7 +170,7 @@ type DeploymentResult struct {
 
 // DeployContentRegistry deploys the ContentRegistry contract
 func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig) (*DeploymentResult, error) {
-	scd.logger.Info("Deploying ContentRegistry contract", zap.String("chain_id", config.ChainID))
+	scd.logger.Info("Deploying ContentRegistry contract", zap.Int64("chain_id", config.ChainID))
 
 	// TODO: Implement contract deployment
 	// 1. Create transaction
@@ -186,7 +186,10 @@ func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig
 
 // DeployNFTContract deploys an NFT contract
 func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, name string, symbol string) (*DeploymentResult, error) {
-	scd.logger.Info("Deploying NFT contract", "chain_id", config.ChainID, "name", name, "symbol", symbol)
+	scd.logger.Info("Deploying NFT contract",
+		zap.Int64("chain_id", config.ChainID),
+		zap.String("name", name),
+		zap.String("symbol", symbol))
 
 	// TODO: Implement contract deployment
 	return &DeploymentResult{
@@ -196,7 +199,9 @@ func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, na
 
 // VerifyContract verifies a contract on a block explorer
 func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress string, sourceCode string) error {
-	scd.logger.Info("Verifying contract", "chain_id", chainID, "contract", contractAddress)
+	scd.logger.Info("Verifying contract",
+		zap.Int64("chain_id", chainID),
+		zap.String("contract", contractAddress))
 
 	// TODO: Implement contract verification
 	// 1. Get block explorer API key
@@ -223,7 +228,9 @@ func NewContractDeploymentTracker(logger *zap.Logger) *ContractDeploymentTracker
 
 // TrackDeployment tracks a contract deployment
 func (cdt *ContractDeploymentTracker) TrackDeployment(contractName string, result *DeploymentResult) {
-	cdt.logger.Info("Tracking deployment", "contract", contractName, "address", result.ContractAddress)
+	cdt.logger.Info("Tracking deployment",
+		zap.String("contract", contractName),
+		zap.String("address", result.ContractAddress))
 	cdt.deployments[contractName] = result
 }
 
@@ -265,7 +272,10 @@ func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
 
 // RegisterContract registers a contract
 func (scr *SmartContractRegistry) RegisterContract(info *SmartContractInfo) {
-	scr.logger.Info("Registering contract", "name", info.Name, "address", info.Address, "chain_id", info.ChainID)
+	scr.logger.Info("Registering contract",
+		zap.String("name", info.Name),
+		zap.String("address", info.Address),
+		zap.Int64("chain_id", info.ChainID))
 	scr.contracts[info.Name] = info
 }
 

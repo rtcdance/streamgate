@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
@@ -27,14 +28,17 @@ func main() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatal("Failed to load configuration", "error", err)
+		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	// Configure service
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "api-gateway"
 	cfg.Server.Port = 9090
-	log.Info("Configuration loaded", "mode", cfg.Mode, "service", cfg.ServiceName, "port", cfg.Server.Port)
+	log.Info("Configuration loaded",
+		zap.String("mode", cfg.Mode),
+		zap.String("service", cfg.ServiceName),
+		zap.Int("port", cfg.Server.Port))
 
 	// Initialize HTTP router
 	gin.SetMode(gin.ReleaseMode)
@@ -82,36 +86,38 @@ func main() {
 	// Initialize gRPC server
 	grpcListener, err := net.Listen("tcp", ":9091")
 	if err != nil {
-		log.Fatal("Failed to create gRPC listener", "error", err)
+		log.Fatal("Failed to create gRPC listener", zap.Error(err))
 	}
 
 	grpcServer := grpc.NewServer()
-	log.Info("gRPC server initialized", "port", 9091)
+	log.Info("gRPC server initialized", zap.Int("port", 9091))
 
 	// Start HTTP server in goroutine
 	go func() {
-		log.Info("Starting HTTP server", "port", cfg.Server.Port)
+		log.Info("Starting HTTP server", zap.Int("port", cfg.Server.Port))
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("HTTP server error", "error", err)
+			log.Error("HTTP server error", zap.Error(err))
 		}
 	}()
 
 	// Start gRPC server in goroutine
 	go func() {
-		log.Info("Starting gRPC server", "port", 9091)
+		log.Info("Starting gRPC server", zap.Int("port", 9091))
 		if err := grpcServer.Serve(grpcListener); err != nil {
-			log.Error("gRPC server error", "error", err)
+			log.Error("gRPC server error", zap.Error(err))
 		}
 	}()
 
-	log.Info("StreamGate API Gateway Service started successfully", "http_port", cfg.Server.Port, "grpc_port", 9091)
+	log.Info("StreamGate API Gateway Service started successfully",
+		zap.Int("http_port", cfg.Server.Port),
+		zap.Int("grpc_port", 9091))
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-sigChan
-	log.Info("Received shutdown signal", "signal", sig)
+	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -119,7 +125,7 @@ func main() {
 
 	// Shutdown HTTP server
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		log.Error("Error shutting down HTTP server", "error", err)
+		log.Error("Error shutting down HTTP server", zap.Error(err))
 	}
 
 	// Shutdown gRPC server
@@ -129,7 +135,7 @@ func main() {
 }
 
 // registerAuthRoutes registers authentication routes
-func registerAuthRoutes(router *gin.Engine, log *logger.Logger) {
+func registerAuthRoutes(router *gin.Engine, log *zap.Logger) {
 	auth := router.Group("/api/v1/auth")
 	{
 		auth.POST("/login", func(c *gin.Context) {
@@ -149,7 +155,7 @@ func registerAuthRoutes(router *gin.Engine, log *logger.Logger) {
 }
 
 // registerContentRoutes registers content routes
-func registerContentRoutes(router *gin.Engine, log *logger.Logger) {
+func registerContentRoutes(router *gin.Engine, log *zap.Logger) {
 	content := router.Group("/api/v1/content")
 	{
 		content.GET("", func(c *gin.Context) {
@@ -172,7 +178,7 @@ func registerContentRoutes(router *gin.Engine, log *logger.Logger) {
 }
 
 // registerNFTRoutes registers NFT routes
-func registerNFTRoutes(router *gin.Engine, log *logger.Logger) {
+func registerNFTRoutes(router *gin.Engine, log *zap.Logger) {
 	nft := router.Group("/api/v1/nft")
 	{
 		nft.GET("", func(c *gin.Context) {
@@ -189,7 +195,7 @@ func registerNFTRoutes(router *gin.Engine, log *logger.Logger) {
 }
 
 // registerStreamingRoutes registers streaming routes
-func registerStreamingRoutes(router *gin.Engine, log *logger.Logger) {
+func registerStreamingRoutes(router *gin.Engine, log *zap.Logger) {
 	streaming := router.Group("/api/v1/streaming")
 	{
 		streaming.GET("/:id/manifest.m3u8", func(c *gin.Context) {
@@ -205,7 +211,7 @@ func registerStreamingRoutes(router *gin.Engine, log *logger.Logger) {
 }
 
 // registerUploadRoutes registers upload routes
-func registerUploadRoutes(router *gin.Engine, log *logger.Logger) {
+func registerUploadRoutes(router *gin.Engine, log *zap.Logger) {
 	upload := router.Group("/api/v1/upload")
 	{
 		upload.POST("", func(c *gin.Context) {

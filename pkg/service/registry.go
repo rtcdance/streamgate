@@ -79,7 +79,9 @@ func NewConsulRegistry(cfg *config.Config, logger *zap.Logger) (*ConsulRegistry,
 
 // Register registers a service with Consul
 func (r *ConsulRegistry) Register(ctx context.Context, service *ServiceInfo) error {
-	r.logger.Info("Registering service", "service_id", service.ID, "service_name", service.Name)
+	r.logger.Info("Registering service",
+		zap.String("service_id", service.ID),
+		zap.String("service_name", service.Name))
 
 	// Build Consul service registration
 	registration := &api.AgentServiceRegistration{
@@ -102,11 +104,15 @@ func (r *ConsulRegistry) Register(ctx context.Context, service *ServiceInfo) err
 
 	// Register with Consul
 	if err := r.client.Agent().ServiceRegister(registration); err != nil {
-		r.logger.Error("Failed to register service", "service_id", service.ID, "error", err)
+		r.logger.Error("Failed to register service",
+			zap.String("service_id", service.ID),
+			zap.Error(err))
 		return fmt.Errorf("failed to register service: %w", err)
 	}
 
-	r.logger.Info("Service registered successfully", "service_id", service.ID, "service_name", service.Name)
+	r.logger.Info("Service registered successfully",
+		zap.String("service_id", service.ID),
+		zap.String("service_name", service.Name))
 	return nil
 }
 
@@ -115,7 +121,9 @@ func (r *ConsulRegistry) Deregister(ctx context.Context, serviceID string) error
 	r.logger.Info("Deregistering service", zap.String("service_id", serviceID))
 
 	if err := r.client.Agent().ServiceDeregister(serviceID); err != nil {
-		r.logger.Error("Failed to deregister service", "service_id", serviceID, "error", err)
+		r.logger.Error("Failed to deregister service",
+			zap.String("service_id", serviceID),
+			zap.Error(err))
 		return fmt.Errorf("failed to deregister service: %w", err)
 	}
 
@@ -130,7 +138,9 @@ func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]*S
 	// Query Consul for services
 	entries, _, err := r.client.Health().Service(serviceName, "", true, nil)
 	if err != nil {
-		r.logger.Error("Failed to discover services", "service_name", serviceName, "error", err)
+		r.logger.Error("Failed to discover services",
+			zap.String("service_name", serviceName),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to discover services: %w", err)
 	}
 
@@ -148,7 +158,9 @@ func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]*S
 		services = append(services, service)
 	}
 
-	r.logger.Info("Services discovered", "service_name", serviceName, "count", len(services))
+	r.logger.Info("Services discovered",
+		zap.String("service_name", serviceName),
+		zap.Int("count", len(services)))
 	return services, nil
 }
 
@@ -178,7 +190,9 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 			})
 
 			if err != nil {
-				r.logger.Error("Error watching services", "service_name", serviceName, "error", err)
+				r.logger.Error("Error watching services",
+					zap.String("service_name", serviceName),
+					zap.Error(err))
 				continue
 			}
 
