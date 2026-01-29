@@ -66,10 +66,10 @@ func TestResourceOptimizationMemoryStatsAPI(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"alloc_mb":       50.0,
-			"heap_alloc_mb":  25.0,
-			"heap_objects":   1000,
-			"live_objects":   500,
+			"alloc_mb":      50.0,
+			"heap_alloc_mb": 25.0,
+			"heap_objects":  1000,
+			"live_objects":  500,
 		})
 	})
 

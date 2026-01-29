@@ -57,10 +57,10 @@ func TestE2E_TranscodingFlow(t *testing.T) {
 
 	for _, format := range formats {
 		task := &models.Task{
-			Type:        "transcoding",
-			ContentID:   content.ID,
-			Status:      "pending",
-			InputFormat: "mp4",
+			Type:         "transcoding",
+			ContentID:    content.ID,
+			Status:       "pending",
+			InputFormat:  "mp4",
 			OutputFormat: format,
 		}
 
@@ -109,10 +109,10 @@ func TestE2E_TranscodingWithRetry(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -162,10 +162,10 @@ func TestE2E_TranscodingCancellation(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 

@@ -301,7 +301,8 @@ func (ro *ResourceOptimizer) GetOptimizationRecommendations() []string {
 		firstMetric := ro.memoryTrends[0]
 		lastMetric := ro.memoryTrends[len(ro.memoryTrends)-1]
 
-		if lastMetric.HeapAlloc > uint64(float64(firstMetric.HeapAlloc)*1.5) {
+		threshold := uint64(float64(firstMetric.HeapAlloc) * 1.5)
+		if lastMetric.HeapAlloc > threshold {
 			recommendations = append(recommendations, "Potential memory leak detected - heap allocation increased significantly")
 		}
 	}

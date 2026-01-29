@@ -91,10 +91,10 @@ func TestE2E_TransactionModelValidation(t *testing.T) {
 func TestE2E_TaskModelValidation(t *testing.T) {
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 

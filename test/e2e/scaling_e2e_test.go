@@ -300,9 +300,9 @@ func TestScalingE2E_CDNContentDistribution(t *testing.T) {
 		url  string
 		size int64
 	}{
-		{"movie-1", "https://example.com/movies/movie1.mp4", 500*1024*1024},
-		{"movie-2", "https://example.com/movies/movie2.mp4", 400*1024*1024},
-		{"series-1", "https://example.com/series/series1.mp4", 300*1024*1024},
+		{"movie-1", "https://example.com/movies/movie1.mp4", 500 * 1024 * 1024},
+		{"movie-2", "https://example.com/movies/movie2.mp4", 400 * 1024 * 1024},
+		{"series-1", "https://example.com/series/series1.mp4", 300 * 1024 * 1024},
 	}
 
 	// Cache content
@@ -425,10 +425,10 @@ func TestScalingE2E_GlobalScalingMetrics(t *testing.T) {
 		mrm.RegisterRegion(region)
 
 		backend := &scaling.Backend{
-			ID:     "backend-" + string(rune(i)),
+			ID:      "backend-" + string(rune(i)),
 			Address: "10.0." + string(rune(i)) + ".1",
-			Port:   8080,
-			Region: "region-" + string(rune(i)),
+			Port:    8080,
+			Region:  "region-" + string(rune(i)),
 		}
 		glb.RegisterBackend(backend)
 	}

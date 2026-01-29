@@ -14,8 +14,8 @@ func TestDashboardMetricsAPI(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"memory_usage_mb": map[string]interface{}{
-				"value": 250.0,
-				"unit":  "MB",
+				"value":  250.0,
+				"unit":   "MB",
 				"status": "healthy",
 			},
 		})
@@ -129,11 +129,11 @@ func TestDashboardStatusAPI(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"total_metrics":     5,
-			"critical_metrics":  0,
-			"warning_metrics":   0,
-			"healthy_metrics":   5,
-			"overall_status":    "healthy",
+			"total_metrics":    5,
+			"critical_metrics": 0,
+			"warning_metrics":  0,
+			"healthy_metrics":  5,
+			"overall_status":   "healthy",
 		})
 	})
 
