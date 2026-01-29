@@ -17,7 +17,13 @@ func TestContentService_CreateAndRetrieve(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Create content
 	content := &models.Content{
@@ -47,7 +53,13 @@ func TestContentService_UpdateContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Create content
 	content := &models.Content{
@@ -83,7 +95,13 @@ func TestContentService_DeleteContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Create content
 	content := &models.Content{
@@ -114,7 +132,13 @@ func TestContentService_ListContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Create multiple contents
 	for i := 0; i < 5; i++ {
@@ -143,7 +167,13 @@ func TestContentService_SearchContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Create content
 	content := &models.Content{

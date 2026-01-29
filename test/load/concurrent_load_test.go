@@ -19,7 +19,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService(db)
+	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create a user
 	user := &models.User{

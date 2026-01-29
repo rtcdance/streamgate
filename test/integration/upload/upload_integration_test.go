@@ -1,11 +1,8 @@
 package upload_test
 
 import (
-	"bytes"
-	"context"
 	"testing"
 
-	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -24,17 +21,23 @@ func TestUploadService_SingleFileUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestStorage(t, storage)
 
-	uploadService := service.NewUploadService(db, storage)
+	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
 
 	// Create test file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
 	// Upload file
-	upload, err := uploadService.Upload(context.Background(), filename, bytes.NewReader(fileContent))
+	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
+	helpers.AssertNoError(t, err)
+	helpers.AssertNotEmpty(t, uploadID)
+
+	// Get upload status
+	upload, err := uploadService.GetUploadStatus(uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, upload)
 	helpers.AssertEqual(t, filename, upload.Filename)
+	helpers.AssertEqual(t, "completed", upload.Status)
 }
 
 func TestUploadService_ChunkedUpload(t *testing.T) {
@@ -51,7 +54,7 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestStorage(t, storage)
 
-	uploadService := service.NewUploadService(db, storage)
+	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
 
 	// Create large test file
 	fileContent := make([]byte, 10*1024*1024) // 10MB
@@ -60,14 +63,16 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 	}
 
 	filename := "large_file.bin"
+	totalSize := int64(len(fileContent))
+	chunkSize := 1024 * 1024 // 1MB chunks
+	totalChunks := len(fileContent) / chunkSize
 
 	// Start chunked upload
-	uploadID, err := uploadService.StartChunkedUpload(context.Background(), filename)
+	uploadID, err := uploadService.InitiateChunkedUpload(filename, totalSize, totalChunks, "user-123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, uploadID)
 
 	// Upload chunks
-	chunkSize := 1024 * 1024 // 1MB chunks
 	for i := 0; i < len(fileContent); i += chunkSize {
 		end := i + chunkSize
 		if end > len(fileContent) {
@@ -75,14 +80,19 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 		}
 
 		chunk := fileContent[i:end]
-		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, bytes.NewReader(chunk))
+		err := uploadService.UploadChunk(uploadID, i/chunkSize, chunk)
 		helpers.AssertNoError(t, err)
 	}
 
 	// Complete upload
-	upload, err := uploadService.CompleteChunkedUpload(context.Background(), uploadID)
+	err = uploadService.CompleteChunkedUpload(uploadID, totalChunks)
+	helpers.AssertNoError(t, err)
+
+	// Verify upload
+	upload, err := uploadService.GetUploadStatus(uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, upload)
+	helpers.AssertEqual(t, "completed", upload.Status)
 }
 
 func TestUploadService_GetUploadStatus(t *testing.T) {
@@ -99,17 +109,17 @@ func TestUploadService_GetUploadStatus(t *testing.T) {
 	}
 	defer helpers.CleanupTestStorage(t, storage)
 
-	uploadService := service.NewUploadService(db, storage)
+	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
 
 	// Upload file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
-	upload, err := uploadService.Upload(context.Background(), filename, bytes.NewReader(fileContent))
+	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
 	helpers.AssertNoError(t, err)
 
 	// Get upload status
-	status, err := uploadService.GetUploadStatus(context.Background(), upload.ID)
+	status, err := uploadService.GetUploadStatus(uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, status)
 	helpers.AssertEqual(t, "completed", status.Status)
@@ -129,25 +139,25 @@ func TestUploadService_DeleteUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestStorage(t, storage)
 
-	uploadService := service.NewUploadService(db, storage)
+	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
 
 	// Upload file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
-	upload, err := uploadService.Upload(context.Background(), filename, bytes.NewReader(fileContent))
+	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
 	helpers.AssertNoError(t, err)
 
 	// Delete upload
-	err = uploadService.DeleteUpload(context.Background(), upload.ID)
+	err = uploadService.DeleteUpload(uploadID)
 	helpers.AssertNoError(t, err)
 
 	// Verify deletion
-	_, err = uploadService.GetUploadStatus(context.Background(), upload.ID)
+	_, err = uploadService.GetUploadStatus(uploadID)
 	helpers.AssertError(t, err)
 }
 
-func TestUploadService_ResumableUpload(t *testing.T) {
+func TestUploadService_ListUploads(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -161,20 +171,18 @@ func TestUploadService_ResumableUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestStorage(t, storage)
 
-	uploadService := service.NewUploadService(db, storage)
+	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
 
-	// Start resumable upload
-	filename := "resumable_file.bin"
-	uploadID, err := uploadService.StartChunkedUpload(context.Background(), filename)
-	helpers.AssertNoError(t, err)
+	// Upload multiple files
+	for i := 0; i < 3; i++ {
+		fileContent := []byte("test file content")
+		filename := "test.txt"
+		_, err := uploadService.Upload(filename, fileContent, "user-123")
+		helpers.AssertNoError(t, err)
+	}
 
-	// Upload first chunk
-	chunk1 := []byte("chunk1 content")
-	err = uploadService.UploadChunk(context.Background(), uploadID, 0, bytes.NewReader(chunk1))
+	// List uploads
+	uploads, err := uploadService.ListUploads("user-123", 10, 0)
 	helpers.AssertNoError(t, err)
-
-	// Get upload progress
-	progress, err := uploadService.GetUploadProgress(context.Background(), uploadID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, progress > 0)
+	helpers.AssertTrue(t, len(uploads) >= 3)
 }

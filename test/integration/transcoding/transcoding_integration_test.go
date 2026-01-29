@@ -1,40 +1,45 @@
 package transcoding_test
 
 import (
-	"bytes"
-	"context"
 	"testing"
 
-	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
 
-func TestTranscodingService_CreateTask(t *testing.T) {
-	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	transcodingService := service.NewTranscodingService(db)
-
-	// Create transcoding task
-	task := &models.Task{
-		Type:         "transcoding",
-		ContentID:    "content-123",
-		Status:       "pending",
-		InputFormat:  "mp4",
-		OutputFormat: "hls",
-	}
-
-	err := transcodingService.CreateTask(context.Background(), task)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, task.ID)
+// MockQueue implements service.TranscodingQueue for testing
+type MockQueue struct {
+	tasks map[string]*service.TranscodingTask
 }
 
-func TestTranscodingService_GetTaskStatus(t *testing.T) {
+func NewMockQueue() *MockQueue {
+	return &MockQueue{
+		tasks: make(map[string]*service.TranscodingTask),
+	}
+}
+
+func (m *MockQueue) Enqueue(task *service.TranscodingTask) error {
+	m.tasks[task.ID] = task
+	return nil
+}
+
+func (m *MockQueue) Dequeue() (*service.TranscodingTask, error) {
+	for _, task := range m.tasks {
+		if task.Status == "pending" {
+			return task, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockQueue) GetStatus(taskID string) (string, error) {
+	if task, exists := m.tasks[taskID]; exists {
+		return task.Status, nil
+	}
+	return "", nil
+}
+
+func TestTranscodingService_Transcode(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -42,24 +47,35 @@ func TestTranscodingService_GetTaskStatus(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
-	// Create task
-	task := &models.Task{
-		Type:         "transcoding",
-		ContentID:    "content-123",
-		Status:       "pending",
-		InputFormat:  "mp4",
-		OutputFormat: "hls",
+	// Create transcoding task
+	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
+	helpers.AssertNoError(t, err)
+	helpers.AssertNotEmpty(t, taskID)
+}
+
+func TestTranscodingService_GetTranscodingStatus(t *testing.T) {
+	// Setup
+	db := helpers.SetupTestDB(t)
+	if db == nil {
+		return
 	}
+	defer helpers.CleanupTestDB(t, db)
 
-	err := transcodingService.CreateTask(context.Background(), task)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
+
+	// Create transcoding task
+	taskID, err := transcodingService.Transcode("content-123", "720p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Get task status
-	status, err := transcodingService.GetTaskStatus(context.Background(), task.ID)
+	task, err := transcodingService.GetTranscodingStatus(taskID)
 	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, status)
+	helpers.AssertNotNil(t, task)
+	helpers.AssertEqual(t, "pending", task.Status)
 }
 
 func TestTranscodingService_UpdateTaskStatus(t *testing.T) {
@@ -70,28 +86,22 @@ func TestTranscodingService_UpdateTaskStatus(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
-	// Create task
-	task := &models.Task{
-		Type:         "transcoding",
-		ContentID:    "content-123",
-		Status:       "pending",
-		InputFormat:  "mp4",
-		OutputFormat: "hls",
-	}
-
-	err := transcodingService.CreateTask(context.Background(), task)
+	// Create transcoding task
+	taskID, err := transcodingService.Transcode("content-123", "480p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Update task status
-	err = transcodingService.UpdateTaskStatus(context.Background(), task.ID, "processing")
+	err = transcodingService.UpdateTaskStatus(taskID, "processing", 50)
 	helpers.AssertNoError(t, err)
 
 	// Verify update
-	status, err := transcodingService.GetTaskStatus(context.Background(), task.ID)
+	task, err := transcodingService.GetTranscodingStatus(taskID)
 	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "processing", status.Status)
+	helpers.AssertEqual(t, "processing", task.Status)
+	helpers.AssertEqual(t, 50, task.Progress)
 }
 
 func TestTranscodingService_ListTasks(t *testing.T) {
@@ -102,23 +112,17 @@ func TestTranscodingService_ListTasks(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create multiple tasks
 	for i := 0; i < 3; i++ {
-		task := &models.Task{
-			Type:         "transcoding",
-			ContentID:    "content-" + string(rune(i)),
-			Status:       "pending",
-			InputFormat:  "mp4",
-			OutputFormat: "hls",
-		}
-		err := transcodingService.CreateTask(context.Background(), task)
+		_, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
 		helpers.AssertNoError(t, err)
 	}
 
 	// List tasks
-	tasks, err := transcodingService.ListTasks(context.Background(), 0, 10)
+	tasks, err := transcodingService.ListTasks("content-123", 10, 0)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(tasks) >= 3)
 }
@@ -131,31 +135,24 @@ func TestTranscodingService_CancelTask(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
-	// Create task
-	task := &models.Task{
-		Type:         "transcoding",
-		ContentID:    "content-123",
-		Status:       "pending",
-		InputFormat:  "mp4",
-		OutputFormat: "hls",
-	}
-
-	err := transcodingService.CreateTask(context.Background(), task)
+	// Create transcoding task
+	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Cancel task
-	err = transcodingService.CancelTask(context.Background(), task.ID)
+	err = transcodingService.CancelTask(taskID)
 	helpers.AssertNoError(t, err)
 
 	// Verify cancellation
-	status, err := transcodingService.GetTaskStatus(context.Background(), task.ID)
+	task, err := transcodingService.GetTranscodingStatus(taskID)
 	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "cancelled", status.Status)
+	helpers.AssertEqual(t, "cancelled", task.Status)
 }
 
-func TestTranscodingService_RetryTask(t *testing.T) {
+func TestTranscodingService_DeleteTask(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -163,31 +160,23 @@ func TestTranscodingService_RetryTask(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
-	// Create task
-	task := &models.Task{
-		Type:         "transcoding",
-		ContentID:    "content-123",
-		Status:       "failed",
-		InputFormat:  "mp4",
-		OutputFormat: "hls",
-	}
-
-	err := transcodingService.CreateTask(context.Background(), task)
+	// Create transcoding task
+	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
-	// Retry task
-	err = transcodingService.RetryTask(context.Background(), task.ID)
+	// Delete task
+	err = transcodingService.DeleteTask(taskID)
 	helpers.AssertNoError(t, err)
 
-	// Verify retry
-	status, err := transcodingService.GetTaskStatus(context.Background(), task.ID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "pending", status.Status)
+	// Verify deletion
+	_, err = transcodingService.GetTranscodingStatus(taskID)
+	helpers.AssertError(t, err)
 }
 
-func TestTranscodingService_MultipleFormats(t *testing.T) {
+func TestTranscodingService_Profiles(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -195,22 +184,16 @@ func TestTranscodingService_MultipleFormats(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	transcodingService := service.NewTranscodingService(db)
+	queue := NewMockQueue()
+	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
-	// Test multiple output formats
-	formats := []string{"hls", "dash", "mp4", "webm"}
+	// Get profile
+	profile, err := transcodingService.GetProfile("1080p")
+	helpers.AssertNoError(t, err)
+	helpers.AssertNotNil(t, profile)
+	helpers.AssertEqual(t, "1080p", profile.Name)
 
-	for _, format := range formats {
-		task := &models.Task{
-			Type:         "transcoding",
-			ContentID:    "content-123",
-			Status:       "pending",
-			InputFormat:  "mp4",
-			OutputFormat: format,
-		}
-
-		err := transcodingService.CreateTask(context.Background(), task)
-		helpers.AssertNoError(t, err)
-		helpers.AssertNotNil(t, task.ID)
-	}
+	// List all profiles
+	profiles := transcodingService.ListProfiles()
+	helpers.AssertTrue(t, len(profiles) > 0)
 }

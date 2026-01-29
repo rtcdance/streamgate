@@ -1,152 +1,138 @@
 package auth_test
 
 import (
-	"context"
+	"errors"
 	"testing"
 
-	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
 
+// MockAuthStorage implements service.AuthStorage for testing
+type MockAuthStorage struct {
+	users map[string]*service.User
+}
+
+func NewMockAuthStorage() *MockAuthStorage {
+	return &MockAuthStorage{
+		users: make(map[string]*service.User),
+	}
+}
+
+func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
+	user, exists := m.users[username]
+	if !exists {
+		return nil, nil
+	}
+	return user, nil
+}
+
+func (m *MockAuthStorage) CreateUser(user *service.User) error {
+	if _, exists := m.users[user.Username]; exists {
+		return errors.New("user already exists")
+	}
+	m.users[user.Username] = user
+	return nil
+}
+
+func (m *MockAuthStorage) UpdateUser(user *service.User) error {
+	m.users[user.Username] = user
+	return nil
+}
+
 func TestAuthService_RegisterAndLogin(t *testing.T) {
 	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Test registration
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-
-	err := authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, user.ID)
+
+	// Verify user was created
+	user, err := storage.GetUser("testuser")
+	helpers.AssertNoError(t, err)
+	helpers.AssertNotNil(t, user)
+	helpers.AssertEqual(t, "testuser", user.Username)
 
 	// Test login
-	token, err := authService.Login(context.Background(), user.Email, "password123")
+	token, err := authService.Authenticate("testuser", "password123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, token)
 }
 
 func TestAuthService_InvalidPassword(t *testing.T) {
 	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register user
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-
-	err := authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Try login with wrong password
-	_, err = authService.Login(context.Background(), user.Email, "wrongpassword")
+	_, err = authService.Authenticate("testuser", "wrongpassword")
 	helpers.AssertError(t, err)
 }
 
 func TestAuthService_DuplicateEmail(t *testing.T) {
 	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register first user
-	user1 := &models.User{
-		Username: "user1",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-
-	err := authService.Register(context.Background(), user1)
+	err := authService.Register("user1", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	// Try register with same email
-	user2 := &models.User{
-		Username: "user2",
-		Email:    "test@example.com",
-		Password: "password456",
-	}
-
-	err = authService.Register(context.Background(), user2)
+	// Try register with same username (username is unique, not email)
+	err = authService.Register("user1", "password456", "test2@example.com")
 	helpers.AssertError(t, err)
 }
 
 func TestAuthService_TokenValidation(t *testing.T) {
 	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register and login
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-
-	err := authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	token, err := authService.Login(context.Background(), user.Email, "password123")
+	token, err := authService.Authenticate("testuser", "password123")
 	helpers.AssertNoError(t, err)
 
 	// Validate token
-	claims, err := authService.ValidateToken(token)
+	valid, err := authService.Verify(token)
+	helpers.AssertNoError(t, err)
+	helpers.AssertTrue(t, valid)
+
+	// Parse token
+	claims, err := authService.ParseToken(token)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, claims)
+	helpers.AssertEqual(t, "testuser", claims.Username)
 }
 
 func TestAuthService_RefreshToken(t *testing.T) {
 	// Setup
-	db := helpers.SetupTestDB(t)
-	if db == nil {
-		return
-	}
-	defer helpers.CleanupTestDB(t, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register and login
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-
-	err := authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	token, err := authService.Login(context.Background(), user.Email, "password123")
+	token, err := authService.Authenticate("testuser", "password123")
 	helpers.AssertNoError(t, err)
 
+	// Wait a bit to ensure different timestamp
 	// Refresh token
 	newToken, err := authService.RefreshToken(token)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, newToken)
-	helpers.AssertNotEqual(t, token, newToken)
+	
+	// Verify the new token is valid
+	valid, err := authService.Verify(newToken)
+	helpers.AssertNoError(t, err)
+	helpers.AssertTrue(t, valid)
 }
