@@ -80,21 +80,85 @@ jobs:
     needs: [deploy-docker, deploy-kubernetes]
     if: always()
     steps:
-      - name: Send Slack notification
-        uses: slackapi/slack-github-action@v1.24.0
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Send email notification
+        uses: dawidd6/action-send-mail@v3
+        if: vars.EMAIL_USERNAME != ''
         with:
-          payload: |
-            {
-              "text": "StreamGate Deployment Status",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Deployment Status*\nVersion: ${{ github.ref_name }}\nStatus: ${{ job.status }}"
-                  }
-                }
-              ]
-            }
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "StreamGate Deployment - ${{ github.ref_name }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: StreamGate CI/CD
+          body: |
+            Deployment Status Report
+            
+            Repository: ${{ github.repository }}
+            Version: ${{ github.ref_name }}
+            Status: ${{ job.status }}
+            Docker Deployment: ${{ needs.deploy-docker.result }}
+            Kubernetes Deployment: ${{ needs.deploy-kubernetes.result }}
+            
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            
+            View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: Send Discord notification
+        uses: sarisia/actions-status-discord@v1
+        if: vars.DISCORD_WEBHOOK != ''
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          status: ${{ job.status }}
+          title: "Deployment: ${{ github.ref_name }}"
+          description: |
+            Repository: ${{ github.repository }}
+            Status: ${{ job.status }}
+            Docker: ${{ needs.deploy-docker.result }}
+            Kubernetes: ${{ needs.deploy-kubernetes.result }}
+            Author: ${{ github.actor }}
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+      
+      - name: Send Telegram notification
+        uses: appleboy/telegram-action@master
+        if: vars.TELEGRAM_TOKEN != ''
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            🚀 StreamGate Deployment
+            
+            Version: ${{ github.ref_name }}
+            Status: ${{ job.status }}
+            Docker: ${{ needs.deploy-docker.result }}
+            Kubernetes: ${{ needs.deploy-kubernetes.result }}
+            
+            Author: ${{ github.actor }}
+            Commit: ${{ github.sha }}
+      
+      - name: Create GitHub issue on failure
+        uses: actions/github-script@v7
+        if: failure()
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deployment Failed: ${context.ref}`,
+              body: `## Deployment Failure Report
+              
+              **Version:** ${context.refName}
+              **Status:** ${context.job.status}
+              **Docker Deployment:** ${context.payload.inputs['deploy-docker'].result}
+              **Kubernetes Deployment:** ${context.payload.inputs['deploy-kubernetes'].result}
+              
+              **Commit:** ${context.sha}
+              **Author:** ${context.actor}
+              
+              **Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+              
+              Please investigate the deployment logs and fix the issue.`,
+              labels: ['deployment', 'bug']
+            })
