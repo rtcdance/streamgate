@@ -1,7 +1,7 @@
 # GitHub CI Pipeline Fix Progress Report
 
 **Date**: 2026-01-29  
-**Status**: IN PROGRESS (~60% Complete)
+**Status**: IN PROGRESS (~75% Complete)
 
 ## Summary
 
@@ -21,36 +21,34 @@ We are systematically fixing zap logger errors throughout the codebase to pass G
 - ✅ `pkg/core/event/nats.go` - Fixed 6 logger calls
 - ✅ `pkg/monitoring/alerts.go` - Fixed 2 logger calls
 - ✅ `pkg/monitoring/grafana.go` - Fixed 3 logger calls
-- ✅ `pkg/web3/chain.go` - Fixed 10+ logger calls + API compatibility
 
-### Phase 3: Web3 Package Fixes ✅ (Partial)
+### Phase 3: Web3 Package Fixes ✅ (75% Complete)
 **Completed:**
-- ✅ `pkg/web3/nft.go` - Added `bytes` import, fixed `abi.JSON()` calls
-- ✅ `pkg/web3/contract.go` - Added `bytes` import, fixed `abi.JSON()` calls
-- ✅ `pkg/web3/chain.go` - Fixed all logger calls, fixed `tx.From()` API change
+- ✅ `pkg/web3/chain.go` - Fixed 10+ logger calls + API compatibility
+- ✅ `pkg/web3/contract.go` - Fixed all logger calls + ethereum.CallMsg
+- ✅ `pkg/web3/event_indexer.go` - Fixed all logger calls
+- ✅ `pkg/web3/gas.go` - Fixed all logger calls
+- ✅ `pkg/web3/ipfs.go` - Fixed all logger calls + IPFS API updates
+- ✅ `pkg/web3/multichain.go` - Fixed all logger calls
 
 **In Progress:**
-- 🔄 `pkg/web3/contract.go` - ~10 logger errors remaining
-- 🔄 `pkg/web3/nft.go` - Logger errors remaining
-- 🔄 `pkg/web3/ipfs.go` - Logger errors
+- 🔄 `pkg/web3/nft.go` - ~10 logger errors remaining
 - 🔄 `pkg/web3/signature.go` - Logger errors
-- 🔄 `pkg/web3/multichain.go` - Logger errors
 - 🔄 `pkg/web3/smart_contracts.go` - Logger errors
-- 🔄 `pkg/web3/event_indexer.go` - Logger errors
-- 🔄 `pkg/web3/gas.go` - Logger errors
 - 🔄 `pkg/web3/wallet.go` - Logger errors
 
 ### Phase 4: Dependency Upgrades ✅
 - ✅ Upgraded `github.com/crate-crypto/go-kzg-4844` from v0.7.0 to v1.1.0
 - ✅ Upgraded `github.com/ethereum/go-ethereum` from v1.13.15 to v1.16.8
 - ✅ Fixed API compatibility issues with new ethereum version
+- ✅ Fixed `tx.From()` API change (now uses `types.Sender()`)
+- ✅ Fixed IPFS `FileStat` API (replaced with `ObjectStat`)
 
 ## Remaining Work
 
 ### High Priority
-1. **pkg/web3/*.go files** (~50-100 logger errors)
-   - Pattern: `logger.Method("msg", "key1", val1, "key2", val2)`
-   - Fix: `logger.Method("msg", zap.Type("key1", val1), zap.Type("key2", val2))`
+1. **pkg/web3/*.go files** (~30-50 logger errors)
+   - nft.go, signature.go, smart_contracts.go, wallet.go
 
 2. **pkg/service/*.go files** (~20-30 logger errors)
    - Similar logger call patterns
@@ -62,16 +60,8 @@ We are systematically fixing zap logger errors throughout the codebase to pass G
 
 ### Medium Priority
 4. **pkg/optimization/caching.go** - Struct field issues
-   - Unknown fields: `ID`, `TTL`, `Level`, `HitCount`
-   - Need to check struct definition
-
 5. **pkg/plugins/streaming/cache.go** - Duplicate declarations
-   - `StreamCache` redeclared
-   - Method conflicts
-
 6. **pkg/plugins/transcoder/queue.go** - Struct issues
-   - `TaskQueue` field issues
-   - Method signature mismatches
 
 ### Low Priority
 7. **undefined: security.RateLimiter** - Missing implementations
@@ -116,10 +106,13 @@ logger.Debug("msg",
 3. **bff8b07** - Fixed ~50 logger errors in plugins and monitoring
 4. **f25fec9** - Fixed middleware, core/event, monitoring, web3 packages
 5. **9cadfa6** - Fixed pkg/web3/chain.go logger errors and API compatibility
+6. **bd5df7d** - Fixed pkg/web3/contract.go and event_indexer.go
+7. **84ff2aa** - Fixed pkg/web3/gas.go and ipfs.go
+8. **a1e4b2f** - Fixed pkg/web3/multichain.go
 
 ## Next Steps
 
-1. Continue fixing logger errors in remaining web3 files
+1. Continue fixing logger errors in remaining web3 files (nft, signature, smart_contracts, wallet)
 2. Fix service package logger errors
 3. Fix cmd files logger errors
 4. Fix struct field issues in optimization and plugins
@@ -128,9 +121,9 @@ logger.Debug("msg",
 
 ## Estimated Completion
 
-- **Current Progress**: ~60%
-- **Remaining Errors**: ~150-200
-- **Estimated Time**: 2-3 hours
+- **Current Progress**: ~75%
+- **Remaining Errors**: ~80-120
+- **Estimated Time**: 1-2 hours
 
 ## Notes
 
