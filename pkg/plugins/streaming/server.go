@@ -91,32 +91,3 @@ func (s *StreamingServer) Health(ctx context.Context) error {
 
 	return nil
 }
-
-// StreamCache caches streaming manifests and segments
-type StreamCache struct {
-	logger *zap.Logger
-	// TODO: Add cache implementation (Redis, in-memory, etc.)
-}
-
-// NewStreamCache creates a new stream cache
-func NewStreamCache(logger *zap.Logger) *StreamCache {
-	return &StreamCache{
-		logger: logger,
-	}
-}
-
-// Get retrieves a cached item
-func (c *StreamCache) Get(key string) (interface{}, bool) {
-	// TODO: Implement cache retrieval
-	return nil, false
-}
-
-// Set stores an item in cache
-func (c *StreamCache) Set(key string, value interface{}, ttl time.Duration) {
-	// TODO: Implement cache storage
-}
-
-// Close closes the cache
-func (c *StreamCache) Close() {
-	// TODO: Close cache connections
-}

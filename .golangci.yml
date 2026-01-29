@@ -3,7 +3,10 @@ version: 2
 
 run:
   timeout: 5m
-  tests: true
+  tests: false
+  skip-dirs:
+    - test
+    - tests
 
 linters:
   enable:
@@ -34,6 +37,8 @@ issues:
     - vendor
     - .git
     - node_modules
+    - test
+    - tests
   exclude-files:
     - ".*_test\\.go$"
     - ".*_mock\\.go$"

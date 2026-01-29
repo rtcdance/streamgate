@@ -178,8 +178,7 @@ func (c *MetricsCollector) GetMetrics() *SystemMetrics {
 func (c *MetricsCollector) GetHealth() *HealthStatus {
 	// TODO: Implement health check
 	return &HealthStatus{
-		Status:    "healthy",
-		Timestamp: time.Now().Unix(),
+		Status: "healthy",
 	}
 }
 
@@ -191,20 +190,4 @@ type SystemMetrics struct {
 	RequestCount int64   `json:"request_count"`
 	ErrorCount   int64   `json:"error_count"`
 	AvgLatency   float64 `json:"avg_latency"`
-}
-
-// HealthStatus represents system health status
-type HealthStatus struct {
-	Status    string            `json:"status"` // healthy, degraded, unhealthy
-	Timestamp int64             `json:"timestamp"`
-	Services  map[string]string `json:"services,omitempty"`
-}
-
-// Alert represents a system alert
-type Alert struct {
-	ID        string `json:"id"`
-	Level     string `json:"level"` // info, warning, critical
-	Message   string `json:"message"`
-	Timestamp int64  `json:"timestamp"`
-	Resolved  bool   `json:"resolved"`
 }
