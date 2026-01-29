@@ -3,9 +3,6 @@ version: 2
 run:
   timeout: 5m
   tests: false
-  skip-dirs:
-    - test
-    - tests
 
 linters:
   disable-all: true
