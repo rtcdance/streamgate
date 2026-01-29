@@ -3,13 +3,11 @@ package cache
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/security"
 )
 
 // CacheHandler handles cache requests
@@ -18,8 +16,6 @@ type CacheHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
 }
 
 // NewCacheHandler creates a new cache handler
@@ -29,8 +25,6 @@ func NewCacheHandler(store *CacheStore, logger *zap.Logger, kernel *core.Microke
 		logger:           logger,
 		kernel:           kernel,
 		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 
@@ -59,8 +53,6 @@ func (h *CacheHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetHandler handles cache get requests
 func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("cache_get_invalid_method", map[string]string{})
@@ -70,12 +62,6 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cache_get_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 	key := r.URL.Query().Get("key")
@@ -98,7 +84,6 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cache_get_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cache_get_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -110,8 +95,6 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 
 // SetHandler handles cache set requests
 func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cache_set_invalid_method", map[string]string{})
@@ -121,12 +104,6 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cache_set_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
@@ -148,7 +125,6 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.Set(ctx, req.Key, req.Value, ttl); err != nil {
 		h.logger.Error("Failed to set cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_set_failed", map[string]string{})
-		h.auditLogger.LogEvent("cache", clientIP, "set", req.Key, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to set value"})
 		return
@@ -156,8 +132,6 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cache_set_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cache_set_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("cache", clientIP, "set", req.Key, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -166,8 +140,6 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteHandler handles cache delete requests
 func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodDelete {
 		h.metricsCollector.IncrementCounter("cache_delete_invalid_method", map[string]string{})
@@ -177,12 +149,6 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cache_delete_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 	key := r.URL.Query().Get("key")
@@ -197,7 +163,6 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.Delete(ctx, key); err != nil {
 		h.logger.Error("Failed to delete cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_delete_failed", map[string]string{})
-		h.auditLogger.LogEvent("cache", clientIP, "delete", key, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete value"})
 		return
@@ -205,16 +170,12 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cache_delete_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cache_delete_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("cache", clientIP, "delete", key, "success", nil)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ClearHandler handles cache clear requests
 func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodDelete {
 		h.metricsCollector.IncrementCounter("cache_clear_invalid_method", map[string]string{})
@@ -224,19 +185,12 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cache_clear_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
 	if err := h.store.Clear(ctx); err != nil {
 		h.logger.Error("Failed to clear cache", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_clear_failed", map[string]string{})
-		h.auditLogger.LogEvent("cache", clientIP, "clear", "all", "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to clear cache"})
 		return
@@ -244,8 +198,6 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cache_clear_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cache_clear_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("cache", clientIP, "clear", "all", "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -254,8 +206,6 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 
 // StatsHandler handles cache stats requests
 func (h *CacheHandler) StatsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("cache_stats_invalid_method", map[string]string{})
@@ -265,19 +215,12 @@ func (h *CacheHandler) StatsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cache_stats_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 	stats := h.store.Stats(ctx)
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cache_stats_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cache_stats_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

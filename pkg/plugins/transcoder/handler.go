@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/security"
 )
 
 // TranscoderHandler handles transcoding requests
@@ -18,8 +17,6 @@ type TranscoderHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
 }
 
 // NewTranscoderHandler creates a new transcoder handler
@@ -29,8 +26,6 @@ func NewTranscoderHandler(plugin *TranscoderPlugin, logger *zap.Logger, kernel *
 		logger:           logger,
 		kernel:           kernel,
 		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(50, 5, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 
@@ -59,8 +54,6 @@ func (h *TranscoderHandler) ReadyHandler(w http.ResponseWriter, r *http.Request)
 
 // SubmitTaskHandler handles transcoding task submission
 func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("submit_task_invalid_method", map[string]string{})
@@ -70,13 +63,6 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("submit_task_rate_limit_exceeded", map[string]string{})
-		h.auditLogger.LogEvent("transcoder", clientIP, "submit_task", "unknown", "rate_limit_exceeded", nil)
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	var task TranscodeTask
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
@@ -96,18 +82,15 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 	if err := h.plugin.SubmitTask(&task); err != nil {
 		h.logger.Error("Failed to submit task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_task_failed", map[string]string{})
-		h.auditLogger.LogEvent("transcoder", clientIP, "submit_task", task.ID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit task"})
 		return
 	}
 
-	h.logger.Info("Transcoding task submitted", "task_id", task.ID, "file_id", task.FileID)
+	h.logger.Info("Transcoding task submitted", zap.String("task_id", task.ID), zap.String("file_id", task.FileID))
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("submit_task_success", map[string]string{})
-	h.metricsCollector.RecordTimer("submit_task_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("transcoder", clientIP, "submit_task", task.ID, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -116,8 +99,6 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 
 // GetTaskStatusHandler handles task status requests
 func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_task_status_invalid_method", map[string]string{})
@@ -127,12 +108,6 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_task_status_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	taskID := r.URL.Query().Get("task_id")
 	if taskID == "" {
@@ -153,7 +128,6 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_task_status_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_task_status_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -162,8 +136,6 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 
 // CancelTaskHandler handles task cancellation
 func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cancel_task_invalid_method", map[string]string{})
@@ -173,12 +145,6 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cancel_task_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	taskID := r.URL.Query().Get("task_id")
 	if taskID == "" {
@@ -191,18 +157,15 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 	if err := h.plugin.CancelTask(taskID); err != nil {
 		h.logger.Error("Failed to cancel task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cancel_task_failed", map[string]string{})
-		h.auditLogger.LogEvent("transcoder", clientIP, "cancel_task", taskID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to cancel task"})
 		return
 	}
 
-	h.logger.Info("Transcoding task cancelled", "task_id", taskID)
+	h.logger.Info("Transcoding task cancelled", zap.String("task_id", taskID))
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cancel_task_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cancel_task_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("transcoder", clientIP, "cancel_task", taskID, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -211,8 +174,6 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 
 // ListTasksHandler handles task listing
 func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("list_tasks_invalid_method", map[string]string{})
@@ -222,12 +183,6 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("list_tasks_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	h.logger.Info("Listing transcoding tasks")
 
@@ -237,7 +192,6 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 	// Record metrics
 	h.metricsCollector.IncrementCounter("list_tasks_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("list_tasks_count", float64(len(tasks)), map[string]string{})
-	h.metricsCollector.RecordTimer("list_tasks_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -246,8 +200,6 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 
 // GetMetricsHandler handles metrics requests
 func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_metrics_invalid_method", map[string]string{})
@@ -257,18 +209,11 @@ func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_metrics_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	metrics := h.plugin.GetMetrics()
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_metrics_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_metrics_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

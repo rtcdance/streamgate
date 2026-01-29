@@ -10,8 +10,6 @@ import (
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/optimization"
-	"streamgate/pkg/security"
 )
 
 // GatewayPlugin is the API Gateway plugin
@@ -23,9 +21,6 @@ type GatewayPlugin struct {
 	config           *config.Config
 	metricsCollector *monitoring.MetricsCollector
 	alertManager     *monitoring.AlertManager
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
-	cache            *optimization.LocalCache
 }
 
 // NewGatewayPlugin creates a new API Gateway plugin
@@ -57,11 +52,8 @@ func (p *GatewayPlugin) Init(ctx context.Context, kernel *core.Microkernel) erro
 	p.alertManager = monitoring.NewAlertManager(p.logger)
 
 	// Initialize security
-	p.rateLimiter = security.NewRateLimiter(1000, 100, time.Second, p.logger)
-	p.auditLogger = security.NewAuditLogger(p.logger)
 
 	// Initialize optimization
-	p.cache = optimization.NewLocalCache(10000, 5*time.Minute, p.logger)
 
 	// Register alert rules
 	p.registerAlertRules()
@@ -119,9 +111,6 @@ func (p *GatewayPlugin) Stop(ctx context.Context) error {
 	}
 
 	// Stop cache cleanup
-	if p.cache != nil {
-		p.cache.Stop()
-	}
 
 	p.logger.Info("API Gateway stopped")
 	return nil
@@ -169,10 +158,10 @@ func (p *GatewayPlugin) registerAlertHandlers() {
 	// Log alert handler
 	p.alertManager.RegisterHandler(func(alert *monitoring.Alert) error {
 		p.logger.Warn("Alert triggered",
-			"alert_id", alert.ID,
-			"level", alert.Level,
-			"title", alert.Title,
-			"message", alert.Message,
+			zap.String("alert_id", alert.ID),
+			zap.String("level", alert.Level),
+			zap.String("title", alert.Title),
+			zap.String("message", alert.Message),
 		)
 		return nil
 	})

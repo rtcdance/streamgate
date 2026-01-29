@@ -2,7 +2,6 @@ package upload
 
 import (
 	"context"
-	"fmt"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
@@ -17,7 +16,7 @@ type FileStore struct {
 
 // NewFileStore creates a new file store
 func NewFileStore(cfg *config.Config, logger *zap.Logger) (*FileStore, error) {
-	logger.Info("Initializing file store", "type", cfg.Storage.Type, "endpoint", cfg.Storage.Endpoint)
+	logger.Info("Initializing file store", zap.String("type", cfg.Storage.Type), zap.String("endpoint", cfg.Storage.Endpoint))
 
 	store := &FileStore{
 		config: cfg,
@@ -34,7 +33,7 @@ func NewFileStore(cfg *config.Config, logger *zap.Logger) (*FileStore, error) {
 
 // UploadFile uploads a file to storage
 func (s *FileStore) UploadFile(ctx context.Context, fileID string, data []byte) error {
-	s.logger.Info("Uploading file", "file_id", fileID, "size", len(data))
+	s.logger.Info("Uploading file", zap.String("file_id", fileID), zap.Int("size", len(data)))
 
 	// TODO: Implement file upload to storage backend
 	// - Store file with fileID as key
@@ -45,7 +44,7 @@ func (s *FileStore) UploadFile(ctx context.Context, fileID string, data []byte) 
 
 // UploadChunk uploads a chunk of a file
 func (s *FileStore) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte) error {
-	s.logger.Info("Uploading chunk", "upload_id", uploadID, "chunk_index", chunkIndex, "size", len(data))
+	s.logger.Info("Uploading chunk", zap.String("upload_id", uploadID), zap.Int("chunk_index", chunkIndex), zap.Int("size", len(data)))
 
 	// TODO: Implement chunked upload
 	// - Store chunk temporarily
@@ -57,7 +56,7 @@ func (s *FileStore) UploadChunk(ctx context.Context, uploadID string, chunkIndex
 
 // CompleteUpload completes a chunked upload
 func (s *FileStore) CompleteUpload(ctx context.Context, uploadID string) (string, error) {
-	s.logger.Info("Completing upload", "upload_id", uploadID)
+	s.logger.Info("Completing upload", zap.String("upload_id", uploadID))
 
 	// TODO: Implement upload completion
 	// - Combine all chunks
@@ -70,7 +69,7 @@ func (s *FileStore) CompleteUpload(ctx context.Context, uploadID string) (string
 
 // GetUploadStatus gets the status of an upload
 func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*UploadStatus, error) {
-	s.logger.Info("Getting upload status", "upload_id", uploadID)
+	s.logger.Info("Getting upload status", zap.String("upload_id", uploadID))
 
 	// TODO: Implement status retrieval
 	// - Return upload progress
@@ -87,7 +86,7 @@ func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*Uplo
 
 // DeleteUpload deletes an upload
 func (s *FileStore) DeleteUpload(ctx context.Context, uploadID string) error {
-	s.logger.Info("Deleting upload", "upload_id", uploadID)
+	s.logger.Info("Deleting upload", zap.String("upload_id", uploadID))
 
 	// TODO: Implement upload deletion
 	// - Delete all chunks

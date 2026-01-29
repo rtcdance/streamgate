@@ -4,23 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
-
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/security"
-)
+	"streamgate/pkg/monitoring")
 
 // WorkerHandler handles worker requests
 type WorkerHandler struct {
 	scheduler        *JobScheduler
 	logger           *zap.Logger
 	kernel           *core.Microkernel
-	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
-}
+	metricsCollector *monitoring.MetricsCollector}
 
 // NewWorkerHandler creates a new worker handler
 func NewWorkerHandler(scheduler *JobScheduler, logger *zap.Logger, kernel *core.Microkernel) *WorkerHandler {
@@ -28,10 +21,7 @@ func NewWorkerHandler(scheduler *JobScheduler, logger *zap.Logger, kernel *core.
 		scheduler:        scheduler,
 		logger:           logger,
 		kernel:           kernel,
-		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(100, 10, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
-	}
+		metricsCollector: monitoring.NewMetricsCollector(logger),	}
 }
 
 // HealthHandler handles health check requests
@@ -59,9 +49,6 @@ func (h *WorkerHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 
 // SubmitJobHandler handles job submission
 func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("submit_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -70,12 +57,6 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("submit_job_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	var job Job
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
@@ -93,18 +74,15 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 	if err := h.scheduler.SubmitJob(&job); err != nil {
 		h.logger.Error("Failed to submit job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_job_failed", map[string]string{})
-		h.auditLogger.LogEvent("worker", clientIP, "submit_job", job.ID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit job"})
 		return
 	}
 
-	h.logger.Info("Job submitted", "job_id", job.ID)
+	h.logger.Info("Job submitted", zap.String("job_id", job.ID))
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("submit_job_success", map[string]string{})
-	h.metricsCollector.RecordTimer("submit_job_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("worker", clientIP, "submit_job", job.ID, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -113,9 +91,6 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 
 // GetJobStatusHandler handles job status requests
 func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_job_status_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -124,12 +99,6 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_job_status_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
@@ -139,7 +108,7 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.logger.Info("Getting job status", "job_id", jobID)
+	h.logger.Info("Getting job status", zap.String("job_id", jobID))
 
 	// TODO: Retrieve job status from storage
 	job := &Job{
@@ -149,8 +118,6 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_job_status_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_job_status_latency", time.Since(startTime), map[string]string{})
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(job)
@@ -158,9 +125,6 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 
 // CancelJobHandler handles job cancellation
 func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cancel_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -169,12 +133,6 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("cancel_job_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
@@ -184,14 +142,12 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.logger.Info("Cancelling job", "job_id", jobID)
+	h.logger.Info("Cancelling job", zap.String("job_id", jobID))
 
 	// TODO: Cancel job in scheduler
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cancel_job_success", map[string]string{})
-	h.metricsCollector.RecordTimer("cancel_job_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("worker", clientIP, "cancel_job", jobID, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -200,9 +156,6 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 
 // ListJobsHandler handles job listing
 func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("list_jobs_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -211,12 +164,6 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("list_jobs_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	h.logger.Info("Listing jobs")
 
@@ -226,8 +173,6 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("list_jobs_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("list_jobs_count", float64(len(jobs)), map[string]string{})
-	h.metricsCollector.RecordTimer("list_jobs_latency", time.Since(startTime), map[string]string{})
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(jobs)
@@ -235,9 +180,6 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 
 // ScheduleJobHandler handles job scheduling
 func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("schedule_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -246,12 +188,6 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("schedule_job_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	var scheduled ScheduledJob
 	if err := json.NewDecoder(r.Body).Decode(&scheduled); err != nil {
@@ -262,7 +198,7 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.logger.Info("Scheduling job", "job_type", scheduled.JobType, "schedule", scheduled.Schedule)
+	h.logger.Info("Scheduling job", zap.String("job_type", scheduled.JobType), zap.String("schedule", scheduled.Schedule))
 
 	// TODO: Store scheduled job
 	// - Validate cron expression
@@ -271,8 +207,6 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("schedule_job_success", map[string]string{})
-	h.metricsCollector.RecordTimer("schedule_job_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("worker", clientIP, "schedule_job", scheduled.JobType, "success", nil)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

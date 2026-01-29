@@ -6,12 +6,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"time"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/security"
 )
 
 // UploadHandler handles upload requests
@@ -20,8 +18,6 @@ type UploadHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
 }
 
 // NewUploadHandler creates a new upload handler
@@ -31,8 +27,6 @@ func NewUploadHandler(store *FileStore, logger *zap.Logger, kernel *core.Microke
 		logger:           logger,
 		kernel:           kernel,
 		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(100, 10, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 
@@ -61,8 +55,6 @@ func (h *UploadHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 
 // UploadHandler handles file upload requests
 func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("upload_invalid_method", map[string]string{})
@@ -72,13 +64,6 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("upload_rate_limit_exceeded", map[string]string{})
-		h.auditLogger.LogEvent("upload", clientIP, "upload_file", "unknown", "rate_limit_exceeded", nil)
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
@@ -86,7 +71,6 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max
 		h.logger.Error("Failed to parse multipart form", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_parse_error", map[string]string{})
-		h.auditLogger.LogEvent("upload", clientIP, "upload_file", "unknown", "parse_error", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse form"})
 		return
@@ -104,14 +88,12 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("upload_requests", map[string]string{"filename": handler.Filename})
-	h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "started", nil)
 
 	// Read file data
 	data, err := io.ReadAll(file)
 	if err != nil {
 		h.logger.Error("Failed to read file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_read_error", map[string]string{})
-		h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "read_error", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file"})
 		return
@@ -124,19 +106,16 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.UploadFile(ctx, fileID, data); err != nil {
 		h.logger.Error("Failed to upload file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_failed", map[string]string{"filename": handler.Filename})
-		h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload file"})
 		return
 	}
 
-	h.logger.Info("File uploaded successfully", "file_id", fileID, "filename", handler.Filename, "size", len(data))
+	h.logger.Info("File uploaded successfully", zap.String("file_id", fileID), zap.String("filename", handler.Filename), zap.Int("size", len(data)))
 
 	// Record success metrics
 	h.metricsCollector.IncrementCounter("upload_success", map[string]string{"filename": handler.Filename})
 	h.metricsCollector.RecordHistogram("upload_size", float64(len(data)), map[string]string{})
-	h.metricsCollector.RecordTimer("upload_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "success", map[string]interface{}{"file_id": fileID, "size": len(data)})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -149,8 +128,6 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 // UploadChunkHandler handles chunked upload requests
 func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("chunk_upload_invalid_method", map[string]string{})
@@ -160,12 +137,6 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("chunk_upload_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
@@ -207,12 +178,11 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.logger.Info("Chunk uploaded successfully", "upload_id", uploadID, "chunk_index", chunkIndex, "size", len(data))
+	h.logger.Info("Chunk uploaded successfully", zap.String("upload_id", uploadID), zap.Int("chunk_index", chunkIndex), zap.Int("size", len(data)))
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("chunk_upload_success", map[string]string{"upload_id": uploadID})
 	h.metricsCollector.RecordHistogram("chunk_size", float64(len(data)), map[string]string{})
-	h.metricsCollector.RecordTimer("chunk_upload_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -225,8 +195,6 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 
 // CompleteUploadHandler handles upload completion requests
 func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("complete_upload_invalid_method", map[string]string{})
@@ -236,12 +204,6 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("complete_upload_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
@@ -259,18 +221,15 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		h.logger.Error("Failed to complete upload", zap.Error(err))
 		h.metricsCollector.IncrementCounter("complete_upload_failed", map[string]string{"upload_id": uploadID})
-		h.auditLogger.LogEvent("upload", clientIP, "complete_upload", uploadID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to complete upload"})
 		return
 	}
 
-	h.logger.Info("Upload completed successfully", "upload_id", uploadID, "file_id", fileID)
+	h.logger.Info("Upload completed successfully", zap.String("upload_id", uploadID), zap.String("file_id", fileID))
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("complete_upload_success", map[string]string{"upload_id": uploadID})
-	h.metricsCollector.RecordTimer("complete_upload_latency", time.Since(startTime), map[string]string{})
-	h.auditLogger.LogEvent("upload", clientIP, "complete_upload", uploadID, "success", map[string]interface{}{"file_id": fileID})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -282,8 +241,6 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 
 // GetUploadStatusHandler handles upload status requests
 func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_upload_status_invalid_method", map[string]string{})
@@ -293,12 +250,6 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_upload_status_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
 
 	ctx := r.Context()
 
@@ -323,7 +274,6 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_upload_status_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_upload_status_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

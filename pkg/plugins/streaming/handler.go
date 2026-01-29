@@ -3,13 +3,10 @@ package streaming
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/optimization"
-	"streamgate/pkg/security"
 )
 
 // StreamingHandler handles streaming requests
@@ -18,9 +15,6 @@ type StreamingHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
-	localCache       *optimization.LocalCache
 }
 
 // NewStreamingHandler creates a new streaming handler
@@ -30,9 +24,6 @@ func NewStreamingHandler(cache *StreamCache, logger *zap.Logger, kernel *core.Mi
 		logger:           logger,
 		kernel:           kernel,
 		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
-		localCache:       optimization.NewLocalCache(10000, 5*time.Minute, logger),
 	}
 }
 
@@ -61,21 +52,10 @@ func (h *StreamingHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) 
 
 // GetHLSPlaylistHandler handles HLS playlist requests
 func (h *StreamingHandler) GetHLSPlaylistHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("hls_playlist_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("hls_playlist_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
 		return
 	}
 
@@ -87,7 +67,7 @@ func (h *StreamingHandler) GetHLSPlaylistHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.logger.Info("Generating HLS playlist", zap.Int64("content_id", contentID))
+	h.logger.Info("Generating HLS playlist", zap.String("content_id", contentID))
 
 	// TODO: Generate HLS playlist
 	// - Check cache
@@ -114,7 +94,7 @@ func (h *StreamingHandler) GetDASHManifestHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	h.logger.Info("Generating DASH manifest", zap.Int64("content_id", contentID))
+	h.logger.Info("Generating DASH manifest", zap.String("content_id", contentID))
 
 	// TODO: Generate DASH manifest
 	// - Check cache
@@ -143,7 +123,7 @@ func (h *StreamingHandler) GetSegmentHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.logger.Info("Retrieving segment", "content_id", contentID, "segment_id", segmentID)
+	h.logger.Info("Retrieving segment", zap.String("content_id", contentID), zap.String("segment_id", segmentID))
 
 	// TODO: Retrieve segment
 	// - Check cache
@@ -170,7 +150,7 @@ func (h *StreamingHandler) GetStreamInfoHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	h.logger.Info("Getting stream info", zap.Int64("content_id", contentID))
+	h.logger.Info("Getting stream info", zap.String("content_id", contentID))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

@@ -115,7 +115,7 @@ func (v *SignatureVerifier) VerifySignature(ctx context.Context, address string,
 
 // VerifyNFT verifies NFT ownership
 func (v *SignatureVerifier) VerifyNFT(ctx context.Context, address string, contractAddress string, tokenID string) (bool, error) {
-	v.logger.Info("Verifying NFT", "address", address, "contract", contractAddress, "token_id", tokenID)
+	v.logger.Info("Verifying NFT", zap.String("address", address), zap.String("contract", contractAddress), zap.String("token_id", tokenID))
 
 	// TODO: Implement NFT verification
 	// - Check ERC-721 ownership

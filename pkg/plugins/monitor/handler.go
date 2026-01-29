@@ -3,12 +3,10 @@ package monitor
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/security"
 )
 
 // MonitorHandler handles monitoring requests
@@ -17,8 +15,6 @@ type MonitorHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
-	rateLimiter      *security.RateLimiter
-	auditLogger      *security.AuditLogger
 }
 
 // NewMonitorHandler creates a new monitor handler
@@ -28,8 +24,6 @@ func NewMonitorHandler(collector *MetricsCollector, logger *zap.Logger, kernel *
 		logger:           logger,
 		kernel:           kernel,
 		metricsCollector: monitoring.NewMetricsCollector(logger),
-		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 
@@ -58,9 +52,6 @@ func (h *MonitorHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetHealthHandler handles health status requests
 func (h *MonitorHandler) GetHealthHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_health_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -68,19 +59,10 @@ func (h *MonitorHandler) GetHealthHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_health_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
-
 	health := h.collector.GetHealth()
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_health_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_health_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -89,9 +71,6 @@ func (h *MonitorHandler) GetHealthHandler(w http.ResponseWriter, r *http.Request
 
 // GetMetricsHandler handles metrics requests
 func (h *MonitorHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_metrics_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -99,19 +78,10 @@ func (h *MonitorHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_metrics_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
-		return
-	}
-
 	metrics := h.collector.GetMetrics()
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_metrics_success", map[string]string{})
-	h.metricsCollector.RecordTimer("get_metrics_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -120,21 +90,10 @@ func (h *MonitorHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Reques
 
 // GetAlertsHandler handles alert requests
 func (h *MonitorHandler) GetAlertsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_alerts_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_alerts_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
 		return
 	}
 
@@ -146,7 +105,6 @@ func (h *MonitorHandler) GetAlertsHandler(w http.ResponseWriter, r *http.Request
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_alerts_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("get_alerts_count", float64(len(alerts)), map[string]string{})
-	h.metricsCollector.RecordTimer("get_alerts_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -155,21 +113,10 @@ func (h *MonitorHandler) GetAlertsHandler(w http.ResponseWriter, r *http.Request
 
 // GetLogsHandler handles log requests
 func (h *MonitorHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_logs_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("get_logs_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
 		return
 	}
 
@@ -181,7 +128,6 @@ func (h *MonitorHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("get_logs_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("get_logs_count", float64(len(logs)), map[string]string{})
-	h.metricsCollector.RecordTimer("get_logs_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -190,19 +136,9 @@ func (h *MonitorHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 
 // PrometheusMetricsHandler handles Prometheus metrics requests
 func (h *MonitorHandler) PrometheusMetricsHandler(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	clientIP := r.RemoteAddr
-
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("prometheus_metrics_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Check rate limit
-	if !h.rateLimiter.Allow(clientIP) {
-		h.metricsCollector.IncrementCounter("prometheus_metrics_rate_limit_exceeded", map[string]string{})
-		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
 
@@ -217,7 +153,6 @@ func (h *MonitorHandler) PrometheusMetricsHandler(w http.ResponseWriter, r *http
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("prometheus_metrics_success", map[string]string{})
-	h.metricsCollector.RecordTimer("prometheus_metrics_latency", time.Since(startTime), map[string]string{})
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
