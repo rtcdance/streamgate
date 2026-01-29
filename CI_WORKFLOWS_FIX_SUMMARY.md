@@ -183,3 +183,63 @@ env:
 2. ✅ PostgreSQL 客户端缺失
 
 所有修改已提交并推送到 master 分支。等待 CI 运行结果以验证修复是否完全成功。
+
+
+---
+
+## 更新 (2026-01-29 后续修复)
+
+### 4. test.yml - YAML语法错误 (重复的run键) ✅
+
+**错误信息**:
+```
+Invalid workflow file
+(Line: 131, Col: 9): 'run' is already defined
+(Line: 236, Col: 9): 'run' is already defined
+(Line: 341, Col: 9): 'run' is already defined
+(Line: 408, Col: 9): 'run' is already defined
+```
+
+**原因**: 
+- 之前的Python脚本错误地添加了重复的安装命令
+- 导致同一个步骤中出现多个`run:`键
+- YAML不允许重复的键
+
+**修复**: 
+- 删除了所有重复的`sudo apt-get`命令
+- 确保每个"Setup database"步骤只有一个`run:`块
+- 正确的格式：
+
+```yaml
+- name: Setup database
+  env:
+    PGPASSWORD: streamgate
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y postgresql-client
+    psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
+    # ... 其他迁移文件
+```
+
+**提交**: `4803265` - fix: correct postgresql-client installation in test.yml
+
+---
+
+## 最终提交列表
+
+1. **721179f** - fix: correct Slack webhook configuration in deploy.yml
+2. **99d0c78** - fix: add postgresql-client installation in CI workflows (ci.yml)
+3. **bb066b8** - docs: add CI workflows fix summary
+4. **4803265** - fix: correct postgresql-client installation in test.yml (removed duplicate run: keys)
+
+## 当前状态
+
+✅ **所有workflow文件已修复**
+- deploy.yml - Slack配置正确
+- ci.yml - PostgreSQL客户端安装正确
+- test.yml - YAML语法正确，无重复键
+- build.yml - 无错误
+
+🔄 **等待CI验证**
+- 所有修改已推送到master分支
+- GitHub Actions将在下次触发时验证修复
