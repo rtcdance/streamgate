@@ -43,9 +43,9 @@ type CacheStats struct {
 // MultiLevelCache implements multi-level caching
 type MultiLevelCache struct {
 	mu        sync.RWMutex
-	l1Cache   map[string]*CacheEntry
-	l2Cache   map[string]*CacheEntry
-	l3Cache   map[string]*CacheEntry
+	l1Cache   map[string]*MultiLevelCacheEntry
+	l2Cache   map[string]*MultiLevelCacheEntry
+	l3Cache   map[string]*MultiLevelCacheEntry
 	stats     *CacheStats
 	maxL1Size int
 	maxL2Size int
@@ -63,9 +63,9 @@ func NewMultiLevelCache(maxL1, maxL2, maxL3 int) *MultiLevelCache {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cache := &MultiLevelCache{
-		l1Cache:   make(map[string]*CacheEntry),
-		l2Cache:   make(map[string]*CacheEntry),
-		l3Cache:   make(map[string]*CacheEntry),
+		l1Cache:   make(map[string]*MultiLevelCacheEntry),
+		l2Cache:   make(map[string]*MultiLevelCacheEntry),
+		l3Cache:   make(map[string]*MultiLevelCacheEntry),
 		stats:     &CacheStats{},
 		maxL1Size: maxL1,
 		maxL2Size: maxL2,
@@ -106,7 +106,7 @@ func (c *MultiLevelCache) Set(key string, value interface{}, ttl time.Duration, 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	entry := &CacheEntry{
+	entry := &MultiLevelCacheEntry{
 		ID:        uuid.New().String(),
 		Key:       key,
 		Value:     value,
@@ -220,9 +220,9 @@ func (c *MultiLevelCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.l1Cache = make(map[string]*CacheEntry)
-	c.l2Cache = make(map[string]*CacheEntry)
-	c.l3Cache = make(map[string]*CacheEntry)
+	c.l1Cache = make(map[string]*MultiLevelCacheEntry)
+	c.l2Cache = make(map[string]*MultiLevelCacheEntry)
+	c.l3Cache = make(map[string]*MultiLevelCacheEntry)
 	c.l1Entries = 0
 	c.l2Entries = 0
 	c.l3Entries = 0
@@ -232,7 +232,7 @@ func (c *MultiLevelCache) Clear() {
 func (c *MultiLevelCache) evictL1() {
 	// Find least recently used entry
 	var lruKey string
-	var lruEntry *CacheEntry
+	var lruEntry *MultiLevelCacheEntry
 
 	for key, entry := range c.l1Cache {
 		if lruEntry == nil || entry.HitCount < lruEntry.HitCount {
@@ -258,7 +258,7 @@ func (c *MultiLevelCache) evictL1() {
 func (c *MultiLevelCache) evictL2() {
 	// Find least recently used entry
 	var lruKey string
-	var lruEntry *CacheEntry
+	var lruEntry *MultiLevelCacheEntry
 
 	for key, entry := range c.l2Cache {
 		if lruEntry == nil || entry.HitCount < lruEntry.HitCount {
@@ -284,7 +284,7 @@ func (c *MultiLevelCache) evictL2() {
 func (c *MultiLevelCache) evictL3() {
 	// Find least recently used entry
 	var lruKey string
-	var lruEntry *CacheEntry
+	var lruEntry *MultiLevelCacheEntry
 
 	for key, entry := range c.l3Cache {
 		if lruEntry == nil || entry.HitCount < lruEntry.HitCount {
@@ -301,7 +301,7 @@ func (c *MultiLevelCache) evictL3() {
 }
 
 // promoteToL1 promotes an entry to L1 cache
-func (c *MultiLevelCache) promoteToL1(entry *CacheEntry) {
+func (c *MultiLevelCache) promoteToL1(entry *MultiLevelCacheEntry) {
 	if c.l1Entries >= c.maxL1Size {
 		c.evictL1()
 	}
