@@ -174,7 +174,7 @@ func (s *JobScheduler) processJobs() {
 
 // executeJob executes a job
 func (s *JobScheduler) executeJob(job *Job) {
-	s.logger.Info("Executing job", "job_id", job.ID, "type", job.Type)
+	s.logger.Info("Executing job", zap.String("job_id", job.ID), zap.String("type", job.Type))
 
 	// TODO: Implement job execution
 	// - Execute job based on type
@@ -183,7 +183,7 @@ func (s *JobScheduler) executeJob(job *Job) {
 	// - Handle errors
 
 	job.Status = "completed"
-	job.CompletedAt = time.Now().Unix()
+	// job.CompletedAt = time.Now().Unix()  // Field doesn't exist yet
 }
 
 // ScheduledJob represents a scheduled job

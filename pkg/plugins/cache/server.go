@@ -112,7 +112,7 @@ type CacheStore struct {
 
 // NewCacheStore creates a new cache store
 func NewCacheStore(cfg *config.Config, logger *zap.Logger) (*CacheStore, error) {
-	logger.Info("Initializing cache store", "host", cfg.Redis.Host, "port", cfg.Redis.Port)
+	logger.Info("Initializing cache store", zap.String("host", cfg.Redis.Host), zap.Int("port", cfg.Redis.Port))
 
 	store := &CacheStore{
 		config: cfg,
@@ -134,7 +134,7 @@ func (s *CacheStore) Get(ctx context.Context, key string) (interface{}, error) {
 
 // Set stores a value in cache
 func (s *CacheStore) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
-	s.logger.Debug("Setting cache value", "key", key, "ttl", ttl)
+	s.logger.Debug("Setting cache value", zap.String("key", key), zap.Duration("ttl", ttl))
 
 	// TODO: Implement cache storage
 	return nil

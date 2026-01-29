@@ -1,5 +1,21 @@
-test/integration/ml/ml_integration_test.go:1: : # streamgate/test/integration/ml [streamgate/test/integration/ml.test]
-test/integration/ml/ml_integration_test.go:187:14: undefined: ml.AlertRule (typecheck)
-package ml
+test/performance/performance_test.go:1: : # streamgate/test/performance [streamgate/test/performance.test]
+test/performance/performance_test.go:33:13: not enough arguments in call to monitoring.NewMetricsRegistry
+	have ()
+	want (*zap.Logger)
+test/performance/performance_test.go:39:11: metrics.RecordCounter undefined (type *monitoring.MetricsRegistry has no field or method RecordCounter)
+test/performance/performance_test.go:40:11: metrics.RecordGauge undefined (type *monitoring.MetricsRegistry has no field or method RecordGauge)
+test/performance/performance_test.go:41:11: metrics.RecordHistogram undefined (type *monitoring.MetricsRegistry has no field or method RecordHistogram)
+test/performance/performance_test.go:55:24: undefined: optimization.NewLRUCache
+test/performance/performance_test.go:88:24: undefined: monitoring.NewRateLimiter
+test/performance/performance_test.go:190:24: undefined: optimization.NewLRUCache
+test/performance/performance_test.go:210:14: not enough arguments in call to monitoring.NewPrometheusExporter
+	have ()
+	want (*monitoring.MetricsCollector, *monitoring.ServiceMetricsTracker, *zap.Logger)
+test/performance/performance_test.go:211:14: not enough arguments in call to monitoring.NewMetricsRegistry
+	have ()
+	want (*zap.Logger)
+test/performance/performance_test.go:215:12: registry.RecordCounter undefined (type *monitoring.MetricsRegistry has no field or method RecordCounter)
+test/performance/performance_test.go:215:12: too many errors (typecheck)
+package performance
 1 issues:
 * typecheck: 1

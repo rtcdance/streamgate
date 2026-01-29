@@ -1,947 +1,229 @@
-2026-01-29T07:31:28.4800795Z Current runner version: '2.331.0'
-2026-01-29T07:31:28.4825954Z ##[group]Runner Image Provisioner
-2026-01-29T07:31:28.4826894Z Hosted Compute Agent
-2026-01-29T07:31:28.4827431Z Version: 20260115.477
-2026-01-29T07:31:28.4828017Z Commit: 4b342d620503cbe250a3154040964899ea7c9b00
-2026-01-29T07:31:28.4828785Z Build Date: 2026-01-15T22:32:41Z
-2026-01-29T07:31:28.4829443Z Worker ID: {23bb6346-6116-4b1c-a897-582a764e93dc}
-2026-01-29T07:31:28.4830097Z Azure Region: westcentralus
-2026-01-29T07:31:28.4830740Z ##[endgroup]
-2026-01-29T07:31:28.4832623Z ##[group]Operating System
-2026-01-29T07:31:28.4833246Z Ubuntu
-2026-01-29T07:31:28.4833833Z 24.04.3
-2026-01-29T07:31:28.4834261Z LTS
-2026-01-29T07:31:28.4834715Z ##[endgroup]
-2026-01-29T07:31:28.4835211Z ##[group]Runner Image
-2026-01-29T07:31:28.4835768Z Image: ubuntu-24.04
-2026-01-29T07:31:28.4836245Z Version: 20260119.4.1
-2026-01-29T07:31:28.4837505Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260119.4/images/ubuntu/Ubuntu2404-Readme.md
-2026-01-29T07:31:28.4838895Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260119.4
-2026-01-29T07:31:28.4839848Z ##[endgroup]
-2026-01-29T07:31:28.4840878Z ##[group]GITHUB_TOKEN Permissions
-2026-01-29T07:31:28.4842974Z Contents: read
-2026-01-29T07:31:28.4843682Z Metadata: read
-2026-01-29T07:31:28.4844158Z Packages: read
-2026-01-29T07:31:28.4844632Z ##[endgroup]
-2026-01-29T07:31:28.4846952Z Secret source: Actions
-2026-01-29T07:31:28.4847648Z Prepare workflow directory
-2026-01-29T07:31:28.5258583Z Prepare all required actions
-2026-01-29T07:31:28.5297385Z Getting action download info
-2026-01-29T07:31:28.9372127Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
-2026-01-29T07:31:29.0369783Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
-2026-01-29T07:31:29.9335777Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
-2026-01-29T07:31:30.6727414Z Complete job name: Lint & Format Check
-2026-01-29T07:31:30.7445710Z ##[group]Run actions/checkout@v4
-2026-01-29T07:31:30.7446444Z with:
-2026-01-29T07:31:30.7446745Z   repository: rtcdance/streamgate
-2026-01-29T07:31:30.7447339Z   token: ***
-2026-01-29T07:31:30.7447609Z   ssh-strict: true
-2026-01-29T07:31:30.7447871Z   ssh-user: git
-2026-01-29T07:31:30.7448146Z   persist-credentials: true
-2026-01-29T07:31:30.7448452Z   clean: true
-2026-01-29T07:31:30.7448734Z   sparse-checkout-cone-mode: true
-2026-01-29T07:31:30.7449047Z   fetch-depth: 1
-2026-01-29T07:31:30.7449309Z   fetch-tags: false
-2026-01-29T07:31:30.7449595Z   show-progress: true
-2026-01-29T07:31:30.7449894Z   lfs: false
-2026-01-29T07:31:30.7450169Z   submodules: false
-2026-01-29T07:31:30.7450461Z   set-safe-directory: true
-2026-01-29T07:31:30.7451201Z env:
-2026-01-29T07:31:30.7451503Z   GO_VERSION: 1.24
-2026-01-29T07:31:30.7451861Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:31:30.7452252Z   GOTOOLCHAIN: auto
-2026-01-29T07:31:30.7452572Z ##[endgroup]
-2026-01-29T07:31:30.8569652Z Syncing repository: rtcdance/streamgate
-2026-01-29T07:31:30.8572503Z ##[group]Getting Git version info
-2026-01-29T07:31:30.8573443Z Working directory is '/home/runner/work/streamgate/streamgate'
-2026-01-29T07:31:30.8574875Z [command]/usr/bin/git version
-2026-01-29T07:31:30.8648698Z git version 2.52.0
-2026-01-29T07:31:30.8678998Z ##[endgroup]
-2026-01-29T07:31:30.8696113Z Temporarily overriding HOME='/home/runner/work/_temp/14f4aa45-5b15-4d3f-ac94-47454be30e77' before making global git config changes
-2026-01-29T07:31:30.8697906Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T07:31:30.8711942Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T07:31:30.8757066Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
-2026-01-29T07:31:30.8761652Z ##[group]Initializing the repository
-2026-01-29T07:31:30.8766734Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
-2026-01-29T07:31:30.8919581Z hint: Using 'master' as the name for the initial branch. This default branch name
-2026-01-29T07:31:30.8920918Z hint: will change to "main" in Git 3.0. To configure the initial branch name
-2026-01-29T07:31:30.8922279Z hint: to use in all of your new repositories, which will suppress this warning,
-2026-01-29T07:31:30.8923118Z hint: call:
-2026-01-29T07:31:30.8923565Z hint:
-2026-01-29T07:31:30.8924316Z hint: 	git config --global init.defaultBranch <name>
-2026-01-29T07:31:30.8925037Z hint:
-2026-01-29T07:31:30.8925685Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-2026-01-29T07:31:30.8926739Z hint: 'development'. The just-created branch can be renamed via this command:
-2026-01-29T07:31:30.8927529Z hint:
-2026-01-29T07:31:30.8927900Z hint: 	git branch -m <name>
-2026-01-29T07:31:30.8928222Z hint:
-2026-01-29T07:31:30.8928655Z hint: Disable this message with "git config set advice.defaultBranchName false"
-2026-01-29T07:31:30.8929525Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
-2026-01-29T07:31:30.8937239Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
-2026-01-29T07:31:30.8975564Z ##[endgroup]
-2026-01-29T07:31:30.8976486Z ##[group]Disabling automatic garbage collection
-2026-01-29T07:31:30.8979965Z [command]/usr/bin/git config --local gc.auto 0
-2026-01-29T07:31:30.9010924Z ##[endgroup]
-2026-01-29T07:31:30.9011975Z ##[group]Setting up auth
-2026-01-29T07:31:30.9018812Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T07:31:30.9050637Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T07:31:30.9402004Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T07:31:30.9434413Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T07:31:30.9667600Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T07:31:30.9704317Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T07:31:30.9940192Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
-2026-01-29T07:31:30.9978114Z ##[endgroup]
-2026-01-29T07:31:30.9985917Z ##[group]Fetching the repository
-2026-01-29T07:31:30.9986964Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f348a3cbc07deb3ded44e68cffab6bc5471e7585:refs/remotes/origin/master
-2026-01-29T07:31:31.5999417Z From https://github.com/rtcdance/streamgate
-2026-01-29T07:31:31.6000250Z  * [new ref]         f348a3cbc07deb3ded44e68cffab6bc5471e7585 -> origin/master
-2026-01-29T07:31:31.6033344Z ##[endgroup]
-2026-01-29T07:31:31.6034010Z ##[group]Determining the checkout info
-2026-01-29T07:31:31.6035406Z ##[endgroup]
-2026-01-29T07:31:31.6040712Z [command]/usr/bin/git sparse-checkout disable
-2026-01-29T07:31:31.6083910Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
-2026-01-29T07:31:31.6112257Z ##[group]Checking out the ref
-2026-01-29T07:31:31.6116290Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
-2026-01-29T07:31:31.6543418Z Reset branch 'master'
-2026-01-29T07:31:31.6544093Z branch 'master' set up to track 'origin/master'.
-2026-01-29T07:31:31.6552659Z ##[endgroup]
-2026-01-29T07:31:31.6592133Z [command]/usr/bin/git log -1 --format=%H
-2026-01-29T07:31:31.6615323Z f348a3cbc07deb3ded44e68cffab6bc5471e7585
-2026-01-29T07:31:31.6831895Z ##[group]Run actions/setup-go@v4
-2026-01-29T07:31:31.6832195Z with:
-2026-01-29T07:31:31.6832370Z   go-version: 1.24
-2026-01-29T07:31:31.6832557Z   check-latest: false
-2026-01-29T07:31:31.6833130Z   token: ***
-2026-01-29T07:31:31.6833304Z   cache: true
-2026-01-29T07:31:31.6833474Z env:
-2026-01-29T07:31:31.6833639Z   GO_VERSION: 1.24
-2026-01-29T07:31:31.6833847Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:31:31.6834111Z   GOTOOLCHAIN: auto
-2026-01-29T07:31:31.6834291Z ##[endgroup]
-2026-01-29T07:31:31.8491714Z Setup go version spec 1.24
-2026-01-29T07:31:31.8582297Z Found in cache @ /opt/hostedtoolcache/go/1.24.12/x64
-2026-01-29T07:31:31.8586195Z Added go to the path
-2026-01-29T07:31:31.8589295Z Successfully set up Go version 1.24
-2026-01-29T07:31:32.5208681Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOMODCACHE
-2026-01-29T07:31:32.5247850Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOCACHE
-2026-01-29T07:31:32.5275239Z /home/runner/go/pkg/mod
-2026-01-29T07:31:32.5306695Z /home/runner/.cache/go-build
-2026-01-29T07:31:32.7650203Z Cache is not found
-2026-01-29T07:31:32.7675377Z go version go1.24.12 linux/amd64
-2026-01-29T07:31:32.7675763Z 
-2026-01-29T07:31:32.7676195Z ##[group]go env
-2026-01-29T07:31:32.9015692Z AR='ar'
-2026-01-29T07:31:32.9016338Z CC='gcc'
-2026-01-29T07:31:32.9016687Z CGO_CFLAGS='-O2 -g'
-2026-01-29T07:31:32.9016969Z CGO_CPPFLAGS=''
-2026-01-29T07:31:32.9017351Z CGO_CXXFLAGS='-O2 -g'
-2026-01-29T07:31:32.9017635Z CGO_ENABLED='1'
-2026-01-29T07:31:32.9017975Z CGO_FFLAGS='-O2 -g'
-2026-01-29T07:31:32.9018310Z CGO_LDFLAGS='-O2 -g'
-2026-01-29T07:31:32.9018636Z CXX='g++'
-2026-01-29T07:31:32.9018924Z GCCGO='gccgo'
-2026-01-29T07:31:32.9019209Z GO111MODULE=''
-2026-01-29T07:31:32.9019496Z GOAMD64='v1'
-2026-01-29T07:31:32.9019784Z GOARCH='amd64'
-2026-01-29T07:31:32.9020087Z GOAUTH='netrc'
-2026-01-29T07:31:32.9020333Z GOBIN=''
-2026-01-29T07:31:32.9020635Z GOCACHE='/home/runner/.cache/go-build'
-2026-01-29T07:31:32.9020940Z GOCACHEPROG=''
-2026-01-29T07:31:32.9021671Z GODEBUG=''
-2026-01-29T07:31:32.9021999Z GOENV='/home/runner/.config/go/env'
-2026-01-29T07:31:32.9022332Z GOEXE=''
-2026-01-29T07:31:32.9022670Z GOEXPERIMENT=''
-2026-01-29T07:31:32.9022979Z GOFIPS140='off'
-2026-01-29T07:31:32.9023251Z GOFLAGS=''
-2026-01-29T07:31:32.9024069Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build4078889512=/tmp/go-build -gno-record-gcc-switches'
-2026-01-29T07:31:32.9024884Z GOHOSTARCH='amd64'
-2026-01-29T07:31:32.9025136Z GOHOSTOS='linux'
-2026-01-29T07:31:32.9025455Z GOINSECURE=''
-2026-01-29T07:31:32.9025811Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
-2026-01-29T07:31:32.9026195Z GOMODCACHE='/home/runner/go/pkg/mod'
-2026-01-29T07:31:32.9026574Z GONOPROXY=''
-2026-01-29T07:31:32.9026895Z GONOSUMDB=''
-2026-01-29T07:31:32.9027161Z GOOS='linux'
-2026-01-29T07:31:32.9027437Z GOPATH='/home/runner/go'
-2026-01-29T07:31:32.9027756Z GOPRIVATE=''
-2026-01-29T07:31:32.9028038Z GOPROXY='https://goproxy.io,direct'
-2026-01-29T07:31:32.9028560Z GOROOT='/opt/hostedtoolcache/go/1.24.12/x64'
-2026-01-29T07:31:32.9028993Z GOSUMDB='sum.golang.org'
-2026-01-29T07:31:32.9029264Z GOTELEMETRY='local'
-2026-01-29T07:31:32.9029653Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
-2026-01-29T07:31:32.9030012Z GOTMPDIR=''
-2026-01-29T07:31:32.9030288Z GOTOOLCHAIN='auto'
-2026-01-29T07:31:32.9030641Z GOTOOLDIR='/opt/hostedtoolcache/go/1.24.12/x64/pkg/tool/linux_amd64'
-2026-01-29T07:31:32.9031422Z GOVCS=''
-2026-01-29T07:31:32.9031673Z GOVERSION='go1.24.12'
-2026-01-29T07:31:32.9031954Z GOWORK=''
-2026-01-29T07:31:32.9032312Z PKG_CONFIG='pkg-config'
-2026-01-29T07:31:32.9032487Z 
-2026-01-29T07:31:32.9032955Z ##[endgroup]
-2026-01-29T07:31:32.9164795Z ##[group]Run golangci/golangci-lint-action@v3
-2026-01-29T07:31:32.9165178Z with:
-2026-01-29T07:31:32.9165508Z   version: v1.64.8
-2026-01-29T07:31:32.9165787Z   args: --timeout=5m ./...
-2026-01-29T07:31:32.9166100Z   skip-cache: true
-2026-01-29T07:31:32.9166559Z   github-token: ***
-2026-01-29T07:31:32.9166917Z   only-new-issues: false
-2026-01-29T07:31:32.9167230Z   skip-pkg-cache: false
-2026-01-29T07:31:32.9167534Z   skip-build-cache: false
-2026-01-29T07:31:32.9167858Z   install-mode: binary
-2026-01-29T07:31:32.9168293Z env:
-2026-01-29T07:31:32.9168609Z   GO_VERSION: 1.24
-2026-01-29T07:31:32.9168897Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:31:32.9169268Z   GOTOOLCHAIN: auto
-2026-01-29T07:31:32.9233257Z ##[endgroup]
-2026-01-29T07:31:33.0567576Z ##[group]prepare environment
-2026-01-29T07:31:33.0573100Z Finding needed golangci-lint version...
-2026-01-29T07:31:33.0577103Z Installation mode: binary
-2026-01-29T07:31:33.0578148Z Installing golangci-lint binary v1.64.8...
-2026-01-29T07:31:33.0579384Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz ...
-2026-01-29T07:31:33.5482328Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/fc6d034f-95de-406b-922f-e7c742b647f7
-2026-01-29T07:31:33.7562682Z Installed golangci-lint into /home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint in 698ms
-2026-01-29T07:31:33.7563656Z Prepared env in 700ms
-2026-01-29T07:31:33.7564656Z ##[endgroup]
-2026-01-29T07:31:33.7568354Z ##[group]run golangci-lint
-2026-01-29T07:31:33.7575744Z Running [/home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint run --out-format=github-actions --timeout=5m ./...] in [] ...
-2026-01-29T07:33:45.7108952Z ##[error]: # streamgate/pkg/service
-2026-01-29T07:33:45.7141963Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7144013Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7145625Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7147158Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7148635Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client) (typecheck)
-2026-01-29T07:33:45.7150255Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7151979Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7153728Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7156241Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7158304Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7159792Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7161802Z ##[error]cannot use "version" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
-2026-01-29T07:33:45.7163517Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
-2026-01-29T07:33:45.7165149Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
-2026-01-29T07:33:45.7167136Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
-2026-01-29T07:33:45.7168924Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
-2026-01-29T07:33:45.7170150Z ##[error]: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7171474Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7172574Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7173576Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7174790Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7176186Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7177733Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7179279Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7180822Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7183315Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7185003Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7186351Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors (typecheck)
-2026-01-29T07:33:45.7187734Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7188769Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7189733Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7190701Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7192072Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7193470Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7195018Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7196722Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7198290Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7199874Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7202123Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7203528Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7204792Z ##[error]SignatureVerifier redeclared in this block (typecheck)
-2026-01-29T07:33:45.7205967Z ##[error]	other declaration of SignatureVerifier (typecheck)
-2026-01-29T07:33:45.7207069Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7208163Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7209248Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7210354Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7212116Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to v.logger.Info (typecheck)
-2026-01-29T07:33:45.7213617Z ##[error]undefined: address (typecheck)
-2026-01-29T07:33:45.7214958Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7216039Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7217006Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7217987Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7218935Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7220482Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7222473Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7224097Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7225636Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7227193Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7228826Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7230011Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7231375Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7232489Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7233684Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7234776Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7236208Z ##[error]cannot use "host" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
-2026-01-29T07:33:45.7237862Z ##[error]cannot use "key" (untyped string constant) as zap.Field value in argument to s.logger.Debug (typecheck)
-2026-01-29T07:33:45.7239086Z ##[error]"strconv" imported and not used (typecheck)
-2026-01-29T07:33:45.7240082Z ##[error]: # streamgate/pkg/optimization
-2026-01-29T07:33:45.7241609Z ##[error]pkg/optimization/resource_optimizer.go:304:51: 1.5 (untyped float constant) truncated to uint64
-2026-01-29T07:33:45.7242887Z ##[error]pkg/optimization/service.go:40:6: declared and not used: cacheTTL
-2026-01-29T07:33:45.7244686Z ##[error]pkg/optimization/service.go:42:33: cannot use ttl.(interface{}).(interface{}) (comma, ok expression of type interface{}) as time.Duration value in argument to s.cache.Set: need type assertion
-2026-01-29T07:33:45.7246124Z ##[error]pkg/optimization/caching.go:5:2: "fmt" imported and not used (typecheck)
-2026-01-29T07:33:45.7247521Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7248543Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7249488Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7250421Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7251777Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7254295Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7256162Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7258716Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7260581Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7263358Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7265106Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7266319Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7267913Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
-2026-01-29T07:33:45.7269113Z ##[error]pkg/optimization/resource_optimizer.go:304:51: 1.5 (untyped float constant) truncated to uint64
-2026-01-29T07:33:45.7270199Z ##[error]pkg/optimization/service.go:40:6: declared and not used: cacheTTL
-2026-01-29T07:33:45.7272137Z ##[error]pkg/optimization/service.go:42:33: cannot use ttl.(interface{}).(interface{}) (comma, ok expression of type interface{}) as time.Duration value in argument to s.cache.Set: need type assertion
-2026-01-29T07:33:45.7273603Z ##[error]pkg/optimization/caching.go:5:2: "fmt" imported and not used) (typecheck)
-2026-01-29T07:33:45.7274799Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7275857Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7276928Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7278004Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7279395Z ##[error]cannot use "host" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
-2026-01-29T07:33:45.7280934Z ##[error]cannot use contentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7282700Z ##[error]cannot use metadata.ContentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7284370Z ##[error]cannot use metadata.ContentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7285951Z ##[error]cannot use contentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7287527Z ##[error]cannot use "query" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
-2026-01-29T07:33:45.7288940Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7289972Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7290932Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7292043Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7292976Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7294323Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7295866Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7297397Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7298921Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7300455Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7302645Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7303907Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7305095Z ##[error]HealthStatus redeclared in this block (typecheck)
-2026-01-29T07:33:45.7306409Z ##[error]	other declaration of HealthStatus (typecheck)
-2026-01-29T07:33:45.7307504Z ##[error]Alert redeclared in this block (typecheck)
-2026-01-29T07:33:45.7308531Z ##[error]	other declaration of Alert (typecheck)
-2026-01-29T07:33:45.7309561Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7310628Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7311953Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7313035Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7315242Z ##[error]unknown field Timestamp in struct literal of type HealthStatus (typecheck)
-2026-01-29T07:33:45.7316956Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7318460Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7320123Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7321379Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7322802Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7324851Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7327194Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7329076Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7331606Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7333248Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7334855Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7336045Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7337428Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
-2026-01-29T07:33:45.7338596Z ##[error]pkg/optimization/resource_optimizer.go:304:51: 1.5 (untyped float constant) truncated to uint64
-2026-01-29T07:33:45.7339685Z ##[error]pkg/optimization/service.go:40:6: declared and not used: cacheTTL
-2026-01-29T07:33:45.7341544Z ##[error]pkg/optimization/service.go:42:33: cannot use ttl.(interface{}).(interface{}) (comma, ok expression of type interface{}) as time.Duration value in argument to s.cache.Set: need type assertion
-2026-01-29T07:33:45.7342973Z ##[error]pkg/optimization/caching.go:5:2: "fmt" imported and not used) (typecheck)
-2026-01-29T07:33:45.7344185Z ##[error]StreamCache redeclared in this block (typecheck)
-2026-01-29T07:33:45.7345264Z ##[error]	other declaration of StreamCache (typecheck)
-2026-01-29T07:33:45.7346593Z ##[error]method StreamCache.Get already declared at pkg/plugins/streaming/cache.go:7:23 (typecheck)
-2026-01-29T07:33:45.7348077Z ##[error]method StreamCache.Set already declared at pkg/plugins/streaming/cache.go:12:23 (typecheck)
-2026-01-29T07:33:45.7349279Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7350315Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7351573Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7353609Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7355265Z ##[error]cannot use contentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7356999Z ##[error]declared and not used: startTime (typecheck)
-2026-01-29T07:33:45.7359122Z ##[error]cannot use contentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7361261Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7363604Z ##[error]cannot use contentID (variable of type string) as int64 value in argument to zap.Int64 (typecheck)
-2026-01-29T07:33:45.7365338Z ##[error]unknown field logger in struct literal of type StreamCache (typecheck)
-2026-01-29T07:33:45.7367214Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7368584Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7370374Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7371817Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7372908Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7375140Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7376937Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7379105Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7381532Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7383919Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7385725Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7388015Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7389473Z ##[error]TaskQueue redeclared in this block (typecheck)
-2026-01-29T07:33:45.7391212Z ##[error]	other declaration of TaskQueue (typecheck)
-2026-01-29T07:33:45.7393212Z ##[error]Worker redeclared in this block (typecheck)
-2026-01-29T07:33:45.7394943Z ##[error]	other declaration of Worker (typecheck)
-2026-01-29T07:33:45.7396992Z ##[error]method TaskQueue.Enqueue already declared at pkg/plugins/transcoder/queue.go:7:21 (typecheck)
-2026-01-29T07:33:45.7398671Z ##[error]method TaskQueue.Dequeue already declared at pkg/plugins/transcoder/queue.go:12:21 (typecheck)
-2026-01-29T07:33:45.7399932Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7401176Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7402328Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7403429Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7404876Z ##[error]cannot use "task_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7406488Z ##[error]cannot use "task_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7407869Z ##[error]unknown field tasks in struct literal of type TaskQueue (typecheck)
-2026-01-29T07:33:45.7409130Z ##[error]unknown field queue in struct literal of type TaskQueue (typecheck)
-2026-01-29T07:33:45.7410394Z ##[error]unknown field maxSize in struct literal of type TaskQueue (typecheck)
-2026-01-29T07:33:45.7411808Z ##[error]unknown field metrics in struct literal of type TaskQueue (typecheck)
-2026-01-29T07:33:45.7413108Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7414395Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7415706Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
-2026-01-29T07:33:45.7417230Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
-2026-01-29T07:33:45.7418587Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
-2026-01-29T07:33:45.7419949Z ##[error]tq.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
-2026-01-29T07:33:45.7421411Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
-2026-01-29T07:33:45.7422731Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7424001Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7425488Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
-2026-01-29T07:33:45.7426772Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7428051Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7429357Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
-2026-01-29T07:33:45.7430669Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7432062Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7433368Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
-2026-01-29T07:33:45.7434658Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7435918Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
-2026-01-29T07:33:45.7437222Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
-2026-01-29T07:33:45.7438416Z ##[error]too many arguments in call to wp.taskQueue.Dequeue
-2026-01-29T07:33:45.7439156Z 	have (context.Context)
-2026-01-29T07:33:45.7439381Z 	want () (typecheck)
-2026-01-29T07:33:45.7440554Z ##[error]cannot use task (variable of type interface{}) as *TranscodeTask value in argument to wp.processTask: need type assertion (typecheck)
-2026-01-29T07:33:45.7442344Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
-2026-01-29T07:33:45.7443856Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
-2026-01-29T07:33:45.7445349Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
-2026-01-29T07:33:45.7446837Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
-2026-01-29T07:33:45.7448922Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7450414Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7451569Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7453287Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7454638Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7456548Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7458666Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7461219Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7463097Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7465438Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7467984Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7469954Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7471548Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7473561Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7475421Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7477195Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7479440Z ##[error]cannot use "file_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7481954Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7484009Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7486564Z ##[error]cannot use "type" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
-2026-01-29T07:33:45.7488553Z ##[error]cannot use "file_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7490822Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7533889Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7536616Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7538424Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7539699Z ##[error]"fmt" imported and not used (typecheck)
-2026-01-29T07:33:45.7540963Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7542676Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7543692Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7544678Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7545626Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7546988Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7548552Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7550111Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7551957Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7553644Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7555305Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7556509Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7557707Z ##[error]Job redeclared in this block (typecheck)
-2026-01-29T07:33:45.7558753Z ##[error]	other declaration of Job (typecheck)
-2026-01-29T07:33:45.7559805Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7560863Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7562234Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7563321Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7565093Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7566750Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7568323Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7570167Z ##[error]cannot use "job_type" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
-2026-01-29T07:33:45.7572873Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
-2026-01-29T07:33:45.7575141Z ##[error]job.CompletedAt undefined (type *Job has no field or method CompletedAt) (typecheck)
-2026-01-29T07:33:45.7577087Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7578488Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7580246Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7581708Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7583121Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7585087Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7587289Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7589209Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7591588Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7593721Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7595989Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7597601Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7599295Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
-2026-01-29T07:33:45.7601205Z ##[error]pkg/optimization/resource_optimizer.go:304:51: 1.5 (untyped float constant) truncated to uint64
-2026-01-29T07:33:45.7602475Z ##[error]pkg/optimization/service.go:40:6: declared and not used: cacheTTL
-2026-01-29T07:33:45.7605167Z ##[error]pkg/optimization/service.go:42:33: cannot use ttl.(interface{}).(interface{}) (comma, ok expression of type interface{}) as time.Duration value in argument to s.cache.Set: need type assertion
-2026-01-29T07:33:45.7606850Z ##[error]pkg/optimization/caching.go:5:2: "fmt" imported and not used) (typecheck)
-2026-01-29T07:33:45.7608911Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7610395Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7613203Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7614938Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7617245Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7619245Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7620663Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7622902Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7624120Z ##[error]undefined: security.RateLimiter (typecheck)
-2026-01-29T07:33:45.7625657Z ##[error]undefined: security.AuditLogger (typecheck)
-2026-01-29T07:33:45.7627346Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7628526Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7630712Z ##[error]cannot use "alert_id" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
-2026-01-29T07:33:45.7633313Z ##[error]cannot use "level" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
-2026-01-29T07:33:45.7635218Z ##[error]cannot use "title" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
-2026-01-29T07:33:45.7636852Z ##[error]cannot use "message" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
-2026-01-29T07:33:45.7638155Z ##[error]undefined: security.NewRateLimiter (typecheck)
-2026-01-29T07:33:45.7639256Z ##[error]undefined: security.NewAuditLogger (typecheck)
-2026-01-29T07:33:45.7640359Z ##[error]"context" imported and not used (typecheck)
-2026-01-29T07:33:45.7641985Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
-2026-01-29T07:33:45.7643567Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
-2026-01-29T07:33:45.7645116Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
-2026-01-29T07:33:45.7646682Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
-2026-01-29T07:33:45.7648221Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
-2026-01-29T07:33:45.7649759Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
-2026-01-29T07:33:45.7651426Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
-2026-01-29T07:33:45.7652822Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7654267Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7655910Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7657442Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7658949Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7660386Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7661895Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7662619Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7662840Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7663505Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7664197Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7664407Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7665060Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7665743Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7665959Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7666613Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7667296Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7667509Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7668312Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7669625Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7671217Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7672639Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7673939Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7675349Z ##[error]db.Insert undefined (type *storage.PostgresDB has no field or method Insert) (typecheck)
-2026-01-29T07:33:45.7677052Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to db.Query (typecheck)
-2026-01-29T07:33:45.7678843Z ##[error]db.Update undefined (type *storage.PostgresDB has no field or method Update) (typecheck)
-2026-01-29T07:33:45.7680297Z ##[error]db.Delete undefined (type *storage.PostgresDB has no field or method Delete) (typecheck)
-2026-01-29T07:33:45.7681618Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.7682348Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.7682653Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.7683271Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.7683980Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.7684267Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.7684874Z ##[error]too many arguments in call to cache.Get
-2026-01-29T07:33:45.7685952Z 	have (context.Context, string)
-2026-01-29T07:33:45.7686354Z 	want (string) (typecheck)
-2026-01-29T07:33:45.7687453Z ##[error]too many arguments in call to cache.Delete
-2026-01-29T07:33:45.7688699Z 	have (context.Context, string)
-2026-01-29T07:33:45.7689103Z 	want (string) (typecheck)
-2026-01-29T07:33:45.7691319Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Upload (typecheck)
-2026-01-29T07:33:45.7693556Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Upload (typecheck)
-2026-01-29T07:33:45.7695489Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Download (typecheck)
-2026-01-29T07:33:45.7697391Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Delete (typecheck)
-2026-01-29T07:33:45.7699181Z ##[error]db.AcquireConnection undefined (type *storage.PostgresDB has no field or method AcquireConnection) (typecheck)
-2026-01-29T07:33:45.7700927Z ##[error]db.AcquireConnection undefined (type *storage.PostgresDB has no field or method AcquireConnection) (typecheck)
-2026-01-29T07:33:45.7703085Z ##[error]db.ReleaseConnection undefined (type *storage.PostgresDB has no field or method ReleaseConnection) (typecheck)
-2026-01-29T07:33:45.7704470Z ##[error]"streamgate/pkg/storage" imported and not used (typecheck)
-2026-01-29T07:33:45.7705623Z ##[error]declared and not used: breakpointID (typecheck)
-2026-01-29T07:33:45.7706674Z ##[error]undefined: ml.AlertRule (typecheck)
-2026-01-29T07:33:45.7707850Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7709299Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7710894Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7712740Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7714283Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7715713Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7717188Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7718382Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7719379Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7720339Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7721598Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7723032Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7724774Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7726321Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7727849Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7729400Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7731200Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7732488Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7733741Z ##[error]TestE2E_TracingFlow redeclared in this block (typecheck)
-2026-01-29T07:33:45.7734929Z ##[error]	other declaration of TestE2E_TracingFlow (typecheck)
-2026-01-29T07:33:45.7736064Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7736771Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7737001Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7737668Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7738378Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7738598Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7739249Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7739964Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7740175Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7740822Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7741841Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7742056Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7742740Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7743442Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7743659Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7744310Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7745001Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7745213Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7745855Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7746538Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7746755Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7747397Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7748078Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7748285Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7748938Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7749633Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7749839Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7750490Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7751359Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7751582Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7752267Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7752957Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7753171Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7753824Z ##[error]too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7754512Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7754889Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7755749Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7757190Z ##[error]user.Validate undefined (type *models.User has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7758639Z ##[error]user.Validate undefined (type *models.User has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7760132Z ##[error]content.Validate undefined (type *models.Content has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7761973Z ##[error]content.Validate undefined (type *models.Content has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7763345Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7764641Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7765978Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7767378Z ##[error]nft.Validate undefined (type *models.NFT has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7768862Z ##[error]nft.ContractAddr undefined (type *models.NFT has no field or method ContractAddr) (typecheck)
-2026-01-29T07:33:45.7770314Z ##[error]nft.Validate undefined (type *models.NFT has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7771821Z ##[error]unknown field UserID in struct literal of type models.Transaction (typecheck)
-2026-01-29T07:33:45.7773215Z ##[error]unknown field ContentID in struct literal of type models.Transaction (typecheck)
-2026-01-29T07:33:45.7774585Z ##[error]unknown field Amount in struct literal of type models.Transaction (typecheck)
-2026-01-29T07:33:45.7776139Z ##[error]transaction.Validate undefined (type *models.Transaction has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7777746Z ##[error]transaction.Amount undefined (type *models.Transaction has no field or method Amount) (typecheck)
-2026-01-29T07:33:45.7779359Z ##[error]transaction.Validate undefined (type *models.Transaction has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7780796Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7782561Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7783917Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7785340Z ##[error]task.Validate undefined (type *models.Task has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7786799Z ##[error]task.Validate undefined (type *models.Task has no field or method Validate) (typecheck)
-2026-01-29T07:33:45.7788170Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7789532Z ##[error]user.ToJSON undefined (type *models.User has no field or method ToJSON) (typecheck)
-2026-01-29T07:33:45.7791104Z ##[error]user2.FromJSON undefined (type *models.User has no field or method FromJSON) (typecheck)
-2026-01-29T07:33:45.7792716Z ##[error]content.ApplyDefaults undefined (type *models.Content has no field or method ApplyDefaults) (typecheck)
-2026-01-29T07:33:45.7794145Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7795464Z ##[error]unknown field UserID in struct literal of type models.Content (typecheck)
-2026-01-29T07:33:45.7796874Z ##[error]content.UserID undefined (type *models.Content has no field or method UserID) (typecheck)
-2026-01-29T07:33:45.7798580Z ##[error]cannot use p.id (variable of type string) as *scaling.DisasterRecoveryPlan value in argument to drm.CreatePlan (typecheck)
-2026-01-29T07:33:45.7800393Z ##[error]cannot use p.id (variable of type string) as *scaling.DisasterRecoveryPlan value in argument to drm.CreatePlan (typecheck)
-2026-01-29T07:33:45.7801812Z ##[error]declared and not used: plan (typecheck)
-2026-01-29T07:33:45.7802880Z ##[error]declared and not used: passwordHash (typecheck)
-2026-01-29T07:33:45.7804304Z ##[error]unknown field UploadID in struct literal of type models.Content (typecheck)
-2026-01-29T07:33:45.7805696Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7807037Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7808387Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7809707Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7811318Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7812679Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7814005Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7815326Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7816689Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7818036Z ##[error]assignment mismatch: 1 variable but util.FileSize returns 2 values (typecheck)
-2026-01-29T07:33:45.7819366Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7820654Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7822119Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7823479Z ##[error]nft.Title undefined (type *models.NFT has no field or method Title) (typecheck)
-2026-01-29T07:33:45.7824770Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7826080Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7827451Z ##[error]cannot use chainID (variable of type int) as int64 value in struct literal (typecheck)
-2026-01-29T07:33:45.7828830Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.7830001Z ##[error]"database/sql" imported and not used (typecheck)
-2026-01-29T07:33:45.7831207Z ##[error]"context" imported and not used (typecheck)
-2026-01-29T07:33:45.7832426Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7833895Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7835498Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7837015Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7838526Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7839954Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7841645Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7843101Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7844414Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7845729Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7847092Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7848440Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.7849762Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7851519Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7853364Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7854886Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7856443Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7858053Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7859664Z ##[error]: # streamgate/test/integration/middleware_test [streamgate/test/integration/middleware.test]
-2026-01-29T07:33:45.7861258Z ##[error]test/integration/middleware/middleware_integration_test.go:18:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7862206Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7862422Z 	want (*zap.Logger)
-2026-01-29T07:33:45.7863108Z ##[error]test/integration/middleware/middleware_integration_test.go:48:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7864045Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7864241Z 	want (*zap.Logger)
-2026-01-29T07:33:45.7864901Z ##[error]test/integration/middleware/middleware_integration_test.go:74:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.7865810Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.7866036Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.7866840Z ##[error]: # streamgate/test/integration/ml [streamgate/test/integration/ml.test]
-2026-01-29T07:33:45.7867985Z ##[error]test/integration/ml/ml_integration_test.go:187:14: undefined: ml.AlertRule (typecheck)
-2026-01-29T07:33:45.7869439Z ##[error]: # streamgate/test/integration/models_test [streamgate/test/integration/models.test]
-2026-01-29T07:33:45.7870781Z ##[error]test/integration/models/models_integration_test.go:25:3: unknown field Password in struct literal of type models.User
-2026-01-29T07:33:45.7872495Z ##[error]test/integration/models/models_integration_test.go:29:12: db.SaveUser undefined (type *storage.Database has no field or method SaveUser)
-2026-01-29T07:33:45.7874061Z ##[error]test/integration/models/models_integration_test.go:34:23: db.GetUser undefined (type *storage.Database has no field or method GetUser)
-2026-01-29T07:33:45.7875661Z ##[error]test/integration/models/models_integration_test.go:57:12: db.SaveContent undefined (type *storage.Database has no field or method SaveContent)
-2026-01-29T07:33:45.7877286Z ##[error]test/integration/models/models_integration_test.go:62:23: db.GetContent undefined (type *storage.Database has no field or method GetContent)
-2026-01-29T07:33:45.7878737Z ##[error]test/integration/models/models_integration_test.go:77:3: unknown field Title in struct literal of type models.NFT
-2026-01-29T07:33:45.7880116Z ##[error]test/integration/models/models_integration_test.go:79:3: unknown field ContentID in struct literal of type models.NFT
-2026-01-29T07:33:45.7881652Z ##[error]test/integration/models/models_integration_test.go:81:3: unknown field ContractAddr in struct literal of type models.NFT
-2026-01-29T07:33:45.7883169Z ##[error]test/integration/models/models_integration_test.go:86:12: db.SaveNFT undefined (type *storage.Database has no field or method SaveNFT)
-2026-01-29T07:33:45.7884691Z ##[error]test/integration/models/models_integration_test.go:91:23: db.GetNFT undefined (type *storage.Database has no field or method GetNFT)
-2026-01-29T07:33:45.7885974Z ##[error]test/integration/models/models_integration_test.go:91:23: too many errors (typecheck)
-2026-01-29T07:33:45.7887382Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.7888402Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.7889353Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.7890445Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.7891602Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.7892981Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7894513Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7896056Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7897817Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7899376Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7900964Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.7902311Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.7903605Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7904952Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7906517Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7908035Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7909539Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7910968Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7912526Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7913894Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7946186Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7947940Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7949537Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7951133Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7952662Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7954037Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7955661Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7957176Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7958720Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7960139Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.7961931Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7963368Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7964712Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7966041Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7967370Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7968696Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7970175Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7971665Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7973032Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7974343Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7975649Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7976978Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7978321Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7979655Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7981161Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7982511Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7983826Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7985158Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7986480Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7987797Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7989117Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
-2026-01-29T07:33:45.7990256Z ##[error]"bytes" imported and not used (typecheck)
-2026-01-29T07:33:45.7991653Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.7993093Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7994691Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7996200Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7997701Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.7999126Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.8000480Z ##[error]"streamgate/pkg/models" imported and not used (typecheck)
-2026-01-29T07:33:45.8001882Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.8003273Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8004862Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8006367Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8008040Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8009514Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.8010930Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8012425Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8013748Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8015217Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8016495Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8017797Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
-2026-01-29T07:33:45.8019138Z ##[error]nft.Title undefined (type *models.NFT has no field or method Title) (typecheck)
-2026-01-29T07:33:45.8020442Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.8022044Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8023655Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8025166Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8026710Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8028156Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.8029424Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8030137Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8030454Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8031250Z ##[error]too many arguments in call to cache.Get
-2026-01-29T07:33:45.8031964Z 	have (context.Context, string)
-2026-01-29T07:33:45.8032204Z 	want (string) (typecheck)
-2026-01-29T07:33:45.8032798Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8033498Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8033788Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8034392Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8035092Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8035374Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8035980Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8036673Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8036965Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8037570Z ##[error]too many arguments in call to cache.Get
-2026-01-29T07:33:45.8038242Z 	have (context.Context, string)
-2026-01-29T07:33:45.8038483Z 	want (string) (typecheck)
-2026-01-29T07:33:45.8039059Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8039756Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8040045Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8041223Z ##[error]cache.GetMemoryUsage undefined (type *storage.RedisCache has no field or method GetMemoryUsage) (typecheck)
-2026-01-29T07:33:45.8042711Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8043839Z ##[error]too many arguments in call to cache.Set
-2026-01-29T07:33:45.8044528Z 	have (context.Context, string, string, number)
-2026-01-29T07:33:45.8044818Z 	want (string, string) (typecheck)
-2026-01-29T07:33:45.8045407Z ##[error]too many arguments in call to cache.Get
-2026-01-29T07:33:45.8046076Z 	have (context.Context, string)
-2026-01-29T07:33:45.8046316Z 	want (string) (typecheck)
-2026-01-29T07:33:45.8047246Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8048707Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
-2026-01-29T07:33:45.8050074Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8051569Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8053051Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
-2026-01-29T07:33:45.8054631Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8056112Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
-2026-01-29T07:33:45.8057823Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to db.Query (typecheck)
-2026-01-29T07:33:45.8059557Z ##[error]db.BeginTransaction undefined (type *storage.Database has no field or method BeginTransaction) (typecheck)
-2026-01-29T07:33:45.8061114Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8062448Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
-2026-01-29T07:33:45.8063889Z ##[error]db.BulkInsert undefined (type *storage.Database has no field or method BulkInsert) (typecheck)
-2026-01-29T07:33:45.8065278Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.8066355Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.8067316Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.8068262Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.8069198Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.8070538Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8072271Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8073817Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8075355Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8076912Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8078505Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8079683Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.8081186Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
-2026-01-29T07:33:45.8082394Z ##[error]pkg/optimization/resource_optimizer.go:304:51: 1.5 (untyped float constant) truncated to uint64
-2026-01-29T07:33:45.8083478Z ##[error]pkg/optimization/service.go:40:6: declared and not used: cacheTTL
-2026-01-29T07:33:45.8085222Z ##[error]pkg/optimization/service.go:42:33: cannot use ttl.(interface{}).(interface{}) (comma, ok expression of type interface{}) as time.Duration value in argument to s.cache.Set: need type assertion
-2026-01-29T07:33:45.8086632Z ##[error]pkg/optimization/caching.go:5:2: "fmt" imported and not used) (typecheck)
-2026-01-29T07:33:45.8087895Z ##[error]: # streamgate/test/security [streamgate/test/security.test]
-2026-01-29T07:33:45.8089362Z ##[error]test/security/security_audit_test.go:52:13: cannot use util.ValidateEmail(tt.input) (value of interface type error) as bool value in assignment
-2026-01-29T07:33:45.8091451Z ##[error]test/security/security_audit_test.go:54:13: cannot use util.ValidateEthereumAddress(tt.input) (value of interface type error) as bool value in assignment
-2026-01-29T07:33:45.8093272Z ##[error]test/security/security_audit_test.go:56:13: cannot use util.ValidateHash(tt.input) (value of interface type error) as bool value in assignment
-2026-01-29T07:33:45.8094562Z ##[error]test/security/security_audit_test.go:68:22: undefined: security.NewRateLimiter
-2026-01-29T07:33:45.8095638Z ##[error]test/security/security_audit_test.go:85:21: undefined: security.NewAuditLogger
-2026-01-29T07:33:45.8097249Z ##[error]test/security/security_audit_test.go:114:28: cannot use tt.input (variable of type string) as []byte value in argument to util.HashSHA256
-2026-01-29T07:33:45.8098779Z ##[error]test/security/security_audit_test.go:127:13: assignment mismatch: 1 variable but util.GenerateRandomString returns 2 values
-2026-01-29T07:33:45.8099999Z ##[error]test/security/security_audit_test.go:140:20: undefined: security.NewSecureCache
-2026-01-29T07:33:45.8101274Z ##[error]test/security/security_audit_test.go:167:18: undefined: security.NewSecurityError
-2026-01-29T07:33:45.8102400Z ##[error]test/security/security_audit_test.go:179:25: undefined: security.GetCORSConfig
-2026-01-29T07:33:45.8103449Z ##[error]test/security/security_audit_test.go:179:25: too many errors (typecheck)
-2026-01-29T07:33:45.8104832Z ##[error]: # streamgate/test/unit/middleware_test [streamgate/test/unit/middleware.test]
-2026-01-29T07:33:45.8106085Z ##[error]test/unit/middleware/auth_test.go:19:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8106931Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8107142Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8107698Z ##[error]test/unit/middleware/auth_test.go:43:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8108525Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8108719Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8109267Z ##[error]test/unit/middleware/auth_test.go:65:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8110086Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8110280Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8110818Z ##[error]test/unit/middleware/cors_test.go:18:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8111802Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8112000Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8112560Z ##[error]test/unit/middleware/cors_test.go:41:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8113369Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8113567Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8114129Z ##[error]test/unit/middleware/logging_test.go:18:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8114967Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8115160Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8115706Z ##[error]test/unit/middleware/logging_test.go:40:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8116535Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8116729Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8117298Z ##[error]test/unit/middleware/ratelimit_test.go:18:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8118140Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8118338Z 	want (*zap.Logger)
-2026-01-29T07:33:45.8118901Z ##[error]test/unit/middleware/ratelimit_test.go:41:40: too many arguments in call to middleware.NewService
-2026-01-29T07:33:45.8119724Z 	have (nil, nil, nil)
-2026-01-29T07:33:45.8119939Z 	want (*zap.Logger) (typecheck)
-2026-01-29T07:33:45.8120731Z ##[error]: # streamgate/test/unit/models_test [streamgate/test/unit/models.test]
-2026-01-29T07:33:45.8122108Z ##[error]test/unit/models/content_test.go:16:3: unknown field Size in struct literal of type models.Content
-2026-01-29T07:33:45.8123560Z ##[error]test/unit/models/content_test.go:24:49: content.Size undefined (type *models.Content has no field or method Size) (typecheck)
-2026-01-29T07:33:45.8125121Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
-2026-01-29T07:33:45.8126352Z ##[error]pkg/monitoring/metrics.go:144:6: declared and not used: key
-2026-01-29T07:33:45.8127396Z ##[error]pkg/monitoring/prometheus.go:59:6: declared and not used: key
-2026-01-29T07:33:45.8128356Z ##[error]pkg/monitoring/prometheus.go:75:6: declared and not used: key
-2026-01-29T07:33:45.8129304Z ##[error]pkg/monitoring/prometheus.go:91:6: declared and not used: key
-2026-01-29T07:33:45.8130652Z ##[error]pkg/monitoring/tracing.go:78:33: cannot use "span_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8132584Z ##[error]pkg/monitoring/tracing.go:78:44: cannot use span.ID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8134124Z ##[error]pkg/monitoring/tracing.go:78:53: cannot use "trace_id" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8135642Z ##[error]pkg/monitoring/tracing.go:78:65: cannot use traceID (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8137197Z ##[error]pkg/monitoring/tracing.go:78:74: cannot use "operation" (untyped string constant) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8138772Z ##[error]pkg/monitoring/tracing.go:78:87: cannot use operationName (variable of type string) as zap.Field value in argument to t.logger.Debug
-2026-01-29T07:33:45.8139952Z ##[error]pkg/monitoring/tracing.go:78:87: too many errors) (typecheck)
-2026-01-29T07:33:45.8141359Z ##[error]could not import streamgate/pkg/service (-: # streamgate/pkg/service
-2026-01-29T07:33:45.8142752Z ##[error]pkg/service/registry.go:50:46: cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8144320Z ##[error]pkg/service/registry.go:50:57: cannot use cfg.Consul.Address (variable of type string) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8145832Z ##[error]pkg/service/registry.go:50:77: cannot use "port" (untyped string constant) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8147335Z ##[error]pkg/service/registry.go:50:85: cannot use cfg.Consul.Port (variable of type int) as zap.Field value in argument to logger.Info
-2026-01-29T07:33:45.8148767Z ##[error]pkg/service/web3.go:109:44: client.client undefined (cannot refer to unexported field client)) (typecheck)
-2026-01-29T07:33:45.8150294Z ##[error]: # streamgate/test/unit/storage_test [streamgate/test/unit/storage.test]
-2026-01-29T07:33:45.8151720Z ##[error]test/unit/storage/postgres_test.go:6:2: "streamgate/pkg/storage" imported and not used (typecheck)
-2026-01-29T07:33:45.8153147Z ##[error]: # streamgate/test/unit/util_test [streamgate/test/unit/util.test]
-2026-01-29T07:33:45.8154967Z ##[error]test/unit/util/crypto_test.go:28:8: cannot use util.VerifyPassword(hash, password) (value of type bool) as error value in assignment: bool does not implement error (missing method Error)
-2026-01-29T07:33:45.8157176Z ##[error]test/unit/util/crypto_test.go:32:8: cannot use util.VerifyPassword(hash, "wrongpassword") (value of type bool) as error value in assignment: bool does not implement error (missing method Error)
-2026-01-29T07:33:45.8158923Z ##[error]test/unit/util/crypto_test.go:72:34: cannot use plaintext (variable of type string) as []byte value in argument to util.Encrypt
-2026-01-29T07:33:45.8160375Z ##[error]test/unit/util/crypto_test.go:72:45: cannot use key (variable of type string) as []byte value in argument to util.Encrypt
-2026-01-29T07:33:45.8162041Z ##[error]test/unit/util/crypto_test.go:77:45: cannot use key (variable of type string) as []byte value in argument to util.Decrypt
-2026-01-29T07:33:45.8163534Z ##[error]test/unit/util/crypto_test.go:88:34: cannot use plaintext (variable of type string) as []byte value in argument to util.Encrypt
-2026-01-29T07:33:45.8164997Z ##[error]test/unit/util/crypto_test.go:88:45: cannot use key1 (variable of type string) as []byte value in argument to util.Encrypt
-2026-01-29T07:33:45.8166666Z ##[error]test/unit/util/crypto_test.go:92:36: cannot use key2 (variable of type string) as []byte value in argument to util.Decrypt (typecheck)
-2026-01-29T07:33:45.8168194Z ##[error]: # streamgate/test/unit/web3_test [streamgate/test/unit/web3.test]
-2026-01-29T07:33:45.8169248Z ##[error]test/unit/web3/nft_test.go:24:19: undefined: web3.IsValidAddress
-2026-01-29T07:33:45.8170214Z ##[error]test/unit/web3/nft_test.go:34:18: undefined: web3.IsValidAddress
-2026-01-29T07:33:45.8171299Z ##[error]test/unit/web3/nft_test.go:38:17: undefined: web3.IsValidAddress
-2026-01-29T07:33:45.8172467Z ##[error]test/unit/web3/nft_test.go:57:19: undefined: web3.IsValidTokenID
-2026-01-29T07:33:45.8173434Z ##[error]test/unit/web3/nft_test.go:67:17: undefined: web3.ParseAddress
-2026-01-29T07:33:45.8174398Z ##[error]test/unit/web3/nft_test.go:78:17: undefined: web3.CompareAddresses
-2026-01-29T07:33:45.8175391Z ##[error]test/unit/web3/nft_test.go:82:16: undefined: web3.CompareAddresses
-2026-01-29T07:33:45.8176367Z ##[error]test/unit/web3/nft_test.go:86:16: undefined: web3.CompareAddresses
-2026-01-29T07:33:45.8177377Z ##[error]test/unit/web3/nft_test.go:94:20: undefined: web3.FormatAddress (typecheck)
-2026-01-29T07:33:45.8178060Z 
-2026-01-29T07:33:45.8178468Z level=warning msg="[config_reader] The output format `github-actions` is deprecated, please use `colored-line-number`"
-2026-01-29T07:33:45.8178919Z 
-2026-01-29T07:33:45.8179326Z ##[error]issues found
-2026-01-29T07:33:45.8179939Z Ran golangci-lint in 131950ms
-2026-01-29T07:33:45.8180311Z ##[endgroup]
-2026-01-29T07:33:45.8252436Z Post job cleanup.
-2026-01-29T07:33:45.9864032Z Post job cleanup.
-2026-01-29T07:33:46.1046743Z [command]/usr/bin/git version
-2026-01-29T07:33:46.1090144Z git version 2.52.0
-2026-01-29T07:33:46.1139953Z Temporarily overriding HOME='/home/runner/work/_temp/1a00aacb-5323-42eb-bf11-d18c8973b87c' before making global git config changes
-2026-01-29T07:33:46.1141527Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T07:33:46.1159493Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T07:33:46.1202704Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T07:33:46.1257338Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T07:33:46.1529823Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T07:33:46.1556531Z http.https://github.com/.extraheader
-2026-01-29T07:33:46.1570102Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
-2026-01-29T07:33:46.1648378Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T07:33:46.1899795Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T07:33:46.1953251Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T07:33:46.2336272Z Cleaning up orphan processes
+2026-01-29T07:54:06.2293130Z Current runner version: '2.331.0'
+2026-01-29T07:54:06.2316332Z ##[group]Runner Image Provisioner
+2026-01-29T07:54:06.2317232Z Hosted Compute Agent
+2026-01-29T07:54:06.2317730Z Version: 20260115.477
+2026-01-29T07:54:06.2318416Z Commit: 4b342d620503cbe250a3154040964899ea7c9b00
+2026-01-29T07:54:06.2319073Z Build Date: 2026-01-15T22:32:41Z
+2026-01-29T07:54:06.2320040Z Worker ID: {e1cc7cd7-cf1b-45b9-9031-2b57cd2aa3f5}
+2026-01-29T07:54:06.2320817Z Azure Region: westus
+2026-01-29T07:54:06.2321341Z ##[endgroup]
+2026-01-29T07:54:06.2322708Z ##[group]Operating System
+2026-01-29T07:54:06.2323381Z Ubuntu
+2026-01-29T07:54:06.2323834Z 24.04.3
+2026-01-29T07:54:06.2324243Z LTS
+2026-01-29T07:54:06.2324788Z ##[endgroup]
+2026-01-29T07:54:06.2325246Z ##[group]Runner Image
+2026-01-29T07:54:06.2325762Z Image: ubuntu-24.04
+2026-01-29T07:54:06.2326252Z Version: 20260119.4.1
+2026-01-29T07:54:06.2327424Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260119.4/images/ubuntu/Ubuntu2404-Readme.md
+2026-01-29T07:54:06.2328941Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260119.4
+2026-01-29T07:54:06.2330145Z ##[endgroup]
+2026-01-29T07:54:06.2331135Z ##[group]GITHUB_TOKEN Permissions
+2026-01-29T07:54:06.2332972Z Contents: read
+2026-01-29T07:54:06.2333521Z Metadata: read
+2026-01-29T07:54:06.2333967Z Packages: read
+2026-01-29T07:54:06.2334597Z ##[endgroup]
+2026-01-29T07:54:06.2336633Z Secret source: Actions
+2026-01-29T07:54:06.2337284Z Prepare workflow directory
+2026-01-29T07:54:06.2723888Z Prepare all required actions
+2026-01-29T07:54:06.2760829Z Getting action download info
+2026-01-29T07:54:06.7452785Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-01-29T07:54:06.8845120Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
+2026-01-29T07:54:07.4558039Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
+2026-01-29T07:54:08.1982652Z Complete job name: Lint & Format Check
+2026-01-29T07:54:08.2805149Z ##[group]Run actions/checkout@v4
+2026-01-29T07:54:08.2806439Z with:
+2026-01-29T07:54:08.2807193Z   repository: rtcdance/streamgate
+2026-01-29T07:54:08.2808427Z   token: ***
+2026-01-29T07:54:08.2809161Z   ssh-strict: true
+2026-01-29T07:54:08.2810084Z   ssh-user: git
+2026-01-29T07:54:08.2810890Z   persist-credentials: true
+2026-01-29T07:54:08.2811779Z   clean: true
+2026-01-29T07:54:08.2812577Z   sparse-checkout-cone-mode: true
+2026-01-29T07:54:08.2813532Z   fetch-depth: 1
+2026-01-29T07:54:08.2814292Z   fetch-tags: false
+2026-01-29T07:54:08.2815092Z   show-progress: true
+2026-01-29T07:54:08.2815909Z   lfs: false
+2026-01-29T07:54:08.2816650Z   submodules: false
+2026-01-29T07:54:08.2817474Z   set-safe-directory: true
+2026-01-29T07:54:08.2818610Z env:
+2026-01-29T07:54:08.2819318Z   GO_VERSION: 1.24
+2026-01-29T07:54:08.2820563Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T07:54:08.2821605Z   GOTOOLCHAIN: auto
+2026-01-29T07:54:08.2822404Z ##[endgroup]
+2026-01-29T07:54:08.3887929Z Syncing repository: rtcdance/streamgate
+2026-01-29T07:54:08.3890903Z ##[group]Getting Git version info
+2026-01-29T07:54:08.3892288Z Working directory is '/home/runner/work/streamgate/streamgate'
+2026-01-29T07:54:08.3894239Z [command]/usr/bin/git version
+2026-01-29T07:54:08.3964102Z git version 2.52.0
+2026-01-29T07:54:08.3990126Z ##[endgroup]
+2026-01-29T07:54:08.4003957Z Temporarily overriding HOME='/home/runner/work/_temp/da7d36c6-0740-44a8-ad0f-552ccfa1d3e2' before making global git config changes
+2026-01-29T07:54:08.4006786Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T07:54:08.4009842Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T07:54:08.4046501Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
+2026-01-29T07:54:08.4050161Z ##[group]Initializing the repository
+2026-01-29T07:54:08.4054114Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
+2026-01-29T07:54:08.4154838Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-01-29T07:54:08.4156833Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-01-29T07:54:08.4159125Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-01-29T07:54:08.4160870Z hint: call:
+2026-01-29T07:54:08.4161592Z hint:
+2026-01-29T07:54:08.4162567Z hint: 	git config --global init.defaultBranch <name>
+2026-01-29T07:54:08.4164188Z hint:
+2026-01-29T07:54:08.4165288Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-01-29T07:54:08.4167103Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-01-29T07:54:08.4168924Z hint:
+2026-01-29T07:54:08.4169895Z hint: 	git branch -m <name>
+2026-01-29T07:54:08.4170842Z hint:
+2026-01-29T07:54:08.4172026Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-01-29T07:54:08.4174110Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
+2026-01-29T07:54:08.4177211Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
+2026-01-29T07:54:08.4204650Z ##[endgroup]
+2026-01-29T07:54:08.4206109Z ##[group]Disabling automatic garbage collection
+2026-01-29T07:54:08.4207765Z [command]/usr/bin/git config --local gc.auto 0
+2026-01-29T07:54:08.4236373Z ##[endgroup]
+2026-01-29T07:54:08.4237657Z ##[group]Setting up auth
+2026-01-29T07:54:08.4242392Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T07:54:08.4272769Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T07:54:08.4604797Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T07:54:08.4633551Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T07:54:08.4847410Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T07:54:08.4876514Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T07:54:08.5106368Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-01-29T07:54:08.5139594Z ##[endgroup]
+2026-01-29T07:54:08.5141678Z ##[group]Fetching the repository
+2026-01-29T07:54:08.5149637Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +2d4b7248f1ed8291d8aa903c02ba58bcb6622937:refs/remotes/origin/master
+2026-01-29T07:54:09.0533585Z From https://github.com/rtcdance/streamgate
+2026-01-29T07:54:09.0534668Z  * [new ref]         2d4b7248f1ed8291d8aa903c02ba58bcb6622937 -> origin/master
+2026-01-29T07:54:09.0565252Z ##[endgroup]
+2026-01-29T07:54:09.0565680Z ##[group]Determining the checkout info
+2026-01-29T07:54:09.0568079Z ##[endgroup]
+2026-01-29T07:54:09.0573591Z [command]/usr/bin/git sparse-checkout disable
+2026-01-29T07:54:09.0669216Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-01-29T07:54:09.0696563Z ##[group]Checking out the ref
+2026-01-29T07:54:09.0701183Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+2026-01-29T07:54:09.1118153Z Reset branch 'master'
+2026-01-29T07:54:09.1120185Z branch 'master' set up to track 'origin/master'.
+2026-01-29T07:54:09.1127394Z ##[endgroup]
+2026-01-29T07:54:09.1165662Z [command]/usr/bin/git log -1 --format=%H
+2026-01-29T07:54:09.1187284Z 2d4b7248f1ed8291d8aa903c02ba58bcb6622937
+2026-01-29T07:54:09.1401227Z ##[group]Run actions/setup-go@v4
+2026-01-29T07:54:09.1401496Z with:
+2026-01-29T07:54:09.1401675Z   go-version: 1.24
+2026-01-29T07:54:09.1401865Z   check-latest: false
+2026-01-29T07:54:09.1402393Z   token: ***
+2026-01-29T07:54:09.1402565Z   cache: true
+2026-01-29T07:54:09.1402733Z env:
+2026-01-29T07:54:09.1402897Z   GO_VERSION: 1.24
+2026-01-29T07:54:09.1403110Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T07:54:09.1403378Z   GOTOOLCHAIN: auto
+2026-01-29T07:54:09.1403562Z ##[endgroup]
+2026-01-29T07:54:09.2972311Z Setup go version spec 1.24
+2026-01-29T07:54:09.3393047Z Found in cache @ /opt/hostedtoolcache/go/1.24.12/x64
+2026-01-29T07:54:09.3397063Z Added go to the path
+2026-01-29T07:54:09.3401204Z Successfully set up Go version 1.24
+2026-01-29T07:54:09.8943391Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOMODCACHE
+2026-01-29T07:54:09.8975403Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOCACHE
+2026-01-29T07:54:09.8997153Z /home/runner/go/pkg/mod
+2026-01-29T07:54:09.9022327Z /home/runner/.cache/go-build
+2026-01-29T07:54:10.2064729Z Cache is not found
+2026-01-29T07:54:10.2085230Z go version go1.24.12 linux/amd64
+2026-01-29T07:54:10.2085488Z 
+2026-01-29T07:54:10.2085844Z ##[group]go env
+2026-01-29T07:54:10.7863369Z AR='ar'
+2026-01-29T07:54:10.7863864Z CC='gcc'
+2026-01-29T07:54:10.7864176Z CGO_CFLAGS='-O2 -g'
+2026-01-29T07:54:10.7864544Z CGO_CPPFLAGS=''
+2026-01-29T07:54:10.7864866Z CGO_CXXFLAGS='-O2 -g'
+2026-01-29T07:54:10.7865370Z CGO_ENABLED='1'
+2026-01-29T07:54:10.7865709Z CGO_FFLAGS='-O2 -g'
+2026-01-29T07:54:10.7866088Z CGO_LDFLAGS='-O2 -g'
+2026-01-29T07:54:10.7866462Z CXX='g++'
+2026-01-29T07:54:10.7866832Z GCCGO='gccgo'
+2026-01-29T07:54:10.7867231Z GO111MODULE=''
+2026-01-29T07:54:10.7867651Z GOAMD64='v1'
+2026-01-29T07:54:10.7868055Z GOARCH='amd64'
+2026-01-29T07:54:10.7868474Z GOAUTH='netrc'
+2026-01-29T07:54:10.7868833Z GOBIN=''
+2026-01-29T07:54:10.7869208Z GOCACHE='/home/runner/.cache/go-build'
+2026-01-29T07:54:10.7870012Z GOCACHEPROG=''
+2026-01-29T07:54:10.7870442Z GODEBUG=''
+2026-01-29T07:54:10.7870898Z GOENV='/home/runner/.config/go/env'
+2026-01-29T07:54:10.7871451Z GOEXE=''
+2026-01-29T07:54:10.7871847Z GOEXPERIMENT=''
+2026-01-29T07:54:10.7872328Z GOFIPS140='off'
+2026-01-29T07:54:10.7872680Z GOFLAGS=''
+2026-01-29T07:54:10.7874018Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build2855464381=/tmp/go-build -gno-record-gcc-switches'
+2026-01-29T07:54:10.7875299Z GOHOSTARCH='amd64'
+2026-01-29T07:54:10.7875697Z GOHOSTOS='linux'
+2026-01-29T07:54:10.7876063Z GOINSECURE=''
+2026-01-29T07:54:10.7876566Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
+2026-01-29T07:54:10.7877155Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-01-29T07:54:10.7877628Z GONOPROXY=''
+2026-01-29T07:54:10.7877972Z GONOSUMDB=''
+2026-01-29T07:54:10.7878294Z GOOS='linux'
+2026-01-29T07:54:10.7878650Z GOPATH='/home/runner/go'
+2026-01-29T07:54:10.7879042Z GOPRIVATE=''
+2026-01-29T07:54:10.7879652Z GOPROXY='https://goproxy.io,direct'
+2026-01-29T07:54:10.7880196Z GOROOT='/opt/hostedtoolcache/go/1.24.12/x64'
+2026-01-29T07:54:10.7880703Z GOSUMDB='sum.golang.org'
+2026-01-29T07:54:10.7881088Z GOTELEMETRY='local'
+2026-01-29T07:54:10.7881529Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-01-29T07:54:10.7882042Z GOTMPDIR=''
+2026-01-29T07:54:10.7882352Z GOTOOLCHAIN='auto'
+2026-01-29T07:54:10.7882900Z GOTOOLDIR='/opt/hostedtoolcache/go/1.24.12/x64/pkg/tool/linux_amd64'
+2026-01-29T07:54:10.7883505Z GOVCS=''
+2026-01-29T07:54:10.7883811Z GOVERSION='go1.24.12'
+2026-01-29T07:54:10.7884133Z GOWORK=''
+2026-01-29T07:54:10.7884463Z PKG_CONFIG='pkg-config'
+2026-01-29T07:54:10.7884703Z 
+2026-01-29T07:54:10.7885749Z ##[endgroup]
+2026-01-29T07:54:10.8006444Z ##[group]Run golangci/golangci-lint-action@v3
+2026-01-29T07:54:10.8006755Z with:
+2026-01-29T07:54:10.8006925Z   version: v1.64.8
+2026-01-29T07:54:10.8007137Z   args: --timeout=5m ./...
+2026-01-29T07:54:10.8007361Z   skip-cache: true
+2026-01-29T07:54:10.8007690Z   github-token: ***
+2026-01-29T07:54:10.8007893Z   only-new-issues: false
+2026-01-29T07:54:10.8008104Z   skip-pkg-cache: false
+2026-01-29T07:54:10.8008316Z   skip-build-cache: false
+2026-01-29T07:54:10.8008523Z   install-mode: binary
+2026-01-29T07:54:10.8008909Z env:
+2026-01-29T07:54:10.8009070Z   GO_VERSION: 1.24
+2026-01-29T07:54:10.8009283Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T07:54:10.8009796Z   GOTOOLCHAIN: auto
+2026-01-29T07:54:10.8009989Z ##[endgroup]
+2026-01-29T07:54:10.9220579Z ##[group]prepare environment
+2026-01-29T07:54:10.9224773Z Finding needed golangci-lint version...
+2026-01-29T07:54:10.9228106Z Installation mode: binary
+2026-01-29T07:54:10.9229143Z Installing golangci-lint binary v1.64.8...
+2026-01-29T07:54:10.9230725Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz ...
+2026-01-29T07:54:11.2587580Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/5e3c7e04-f89f-403a-9a96-eb898c5c9907
+2026-01-29T07:54:11.4704997Z Installed golangci-lint into /home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint in 548ms
+2026-01-29T07:54:11.4706065Z Prepared env in 548ms
+2026-01-29T07:54:11.4706779Z ##[endgroup]
+2026-01-29T07:54:11.4709359Z ##[group]run golangci-lint
+2026-01-29T07:54:11.4715906Z Running [/home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint run --out-format=github-actions --timeout=5m ./...] in [] ...
+2026-01-29T07:54:11.5637345Z level=warning msg="[config_reader] The output format `github-actions` is deprecated, please use `colored-line-number`"
+2026-01-29T07:54:11.5648845Z Error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-lint v2
+2026-01-29T07:54:11.5652083Z Failed executing command with error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-lint v2
+2026-01-29T07:54:11.5652969Z 
+2026-01-29T07:54:11.5669034Z ##[error]golangci-lint exit with code 3
+2026-01-29T07:54:11.5676240Z Ran golangci-lint in 92ms
+2026-01-29T07:54:11.5676702Z ##[endgroup]
+2026-01-29T07:54:11.5790787Z Post job cleanup.
+2026-01-29T07:54:11.7125063Z Post job cleanup.
+2026-01-29T07:54:11.8052701Z [command]/usr/bin/git version
+2026-01-29T07:54:11.8087787Z git version 2.52.0
+2026-01-29T07:54:11.8131529Z Temporarily overriding HOME='/home/runner/work/_temp/741db95d-ca96-4a26-ab9b-37f6c6cde570' before making global git config changes
+2026-01-29T07:54:11.8132901Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T07:54:11.8144429Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T07:54:11.8180239Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T07:54:11.8213160Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T07:54:11.8440749Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T07:54:11.8460784Z http.https://github.com/.extraheader
+2026-01-29T07:54:11.8472908Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-01-29T07:54:11.8503136Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T07:54:11.8720319Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T07:54:11.8750590Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T07:54:11.9067012Z Cleaning up orphan processes
