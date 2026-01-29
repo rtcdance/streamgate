@@ -114,7 +114,9 @@ func (gm *GasMonitor) updateGasPrice(ctx context.Context) {
 	gm.currentPrice = gasPrice
 	gm.mu.Unlock()
 
-	gm.logger.Debug("Gas price updated", zap.String("gas_price_wei", gasPrice.String()), "gas_price_gwei", gm.GetGasPriceInGwei())
+	gm.logger.Debug("Gas price updated",
+		zap.String("gas_price_wei", gasPrice.String()),
+		zap.Float64("gas_price_gwei", gm.GetGasPriceInGwei()))
 }
 
 // GasEstimate contains gas estimation information
