@@ -151,7 +151,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 
 	// Register service with Consul if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
-		serviceID := fmt.Sprintf("%s-%s", m.config.ServiceName, m.config.Server.Port)
+		serviceID := fmt.Sprintf("%s-%d", m.config.ServiceName, m.config.Server.Port)
 		serviceInfo := &service.ServiceInfo{
 			ID:      serviceID,
 			Name:    m.config.ServiceName,
@@ -243,7 +243,7 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	// Deregister service if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
-		serviceID := fmt.Sprintf("%s-%s", m.config.ServiceName, m.config.Server.Port)
+		serviceID := fmt.Sprintf("%s-%d", m.config.ServiceName, m.config.Server.Port)
 		if err := m.registry.Deregister(ctx, serviceID); err != nil {
 			m.logger.Error("Error deregistering service", zap.Error(err))
 		}
