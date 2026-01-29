@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
-	"go.uber.org/zap"
 )
 
 func TestE2E_NFTCreationAndVerification(t *testing.T) {
