@@ -124,6 +124,13 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
           psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
@@ -222,6 +229,13 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
           psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
@@ -320,6 +334,13 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
           psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
@@ -380,6 +401,13 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
           psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
           psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
