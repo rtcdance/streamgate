@@ -93,7 +93,11 @@ func (ws *Web3Service) VerifySignature(ctx context.Context, address string, mess
 
 // VerifyNFTOwnership verifies NFT ownership
 func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress string, tokenID string, ownerAddress string) (bool, error) {
-	ws.logger.Debug("Verifying NFT ownership", "chain_id", chainID, "contract", contractAddress, "token_id", tokenID, "owner", ownerAddress)
+	ws.logger.Debug("Verifying NFT ownership",
+		zap.Int64("chain_id", chainID),
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID),
+		zap.String("owner", ownerAddress))
 
 	// Get chain client
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -110,7 +114,7 @@ func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, co
 
 // GetGasPrice gets the current gas price
 func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, error) {
-	ws.logger.Debug("Getting gas price", zap.String("chain_id", chainID))
+	ws.logger.Debug("Getting gas price", zap.Int64("chain_id", chainID))
 
 	// Get chain client
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -129,7 +133,7 @@ func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, 
 
 // GetGasPriceLevels gets gas price levels
 func (ws *Web3Service) GetGasPriceLevels(ctx context.Context, chainID int64) ([]*web3.GasPrice, error) {
-	ws.logger.Debug("Getting gas price levels", zap.String("chain_id", chainID))
+	ws.logger.Debug("Getting gas price levels", zap.Int64("chain_id", chainID))
 
 	if ws.gasMonitor == nil {
 		return nil, fmt.Errorf("gas monitor not initialized")
@@ -140,7 +144,9 @@ func (ws *Web3Service) GetGasPriceLevels(ctx context.Context, chainID int64) ([]
 
 // UploadToIPFS uploads a file to IPFS
 func (ws *Web3Service) UploadToIPFS(ctx context.Context, filename string, data []byte) (string, error) {
-	ws.logger.Debug("Uploading to IPFS", "filename", filename, "size", len(data))
+	ws.logger.Debug("Uploading to IPFS",
+		zap.String("filename", filename),
+		zap.Int("size", len(data)))
 
 	if ws.ipfsClient == nil {
 		return "", fmt.Errorf("IPFS client not initialized")

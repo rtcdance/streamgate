@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -28,7 +29,10 @@ func NewNFTVerifier(client *ethclient.Client, logger *zap.Logger) *NFTVerifier {
 
 // VerifyNFTOwnership verifies if an address owns an NFT
 func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress string, tokenID string, ownerAddress string) (bool, error) {
-	nv.logger.Debug("Verifying NFT ownership", "contract", contractAddress, "token_id", tokenID, "owner", ownerAddress)
+	nv.logger.Debug("Verifying NFT ownership",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID),
+		zap.String("owner", ownerAddress))
 
 	// Parse addresses
 	contract := common.HexToAddress(contractAddress)
@@ -55,10 +59,7 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 	}
 
 	// Execute call
-	result, err := nv.client.CallContract(ctx, struct {
-		To   *common.Address
-		Data []byte
-	}{
+	result, err := nv.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
 	}, nil)
@@ -78,14 +79,19 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 
 	// Compare addresses
 	isOwner := tokenOwner == owner
-	nv.logger.Debug("NFT ownership verified", "contract", contractAddress, "token_id", tokenID, "is_owner", isOwner)
+	nv.logger.Debug("NFT ownership verified",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID),
+		zap.Bool("is_owner", isOwner))
 
 	return isOwner, nil
 }
 
 // GetNFTBalance gets the NFT balance of an address
 func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string, ownerAddress string) (*big.Int, error) {
-	nv.logger.Debug("Getting NFT balance", "contract", contractAddress, "owner", ownerAddress)
+	nv.logger.Debug("Getting NFT balance",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress))
 
 	// Parse addresses
 	contract := common.HexToAddress(contractAddress)
@@ -108,10 +114,7 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 	}
 
 	// Execute call
-	result, err := nv.client.CallContract(ctx, struct {
-		To   *common.Address
-		Data []byte
-	}{
+	result, err := nv.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
 	}, nil)
@@ -129,7 +132,10 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 		return nil, fmt.Errorf("failed to unpack balanceOf result: %w", err)
 	}
 
-	nv.logger.Debug("NFT balance retrieved", "contract", contractAddress, "owner", ownerAddress, "balance", balance.String())
+	nv.logger.Debug("NFT balance retrieved",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress),
+		zap.String("balance", balance.String()))
 	return balance, nil
 }
 
@@ -145,20 +151,26 @@ type NFTInfo struct {
 
 // GetNFTInfo gets information about an NFT
 func (nv *NFTVerifier) GetNFTInfo(ctx context.Context, contractAddress string, tokenID string) (*NFTInfo, error) {
-	nv.logger.Debug("Getting NFT info", "contract", contractAddress, "token_id", tokenID)
+	nv.logger.Debug("Getting NFT info",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID))
 
 	nftInfo := &NFTInfo{
 		ContractAddress: contractAddress,
 		TokenID:         tokenID,
 	}
 
-	nv.logger.Debug("NFT info retrieved", "contract", contractAddress, "token_id", tokenID)
+	nv.logger.Debug("NFT info retrieved",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID))
 	return nftInfo, nil
 }
 
 // VerifyNFTCollection verifies if an address owns any NFT from a collection
 func (nv *NFTVerifier) VerifyNFTCollection(ctx context.Context, contractAddress string, ownerAddress string) (bool, error) {
-	nv.logger.Debug("Verifying NFT collection ownership", "contract", contractAddress, "owner", ownerAddress)
+	nv.logger.Debug("Verifying NFT collection ownership",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress))
 
 	// Get balance
 	balance, err := nv.GetNFTBalance(ctx, contractAddress, ownerAddress)
@@ -168,7 +180,10 @@ func (nv *NFTVerifier) VerifyNFTCollection(ctx context.Context, contractAddress 
 
 	// Check if balance > 0
 	hasNFT := balance.Cmp(big.NewInt(0)) > 0
-	nv.logger.Debug("NFT collection ownership verified", "contract", contractAddress, "owner", ownerAddress, "has_nft", hasNFT)
+	nv.logger.Debug("NFT collection ownership verified",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress),
+		zap.Bool("has_nft", hasNFT))
 
 	return hasNFT, nil
 }

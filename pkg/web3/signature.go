@@ -24,7 +24,9 @@ func NewSignatureVerifier(logger *zap.Logger) *SignatureVerifier {
 
 // VerifySignature verifies a message signature
 func (sv *SignatureVerifier) VerifySignature(address string, message string, signature string) (bool, error) {
-	sv.logger.Debug("Verifying signature", "address", address, "message_length", len(message))
+	sv.logger.Debug("Verifying signature",
+		zap.String("address", address),
+		zap.Int("message_length", len(message)))
 
 	// Normalize address
 	if !strings.HasPrefix(address, "0x") {
@@ -39,7 +41,7 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Decode signature
 	sig := common.FromHex(signature)
 	if len(sig) != 65 {
-		sv.logger.Error("Invalid signature length", zap.String("length", len(sig)))
+		sv.logger.Error("Invalid signature length", zap.Int("length", len(sig)))
 		return false, fmt.Errorf("invalid signature length: expected 65, got %d", len(sig))
 	}
 
@@ -64,7 +66,9 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Compare addresses
 	expectedAddress := common.HexToAddress(address)
 	if recoveredAddress != expectedAddress {
-		sv.logger.Warn("Signature verification failed", zap.String("expected", expectedAddress.Hex()), "recovered", recoveredAddress.Hex())
+		sv.logger.Warn("Signature verification failed",
+			zap.String("expected", expectedAddress.Hex()),
+			zap.String("recovered", recoveredAddress.Hex()))
 		return false, nil
 	}
 
@@ -85,7 +89,7 @@ func (sv *SignatureVerifier) hashMessage(message string) []byte {
 
 // SignMessage signs a message (for testing)
 func (sv *SignatureVerifier) SignMessage(message string, privateKey *ecdsa.PrivateKey) (string, error) {
-	sv.logger.Debug("Signing message", zap.String("message_length", len(message)))
+	sv.logger.Debug("Signing message", zap.Int("message_length", len(message)))
 
 	// Create message hash
 	messageHash := sv.hashMessage(message)
@@ -153,7 +157,9 @@ func (cg *ChallengeGenerator) GenerateChallenge(address string) *Challenge {
 		ExpiresAt: getCurrentTimestamp() + 3600, // 1 hour expiry
 	}
 
-	cg.logger.Debug("Challenge generated", "challenge_id", challenge.ID, "address", address)
+	cg.logger.Debug("Challenge generated",
+		zap.String("challenge_id", challenge.ID),
+		zap.String("address", address))
 	return challenge
 }
 
