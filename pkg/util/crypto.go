@@ -68,3 +68,13 @@ func DecryptAES(ciphertext string, key []byte) ([]byte, error) {
 
 	return plaintext, nil
 }
+
+// Encrypt is an alias for EncryptAES for compatibility
+func Encrypt(plaintext []byte, key []byte) (string, error) {
+	return EncryptAES(plaintext, key)
+}
+
+// Decrypt is an alias for DecryptAES for compatibility
+func Decrypt(ciphertext string, key []byte) ([]byte, error) {
+	return DecryptAES(ciphertext, key)
+}

@@ -47,6 +47,11 @@ func GetFileSize(path string) (int64, error) {
 	return info.Size(), nil
 }
 
+// FileSize is an alias for GetFileSize for compatibility
+func FileSize(path string) (int64, error) {
+	return GetFileSize(path)
+}
+
 // GetFileExtension returns file extension
 func GetFileExtension(path string) string {
 	return filepath.Ext(path)
