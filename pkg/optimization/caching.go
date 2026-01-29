@@ -2,7 +2,6 @@ package optimization
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 

@@ -56,7 +56,7 @@ func (pe *PrometheusExporter) exportCounterMetrics() string {
 	output += "# TYPE streamgate_requests_total counter\n"
 
 	metrics := pe.collector.GetAllMetrics()
-	for key, metric := range metrics {
+	for _, metric := range metrics {
 		if metric.Type == "counter" {
 			labels := pe.formatLabels(metric.Tags)
 			output += fmt.Sprintf("streamgate_requests_total{%s} %d\n", labels, int64(metric.Value))
@@ -72,7 +72,7 @@ func (pe *PrometheusExporter) exportGaugeMetrics() string {
 	output += "# TYPE streamgate_gauge_value gauge\n"
 
 	metrics := pe.collector.GetAllMetrics()
-	for key, metric := range metrics {
+	for _, metric := range metrics {
 		if metric.Type == "gauge" {
 			labels := pe.formatLabels(metric.Tags)
 			output += fmt.Sprintf("streamgate_gauge_value{%s} %.2f\n", labels, metric.Value)
@@ -88,7 +88,7 @@ func (pe *PrometheusExporter) exportHistogramMetrics() string {
 	output += "# TYPE streamgate_histogram_value histogram\n"
 
 	metrics := pe.collector.GetAllMetrics()
-	for key, metric := range metrics {
+	for _, metric := range metrics {
 		if metric.Type == "histogram" {
 			labels := pe.formatLabels(metric.Tags)
 			output += fmt.Sprintf("streamgate_histogram_value_sum{%s} %.2f\n", labels, metric.Sum)

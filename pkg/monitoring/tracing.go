@@ -75,7 +75,10 @@ func (t *Tracer) StartSpan(ctx context.Context, operationName string) (*Span, co
 	t.traces[traceID] = append(t.traces[traceID], span)
 	t.mu.Unlock()
 
-	t.logger.Debug("Span started", "span_id", span.ID, "trace_id", traceID, "operation", operationName)
+	t.logger.Debug("Span started",
+		zap.String("span_id", span.ID),
+		zap.String("trace_id", traceID),
+		zap.String("operation", operationName))
 
 	// Create new context with span information
 	ctx = context.WithValue(ctx, "trace_id", traceID)
@@ -90,7 +93,10 @@ func (t *Tracer) FinishSpan(span *Span) {
 	span.Duration = span.EndTime.Sub(span.StartTime)
 	span.Status = "finished"
 
-	t.logger.Debug("Span finished", "span_id", span.ID, "trace_id", span.TraceID, "duration_ms", span.Duration.Milliseconds())
+	t.logger.Debug("Span finished",
+		zap.String("span_id", span.ID),
+		zap.String("trace_id", span.TraceID),
+		zap.Int64("duration_ms", span.Duration.Milliseconds()))
 }
 
 // AddTag adds a tag to a span
@@ -303,7 +309,9 @@ func (tc *TraceCollector) RecordTrace(traceID string, metrics *TraceMetrics) {
 	}
 
 	tc.traces[traceID] = metrics
-	tc.logger.Debug("Trace recorded", "trace_id", traceID, "duration_ms", metrics.Duration.Milliseconds())
+	tc.logger.Debug("Trace recorded",
+		zap.String("trace_id", traceID),
+		zap.Int64("duration_ms", metrics.Duration.Milliseconds()))
 }
 
 // GetTrace gets trace metrics

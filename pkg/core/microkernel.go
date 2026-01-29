@@ -92,7 +92,9 @@ func (m *Microkernel) RegisterPlugin(plugin Plugin) error {
 	}
 
 	m.plugins[plugin.Name()] = plugin
-	m.logger.Info("Plugin registered", zap.String("name", plugin.Name()), "version", plugin.Version())
+	m.logger.Info("Plugin registered",
+		zap.String("name", plugin.Name()),
+		zap.String("version", plugin.Version()))
 
 	return nil
 }
@@ -185,7 +187,9 @@ func (m *Microkernel) Start(ctx context.Context) error {
 
 	for _, plugin := range plugins {
 		if err := plugin.Init(ctx, m); err != nil {
-			m.logger.Error("Failed to initialize plugin", zap.String("name", plugin.Name()), "error", err)
+			m.logger.Error("Failed to initialize plugin",
+				zap.String("name", plugin.Name()),
+				zap.Error(err))
 			return fmt.Errorf("failed to initialize plugin %s: %w", plugin.Name(), err)
 		}
 	}
@@ -193,7 +197,9 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	// Start all plugins
 	for _, plugin := range plugins {
 		if err := plugin.Start(ctx); err != nil {
-			m.logger.Error("Failed to start plugin", zap.String("name", plugin.Name()), "error", err)
+			m.logger.Error("Failed to start plugin",
+				zap.String("name", plugin.Name()),
+				zap.Error(err))
 			return fmt.Errorf("failed to start plugin %s: %w", plugin.Name(), err)
 		}
 		m.logger.Info("Plugin started", zap.String("name", plugin.Name()))
@@ -227,7 +233,9 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 	for i := len(plugins) - 1; i >= 0; i-- {
 		plugin := plugins[i]
 		if err := plugin.Stop(ctx); err != nil {
-			m.logger.Error("Error stopping plugin", zap.String("name", plugin.Name()), "error", err)
+			m.logger.Error("Error stopping plugin",
+				zap.String("name", plugin.Name()),
+				zap.Error(err))
 		} else {
 			m.logger.Info("Plugin stopped", zap.String("name", plugin.Name()))
 		}
@@ -269,7 +277,9 @@ func (m *Microkernel) Health(ctx context.Context) error {
 
 	for _, plugin := range plugins {
 		if err := plugin.Health(ctx); err != nil {
-			m.logger.Error("Plugin health check failed", zap.String("name", plugin.Name()), "error", err)
+			m.logger.Error("Plugin health check failed",
+				zap.String("name", plugin.Name()),
+				zap.Error(err))
 			return fmt.Errorf("plugin %s health check failed: %w", plugin.Name(), err)
 		}
 	}

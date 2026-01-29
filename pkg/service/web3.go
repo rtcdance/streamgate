@@ -106,7 +106,7 @@ func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, co
 	}
 
 	// Create NFT verifier
-	nftVerifier := web3.NewNFTVerifier(client.client, ws.logger)
+	nftVerifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger)
 
 	// Verify ownership
 	return nftVerifier.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
