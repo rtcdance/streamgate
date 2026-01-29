@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
@@ -21,7 +22,9 @@ type ChainClient struct {
 
 // NewChainClient creates a new chain client
 func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
-	logger.Info("Connecting to blockchain", "rpc_url", rpcURL, "chain_id", chainID)
+	logger.Info("Connecting to blockchain",
+		zap.String("rpc_url", rpcURL),
+		zap.Int64("chain_id", chainID))
 
 	// Connect to RPC
 	client, err := ethclient.Dial(rpcURL)
@@ -40,7 +43,8 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
 	}
 
-	logger.Info("Connected to blockchain", zap.String("chain_id", chainIDFromRPC.Int64()))
+	logger.Info("Connected to blockchain",
+		zap.Int64("chain_id", chainIDFromRPC.Int64()))
 
 	return &ChainClient{
 		client:  client,
@@ -57,11 +61,15 @@ func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int
 	addr := common.HexToAddress(address)
 	balance, err := cc.client.BalanceAt(ctx, addr, nil)
 	if err != nil {
-		cc.logger.Error("Failed to get balance", "address", address, "error", err)
+		cc.logger.Error("Failed to get balance",
+			zap.String("address", address),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to get balance: %w", err)
 	}
 
-	cc.logger.Debug("Balance retrieved", "address", address, "balance", balance.String())
+	cc.logger.Debug("Balance retrieved",
+		zap.String("address", address),
+		zap.String("balance", balance.String()))
 	return balance, nil
 }
 
@@ -72,11 +80,15 @@ func (cc *ChainClient) GetNonce(ctx context.Context, address string) (uint64, er
 	addr := common.HexToAddress(address)
 	nonce, err := cc.client.PendingNonceAt(ctx, addr)
 	if err != nil {
-		cc.logger.Error("Failed to get nonce", "address", address, "error", err)
+		cc.logger.Error("Failed to get nonce",
+			zap.String("address", address),
+			zap.Error(err))
 		return 0, fmt.Errorf("failed to get nonce: %w", err)
 	}
 
-	cc.logger.Debug("Nonce retrieved", "address", address, "nonce", nonce)
+	cc.logger.Debug("Nonce retrieved",
+		zap.String("address", address),
+		zap.Uint64("nonce", nonce))
 	return nonce, nil
 }
 
@@ -104,7 +116,8 @@ func (cc *ChainClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (u
 		return 0, fmt.Errorf("failed to estimate gas: %w", err)
 	}
 
-	cc.logger.Debug("Gas estimated", zap.String("gas", gas))
+	cc.logger.Debug("Gas estimated",
+		zap.Uint64("gas", gas))
 	return gas, nil
 }
 
@@ -118,7 +131,8 @@ func (cc *ChainClient) GetBlockNumber(ctx context.Context) (uint64, error) {
 		return 0, fmt.Errorf("failed to get block number: %w", err)
 	}
 
-	cc.logger.Debug("Block number retrieved", zap.String("block_number", blockNumber))
+	cc.logger.Debug("Block number retrieved",
+		zap.Uint64("block_number", blockNumber))
 	return blockNumber, nil
 }
 
@@ -128,7 +142,9 @@ func (cc *ChainClient) GetBlockByNumber(ctx context.Context, blockNumber *big.In
 
 	block, err := cc.client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
-		cc.logger.Error("Failed to get block", zap.String("block_number", blockNumber.String()), "error", err)
+		cc.logger.Error("Failed to get block",
+			zap.String("block_number", blockNumber.String()),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to get block: %w", err)
 	}
 
@@ -155,13 +171,25 @@ func (cc *ChainClient) GetTransactionByHash(ctx context.Context, txHash string) 
 	hash := common.HexToHash(txHash)
 	tx, isPending, err := cc.client.TransactionByHash(ctx, hash)
 	if err != nil {
-		cc.logger.Error("Failed to get transaction", "tx_hash", txHash, "error", err)
+		cc.logger.Error("Failed to get transaction",
+			zap.String("tx_hash", txHash),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
+	}
+
+	// Get sender address from transaction
+	signer := types.LatestSignerForChainID(tx.ChainId())
+	from, err := types.Sender(signer, tx)
+	if err != nil {
+		cc.logger.Error("Failed to get transaction sender",
+			zap.String("tx_hash", txHash),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to get transaction sender: %w", err)
 	}
 
 	txInfo := &TransactionInfo{
 		Hash:      tx.Hash().Hex(),
-		From:      tx.From().Hex(),
+		From:      from.Hex(),
 		To:        tx.To().Hex(),
 		Value:     tx.Value().String(),
 		Gas:       tx.Gas(),
@@ -182,7 +210,9 @@ func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string)
 	hash := common.HexToHash(txHash)
 	receipt, err := cc.client.TransactionReceipt(ctx, hash)
 	if err != nil {
-		cc.logger.Error("Failed to get transaction receipt", "tx_hash", txHash, "error", err)
+		cc.logger.Error("Failed to get transaction receipt",
+			zap.String("tx_hash", txHash),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
