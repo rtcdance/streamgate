@@ -465,59 +465,54 @@ func NewAlertRuleBuilder(logger *zap.Logger) *AlertRuleBuilder {
 // BuildHighErrorRateAlert builds high error rate alert
 func (arb *AlertRuleBuilder) BuildHighErrorRateAlert() *AlertRule {
 	return &AlertRule{
-		Name:        "HighErrorRate",
-		Condition:   "rate(streamgate_service_errors[5m]) / rate(streamgate_service_requests[5m]) > 0.1",
-		Threshold:   0.1,
-		Duration:    5 * time.Minute,
-		Severity:    "critical",
-		Description: "Error rate is above 10%",
+		Name:      "HighErrorRate",
+		Condition: "rate(streamgate_service_errors[5m]) / rate(streamgate_service_requests[5m]) > 0.1",
+		Threshold: 0.1,
+		Duration:  5 * time.Minute,
+		Level:     "critical",
 	}
 }
 
 // BuildHighLatencyAlert builds high latency alert
 func (arb *AlertRuleBuilder) BuildHighLatencyAlert() *AlertRule {
 	return &AlertRule{
-		Name:        "HighLatency",
-		Condition:   "streamgate_service_latency_avg > 5000",
-		Threshold:   5000,
-		Duration:    5 * time.Minute,
-		Severity:    "warning",
-		Description: "Average latency is above 5 seconds",
+		Name:      "HighLatency",
+		Condition: "streamgate_service_latency_avg > 5000",
+		Threshold: 5000,
+		Duration:  5 * time.Minute,
+		Level:     "warning",
 	}
 }
 
 // BuildHighMemoryAlert builds high memory alert
 func (arb *AlertRuleBuilder) BuildHighMemoryAlert() *AlertRule {
 	return &AlertRule{
-		Name:        "HighMemory",
-		Condition:   "streamgate_gauge_value{metric=\"memory_usage\"} > 80",
-		Threshold:   80,
-		Duration:    5 * time.Minute,
-		Severity:    "warning",
-		Description: "Memory usage is above 80%",
+		Name:      "HighMemory",
+		Condition: "streamgate_gauge_value{metric=\"memory_usage\"} > 80",
+		Threshold: 80,
+		Duration:  5 * time.Minute,
+		Level:     "warning",
 	}
 }
 
 // BuildHighCPUAlert builds high CPU alert
 func (arb *AlertRuleBuilder) BuildHighCPUAlert() *AlertRule {
 	return &AlertRule{
-		Name:        "HighCPU",
-		Condition:   "streamgate_gauge_value{metric=\"cpu_usage\"} > 80",
-		Threshold:   80,
-		Duration:    5 * time.Minute,
-		Severity:    "warning",
-		Description: "CPU usage is above 80%",
+		Name:      "HighCPU",
+		Condition: "streamgate_gauge_value{metric=\"cpu_usage\"} > 80",
+		Threshold: 80,
+		Duration:  5 * time.Minute,
+		Level:     "warning",
 	}
 }
 
 // BuildServiceDownAlert builds service down alert
 func (arb *AlertRuleBuilder) BuildServiceDownAlert() *AlertRule {
 	return &AlertRule{
-		Name:        "ServiceDown",
-		Condition:   "up{job=\"streamgate\"} == 0",
-		Threshold:   0,
-		Duration:    1 * time.Minute,
-		Severity:    "critical",
-		Description: "Service is down",
+		Name:      "ServiceDown",
+		Condition: "up{job=\"streamgate\"} == 0",
+		Threshold: 0,
+		Duration:  1 * time.Minute,
+		Level:     "critical",
 	}
 }
