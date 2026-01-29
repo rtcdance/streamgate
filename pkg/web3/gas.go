@@ -34,12 +34,12 @@ func NewGasMonitor(client *ethclient.Client, logger *zap.Logger) *GasMonitor {
 
 // Start starts the gas monitor
 func (gm *GasMonitor) Start(ctx context.Context) error {
-	gm.logger.Info("Starting gas monitor", "update_interval", gm.updateInterval)
+	gm.logger.Info("Starting gas monitor", zap.String("update_interval", gm.updateInterval))
 
 	// Get initial gas price
 	gasPrice, err := gm.client.SuggestGasPrice(ctx)
 	if err != nil {
-		gm.logger.Error("Failed to get initial gas price", "error", err)
+		gm.logger.Error("Failed to get initial gas price", zap.Error(err))
 		return fmt.Errorf("failed to get initial gas price: %w", err)
 	}
 
@@ -105,7 +105,7 @@ func (gm *GasMonitor) GetGasPriceInGwei() float64 {
 func (gm *GasMonitor) updateGasPrice(ctx context.Context) {
 	gasPrice, err := gm.client.SuggestGasPrice(ctx)
 	if err != nil {
-		gm.logger.Error("Failed to update gas price", "error", err)
+		gm.logger.Error("Failed to update gas price", zap.Error(err))
 		return
 	}
 
@@ -113,7 +113,7 @@ func (gm *GasMonitor) updateGasPrice(ctx context.Context) {
 	gm.currentPrice = gasPrice
 	gm.mu.Unlock()
 
-	gm.logger.Debug("Gas price updated", "gas_price_wei", gasPrice.String(), "gas_price_gwei", gm.GetGasPriceInGwei())
+	gm.logger.Debug("Gas price updated", zap.String("gas_price_wei", gasPrice.String()), "gas_price_gwei", gm.GetGasPriceInGwei())
 }
 
 // GasEstimate contains gas estimation information

@@ -64,7 +64,7 @@ func (s *CacheServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Cache server error", "error", err)
+			s.logger.Error("Cache server error", zap.Error(err))
 		}
 	}()
 
@@ -75,14 +75,14 @@ func (s *CacheServer) Start(ctx context.Context) error {
 func (s *CacheServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down cache server", "error", err)
+			s.logger.Error("Error shutting down cache server", zap.Error(err))
 			return err
 		}
 	}
 
 	if s.store != nil {
 		if err := s.store.Close(); err != nil {
-			s.logger.Error("Error closing cache store", "error", err)
+			s.logger.Error("Error closing cache store", zap.Error(err))
 			return err
 		}
 	}
@@ -126,7 +126,7 @@ func NewCacheStore(cfg *config.Config, logger *zap.Logger) (*CacheStore, error) 
 
 // Get retrieves a value from cache
 func (s *CacheStore) Get(ctx context.Context, key string) (interface{}, error) {
-	s.logger.Debug("Getting cache value", "key", key)
+	s.logger.Debug("Getting cache value", zap.String("key", key))
 
 	// TODO: Implement cache retrieval
 	return nil, nil
@@ -142,7 +142,7 @@ func (s *CacheStore) Set(ctx context.Context, key string, value interface{}, ttl
 
 // Delete removes a value from cache
 func (s *CacheStore) Delete(ctx context.Context, key string) error {
-	s.logger.Debug("Deleting cache value", "key", key)
+	s.logger.Debug("Deleting cache value", zap.String("key", key))
 
 	// TODO: Implement cache deletion
 	return nil

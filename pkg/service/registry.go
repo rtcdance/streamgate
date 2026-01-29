@@ -55,18 +55,18 @@ func NewConsulRegistry(cfg *config.Config, logger *zap.Logger) (*ConsulRegistry,
 
 	client, err := api.NewClient(consulCfg)
 	if err != nil {
-		logger.Error("Failed to create Consul client", "error", err)
+		logger.Error("Failed to create Consul client", zap.Error(err))
 		return nil, fmt.Errorf("failed to create Consul client: %w", err)
 	}
 
 	// Verify connection
 	_, err = client.Status().Leader()
 	if err != nil {
-		logger.Error("Failed to connect to Consul", "error", err)
+		logger.Error("Failed to connect to Consul", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to Consul: %w", err)
 	}
 
-	logger.Info("Connected to Consul", "address", consulCfg.Address)
+	logger.Info("Connected to Consul", zap.String("address", consulCfg.Address))
 
 	registry := &ConsulRegistry{
 		config: cfg,
@@ -112,20 +112,20 @@ func (r *ConsulRegistry) Register(ctx context.Context, service *ServiceInfo) err
 
 // Deregister deregisters a service from Consul
 func (r *ConsulRegistry) Deregister(ctx context.Context, serviceID string) error {
-	r.logger.Info("Deregistering service", "service_id", serviceID)
+	r.logger.Info("Deregistering service", zap.String("service_id", serviceID))
 
 	if err := r.client.Agent().ServiceDeregister(serviceID); err != nil {
 		r.logger.Error("Failed to deregister service", "service_id", serviceID, "error", err)
 		return fmt.Errorf("failed to deregister service: %w", err)
 	}
 
-	r.logger.Info("Service deregistered successfully", "service_id", serviceID)
+	r.logger.Info("Service deregistered successfully", zap.String("service_id", serviceID))
 	return nil
 }
 
 // Discover discovers services by name
 func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]*ServiceInfo, error) {
-	r.logger.Info("Discovering services", "service_name", serviceName)
+	r.logger.Info("Discovering services", zap.String("service_name", serviceName))
 
 	// Query Consul for services
 	entries, _, err := r.client.Health().Service(serviceName, "", true, nil)
@@ -154,7 +154,7 @@ func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]*S
 
 // Watch watches for service changes
 func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan []*ServiceInfo, error) {
-	r.logger.Info("Watching services", "service_name", serviceName)
+	r.logger.Info("Watching services", zap.String("service_name", serviceName))
 
 	ch := make(chan []*ServiceInfo)
 
@@ -166,7 +166,7 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 		for {
 			select {
 			case <-ctx.Done():
-				r.logger.Info("Stopped watching services", "service_name", serviceName)
+				r.logger.Info("Stopped watching services", zap.String("service_name", serviceName))
 				return
 			default:
 			}
@@ -215,7 +215,7 @@ func (r *ConsulRegistry) Health(ctx context.Context) error {
 	// Check Consul connectivity
 	_, err := r.client.Status().Leader()
 	if err != nil {
-		r.logger.Error("Consul health check failed", "error", err)
+		r.logger.Error("Consul health check failed", zap.Error(err))
 		return fmt.Errorf("consul health check failed: %w", err)
 	}
 

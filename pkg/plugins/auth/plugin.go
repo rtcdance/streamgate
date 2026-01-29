@@ -54,13 +54,13 @@ func (p *AuthPlugin) Init(ctx context.Context, kernel *core.Microkernel) error {
 
 // Start starts the auth service
 func (p *AuthPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting auth service", "port", p.config.Server.Port)
+	p.logger.Info("Starting auth service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start auth server: %w", err)
 	}
 
-	p.logger.Info("Auth service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Auth service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *AuthPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping auth server", "error", err)
+			p.logger.Error("Error stopping auth server", zap.Error(err))
 			return err
 		}
 	}

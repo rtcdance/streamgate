@@ -60,7 +60,7 @@ func (s *AuthServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Auth server error", "error", err)
+			s.logger.Error("Auth server error", zap.Error(err))
 		}
 	}()
 
@@ -71,7 +71,7 @@ func (s *AuthServer) Start(ctx context.Context) error {
 func (s *AuthServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down auth server", "error", err)
+			s.logger.Error("Error shutting down auth server", zap.Error(err))
 			return err
 		}
 	}
@@ -103,7 +103,7 @@ func NewSignatureVerifier(logger *zap.Logger) *SignatureVerifier {
 
 // VerifySignature verifies a wallet signature
 func (v *SignatureVerifier) VerifySignature(ctx context.Context, address string, message string, signature string) (bool, error) {
-	v.logger.Info("Verifying signature", "address", address)
+	v.logger.Info("Verifying signature", zap.String("address", address))
 
 	// TODO: Implement signature verification
 	// - Support EIP-191 (Ethereum)
@@ -139,7 +139,7 @@ func (v *SignatureVerifier) VerifyToken(ctx context.Context, token string) (bool
 
 // GetChallenge generates a challenge for signing
 func (v *SignatureVerifier) GetChallenge(ctx context.Context, address string) (string, error) {
-	v.logger.Info("Generating challenge", "address", address)
+	v.logger.Info("Generating challenge", zap.String("address", address))
 
 	// TODO: Generate challenge
 	// - Create random nonce

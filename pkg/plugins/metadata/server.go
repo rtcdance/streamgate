@@ -64,7 +64,7 @@ func (s *MetadataServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Metadata server error", "error", err)
+			s.logger.Error("Metadata server error", zap.Error(err))
 		}
 	}()
 
@@ -75,14 +75,14 @@ func (s *MetadataServer) Start(ctx context.Context) error {
 func (s *MetadataServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down metadata server", "error", err)
+			s.logger.Error("Error shutting down metadata server", zap.Error(err))
 			return err
 		}
 	}
 
 	if s.db != nil {
 		if err := s.db.Close(); err != nil {
-			s.logger.Error("Error closing metadata database", "error", err)
+			s.logger.Error("Error closing metadata database", zap.Error(err))
 			return err
 		}
 	}
@@ -129,7 +129,7 @@ func NewMetadataDB(cfg *config.Config, logger *zap.Logger) (*MetadataDB, error) 
 
 // GetMetadata retrieves metadata for a content item
 func (db *MetadataDB) GetMetadata(ctx context.Context, contentID string) (*ContentMetadata, error) {
-	db.logger.Info("Getting metadata", "content_id", contentID)
+	db.logger.Info("Getting metadata", zap.Int64("content_id", contentID))
 
 	// TODO: Query database for metadata
 	return &ContentMetadata{
@@ -141,7 +141,7 @@ func (db *MetadataDB) GetMetadata(ctx context.Context, contentID string) (*Conte
 
 // CreateMetadata creates new metadata
 func (db *MetadataDB) CreateMetadata(ctx context.Context, metadata *ContentMetadata) error {
-	db.logger.Info("Creating metadata", "content_id", metadata.ContentID)
+	db.logger.Info("Creating metadata", zap.Int64("content_id", metadata.ContentID))
 
 	// TODO: Insert metadata into database
 	return nil
@@ -149,7 +149,7 @@ func (db *MetadataDB) CreateMetadata(ctx context.Context, metadata *ContentMetad
 
 // UpdateMetadata updates existing metadata
 func (db *MetadataDB) UpdateMetadata(ctx context.Context, metadata *ContentMetadata) error {
-	db.logger.Info("Updating metadata", "content_id", metadata.ContentID)
+	db.logger.Info("Updating metadata", zap.Int64("content_id", metadata.ContentID))
 
 	// TODO: Update metadata in database
 	return nil
@@ -157,7 +157,7 @@ func (db *MetadataDB) UpdateMetadata(ctx context.Context, metadata *ContentMetad
 
 // DeleteMetadata deletes metadata
 func (db *MetadataDB) DeleteMetadata(ctx context.Context, contentID string) error {
-	db.logger.Info("Deleting metadata", "content_id", contentID)
+	db.logger.Info("Deleting metadata", zap.Int64("content_id", contentID))
 
 	// TODO: Delete metadata from database
 	return nil

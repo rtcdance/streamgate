@@ -41,7 +41,7 @@ func (h *StreamingHandler) HealthHandler(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -87,7 +87,7 @@ func (h *StreamingHandler) GetHLSPlaylistHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.logger.Info("Generating HLS playlist", "content_id", contentID)
+	h.logger.Info("Generating HLS playlist", zap.Int64("content_id", contentID))
 
 	// TODO: Generate HLS playlist
 	// - Check cache
@@ -114,7 +114,7 @@ func (h *StreamingHandler) GetDASHManifestHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	h.logger.Info("Generating DASH manifest", "content_id", contentID)
+	h.logger.Info("Generating DASH manifest", zap.Int64("content_id", contentID))
 
 	// TODO: Generate DASH manifest
 	// - Check cache
@@ -170,7 +170,7 @@ func (h *StreamingHandler) GetStreamInfoHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	h.logger.Info("Getting stream info", "content_id", contentID)
+	h.logger.Info("Getting stream info", zap.Int64("content_id", contentID))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

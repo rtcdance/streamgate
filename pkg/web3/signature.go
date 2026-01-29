@@ -39,7 +39,7 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Decode signature
 	sig := common.FromHex(signature)
 	if len(sig) != 65 {
-		sv.logger.Error("Invalid signature length", "length", len(sig))
+		sv.logger.Error("Invalid signature length", zap.String("length", len(sig)))
 		return false, fmt.Errorf("invalid signature length: expected 65, got %d", len(sig))
 	}
 
@@ -54,7 +54,7 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Recover public key
 	pubKey, err := crypto.SigToPub(messageHash, sig)
 	if err != nil {
-		sv.logger.Error("Failed to recover public key", "error", err)
+		sv.logger.Error("Failed to recover public key", zap.Error(err))
 		return false, fmt.Errorf("failed to recover public key: %w", err)
 	}
 
@@ -64,11 +64,11 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Compare addresses
 	expectedAddress := common.HexToAddress(address)
 	if recoveredAddress != expectedAddress {
-		sv.logger.Warn("Signature verification failed", "expected", expectedAddress.Hex(), "recovered", recoveredAddress.Hex())
+		sv.logger.Warn("Signature verification failed", zap.String("expected", expectedAddress.Hex()), "recovered", recoveredAddress.Hex())
 		return false, nil
 	}
 
-	sv.logger.Debug("Signature verified successfully", "address", address)
+	sv.logger.Debug("Signature verified successfully", zap.String("address", address))
 	return true, nil
 }
 
@@ -85,7 +85,7 @@ func (sv *SignatureVerifier) hashMessage(message string) []byte {
 
 // SignMessage signs a message (for testing)
 func (sv *SignatureVerifier) SignMessage(message string, privateKey *ecdsa.PrivateKey) (string, error) {
-	sv.logger.Debug("Signing message", "message_length", len(message))
+	sv.logger.Debug("Signing message", zap.String("message_length", len(message)))
 
 	// Create message hash
 	messageHash := sv.hashMessage(message)
@@ -93,7 +93,7 @@ func (sv *SignatureVerifier) SignMessage(message string, privateKey *ecdsa.Priva
 	// Sign the hash
 	sig, err := crypto.Sign(messageHash, privateKey)
 	if err != nil {
-		sv.logger.Error("Failed to sign message", "error", err)
+		sv.logger.Error("Failed to sign message", zap.Error(err))
 		return "", fmt.Errorf("failed to sign message: %w", err)
 	}
 
@@ -141,7 +141,7 @@ func NewChallengeGenerator(logger *zap.Logger) *ChallengeGenerator {
 
 // GenerateChallenge generates a new signing challenge
 func (cg *ChallengeGenerator) GenerateChallenge(address string) *Challenge {
-	cg.logger.Debug("Generating challenge", "address", address)
+	cg.logger.Debug("Generating challenge", zap.String("address", address))
 
 	// Create challenge message
 	message := fmt.Sprintf("Sign this message to verify your wallet ownership.\nAddress: %s\nTimestamp: %d", address, getCurrentTimestamp())

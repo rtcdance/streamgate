@@ -186,7 +186,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 		cb.failures++
 		if cb.failures >= cb.maxFailures {
 			cb.state = "open"
-			cb.logger.Warn("Circuit breaker opened", "failures", cb.failures)
+			cb.logger.Warn("Circuit breaker opened", zap.Int("failures", cb.failures))
 		}
 		return err
 	}

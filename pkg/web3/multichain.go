@@ -125,12 +125,12 @@ func NewMultiChainManager(logger *zap.Logger) *MultiChainManager {
 
 // AddChain adds a blockchain connection
 func (mcm *MultiChainManager) AddChain(chainID int64) error {
-	mcm.logger.Info("Adding chain", "chain_id", chainID)
+	mcm.logger.Info("Adding chain", zap.String("chain_id", chainID))
 
 	// Get chain config
 	config, exists := SupportedChains[chainID]
 	if !exists {
-		mcm.logger.Error("Chain not supported", "chain_id", chainID)
+		mcm.logger.Error("Chain not supported", zap.String("chain_id", chainID))
 		return fmt.Errorf("chain not supported: %d", chainID)
 	}
 
@@ -149,12 +149,12 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 
 // RemoveChain removes a blockchain connection
 func (mcm *MultiChainManager) RemoveChain(chainID int64) {
-	mcm.logger.Info("Removing chain", "chain_id", chainID)
+	mcm.logger.Info("Removing chain", zap.String("chain_id", chainID))
 
 	if client, exists := mcm.clients[chainID]; exists {
 		client.Close()
 		delete(mcm.clients, chainID)
-		mcm.logger.Info("Chain removed", "chain_id", chainID)
+		mcm.logger.Info("Chain removed", zap.String("chain_id", chainID))
 	}
 }
 
@@ -162,7 +162,7 @@ func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 	client, exists := mcm.clients[chainID]
 	if !exists {
-		mcm.logger.Error("Chain client not found", "chain_id", chainID)
+		mcm.logger.Error("Chain client not found", zap.String("chain_id", chainID))
 		return nil, fmt.Errorf("chain client not found: %d", chainID)
 	}
 
@@ -173,7 +173,7 @@ func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 func (mcm *MultiChainManager) GetChainConfig(chainID int64) (*ChainConfig, error) {
 	config, exists := SupportedChains[chainID]
 	if !exists {
-		mcm.logger.Error("Chain not supported", "chain_id", chainID)
+		mcm.logger.Error("Chain not supported", zap.String("chain_id", chainID))
 		return nil, fmt.Errorf("chain not supported: %d", chainID)
 	}
 
@@ -217,7 +217,7 @@ func (mcm *MultiChainManager) Close() {
 
 	for chainID, client := range mcm.clients {
 		client.Close()
-		mcm.logger.Info("Chain connection closed", "chain_id", chainID)
+		mcm.logger.Info("Chain connection closed", zap.String("chain_id", chainID))
 	}
 
 	mcm.clients = make(map[int64]*ChainClient)

@@ -39,7 +39,7 @@ func (h *WorkerHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -79,7 +79,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 
 	var job Job
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
-		h.logger.Error("Failed to decode job", "error", err)
+		h.logger.Error("Failed to decode job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_job_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid job"})
@@ -91,7 +91,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 	job.Status = "pending"
 
 	if err := h.scheduler.SubmitJob(&job); err != nil {
-		h.logger.Error("Failed to submit job", "error", err)
+		h.logger.Error("Failed to submit job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_job_failed", map[string]string{})
 		h.auditLogger.LogEvent("worker", clientIP, "submit_job", job.ID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -255,7 +255,7 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 
 	var scheduled ScheduledJob
 	if err := json.NewDecoder(r.Body).Decode(&scheduled); err != nil {
-		h.logger.Error("Failed to decode scheduled job", "error", err)
+		h.logger.Error("Failed to decode scheduled job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("schedule_job_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid scheduled job"})

@@ -66,7 +66,7 @@ func (s *MonitorServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Monitor server error", "error", err)
+			s.logger.Error("Monitor server error", zap.Error(err))
 		}
 	}()
 
@@ -77,7 +77,7 @@ func (s *MonitorServer) Start(ctx context.Context) error {
 func (s *MonitorServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down monitor server", "error", err)
+			s.logger.Error("Error shutting down monitor server", zap.Error(err))
 			return err
 		}
 	}

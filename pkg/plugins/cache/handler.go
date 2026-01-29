@@ -39,7 +39,7 @@ func (h *CacheHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -89,7 +89,7 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 
 	value, err := h.store.Get(ctx, key)
 	if err != nil {
-		h.logger.Error("Failed to get cache value", "error", err)
+		h.logger.Error("Failed to get cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_get_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get value"})
@@ -137,7 +137,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error("Failed to decode request", "error", err)
+		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_set_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
@@ -146,7 +146,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 
 	ttl := time.Duration(req.TTL) * time.Second
 	if err := h.store.Set(ctx, req.Key, req.Value, ttl); err != nil {
-		h.logger.Error("Failed to set cache value", "error", err)
+		h.logger.Error("Failed to set cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_set_failed", map[string]string{})
 		h.auditLogger.LogEvent("cache", clientIP, "set", req.Key, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -195,7 +195,7 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.Delete(ctx, key); err != nil {
-		h.logger.Error("Failed to delete cache value", "error", err)
+		h.logger.Error("Failed to delete cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_delete_failed", map[string]string{})
 		h.auditLogger.LogEvent("cache", clientIP, "delete", key, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -234,7 +234,7 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.store.Clear(ctx); err != nil {
-		h.logger.Error("Failed to clear cache", "error", err)
+		h.logger.Error("Failed to clear cache", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_clear_failed", map[string]string{})
 		h.auditLogger.LogEvent("cache", clientIP, "clear", "all", "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)

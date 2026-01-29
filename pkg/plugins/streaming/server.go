@@ -60,7 +60,7 @@ func (s *StreamingServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Streaming server error", "error", err)
+			s.logger.Error("Streaming server error", zap.Error(err))
 		}
 	}()
 
@@ -71,7 +71,7 @@ func (s *StreamingServer) Start(ctx context.Context) error {
 func (s *StreamingServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down streaming server", "error", err)
+			s.logger.Error("Error shutting down streaming server", zap.Error(err))
 			return err
 		}
 	}

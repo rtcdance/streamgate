@@ -54,13 +54,13 @@ func (p *WorkerPlugin) Init(ctx context.Context, kernel *core.Microkernel) error
 
 // Start starts the worker service
 func (p *WorkerPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting worker service", "port", p.config.Server.Port)
+	p.logger.Info("Starting worker service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start worker server: %w", err)
 	}
 
-	p.logger.Info("Worker service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Worker service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *WorkerPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping worker server", "error", err)
+			p.logger.Error("Error stopping worker server", zap.Error(err))
 			return err
 		}
 	}

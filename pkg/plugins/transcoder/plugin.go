@@ -54,13 +54,13 @@ func (p *TranscoderPluginWrapper) Init(ctx context.Context, kernel *core.Microke
 
 // Start starts the transcoder service
 func (p *TranscoderPluginWrapper) Start(ctx context.Context) error {
-	p.logger.Info("Starting transcoder service", "port", p.config.Server.Port)
+	p.logger.Info("Starting transcoder service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start transcoder server: %w", err)
 	}
 
-	p.logger.Info("Transcoder service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Transcoder service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *TranscoderPluginWrapper) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping transcoder server", "error", err)
+			p.logger.Error("Error stopping transcoder server", zap.Error(err))
 			return err
 		}
 	}

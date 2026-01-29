@@ -1,5 +1,7 @@
 package transcoder
 
+import "go.uber.org/zap"
+
 import (
 	"context"
 	"fmt"
@@ -336,7 +338,7 @@ func (tp *TranscoderPlugin) performAutoScaling() {
 		metrics.ActiveWorkers < tp.config.ScalingPolicy.MaxWorkers {
 		newCount := metrics.ActiveWorkers + 1
 		if err := tp.ScaleWorkers(newCount); err != nil {
-			tp.logger.Error("Failed to scale up workers", "error", err)
+			tp.logger.Error("Failed to scale up workers", zap.Error(err))
 		} else {
 			tp.logger.Info("Scaled up workers", "new_count", newCount, "queue_len", queueLen)
 		}
@@ -348,7 +350,7 @@ func (tp *TranscoderPlugin) performAutoScaling() {
 		queueLen == 0 {
 		newCount := metrics.ActiveWorkers - 1
 		if err := tp.ScaleWorkers(newCount); err != nil {
-			tp.logger.Error("Failed to scale down workers", "error", err)
+			tp.logger.Error("Failed to scale down workers", zap.Error(err))
 		} else {
 			tp.logger.Info("Scaled down workers", "new_count", newCount)
 		}

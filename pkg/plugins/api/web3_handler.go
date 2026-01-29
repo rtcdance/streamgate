@@ -41,7 +41,7 @@ func (wh *Web3Handler) HandleVerifySignature(w http.ResponseWriter, r *http.Requ
 
 	var req VerifySignatureRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		wh.logger.Error("Failed to decode request", "error", err)
+		wh.logger.Error("Failed to decode request", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -49,7 +49,7 @@ func (wh *Web3Handler) HandleVerifySignature(w http.ResponseWriter, r *http.Requ
 	// Verify signature
 	valid, err := wh.web3Service.VerifySignature(r.Context(), req.Address, req.Message, req.Signature)
 	if err != nil {
-		wh.logger.Error("Failed to verify signature", "error", err)
+		wh.logger.Error("Failed to verify signature", zap.Error(err))
 		http.Error(w, "Failed to verify signature", http.StatusInternalServerError)
 		return
 	}
@@ -83,7 +83,7 @@ func (wh *Web3Handler) HandleVerifyNFT(w http.ResponseWriter, r *http.Request) {
 
 	var req VerifyNFTRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		wh.logger.Error("Failed to decode request", "error", err)
+		wh.logger.Error("Failed to decode request", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -91,7 +91,7 @@ func (wh *Web3Handler) HandleVerifyNFT(w http.ResponseWriter, r *http.Request) {
 	// Verify NFT ownership
 	valid, err := wh.web3Service.VerifyNFTOwnership(r.Context(), req.ChainID, req.ContractAddress, req.TokenID, req.OwnerAddress)
 	if err != nil {
-		wh.logger.Error("Failed to verify NFT", "error", err)
+		wh.logger.Error("Failed to verify NFT", zap.Error(err))
 		http.Error(w, "Failed to verify NFT", http.StatusInternalServerError)
 		return
 	}
@@ -126,7 +126,7 @@ func (wh *Web3Handler) HandleGetGasPrice(w http.ResponseWriter, r *http.Request)
 	// Get gas price
 	gasPrice, err := wh.web3Service.GetGasPrice(r.Context(), chainID)
 	if err != nil {
-		wh.logger.Error("Failed to get gas price", "error", err)
+		wh.logger.Error("Failed to get gas price", zap.Error(err))
 		http.Error(w, "Failed to get gas price", http.StatusInternalServerError)
 		return
 	}
@@ -204,7 +204,7 @@ func (wh *Web3Handler) HandleUploadToIPFS(w http.ResponseWriter, r *http.Request
 
 	var req UploadToIPFSRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		wh.logger.Error("Failed to decode request", "error", err)
+		wh.logger.Error("Failed to decode request", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -215,7 +215,7 @@ func (wh *Web3Handler) HandleUploadToIPFS(w http.ResponseWriter, r *http.Request
 	// Upload to IPFS
 	cid, err := wh.web3Service.UploadToIPFS(r.Context(), req.Filename, []byte(req.Data))
 	if err != nil {
-		wh.logger.Error("Failed to upload to IPFS", "error", err)
+		wh.logger.Error("Failed to upload to IPFS", zap.Error(err))
 		http.Error(w, "Failed to upload to IPFS", http.StatusInternalServerError)
 		return
 	}
@@ -247,7 +247,7 @@ func (wh *Web3Handler) HandleDownloadFromIPFS(w http.ResponseWriter, r *http.Req
 
 	var req DownloadFromIPFSRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		wh.logger.Error("Failed to decode request", "error", err)
+		wh.logger.Error("Failed to decode request", zap.Error(err))
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -255,7 +255,7 @@ func (wh *Web3Handler) HandleDownloadFromIPFS(w http.ResponseWriter, r *http.Req
 	// Download from IPFS
 	data, err := wh.web3Service.DownloadFromIPFS(r.Context(), req.CID)
 	if err != nil {
-		wh.logger.Error("Failed to download from IPFS", "error", err)
+		wh.logger.Error("Failed to download from IPFS", zap.Error(err))
 		http.Error(w, "Failed to download from IPFS", http.StatusInternalServerError)
 		return
 	}

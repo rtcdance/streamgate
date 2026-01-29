@@ -38,7 +38,7 @@ func (h *AuthHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -86,7 +86,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error("Failed to decode request", "error", err)
+		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
@@ -95,7 +95,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 
 	valid, err := h.verifier.VerifySignature(ctx, req.Address, req.Message, req.Signature)
 	if err != nil {
-		h.logger.Error("Failed to verify signature", "error", err)
+		h.logger.Error("Failed to verify signature", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_failed", map[string]string{})
 		h.auditLogger.LogEvent("auth", clientIP, "verify_signature", req.Address, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -150,7 +150,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error("Failed to decode request", "error", err)
+		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_nft_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
@@ -159,7 +159,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 
 	valid, err := h.verifier.VerifyNFT(ctx, req.Address, req.ContractAddress, req.TokenID)
 	if err != nil {
-		h.logger.Error("Failed to verify NFT", "error", err)
+		h.logger.Error("Failed to verify NFT", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_nft_failed", map[string]string{})
 		h.auditLogger.LogEvent("auth", clientIP, "verify_nft", req.Address, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -211,7 +211,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error("Failed to decode request", "error", err)
+		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_token_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
@@ -220,7 +220,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 
 	valid, err := h.verifier.VerifyToken(ctx, req.Token)
 	if err != nil {
-		h.logger.Error("Failed to verify token", "error", err)
+		h.logger.Error("Failed to verify token", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_token_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
@@ -270,7 +270,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.logger.Error("Failed to decode request", "error", err)
+		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_challenge_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
@@ -279,7 +279,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 
 	challenge, err := h.verifier.GetChallenge(ctx, req.Address)
 	if err != nil {
-		h.logger.Error("Failed to generate challenge", "error", err)
+		h.logger.Error("Failed to generate challenge", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_challenge_failed", map[string]string{})
 		h.auditLogger.LogEvent("auth", clientIP, "get_challenge", req.Address, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)

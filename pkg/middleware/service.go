@@ -41,7 +41,7 @@ func (m *ServiceMiddleware) ServiceToServiceAuth(next http.Handler) http.Handler
 		// - Verify service token
 		// - Check service permissions
 
-		m.logger.Debug("Service-to-service request", "from", r.Header.Get("X-Service-Name"))
+		m.logger.Debug("Service-to-service request", zap.String("from", r.Header.Get("X-Service-Name")))
 
 		next.ServeHTTP(w, r)
 	})
@@ -71,7 +71,7 @@ func (m *ServiceMiddleware) Tracing(next http.Handler) http.Handler {
 		// - Add span to context
 		// - Pass to next handler
 
-		m.logger.Debug("Tracing request", "path", r.URL.Path, "method", r.Method)
+		m.logger.Debug("Tracing request", zap.String("path", r.URL.Path), zap.String("method", r.Method))
 
 		next.ServeHTTP(w, r)
 	})
@@ -130,7 +130,7 @@ func (m *ServiceMiddleware) Metrics(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		duration := time.Since(start)
-		m.logger.Debug("Request completed", "path", r.URL.Path, "method", r.Method, "duration", duration)
+		m.logger.Debug("Request completed", zap.String("path", r.URL.Path), zap.String("method", r.Method), zap.Duration("duration", duration))
 	})
 }
 

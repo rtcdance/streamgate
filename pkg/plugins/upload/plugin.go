@@ -54,13 +54,13 @@ func (p *UploadPlugin) Init(ctx context.Context, kernel *core.Microkernel) error
 
 // Start starts the upload service
 func (p *UploadPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting upload service", "port", p.config.Server.Port)
+	p.logger.Info("Starting upload service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start upload server: %w", err)
 	}
 
-	p.logger.Info("Upload service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Upload service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *UploadPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping upload server", "error", err)
+			p.logger.Error("Error stopping upload server", zap.Error(err))
 			return err
 		}
 	}

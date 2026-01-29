@@ -18,7 +18,7 @@ type IPFSClient struct {
 
 // NewIPFSClient creates a new IPFS client
 func NewIPFSClient(ipfsURL string, logger *zap.Logger) (*IPFSClient, error) {
-	logger.Info("Connecting to IPFS", "url", ipfsURL)
+	logger.Info("Connecting to IPFS", zap.String("url", ipfsURL))
 
 	// Connect to IPFS
 	sh := shell.NewShell(ipfsURL)
@@ -26,11 +26,11 @@ func NewIPFSClient(ipfsURL string, logger *zap.Logger) (*IPFSClient, error) {
 	// Verify connection
 	version, err := sh.ID()
 	if err != nil {
-		logger.Error("Failed to connect to IPFS", "error", err)
+		logger.Error("Failed to connect to IPFS", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to IPFS: %w", err)
 	}
 
-	logger.Info("Connected to IPFS", "version", version)
+	logger.Info("Connected to IPFS", zap.String("version", version))
 
 	return &IPFSClient{
 		shell:  sh,
@@ -58,7 +58,7 @@ func (ic *IPFSClient) UploadFile(ctx context.Context, filename string, data []by
 
 // DownloadFile downloads a file from IPFS
 func (ic *IPFSClient) DownloadFile(ctx context.Context, cid string) ([]byte, error) {
-	ic.logger.Debug("Downloading file from IPFS", "cid", cid)
+	ic.logger.Debug("Downloading file from IPFS", zap.String("cid", cid))
 
 	// Download from IPFS
 	reader, err := ic.shell.Cat(cid)
@@ -81,7 +81,7 @@ func (ic *IPFSClient) DownloadFile(ctx context.Context, cid string) ([]byte, err
 
 // PinFile pins a file on IPFS
 func (ic *IPFSClient) PinFile(ctx context.Context, cid string) error {
-	ic.logger.Debug("Pinning file on IPFS", "cid", cid)
+	ic.logger.Debug("Pinning file on IPFS", zap.String("cid", cid))
 
 	// Pin file
 	err := ic.shell.Pin(cid)
@@ -90,13 +90,13 @@ func (ic *IPFSClient) PinFile(ctx context.Context, cid string) error {
 		return fmt.Errorf("failed to pin file on IPFS: %w", err)
 	}
 
-	ic.logger.Info("File pinned on IPFS", "cid", cid)
+	ic.logger.Info("File pinned on IPFS", zap.String("cid", cid))
 	return nil
 }
 
 // UnpinFile unpins a file from IPFS
 func (ic *IPFSClient) UnpinFile(ctx context.Context, cid string) error {
-	ic.logger.Debug("Unpinning file from IPFS", "cid", cid)
+	ic.logger.Debug("Unpinning file from IPFS", zap.String("cid", cid))
 
 	// Unpin file
 	err := ic.shell.Unpin(cid)
@@ -105,13 +105,13 @@ func (ic *IPFSClient) UnpinFile(ctx context.Context, cid string) error {
 		return fmt.Errorf("failed to unpin file from IPFS: %w", err)
 	}
 
-	ic.logger.Info("File unpinned from IPFS", "cid", cid)
+	ic.logger.Info("File unpinned from IPFS", zap.String("cid", cid))
 	return nil
 }
 
 // GetFileInfo gets information about a file on IPFS
 func (ic *IPFSClient) GetFileInfo(ctx context.Context, cid string) (*FileInfo, error) {
-	ic.logger.Debug("Getting file info from IPFS", "cid", cid)
+	ic.logger.Debug("Getting file info from IPFS", zap.String("cid", cid))
 
 	// Get file stats
 	stat, err := ic.shell.FileStat(cid)
@@ -129,7 +129,7 @@ func (ic *IPFSClient) GetFileInfo(ctx context.Context, cid string) (*FileInfo, e
 		CumSize: stat.CumSize,
 	}
 
-	ic.logger.Debug("File info retrieved from IPFS", "cid", cid)
+	ic.logger.Debug("File info retrieved from IPFS", zap.String("cid", cid))
 	return fileInfo, nil
 }
 
@@ -208,7 +208,7 @@ func (hs *HybridStorage) Store(ctx context.Context, filename string, data []byte
 		location.Storage = "local"
 		location.URL = fmt.Sprintf("/files/%s", filename)
 
-		hs.logger.Info("File stored locally", "filename", filename)
+		hs.logger.Info("File stored locally", zap.String("filename", filename))
 	}
 
 	return location, nil

@@ -170,7 +170,7 @@ type DeploymentResult struct {
 
 // DeployContentRegistry deploys the ContentRegistry contract
 func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig) (*DeploymentResult, error) {
-	scd.logger.Info("Deploying ContentRegistry contract", "chain_id", config.ChainID)
+	scd.logger.Info("Deploying ContentRegistry contract", zap.String("chain_id", config.ChainID))
 
 	// TODO: Implement contract deployment
 	// 1. Create transaction

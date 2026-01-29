@@ -42,14 +42,14 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 
 	parsedABI, err := abi.JSON([]byte(abiStr))
 	if err != nil {
-		nv.logger.Error("Failed to parse ABI", "error", err)
+		nv.logger.Error("Failed to parse ABI", zap.Error(err))
 		return false, fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
 	// Call ownerOf
 	data, err := parsedABI.Pack("ownerOf", tokenIDInt)
 	if err != nil {
-		nv.logger.Error("Failed to pack ownerOf call", "error", err)
+		nv.logger.Error("Failed to pack ownerOf call", zap.Error(err))
 		return false, fmt.Errorf("failed to pack ownerOf call: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 	}, nil)
 
 	if err != nil {
-		nv.logger.Error("Failed to call ownerOf", "error", err)
+		nv.logger.Error("Failed to call ownerOf", zap.Error(err))
 		return false, fmt.Errorf("failed to call ownerOf: %w", err)
 	}
 
@@ -71,7 +71,7 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 	var tokenOwner common.Address
 	err = parsedABI.UnpackIntoInterface(&tokenOwner, "ownerOf", result)
 	if err != nil {
-		nv.logger.Error("Failed to unpack ownerOf result", "error", err)
+		nv.logger.Error("Failed to unpack ownerOf result", zap.Error(err))
 		return false, fmt.Errorf("failed to unpack ownerOf result: %w", err)
 	}
 
@@ -95,14 +95,14 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 
 	parsedABI, err := abi.JSON([]byte(abiStr))
 	if err != nil {
-		nv.logger.Error("Failed to parse ABI", "error", err)
+		nv.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
 	// Call balanceOf
 	data, err := parsedABI.Pack("balanceOf", owner)
 	if err != nil {
-		nv.logger.Error("Failed to pack balanceOf call", "error", err)
+		nv.logger.Error("Failed to pack balanceOf call", zap.Error(err))
 		return nil, fmt.Errorf("failed to pack balanceOf call: %w", err)
 	}
 
@@ -116,7 +116,7 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 	}, nil)
 
 	if err != nil {
-		nv.logger.Error("Failed to call balanceOf", "error", err)
+		nv.logger.Error("Failed to call balanceOf", zap.Error(err))
 		return nil, fmt.Errorf("failed to call balanceOf: %w", err)
 	}
 
@@ -124,7 +124,7 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 	var balance *big.Int
 	err = parsedABI.UnpackIntoInterface(&balance, "balanceOf", result)
 	if err != nil {
-		nv.logger.Error("Failed to unpack balanceOf result", "error", err)
+		nv.logger.Error("Failed to unpack balanceOf result", zap.Error(err))
 		return nil, fmt.Errorf("failed to unpack balanceOf result: %w", err)
 	}
 

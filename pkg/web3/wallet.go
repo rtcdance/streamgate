@@ -34,7 +34,7 @@ func (wm *WalletManager) CreateWallet() (*Wallet, error) {
 	// Generate private key
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
-		wm.logger.Error("Failed to generate private key", "error", err)
+		wm.logger.Error("Failed to generate private key", zap.Error(err))
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
 
@@ -55,7 +55,7 @@ func (wm *WalletManager) CreateWallet() (*Wallet, error) {
 		PublicKey:  publicKeyECDSA,
 	}
 
-	wm.logger.Info("Wallet created", "address", wallet.Address)
+	wm.logger.Info("Wallet created", zap.String("address", wallet.Address))
 	return wallet, nil
 }
 
@@ -66,7 +66,7 @@ func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
 	// Parse private key
 	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
-		wm.logger.Error("Failed to parse private key", "error", err)
+		wm.logger.Error("Failed to parse private key", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
 		PublicKey:  publicKeyECDSA,
 	}
 
-	wm.logger.Info("Wallet imported", "address", wallet.Address)
+	wm.logger.Info("Wallet imported", zap.String("address", wallet.Address))
 	return wallet, nil
 }
 
@@ -122,7 +122,7 @@ type WalletInfo struct {
 
 // GetWalletInfo gets wallet information
 func (wm *WalletManager) GetWalletInfo(address string) *WalletInfo {
-	wm.logger.Debug("Getting wallet info", "address", address)
+	wm.logger.Debug("Getting wallet info", zap.String("address", address))
 
 	return &WalletInfo{
 		Address: address,
