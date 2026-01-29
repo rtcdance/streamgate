@@ -34,7 +34,8 @@ func NewGasMonitor(client *ethclient.Client, logger *zap.Logger) *GasMonitor {
 
 // Start starts the gas monitor
 func (gm *GasMonitor) Start(ctx context.Context) error {
-	gm.logger.Info("Starting gas monitor", zap.String("update_interval", gm.updateInterval))
+	gm.logger.Info("Starting gas monitor",
+		zap.Duration("update_interval", gm.updateInterval))
 
 	// Get initial gas price
 	gasPrice, err := gm.client.SuggestGasPrice(ctx)

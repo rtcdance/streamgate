@@ -46,7 +46,9 @@ type IndexedEvent struct {
 
 // NewEventIndexer creates a new event indexer
 func NewEventIndexer(client *ethclient.Client, contractAddress string, eventSignature string, logger *zap.Logger) (*EventIndexer, error) {
-	logger.Info("Creating event indexer", "contract", contractAddress, "event_signature", eventSignature)
+	logger.Info("Creating event indexer",
+		zap.String("contract", contractAddress),
+		zap.String("event_signature", eventSignature))
 
 	return &EventIndexer{
 		client:          client,
@@ -79,7 +81,8 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 	// Start indexing loop
 	go ei.indexingLoop(ctx)
 
-	ei.logger.Info("Event indexer started", "start_block", blockNumber)
+	ei.logger.Info("Event indexer started",
+		zap.Uint64("start_block", blockNumber))
 	return nil
 }
 
@@ -139,7 +142,10 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 		return
 	}
 
-	ei.logger.Debug("Events indexed", zap.Int("count", len(logs)), "from_block", currentBlock+1, "to_block", latestBlock)
+	ei.logger.Debug("Events indexed",
+		zap.Int("count", len(logs)),
+		zap.Uint64("from_block", currentBlock+1),
+		zap.Uint64("to_block", latestBlock))
 
 	// Process logs
 	for _, log := range logs {
@@ -287,7 +293,9 @@ func (el *EventListener) Emit(ctx context.Context, event *IndexedEvent) error {
 
 	for _, handler := range handlers {
 		if err := handler(ctx, event); err != nil {
-			el.logger.Error("Error handling event", "event_type", event.EventType, "error", err)
+			el.logger.Error("Error handling event",
+				zap.String("event_type", event.EventType),
+				zap.Error(err))
 		}
 	}
 
@@ -301,7 +309,9 @@ func (el *EventListener) ProcessAllEvents(ctx context.Context) error {
 	events := el.indexer.GetEvents()
 	for _, event := range events {
 		if err := el.Emit(ctx, event); err != nil {
-			el.logger.Error("Error processing event", "event_id", event.ID, "error", err)
+			el.logger.Error("Error processing event",
+				zap.String("event_id", event.ID),
+				zap.Error(err))
 		}
 	}
 
