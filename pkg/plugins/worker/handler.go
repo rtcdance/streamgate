@@ -3,17 +3,19 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"go.uber.org/zap"
+	"net/http"
 	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring")
+	"streamgate/pkg/monitoring"
+)
 
 // WorkerHandler handles worker requests
 type WorkerHandler struct {
 	scheduler        *JobScheduler
 	logger           *zap.Logger
 	kernel           *core.Microkernel
-	metricsCollector *monitoring.MetricsCollector}
+	metricsCollector *monitoring.MetricsCollector
+}
 
 // NewWorkerHandler creates a new worker handler
 func NewWorkerHandler(scheduler *JobScheduler, logger *zap.Logger, kernel *core.Microkernel) *WorkerHandler {
@@ -21,7 +23,7 @@ func NewWorkerHandler(scheduler *JobScheduler, logger *zap.Logger, kernel *core.
 		scheduler:        scheduler,
 		logger:           logger,
 		kernel:           kernel,
-		metricsCollector: monitoring.NewMetricsCollector(logger),	}
+		metricsCollector: monitoring.NewMetricsCollector(logger)}
 }
 
 // HealthHandler handles health check requests

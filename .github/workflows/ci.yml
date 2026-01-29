@@ -7,7 +7,7 @@ on:
     branches: [ main, master, develop ]
 
 env:
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.24.0'
   GOPROXY: 'https://goproxy.io,direct'
 
 jobs:
@@ -40,6 +40,14 @@ jobs:
       
       - name: Run go vet
         run: go vet ./...
+      
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+      
+      - name: Verify dependencies
+        run: go mod verify
 
   security:
     name: Security Scan
@@ -76,7 +84,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -101,8 +109,19 @@ jobs:
           go build -o bin/upload ./cmd/microservices/upload
           go build -o bin/worker ./cmd/microservices/worker
       
+      - name: Verify binaries
+        run: |
+          for binary in bin/streamgate bin/api-gateway bin/auth bin/cache bin/metadata bin/monitor bin/streaming bin/transcoder bin/upload bin/worker; do
+            if [ ! -f "$binary" ]; then
+              echo "Binary $binary not found"
+              exit 1
+            fi
+            echo "✓ Found $binary"
+          done
+          echo "All binaries built successfully"
+      
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: binaries
           path: bin/
@@ -121,7 +140,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -131,11 +150,20 @@ jobs:
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage-unit.out ./test/unit/...
       
+      - name: Run package tests
+        run: go test -v -race -coverprofile=coverage-pkg.out ./pkg/... ./cmd/...
+      
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
           path: coverage-unit.out
+      
+      - name: Upload package coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-pkg
+          path: coverage-pkg.out
 
   integration-tests:
     name: Integration Tests
@@ -174,7 +202,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -205,7 +233,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage-integration.out ./test/integration/...
       
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-integration
           path: coverage-integration.out
@@ -247,7 +275,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -278,7 +306,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage-e2e.out ./test/e2e/...
       
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-e2e
           path: coverage-e2e.out
@@ -296,7 +324,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -307,7 +335,7 @@ jobs:
         run: go test -bench=. -benchmem -run=^$ ./test/benchmark/... | tee benchmark-results.txt
       
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: benchmark-results.txt
@@ -320,12 +348,12 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Download coverage artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
       
       - name: Merge coverage reports
         run: |
           go install github.com/wadey/gocovmerge@latest
-          gocovmerge coverage-unit/coverage-unit.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
+          gocovmerge coverage-unit/coverage-unit.out coverage-pkg/coverage-pkg.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
       
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3

@@ -9,7 +9,7 @@ on:
     - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 env:
-  GO_VERSION: '1.24'
+  GO_VERSION: '1.24.0'
   GOPROXY: 'https://goproxy.io,direct'
 
 jobs:
@@ -30,6 +30,8 @@ jobs:
           - ./test/unit/storage/...
           - ./test/unit/util/...
           - ./test/unit/web3/...
+          - ./pkg/...
+          - ./cmd/...
     steps:
       - uses: actions/checkout@v4
       
@@ -39,18 +41,26 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
       
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+      
+      - name: Verify dependencies
+        run: go mod verify
+      
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage.out ${{ matrix.test-path }}
       
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-unit-${{ matrix.test-path }}
           path: coverage.out
@@ -113,12 +123,20 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+      
+      - name: Verify dependencies
+        run: go mod verify
       
       - name: Setup database
         env:
@@ -144,7 +162,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ${{ matrix.test-path }}
       
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-integration-${{ matrix.test-path }}
           path: coverage.out
@@ -213,12 +231,20 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
+      
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+      
+      - name: Verify dependencies
+        run: go mod verify
       
       - name: Setup database
         env:
@@ -244,7 +270,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out -run TestFile ./test/e2e/${{ matrix.test-file }}
       
       - name: Upload coverage
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-e2e-${{ matrix.test-file }}
           path: coverage.out
@@ -261,7 +287,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -272,7 +298,7 @@ jobs:
         run: go test -bench=. -benchmem -run=^$ ./test/benchmark/... | tee benchmark-results.txt
       
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
           path: benchmark-results.txt
@@ -313,7 +339,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -344,7 +370,7 @@ jobs:
         run: go test -v -timeout=30m ./test/load/...
       
       - name: Upload load test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: load-test-results
           path: test/load/
@@ -375,7 +401,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -404,7 +430,7 @@ jobs:
         run: go test -v ./test/security/...
       
       - name: Upload security test results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-test-results
           path: test/security/
@@ -416,7 +442,7 @@ jobs:
     if: always()
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
       
       - name: Generate test report
         run: |
@@ -431,7 +457,7 @@ jobs:
           echo "- Security Tests: ${{ needs.security-tests.result }}" >> test-summary.md
       
       - name: Upload test summary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-summary
           path: test-summary.md
