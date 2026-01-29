@@ -3,7 +3,6 @@ package storage_test
 import (
 	"testing"
 
-	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
 )
 

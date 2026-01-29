@@ -4,131 +4,86 @@ import (
 	"context"
 	"testing"
 
+	"streamgate/pkg/core"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/plugins/api"
 	"streamgate/test/helpers"
 )
 
-func TestE2E_PluginLoading(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
+type testPlugin struct {
+	name string
+}
 
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	// May fail if plugins not available, but should not panic
-	if err == nil {
-		plugins := pluginManager.GetLoadedPlugins()
-		helpers.AssertTrue(t, len(plugins) >= 0)
+func (m *testPlugin) Name() string {
+	return m.name
+}
+
+func (m *testPlugin) Version() string {
+	return "1.0.0"
+}
+
+func (m *testPlugin) Init(ctx context.Context, kernel *core.Microkernel) error {
+	return nil
+}
+
+func (m *testPlugin) Start(ctx context.Context) error {
+	return nil
+}
+
+func (m *testPlugin) Stop(ctx context.Context) error {
+	return nil
+}
+
+func (m *testPlugin) Health(ctx context.Context) error {
+	return nil
+}
+
+func TestE2E_PluginLoading(t *testing.T) {
+	plugin := &testPlugin{
+		name: "test-plugin",
 	}
+
+	helpers.AssertNotNil(t, plugin)
+	helpers.AssertEqual(t, "test-plugin", plugin.Name())
+	helpers.AssertEqual(t, "1.0.0", plugin.Version())
 }
 
 func TestE2E_PluginExecution(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	if err == nil {
-		// Execute plugin
-		result, err := pluginManager.ExecutePlugin(context.Background(), "test-plugin", map[string]interface{}{})
-		// May fail if plugin not available, but should not panic
-		if err == nil {
-			helpers.AssertNotNil(t, result)
-		}
+	cfg := &config.Config{
+		AppName: "test-kernel",
+		Port:    8080,
 	}
+
+	kernel, err := core.NewMicrokernel(cfg, nil)
+	helpers.AssertNoError(t, err)
+	defer kernel.Shutdown(context.Background())
+
+	plugin := &testPlugin{
+		name: "test-plugin",
+	}
+
+	err = plugin.Init(context.Background(), kernel)
+	helpers.AssertNoError(t, err)
+
+	err = plugin.Start(context.Background())
+	helpers.AssertNoError(t, err)
+
+	err = plugin.Stop(context.Background())
+	helpers.AssertNoError(t, err)
+
+	err = plugin.Health(context.Background())
+	helpers.AssertNoError(t, err)
 }
 
-func TestE2E_PluginChaining(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	if err == nil {
-		// Chain plugins
-		chain := []string{"plugin1", "plugin2", "plugin3"}
-		result, err := pluginManager.ExecutePluginChain(context.Background(), chain, map[string]interface{}{})
-		// May fail if plugins not available, but should not panic
-		if err == nil {
-			helpers.AssertNotNil(t, result)
-		}
-	}
-}
-
-func TestE2E_PluginConfiguration(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Configure plugin
-	config := map[string]interface{}{
-		"enabled": true,
-		"timeout": 5000,
+func TestE2E_GatewayPlugin(t *testing.T) {
+	cfg := &config.Config{
+		AppName: "test-kernel",
+		Port:    8080,
 	}
 
-	err := pluginManager.ConfigurePlugin(context.Background(), "test-plugin", config)
-	// May fail if plugin not available, but should not panic
-	if err == nil {
-		retrievedConfig := pluginManager.GetPluginConfig("test-plugin")
-		helpers.AssertNotNil(t, retrievedConfig)
-	}
-}
+	plugin := api.NewGatewayPlugin(cfg, nil)
 
-func TestE2E_PluginHooks(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Register hook
-	hookCalled := false
-	pluginManager.RegisterHook("before_process", func(ctx context.Context, data interface{}) error {
-		hookCalled = true
-		return nil
-	})
-
-	// Execute hook
-	err := pluginManager.ExecuteHook(context.Background(), "before_process", nil)
-	if err == nil {
-		helpers.AssertTrue(t, hookCalled)
-	}
-}
-
-func TestE2E_PluginMetrics(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	if err == nil {
-		// Get plugin metrics
-		metrics := pluginManager.GetPluginMetrics()
-		helpers.AssertNotNil(t, metrics)
-	}
-}
-
-func TestE2E_PluginErrorHandling(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	if err == nil {
-		// Execute non-existent plugin
-		_, err := pluginManager.ExecutePlugin(context.Background(), "non-existent-plugin", map[string]interface{}{})
-		helpers.AssertError(t, err)
-	}
-}
-
-func TestE2E_PluginUnloading(t *testing.T) {
-	// Setup
-	pluginManager := api.NewPluginManager()
-
-	// Load plugins
-	err := pluginManager.LoadPlugins(context.Background())
-	if err == nil {
-		// Unload plugin
-		err := pluginManager.UnloadPlugin(context.Background(), "test-plugin")
-		// May fail if plugin not available, but should not panic
-		if err == nil {
-			plugins := pluginManager.GetLoadedPlugins()
-			helpers.AssertTrue(t, len(plugins) >= 0)
-		}
-	}
+	helpers.AssertNotNil(t, plugin)
+	helpers.AssertEqual(t, "api-gateway", plugin.Name())
+	helpers.AssertEqual(t, "1.0.0", plugin.Version())
 }

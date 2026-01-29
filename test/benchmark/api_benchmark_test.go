@@ -31,7 +31,7 @@ func BenchmarkAPI_RoutingWithMiddleware(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.LoggingMiddleware())
 	router.Use(service.CORSMiddleware())
 
@@ -101,7 +101,7 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	router.GET("/api/protected", func(c *gin.Context) {
@@ -121,7 +121,7 @@ func BenchmarkAPI_RateLimiting(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RateLimitMiddleware())
 
 	router.GET("/api/limited", func(c *gin.Context) {
@@ -141,7 +141,7 @@ func BenchmarkAPI_ErrorHandling(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RecoveryMiddleware())
 
 	router.GET("/api/error", func(c *gin.Context) {

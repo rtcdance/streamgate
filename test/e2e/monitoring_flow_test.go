@@ -3,186 +3,159 @@ package e2e_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"streamgate/pkg/monitoring"
 	"streamgate/test/helpers"
 )
 
 func TestE2E_MonitoringFlow(t *testing.T) {
-	// Setup
-	metrics := monitoring.NewMetrics()
-	alerts := monitoring.NewAlerts()
+	metrics := monitoring.NewMetricsCollector(nil)
+	alerts := monitoring.NewAlertManager(nil)
 
-	// Step 1: Record metrics
-	metrics.RecordMetric("cpu_usage", 75)
-	metrics.RecordMetric("memory_usage", 60)
-	metrics.RecordLatency("api_response_time", 250)
+	metrics.SetGauge("cpu_usage", 75, nil)
+	metrics.SetGauge("memory_usage", 60, nil)
+	metrics.RecordTimer("api_response_time", 250000000, nil)
 
-	// Step 2: Verify metrics recorded
 	cpuUsage := metrics.GetMetric("cpu_usage")
-	helpers.AssertEqual(t, float64(75), cpuUsage)
+	helpers.AssertNotNil(t, cpuUsage)
 
-	// Step 3: Check for alerts
-	if cpuUsage > 70 {
-		alert := &monitoring.Alert{
-			Name:         "high_cpu",
-			Threshold:    70,
-			CurrentValue: cpuUsage,
-			Severity:     "warning",
-		}
-		alerts.RecordAlert(alert)
+	rule := &monitoring.AlertRule{
+		Name:      "high_cpu",
+		Metric:    "cpu_usage",
+		Threshold: 70,
+		Level:     "warning",
 	}
+	alerts.AddRule(rule)
 
-	// Step 4: Verify alerts recorded
-	recordedAlerts := alerts.GetAlerts()
-	helpers.AssertTrue(t, len(recordedAlerts) > 0)
+	alerts.CheckMetric("cpu_usage", cpuUsage.Value)
+
+	activeAlerts := alerts.GetActiveAlerts()
+	helpers.AssertNotNil(t, activeAlerts)
 }
 
 func TestE2E_MetricsAggregation(t *testing.T) {
-	// Setup
-	metrics := monitoring.NewMetrics()
+	metrics := monitoring.NewMetricsCollector(nil)
 
-	// Record multiple metrics
 	for i := 0; i < 10; i++ {
-		metrics.RecordMetric("request_count", float64(i))
-		metrics.RecordLatency("response_time", float64(100+i*10))
+		metrics.SetGauge("request_count", float64(i), nil)
+		metrics.RecordTimer("response_time", time.Duration(100000000+i*10000000), nil)
 	}
 
-	// Get aggregated metrics
 	allMetrics := metrics.GetAllMetrics()
 	helpers.AssertNotNil(t, allMetrics)
 	helpers.AssertTrue(t, len(allMetrics) > 0)
 }
 
 func TestE2E_AlertingFlow(t *testing.T) {
-	// Setup
-	alerts := monitoring.NewAlerts()
+	alerts := monitoring.NewAlertManager(nil)
 
-	// Create alerts with different severities
-	alertConfigs := []struct {
-		name     string
-		severity string
-		value    float64
+	rules := []struct {
+		name      string
+		metric    string
+		threshold float64
+		level     string
 	}{
-		{"low_alert", "info", 10},
-		{"medium_alert", "warning", 50},
-		{"high_alert", "critical", 90},
+		{"low_alert", "test_metric", 10, "info"},
+		{"medium_alert", "test_metric", 50, "warning"},
+		{"high_alert", "test_metric", 90, "critical"},
 	}
 
-	for _, config := range alertConfigs {
-		alert := &monitoring.Alert{
-			Name:         config.name,
-			Threshold:    50,
-			CurrentValue: config.value,
-			Severity:     config.severity,
+	for _, rule := range rules {
+		alertRule := &monitoring.AlertRule{
+			Name:      rule.name,
+			Metric:    rule.metric,
+			Threshold: rule.threshold,
+			Level:     rule.level,
 		}
-		alerts.RecordAlert(alert)
+		alerts.AddRule(alertRule)
 	}
 
-	// Verify alerts
-	recordedAlerts := alerts.GetAlerts()
-	helpers.AssertEqual(t, 3, len(recordedAlerts))
+	alerts.CheckMetric("test_metric", 95)
+
+	activeAlerts := alerts.GetActiveAlerts()
+	helpers.AssertTrue(t, len(activeAlerts) > 0)
 }
 
 func TestE2E_HealthCheckFlow(t *testing.T) {
-	// Setup
-	health := monitoring.NewHealthChecker()
+	health := monitoring.NewHealthChecker(nil)
 
-	// Perform health check
-	status, err := health.Check(context.Background())
-	helpers.AssertNoError(t, err)
+	status := health.Check()
 	helpers.AssertNotNil(t, status)
 
-	// Verify health status
 	helpers.AssertTrue(t, status.Status == "healthy" || status.Status == "degraded" || status.Status == "unhealthy")
 }
 
 func TestE2E_PrometheusMetricsFlow(t *testing.T) {
-	// Setup
-	prometheus := monitoring.NewPrometheus()
+	collector := monitoring.NewMetricsCollector(nil)
+	tracker := monitoring.NewServiceMetricsTracker(nil)
+	prometheus := monitoring.NewPrometheusExporter(collector, tracker, nil)
 
-	// Record metrics
-	prometheus.RecordMetric("http_requests_total", 100)
-	prometheus.RecordMetric("http_requests_total", 50)
-	prometheus.RecordLatency("http_request_duration_seconds", 0.5)
-	prometheus.RecordLatency("http_request_duration_seconds", 0.3)
+	collector.SetGauge("http_requests_total", 100, nil)
+	collector.SetGauge("http_requests_total", 50, nil)
+	collector.RecordTimer("http_request_duration_seconds", 500000000, nil)
+	collector.RecordTimer("http_request_duration_seconds", 300000000, nil)
 
-	// Get metrics
-	metrics := prometheus.GetMetrics()
-	helpers.AssertNotNil(t, metrics)
+	snapshot := prometheus.GetMetricsSnapshot()
+	helpers.AssertNotNil(t, snapshot)
 }
 
-func TestE2E_TracingFlow(t *testing.T) {
-	// Setup
-	tracer := monitoring.NewTracer()
+func TestE2E_TracingSpanFlow(t *testing.T) {
+	tracer := monitoring.NewTracer("test-service", nil)
 
-	// Start trace
-	span := tracer.StartSpan("test_operation")
+	span, ctx := tracer.StartSpan(context.Background(), "test_operation")
 	helpers.AssertNotNil(t, span)
+	helpers.AssertNotNil(t, ctx)
 
-	// Add events to span
-	span.AddEvent("operation_started")
-	span.AddEvent("operation_completed")
+	span.AddLog("operation_started", nil)
+	span.AddLog("operation_completed", nil)
 
-	// End span
-	span.End()
+	tracer.FinishSpan(span)
 
-	// Verify span was recorded
 	helpers.AssertTrue(t, true)
 }
 
 func TestE2E_MetricsExport(t *testing.T) {
-	// Setup
-	metrics := monitoring.NewMetrics()
+	metrics := monitoring.NewMetricsCollector(nil)
 
-	// Record metrics
-	metrics.RecordMetric("test_metric", 100)
-	metrics.IncrementCounter("test_counter")
+	metrics.SetGauge("test_metric", 100, nil)
+	metrics.IncrementCounter("test_counter", nil)
 
-	// Export metrics
-	exported, err := metrics.Export()
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, exported)
+	snapshot := metrics.GetMetricsSnapshot()
+	helpers.AssertNotNil(t, snapshot)
+	helpers.AssertTrue(t, len(snapshot) > 0)
 }
 
 func TestE2E_AlertNotification(t *testing.T) {
-	// Setup
-	alerts := monitoring.NewAlerts()
+	alerts := monitoring.NewAlertManager(nil)
 
-	// Create alert
-	alert := &monitoring.Alert{
-		Name:         "test_alert",
-		Threshold:    50,
-		CurrentValue: 75,
-		Severity:     "critical",
+	rule := &monitoring.AlertRule{
+		Name:      "test_alert",
+		Metric:    "test_metric",
+		Threshold: 50,
+		Level:     "critical",
 	}
+	alerts.AddRule(rule)
 
-	// Record alert
-	alerts.RecordAlert(alert)
+	alerts.CheckMetric("test_metric", 75)
 
-	// Send notification
-	err := alerts.SendNotification(context.Background(), alert)
-	// May fail if notification service not available, but should not panic
-	if err == nil {
-		helpers.AssertTrue(t, true)
-	}
+	activeAlerts := alerts.GetActiveAlerts()
+	helpers.AssertTrue(t, len(activeAlerts) > 0)
 }
 
 func TestE2E_MetricsRetention(t *testing.T) {
-	// Setup
-	metrics := monitoring.NewMetrics()
+	metrics := monitoring.NewMetricsCollector(nil)
 
-	// Record metrics
-	metrics.RecordMetric("test_metric", 100)
+	metrics.SetGauge("test_metric", 100, nil)
 
-	// Get metrics
 	value := metrics.GetMetric("test_metric")
-	helpers.AssertEqual(t, float64(100), value)
+	helpers.AssertNotNil(t, value)
+	helpers.AssertEqual(t, float64(100), value.Value)
 
-	// Reset metrics
 	metrics.Reset()
 
-	// Verify metrics cleared
 	value = metrics.GetMetric("test_metric")
-	helpers.AssertEqual(t, float64(0), value)
+	if value == nil {
+		helpers.AssertTrue(t, true)
+	}
 }

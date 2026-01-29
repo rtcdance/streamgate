@@ -16,7 +16,7 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 	router := gin.New()
 
 	// Create middleware service
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 
 	// Add middleware stack
 	router.Use(service.CORSMiddleware())
@@ -45,7 +45,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	router.GET("/protected", func(c *gin.Context) {
@@ -78,7 +78,7 @@ func TestE2E_CORSFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.CORSMiddleware())
 
 	router.GET("/api/data", func(c *gin.Context) {
@@ -102,7 +102,7 @@ func TestE2E_RateLimitingFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RateLimitMiddleware())
 
 	router.GET("/api/limited", func(c *gin.Context) {
@@ -134,7 +134,7 @@ func TestE2E_LoggingFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.LoggingMiddleware())
 
 	router.GET("/api/logged", func(c *gin.Context) {
@@ -156,7 +156,7 @@ func TestE2E_ErrorRecoveryFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RecoveryMiddleware())
 
 	router.GET("/api/panic", func(c *gin.Context) {
@@ -188,7 +188,7 @@ func TestE2E_TracingFlow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.TracingMiddleware())
 
 	router.GET("/api/traced", func(c *gin.Context) {

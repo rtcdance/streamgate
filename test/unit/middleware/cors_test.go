@@ -15,7 +15,7 @@ func TestCORSMiddleware_AllowsOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.CORSMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {
@@ -38,7 +38,7 @@ func TestCORSMiddleware_HandlesPreflight(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.CORSMiddleware())
 
 	router.OPTIONS("/test", func(c *gin.Context) {

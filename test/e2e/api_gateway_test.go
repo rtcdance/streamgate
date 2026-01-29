@@ -18,7 +18,7 @@ func TestE2E_APIGatewayRouting(t *testing.T) {
 	router := gin.New()
 
 	// Add middleware
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.CORSMiddleware())
 	router.Use(service.LoggingMiddleware())
 
@@ -54,7 +54,7 @@ func TestE2E_APIGatewayRateLimiting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RateLimitMiddleware())
 
 	router.GET("/api/test", func(c *gin.Context) {
@@ -77,7 +77,7 @@ func TestE2E_APIGatewayErrorHandling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RecoveryMiddleware())
 
 	router.GET("/api/error", func(c *gin.Context) {
@@ -108,7 +108,7 @@ func TestE2E_APIGatewayCORS(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.CORSMiddleware())
 
 	router.GET("/api/test", func(c *gin.Context) {
@@ -173,7 +173,7 @@ func TestE2E_APIGatewayAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	router.GET("/api/protected", func(c *gin.Context) {

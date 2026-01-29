@@ -16,7 +16,7 @@ func TestAuthMiddleware_WithValidToken(t *testing.T) {
 	router := gin.New()
 
 	// Create middleware service
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	// Add test route
@@ -40,7 +40,7 @@ func TestAuthMiddleware_WithoutToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {
@@ -62,7 +62,7 @@ func TestAuthMiddleware_WithEmptyToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.AuthMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {

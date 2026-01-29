@@ -83,7 +83,8 @@ func TestE2E_FileOperations(t *testing.T) {
 	helpers.AssertEqual(t, "test content", string(content))
 
 	// Test file size
-	size := util.FileSize(tmpFile)
+	size, err := util.FileSize(tmpFile)
+	helpers.AssertNoError(t, err)
 	helpers.AssertEqual(t, int64(12), size)
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
+	"streamgate/pkg/plugins/api"
 )
 
 // PerformanceMetrics tracks performance test results
@@ -30,15 +31,14 @@ type PerformanceMetrics struct {
 
 // TestMetricsCollection validates metrics collection performance
 func TestMetricsCollection(t *testing.T) {
-	metrics := monitoring.NewMetricsRegistry()
-	ctx := context.Background()
+	mc := monitoring.NewMetricsCollector(nil)
 
 	// Create 1000 metrics
 	start := time.Now()
 	for i := 0; i < 1000; i++ {
-		metrics.RecordCounter(ctx, fmt.Sprintf("test.counter.%d", i), 1)
-		metrics.RecordGauge(ctx, fmt.Sprintf("test.gauge.%d", i), float64(i))
-		metrics.RecordHistogram(ctx, fmt.Sprintf("test.histogram.%d", i), float64(i*10))
+		mc.IncrementCounter(fmt.Sprintf("test.counter.%d", i), nil)
+		mc.SetGauge(fmt.Sprintf("test.gauge.%d", i), float64(i), nil)
+		mc.RecordHistogram(fmt.Sprintf("test.histogram.%d", i), float64(i*10), nil)
 	}
 	duration := time.Since(start)
 
@@ -52,11 +52,11 @@ func TestMetricsCollection(t *testing.T) {
 
 // TestCachePerformance validates cache performance
 func TestCachePerformance(t *testing.T) {
-	cache := optimization.NewLRUCache(1000)
+	cache := optimization.NewLocalCache(1000, 5*time.Minute, nil)
 
 	// Warm up cache
 	for i := 0; i < 1000; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i), 5*time.Minute)
+		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i))
 	}
 
 	// Measure read performance
@@ -85,7 +85,7 @@ func TestCachePerformance(t *testing.T) {
 
 // TestRateLimitingPerformance validates rate limiting performance
 func TestRateLimitingPerformance(t *testing.T) {
-	limiter := monitoring.NewRateLimiter(1000, 1000) // 1000 req/sec capacity
+	limiter := api.NewRateLimiter(1000)
 
 	// Measure rate limiting overhead
 	start := time.Now()
@@ -103,7 +103,7 @@ func TestRateLimitingPerformance(t *testing.T) {
 		t.Errorf("Rate limiting too slow: %v (expected < 50ms for 10k checks)", duration)
 	}
 
-	t.Logf("Rate limiting: %d allowed, %.0f checks/sec", allowed, throughput)
+	t.Logf("Rate limiting performance: %.0f checks/sec, %d allowed", throughput, allowed)
 }
 
 // TestConcurrentRequests simulates concurrent request handling
@@ -187,11 +187,11 @@ func TestConcurrentRequests(t *testing.T) {
 
 // TestMemoryUsage validates memory efficiency
 func TestMemoryUsage(t *testing.T) {
-	cache := optimization.NewLRUCache(10000)
+	cache := optimization.NewLocalCache(10000, 5*time.Minute, nil)
 
 	// Fill cache with 10k entries
 	for i := 0; i < 10000; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i), 5*time.Minute)
+		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i))
 	}
 
 	// Estimate memory usage (rough calculation)
@@ -207,18 +207,19 @@ func TestMemoryUsage(t *testing.T) {
 
 // TestPrometheusExportPerformance validates Prometheus export performance
 func TestPrometheusExportPerformance(t *testing.T) {
-	exporter := monitoring.NewPrometheusExporter()
-	registry := monitoring.NewMetricsRegistry()
+	mc := monitoring.NewMetricsCollector(nil)
+	smt := monitoring.NewServiceMetricsTracker(nil)
+	pe := monitoring.NewPrometheusExporter(mc, smt, nil)
 
 	// Create 1000 metrics
 	for i := 0; i < 1000; i++ {
-		registry.RecordCounter(context.Background(), fmt.Sprintf("test.counter.%d", i), 1)
-		registry.RecordGauge(context.Background(), fmt.Sprintf("test.gauge.%d", i), float64(i))
+		mc.IncrementCounter(fmt.Sprintf("test.counter.%d", i), nil)
+		mc.SetGauge(fmt.Sprintf("test.gauge.%d", i), float64(i), nil)
 	}
 
 	// Measure export performance
 	start := time.Now()
-	output := exporter.Export(registry)
+	output := pe.Export()
 	duration := time.Since(start)
 
 	if duration > 100*time.Millisecond {
@@ -234,14 +235,15 @@ func TestPrometheusExportPerformance(t *testing.T) {
 
 // TestDistributedTracingPerformance validates tracing overhead
 func TestDistributedTracingPerformance(t *testing.T) {
-	tracer := monitoring.NewTracer("test-service")
+	tracer := monitoring.NewTracer("test-service", nil)
 
 	// Measure span creation overhead
 	start := time.Now()
 	for i := 0; i < 10000; i++ {
-		span := tracer.StartSpan(context.Background(), fmt.Sprintf("operation-%d", i))
-		span.SetTag("test", "value")
-		span.Finish()
+		span, ctx := tracer.StartSpan(context.Background(), fmt.Sprintf("operation-%d", i))
+		span.Tags["test"] = "value"
+		tracer.FinishSpan(span)
+		_ = ctx
 	}
 	duration := time.Since(start)
 
@@ -256,21 +258,23 @@ func TestDistributedTracingPerformance(t *testing.T) {
 
 // TestAlertingPerformance validates alert triggering performance
 func TestAlertingPerformance(t *testing.T) {
-	alertManager := monitoring.NewAlertManager()
+	alertManager := monitoring.NewAlertManager(nil)
 
 	// Add alert rules
 	alertManager.AddRule(&monitoring.AlertRule{
+		ID:        "rule-1",
 		Name:      "high_error_rate",
-		Condition: "error_rate > 0.1",
+		Metric:    "error_rate",
+		Condition: "gt",
+		Threshold: 0.1,
 		Level:     "critical",
+		Enabled:   true,
 	})
 
 	// Measure alert evaluation
 	start := time.Now()
 	for i := 0; i < 1000; i++ {
-		alertManager.EvaluateRules(map[string]float64{
-			"error_rate": 0.05,
-		})
+		alertManager.CheckMetric("error_rate", 0.05)
 	}
 	duration := time.Since(start)
 
@@ -297,21 +301,20 @@ func calculatePercentile(latencies []time.Duration, percentile int) time.Duratio
 
 // BenchmarkMetricsCollection benchmarks metrics collection
 func BenchmarkMetricsCollection(b *testing.B) {
-	metrics := monitoring.NewMetricsRegistry()
-	ctx := context.Background()
+	mc := monitoring.NewMetricsCollector(nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		metrics.RecordCounter(ctx, "bench.counter", 1)
-		metrics.RecordGauge(ctx, "bench.gauge", float64(i))
-		metrics.RecordHistogram(ctx, "bench.histogram", float64(i*10))
+		mc.IncrementCounter("bench.counter", nil)
+		mc.SetGauge("bench.gauge", float64(i), nil)
+		mc.RecordHistogram("bench.histogram", float64(i*10), nil)
 	}
 }
 
 // BenchmarkCacheGet benchmarks cache get operations
 func BenchmarkCacheGet(b *testing.B) {
-	cache := optimization.NewLRUCache(1000)
-	cache.Set("key", "value", 5*time.Minute)
+	cache := optimization.NewLocalCache(1000, 5*time.Minute, nil)
+	cache.Set("key", "value")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -321,17 +324,17 @@ func BenchmarkCacheGet(b *testing.B) {
 
 // BenchmarkCacheSet benchmarks cache set operations
 func BenchmarkCacheSet(b *testing.B) {
-	cache := optimization.NewLRUCache(10000)
+	cache := optimization.NewLocalCache(10000, 5*time.Minute, nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i%1000), fmt.Sprintf("value-%d", i), 5*time.Minute)
+		cache.Set(fmt.Sprintf("key-%d", i%1000), fmt.Sprintf("value-%d", i))
 	}
 }
 
 // BenchmarkRateLimiting benchmarks rate limiting
 func BenchmarkRateLimiting(b *testing.B) {
-	limiter := monitoring.NewRateLimiter(10000, 10000)
+	limiter := api.NewRateLimiter(10000)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

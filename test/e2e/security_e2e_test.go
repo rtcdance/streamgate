@@ -37,7 +37,7 @@ func TestSecurityE2E_UserRegistrationFlow(t *testing.T) {
 	}
 
 	// Step 4: Hash password
-	passwordHash := encryptor.HashPassword(password)
+	_ = encryptor.HashPassword(password)
 
 	// Step 5: Generate encryption key for user data
 	keyID, _ := km.GenerateKey()

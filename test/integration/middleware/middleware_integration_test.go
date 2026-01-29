@@ -15,7 +15,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 
 	// Apply middleware stack
 	router.Use(service.LoggingMiddleware())
@@ -45,7 +45,7 @@ func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 
 	// Apply middleware stack
 	router.Use(service.LoggingMiddleware())
@@ -71,7 +71,7 @@ func TestMiddlewareStack_CORSHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 
 	// Apply CORS middleware
 	router.Use(service.CORSMiddleware())
