@@ -1,0 +1,385 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: streamgate-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: streamgate
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: streamgate-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Storage
+  minio:
+    image: minio/minio:latest
+    container_name: streamgate-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/minio_data
+    command: server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NATS Message Queue
+  nats:
+    image: nats:latest
+    container_name: streamgate-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: -m 8222
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/varz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Consul Service Registry
+  consul:
+    image: consul:latest
+    container_name: streamgate-consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: streamgate-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Jaeger Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: streamgate-jaeger
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+    environment:
+      COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
+
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.api-gateway
+    container_name: streamgate-api-gateway
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: api-gateway
+      SERVER_PORT: 8080
+      GRPC_PORT: 9090
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Upload Service
+  upload:
+    build:
+      context: .
+      dockerfile: Dockerfile.upload
+    container_name: streamgate-upload
+    ports:
+      - "9091:9091"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: upload
+      GRPC_PORT: 9091
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    depends_on:
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Transcoder Service
+  transcoder:
+    build:
+      context: .
+      dockerfile: Dockerfile.transcoder
+    container_name: streamgate-transcoder
+    ports:
+      - "9092:9092"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: transcoder
+      GRPC_PORT: 9092
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+      TRANSCODER_WORKERS: 4
+      TRANSCODER_MAX_TASKS: 16
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Streaming Service
+  streaming:
+    build:
+      context: .
+      dockerfile: Dockerfile.streaming
+    container_name: streamgate-streaming
+    ports:
+      - "9093:9093"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: streaming
+      GRPC_PORT: 9093
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9093/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Metadata Service
+  metadata:
+    build:
+      context: .
+      dockerfile: Dockerfile.metadata
+    container_name: streamgate-metadata
+    ports:
+      - "9005:9005"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: metadata
+      GRPC_PORT: 9005
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cache Service
+  cache:
+    build:
+      context: .
+      dockerfile: Dockerfile.cache
+    container_name: streamgate-cache
+    ports:
+      - "9006:9006"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: cache
+      GRPC_PORT: 9006
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9006/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Auth Service
+  auth:
+    build:
+      context: .
+      dockerfile: Dockerfile.auth
+    container_name: streamgate-auth
+    ports:
+      - "9007:9007"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: auth
+      GRPC_PORT: 9007
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9007/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Worker Service
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: streamgate-worker
+    ports:
+      - "9008:9008"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: worker
+      GRPC_PORT: 9008
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Monitor Service
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    container_name: streamgate-monitor
+    ports:
+      - "9009:9009"
+    environment:
+      DEPLOYMENT_MODE: microservice
+      SERVICE_NAME: monitor
+      GRPC_PORT: 9009
+      EVENTBUS_TYPE: nats
+      NATS_URL: nats://nats:4222
+      REGISTRY_TYPE: consul
+      CONSUL_ADDRESS: consul:8500
+    depends_on:
+      nats:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+    networks:
+      - streamgate-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9009/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  prometheus_data:
+
+networks:
+  default:
+    name: streamgate-network

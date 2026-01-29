@@ -95,26 +95,26 @@ func (ci *ContractInteractor) IsContractAddress(ctx context.Context, address str
 	return isContract, nil
 }
 
-// ContentRegistry represents a content registry contract
-type ContentRegistry struct {
+// ContractContentRegistry represents a content registry contract
+type ContractContentRegistry struct {
 	Address string
 	ABI     string
 }
 
 // RegisterContent registers content on-chain
-func (cr *ContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash string, owner string, metadata string) error {
+func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash string, owner string, metadata string) error {
 	// TODO: Implement content registration
 	return fmt.Errorf("content registration not yet implemented")
 }
 
 // VerifyContent verifies content on-chain
-func (cr *ContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
+func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
 	// TODO: Implement content verification
 	return false, fmt.Errorf("content verification not yet implemented")
 }
 
 // GetContentInfo gets information about registered content
-func (cr *ContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
+func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
 	// TODO: Implement get content info
 	return nil, fmt.Errorf("get content info not yet implemented")
 }
@@ -128,22 +128,22 @@ type ContentInfo struct {
 	IsValid   bool
 }
 
-// EventListener listens for contract events
-type EventListener struct {
+// ContractEventListener listens for contract events
+type ContractEventListener struct {
 	client *ethclient.Client
 	logger *zap.Logger
 }
 
-// NewEventListener creates a new event listener
-func NewEventListener(client *ethclient.Client, logger *zap.Logger) *EventListener {
-	return &EventListener{
+// NewContractEventListener creates a new contract event listener
+func NewContractEventListener(client *ethclient.Client, logger *zap.Logger) *ContractEventListener {
+	return &ContractEventListener{
 		client: client,
 		logger: logger,
 	}
 }
 
 // ListenForEvents listens for contract events
-func (el *EventListener) ListenForEvents(ctx context.Context, contractAddress string, eventSignature string) error {
+func (el *ContractEventListener) ListenForEvents(ctx context.Context, contractAddress string, eventSignature string) error {
 	el.logger.Info("Listening for events", "contract", contractAddress, "event", eventSignature)
 
 	// TODO: Implement event listening
@@ -161,7 +161,7 @@ type ContractEvent struct {
 }
 
 // GetContractEvents gets events from a contract
-func (el *EventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock int64, toBlock int64) ([]*ContractEvent, error) {
+func (el *ContractEventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock int64, toBlock int64) ([]*ContractEvent, error) {
 	el.logger.Debug("Getting contract events", "contract", contractAddress, "from_block", fromBlock, "to_block", toBlock)
 
 	// TODO: Implement get contract events

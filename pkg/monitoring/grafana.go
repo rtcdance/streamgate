@@ -436,8 +436,8 @@ func GenerateDashboardURL(grafanaURL string, dashboardName string) string {
 	return fmt.Sprintf("%s/d/%s/%s", grafanaURL, dashboardName, dashboardName)
 }
 
-// AlertRule represents a Grafana alert rule
-type AlertRule struct {
+// GrafanaAlertRule represents a Grafana alert rule
+type GrafanaAlertRule struct {
 	Name        string
 	Condition   string
 	Threshold   float64
