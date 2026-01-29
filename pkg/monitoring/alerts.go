@@ -65,7 +65,7 @@ func (am *AlertManager) AddRule(rule *AlertRule) {
 	defer am.mu.Unlock()
 
 	am.rules[rule.ID] = rule
-	am.logger.Info("Alert rule added", "rule_id", rule.ID, "name", rule.Name)
+	am.logger.Info("Alert rule added", zap.String("rule_id", rule.ID), zap.String("name", rule.Name))
 }
 
 // RemoveRule removes an alert rule
@@ -74,7 +74,7 @@ func (am *AlertManager) RemoveRule(ruleID string) {
 	defer am.mu.Unlock()
 
 	delete(am.rules, ruleID)
-	am.logger.Info("Alert rule removed", "rule_id", ruleID)
+	am.logger.Info("Alert rule removed", zap.String("rule_id", ruleID))
 }
 
 // RegisterHandler registers an alert handler
@@ -140,12 +140,12 @@ func (am *AlertManager) triggerAlert(rule *AlertRule, value float64) {
 	am.alerts[alert.ID] = alert
 	am.mu.Unlock()
 
-	am.logger.Warn("Alert triggered", "alert_id", alert.ID, "level", alert.Level, "title", alert.Title)
+	am.logger.Warn("Alert triggered", zap.String("alert_id", alert.ID), zap.String("level", alert.Level), zap.String("title", alert.Title))
 
 	// Call handlers
 	for _, handler := range am.handlers {
 		if err := handler(alert); err != nil {
-			am.logger.Error("Error handling alert", "alert_id", alert.ID, "error", err)
+			am.logger.Error("Error handling alert", zap.String("alert_id", alert.ID), zap.Error(err))
 		}
 	}
 }
