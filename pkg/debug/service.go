@@ -3,6 +3,7 @@ package debug
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // Service provides debugging and profiling functionality
