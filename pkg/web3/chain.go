@@ -26,7 +26,7 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 	// Connect to RPC
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
-		logger.Error("Failed to connect to blockchain", "error", err)
+		logger.Error("Failed to connect to blockchain", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to blockchain: %w", err)
 	}
 
@@ -36,11 +36,11 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 
 	chainIDFromRPC, err := client.ChainID(ctx)
 	if err != nil {
-		logger.Error("Failed to get chain ID", "error", err)
+		logger.Error("Failed to get chain ID", zap.Error(err))
 		return nil, fmt.Errorf("failed to get chain ID: %w", err)
 	}
 
-	logger.Info("Connected to blockchain", "chain_id", chainIDFromRPC.Int64())
+	logger.Info("Connected to blockchain", zap.String("chain_id", chainIDFromRPC.Int64()))
 
 	return &ChainClient{
 		client:  client,
@@ -52,7 +52,7 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 
 // GetBalance gets the balance of an address
 func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int, error) {
-	cc.logger.Debug("Getting balance", "address", address)
+	cc.logger.Debug("Getting balance", zap.String("address", address))
 
 	addr := common.HexToAddress(address)
 	balance, err := cc.client.BalanceAt(ctx, addr, nil)
@@ -67,7 +67,7 @@ func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int
 
 // GetNonce gets the nonce of an address
 func (cc *ChainClient) GetNonce(ctx context.Context, address string) (uint64, error) {
-	cc.logger.Debug("Getting nonce", "address", address)
+	cc.logger.Debug("Getting nonce", zap.String("address", address))
 
 	addr := common.HexToAddress(address)
 	nonce, err := cc.client.PendingNonceAt(ctx, addr)
@@ -86,11 +86,11 @@ func (cc *ChainClient) GetGasPrice(ctx context.Context) (*big.Int, error) {
 
 	gasPrice, err := cc.client.SuggestGasPrice(ctx)
 	if err != nil {
-		cc.logger.Error("Failed to get gas price", "error", err)
+		cc.logger.Error("Failed to get gas price", zap.Error(err))
 		return nil, fmt.Errorf("failed to get gas price: %w", err)
 	}
 
-	cc.logger.Debug("Gas price retrieved", "gas_price", gasPrice.String())
+	cc.logger.Debug("Gas price retrieved", zap.String("gas_price", gasPrice.String()))
 	return gasPrice, nil
 }
 
@@ -100,11 +100,11 @@ func (cc *ChainClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (u
 
 	gas, err := cc.client.EstimateGas(ctx, msg)
 	if err != nil {
-		cc.logger.Error("Failed to estimate gas", "error", err)
+		cc.logger.Error("Failed to estimate gas", zap.Error(err))
 		return 0, fmt.Errorf("failed to estimate gas: %w", err)
 	}
 
-	cc.logger.Debug("Gas estimated", "gas", gas)
+	cc.logger.Debug("Gas estimated", zap.String("gas", gas))
 	return gas, nil
 }
 
@@ -114,21 +114,21 @@ func (cc *ChainClient) GetBlockNumber(ctx context.Context) (uint64, error) {
 
 	blockNumber, err := cc.client.BlockNumber(ctx)
 	if err != nil {
-		cc.logger.Error("Failed to get block number", "error", err)
+		cc.logger.Error("Failed to get block number", zap.Error(err))
 		return 0, fmt.Errorf("failed to get block number: %w", err)
 	}
 
-	cc.logger.Debug("Block number retrieved", "block_number", blockNumber)
+	cc.logger.Debug("Block number retrieved", zap.String("block_number", blockNumber))
 	return blockNumber, nil
 }
 
 // GetBlockByNumber gets a block by number
 func (cc *ChainClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*BlockInfo, error) {
-	cc.logger.Debug("Getting block", "block_number", blockNumber.String())
+	cc.logger.Debug("Getting block", zap.String("block_number", blockNumber.String()))
 
 	block, err := cc.client.BlockByNumber(ctx, blockNumber)
 	if err != nil {
-		cc.logger.Error("Failed to get block", "block_number", blockNumber.String(), "error", err)
+		cc.logger.Error("Failed to get block", zap.String("block_number", blockNumber.String()), "error", err)
 		return nil, fmt.Errorf("failed to get block: %w", err)
 	}
 
@@ -144,13 +144,13 @@ func (cc *ChainClient) GetBlockByNumber(ctx context.Context, blockNumber *big.In
 		Transactions: uint64(len(block.Transactions())),
 	}
 
-	cc.logger.Debug("Block retrieved", "block_number", blockNumber.String())
+	cc.logger.Debug("Block retrieved", zap.String("block_number", blockNumber.String()))
 	return blockInfo, nil
 }
 
 // GetTransactionByHash gets a transaction by hash
 func (cc *ChainClient) GetTransactionByHash(ctx context.Context, txHash string) (*TransactionInfo, error) {
-	cc.logger.Debug("Getting transaction", "tx_hash", txHash)
+	cc.logger.Debug("Getting transaction", zap.String("tx_hash", txHash))
 
 	hash := common.HexToHash(txHash)
 	tx, isPending, err := cc.client.TransactionByHash(ctx, hash)
@@ -171,13 +171,13 @@ func (cc *ChainClient) GetTransactionByHash(ctx context.Context, txHash string) 
 		IsPending: isPending,
 	}
 
-	cc.logger.Debug("Transaction retrieved", "tx_hash", txHash)
+	cc.logger.Debug("Transaction retrieved", zap.String("tx_hash", txHash))
 	return txInfo, nil
 }
 
 // GetTransactionReceipt gets a transaction receipt
 func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string) (*ReceiptInfo, error) {
-	cc.logger.Debug("Getting transaction receipt", "tx_hash", txHash)
+	cc.logger.Debug("Getting transaction receipt", zap.String("tx_hash", txHash))
 
 	hash := common.HexToHash(txHash)
 	receipt, err := cc.client.TransactionReceipt(ctx, hash)
@@ -196,7 +196,7 @@ func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string)
 		Logs:            uint64(len(receipt.Logs)),
 	}
 
-	cc.logger.Debug("Transaction receipt retrieved", "tx_hash", txHash)
+	cc.logger.Debug("Transaction receipt retrieved", zap.String("tx_hash", txHash))
 	return receiptInfo, nil
 }
 

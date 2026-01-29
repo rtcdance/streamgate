@@ -214,7 +214,7 @@ func (mr *MetricsRegistry) RegisterExporter(name string, exporter *PrometheusExp
 	defer mr.mu.Unlock()
 
 	mr.exporters[name] = exporter
-	mr.logger.Debug("Metrics exporter registered", "name", name)
+	mr.logger.Debug("Metrics exporter registered", zap.String("name", name))
 }
 
 // GetExporter gets a metrics exporter

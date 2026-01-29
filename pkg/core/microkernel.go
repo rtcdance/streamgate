@@ -92,7 +92,7 @@ func (m *Microkernel) RegisterPlugin(plugin Plugin) error {
 	}
 
 	m.plugins[plugin.Name()] = plugin
-	m.logger.Info("Plugin registered", "name", plugin.Name(), "version", plugin.Version())
+	m.logger.Info("Plugin registered", zap.String("name", plugin.Name()), "version", plugin.Version())
 
 	return nil
 }
@@ -145,7 +145,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	m.started = true
 	m.mu.Unlock()
 
-	m.logger.Info("Starting microkernel", "mode", m.config.Mode)
+	m.logger.Info("Starting microkernel", zap.String("mode", m.config.Mode))
 
 	// Register service with Consul if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
@@ -168,11 +168,11 @@ func (m *Microkernel) Start(ctx context.Context) error {
 		}
 
 		if err := m.registry.Register(ctx, serviceInfo); err != nil {
-			m.logger.Error("Failed to register service", "error", err)
+			m.logger.Error("Failed to register service", zap.Error(err))
 			return fmt.Errorf("failed to register service: %w", err)
 		}
 
-		m.logger.Info("Service registered with Consul", "service_id", serviceID)
+		m.logger.Info("Service registered with Consul", zap.String("service_id", serviceID))
 	}
 
 	// Initialize all plugins
@@ -185,7 +185,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 
 	for _, plugin := range plugins {
 		if err := plugin.Init(ctx, m); err != nil {
-			m.logger.Error("Failed to initialize plugin", "name", plugin.Name(), "error", err)
+			m.logger.Error("Failed to initialize plugin", zap.String("name", plugin.Name()), "error", err)
 			return fmt.Errorf("failed to initialize plugin %s: %w", plugin.Name(), err)
 		}
 	}
@@ -193,10 +193,10 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	// Start all plugins
 	for _, plugin := range plugins {
 		if err := plugin.Start(ctx); err != nil {
-			m.logger.Error("Failed to start plugin", "name", plugin.Name(), "error", err)
+			m.logger.Error("Failed to start plugin", zap.String("name", plugin.Name()), "error", err)
 			return fmt.Errorf("failed to start plugin %s: %w", plugin.Name(), err)
 		}
-		m.logger.Info("Plugin started", "name", plugin.Name())
+		m.logger.Info("Plugin started", zap.String("name", plugin.Name()))
 	}
 
 	m.logger.Info("Microkernel started successfully")
@@ -227,9 +227,9 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 	for i := len(plugins) - 1; i >= 0; i-- {
 		plugin := plugins[i]
 		if err := plugin.Stop(ctx); err != nil {
-			m.logger.Error("Error stopping plugin", "name", plugin.Name(), "error", err)
+			m.logger.Error("Error stopping plugin", zap.String("name", plugin.Name()), "error", err)
 		} else {
-			m.logger.Info("Plugin stopped", "name", plugin.Name())
+			m.logger.Info("Plugin stopped", zap.String("name", plugin.Name()))
 		}
 	}
 
@@ -237,20 +237,20 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 	if m.registry != nil && m.config.Mode == "microservice" {
 		serviceID := fmt.Sprintf("%s-%s", m.config.ServiceName, m.config.Server.Port)
 		if err := m.registry.Deregister(ctx, serviceID); err != nil {
-			m.logger.Error("Error deregistering service", "error", err)
+			m.logger.Error("Error deregistering service", zap.Error(err))
 		}
 	}
 
 	// Close client pool
 	if m.clientPool != nil {
 		if err := m.clientPool.Close(); err != nil {
-			m.logger.Error("Error closing client pool", "error", err)
+			m.logger.Error("Error closing client pool", zap.Error(err))
 		}
 	}
 
 	// Close event bus
 	if err := m.eventBus.Close(); err != nil {
-		m.logger.Error("Error closing event bus", "error", err)
+		m.logger.Error("Error closing event bus", zap.Error(err))
 	}
 
 	m.cancel()
@@ -269,7 +269,7 @@ func (m *Microkernel) Health(ctx context.Context) error {
 
 	for _, plugin := range plugins {
 		if err := plugin.Health(ctx); err != nil {
-			m.logger.Error("Plugin health check failed", "name", plugin.Name(), "error", err)
+			m.logger.Error("Plugin health check failed", zap.String("name", plugin.Name()), "error", err)
 			return fmt.Errorf("plugin %s health check failed: %w", plugin.Name(), err)
 		}
 	}

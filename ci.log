@@ -1,233 +1,1248 @@
-2026-01-29T05:59:20.2899364Z Current runner version: '2.331.0'
-2026-01-29T05:59:20.2922754Z ##[group]Runner Image Provisioner
-2026-01-29T05:59:20.2923631Z Hosted Compute Agent
-2026-01-29T05:59:20.2924149Z Version: 20260115.477
-2026-01-29T05:59:20.2924755Z Commit: 4b342d620503cbe250a3154040964899ea7c9b00
-2026-01-29T05:59:20.2925768Z Build Date: 2026-01-15T22:32:41Z
-2026-01-29T05:59:20.2926517Z Worker ID: {122bf3a7-7303-465f-bae7-b4c4dcb2edcb}
-2026-01-29T05:59:20.2927164Z Azure Region: northcentralus
-2026-01-29T05:59:20.2927797Z ##[endgroup]
-2026-01-29T05:59:20.2929369Z ##[group]Operating System
-2026-01-29T05:59:20.2929925Z Ubuntu
-2026-01-29T05:59:20.2930490Z 24.04.3
-2026-01-29T05:59:20.2930963Z LTS
-2026-01-29T05:59:20.2931421Z ##[endgroup]
-2026-01-29T05:59:20.2931862Z ##[group]Runner Image
-2026-01-29T05:59:20.2932460Z Image: ubuntu-24.04
-2026-01-29T05:59:20.2932927Z Version: 20260119.4.1
-2026-01-29T05:59:20.2934141Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260119.4/images/ubuntu/Ubuntu2404-Readme.md
-2026-01-29T05:59:20.2935927Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260119.4
-2026-01-29T05:59:20.2936956Z ##[endgroup]
-2026-01-29T05:59:20.2938058Z ##[group]GITHUB_TOKEN Permissions
-2026-01-29T05:59:20.2940087Z Contents: read
-2026-01-29T05:59:20.2940732Z Metadata: read
-2026-01-29T05:59:20.2941233Z Packages: read
-2026-01-29T05:59:20.2941689Z ##[endgroup]
-2026-01-29T05:59:20.2943805Z Secret source: Actions
-2026-01-29T05:59:20.2944711Z Prepare workflow directory
-2026-01-29T05:59:20.3393970Z Prepare all required actions
-2026-01-29T05:59:20.3449713Z Getting action download info
-2026-01-29T05:59:20.6966522Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
-2026-01-29T05:59:20.8492541Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
-2026-01-29T05:59:21.2379446Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
-2026-01-29T05:59:21.7066747Z Complete job name: Lint & Format Check
-2026-01-29T05:59:21.7778832Z ##[group]Run actions/checkout@v4
-2026-01-29T05:59:21.7779749Z with:
-2026-01-29T05:59:21.7780182Z   repository: rtcdance/streamgate
-2026-01-29T05:59:21.7780883Z   token: ***
-2026-01-29T05:59:21.7781295Z   ssh-strict: true
-2026-01-29T05:59:21.7781718Z   ssh-user: git
-2026-01-29T05:59:21.7782150Z   persist-credentials: true
-2026-01-29T05:59:21.7782619Z   clean: true
-2026-01-29T05:59:21.7783050Z   sparse-checkout-cone-mode: true
-2026-01-29T05:59:21.7783553Z   fetch-depth: 1
-2026-01-29T05:59:21.7783971Z   fetch-tags: false
-2026-01-29T05:59:21.7784397Z   show-progress: true
-2026-01-29T05:59:21.7784818Z   lfs: false
-2026-01-29T05:59:21.7785219Z   submodules: false
-2026-01-29T05:59:21.7785882Z   set-safe-directory: true
-2026-01-29T05:59:21.7786606Z env:
-2026-01-29T05:59:21.7786992Z   GO_VERSION: 1.21
-2026-01-29T05:59:21.7787463Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T05:59:21.7787999Z ##[endgroup]
-2026-01-29T05:59:21.8858542Z Syncing repository: rtcdance/streamgate
-2026-01-29T05:59:21.8860658Z ##[group]Getting Git version info
-2026-01-29T05:59:21.8861473Z Working directory is '/home/runner/work/streamgate/streamgate'
-2026-01-29T05:59:21.8862687Z [command]/usr/bin/git version
-2026-01-29T05:59:21.8924147Z git version 2.52.0
-2026-01-29T05:59:21.8949955Z ##[endgroup]
-2026-01-29T05:59:21.8963695Z Temporarily overriding HOME='/home/runner/work/_temp/c7a61590-9796-453f-98d7-0c3a0c73d321' before making global git config changes
-2026-01-29T05:59:21.8965140Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T05:59:21.8976828Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T05:59:21.9013818Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
-2026-01-29T05:59:21.9017574Z ##[group]Initializing the repository
-2026-01-29T05:59:21.9021741Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
-2026-01-29T05:59:21.9121271Z hint: Using 'master' as the name for the initial branch. This default branch name
-2026-01-29T05:59:21.9123112Z hint: will change to "main" in Git 3.0. To configure the initial branch name
-2026-01-29T05:59:21.9125054Z hint: to use in all of your new repositories, which will suppress this warning,
-2026-01-29T05:59:21.9126602Z hint: call:
-2026-01-29T05:59:21.9127101Z hint:
-2026-01-29T05:59:21.9127645Z hint: 	git config --global init.defaultBranch <name>
-2026-01-29T05:59:21.9128253Z hint:
-2026-01-29T05:59:21.9128876Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-2026-01-29T05:59:21.9129802Z hint: 'development'. The just-created branch can be renamed via this command:
-2026-01-29T05:59:21.9130727Z hint:
-2026-01-29T05:59:21.9131398Z hint: 	git branch -m <name>
-2026-01-29T05:59:21.9132019Z hint:
-2026-01-29T05:59:21.9132654Z hint: Disable this message with "git config set advice.defaultBranchName false"
-2026-01-29T05:59:21.9133682Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
-2026-01-29T05:59:21.9136536Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
-2026-01-29T05:59:21.9168502Z ##[endgroup]
-2026-01-29T05:59:21.9169275Z ##[group]Disabling automatic garbage collection
-2026-01-29T05:59:21.9172259Z [command]/usr/bin/git config --local gc.auto 0
-2026-01-29T05:59:21.9199562Z ##[endgroup]
-2026-01-29T05:59:21.9200264Z ##[group]Setting up auth
-2026-01-29T05:59:21.9206142Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T05:59:21.9235879Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T05:59:21.9551187Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T05:59:21.9580581Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T05:59:21.9797929Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T05:59:21.9827377Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T05:59:22.0057409Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
-2026-01-29T05:59:22.0092998Z ##[endgroup]
-2026-01-29T05:59:22.0093851Z ##[group]Fetching the repository
-2026-01-29T05:59:22.0101405Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +ebd2250a26ba080e179ad12273ebd431f7db4841:refs/remotes/origin/master
-2026-01-29T05:59:22.3636380Z From https://github.com/rtcdance/streamgate
-2026-01-29T05:59:22.3638080Z  * [new ref]         ebd2250a26ba080e179ad12273ebd431f7db4841 -> origin/master
-2026-01-29T05:59:22.3667600Z ##[endgroup]
-2026-01-29T05:59:22.3669088Z ##[group]Determining the checkout info
-2026-01-29T05:59:22.3670871Z ##[endgroup]
-2026-01-29T05:59:22.3675885Z [command]/usr/bin/git sparse-checkout disable
-2026-01-29T05:59:22.3718863Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
-2026-01-29T05:59:22.3743164Z ##[group]Checking out the ref
-2026-01-29T05:59:22.3746939Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
-2026-01-29T05:59:22.4158785Z Reset branch 'master'
-2026-01-29T05:59:22.4160015Z branch 'master' set up to track 'origin/master'.
-2026-01-29T05:59:22.4170305Z ##[endgroup]
-2026-01-29T05:59:22.4210084Z [command]/usr/bin/git log -1 --format=%H
-2026-01-29T05:59:22.4233334Z ebd2250a26ba080e179ad12273ebd431f7db4841
-2026-01-29T05:59:22.4494269Z ##[group]Run actions/setup-go@v4
-2026-01-29T05:59:22.4494998Z with:
-2026-01-29T05:59:22.4495583Z   go-version: 1.21
-2026-01-29T05:59:22.4496120Z   check-latest: false
-2026-01-29T05:59:22.4496953Z   token: ***
-2026-01-29T05:59:22.4497745Z   cache: true
-2026-01-29T05:59:22.4498383Z env:
-2026-01-29T05:59:22.4498807Z   GO_VERSION: 1.21
-2026-01-29T05:59:22.4499396Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T05:59:22.4500162Z ##[endgroup]
-2026-01-29T05:59:22.6088542Z Setup go version spec 1.21
-2026-01-29T05:59:22.6570208Z Attempting to download 1.21...
-2026-01-29T05:59:23.0580249Z matching 1.21...
-2026-01-29T05:59:23.0634211Z Acquiring 1.21.13 from https://github.com/actions/go-versions/releases/download/1.21.13-10277905115/go-1.21.13-linux-x64.tar.gz
-2026-01-29T05:59:23.5816531Z Extracting Go...
-2026-01-29T05:59:23.5921043Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/e2c80015-5cb5-4785-ad7f-7fe08c369e83 -f /home/runner/work/_temp/985eafd1-14c6-48fd-82f7-8a3cabef3985
-2026-01-29T05:59:25.1101479Z Successfully extracted go to /home/runner/work/_temp/e2c80015-5cb5-4785-ad7f-7fe08c369e83
-2026-01-29T05:59:25.1102413Z Adding to the cache ...
-2026-01-29T05:59:29.4111818Z Successfully cached go to /opt/hostedtoolcache/go/1.21.13/x64
-2026-01-29T05:59:29.4113562Z Added go to the path
-2026-01-29T05:59:29.4115742Z Successfully set up Go version 1.21
-2026-01-29T05:59:29.4354411Z [command]/opt/hostedtoolcache/go/1.21.13/x64/bin/go env GOMODCACHE
-2026-01-29T05:59:29.4384959Z [command]/opt/hostedtoolcache/go/1.21.13/x64/bin/go env GOCACHE
-2026-01-29T05:59:29.4420297Z /home/runner/go/pkg/mod
-2026-01-29T05:59:29.4433520Z /home/runner/.cache/go-build
-2026-01-29T05:59:29.5579193Z Cache is not found
-2026-01-29T05:59:29.5602780Z go version go1.21.13 linux/amd64
-2026-01-29T05:59:29.5603011Z 
-2026-01-29T05:59:29.5603316Z ##[group]go env
-2026-01-29T05:59:30.4096022Z GO111MODULE=''
-2026-01-29T05:59:30.4096427Z GOARCH='amd64'
-2026-01-29T05:59:30.4096715Z GOBIN=''
-2026-01-29T05:59:30.4097109Z GOCACHE='/home/runner/.cache/go-build'
-2026-01-29T05:59:30.4097561Z GOENV='/home/runner/.config/go/env'
-2026-01-29T05:59:30.4097934Z GOEXE=''
-2026-01-29T05:59:30.4098196Z GOEXPERIMENT=''
-2026-01-29T05:59:30.4098565Z GOFLAGS=''
-2026-01-29T05:59:30.4098845Z GOHOSTARCH='amd64'
-2026-01-29T05:59:30.4099157Z GOHOSTOS='linux'
-2026-01-29T05:59:30.4099438Z GOINSECURE=''
-2026-01-29T05:59:30.4099761Z GOMODCACHE='/home/runner/go/pkg/mod'
-2026-01-29T05:59:30.4100149Z GONOPROXY=''
-2026-01-29T05:59:30.4100428Z GONOSUMDB=''
-2026-01-29T05:59:30.4100728Z GOOS='linux'
-2026-01-29T05:59:30.4101026Z GOPATH='/home/runner/go'
-2026-01-29T05:59:30.4101384Z GOPRIVATE=''
-2026-01-29T05:59:30.4101730Z GOPROXY='https://goproxy.io,direct'
-2026-01-29T05:59:30.4102196Z GOROOT='/opt/hostedtoolcache/go/1.21.13/x64'
-2026-01-29T05:59:30.4102620Z GOSUMDB='sum.golang.org'
-2026-01-29T05:59:30.4102938Z GOTMPDIR=''
-2026-01-29T05:59:30.4103228Z GOTOOLCHAIN='auto'
-2026-01-29T05:59:30.4103759Z GOTOOLDIR='/opt/hostedtoolcache/go/1.21.13/x64/pkg/tool/linux_amd64'
-2026-01-29T05:59:30.4104315Z GOVCS=''
-2026-01-29T05:59:30.4104579Z GOVERSION='go1.21.13'
-2026-01-29T05:59:30.4104881Z GCCGO='gccgo'
-2026-01-29T05:59:30.4105160Z GOAMD64='v1'
-2026-01-29T05:59:30.4105664Z AR='ar'
-2026-01-29T05:59:30.4105896Z CC='gcc'
-2026-01-29T05:59:30.4106132Z CXX='g++'
-2026-01-29T05:59:30.4106373Z CGO_ENABLED='1'
-2026-01-29T05:59:30.4106755Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
-2026-01-29T05:59:30.4107203Z GOWORK=''
-2026-01-29T05:59:30.4107485Z CGO_CFLAGS='-O2 -g'
-2026-01-29T05:59:30.4107771Z CGO_CPPFLAGS=''
-2026-01-29T05:59:30.4108050Z CGO_CXXFLAGS='-O2 -g'
-2026-01-29T05:59:30.4108350Z CGO_FFLAGS='-O2 -g'
-2026-01-29T05:59:30.4108629Z CGO_LDFLAGS='-O2 -g'
-2026-01-29T05:59:30.4108937Z PKG_CONFIG='pkg-config'
-2026-01-29T05:59:30.4109933Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build4221977249=/tmp/go-build -gno-record-gcc-switches'
-2026-01-29T05:59:30.4110818Z 
-2026-01-29T05:59:30.4112129Z ##[endgroup]
-2026-01-29T05:59:30.4295129Z ##[group]Run golangci/golangci-lint-action@v3
-2026-01-29T05:59:30.4295691Z with:
-2026-01-29T05:59:30.4295873Z   version: latest
-2026-01-29T05:59:30.4296062Z   args: --timeout=5m
-2026-01-29T05:59:30.4296596Z   github-token: ***
-2026-01-29T05:59:30.4296803Z   only-new-issues: false
-2026-01-29T05:59:30.4297004Z   skip-cache: false
-2026-01-29T05:59:30.4297199Z   skip-pkg-cache: false
-2026-01-29T05:59:30.4297412Z   skip-build-cache: false
-2026-01-29T05:59:30.4297625Z   install-mode: binary
-2026-01-29T05:59:30.4297807Z env:
-2026-01-29T05:59:30.4297969Z   GO_VERSION: 1.21
-2026-01-29T05:59:30.4298172Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T05:59:30.4298417Z ##[endgroup]
-2026-01-29T05:59:30.5490567Z ##[group]prepare environment
-2026-01-29T05:59:30.5495274Z Checking for go.mod: go.mod
-2026-01-29T05:59:30.6276253Z ##[warning]Failed to restore: Cache service responded with 400
-2026-01-29T05:59:30.6283733Z Cache not found for input keys: golangci-lint.cache-2926-c8eb6114cdec4c2670cbe63390ff8d077b164ff8, golangci-lint.cache-2926-
-2026-01-29T05:59:30.6284345Z Finding needed golangci-lint version...
-2026-01-29T05:59:30.6401611Z Requested golangci-lint 'latest', using 'v1.64.8', calculation took 15ms
-2026-01-29T05:59:30.6402332Z Installation mode: binary
-2026-01-29T05:59:30.6404324Z Installing golangci-lint binary v1.64.8...
-2026-01-29T05:59:30.6406117Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz ...
-2026-01-29T05:59:30.7997651Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/b1345123-2f4f-4a9e-9780-5f004e17be94
-2026-01-29T05:59:31.0103177Z Installed golangci-lint into /home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint in 370ms
-2026-01-29T05:59:31.0103809Z Prepared env in 461ms
-2026-01-29T05:59:31.0104225Z ##[endgroup]
-2026-01-29T05:59:31.0106337Z ##[group]run golangci-lint
-2026-01-29T05:59:31.0111157Z Running [/home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint run --out-format=github-actions --timeout=5m] in [] ...
-2026-01-29T05:59:37.0694008Z level=warning msg="[config_reader] The output format `github-actions` is deprecated, please use `colored-line-number`"
-2026-01-29T05:59:37.0695683Z level=error msg="Running error: context loading failed: no go files to analyze: running `go mod tidy` may solve the problem"
-2026-01-29T05:59:37.0696428Z 
-2026-01-29T05:59:37.0699706Z ##[error]golangci-lint exit with code 5
-2026-01-29T05:59:37.0700694Z Ran golangci-lint in 6058ms
-2026-01-29T05:59:37.0701110Z ##[endgroup]
-2026-01-29T05:59:37.0839572Z Post job cleanup.
-2026-01-29T05:59:37.2381743Z [command]/usr/bin/tar --posix -cf cache.tzst --exclude cache.tzst -P -C /home/runner/work/streamgate/streamgate --files-from manifest.txt --use-compress-program zstdmt
-2026-01-29T05:59:39.1187667Z ##[warning]Failed to save: <h2>Our services aren't available right now</h2><p>We're working to restore all services as soon as possible. Please check back soon.</p>0S/d6aQAAAADHiFtKyaR6QrAoi+gUc/lcQ0hHRURHRTE3MTgARWRnZQ==
-2026-01-29T05:59:39.1744726Z Saved cache for golangci-lint from paths '/home/runner/.cache/golangci-lint, /home/runner/.cache/go-build, /home/runner/go/pkg, zstd-without-long, 1.0' in 1969ms
-2026-01-29T05:59:39.1865268Z Post job cleanup.
-2026-01-29T05:59:39.2819168Z [command]/usr/bin/git version
-2026-01-29T05:59:39.2856085Z git version 2.52.0
-2026-01-29T05:59:39.2900330Z Temporarily overriding HOME='/home/runner/work/_temp/8069dabc-14a0-4432-8f5f-5e1f9255d871' before making global git config changes
-2026-01-29T05:59:39.2901735Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T05:59:39.2913172Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T05:59:39.2947501Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T05:59:39.2979308Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T05:59:39.3204190Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T05:59:39.3224194Z http.https://github.com/.extraheader
-2026-01-29T05:59:39.3236533Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
-2026-01-29T05:59:39.3267189Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T05:59:39.3484954Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T05:59:39.3514896Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T05:59:39.3847024Z Cleaning up orphan processes
+2026-01-29T06:32:44.9129924Z Current runner version: '2.331.0'
+2026-01-29T06:32:44.9166262Z ##[group]Runner Image Provisioner
+2026-01-29T06:32:44.9167577Z Hosted Compute Agent
+2026-01-29T06:32:44.9168580Z Version: 20260115.477
+2026-01-29T06:32:44.9169578Z Commit: 4b342d620503cbe250a3154040964899ea7c9b00
+2026-01-29T06:32:44.9171028Z Build Date: 2026-01-15T22:32:41Z
+2026-01-29T06:32:44.9172200Z Worker ID: {d8d2ec9f-4b42-46ca-b11f-f03b3780d4c4}
+2026-01-29T06:32:44.9173382Z Azure Region: northcentralus
+2026-01-29T06:32:44.9174287Z ##[endgroup]
+2026-01-29T06:32:44.9176980Z ##[group]Operating System
+2026-01-29T06:32:44.9178029Z Ubuntu
+2026-01-29T06:32:44.9178876Z 24.04.3
+2026-01-29T06:32:44.9179544Z LTS
+2026-01-29T06:32:44.9180761Z ##[endgroup]
+2026-01-29T06:32:44.9181552Z ##[group]Runner Image
+2026-01-29T06:32:44.9182463Z Image: ubuntu-24.04
+2026-01-29T06:32:44.9183517Z Version: 20260119.4.1
+2026-01-29T06:32:44.9185551Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260119.4/images/ubuntu/Ubuntu2404-Readme.md
+2026-01-29T06:32:44.9188138Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260119.4
+2026-01-29T06:32:44.9189634Z ##[endgroup]
+2026-01-29T06:32:44.9191800Z ##[group]GITHUB_TOKEN Permissions
+2026-01-29T06:32:44.9195140Z Contents: read
+2026-01-29T06:32:44.9195921Z Metadata: read
+2026-01-29T06:32:44.9196844Z Packages: read
+2026-01-29T06:32:44.9197591Z ##[endgroup]
+2026-01-29T06:32:44.9200913Z Secret source: Actions
+2026-01-29T06:32:44.9202129Z Prepare workflow directory
+2026-01-29T06:32:44.9803219Z Prepare all required actions
+2026-01-29T06:32:44.9864692Z Getting action download info
+2026-01-29T06:32:45.3097800Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-01-29T06:32:45.4067017Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
+2026-01-29T06:32:45.8037144Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
+2026-01-29T06:32:46.3130441Z Complete job name: Lint & Format Check
+2026-01-29T06:32:46.3850299Z ##[group]Run actions/checkout@v4
+2026-01-29T06:32:46.3851292Z with:
+2026-01-29T06:32:46.3851757Z   repository: rtcdance/streamgate
+2026-01-29T06:32:46.3852477Z   token: ***
+2026-01-29T06:32:46.3852907Z   ssh-strict: true
+2026-01-29T06:32:46.3853361Z   ssh-user: git
+2026-01-29T06:32:46.3853807Z   persist-credentials: true
+2026-01-29T06:32:46.3854308Z   clean: true
+2026-01-29T06:32:46.3854762Z   sparse-checkout-cone-mode: true
+2026-01-29T06:32:46.3855302Z   fetch-depth: 1
+2026-01-29T06:32:46.3855736Z   fetch-tags: false
+2026-01-29T06:32:46.3856192Z   show-progress: true
+2026-01-29T06:32:46.3856658Z   lfs: false
+2026-01-29T06:32:46.3857096Z   submodules: false
+2026-01-29T06:32:46.3857583Z   set-safe-directory: true
+2026-01-29T06:32:46.3858310Z env:
+2026-01-29T06:32:46.3858746Z   GO_VERSION: 1.24
+2026-01-29T06:32:46.3859232Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T06:32:46.3859813Z   GOTOOLCHAIN: auto
+2026-01-29T06:32:46.3860695Z ##[endgroup]
+2026-01-29T06:32:46.4932432Z Syncing repository: rtcdance/streamgate
+2026-01-29T06:32:46.4934402Z ##[group]Getting Git version info
+2026-01-29T06:32:46.4935191Z Working directory is '/home/runner/work/streamgate/streamgate'
+2026-01-29T06:32:46.4936256Z [command]/usr/bin/git version
+2026-01-29T06:32:46.5011839Z git version 2.52.0
+2026-01-29T06:32:46.5038183Z ##[endgroup]
+2026-01-29T06:32:46.5053579Z Temporarily overriding HOME='/home/runner/work/_temp/09c8550e-bc06-488b-a229-2e923b56f4ce' before making global git config changes
+2026-01-29T06:32:46.5055356Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T06:32:46.5067331Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T06:32:46.5107714Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
+2026-01-29T06:32:46.5111821Z ##[group]Initializing the repository
+2026-01-29T06:32:46.5115635Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
+2026-01-29T06:32:46.5227096Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-01-29T06:32:46.5228743Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-01-29T06:32:46.5229710Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-01-29T06:32:46.5230986Z hint: call:
+2026-01-29T06:32:46.5231679Z hint:
+2026-01-29T06:32:46.5232612Z hint: 	git config --global init.defaultBranch <name>
+2026-01-29T06:32:46.5233688Z hint:
+2026-01-29T06:32:46.5234466Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-01-29T06:32:46.5235438Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-01-29T06:32:46.5236530Z hint:
+2026-01-29T06:32:46.5237084Z hint: 	git branch -m <name>
+2026-01-29T06:32:46.5237593Z hint:
+2026-01-29T06:32:46.5238288Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-01-29T06:32:46.5239412Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
+2026-01-29T06:32:46.5242433Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
+2026-01-29T06:32:46.5278591Z ##[endgroup]
+2026-01-29T06:32:46.5280012Z ##[group]Disabling automatic garbage collection
+2026-01-29T06:32:46.5283747Z [command]/usr/bin/git config --local gc.auto 0
+2026-01-29T06:32:46.5312750Z ##[endgroup]
+2026-01-29T06:32:46.5314229Z ##[group]Setting up auth
+2026-01-29T06:32:46.5320509Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T06:32:46.5351573Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T06:32:46.5707005Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T06:32:46.5736219Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T06:32:46.5954652Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T06:32:46.5983992Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T06:32:46.6214007Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-01-29T06:32:46.6248814Z ##[endgroup]
+2026-01-29T06:32:46.6250327Z ##[group]Fetching the repository
+2026-01-29T06:32:46.6257442Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +59188fab636b2058ef9edd76cb2b9c8d0dcb408a:refs/remotes/origin/master
+2026-01-29T06:32:46.9796124Z From https://github.com/rtcdance/streamgate
+2026-01-29T06:32:46.9797497Z  * [new ref]         59188fab636b2058ef9edd76cb2b9c8d0dcb408a -> origin/master
+2026-01-29T06:32:46.9830626Z ##[endgroup]
+2026-01-29T06:32:46.9832399Z ##[group]Determining the checkout info
+2026-01-29T06:32:46.9834424Z ##[endgroup]
+2026-01-29T06:32:46.9837545Z [command]/usr/bin/git sparse-checkout disable
+2026-01-29T06:32:46.9879701Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-01-29T06:32:46.9907482Z ##[group]Checking out the ref
+2026-01-29T06:32:46.9911558Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+2026-01-29T06:32:47.0327907Z Reset branch 'master'
+2026-01-29T06:32:47.0329494Z branch 'master' set up to track 'origin/master'.
+2026-01-29T06:32:47.0337865Z ##[endgroup]
+2026-01-29T06:32:47.0376481Z [command]/usr/bin/git log -1 --format=%H
+2026-01-29T06:32:47.0399974Z 59188fab636b2058ef9edd76cb2b9c8d0dcb408a
+2026-01-29T06:32:47.0713288Z ##[group]Run actions/setup-go@v4
+2026-01-29T06:32:47.0714444Z with:
+2026-01-29T06:32:47.0715240Z   go-version: 1.24
+2026-01-29T06:32:47.0716148Z   check-latest: false
+2026-01-29T06:32:47.0717569Z   token: ***
+2026-01-29T06:32:47.0718394Z   cache: true
+2026-01-29T06:32:47.0719199Z env:
+2026-01-29T06:32:47.0719968Z   GO_VERSION: 1.24
+2026-01-29T06:32:47.0721098Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T06:32:47.0722281Z   GOTOOLCHAIN: auto
+2026-01-29T06:32:47.0723181Z ##[endgroup]
+2026-01-29T06:32:47.2323794Z Setup go version spec 1.24
+2026-01-29T06:32:47.2411989Z Found in cache @ /opt/hostedtoolcache/go/1.24.12/x64
+2026-01-29T06:32:47.2415460Z Added go to the path
+2026-01-29T06:32:47.2418532Z Successfully set up Go version 1.24
+2026-01-29T06:32:48.1448686Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOMODCACHE
+2026-01-29T06:32:48.1480754Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOCACHE
+2026-01-29T06:32:48.1505766Z /home/runner/go/pkg/mod
+2026-01-29T06:32:48.1535371Z /home/runner/.cache/go-build
+2026-01-29T06:32:48.3036319Z Cache is not found
+2026-01-29T06:32:48.3059297Z go version go1.24.12 linux/amd64
+2026-01-29T06:32:48.3059613Z 
+2026-01-29T06:32:48.3059991Z ##[group]go env
+2026-01-29T06:32:48.9474650Z AR='ar'
+2026-01-29T06:32:48.9475141Z CC='gcc'
+2026-01-29T06:32:48.9475493Z CGO_CFLAGS='-O2 -g'
+2026-01-29T06:32:48.9475844Z CGO_CPPFLAGS=''
+2026-01-29T06:32:48.9476185Z CGO_CXXFLAGS='-O2 -g'
+2026-01-29T06:32:48.9476531Z CGO_ENABLED='1'
+2026-01-29T06:32:48.9476842Z CGO_FFLAGS='-O2 -g'
+2026-01-29T06:32:48.9477110Z CGO_LDFLAGS='-O2 -g'
+2026-01-29T06:32:48.9477318Z CXX='g++'
+2026-01-29T06:32:48.9477515Z GCCGO='gccgo'
+2026-01-29T06:32:48.9477704Z GO111MODULE=''
+2026-01-29T06:32:48.9477921Z GOAMD64='v1'
+2026-01-29T06:32:48.9478115Z GOARCH='amd64'
+2026-01-29T06:32:48.9478302Z GOAUTH='netrc'
+2026-01-29T06:32:48.9478480Z GOBIN=''
+2026-01-29T06:32:48.9478726Z GOCACHE='/home/runner/.cache/go-build'
+2026-01-29T06:32:48.9479017Z GOCACHEPROG=''
+2026-01-29T06:32:48.9479284Z GODEBUG=''
+2026-01-29T06:32:48.9479518Z GOENV='/home/runner/.config/go/env'
+2026-01-29T06:32:48.9479761Z GOEXE=''
+2026-01-29T06:32:48.9479947Z GOEXPERIMENT=''
+2026-01-29T06:32:48.9480568Z GOFIPS140='off'
+2026-01-29T06:32:48.9480795Z GOFLAGS=''
+2026-01-29T06:32:48.9481520Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build3654306414=/tmp/go-build -gno-record-gcc-switches'
+2026-01-29T06:32:48.9482232Z GOHOSTARCH='amd64'
+2026-01-29T06:32:48.9482439Z GOHOSTOS='linux'
+2026-01-29T06:32:48.9482629Z GOINSECURE=''
+2026-01-29T06:32:48.9482894Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
+2026-01-29T06:32:48.9483229Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-01-29T06:32:48.9483492Z GONOPROXY=''
+2026-01-29T06:32:48.9483669Z GONOSUMDB=''
+2026-01-29T06:32:48.9483853Z GOOS='linux'
+2026-01-29T06:32:48.9484041Z GOPATH='/home/runner/go'
+2026-01-29T06:32:48.9484266Z GOPRIVATE=''
+2026-01-29T06:32:48.9484590Z GOPROXY='https://goproxy.io,direct'
+2026-01-29T06:32:48.9484938Z GOROOT='/opt/hostedtoolcache/go/1.24.12/x64'
+2026-01-29T06:32:48.9485244Z GOSUMDB='sum.golang.org'
+2026-01-29T06:32:48.9485467Z GOTELEMETRY='local'
+2026-01-29T06:32:48.9485750Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-01-29T06:32:48.9486045Z GOTMPDIR=''
+2026-01-29T06:32:48.9486235Z GOTOOLCHAIN='auto'
+2026-01-29T06:32:48.9486552Z GOTOOLDIR='/opt/hostedtoolcache/go/1.24.12/x64/pkg/tool/linux_amd64'
+2026-01-29T06:32:48.9486923Z GOVCS=''
+2026-01-29T06:32:48.9487105Z GOVERSION='go1.24.12'
+2026-01-29T06:32:48.9487322Z GOWORK=''
+2026-01-29T06:32:48.9487520Z PKG_CONFIG='pkg-config'
+2026-01-29T06:32:48.9487680Z 
+2026-01-29T06:32:48.9488176Z ##[endgroup]
+2026-01-29T06:32:48.9640878Z ##[group]Run golangci/golangci-lint-action@v3
+2026-01-29T06:32:48.9641214Z with:
+2026-01-29T06:32:48.9641390Z   version: v1.64.8
+2026-01-29T06:32:48.9641597Z   args: --timeout=5m ./...
+2026-01-29T06:32:48.9641822Z   skip-cache: true
+2026-01-29T06:32:48.9642151Z   github-token: ***
+2026-01-29T06:32:48.9642359Z   only-new-issues: false
+2026-01-29T06:32:48.9642575Z   skip-pkg-cache: false
+2026-01-29T06:32:48.9642791Z   skip-build-cache: false
+2026-01-29T06:32:48.9643005Z   install-mode: binary
+2026-01-29T06:32:48.9643459Z env:
+2026-01-29T06:32:48.9643612Z   GO_VERSION: 1.24
+2026-01-29T06:32:48.9643822Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T06:32:48.9644062Z   GOTOOLCHAIN: auto
+2026-01-29T06:32:48.9644243Z ##[endgroup]
+2026-01-29T06:32:49.0924238Z ##[group]prepare environment
+2026-01-29T06:32:49.0928777Z Finding needed golangci-lint version...
+2026-01-29T06:32:49.0932643Z Installation mode: binary
+2026-01-29T06:32:49.0933787Z Installing golangci-lint binary v1.64.8...
+2026-01-29T06:32:49.0935386Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz ...
+2026-01-29T06:32:49.3681654Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/c3f7bbf8-28a7-4641-b178-09f45a7afc96
+2026-01-29T06:32:49.5938713Z Installed golangci-lint into /home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint in 500ms
+2026-01-29T06:32:49.5939389Z Prepared env in 501ms
+2026-01-29T06:32:49.5940811Z ##[endgroup]
+2026-01-29T06:32:49.5943787Z ##[group]run golangci-lint
+2026-01-29T06:32:49.5950509Z Running [/home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint run --out-format=github-actions --timeout=5m ./...] in [] ...
+2026-01-29T06:34:36.0447703Z ##[error]: # streamgate/pkg/middleware
+2026-01-29T06:34:36.0475277Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0477261Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0478971Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0481816Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0483850Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0485453Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0487082Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0488735Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0490876Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0492642Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0493843Z ##[error]pkg/middleware/service.go:133:69: too many errors (typecheck)
+2026-01-29T06:34:36.0495351Z ##[error]could not import streamgate/pkg/middleware (-: # streamgate/pkg/middleware
+2026-01-29T06:34:36.0496788Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0498805Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0500916Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0502693Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0504277Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0506095Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0507642Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0509206Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0511157Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0512856Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.0514060Z ##[error]pkg/middleware/service.go:133:69: too many errors) (typecheck)
+2026-01-29T06:34:36.0515259Z ##[error]undefined: logger.Logger (typecheck)
+2026-01-29T06:34:36.0516304Z ##[error]undefined: logger.Logger (typecheck)
+2026-01-29T06:34:36.0517319Z ##[error]undefined: logger.Logger (typecheck)
+2026-01-29T06:34:36.0518312Z ##[error]undefined: logger.Logger (typecheck)
+2026-01-29T06:34:36.0519286Z ##[error]undefined: logger.Logger (typecheck)
+2026-01-29T06:34:36.0520869Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0522478Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0524022Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0525555Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0527076Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0528609Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.0530273Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0531880Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.0533447Z ##[error]cannot use "http_port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0535089Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0536652Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.0537845Z ##[error]: # streamgate/pkg/core/event
+2026-01-29T06:34:36.0539336Z ##[error]pkg/core/event/nats.go:77:45: cannot use "type" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0541178Z ##[error]pkg/core/event/nats.go:77:53: cannot use event.Type (variable of type string) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0542737Z ##[error]pkg/core/event/nats.go:77:65: cannot use "error" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0544304Z ##[error]pkg/core/event/nats.go:77:74: cannot use err (variable of interface type error) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0546088Z ##[error]pkg/core/event/nats.go:81:36: cannot use "type" (untyped string constant) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0547694Z ##[error]pkg/core/event/nats.go:81:44: cannot use event.Type (variable of type string) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0549275Z ##[error]pkg/core/event/nats.go:81:56: cannot use "subject" (untyped string constant) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0551065Z ##[error]pkg/core/event/nats.go:81:67: cannot use subject (variable of type string) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0552821Z ##[error]pkg/core/event/nats.go:97:48: cannot use "error" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0554361Z ##[error]pkg/core/event/nats.go:97:57: cannot use err (variable of interface type error) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0555517Z ##[error]pkg/core/event/nats.go:97:57: too many errors (typecheck)
+2026-01-29T06:34:36.0556614Z ##[error]undefined: ethereum (typecheck)
+2026-01-29T06:34:36.0557983Z ##[error]cannot use "rpc_url" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0559545Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Error (typecheck)
+2026-01-29T06:34:36.0561257Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Error (typecheck)
+2026-01-29T06:34:36.0562848Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0564453Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0566073Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0567687Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0569307Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0571081Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0572705Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0574321Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0575933Z ##[error]cannot use "gas_price" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0577603Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0579188Z ##[error]cannot use "gas" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0580891Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0582547Z ##[error]cannot use "block_number" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0584212Z ##[error]cannot use "block_number" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0585876Z ##[error]cannot use "block_number" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0587520Z ##[error]cannot use "block_number" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0589126Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0591025Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0592698Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0594295Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0595884Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Error (typecheck)
+2026-01-29T06:34:36.0597633Z ##[error]cannot use "tx_hash" (untyped string constant) as zap.Field value in argument to cc.logger.Debug (typecheck)
+2026-01-29T06:34:36.0599255Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0601396Z ##[error]cannot use []byte(abiJSON) (value of type []byte) as io.Reader value in argument to abi.JSON: []byte does not implement io.Reader (missing method Read) (typecheck)
+2026-01-29T06:34:36.0603187Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to ci.logger.Error (typecheck)
+2026-01-29T06:34:36.0604802Z ##[error]cannot use "function" (untyped string constant) as zap.Field value in argument to ci.logger.Error (typecheck)
+2026-01-29T06:34:36.0606414Z ##[error]cannot use "function" (untyped string constant) as zap.Field value in argument to ci.logger.Error (typecheck)
+2026-01-29T06:34:36.0608019Z ##[error]cannot use "function" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0609659Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0611479Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to ci.logger.Error (typecheck)
+2026-01-29T06:34:36.0613150Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0614801Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0616421Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to ci.logger.Error (typecheck)
+2026-01-29T06:34:36.0618046Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to ci.logger.Debug (typecheck)
+2026-01-29T06:34:36.0619648Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to el.logger.Info (typecheck)
+2026-01-29T06:34:36.0621448Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to el.logger.Debug (typecheck)
+2026-01-29T06:34:36.0623049Z ##[error]cannot use "to" (untyped string constant) as zap.Field value in argument to tb.logger.Debug (typecheck)
+2026-01-29T06:34:36.0624641Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0626236Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to ei.logger.Error (typecheck)
+2026-01-29T06:34:36.0627866Z ##[error]cannot use "start_block" (untyped string constant) as zap.Field value in argument to ei.logger.Info (typecheck)
+2026-01-29T06:34:36.0629472Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to ei.logger.Error (typecheck)
+2026-01-29T06:34:36.0630828Z ##[error]undefined: ethereum (typecheck)
+2026-01-29T06:34:36.0632214Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to ei.logger.Error (typecheck)
+2026-01-29T06:34:36.0633794Z ##[error]cannot use "count" (untyped string constant) as zap.Field value in argument to ei.logger.Debug (typecheck)
+2026-01-29T06:34:36.0635420Z ##[error]cannot use "event_type" (untyped string constant) as zap.Field value in argument to el.logger.Debug (typecheck)
+2026-01-29T06:34:36.0637219Z ##[error]cannot use "event_type" (untyped string constant) as zap.Field value in argument to el.logger.Error (typecheck)
+2026-01-29T06:34:36.0638947Z ##[error]cannot use "event_id" (untyped string constant) as zap.Field value in argument to el.logger.Error (typecheck)
+2026-01-29T06:34:36.0640712Z ##[error]cannot use "count" (untyped string constant) as zap.Field value in argument to el.logger.Info (typecheck)
+2026-01-29T06:34:36.0642423Z ##[error]cannot use "update_interval" (untyped string constant) as zap.Field value in argument to gm.logger.Info (typecheck)
+2026-01-29T06:34:36.0644239Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to gm.logger.Error (typecheck)
+2026-01-29T06:34:36.0645903Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to gm.logger.Error (typecheck)
+2026-01-29T06:34:36.0647572Z ##[error]cannot use "gas_price_wei" (untyped string constant) as zap.Field value in argument to gm.logger.Debug (typecheck)
+2026-01-29T06:34:36.0649160Z ##[error]cannot use "url" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0650838Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Error (typecheck)
+2026-01-29T06:34:36.0652437Z ##[error]cannot use "version" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0654117Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0655774Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0657401Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to ic.logger.Info (typecheck)
+2026-01-29T06:34:36.0658976Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0660666Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0662257Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0663809Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0665359Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0666923Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0668479Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Info (typecheck)
+2026-01-29T06:34:36.0670041Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0671732Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0673291Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Info (typecheck)
+2026-01-29T06:34:36.0674837Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0676336Z ##[error]ic.shell.FileStat undefined (type *shell.Shell has no field or method FileStat) (typecheck)
+2026-01-29T06:34:36.0677866Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Error (typecheck)
+2026-01-29T06:34:36.0679425Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ic.logger.Debug (typecheck)
+2026-01-29T06:34:36.0681140Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to hs.logger.Debug (typecheck)
+2026-01-29T06:34:36.0682915Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to hs.logger.Error (typecheck)
+2026-01-29T06:34:36.0684593Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to hs.logger.Info (typecheck)
+2026-01-29T06:34:36.0686219Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to hs.logger.Info (typecheck)
+2026-01-29T06:34:36.0687848Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Info (typecheck)
+2026-01-29T06:34:36.0689473Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Error (typecheck)
+2026-01-29T06:34:36.0691423Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Error (typecheck)
+2026-01-29T06:34:36.0693050Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Info (typecheck)
+2026-01-29T06:34:36.0694673Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Info (typecheck)
+2026-01-29T06:34:36.0696284Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Info (typecheck)
+2026-01-29T06:34:36.0697909Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Error (typecheck)
+2026-01-29T06:34:36.0699528Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Error (typecheck)
+2026-01-29T06:34:36.0701266Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to mcm.logger.Info (typecheck)
+2026-01-29T06:34:36.0702907Z ##[error]cannot use "from_chain" (untyped string constant) as zap.Field value in argument to ccb.logger.Info (typecheck)
+2026-01-29T06:34:36.0704553Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0706509Z ##[error]cannot use []byte(abiStr) (value of type []byte) as io.Reader value in argument to abi.JSON: []byte does not implement io.Reader (missing method Read) (typecheck)
+2026-01-29T06:34:36.0708284Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0709878Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0711591Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0713195Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0714805Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0745313Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0747510Z ##[error]cannot use []byte(abiStr) (value of type []byte) as io.Reader value in argument to abi.JSON: []byte does not implement io.Reader (missing method Read) (typecheck)
+2026-01-29T06:34:36.0749323Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0751111Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0752755Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0754354Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to nv.logger.Error (typecheck)
+2026-01-29T06:34:36.0755994Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0757967Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0759680Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0761525Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0763142Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to nv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0764764Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to sv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0766557Z ##[error]cannot use "length" (untyped string constant) as zap.Field value in argument to sv.logger.Error (typecheck)
+2026-01-29T06:34:36.0768185Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to sv.logger.Error (typecheck)
+2026-01-29T06:34:36.0769801Z ##[error]cannot use "expected" (untyped string constant) as zap.Field value in argument to sv.logger.Warn (typecheck)
+2026-01-29T06:34:36.0771621Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to sv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0773284Z ##[error]cannot use "message_length" (untyped string constant) as zap.Field value in argument to sv.logger.Debug (typecheck)
+2026-01-29T06:34:36.0774897Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to sv.logger.Error (typecheck)
+2026-01-29T06:34:36.0776499Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to cg.logger.Debug (typecheck)
+2026-01-29T06:34:36.0778155Z ##[error]cannot use "challenge_id" (untyped string constant) as zap.Field value in argument to cg.logger.Debug (typecheck)
+2026-01-29T06:34:36.0779773Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to scd.logger.Info (typecheck)
+2026-01-29T06:34:36.0781523Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to scd.logger.Info (typecheck)
+2026-01-29T06:34:36.0783130Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to scd.logger.Info (typecheck)
+2026-01-29T06:34:36.0784736Z ##[error]cannot use "contract" (untyped string constant) as zap.Field value in argument to cdt.logger.Info (typecheck)
+2026-01-29T06:34:36.0786323Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to scr.logger.Info (typecheck)
+2026-01-29T06:34:36.0787916Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wm.logger.Error (typecheck)
+2026-01-29T06:34:36.0789522Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to wm.logger.Info (typecheck)
+2026-01-29T06:34:36.0791266Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wm.logger.Error (typecheck)
+2026-01-29T06:34:36.0792866Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to wm.logger.Info (typecheck)
+2026-01-29T06:34:36.0794463Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to wm.logger.Debug (typecheck)
+2026-01-29T06:34:36.0796078Z ##[error]cannot use "service" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.0797673Z ##[error]cannot use "service" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.0799284Z ##[error]cannot use "failures" (untyped string constant) as zap.Field value in argument to cb.logger.Warn (typecheck)
+2026-01-29T06:34:36.0800637Z ##[error]undefined: ethereum (typecheck)
+2026-01-29T06:34:36.0801614Z ##[error]undefined: ethereum (typecheck)
+2026-01-29T06:34:36.0802967Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0804697Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Error (typecheck)
+2026-01-29T06:34:36.0806294Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Error (typecheck)
+2026-01-29T06:34:36.0807881Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.0809484Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0811310Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Error (typecheck)
+2026-01-29T06:34:36.0813147Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0814764Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0816383Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Error (typecheck)
+2026-01-29T06:34:36.0818020Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0819646Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0821454Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Error (typecheck)
+2026-01-29T06:34:36.0823096Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0824723Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0826340Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Info (typecheck)
+2026-01-29T06:34:36.0827967Z ##[error]cannot use "service_name" (untyped string constant) as zap.Field value in argument to r.logger.Error (typecheck)
+2026-01-29T06:34:36.0829561Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to r.logger.Error (typecheck)
+2026-01-29T06:34:36.0831239Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Warn (typecheck)
+2026-01-29T06:34:36.0832785Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to logger.Warn (typecheck)
+2026-01-29T06:34:36.0834362Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0835983Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0837589Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0839204Z ##[error]cannot use "chain_id" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0840919Z ##[error]cannot use "filename" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0842493Z ##[error]cannot use "cid" (untyped string constant) as zap.Field value in argument to ws.logger.Debug (typecheck)
+2026-01-29T06:34:36.0843881Z ##[error]could not import streamgate/pkg/core/event (-: # streamgate/pkg/core/event
+2026-01-29T06:34:36.0845613Z ##[error]pkg/core/event/nats.go:77:45: cannot use "type" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0847219Z ##[error]pkg/core/event/nats.go:77:53: cannot use event.Type (variable of type string) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0848760Z ##[error]pkg/core/event/nats.go:77:65: cannot use "error" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0850583Z ##[error]pkg/core/event/nats.go:77:74: cannot use err (variable of interface type error) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0852234Z ##[error]pkg/core/event/nats.go:81:36: cannot use "type" (untyped string constant) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0853784Z ##[error]pkg/core/event/nats.go:81:44: cannot use event.Type (variable of type string) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0855337Z ##[error]pkg/core/event/nats.go:81:56: cannot use "subject" (untyped string constant) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0857017Z ##[error]pkg/core/event/nats.go:81:67: cannot use subject (variable of type string) as zap.Field value in argument to b.logger.Debug
+2026-01-29T06:34:36.0858529Z ##[error]pkg/core/event/nats.go:97:48: cannot use "error" (untyped string constant) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0860058Z ##[error]pkg/core/event/nats.go:97:57: cannot use err (variable of interface type error) as zap.Field value in argument to b.logger.Error
+2026-01-29T06:34:36.0861387Z ##[error]pkg/core/event/nats.go:97:57: too many errors) (typecheck)
+2026-01-29T06:34:36.0862884Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
+2026-01-29T06:34:36.0864449Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
+2026-01-29T06:34:36.0866033Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0867654Z ##[error]cannot use "service_id" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
+2026-01-29T06:34:36.0869256Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0870944Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0872522Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
+2026-01-29T06:34:36.0874078Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0875621Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Info (typecheck)
+2026-01-29T06:34:36.0877189Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0878765Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0880441Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0882004Z ##[error]cannot use "name" (untyped string constant) as zap.Field value in argument to m.logger.Error (typecheck)
+2026-01-29T06:34:36.0883192Z ##[error]: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.0884650Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0886227Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0887776Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0889305Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0891001Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0892749Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0894391Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0895918Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0897440Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0899141Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0900431Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors (typecheck)
+2026-01-29T06:34:36.0901782Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.0903210Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0904756Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0906287Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0907786Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0909320Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0911035Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0912606Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0914122Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0915643Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0917150Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0918310Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.0919530Z ##[error]SignatureVerifier redeclared in this block (typecheck)
+2026-01-29T06:34:36.0920798Z ##[error]	other declaration of SignatureVerifier (typecheck)
+2026-01-29T06:34:36.0921894Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.0922948Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.0924026Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.0925104Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.0926508Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0928091Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0929668Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0931366Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0932950Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0934516Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0936227Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0937846Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0939433Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0941122Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.0942919Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.0944501Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.0946127Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.0947713Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.0949311Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to v.logger.Info (typecheck)
+2026-01-29T06:34:36.0951024Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to v.logger.Info (typecheck)
+2026-01-29T06:34:36.0952625Z ##[error]cannot use "address" (untyped string constant) as zap.Field value in argument to v.logger.Info (typecheck)
+2026-01-29T06:34:36.0953834Z ##[error]undefined: address (typecheck)
+2026-01-29T06:34:36.0955173Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0956706Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0958237Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0959770Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0961417Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.0962924Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0964448Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.0965976Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.0967368Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.0968817Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0970490Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.0972050Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0973558Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.0975097Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0976675Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.0978219Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0979880Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.0981631Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0983160Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.0984332Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.0985497Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.0986727Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.0987806Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.0988886Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.0990426Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0992045Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0993628Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0995195Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0996775Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0998360Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.0999930Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1001602Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1003173Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1004744Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1006318Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1007883Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1009444Z ##[error]cannot use "host" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.1011114Z ##[error]cannot use "key" (untyped string constant) as zap.Field value in argument to s.logger.Debug (typecheck)
+2026-01-29T06:34:36.1012674Z ##[error]cannot use "key" (untyped string constant) as zap.Field value in argument to s.logger.Debug (typecheck)
+2026-01-29T06:34:36.1014228Z ##[error]cannot use "key" (untyped string constant) as zap.Field value in argument to s.logger.Debug (typecheck)
+2026-01-29T06:34:36.1015453Z ##[error]"strconv" imported and not used (typecheck)
+2026-01-29T06:34:36.1016812Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1018342Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1019867Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1021514Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1023026Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1024543Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1026208Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1027785Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1028975Z ##[error]: # streamgate/pkg/optimization
+2026-01-29T06:34:36.1030281Z ##[error]pkg/optimization/caching.go:110:3: unknown field ID in struct literal of type CacheEntry
+2026-01-29T06:34:36.1031544Z ##[error]pkg/optimization/caching.go:113:3: unknown field TTL in struct literal of type CacheEntry
+2026-01-29T06:34:36.1032913Z ##[error]pkg/optimization/caching.go:116:3: unknown field Level in struct literal of type CacheEntry
+2026-01-29T06:34:36.1034271Z ##[error]pkg/optimization/caching.go:155:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1035672Z ##[error]pkg/optimization/caching.go:167:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1037071Z ##[error]pkg/optimization/caching.go:181:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1038470Z ##[error]pkg/optimization/caching.go:238:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1039877Z ##[error]pkg/optimization/caching.go:238:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1041469Z ##[error]pkg/optimization/caching.go:264:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1042902Z ##[error]pkg/optimization/caching.go:264:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1044056Z ##[error]pkg/optimization/caching.go:264:51: too many errors (typecheck)
+2026-01-29T06:34:36.1045429Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1046849Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1048394Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1049936Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1051580Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1053110Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1054689Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1056235Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1057743Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1059285Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1060936Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1062122Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1063471Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
+2026-01-29T06:34:36.1064642Z ##[error]pkg/optimization/caching.go:110:3: unknown field ID in struct literal of type CacheEntry
+2026-01-29T06:34:36.1065825Z ##[error]pkg/optimization/caching.go:113:3: unknown field TTL in struct literal of type CacheEntry
+2026-01-29T06:34:36.1067151Z ##[error]pkg/optimization/caching.go:116:3: unknown field Level in struct literal of type CacheEntry
+2026-01-29T06:34:36.1068524Z ##[error]pkg/optimization/caching.go:155:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1069922Z ##[error]pkg/optimization/caching.go:167:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1071491Z ##[error]pkg/optimization/caching.go:181:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1073040Z ##[error]pkg/optimization/caching.go:238:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1074455Z ##[error]pkg/optimization/caching.go:238:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1075857Z ##[error]pkg/optimization/caching.go:264:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1077279Z ##[error]pkg/optimization/caching.go:264:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1078437Z ##[error]pkg/optimization/caching.go:264:51: too many errors) (typecheck)
+2026-01-29T06:34:36.1079598Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1080787Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1081871Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1082948Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1084364Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1085954Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1087533Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1089116Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1090799Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1092394Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1093964Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1095532Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1097093Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1098644Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1100325Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1101917Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1103493Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1105050Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1106620Z ##[error]cannot use "host" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.1108231Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
+2026-01-29T06:34:36.1109863Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
+2026-01-29T06:34:36.1111759Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
+2026-01-29T06:34:36.1113424Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
+2026-01-29T06:34:36.1115014Z ##[error]cannot use "query" (untyped string constant) as zap.Field value in argument to db.logger.Info (typecheck)
+2026-01-29T06:34:36.1116564Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1118258Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1119793Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1121519Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1123056Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1124575Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1126099Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1127618Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1128999Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1130579Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1132162Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1133687Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1135206Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1160720Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1162647Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1164279Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1165814Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1167361Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1168896Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1170076Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1171476Z ##[error]HealthStatus redeclared in this block (typecheck)
+2026-01-29T06:34:36.1172566Z ##[error]	other declaration of HealthStatus (typecheck)
+2026-01-29T06:34:36.1173593Z ##[error]Alert redeclared in this block (typecheck)
+2026-01-29T06:34:36.1174609Z ##[error]	other declaration of Alert (typecheck)
+2026-01-29T06:34:36.1175633Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1176663Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1177715Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1178791Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1180485Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1182151Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1183716Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1185282Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1186858Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1188636Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1190043Z ##[error]unknown field Timestamp in struct literal of type HealthStatus (typecheck)
+2026-01-29T06:34:36.1191659Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1193183Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1194715Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1196245Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1197766Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1199289Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1201012Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1202564Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1203972Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1205433Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1206977Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1208490Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1209997Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1211681Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1213247Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1214787Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1216282Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1217778Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1219272Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1220561Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1221899Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
+2026-01-29T06:34:36.1223214Z ##[error]pkg/optimization/caching.go:110:3: unknown field ID in struct literal of type CacheEntry
+2026-01-29T06:34:36.1224429Z ##[error]pkg/optimization/caching.go:113:3: unknown field TTL in struct literal of type CacheEntry
+2026-01-29T06:34:36.1225624Z ##[error]pkg/optimization/caching.go:116:3: unknown field Level in struct literal of type CacheEntry
+2026-01-29T06:34:36.1226960Z ##[error]pkg/optimization/caching.go:155:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1228343Z ##[error]pkg/optimization/caching.go:167:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1229898Z ##[error]pkg/optimization/caching.go:181:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1231435Z ##[error]pkg/optimization/caching.go:238:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1232848Z ##[error]pkg/optimization/caching.go:238:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1234239Z ##[error]pkg/optimization/caching.go:264:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1235630Z ##[error]pkg/optimization/caching.go:264:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1236767Z ##[error]pkg/optimization/caching.go:264:51: too many errors) (typecheck)
+2026-01-29T06:34:36.1237942Z ##[error]StreamCache redeclared in this block (typecheck)
+2026-01-29T06:34:36.1239021Z ##[error]	other declaration of StreamCache (typecheck)
+2026-01-29T06:34:36.1240515Z ##[error]method StreamCache.Get already declared at pkg/plugins/streaming/cache.go:7:23 (typecheck)
+2026-01-29T06:34:36.1242028Z ##[error]method StreamCache.Set already declared at pkg/plugins/streaming/cache.go:12:23 (typecheck)
+2026-01-29T06:34:36.1243225Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1244259Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1245354Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1246427Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1247820Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1249423Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1250821Z ##[error]declared and not used: startTime (typecheck)
+2026-01-29T06:34:36.1252246Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1253861Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1255458Z ##[error]cannot use "content_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1257030Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1258585Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1260255Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1261838Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1263411Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1264778Z ##[error]unknown field logger in struct literal of type StreamCache (typecheck)
+2026-01-29T06:34:36.1266224Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1267895Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1269486Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1271174Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1272707Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1274225Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1275908Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1277424Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1278808Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1280383Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1281959Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1283481Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1284974Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1286498Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1288066Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1289601Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1291234Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1292746Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1294247Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1295414Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1296554Z ##[error]TaskQueue redeclared in this block (typecheck)
+2026-01-29T06:34:36.1297597Z ##[error]	other declaration of TaskQueue (typecheck)
+2026-01-29T06:34:36.1298617Z ##[error]Worker redeclared in this block (typecheck)
+2026-01-29T06:34:36.1299618Z ##[error]	other declaration of Worker (typecheck)
+2026-01-29T06:34:36.1301092Z ##[error]method TaskQueue.Enqueue already declared at pkg/plugins/transcoder/queue.go:7:21 (typecheck)
+2026-01-29T06:34:36.1302617Z ##[error]method TaskQueue.Dequeue already declared at pkg/plugins/transcoder/queue.go:12:21 (typecheck)
+2026-01-29T06:34:36.1303818Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1304847Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1305890Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1306956Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1308339Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1309911Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1311594Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1313320Z ##[error]cannot use "task_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1314925Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1316499Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1318073Z ##[error]cannot use "task_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1319851Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1321551Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1323131Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1324727Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1326300Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1327865Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1329242Z ##[error]unknown field tasks in struct literal of type TaskQueue (typecheck)
+2026-01-29T06:34:36.1330609Z ##[error]unknown field queue in struct literal of type TaskQueue (typecheck)
+2026-01-29T06:34:36.1331875Z ##[error]unknown field maxSize in struct literal of type TaskQueue (typecheck)
+2026-01-29T06:34:36.1333124Z ##[error]unknown field metrics in struct literal of type TaskQueue (typecheck)
+2026-01-29T06:34:36.1334370Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1335631Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1336932Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
+2026-01-29T06:34:36.1338248Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
+2026-01-29T06:34:36.1339561Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
+2026-01-29T06:34:36.1341025Z ##[error]tq.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
+2026-01-29T06:34:36.1342367Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
+2026-01-29T06:34:36.1343638Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1344889Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1346220Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
+2026-01-29T06:34:36.1347496Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1348746Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1350025Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
+2026-01-29T06:34:36.1351416Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1352680Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1353980Z ##[error]tq.tasks undefined (type *TaskQueue has no field or method tasks) (typecheck)
+2026-01-29T06:34:36.1355257Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1356509Z ##[error]tq.mu undefined (type *TaskQueue has no field or method mu) (typecheck)
+2026-01-29T06:34:36.1357797Z ##[error]tq.queue undefined (type *TaskQueue has no field or method queue) (typecheck)
+2026-01-29T06:34:36.1359136Z ##[error]too many arguments in call to wp.taskQueue.Dequeue
+2026-01-29T06:34:36.1359875Z 	have (context.Context)
+2026-01-29T06:34:36.1360201Z 	want () (typecheck)
+2026-01-29T06:34:36.1361383Z ##[error]cannot use task (variable of type interface{}) as *TranscodeTask value in argument to wp.processTask: need type assertion (typecheck)
+2026-01-29T06:34:36.1363025Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
+2026-01-29T06:34:36.1364520Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
+2026-01-29T06:34:36.1366184Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
+2026-01-29T06:34:36.1367674Z ##[error]wp.taskQueue.metrics undefined (type *TaskQueue has no field or method metrics) (typecheck)
+2026-01-29T06:34:36.1369206Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1370849Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1372391Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1373913Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1375437Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1376956Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1378494Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1380020Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1381526Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1383001Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1384559Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1386096Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1387607Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1389144Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1390848Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1392430Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1393952Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1395462Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1396963Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1398130Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1399272Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1400439Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1401525Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1402737Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1404176Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1405763Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1407340Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1408909Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1410738Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1412334Z ##[error]cannot use "file_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1413924Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1415498Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1417086Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1418675Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1420377Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1421988Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1423551Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1425096Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1427113Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1428728Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1430466Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1432056Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1433621Z ##[error]cannot use "type" (untyped string constant) as zap.Field value in argument to logger.Info (typecheck)
+2026-01-29T06:34:36.1435196Z ##[error]cannot use "file_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1436800Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1438410Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1440004Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1441735Z ##[error]cannot use "upload_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1442960Z ##[error]"fmt" imported and not used (typecheck)
+2026-01-29T06:34:36.1444306Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1445861Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1447397Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1449085Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1450830Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1452389Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1453914Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1455438Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1456993Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1458492Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1460066Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1461766Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1463282Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1464806Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1466377Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1467923Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1469427Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1471115Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1472654Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1473829Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1474958Z ##[error]Job redeclared in this block (typecheck)
+2026-01-29T06:34:36.1475985Z ##[error]	other declaration of Job (typecheck)
+2026-01-29T06:34:36.1477037Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1478076Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1479167Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1480361Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1481802Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1483393Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1484979Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1486556Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1488126Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1489702Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1491498Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1493134Z ##[error]cannot use "job_type" (untyped string constant) as zap.Field value in argument to h.logger.Info (typecheck)
+2026-01-29T06:34:36.1494872Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1496468Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1498053Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1499632Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1501777Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to s.logger.Error (typecheck)
+2026-01-29T06:34:36.1503433Z ##[error]cannot use "job_id" (untyped string constant) as zap.Field value in argument to s.logger.Info (typecheck)
+2026-01-29T06:34:36.1504913Z ##[error]job.CompletedAt undefined (type *Job has no field or method CompletedAt) (typecheck)
+2026-01-29T06:34:36.1506426Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1507967Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1509503Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1511171Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1512715Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1514239Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1515762Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1517296Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1518694Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1520279Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1521877Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1523425Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1524949Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1526487Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1528075Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1557913Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1559630Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1561393Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1562958Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1564138Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1565543Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
+2026-01-29T06:34:36.1566926Z ##[error]pkg/optimization/caching.go:110:3: unknown field ID in struct literal of type CacheEntry
+2026-01-29T06:34:36.1568181Z ##[error]pkg/optimization/caching.go:113:3: unknown field TTL in struct literal of type CacheEntry
+2026-01-29T06:34:36.1569397Z ##[error]pkg/optimization/caching.go:116:3: unknown field Level in struct literal of type CacheEntry
+2026-01-29T06:34:36.1571131Z ##[error]pkg/optimization/caching.go:155:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1572815Z ##[error]pkg/optimization/caching.go:167:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1574234Z ##[error]pkg/optimization/caching.go:181:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1575635Z ##[error]pkg/optimization/caching.go:238:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1577080Z ##[error]pkg/optimization/caching.go:238:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1578479Z ##[error]pkg/optimization/caching.go:264:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1579887Z ##[error]pkg/optimization/caching.go:264:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.1581210Z ##[error]pkg/optimization/caching.go:264:51: too many errors) (typecheck)
+2026-01-29T06:34:36.1582403Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1583466Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1584504Z ##[error]undefined: security.RateLimiter (typecheck)
+2026-01-29T06:34:36.1585523Z ##[error]undefined: security.AuditLogger (typecheck)
+2026-01-29T06:34:36.1586582Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1587645Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1589056Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1590833Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1592551Z ##[error]cannot use "port" (untyped string constant) as zap.Field value in argument to p.logger.Info (typecheck)
+2026-01-29T06:34:36.1594122Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to p.logger.Error (typecheck)
+2026-01-29T06:34:36.1595731Z ##[error]cannot use "alert_id" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
+2026-01-29T06:34:36.1597303Z ##[error]cannot use "level" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
+2026-01-29T06:34:36.1598853Z ##[error]cannot use "title" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
+2026-01-29T06:34:36.1600557Z ##[error]cannot use "message" (untyped string constant) as zap.Field value in argument to p.logger.Warn (typecheck)
+2026-01-29T06:34:36.1601831Z ##[error]undefined: security.NewRateLimiter (typecheck)
+2026-01-29T06:34:36.1603222Z ##[error]undefined: security.NewAuditLogger (typecheck)
+2026-01-29T06:34:36.1604631Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to h.logger.Error (typecheck)
+2026-01-29T06:34:36.1606212Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1607798Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1609376Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1611094Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1612856Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1614478Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1616052Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1617625Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1619387Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to wh.logger.Error (typecheck)
+2026-01-29T06:34:36.1620759Z ##[error]"context" imported and not used (typecheck)
+2026-01-29T06:34:36.1622128Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1623657Z ##[error]cannot use "mode" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1625177Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1626708Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1628228Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Fatal (typecheck)
+2026-01-29T06:34:36.1629746Z ##[error]cannot use "signal" (untyped string constant) as zap.Field value in argument to log.Info (typecheck)
+2026-01-29T06:34:36.1631496Z ##[error]cannot use "error" (untyped string constant) as zap.Field value in argument to log.Error (typecheck)
+2026-01-29T06:34:36.1632892Z ##[error]could not import streamgate/pkg/middleware (-: # streamgate/pkg/middleware
+2026-01-29T06:34:36.1634382Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1636089Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1637684Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1639224Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1641091Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1642648Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1644163Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1645740Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1647305Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1648851Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1650024Z ##[error]pkg/middleware/service.go:133:69: too many errors) (typecheck)
+2026-01-29T06:34:36.1651479Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1652781Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1654065Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1655359Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1656839Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1658311Z ##[error]db.Insert undefined (type *storage.PostgresDB has no field or method Insert) (typecheck)
+2026-01-29T06:34:36.1660009Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to db.Query (typecheck)
+2026-01-29T06:34:36.1661714Z ##[error]db.Update undefined (type *storage.PostgresDB has no field or method Update) (typecheck)
+2026-01-29T06:34:36.1663343Z ##[error]db.Delete undefined (type *storage.PostgresDB has no field or method Delete) (typecheck)
+2026-01-29T06:34:36.1664516Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1665226Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1665524Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1666122Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1666818Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1667120Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1667724Z ##[error]too many arguments in call to cache.Get
+2026-01-29T06:34:36.1668393Z 	have (context.Context, string)
+2026-01-29T06:34:36.1668636Z 	want (string) (typecheck)
+2026-01-29T06:34:36.1669222Z ##[error]too many arguments in call to cache.Delete
+2026-01-29T06:34:36.1669893Z 	have (context.Context, string)
+2026-01-29T06:34:36.1670278Z 	want (string) (typecheck)
+2026-01-29T06:34:36.1671451Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Upload (typecheck)
+2026-01-29T06:34:36.1673346Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Upload (typecheck)
+2026-01-29T06:34:36.1675234Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Download (typecheck)
+2026-01-29T06:34:36.1677093Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to storage.Delete (typecheck)
+2026-01-29T06:34:36.1678848Z ##[error]db.AcquireConnection undefined (type *storage.PostgresDB has no field or method AcquireConnection) (typecheck)
+2026-01-29T06:34:36.1680692Z ##[error]db.AcquireConnection undefined (type *storage.PostgresDB has no field or method AcquireConnection) (typecheck)
+2026-01-29T06:34:36.1682407Z ##[error]db.ReleaseConnection undefined (type *storage.PostgresDB has no field or method ReleaseConnection) (typecheck)
+2026-01-29T06:34:36.1683770Z ##[error]"streamgate/pkg/storage" imported and not used (typecheck)
+2026-01-29T06:34:36.1684877Z ##[error]declared and not used: breakpointID (typecheck)
+2026-01-29T06:34:36.1685892Z ##[error]undefined: ml.AlertRule (typecheck)
+2026-01-29T06:34:36.1687079Z ##[error]could not import streamgate/pkg/middleware (-: # streamgate/pkg/middleware
+2026-01-29T06:34:36.1688506Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1690293Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1691921Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1693458Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1695008Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1696536Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1698202Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1699794Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1701486Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1703009Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1704367Z ##[error]pkg/middleware/service.go:133:69: too many errors) (typecheck)
+2026-01-29T06:34:36.1705672Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1707076Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1708602Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1710235Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1711796Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1713334Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1714926Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1716480Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1717987Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1719505Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1721153Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1722311Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1723524Z ##[error]TestE2E_TracingFlow redeclared in this block (typecheck)
+2026-01-29T06:34:36.1724677Z ##[error]	other declaration of TestE2E_TracingFlow (typecheck)
+2026-01-29T06:34:36.1725922Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1727319Z ##[error]user.Validate undefined (type *models.User has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1728758Z ##[error]user.Validate undefined (type *models.User has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1730352Z ##[error]content.Validate undefined (type *models.Content has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1731865Z ##[error]content.Validate undefined (type *models.Content has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1733209Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1734484Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1735800Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1737175Z ##[error]nft.Validate undefined (type *models.NFT has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1738651Z ##[error]nft.ContractAddr undefined (type *models.NFT has no field or method ContractAddr) (typecheck)
+2026-01-29T06:34:36.1740180Z ##[error]nft.Validate undefined (type *models.NFT has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1741712Z ##[error]unknown field UserID in struct literal of type models.Transaction (typecheck)
+2026-01-29T06:34:36.1743102Z ##[error]unknown field ContentID in struct literal of type models.Transaction (typecheck)
+2026-01-29T06:34:36.1744459Z ##[error]unknown field Amount in struct literal of type models.Transaction (typecheck)
+2026-01-29T06:34:36.1746022Z ##[error]transaction.Validate undefined (type *models.Transaction has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1747615Z ##[error]transaction.Amount undefined (type *models.Transaction has no field or method Amount) (typecheck)
+2026-01-29T06:34:36.1749379Z ##[error]transaction.Validate undefined (type *models.Transaction has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1750928Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1752257Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1753600Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1755000Z ##[error]task.Validate undefined (type *models.Task has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1756432Z ##[error]task.Validate undefined (type *models.Task has no field or method Validate) (typecheck)
+2026-01-29T06:34:36.1757775Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1759130Z ##[error]user.ToJSON undefined (type *models.User has no field or method ToJSON) (typecheck)
+2026-01-29T06:34:36.1760722Z ##[error]user2.FromJSON undefined (type *models.User has no field or method FromJSON) (typecheck)
+2026-01-29T06:34:36.1762340Z ##[error]content.ApplyDefaults undefined (type *models.Content has no field or method ApplyDefaults) (typecheck)
+2026-01-29T06:34:36.1763783Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1765113Z ##[error]unknown field UserID in struct literal of type models.Content (typecheck)
+2026-01-29T06:34:36.1766534Z ##[error]content.UserID undefined (type *models.Content has no field or method UserID) (typecheck)
+2026-01-29T06:34:36.1768230Z ##[error]cannot use p.id (variable of type string) as *scaling.DisasterRecoveryPlan value in argument to drm.CreatePlan (typecheck)
+2026-01-29T06:34:36.1770036Z ##[error]cannot use p.id (variable of type string) as *scaling.DisasterRecoveryPlan value in argument to drm.CreatePlan (typecheck)
+2026-01-29T06:34:36.1771474Z ##[error]declared and not used: plan (typecheck)
+2026-01-29T06:34:36.1772547Z ##[error]declared and not used: passwordHash (typecheck)
+2026-01-29T06:34:36.1773783Z ##[error]unknown field UploadID in struct literal of type models.Content (typecheck)
+2026-01-29T06:34:36.1775106Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1776423Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1777763Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1779080Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1780579Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1781965Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1783270Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1784597Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1785926Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1787271Z ##[error]assignment mismatch: 1 variable but util.FileSize returns 2 values (typecheck)
+2026-01-29T06:34:36.1788559Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1790024Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1791559Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1792918Z ##[error]nft.Title undefined (type *models.NFT has no field or method Title) (typecheck)
+2026-01-29T06:34:36.1794209Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1795484Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1796848Z ##[error]cannot use chainID (variable of type int) as int64 value in struct literal (typecheck)
+2026-01-29T06:34:36.1798389Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1799568Z ##[error]"database/sql" imported and not used (typecheck)
+2026-01-29T06:34:36.1800778Z ##[error]"context" imported and not used (typecheck)
+2026-01-29T06:34:36.1802011Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1803314Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1804616Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1805905Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1807203Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1808492Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1809827Z ##[error]could not import streamgate/pkg/middleware (-: # streamgate/pkg/middleware
+2026-01-29T06:34:36.1811499Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1813187Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1814797Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1816344Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1817903Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1819430Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1821143Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1822698Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1824243Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1825790Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.1826961Z ##[error]pkg/middleware/service.go:133:69: too many errors) (typecheck)
+2026-01-29T06:34:36.1828267Z ##[error]: # streamgate/test/integration/ml [streamgate/test/integration/ml.test]
+2026-01-29T06:34:36.1829523Z ##[error]test/integration/ml/ml_integration_test.go:187:14: undefined: ml.AlertRule (typecheck)
+2026-01-29T06:34:36.1831154Z ##[error]: # streamgate/test/integration/models_test [streamgate/test/integration/models.test]
+2026-01-29T06:34:36.1832699Z ##[error]test/integration/models/models_integration_test.go:25:3: unknown field Password in struct literal of type models.User
+2026-01-29T06:34:36.1834412Z ##[error]test/integration/models/models_integration_test.go:29:12: db.SaveUser undefined (type *storage.Database has no field or method SaveUser)
+2026-01-29T06:34:36.1836055Z ##[error]test/integration/models/models_integration_test.go:34:23: db.GetUser undefined (type *storage.Database has no field or method GetUser)
+2026-01-29T06:34:36.1837885Z ##[error]test/integration/models/models_integration_test.go:57:12: db.SaveContent undefined (type *storage.Database has no field or method SaveContent)
+2026-01-29T06:34:36.1840013Z ##[error]test/integration/models/models_integration_test.go:62:23: db.GetContent undefined (type *storage.Database has no field or method GetContent)
+2026-01-29T06:34:36.1842871Z ##[error]test/integration/models/models_integration_test.go:77:3: unknown field Title in struct literal of type models.NFT
+2026-01-29T06:34:36.1844671Z ##[error]test/integration/models/models_integration_test.go:79:3: unknown field ContentID in struct literal of type models.NFT
+2026-01-29T06:34:36.1846623Z ##[error]test/integration/models/models_integration_test.go:81:3: unknown field ContractAddr in struct literal of type models.NFT
+2026-01-29T06:34:36.1848478Z ##[error]test/integration/models/models_integration_test.go:86:12: db.SaveNFT undefined (type *storage.Database has no field or method SaveNFT)
+2026-01-29T06:34:36.1850557Z ##[error]test/integration/models/models_integration_test.go:91:23: db.GetNFT undefined (type *storage.Database has no field or method GetNFT)
+2026-01-29T06:34:36.1852141Z ##[error]test/integration/models/models_integration_test.go:91:23: too many errors (typecheck)
+2026-01-29T06:34:36.1854074Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1855764Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1857651Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1859528Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1861566Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1863488Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1865325Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.1867262Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1869164Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.1871224Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1873058Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.1874592Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.1876338Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1878044Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1879921Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1882052Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1883775Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1885542Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1887399Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1889240Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1891201Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1892997Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1894750Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1896638Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1898452Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1900320Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1902167Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1905018Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1906776Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1908495Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1910339Z ##[error]unknown field ContentID in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1912124Z ##[error]unknown field InputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1913855Z ##[error]unknown field OutputFormat in struct literal of type models.Task (typecheck)
+2026-01-29T06:34:36.1915482Z ##[error]"bytes" imported and not used (typecheck)
+2026-01-29T06:34:36.1917106Z ##[error]"streamgate/pkg/models" imported and not used (typecheck)
+2026-01-29T06:34:36.1918725Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1920626Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1922506Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1924191Z ##[error]unknown field Title in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1925883Z ##[error]unknown field ContentID in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1927604Z ##[error]unknown field ContractAddr in struct literal of type models.NFT (typecheck)
+2026-01-29T06:34:36.1929438Z ##[error]nft.Title undefined (type *models.NFT has no field or method Title) (typecheck)
+2026-01-29T06:34:36.1931179Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1932050Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1932528Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1933385Z ##[error]too many arguments in call to cache.Get
+2026-01-29T06:34:36.1934278Z 	have (context.Context, string)
+2026-01-29T06:34:36.1934620Z 	want (string) (typecheck)
+2026-01-29T06:34:36.1935506Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1936466Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1936861Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1937764Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1938627Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1939092Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1939975Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1941019Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1941352Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1942321Z ##[error]too many arguments in call to cache.Get
+2026-01-29T06:34:36.1943233Z 	have (context.Context, string)
+2026-01-29T06:34:36.1943536Z 	want (string) (typecheck)
+2026-01-29T06:34:36.1944416Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1945375Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1945930Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1947324Z ##[error]cache.GetMemoryUsage undefined (type *storage.RedisCache has no field or method GetMemoryUsage) (typecheck)
+2026-01-29T06:34:36.1949283Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1970387Z ##[error]too many arguments in call to cache.Set
+2026-01-29T06:34:36.1971296Z 	have (context.Context, string, string, number)
+2026-01-29T06:34:36.1971609Z 	want (string, string) (typecheck)
+2026-01-29T06:34:36.1972480Z ##[error]too many arguments in call to cache.Get
+2026-01-29T06:34:36.1973196Z 	have (context.Context, string)
+2026-01-29T06:34:36.1973450Z 	want (string) (typecheck)
+2026-01-29T06:34:36.1974248Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1975697Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
+2026-01-29T06:34:36.1977098Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1978411Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1979806Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
+2026-01-29T06:34:36.1981313Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1982711Z ##[error]db.SaveUser undefined (type *storage.Database has no field or method SaveUser) (typecheck)
+2026-01-29T06:34:36.1984439Z ##[error]cannot use context.Background() (value of interface type context.Context) as string value in argument to db.Query (typecheck)
+2026-01-29T06:34:36.1986168Z ##[error]db.BeginTransaction undefined (type *storage.Database has no field or method BeginTransaction) (typecheck)
+2026-01-29T06:34:36.1987601Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1988915Z ##[error]unknown field Password in struct literal of type models.User (typecheck)
+2026-01-29T06:34:36.1990468Z ##[error]db.BulkInsert undefined (type *storage.Database has no field or method BulkInsert) (typecheck)
+2026-01-29T06:34:36.1991893Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.1993466Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1995058Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.1996612Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1998124Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.1999664Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.2001501Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.2003049Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.2004570Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.2006130Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.2007671Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.2008854Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.2010566Z ##[error]could not import streamgate/pkg/optimization (-: # streamgate/pkg/optimization
+2026-01-29T06:34:36.2011868Z ##[error]pkg/optimization/caching.go:110:3: unknown field ID in struct literal of type CacheEntry
+2026-01-29T06:34:36.2013083Z ##[error]pkg/optimization/caching.go:113:3: unknown field TTL in struct literal of type CacheEntry
+2026-01-29T06:34:36.2014284Z ##[error]pkg/optimization/caching.go:116:3: unknown field Level in struct literal of type CacheEntry
+2026-01-29T06:34:36.2015642Z ##[error]pkg/optimization/caching.go:155:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2017223Z ##[error]pkg/optimization/caching.go:167:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2018623Z ##[error]pkg/optimization/caching.go:181:10: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2020022Z ##[error]pkg/optimization/caching.go:238:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2021608Z ##[error]pkg/optimization/caching.go:238:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2023022Z ##[error]pkg/optimization/caching.go:264:31: entry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2024435Z ##[error]pkg/optimization/caching.go:264:51: lruEntry.HitCount undefined (type *CacheEntry has no field or method HitCount)
+2026-01-29T06:34:36.2025594Z ##[error]pkg/optimization/caching.go:264:51: too many errors) (typecheck)
+2026-01-29T06:34:36.2026849Z ##[error]: # streamgate/test/security [streamgate/test/security.test]
+2026-01-29T06:34:36.2028343Z ##[error]test/security/security_audit_test.go:52:13: cannot use util.ValidateEmail(tt.input) (value of interface type error) as bool value in assignment
+2026-01-29T06:34:36.2030255Z ##[error]test/security/security_audit_test.go:54:13: cannot use util.ValidateEthereumAddress(tt.input) (value of interface type error) as bool value in assignment
+2026-01-29T06:34:36.2032002Z ##[error]test/security/security_audit_test.go:56:13: cannot use util.ValidateHash(tt.input) (value of interface type error) as bool value in assignment
+2026-01-29T06:34:36.2033309Z ##[error]test/security/security_audit_test.go:68:22: undefined: security.NewRateLimiter
+2026-01-29T06:34:36.2034403Z ##[error]test/security/security_audit_test.go:85:21: undefined: security.NewAuditLogger
+2026-01-29T06:34:36.2035815Z ##[error]test/security/security_audit_test.go:114:28: cannot use tt.input (variable of type string) as []byte value in argument to util.HashSHA256
+2026-01-29T06:34:36.2037354Z ##[error]test/security/security_audit_test.go:127:13: assignment mismatch: 1 variable but util.GenerateRandomString returns 2 values
+2026-01-29T06:34:36.2038586Z ##[error]test/security/security_audit_test.go:140:20: undefined: security.NewSecureCache
+2026-01-29T06:34:36.2039692Z ##[error]test/security/security_audit_test.go:167:18: undefined: security.NewSecurityError
+2026-01-29T06:34:36.2041067Z ##[error]test/security/security_audit_test.go:179:25: undefined: security.GetCORSConfig
+2026-01-29T06:34:36.2042158Z ##[error]test/security/security_audit_test.go:179:25: too many errors (typecheck)
+2026-01-29T06:34:36.2043552Z ##[error]could not import streamgate/pkg/middleware (-: # streamgate/pkg/middleware
+2026-01-29T06:34:36.2044954Z ##[error]pkg/middleware/service.go:44:48: cannot use "from" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2046710Z ##[error]pkg/middleware/service.go:44:56: cannot use r.Header.Get("X-Service-Name") (value of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2048316Z ##[error]pkg/middleware/service.go:74:37: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2050015Z ##[error]pkg/middleware/service.go:74:45: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2051805Z ##[error]pkg/middleware/service.go:74:57: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2053362Z ##[error]pkg/middleware/service.go:74:67: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2054886Z ##[error]pkg/middleware/service.go:133:39: cannot use "path" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2056609Z ##[error]pkg/middleware/service.go:133:47: cannot use r.URL.Path (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2058170Z ##[error]pkg/middleware/service.go:133:59: cannot use "method" (untyped string constant) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2059711Z ##[error]pkg/middleware/service.go:133:69: cannot use r.Method (variable of type string) as zap.Field value in argument to m.logger.Debug
+2026-01-29T06:34:36.2061056Z ##[error]pkg/middleware/service.go:133:69: too many errors) (typecheck)
+2026-01-29T06:34:36.2062361Z ##[error]: # streamgate/test/unit/models_test [streamgate/test/unit/models.test]
+2026-01-29T06:34:36.2063629Z ##[error]test/unit/models/content_test.go:16:3: unknown field Size in struct literal of type models.Content
+2026-01-29T06:34:36.2065068Z ##[error]test/unit/models/content_test.go:24:49: content.Size undefined (type *models.Content has no field or method Size) (typecheck)
+2026-01-29T06:34:36.2066594Z ##[error]could not import streamgate/pkg/monitoring (-: # streamgate/pkg/monitoring
+2026-01-29T06:34:36.2068006Z ##[error]pkg/monitoring/alerts.go:167:35: cannot use "alert_id" (untyped string constant) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.2069552Z ##[error]pkg/monitoring/alerts.go:167:47: cannot use alertID (variable of type string) as zap.Field value in argument to am.logger.Info
+2026-01-29T06:34:36.2071234Z ##[error]pkg/monitoring/alerts.go:282:45: cannot use "name" (untyped string constant) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.2072759Z ##[error]pkg/monitoring/alerts.go:282:53: cannot use name (variable of type string) as zap.Field value in argument to hc.logger.Debug
+2026-01-29T06:34:36.2074293Z ##[error]pkg/monitoring/grafana.go:385:50: cannot use "error" (untyped string constant) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.2075899Z ##[error]pkg/monitoring/grafana.go:385:59: cannot use err (variable of interface type error) as zap.Field value in argument to db.logger.Error
+2026-01-29T06:34:36.2077463Z ##[error]pkg/monitoring/grafana.go:409:42: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.2078974Z ##[error]pkg/monitoring/grafana.go:409:50: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Debug
+2026-01-29T06:34:36.2080671Z ##[error]pkg/monitoring/grafana.go:424:51: cannot use "name" (untyped string constant) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.2082267Z ##[error]pkg/monitoring/grafana.go:424:59: cannot use name (variable of type string) as zap.Field value in argument to dm.logger.Error
+2026-01-29T06:34:36.2083438Z ##[error]pkg/monitoring/grafana.go:424:59: too many errors) (typecheck)
+2026-01-29T06:34:36.2084737Z ##[error]: # streamgate/test/unit/storage_test [streamgate/test/unit/storage.test]
+2026-01-29T06:34:36.2085979Z ##[error]test/unit/storage/postgres_test.go:6:2: "streamgate/pkg/storage" imported and not used (typecheck)
+2026-01-29T06:34:36.2087358Z ##[error]: # streamgate/test/unit/util_test [streamgate/test/unit/util.test]
+2026-01-29T06:34:36.2089148Z ##[error]test/unit/util/crypto_test.go:28:8: cannot use util.VerifyPassword(hash, password) (value of type bool) as error value in assignment: bool does not implement error (missing method Error)
+2026-01-29T06:34:36.2092123Z ##[error]test/unit/util/crypto_test.go:32:8: cannot use util.VerifyPassword(hash, "wrongpassword") (value of type bool) as error value in assignment: bool does not implement error (missing method Error)
+2026-01-29T06:34:36.2093926Z ##[error]test/unit/util/crypto_test.go:72:34: cannot use plaintext (variable of type string) as []byte value in argument to util.Encrypt
+2026-01-29T06:34:36.2095398Z ##[error]test/unit/util/crypto_test.go:72:45: cannot use key (variable of type string) as []byte value in argument to util.Encrypt
+2026-01-29T06:34:36.2096825Z ##[error]test/unit/util/crypto_test.go:77:45: cannot use key (variable of type string) as []byte value in argument to util.Decrypt
+2026-01-29T06:34:36.2098471Z ##[error]test/unit/util/crypto_test.go:88:34: cannot use plaintext (variable of type string) as []byte value in argument to util.Encrypt
+2026-01-29T06:34:36.2099952Z ##[error]test/unit/util/crypto_test.go:88:45: cannot use key1 (variable of type string) as []byte value in argument to util.Encrypt
+2026-01-29T06:34:36.2101647Z ##[error]test/unit/util/crypto_test.go:92:36: cannot use key2 (variable of type string) as []byte value in argument to util.Decrypt (typecheck)
+2026-01-29T06:34:36.2102516Z 
+2026-01-29T06:34:36.2102929Z level=warning msg="[config_reader] The output format `github-actions` is deprecated, please use `colored-line-number`"
+2026-01-29T06:34:36.2103383Z 
+2026-01-29T06:34:36.2103791Z ##[error]issues found
+2026-01-29T06:34:36.2104415Z Ran golangci-lint in 106448ms
+2026-01-29T06:34:36.2104784Z ##[endgroup]
+2026-01-29T06:34:36.2175379Z Post job cleanup.
+2026-01-29T06:34:36.3534092Z Post job cleanup.
+2026-01-29T06:34:36.4475972Z [command]/usr/bin/git version
+2026-01-29T06:34:36.4512629Z git version 2.52.0
+2026-01-29T06:34:36.4558302Z Temporarily overriding HOME='/home/runner/work/_temp/2abde5cf-56ef-441c-bcd3-767eb23a7f3c' before making global git config changes
+2026-01-29T06:34:36.4559766Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T06:34:36.4565222Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T06:34:36.4606610Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T06:34:36.4641432Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T06:34:36.4876330Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T06:34:36.4898840Z http.https://github.com/.extraheader
+2026-01-29T06:34:36.4911312Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-01-29T06:34:36.4945659Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T06:34:36.5174250Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T06:34:36.5206792Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T06:34:36.5555780Z Cleaning up orphan processes

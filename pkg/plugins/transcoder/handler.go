@@ -39,7 +39,7 @@ func (h *TranscoderHandler) HealthHandler(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -80,7 +80,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 
 	var task TranscodeTask
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
-		h.logger.Error("Failed to decode task", "error", err)
+		h.logger.Error("Failed to decode task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_task_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid task"})
@@ -94,7 +94,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 	task.MaxRetries = 3
 
 	if err := h.plugin.SubmitTask(&task); err != nil {
-		h.logger.Error("Failed to submit task", "error", err)
+		h.logger.Error("Failed to submit task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_task_failed", map[string]string{})
 		h.auditLogger.LogEvent("transcoder", clientIP, "submit_task", task.ID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -144,7 +144,7 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 
 	task, err := h.plugin.GetTaskStatus(taskID)
 	if err != nil {
-		h.logger.Error("Failed to get task status", "error", err)
+		h.logger.Error("Failed to get task status", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_task_status_failed", map[string]string{})
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
@@ -189,7 +189,7 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := h.plugin.CancelTask(taskID); err != nil {
-		h.logger.Error("Failed to cancel task", "error", err)
+		h.logger.Error("Failed to cancel task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cancel_task_failed", map[string]string{})
 		h.auditLogger.LogEvent("transcoder", clientIP, "cancel_task", taskID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)

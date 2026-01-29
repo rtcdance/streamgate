@@ -35,7 +35,7 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 	// Parse ABI
 	parsedABI, err := abi.JSON([]byte(abiJSON))
 	if err != nil {
-		ci.logger.Error("Failed to parse ABI", "error", err)
+		ci.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
@@ -60,13 +60,13 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 		return nil, fmt.Errorf("failed to call contract function: %w", err)
 	}
 
-	ci.logger.Debug("Contract function called successfully", "function", functionName)
+	ci.logger.Debug("Contract function called successfully", zap.String("function", functionName))
 	return result, nil
 }
 
 // GetContractCode gets the bytecode of a contract
 func (ci *ContractInteractor) GetContractCode(ctx context.Context, contractAddress string) (string, error) {
-	ci.logger.Debug("Getting contract code", "contract", contractAddress)
+	ci.logger.Debug("Getting contract code", zap.String("contract", contractAddress))
 
 	contract := common.HexToAddress(contractAddress)
 	code, err := ci.client.CodeAt(ctx, contract, nil)
@@ -81,7 +81,7 @@ func (ci *ContractInteractor) GetContractCode(ctx context.Context, contractAddre
 
 // IsContractAddress checks if an address is a contract
 func (ci *ContractInteractor) IsContractAddress(ctx context.Context, address string) (bool, error) {
-	ci.logger.Debug("Checking if address is contract", "address", address)
+	ci.logger.Debug("Checking if address is contract", zap.String("address", address))
 
 	addr := common.HexToAddress(address)
 	code, err := ci.client.CodeAt(ctx, addr, nil)

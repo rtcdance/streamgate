@@ -25,16 +25,16 @@ func FromJSON(s string, v interface{}) error {
 func GzipCompress(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	writer := gzip.NewWriter(&buf)
-	
+
 	if _, err := writer.Write(data); err != nil {
 		writer.Close()
 		return nil, err
 	}
-	
+
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	
+
 	return buf.Bytes(), nil
 }
 
@@ -45,6 +45,6 @@ func GzipDecompress(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	defer reader.Close()
-	
+
 	return io.ReadAll(reader)
 }

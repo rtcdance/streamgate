@@ -54,13 +54,13 @@ func (p *MonitorPlugin) Init(ctx context.Context, kernel *core.Microkernel) erro
 
 // Start starts the monitor service
 func (p *MonitorPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting monitor service", "port", p.config.Server.Port)
+	p.logger.Info("Starting monitor service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start monitor server: %w", err)
 	}
 
-	p.logger.Info("Monitor service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Monitor service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *MonitorPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping monitor server", "error", err)
+			p.logger.Error("Error stopping monitor server", zap.Error(err))
 			return err
 		}
 	}

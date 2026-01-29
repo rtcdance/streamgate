@@ -38,7 +38,7 @@ func (h *MonitorHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return

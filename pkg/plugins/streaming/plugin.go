@@ -54,13 +54,13 @@ func (p *StreamingPlugin) Init(ctx context.Context, kernel *core.Microkernel) er
 
 // Start starts the streaming service
 func (p *StreamingPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting streaming service", "port", p.config.Server.Port)
+	p.logger.Info("Starting streaming service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start streaming server: %w", err)
 	}
 
-	p.logger.Info("Streaming service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Streaming service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *StreamingPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping streaming server", "error", err)
+			p.logger.Error("Error stopping streaming server", zap.Error(err))
 			return err
 		}
 	}

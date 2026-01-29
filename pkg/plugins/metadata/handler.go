@@ -41,7 +41,7 @@ func (h *MetadataHandler) HealthHandler(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -101,7 +101,7 @@ func (h *MetadataHandler) GetMetadataHandler(w http.ResponseWriter, r *http.Requ
 
 	metadata, err := h.db.GetMetadata(ctx, contentID)
 	if err != nil {
-		h.logger.Error("Failed to get metadata", "error", err)
+		h.logger.Error("Failed to get metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_metadata_failed", map[string]string{})
 		h.auditLogger.LogEvent("metadata", clientIP, "get_metadata", contentID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -146,7 +146,7 @@ func (h *MetadataHandler) CreateMetadataHandler(w http.ResponseWriter, r *http.R
 
 	var metadata ContentMetadata
 	if err := json.NewDecoder(r.Body).Decode(&metadata); err != nil {
-		h.logger.Error("Failed to decode metadata", "error", err)
+		h.logger.Error("Failed to decode metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("create_metadata_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid metadata"})
@@ -154,7 +154,7 @@ func (h *MetadataHandler) CreateMetadataHandler(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.db.CreateMetadata(ctx, &metadata); err != nil {
-		h.logger.Error("Failed to create metadata", "error", err)
+		h.logger.Error("Failed to create metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("create_metadata_failed", map[string]string{})
 		h.auditLogger.LogEvent("metadata", clientIP, "create_metadata", metadata.ContentID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -196,7 +196,7 @@ func (h *MetadataHandler) UpdateMetadataHandler(w http.ResponseWriter, r *http.R
 
 	var metadata ContentMetadata
 	if err := json.NewDecoder(r.Body).Decode(&metadata); err != nil {
-		h.logger.Error("Failed to decode metadata", "error", err)
+		h.logger.Error("Failed to decode metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("update_metadata_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid metadata"})
@@ -204,7 +204,7 @@ func (h *MetadataHandler) UpdateMetadataHandler(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.db.UpdateMetadata(ctx, &metadata); err != nil {
-		h.logger.Error("Failed to update metadata", "error", err)
+		h.logger.Error("Failed to update metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("update_metadata_failed", map[string]string{})
 		h.auditLogger.LogEvent("metadata", clientIP, "update_metadata", metadata.ContentID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -256,7 +256,7 @@ func (h *MetadataHandler) DeleteMetadataHandler(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.db.DeleteMetadata(ctx, contentID); err != nil {
-		h.logger.Error("Failed to delete metadata", "error", err)
+		h.logger.Error("Failed to delete metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("delete_metadata_failed", map[string]string{})
 		h.auditLogger.LogEvent("metadata", clientIP, "delete_metadata", contentID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -307,7 +307,7 @@ func (h *MetadataHandler) SearchMetadataHandler(w http.ResponseWriter, r *http.R
 
 	results, err := h.db.SearchMetadata(ctx, query)
 	if err != nil {
-		h.logger.Error("Failed to search metadata", "error", err)
+		h.logger.Error("Failed to search metadata", zap.Error(err))
 		h.metricsCollector.IncrementCounter("search_metadata_failed", map[string]string{})
 		h.auditLogger.LogEvent("metadata", clientIP, "search_metadata", query, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)

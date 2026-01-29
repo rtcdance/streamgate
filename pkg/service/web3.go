@@ -38,12 +38,12 @@ func NewWeb3Service(cfg *config.Config, logger *zap.Logger) (*Web3Service, error
 
 	// Initialize primary chain (Ethereum)
 	if err := service.multiChainManager.AddChain(11155111); err != nil {
-		logger.Warn("Failed to add Ethereum Sepolia", "error", err)
+		logger.Warn("Failed to add Ethereum Sepolia", zap.Error(err))
 	}
 
 	// Initialize Polygon testnet
 	if err := service.multiChainManager.AddChain(80001); err != nil {
-		logger.Warn("Failed to add Polygon Mumbai", "error", err)
+		logger.Warn("Failed to add Polygon Mumbai", zap.Error(err))
 	}
 
 	logger.Info("Web3 service initialized")
@@ -87,7 +87,7 @@ func (ws *Web3Service) GetTransactionQueue() *web3.TransactionQueue {
 
 // VerifySignature verifies a message signature
 func (ws *Web3Service) VerifySignature(ctx context.Context, address string, message string, signature string) (bool, error) {
-	ws.logger.Debug("Verifying signature", "address", address)
+	ws.logger.Debug("Verifying signature", zap.String("address", address))
 	return ws.signatureVerifier.VerifySignature(address, message, signature)
 }
 
@@ -110,7 +110,7 @@ func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, co
 
 // GetGasPrice gets the current gas price
 func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, error) {
-	ws.logger.Debug("Getting gas price", "chain_id", chainID)
+	ws.logger.Debug("Getting gas price", zap.String("chain_id", chainID))
 
 	// Get chain client
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -129,7 +129,7 @@ func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, 
 
 // GetGasPriceLevels gets gas price levels
 func (ws *Web3Service) GetGasPriceLevels(ctx context.Context, chainID int64) ([]*web3.GasPrice, error) {
-	ws.logger.Debug("Getting gas price levels", "chain_id", chainID)
+	ws.logger.Debug("Getting gas price levels", zap.String("chain_id", chainID))
 
 	if ws.gasMonitor == nil {
 		return nil, fmt.Errorf("gas monitor not initialized")
@@ -151,7 +151,7 @@ func (ws *Web3Service) UploadToIPFS(ctx context.Context, filename string, data [
 
 // DownloadFromIPFS downloads a file from IPFS
 func (ws *Web3Service) DownloadFromIPFS(ctx context.Context, cid string) ([]byte, error) {
-	ws.logger.Debug("Downloading from IPFS", "cid", cid)
+	ws.logger.Debug("Downloading from IPFS", zap.String("cid", cid))
 
 	if ws.ipfsClient == nil {
 		return nil, fmt.Errorf("IPFS client not initialized")

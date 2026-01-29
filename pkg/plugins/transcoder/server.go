@@ -90,7 +90,7 @@ func (s *TranscoderServer) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("Transcoder server error", "error", err)
+			s.logger.Error("Transcoder server error", zap.Error(err))
 		}
 	}()
 
@@ -101,14 +101,14 @@ func (s *TranscoderServer) Start(ctx context.Context) error {
 func (s *TranscoderServer) Stop(ctx context.Context) error {
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
-			s.logger.Error("Error shutting down transcoder server", "error", err)
+			s.logger.Error("Error shutting down transcoder server", zap.Error(err))
 			return err
 		}
 	}
 
 	if s.plugin != nil {
 		if err := s.plugin.Stop(ctx); err != nil {
-			s.logger.Error("Error stopping transcoder plugin", "error", err)
+			s.logger.Error("Error stopping transcoder plugin", zap.Error(err))
 			return err
 		}
 	}

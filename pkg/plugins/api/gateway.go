@@ -74,7 +74,7 @@ func (p *GatewayPlugin) Init(ctx context.Context, kernel *core.Microkernel) erro
 
 // Start starts the API Gateway
 func (p *GatewayPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting API Gateway", "port", p.config.Server.Port)
+	p.logger.Info("Starting API Gateway", zap.Int("port", p.config.Server.Port))
 
 	handler := NewHandler(p.kernel, p.logger)
 
@@ -99,11 +99,11 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 
 	go func() {
 		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			p.logger.Error("API Gateway server error", "error", err)
+			p.logger.Error("API Gateway server error", zap.Error(err))
 		}
 	}()
 
-	p.logger.Info("API Gateway started successfully", "port", p.config.Server.Port)
+	p.logger.Info("API Gateway started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -113,7 +113,7 @@ func (p *GatewayPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Shutdown(ctx); err != nil {
-			p.logger.Error("Error shutting down API Gateway", "error", err)
+			p.logger.Error("Error shutting down API Gateway", zap.Error(err))
 			return err
 		}
 	}

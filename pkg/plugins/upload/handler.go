@@ -41,7 +41,7 @@ func (h *UploadHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
@@ -84,7 +84,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse multipart form
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32MB max
-		h.logger.Error("Failed to parse multipart form", "error", err)
+		h.logger.Error("Failed to parse multipart form", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_parse_error", map[string]string{})
 		h.auditLogger.LogEvent("upload", clientIP, "upload_file", "unknown", "parse_error", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusBadRequest)
@@ -94,7 +94,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		h.logger.Error("Failed to get file from form", "error", err)
+		h.logger.Error("Failed to get file from form", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_get_file_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get file"})
@@ -109,7 +109,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	// Read file data
 	data, err := io.ReadAll(file)
 	if err != nil {
-		h.logger.Error("Failed to read file", "error", err)
+		h.logger.Error("Failed to read file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_read_error", map[string]string{})
 		h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "read_error", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -122,7 +122,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Upload file
 	if err := h.store.UploadFile(ctx, fileID, data); err != nil {
-		h.logger.Error("Failed to upload file", "error", err)
+		h.logger.Error("Failed to upload file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_failed", map[string]string{"filename": handler.Filename})
 		h.auditLogger.LogEvent("upload", clientIP, "upload_file", handler.Filename, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -191,7 +191,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 	// Read chunk data
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
-		h.logger.Error("Failed to read chunk", "error", err)
+		h.logger.Error("Failed to read chunk", zap.Error(err))
 		h.metricsCollector.IncrementCounter("chunk_upload_read_error", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read chunk"})
@@ -200,7 +200,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 
 	// Upload chunk
 	if err := h.store.UploadChunk(ctx, uploadID, chunkIndex, data); err != nil {
-		h.logger.Error("Failed to upload chunk", "error", err)
+		h.logger.Error("Failed to upload chunk", zap.Error(err))
 		h.metricsCollector.IncrementCounter("chunk_upload_failed", map[string]string{"upload_id": uploadID})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload chunk"})
@@ -257,7 +257,7 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 	// Complete upload
 	fileID, err := h.store.CompleteUpload(ctx, uploadID)
 	if err != nil {
-		h.logger.Error("Failed to complete upload", "error", err)
+		h.logger.Error("Failed to complete upload", zap.Error(err))
 		h.metricsCollector.IncrementCounter("complete_upload_failed", map[string]string{"upload_id": uploadID})
 		h.auditLogger.LogEvent("upload", clientIP, "complete_upload", uploadID, "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusInternalServerError)
@@ -314,7 +314,7 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 	// Get upload status
 	status, err := h.store.GetUploadStatus(ctx, uploadID)
 	if err != nil {
-		h.logger.Error("Failed to get upload status", "error", err)
+		h.logger.Error("Failed to get upload status", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_upload_status_failed", map[string]string{"upload_id": uploadID})
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get upload status"})

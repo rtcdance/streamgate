@@ -67,7 +67,7 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 	// Get current block number
 	blockNumber, err := ei.client.BlockNumber(ctx)
 	if err != nil {
-		ei.logger.Error("Failed to get current block number", "error", err)
+		ei.logger.Error("Failed to get current block number", zap.Error(err))
 		return fmt.Errorf("failed to get current block number: %w", err)
 	}
 
@@ -117,7 +117,7 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 	// Get latest block
 	latestBlock, err := ei.client.BlockNumber(ctx)
 	if err != nil {
-		ei.logger.Error("Failed to get latest block number", "error", err)
+		ei.logger.Error("Failed to get latest block number", zap.Error(err))
 		return
 	}
 
@@ -135,11 +135,11 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 
 	logs, err := ei.client.FilterLogs(ctx, query)
 	if err != nil {
-		ei.logger.Error("Failed to filter logs", "error", err)
+		ei.logger.Error("Failed to filter logs", zap.Error(err))
 		return
 	}
 
-	ei.logger.Debug("Events indexed", "count", len(logs), "from_block", currentBlock+1, "to_block", latestBlock)
+	ei.logger.Debug("Events indexed", zap.Int("count", len(logs)), "from_block", currentBlock+1, "to_block", latestBlock)
 
 	// Process logs
 	for _, log := range logs {
@@ -272,7 +272,7 @@ func (el *EventListener) On(eventType string, handler EventHandler) {
 	defer el.mu.Unlock()
 
 	el.handlers[eventType] = append(el.handlers[eventType], handler)
-	el.logger.Debug("Event handler registered", "event_type", eventType)
+	el.logger.Debug("Event handler registered", zap.String("event_type", eventType))
 }
 
 // Emit emits an event to all registered handlers
@@ -305,7 +305,7 @@ func (el *EventListener) ProcessAllEvents(ctx context.Context) error {
 		}
 	}
 
-	el.logger.Info("All events processed", "count", len(events))
+	el.logger.Info("All events processed", zap.Int("count", len(events)))
 	return nil
 }
 

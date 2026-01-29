@@ -64,7 +64,7 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.kernel.Health(ctx); err != nil {
-		h.logger.Error("Health check failed", "error", err)
+		h.logger.Error("Health check failed", zap.Error(err))
 		h.metricsCollector.IncrementCounter("health_check_failed", map[string]string{})
 		h.auditLogger.LogEvent("health_check", clientIP, "health_check", "health", "failed", map[string]interface{}{"error": err.Error()})
 		w.WriteHeader(http.StatusServiceUnavailable)

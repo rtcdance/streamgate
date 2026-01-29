@@ -54,13 +54,13 @@ func (p *MetadataPlugin) Init(ctx context.Context, kernel *core.Microkernel) err
 
 // Start starts the metadata service
 func (p *MetadataPlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting metadata service", "port", p.config.Server.Port)
+	p.logger.Info("Starting metadata service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start metadata server: %w", err)
 	}
 
-	p.logger.Info("Metadata service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Metadata service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *MetadataPlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping metadata server", "error", err)
+			p.logger.Error("Error stopping metadata server", zap.Error(err))
 			return err
 		}
 	}

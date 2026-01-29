@@ -54,13 +54,13 @@ func (p *CachePlugin) Init(ctx context.Context, kernel *core.Microkernel) error 
 
 // Start starts the cache service
 func (p *CachePlugin) Start(ctx context.Context) error {
-	p.logger.Info("Starting cache service", "port", p.config.Server.Port)
+	p.logger.Info("Starting cache service", zap.Int("port", p.config.Server.Port))
 
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start cache server: %w", err)
 	}
 
-	p.logger.Info("Cache service started successfully", "port", p.config.Server.Port)
+	p.logger.Info("Cache service started successfully", zap.Int("port", p.config.Server.Port))
 	return nil
 }
 
@@ -70,7 +70,7 @@ func (p *CachePlugin) Stop(ctx context.Context) error {
 
 	if p.server != nil {
 		if err := p.server.Stop(ctx); err != nil {
-			p.logger.Error("Error stopping cache server", "error", err)
+			p.logger.Error("Error stopping cache server", zap.Error(err))
 			return err
 		}
 	}
