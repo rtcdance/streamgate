@@ -1,0 +1,234 @@
+---
+# Blue-Green Deployment Setup for StreamGate
+# This file contains the infrastructure for blue-green deployments
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamgate-blue
+  namespace: streamgate
+  labels:
+    app: streamgate
+    version: blue
+spec:
+  type: ClusterIP
+  selector:
+    app: streamgate
+    version: blue
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+    - name: metrics
+      port: 9091
+      targetPort: 9091
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamgate-green
+  namespace: streamgate
+  labels:
+    app: streamgate
+    version: green
+spec:
+  type: ClusterIP
+  selector:
+    app: streamgate
+    version: green
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+    - name: metrics
+      port: 9091
+      targetPort: 9091
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamgate-active
+  namespace: streamgate
+  labels:
+    app: streamgate
+    role: active
+spec:
+  type: LoadBalancer
+  selector:
+    app: streamgate
+    version: blue
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9090
+    - name: https
+      port: 443
+      targetPort: 9090
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamgate-blue
+  namespace: streamgate
+  labels:
+    app: streamgate
+    version: blue
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: streamgate
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: streamgate
+        version: blue
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: streamgate
+      containers:
+        - name: streamgate
+          image: streamgate:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 9090
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DEPLOYMENT_MODE
+              value: "microservices"
+          envFrom:
+            - configMapRef:
+                name: streamgate-config
+            - secretRef:
+                name: streamgate-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          volumeMounts:
+            - name: config
+              mountPath: /etc/streamgate
+      volumes:
+        - name: config
+          configMap:
+            name: streamgate-config
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamgate-green
+  namespace: streamgate
+  labels:
+    app: streamgate
+    version: green
+spec:
+  replicas: 0
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: streamgate
+      version: green
+  template:
+    metadata:
+      labels:
+        app: streamgate
+        version: green
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: streamgate
+      containers:
+        - name: streamgate
+          image: streamgate:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 9090
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: DEPLOYMENT_MODE
+              value: "microservices"
+          envFrom:
+            - configMapRef:
+                name: streamgate-config
+            - secretRef:
+                name: streamgate-secrets
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          volumeMounts:
+            - name: config
+              mountPath: /etc/streamgate
+      volumes:
+        - name: config
+          configMap:
+            name: streamgate-config
