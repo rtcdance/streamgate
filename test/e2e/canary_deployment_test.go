@@ -1,4 +1,4 @@
-package deployment
+package e2e
 
 import (
 	"context"

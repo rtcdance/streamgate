@@ -117,7 +117,7 @@ func (as *AlertingSystem) sendAlert(alert *Alert) {
 }
 
 // AddAlertRule adds an alert rule
-func (as *AlertingSystem) AddAlertRule(rule *AlertRule) error {
+func (as *AlertingSystem) AddAlertRule(rule *MLAlertRule) error {
 	if rule == nil || rule.ID == "" {
 		return fmt.Errorf("invalid alert rule")
 	}
@@ -278,11 +278,11 @@ func (as *AlertingSystem) EnableAlertRule(ruleID string) error {
 }
 
 // GetAlertRules returns all alert rules
-func (as *AlertingSystem) GetAlertRules() map[string]*AlertRule {
+func (as *AlertingSystem) GetAlertRules() map[string]*MLAlertRule {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
-	rules := make(map[string]*AlertRule)
+	rules := make(map[string]*MLAlertRule)
 	for k, v := range as.alertRules {
 		rules[k] = v
 	}

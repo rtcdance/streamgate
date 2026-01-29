@@ -1,4 +1,4 @@
-package scaling
+package e2e
 
 import (
 	"context"
