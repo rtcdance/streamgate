@@ -91,7 +91,13 @@ func (os *ObjectStorage) UploadWithMetadata(bucket, key string, data []byte, met
 		if os.s3 == nil {
 			return fmt.Errorf("S3 storage not initialized")
 		}
-		return os.s3.UploadWithMetadata(bucket, key, data, metadata)
+		// Convert map[string]string to map[string]*string for AWS SDK
+		awsMetadata := make(map[string]*string)
+		for k, v := range metadata {
+			val := v
+			awsMetadata[k] = &val
+		}
+		return os.s3.UploadWithMetadata(bucket, key, data, awsMetadata)
 	case "minio":
 		if os.minio == nil {
 			return fmt.Errorf("MinIO storage not initialized")

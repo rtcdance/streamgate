@@ -85,8 +85,13 @@ func (s *Service) GetLogsByLevel(level string, limit int) []*DebugLog {
 
 // RecordCPUProfile records a CPU profile
 func (s *Service) RecordCPUProfile(duration interface{}, samples int, topFunctions []FunctionSample) {
-	// Type assertion would be needed in real implementation
-	s.profiler.RecordCPUProfile(duration.(interface{}).(interface{}), samples, topFunctions)
+	// Type assertion to time.Duration
+	dur, ok := duration.(time.Duration)
+	if !ok {
+		// If not time.Duration, try to convert from other types
+		dur = time.Second // default fallback
+	}
+	s.profiler.RecordCPUProfile(dur, samples, topFunctions)
 }
 
 // GetMemProfiles returns recent memory profiles

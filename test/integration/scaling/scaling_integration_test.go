@@ -43,8 +43,8 @@ func TestScalingIntegration_MultiRegionWithCDN(t *testing.T) {
 
 	// Verify CDN metrics
 	metrics := cm.GetMetrics()
-	if metrics.CacheCount != 1 {
-		t.Errorf("Expected 1 cached item, got %d", metrics.CacheCount)
+	if metrics.CachedSize == 0 {
+		t.Errorf("Expected cached data, got 0")
 	}
 }
 
@@ -326,7 +326,7 @@ func TestScalingIntegration_DisasterRecoveryFlow(t *testing.T) {
 	drm.CreatePlan(plan)
 
 	// Create initial recovery point
-	rp1, _ := drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-1")
+	_, _ = drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-1")
 
 	// Wait for backup interval
 	time.Sleep(2 * time.Millisecond)

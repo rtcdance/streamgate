@@ -208,7 +208,7 @@ func (d *Debugger) RecordTrace(function, message, level string) {
 	defer d.mu.Unlock()
 
 	pc, file, line, _ := runtime.Caller(1)
-	fn := runtime.FuncForPC(pc)
+	_ = runtime.FuncForPC(pc) // Get function info but not used yet
 
 	stack := d.getStack()
 
