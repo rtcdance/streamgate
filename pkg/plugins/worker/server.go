@@ -186,20 +186,6 @@ func (s *JobScheduler) executeJob(job *Job) {
 	job.CompletedAt = time.Now().Unix()
 }
 
-// Job represents a background job
-type Job struct {
-	ID           string                 `json:"id"`
-	Type         string                 `json:"type"`   // email, notification, cleanup, etc.
-	Status       string                 `json:"status"` // pending, processing, completed, failed
-	Payload      map[string]interface{} `json:"payload"`
-	Retries      int                    `json:"retries"`
-	MaxRetries   int                    `json:"max_retries"`
-	Error        string                 `json:"error,omitempty"`
-	CreatedAt    int64                  `json:"created_at"`
-	CompletedAt  int64                  `json:"completed_at,omitempty"`
-	ScheduledFor int64                  `json:"scheduled_for,omitempty"`
-}
-
 // ScheduledJob represents a scheduled job
 type ScheduledJob struct {
 	ID       string `json:"id"`
