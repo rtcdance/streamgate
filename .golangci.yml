@@ -4,13 +4,6 @@
 run:
   timeout: 5m
   tests: true
-  skip-dirs:
-    - vendor
-    - .git
-    - node_modules
-  skip-files:
-    - ".*_test.go$"
-    - ".*_mock.go$"
 
 linters:
   enable:
@@ -125,6 +118,13 @@ linters-settings:
     threshold: 150
 
 issues:
+  exclude-dirs:
+    - vendor
+    - .git
+    - node_modules
+  exclude-files:
+    - ".*_test\\.go$"
+    - ".*_mock\\.go$"
   exclude-rules:
     - path: _test\.go
       linters:
