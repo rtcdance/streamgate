@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"streamgate/pkg/core/config"
 	"go.uber.org/zap"
+	"streamgate/pkg/core/config"
 )
 
 // FileStore handles file storage operations
@@ -78,10 +78,10 @@ func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*Uplo
 	// - Return estimated time remaining
 
 	return &UploadStatus{
-		UploadID:      uploadID,
-		TotalChunks:   0,
+		UploadID:       uploadID,
+		TotalChunks:    0,
 		UploadedChunks: 0,
-		Status:        "pending",
+		Status:         "pending",
 	}, nil
 }
 
@@ -114,10 +114,10 @@ func (s *FileStore) Close() error {
 
 // UploadStatus represents the status of an upload
 type UploadStatus struct {
-	UploadID       string `json:"upload_id"`
-	TotalChunks    int    `json:"total_chunks"`
-	UploadedChunks int    `json:"uploaded_chunks"`
-	Status         string `json:"status"` // pending, uploading, completed, failed
+	UploadID       string  `json:"upload_id"`
+	TotalChunks    int     `json:"total_chunks"`
+	UploadedChunks int     `json:"uploaded_chunks"`
+	Status         string  `json:"status"` // pending, uploading, completed, failed
 	Progress       float64 `json:"progress"`
-	Error          string `json:"error,omitempty"`
+	Error          string  `json:"error,omitempty"`
 }

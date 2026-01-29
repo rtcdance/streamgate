@@ -1,7 +1,7 @@
 package plugins
 
 import (
-"testing"
+	"testing"
 )
 
 // TestPlaceholder is a placeholder test

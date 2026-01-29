@@ -42,16 +42,16 @@ type DashboardReport struct {
 
 // Dashboard provides performance monitoring and reporting
 type Dashboard struct {
-	mu              sync.RWMutex
-	metrics         map[string]*DashboardMetric
-	alerts          []*DashboardAlert
-	reports         []*DashboardReport
-	metricHistory   map[string][]*DashboardMetric
-	alertHistory    []*DashboardAlert
-	maxHistorySize  int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	mu             sync.RWMutex
+	metrics        map[string]*DashboardMetric
+	alerts         []*DashboardAlert
+	reports        []*DashboardReport
+	metricHistory  map[string][]*DashboardMetric
+	alertHistory   []*DashboardAlert
+	maxHistorySize int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 // NewDashboard creates a new dashboard

@@ -5,10 +5,10 @@ type AutoScaler struct{}
 
 // Scale scales workers
 func (s *AutoScaler) Scale(targetCount int) error {
-return nil
+	return nil
 }
 
 // GetMetrics gets scaling metrics
 func (s *AutoScaler) GetMetrics() map[string]interface{} {
-return map[string]interface{}{}
+	return map[string]interface{}{}
 }

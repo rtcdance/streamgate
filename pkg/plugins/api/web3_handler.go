@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"streamgate/pkg/service"
 	"go.uber.org/zap"
+	"streamgate/pkg/service"
 )
 
 // Web3Handler handles Web3 API requests
@@ -107,10 +107,10 @@ func (wh *Web3Handler) HandleVerifyNFT(w http.ResponseWriter, r *http.Request) {
 
 // GetGasPriceResponse is the response for gas price query
 type GetGasPriceResponse struct {
-	ChainID   int64  `json:"chain_id"`
-	GasPrice  string `json:"gas_price"`
+	ChainID      int64   `json:"chain_id"`
+	GasPrice     string  `json:"gas_price"`
 	GasPriceGwei float64 `json:"gas_price_gwei"`
-	Error     string `json:"error,omitempty"`
+	Error        string  `json:"error,omitempty"`
 }
 
 // HandleGetGasPrice handles gas price requests

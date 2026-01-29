@@ -98,10 +98,10 @@ func TestMonitoring_Alerting(t *testing.T) {
 
 	// Create alert
 	alert := &monitoring.Alert{
-		Name:        "high_latency",
-		Threshold:   1000,
+		Name:         "high_latency",
+		Threshold:    1000,
 		CurrentValue: 1500,
-		Severity:    "warning",
+		Severity:     "warning",
 	}
 
 	// Record alert

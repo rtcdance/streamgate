@@ -10,15 +10,15 @@ import (
 
 // AnomalyDetector detects anomalies in system metrics and user behavior
 type AnomalyDetector struct {
-	mu                    sync.RWMutex
-	statisticalDetector   *StatisticalAnomaly
-	mlDetector            *MLAnomaly
-	alerting              *AlertingSystem
-	metrics               map[string]*MetricTimeSeries
-	anomalies             []*Anomaly
-	detectionThreshold    float64
-	windowSize            int
-	lastUpdate            time.Time
+	mu                  sync.RWMutex
+	statisticalDetector *StatisticalAnomaly
+	mlDetector          *MLAnomaly
+	alerting            *AlertingSystem
+	metrics             map[string]*MetricTimeSeries
+	anomalies           []*Anomaly
+	detectionThreshold  float64
+	windowSize          int
+	lastUpdate          time.Time
 }
 
 // Anomaly represents a detected anomaly
@@ -38,13 +38,13 @@ type Anomaly struct {
 
 // MetricTimeSeries stores time series data for a metric
 type MetricTimeSeries struct {
-	Name      string
-	Values    []float64
+	Name       string
+	Values     []float64
 	Timestamps []time.Time
-	Mean      float64
-	StdDev    float64
-	Min       float64
-	Max       float64
+	Mean       float64
+	StdDev     float64
+	Min        float64
+	Max        float64
 	LastUpdate time.Time
 }
 
@@ -162,10 +162,10 @@ func (ad *AnomalyDetector) DetectAnomalies() ([]*Anomaly, error) {
 				Severity:        severity,
 				Score:           combinedScore,
 				Timestamp:       time.Now(),
-				Description:    fmt.Sprintf("Anomaly detected in %s: value=%.2f, mean=%.2f, stddev=%.2f", metricName, latestValue, ts.Mean, ts.StdDev),
+				Description:     fmt.Sprintf("Anomaly detected in %s: value=%.2f, mean=%.2f, stddev=%.2f", metricName, latestValue, ts.Mean, ts.StdDev),
 				AffectedMetrics: []string{metricName},
 				RootCause:       ad.analyzeRootCause(metricName, ts),
-				Recommendation: ad.generateRecommendation(metricName, latestValue, ts.Mean),
+				Recommendation:  ad.generateRecommendation(metricName, latestValue, ts.Mean),
 			}
 
 			detectedAnomalies = append(detectedAnomalies, anomaly)
@@ -288,12 +288,12 @@ func (ad *AnomalyDetector) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_metrics":      len(ad.metrics),
-		"total_anomalies":    len(ad.anomalies),
-		"unresolved":         unresolved,
+		"total_metrics":       len(ad.metrics),
+		"total_anomalies":     len(ad.anomalies),
+		"unresolved":          unresolved,
 		"detection_threshold": ad.detectionThreshold,
-		"window_size":        ad.windowSize,
-		"last_update":        ad.lastUpdate,
+		"window_size":         ad.windowSize,
+		"last_update":         ad.lastUpdate,
 	}
 }
 

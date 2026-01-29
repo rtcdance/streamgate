@@ -5,34 +5,34 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // StreamingHandler handles streaming requests
 type StreamingHandler struct {
-	cache              *StreamCache
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
-	localCache         *optimization.LocalCache
+	cache            *StreamCache
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
+	localCache       *optimization.LocalCache
 }
 
 // NewStreamingHandler creates a new streaming handler
 func NewStreamingHandler(cache *StreamCache, logger *zap.Logger, kernel *core.Microkernel) *StreamingHandler {
 	return &StreamingHandler{
-		cache:              cache,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
-		localCache:         optimization.NewLocalCache(10000, 5*time.Minute, logger),
+		cache:            cache,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
+		localCache:       optimization.NewLocalCache(10000, 5*time.Minute, logger),
 	}
 }
 
@@ -176,8 +176,8 @@ func (h *StreamingHandler) GetStreamInfoHandler(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"content_id": contentID,
-		"formats": []string{"hls", "dash"},
-		"bitrates": []int{1000, 2500, 5000},
+		"formats":    []string{"hls", "dash"},
+		"bitrates":   []int{1000, 2500, 5000},
 	})
 }
 

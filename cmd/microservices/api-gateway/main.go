@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/middleware"
-	"google.golang.org/grpc"
 )
 
 func main() {
@@ -50,15 +50,15 @@ func main() {
 	// Register health check routes
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status": "healthy",
-			"service": "api-gateway",
+			"status":    "healthy",
+			"service":   "api-gateway",
 			"timestamp": time.Now().Unix(),
 		})
 	})
 
 	router.GET("/ready", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status": "ready",
+			"status":  "ready",
 			"service": "api-gateway",
 		})
 	})

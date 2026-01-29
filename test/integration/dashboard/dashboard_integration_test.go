@@ -182,7 +182,7 @@ func TestDashboardMetricAggregation(t *testing.T) {
 	}
 
 	metrics := map[string][]float64{
-		"memory_usage_mb": {100, 150, 200, 250, 300},
+		"memory_usage_mb":   {100, 150, 200, 250, 300},
 		"cpu_usage_percent": {20, 30, 40, 50, 60},
 	}
 

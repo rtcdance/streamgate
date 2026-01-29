@@ -9,8 +9,8 @@ import (
 
 // CacheStorage handles cache storage with in-memory LRU cache
 type CacheStorage struct {
-	items map[string]*cacheItem
-	mu    sync.RWMutex
+	items   map[string]*cacheItem
+	mu      sync.RWMutex
 	maxSize int
 }
 
@@ -26,10 +26,10 @@ func NewCacheStorage(maxSize int) *CacheStorage {
 		items:   make(map[string]*cacheItem),
 		maxSize: maxSize,
 	}
-	
+
 	// Start cleanup goroutine
 	go cs.cleanupExpired()
-	
+
 	return cs
 }
 

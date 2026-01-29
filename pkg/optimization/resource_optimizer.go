@@ -12,27 +12,27 @@ import (
 
 // MemoryMetrics represents memory performance metrics
 type MemoryMetrics struct {
-	ID              string
-	Timestamp       time.Time
-	Alloc           uint64
-	TotalAlloc      uint64
-	Sys             uint64
-	NumGC           uint32
-	PauseTotalNs    uint64
-	PauseNs         uint64
-	HeapAlloc       uint64
-	HeapSys         uint64
-	HeapIdle        uint64
-	HeapInuse       uint64
-	HeapReleased    uint64
-	HeapObjects     uint64
-	StackInuse      uint64
-	StackSys        uint64
-	MSpanInuse      uint64
-	MCacheInuse     uint64
-	Mallocs         uint64
-	Frees           uint64
-	LiveObjects     uint64
+	ID           string
+	Timestamp    time.Time
+	Alloc        uint64
+	TotalAlloc   uint64
+	Sys          uint64
+	NumGC        uint32
+	PauseTotalNs uint64
+	PauseNs      uint64
+	HeapAlloc    uint64
+	HeapSys      uint64
+	HeapIdle     uint64
+	HeapInuse    uint64
+	HeapReleased uint64
+	HeapObjects  uint64
+	StackInuse   uint64
+	StackSys     uint64
+	MSpanInuse   uint64
+	MCacheInuse  uint64
+	Mallocs      uint64
+	Frees        uint64
+	LiveObjects  uint64
 }
 
 // CPUMetrics represents CPU performance metrics
@@ -48,19 +48,19 @@ type CPUMetrics struct {
 
 // ResourceOptimizer optimizes system resources
 type ResourceOptimizer struct {
-	mu                sync.RWMutex
-	memoryMetrics     []*MemoryMetrics
-	cpuMetrics        []*CPUMetrics
-	memoryTrends      []*MemoryMetrics
-	cpuTrends         []*CPUMetrics
-	maxMetricsSize    int
-	memoryThreshold   uint64
-	cpuThreshold      float64
-	ctx               context.Context
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
-	lastMemStats      runtime.MemStats
-	lastCPUTime       time.Time
+	mu              sync.RWMutex
+	memoryMetrics   []*MemoryMetrics
+	cpuMetrics      []*CPUMetrics
+	memoryTrends    []*MemoryMetrics
+	cpuTrends       []*CPUMetrics
+	maxMetricsSize  int
+	memoryThreshold uint64
+	cpuThreshold    float64
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	lastMemStats    runtime.MemStats
+	lastCPUTime     time.Time
 }
 
 // NewResourceOptimizer creates a new resource optimizer

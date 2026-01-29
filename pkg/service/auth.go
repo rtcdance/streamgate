@@ -26,13 +26,13 @@ type AuthStorage interface {
 
 // User represents a user
 type User struct {
-	ID           string
-	Username     string
-	Password     string // hashed
-	Email        string
+	ID            string
+	Username      string
+	Password      string // hashed
+	Email         string
 	WalletAddress string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Claims represents JWT claims

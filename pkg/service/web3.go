@@ -4,23 +4,23 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/web3"
-	"go.uber.org/zap"
 )
 
 // Web3Service provides Web3 functionality
 type Web3Service struct {
-	config              *config.Config
-	logger              *zap.Logger
-	multiChainManager   *web3.MultiChainManager
-	signatureVerifier   *web3.SignatureVerifier
-	walletManager       *web3.WalletManager
-	nftVerifier         *web3.NFTVerifier
-	gasMonitor          *web3.GasMonitor
-	ipfsClient          *web3.IPFSClient
-	contractInteractor  *web3.ContractInteractor
-	transactionQueue    *web3.TransactionQueue
+	config             *config.Config
+	logger             *zap.Logger
+	multiChainManager  *web3.MultiChainManager
+	signatureVerifier  *web3.SignatureVerifier
+	walletManager      *web3.WalletManager
+	nftVerifier        *web3.NFTVerifier
+	gasMonitor         *web3.GasMonitor
+	ipfsClient         *web3.IPFSClient
+	contractInteractor *web3.ContractInteractor
+	transactionQueue   *web3.TransactionQueue
 }
 
 // NewWeb3Service creates a new Web3 service

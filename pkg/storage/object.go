@@ -7,8 +7,8 @@ import (
 
 // ObjectStorage is a generic object storage interface wrapper
 type ObjectStorage struct {
-	s3    *S3Storage
-	minio *MinIOStorage
+	s3          *S3Storage
+	minio       *MinIOStorage
 	storageType string
 }
 
@@ -38,7 +38,7 @@ func NewObjectStorage(config ObjectStorageConfig) (*ObjectStorage, error) {
 		if config.Endpoint != "" {
 			s3Config.Endpoint = config.Endpoint
 		}
-		
+
 		s3Storage, err := NewS3Storage(s3Config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create S3 storage: %w", err)
@@ -52,7 +52,7 @@ func NewObjectStorage(config ObjectStorageConfig) (*ObjectStorage, error) {
 			SecretAccessKey: config.SecretAccessKey,
 			UseSSL:          config.UseSSL,
 		}
-		
+
 		minioStorage, err := NewMinIOStorage(minioConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create MinIO storage: %w", err)

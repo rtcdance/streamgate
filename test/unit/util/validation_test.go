@@ -31,9 +31,9 @@ func TestValidation_IsValidEmail(t *testing.T) {
 
 func TestValidation_IsValidAddress(t *testing.T) {
 	tests := []struct {
-		name      string
-		address   string
-		isValid   bool
+		name    string
+		address string
+		isValid bool
 	}{
 		{"valid ethereum address", "0x1234567890123456789012345678901234567890", true},
 		{"valid ethereum address uppercase", "0xABCDEF1234567890ABCDEF1234567890ABCDEF12", true},

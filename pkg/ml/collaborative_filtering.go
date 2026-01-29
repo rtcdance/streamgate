@@ -20,9 +20,9 @@ type CollaborativeFilter struct {
 
 // SimilarUser represents a similar user with similarity score
 type SimilarUser struct {
-	UserID       string
-	Similarity   float64
-	CommonItems  int
+	UserID        string
+	Similarity    float64
+	CommonItems   int
 	AverageRating float64
 }
 
@@ -300,10 +300,10 @@ func (cf *CollaborativeFilter) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_users":      len(cf.userRatings),
-		"total_ratings":    totalRatings,
-		"cache_size":       len(cf.similarityCache),
-		"last_update":      cf.lastUpdate,
+		"total_users":   len(cf.userRatings),
+		"total_ratings": totalRatings,
+		"cache_size":    len(cf.similarityCache),
+		"last_update":   cf.lastUpdate,
 	}
 }
 

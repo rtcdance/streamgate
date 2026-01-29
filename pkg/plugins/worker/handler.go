@@ -6,31 +6,31 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // WorkerHandler handles worker requests
 type WorkerHandler struct {
-	scheduler          *JobScheduler
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
+	scheduler        *JobScheduler
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
 }
 
 // NewWorkerHandler creates a new worker handler
 func NewWorkerHandler(scheduler *JobScheduler, logger *zap.Logger, kernel *core.Microkernel) *WorkerHandler {
 	return &WorkerHandler{
-		scheduler:          scheduler,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(100, 10, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
+		scheduler:        scheduler,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(100, 10, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 

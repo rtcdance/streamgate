@@ -10,11 +10,11 @@ import (
 
 // PrometheusExporter exports metrics in Prometheus format
 type PrometheusExporter struct {
-	logger      *zap.Logger
-	collector   *MetricsCollector
-	svcTracker  *ServiceMetricsTracker
-	mu          sync.RWMutex
-	lastExport  time.Time
+	logger     *zap.Logger
+	collector  *MetricsCollector
+	svcTracker *ServiceMetricsTracker
+	mu         sync.RWMutex
+	lastExport time.Time
 }
 
 // NewPrometheusExporter creates a new Prometheus exporter
@@ -195,9 +195,9 @@ func (pmh *PrometheusMetricsHandler) GetSnapshot() map[string]interface{} {
 
 // MetricsRegistry manages multiple metric exporters
 type MetricsRegistry struct {
-	logger     *zap.Logger
-	exporters  map[string]*PrometheusExporter
-	mu         sync.RWMutex
+	logger    *zap.Logger
+	exporters map[string]*PrometheusExporter
+	mu        sync.RWMutex
 }
 
 // NewMetricsRegistry creates a new metrics registry

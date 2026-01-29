@@ -6,34 +6,34 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // Handler handles HTTP requests
 type Handler struct {
-	kernel            *core.Microkernel
-	logger            *zap.Logger
-	metricsCollector  *monitoring.MetricsCollector
-	alertManager      *monitoring.AlertManager
-	rateLimiter       *security.RateLimiter
-	auditLogger       *security.AuditLogger
-	cache             *optimization.LocalCache
+	kernel           *core.Microkernel
+	logger           *zap.Logger
+	metricsCollector *monitoring.MetricsCollector
+	alertManager     *monitoring.AlertManager
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
+	cache            *optimization.LocalCache
 }
 
 // NewHandler creates a new HTTP handler
 func NewHandler(kernel *core.Microkernel, logger *zap.Logger) *Handler {
 	return &Handler{
-		kernel:            kernel,
-		logger:            logger,
-		metricsCollector:  monitoring.NewMetricsCollector(logger),
-		alertManager:      monitoring.NewAlertManager(logger),
-		rateLimiter:       security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:       security.NewAuditLogger(logger),
-		cache:             optimization.NewLocalCache(10000, 5*time.Minute, logger),
+		kernel:           kernel,
+		logger:           logger,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		alertManager:     monitoring.NewAlertManager(logger),
+		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
+		cache:            optimization.NewLocalCache(10000, 5*time.Minute, logger),
 	}
 }
 

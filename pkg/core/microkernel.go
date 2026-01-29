@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"sync"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
 	"streamgate/pkg/service"
-	"go.uber.org/zap"
 )
 
 // Plugin defines the interface for all plugins
@@ -23,16 +23,16 @@ type Plugin interface {
 
 // Microkernel is the core of the system
 type Microkernel struct {
-	config       *config.Config
-	logger       *zap.Logger
-	plugins      map[string]Plugin
-	eventBus     event.EventBus
-	registry     service.ServiceRegistry
-	clientPool   *service.ClientPool
-	mu           sync.RWMutex
-	started      bool
-	ctx          context.Context
-	cancel       context.CancelFunc
+	config     *config.Config
+	logger     *zap.Logger
+	plugins    map[string]Plugin
+	eventBus   event.EventBus
+	registry   service.ServiceRegistry
+	clientPool *service.ClientPool
+	mu         sync.RWMutex
+	started    bool
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // NewMicrokernel creates a new microkernel instance

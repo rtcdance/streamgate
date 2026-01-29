@@ -14,8 +14,8 @@ type CacheLevel int
 
 const (
 	L1 CacheLevel = iota // In-memory cache
-	L2                    // Redis cache
-	L3                    // CDN cache
+	L2                   // Redis cache
+	L3                   // CDN cache
 )
 
 // CacheEntry represents a cache entry
@@ -42,20 +42,20 @@ type CacheStats struct {
 
 // MultiLevelCache implements multi-level caching
 type MultiLevelCache struct {
-	mu              sync.RWMutex
-	l1Cache         map[string]*CacheEntry
-	l2Cache         map[string]*CacheEntry
-	l3Cache         map[string]*CacheEntry
-	stats           *CacheStats
-	maxL1Size       int
-	maxL2Size       int
-	maxL3Size       int
-	l1Entries       int
-	l2Entries       int
-	l3Entries       int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	mu        sync.RWMutex
+	l1Cache   map[string]*CacheEntry
+	l2Cache   map[string]*CacheEntry
+	l3Cache   map[string]*CacheEntry
+	stats     *CacheStats
+	maxL1Size int
+	maxL2Size int
+	maxL3Size int
+	l1Entries int
+	l2Entries int
+	l3Entries int
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // NewMultiLevelCache creates a new multi-level cache

@@ -17,10 +17,10 @@ import (
 
 // EncryptionConfig holds encryption configuration
 type EncryptionConfig struct {
-	Algorithm string // "AES-256-GCM"
-	KeySize   int    // 32 for AES-256
-	NonceSize int    // 12 for GCM
-	Iterations int   // PBKDF2 iterations
+	Algorithm  string // "AES-256-GCM"
+	KeySize    int    // 32 for AES-256
+	NonceSize  int    // 12 for GCM
+	Iterations int    // PBKDF2 iterations
 }
 
 // Encryptor handles encryption and decryption operations
@@ -31,11 +31,11 @@ type Encryptor struct {
 
 // EncryptedData represents encrypted data with metadata
 type EncryptedData struct {
-	Algorithm string `json:"algorithm"`
+	Algorithm  string `json:"algorithm"`
 	Ciphertext string `json:"ciphertext"`
-	Nonce     string `json:"nonce"`
-	Salt      string `json:"salt"`
-	KeyID     string `json:"key_id"`
+	Nonce      string `json:"nonce"`
+	Salt       string `json:"salt"`
+	KeyID      string `json:"key_id"`
 }
 
 // NewEncryptor creates a new encryptor instance

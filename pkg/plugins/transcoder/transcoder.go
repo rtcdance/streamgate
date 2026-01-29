@@ -11,20 +11,20 @@ import (
 
 // TranscodeTask represents a transcoding task
 type TranscodeTask struct {
-	ID              string
-	FileID          string
-	FilePath        string
-	Status          TaskStatus
-	Priority        int
-	CreatedAt       time.Time
-	StartedAt       *time.Time
-	CompletedAt     *time.Time
-	Profiles        []TranscodeProfile
-	Progress        float64
-	Error           string
-	WorkerID        string
-	RetryCount      int
-	MaxRetries      int
+	ID          string
+	FileID      string
+	FilePath    string
+	Status      TaskStatus
+	Priority    int
+	CreatedAt   time.Time
+	StartedAt   *time.Time
+	CompletedAt *time.Time
+	Profiles    []TranscodeProfile
+	Progress    float64
+	Error       string
+	WorkerID    string
+	RetryCount  int
+	MaxRetries  int
 }
 
 // TaskStatus represents the status of a transcoding task
@@ -47,11 +47,11 @@ type TranscodeProfile struct {
 
 // TaskQueue manages transcoding tasks with priority queue
 type TaskQueue struct {
-	tasks    map[string]*TranscodeTask
-	queue    chan *TranscodeTask
-	mu       sync.RWMutex
-	maxSize  int
-	metrics  *QueueMetrics
+	tasks   map[string]*TranscodeTask
+	queue   chan *TranscodeTask
+	mu      sync.RWMutex
+	maxSize int
+	metrics *QueueMetrics
 }
 
 // QueueMetrics tracks queue statistics
@@ -94,44 +94,44 @@ type Worker struct {
 type WorkerStatus string
 
 const (
-	WorkerStatusIdle    WorkerStatus = "idle"
-	WorkerStatusBusy    WorkerStatus = "busy"
+	WorkerStatusIdle      WorkerStatus = "idle"
+	WorkerStatusBusy      WorkerStatus = "busy"
 	WorkerStatusUnhealthy WorkerStatus = "unhealthy"
 )
 
 // WorkerMetrics tracks worker statistics
 type WorkerMetrics struct {
-	TotalWorkers      int
-	ActiveWorkers     int
-	IdleWorkers       int
-	UnhealthyWorkers  int
+	TotalWorkers        int
+	ActiveWorkers       int
+	IdleWorkers         int
+	UnhealthyWorkers    int
 	TotalTasksProcessed int64
-	TotalTasksFailed  int64
-	AverageTaskTime   time.Duration
-	mu                sync.RWMutex
+	TotalTasksFailed    int64
+	AverageTaskTime     time.Duration
+	mu                  sync.RWMutex
 }
 
 // ScalingPolicy defines auto-scaling rules
 type ScalingPolicy struct {
-	MinWorkers        int
-	MaxWorkers        int
-	TargetQueueLen    int
-	ScaleUpThreshold  float64   // Queue length / workers ratio
+	MinWorkers         int
+	MaxWorkers         int
+	TargetQueueLen     int
+	ScaleUpThreshold   float64 // Queue length / workers ratio
 	ScaleDownThreshold float64
-	CheckInterval     time.Duration
+	CheckInterval      time.Duration
 }
 
 // TranscoderPlugin implements the transcoder plugin
 type TranscoderPlugin struct {
-	name          string
-	version       string
-	dependencies  []string
-	config        *TranscoderConfig
-	taskQueue     *TaskQueue
-	workerPool    *WorkerPool
-	eventBus      core.EventBus
-	logger        core.Logger
-	mu            sync.RWMutex
+	name         string
+	version      string
+	dependencies []string
+	config       *TranscoderConfig
+	taskQueue    *TaskQueue
+	workerPool   *WorkerPool
+	eventBus     core.EventBus
+	logger       core.Logger
+	mu           sync.RWMutex
 }
 
 // TranscoderConfig holds transcoder configuration

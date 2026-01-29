@@ -12,16 +12,16 @@ import (
 
 // Debugger provides debugging capabilities
 type Debugger struct {
-	mu              sync.RWMutex
-	breakpoints     map[string]*Breakpoint
-	watchVariables  map[string]*WatchVariable
-	traces          []*DebugTrace
-	logs            []*DebugLog
-	maxTraceSize    int
-	maxLogSize      int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	mu             sync.RWMutex
+	breakpoints    map[string]*Breakpoint
+	watchVariables map[string]*WatchVariable
+	traces         []*DebugTrace
+	logs           []*DebugLog
+	maxTraceSize   int
+	maxLogSize     int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 // Breakpoint represents a breakpoint
@@ -36,12 +36,12 @@ type Breakpoint struct {
 
 // WatchVariable represents a watched variable
 type WatchVariable struct {
-	ID       string
-	Name     string
-	Value    interface{}
-	Type     string
-	Updated  time.Time
-	History  []interface{}
+	ID      string
+	Name    string
+	Value   interface{}
+	Type    string
+	Updated time.Time
+	History []interface{}
 }
 
 // DebugTrace represents a debug trace

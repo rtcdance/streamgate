@@ -27,13 +27,13 @@ type IndexMetrics struct {
 
 // IndexOptimizer optimizes database indexes
 type IndexOptimizer struct {
-	mu              sync.RWMutex
-	indexes         map[string]*IndexMetrics
-	unusedIndexes   []*IndexMetrics
+	mu               sync.RWMutex
+	indexes          map[string]*IndexMetrics
+	unusedIndexes    []*IndexMetrics
 	duplicateIndexes []*IndexMetrics
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
 }
 
 // NewIndexOptimizer creates a new index optimizer

@@ -178,19 +178,19 @@ func (agg *Aggregator) aggregateServiceMetrics(serviceID, period string, now tim
 
 	key := serviceID + ":" + period
 	agg.aggregations[key] = &AnalyticsAggregation{
-		ID:         uuid.New().String(),
-		Timestamp:  now,
-		ServiceID:  serviceID,
-		Period:     period,
-		EventCount: eventCount,
-		AvgLatency: avgLatency,
-		P50Latency: p50,
-		P95Latency: p95,
-		P99Latency: p99,
-		ErrorCount: errorCount,
-		ErrorRate:  errorRate,
+		ID:          uuid.New().String(),
+		Timestamp:   now,
+		ServiceID:   serviceID,
+		Period:      period,
+		EventCount:  eventCount,
+		AvgLatency:  avgLatency,
+		P50Latency:  p50,
+		P95Latency:  p95,
+		P99Latency:  p99,
+		ErrorCount:  errorCount,
+		ErrorRate:   errorRate,
 		SuccessRate: successRate,
-		Throughput: float64(eventCount) / agg.getPeriodSeconds(period),
+		Throughput:  float64(eventCount) / agg.getPeriodSeconds(period),
 	}
 }
 

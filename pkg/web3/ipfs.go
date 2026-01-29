@@ -121,12 +121,12 @@ func (ic *IPFSClient) GetFileInfo(ctx context.Context, cid string) (*FileInfo, e
 	}
 
 	fileInfo := &FileInfo{
-		CID:       cid,
-		Size:      stat.Size,
-		Type:      stat.Type,
-		Hash:      stat.Hash,
-		Blocks:    stat.Blocks,
-		CumSize:   stat.CumSize,
+		CID:     cid,
+		Size:    stat.Size,
+		Type:    stat.Type,
+		Hash:    stat.Hash,
+		Blocks:  stat.Blocks,
+		CumSize: stat.CumSize,
 	}
 
 	ic.logger.Debug("File info retrieved from IPFS", "cid", cid)

@@ -6,31 +6,31 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // TranscoderHandler handles transcoding requests
 type TranscoderHandler struct {
-	plugin             *TranscoderPlugin
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
+	plugin           *TranscoderPlugin
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
 }
 
 // NewTranscoderHandler creates a new transcoder handler
 func NewTranscoderHandler(plugin *TranscoderPlugin, logger *zap.Logger, kernel *core.Microkernel) *TranscoderHandler {
 	return &TranscoderHandler{
-		plugin:             plugin,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(50, 5, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
+		plugin:           plugin,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(50, 5, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 

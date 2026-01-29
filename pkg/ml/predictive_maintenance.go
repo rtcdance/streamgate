@@ -10,67 +10,67 @@ import (
 
 // PredictiveMaintenance predicts system failures and maintenance needs
 type PredictiveMaintenance struct {
-	mu                  sync.RWMutex
-	failurePredictor    *FailurePredictor
-	resourcePredictor   *ResourcePredictor
-	predictions         map[string]*MaintenancePrediction
-	maintenanceHistory  []*MaintenanceEvent
-	lastUpdate          time.Time
+	mu                 sync.RWMutex
+	failurePredictor   *FailurePredictor
+	resourcePredictor  *ResourcePredictor
+	predictions        map[string]*MaintenancePrediction
+	maintenanceHistory []*MaintenanceEvent
+	lastUpdate         time.Time
 }
 
 // MaintenancePrediction represents a maintenance prediction
 type MaintenancePrediction struct {
-	ID                  string
-	ComponentID         string
-	FailureProbability  float64
+	ID                     string
+	ComponentID            string
+	FailureProbability     float64
 	EstimatedTimeToFailure time.Duration
-	Severity            string
-	RecommendedAction   string
-	Timestamp           time.Time
-	ExpiresAt           time.Time
-	Executed            bool
-	ExecutedAt          time.Time
+	Severity               string
+	RecommendedAction      string
+	Timestamp              time.Time
+	ExpiresAt              time.Time
+	Executed               bool
+	ExecutedAt             time.Time
 }
 
 // MaintenanceEvent represents a maintenance event
 type MaintenanceEvent struct {
-	ID              string
-	ComponentID     string
-	EventType       string // preventive, corrective, predictive
-	Description     string
-	StartTime       time.Time
-	EndTime         time.Time
-	Duration        time.Duration
-	Success         bool
-	Cost            float64
+	ID          string
+	ComponentID string
+	EventType   string // preventive, corrective, predictive
+	Description string
+	StartTime   time.Time
+	EndTime     time.Time
+	Duration    time.Duration
+	Success     bool
+	Cost        float64
 }
 
 // FailurePredictor predicts component failures
 type FailurePredictor struct {
-	mu              sync.RWMutex
+	mu               sync.RWMutex
 	componentMetrics map[string]*ComponentMetrics
-	failureModels   map[string]*FailureModel
+	failureModels    map[string]*FailureModel
 }
 
 // ComponentMetrics stores metrics for a component
 type ComponentMetrics struct {
-	ComponentID     string
-	CPUUsage        []float64
-	MemoryUsage     []float64
-	DiskUsage       []float64
-	ErrorRate       []float64
-	ResponseTime    []float64
-	Timestamps      []time.Time
-	LastUpdate      time.Time
+	ComponentID  string
+	CPUUsage     []float64
+	MemoryUsage  []float64
+	DiskUsage    []float64
+	ErrorRate    []float64
+	ResponseTime []float64
+	Timestamps   []time.Time
+	LastUpdate   time.Time
 }
 
 // FailureModel represents a failure prediction model
 type FailureModel struct {
-	ComponentID     string
-	FailureThreshold float64
-	WarningThreshold float64
+	ComponentID       string
+	FailureThreshold  float64
+	WarningThreshold  float64
 	MeanTimeToFailure float64
-	Accuracy        float64
+	Accuracy          float64
 }
 
 // ResourcePredictor predicts resource requirements
@@ -81,12 +81,12 @@ type ResourcePredictor struct {
 
 // ResourceHistory stores resource usage history
 type ResourceHistory struct {
-	ResourceType    string
-	UsageHistory    []float64
-	Timestamps      []time.Time
-	PeakUsage       float64
-	AverageUsage    float64
-	TrendDirection  string
+	ResourceType   string
+	UsageHistory   []float64
+	Timestamps     []time.Time
+	PeakUsage      float64
+	AverageUsage   float64
+	TrendDirection string
 }
 
 // NewPredictiveMaintenance creates a new predictive maintenance system
@@ -153,14 +153,14 @@ func (pm *PredictiveMaintenance) PredictFailures() ([]*MaintenancePrediction, er
 			severity := pm.calculateSeverity(failureProbability)
 
 			prediction := &MaintenancePrediction{
-				ID:                  fmt.Sprintf("pred_%s_%d", componentID, time.Now().Unix()),
-				ComponentID:         componentID,
-				FailureProbability:  failureProbability,
+				ID:                     fmt.Sprintf("pred_%s_%d", componentID, time.Now().Unix()),
+				ComponentID:            componentID,
+				FailureProbability:     failureProbability,
 				EstimatedTimeToFailure: ttf,
-				Severity:            severity,
-				RecommendedAction:   pm.generateRecommendation(componentID, failureProbability),
-				Timestamp:           time.Now(),
-				ExpiresAt:           time.Now().Add(24 * time.Hour),
+				Severity:               severity,
+				RecommendedAction:      pm.generateRecommendation(componentID, failureProbability),
+				Timestamp:              time.Now(),
+				ExpiresAt:              time.Now().Add(24 * time.Hour),
 			}
 
 			predictions = append(predictions, prediction)
@@ -354,10 +354,10 @@ func (pm *PredictiveMaintenance) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_predictions":      len(pm.predictions),
-		"active_predictions":     activePredictions,
-		"maintenance_events":     len(pm.maintenanceHistory),
-		"last_update":            pm.lastUpdate,
+		"total_predictions":  len(pm.predictions),
+		"active_predictions": activePredictions,
+		"maintenance_events": len(pm.maintenanceHistory),
+		"last_update":        pm.lastUpdate,
 	}
 }
 

@@ -2,10 +2,10 @@ package monitor
 
 // Metrics represents system metrics
 type Metrics struct {
-	CPUUsage    float64
-	MemoryUsage float64
+	CPUUsage     float64
+	MemoryUsage  float64
 	RequestCount int64
-	ErrorCount  int64
+	ErrorCount   int64
 }
 
 // CollectMetrics collects system metrics

@@ -103,12 +103,12 @@ func TestModels_TransactionPersistence(t *testing.T) {
 
 	// Create transaction
 	transaction := &models.Transaction{
-		Type:        "upload",
-		UserID:      "user-123",
-		ContentID:   "content-123",
-		Amount:      100,
-		Status:      "completed",
-		TxHash:      "0xabcdef123456",
+		Type:      "upload",
+		UserID:    "user-123",
+		ContentID: "content-123",
+		Amount:    100,
+		Status:    "completed",
+		TxHash:    "0xabcdef123456",
 	}
 
 	// Save transaction
@@ -132,10 +132,10 @@ func TestModels_TaskPersistence(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 

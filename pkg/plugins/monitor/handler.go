@@ -5,31 +5,31 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // MonitorHandler handles monitoring requests
 type MonitorHandler struct {
-	collector          *MetricsCollector
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
+	collector        *MetricsCollector
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
 }
 
 // NewMonitorHandler creates a new monitor handler
 func NewMonitorHandler(collector *MetricsCollector, logger *zap.Logger, kernel *core.Microkernel) *MonitorHandler {
 	return &MonitorHandler{
-		collector:          collector,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
+		collector:        collector,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 

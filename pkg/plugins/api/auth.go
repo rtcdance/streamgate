@@ -5,5 +5,5 @@ type AuthPlugin struct{}
 
 // Authenticate authenticates a user
 func (p *AuthPlugin) Authenticate(username, password string) (string, error) {
-return "token", nil
+	return "token", nil
 }

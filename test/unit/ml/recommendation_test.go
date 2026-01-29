@@ -311,12 +311,12 @@ func TestIntelligentOptimization(t *testing.T) {
 
 	// Add parameter
 	param := &ml.Parameter{
-		Name:        "cache_size",
+		Name:         "cache_size",
 		CurrentValue: 100.0,
-		MinValue:    10.0,
-		MaxValue:    1000.0,
-		StepSize:    10.0,
-		ImpactScore: 0.8,
+		MinValue:     10.0,
+		MaxValue:     1000.0,
+		StepSize:     10.0,
+		ImpactScore:  0.8,
 	}
 
 	err := io.AddParameter(param)

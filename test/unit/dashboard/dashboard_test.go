@@ -186,10 +186,10 @@ func TestDashboardWarningStatus(t *testing.T) {
 // TestDashboardMetricTypes tests different metric types
 func TestDashboardMetricTypes(t *testing.T) {
 	metrics := map[string]float64{
-		"memory_usage_mb":    250.0,
-		"cpu_usage_percent":  45.0,
-		"cache_hit_rate":     95.5,
-		"api_latency_ms":     25.0,
+		"memory_usage_mb":   250.0,
+		"cpu_usage_percent": 45.0,
+		"cache_hit_rate":    95.5,
+		"api_latency_ms":    25.0,
 	}
 
 	if len(metrics) != 4 {

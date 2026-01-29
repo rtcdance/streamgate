@@ -8,11 +8,11 @@ import (
 
 // ChainConfig represents a blockchain configuration
 type ChainConfig struct {
-	ID       int64
-	Name     string
-	RPC      string
-	Explorer string
-	Currency string
+	ID        int64
+	Name      string
+	RPC       string
+	Explorer  string
+	Currency  string
 	IsTestnet bool
 }
 
@@ -20,91 +20,91 @@ type ChainConfig struct {
 var SupportedChains = map[int64]*ChainConfig{
 	// Ethereum
 	1: {
-		ID:       1,
-		Name:     "Ethereum",
-		RPC:      "https://eth.llamarpc.com",
-		Explorer: "https://etherscan.io",
-		Currency: "ETH",
+		ID:        1,
+		Name:      "Ethereum",
+		RPC:       "https://eth.llamarpc.com",
+		Explorer:  "https://etherscan.io",
+		Currency:  "ETH",
 		IsTestnet: false,
 	},
 	11155111: {
-		ID:       11155111,
-		Name:     "Ethereum Sepolia",
-		RPC:      "https://sepolia.infura.io/v3/YOUR_KEY",
-		Explorer: "https://sepolia.etherscan.io",
-		Currency: "ETH",
+		ID:        11155111,
+		Name:      "Ethereum Sepolia",
+		RPC:       "https://sepolia.infura.io/v3/YOUR_KEY",
+		Explorer:  "https://sepolia.etherscan.io",
+		Currency:  "ETH",
 		IsTestnet: true,
 	},
 
 	// Polygon
 	137: {
-		ID:       137,
-		Name:     "Polygon",
-		RPC:      "https://polygon-rpc.com",
-		Explorer: "https://polygonscan.com",
-		Currency: "MATIC",
+		ID:        137,
+		Name:      "Polygon",
+		RPC:       "https://polygon-rpc.com",
+		Explorer:  "https://polygonscan.com",
+		Currency:  "MATIC",
 		IsTestnet: false,
 	},
 	80001: {
-		ID:       80001,
-		Name:     "Polygon Mumbai",
-		RPC:      "https://rpc-mumbai.maticvigil.com",
-		Explorer: "https://mumbai.polygonscan.com",
-		Currency: "MATIC",
+		ID:        80001,
+		Name:      "Polygon Mumbai",
+		RPC:       "https://rpc-mumbai.maticvigil.com",
+		Explorer:  "https://mumbai.polygonscan.com",
+		Currency:  "MATIC",
 		IsTestnet: true,
 	},
 
 	// Binance Smart Chain
 	56: {
-		ID:       56,
-		Name:     "Binance Smart Chain",
-		RPC:      "https://bsc-dataseed1.binance.org:8545",
-		Explorer: "https://bscscan.com",
-		Currency: "BNB",
+		ID:        56,
+		Name:      "Binance Smart Chain",
+		RPC:       "https://bsc-dataseed1.binance.org:8545",
+		Explorer:  "https://bscscan.com",
+		Currency:  "BNB",
 		IsTestnet: false,
 	},
 	97: {
-		ID:       97,
-		Name:     "BSC Testnet",
-		RPC:      "https://data-seed-prebsc-1-b.binance.org:8545",
-		Explorer: "https://testnet.bscscan.com",
-		Currency: "BNB",
+		ID:        97,
+		Name:      "BSC Testnet",
+		RPC:       "https://data-seed-prebsc-1-b.binance.org:8545",
+		Explorer:  "https://testnet.bscscan.com",
+		Currency:  "BNB",
 		IsTestnet: true,
 	},
 
 	// Arbitrum
 	42161: {
-		ID:       42161,
-		Name:     "Arbitrum One",
-		RPC:      "https://arb1.arbitrum.io/rpc",
-		Explorer: "https://arbiscan.io",
-		Currency: "ETH",
+		ID:        42161,
+		Name:      "Arbitrum One",
+		RPC:       "https://arb1.arbitrum.io/rpc",
+		Explorer:  "https://arbiscan.io",
+		Currency:  "ETH",
 		IsTestnet: false,
 	},
 	421614: {
-		ID:       421614,
-		Name:     "Arbitrum Sepolia",
-		RPC:      "https://sepolia-rollup.arbitrum.io/rpc",
-		Explorer: "https://sepolia.arbiscan.io",
-		Currency: "ETH",
+		ID:        421614,
+		Name:      "Arbitrum Sepolia",
+		RPC:       "https://sepolia-rollup.arbitrum.io/rpc",
+		Explorer:  "https://sepolia.arbiscan.io",
+		Currency:  "ETH",
 		IsTestnet: true,
 	},
 
 	// Optimism
 	10: {
-		ID:       10,
-		Name:     "Optimism",
-		RPC:      "https://mainnet.optimism.io",
-		Explorer: "https://optimistic.etherscan.io",
-		Currency: "ETH",
+		ID:        10,
+		Name:      "Optimism",
+		RPC:       "https://mainnet.optimism.io",
+		Explorer:  "https://optimistic.etherscan.io",
+		Currency:  "ETH",
 		IsTestnet: false,
 	},
 	11155420: {
-		ID:       11155420,
-		Name:     "Optimism Sepolia",
-		RPC:      "https://sepolia.optimism.io",
-		Explorer: "https://sepolia-optimistic.etherscan.io",
-		Currency: "ETH",
+		ID:        11155420,
+		Name:      "Optimism Sepolia",
+		RPC:       "https://sepolia.optimism.io",
+		Explorer:  "https://sepolia-optimistic.etherscan.io",
+		Currency:  "ETH",
 		IsTestnet: true,
 	},
 }

@@ -113,11 +113,11 @@ func (wm *WalletManager) ValidateAddress(address string) bool {
 
 // WalletInfo contains wallet information
 type WalletInfo struct {
-	Address   string
-	Balance   string
-	ChainID   int64
-	Network   string
-	IsValid   bool
+	Address string
+	Balance string
+	ChainID int64
+	Network string
+	IsValid bool
 }
 
 // GetWalletInfo gets wallet information

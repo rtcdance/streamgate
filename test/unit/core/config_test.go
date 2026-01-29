@@ -1,7 +1,7 @@
 package core
 
 import (
-"testing"
+	"testing"
 )
 
 // TestPlaceholder is a placeholder test

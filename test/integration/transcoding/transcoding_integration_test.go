@@ -22,10 +22,10 @@ func TestTranscodingService_CreateTask(t *testing.T) {
 
 	// Create transcoding task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -46,10 +46,10 @@ func TestTranscodingService_GetTaskStatus(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -74,10 +74,10 @@ func TestTranscodingService_UpdateTaskStatus(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -107,10 +107,10 @@ func TestTranscodingService_ListTasks(t *testing.T) {
 	// Create multiple tasks
 	for i := 0; i < 3; i++ {
 		task := &models.Task{
-			Type:        "transcoding",
-			ContentID:   "content-" + string(rune(i)),
-			Status:      "pending",
-			InputFormat: "mp4",
+			Type:         "transcoding",
+			ContentID:    "content-" + string(rune(i)),
+			Status:       "pending",
+			InputFormat:  "mp4",
 			OutputFormat: "hls",
 		}
 		err := transcodingService.CreateTask(context.Background(), task)
@@ -135,10 +135,10 @@ func TestTranscodingService_CancelTask(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "pending",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "pending",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -167,10 +167,10 @@ func TestTranscodingService_RetryTask(t *testing.T) {
 
 	// Create task
 	task := &models.Task{
-		Type:        "transcoding",
-		ContentID:   "content-123",
-		Status:      "failed",
-		InputFormat: "mp4",
+		Type:         "transcoding",
+		ContentID:    "content-123",
+		Status:       "failed",
+		InputFormat:  "mp4",
 		OutputFormat: "hls",
 	}
 
@@ -202,10 +202,10 @@ func TestTranscodingService_MultipleFormats(t *testing.T) {
 
 	for _, format := range formats {
 		task := &models.Task{
-			Type:        "transcoding",
-			ContentID:   "content-123",
-			Status:      "pending",
-			InputFormat: "mp4",
+			Type:         "transcoding",
+			ContentID:    "content-123",
+			Status:       "pending",
+			InputFormat:  "mp4",
 			OutputFormat: format,
 		}
 

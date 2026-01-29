@@ -10,23 +10,23 @@ import (
 
 // CacheEntry represents a cache entry
 type CacheEntry struct {
-	Key       string
-	Value     interface{}
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	AccessCount int64
+	Key          string
+	Value        interface{}
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+	AccessCount  int64
 	LastAccessed time.Time
 }
 
 // LocalCache is an in-memory cache with TTL support
 type LocalCache struct {
-	logger    *zap.Logger
-	mu        sync.RWMutex
-	entries   map[string]*CacheEntry
-	maxSize   int
-	ttl       time.Duration
+	logger          *zap.Logger
+	mu              sync.RWMutex
+	entries         map[string]*CacheEntry
+	maxSize         int
+	ttl             time.Duration
 	cleanupInterval time.Duration
-	stopChan  chan struct{}
+	stopChan        chan struct{}
 }
 
 // NewLocalCache creates a new local cache
@@ -58,11 +58,11 @@ func (lc *LocalCache) Set(key string, value interface{}) error {
 	}
 
 	entry := &CacheEntry{
-		Key:       key,
-		Value:     value,
-		ExpiresAt: time.Now().Add(lc.ttl),
-		CreatedAt: time.Now(),
-		AccessCount: 0,
+		Key:          key,
+		Value:        value,
+		ExpiresAt:    time.Now().Add(lc.ttl),
+		CreatedAt:    time.Now(),
+		AccessCount:  0,
 		LastAccessed: time.Now(),
 	}
 

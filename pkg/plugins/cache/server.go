@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // CacheServer handles distributed caching
@@ -160,10 +160,10 @@ func (s *CacheStore) Clear(ctx context.Context) error {
 func (s *CacheStore) Stats(ctx context.Context) *CacheStats {
 	// TODO: Implement stats retrieval
 	return &CacheStats{
-		Keys:      0,
-		Memory:    0,
-		HitRate:   0,
-		MissRate:  0,
+		Keys:     0,
+		Memory:   0,
+		HitRate:  0,
+		MissRate: 0,
 	}
 }
 

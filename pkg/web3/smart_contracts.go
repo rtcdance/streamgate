@@ -150,11 +150,11 @@ const ERC721ABI = `[
 
 // DeploymentConfig contains deployment configuration
 type DeploymentConfig struct {
-	ChainID     int64
-	RPC         string
-	PrivateKey  string
-	GasPrice    string
-	GasLimit    uint64
+	ChainID       int64
+	RPC           string
+	PrivateKey    string
+	GasPrice      string
+	GasLimit      uint64
 	Confirmations uint64
 }
 
@@ -245,14 +245,14 @@ type SmartContractRegistry struct {
 
 // SmartContractInfo contains information about a smart contract
 type SmartContractInfo struct {
-	Name        string
-	Address     string
-	ChainID     int64
-	ABI         string
-	Bytecode    string
-	DeployedAt  int64
-	Verified    bool
-	SourceCode  string
+	Name       string
+	Address    string
+	ChainID    int64
+	ABI        string
+	Bytecode   string
+	DeployedAt int64
+	Verified   bool
+	SourceCode string
 }
 
 // NewSmartContractRegistry creates a new contract registry

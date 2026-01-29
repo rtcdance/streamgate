@@ -9,54 +9,54 @@ import (
 
 // IntelligentOptimization provides intelligent system optimization
 type IntelligentOptimization struct {
-	mu                  sync.RWMutex
-	autoTuner           *AutoTuner
-	resourceOptimizer   *ResourceOptimizer
+	mu                   sync.RWMutex
+	autoTuner            *AutoTuner
+	resourceOptimizer    *ResourceOptimizer
 	performanceOptimizer *PerformanceOptimizer
-	costOptimizer       *CostOptimizer
-	optimizations       []*Optimization
-	lastUpdate          time.Time
+	costOptimizer        *CostOptimizer
+	optimizations        []*Optimization
+	lastUpdate           time.Time
 }
 
 // Optimization represents an optimization action
 type Optimization struct {
-	ID              string
-	Type            string // auto_tuning, resource, performance, cost
-	Parameter       string
-	OldValue        interface{}
-	NewValue        interface{}
+	ID                  string
+	Type                string // auto_tuning, resource, performance, cost
+	Parameter           string
+	OldValue            interface{}
+	NewValue            interface{}
 	ExpectedImprovement float64
 	ActualImprovement   float64
-	Status          string // pending, applied, reverted
-	Timestamp       time.Time
-	AppliedAt       time.Time
+	Status              string // pending, applied, reverted
+	Timestamp           time.Time
+	AppliedAt           time.Time
 }
 
 // AutoTuner automatically tunes system parameters
 type AutoTuner struct {
-	mu              sync.RWMutex
-	parameters      map[string]*Parameter
-	tuningHistory   map[string][]*ParameterTuning
+	mu            sync.RWMutex
+	parameters    map[string]*Parameter
+	tuningHistory map[string][]*ParameterTuning
 }
 
 // Parameter represents a tunable parameter
 type Parameter struct {
-	Name            string
-	CurrentValue    float64
-	MinValue        float64
-	MaxValue        float64
-	StepSize        float64
-	ImpactScore     float64
-	LastTuned       time.Time
+	Name         string
+	CurrentValue float64
+	MinValue     float64
+	MaxValue     float64
+	StepSize     float64
+	ImpactScore  float64
+	LastTuned    time.Time
 }
 
 // ParameterTuning represents a parameter tuning event
 type ParameterTuning struct {
-	Parameter       string
-	OldValue        float64
-	NewValue        float64
-	Improvement     float64
-	Timestamp       time.Time
+	Parameter   string
+	OldValue    float64
+	NewValue    float64
+	Improvement float64
+	Timestamp   time.Time
 }
 
 // ResourceOptimizer optimizes resource allocation
@@ -78,32 +78,32 @@ type ResourceMetric struct {
 
 // PerformanceOptimizer optimizes system performance
 type PerformanceOptimizer struct {
-	mu              sync.RWMutex
+	mu                 sync.RWMutex
 	performanceMetrics map[string]*PerformanceMetric
 }
 
 // PerformanceMetric represents performance metrics
 type PerformanceMetric struct {
-	MetricName      string
-	CurrentValue    float64
-	TargetValue     float64
-	Baseline        float64
-	Improvement     float64
+	MetricName   string
+	CurrentValue float64
+	TargetValue  float64
+	Baseline     float64
+	Improvement  float64
 }
 
 // CostOptimizer optimizes operational costs
 type CostOptimizer struct {
-	mu              sync.RWMutex
-	costMetrics     map[string]*CostMetric
-	costSavings     float64
+	mu          sync.RWMutex
+	costMetrics map[string]*CostMetric
+	costSavings float64
 }
 
 // CostMetric represents cost metrics
 type CostMetric struct {
-	MetricName      string
-	CurrentCost     float64
-	OptimizedCost   float64
-	SavingsPercent  float64
+	MetricName     string
+	CurrentCost    float64
+	OptimizedCost  float64
+	SavingsPercent float64
 }
 
 // NewIntelligentOptimization creates a new intelligent optimization system
@@ -387,12 +387,12 @@ func (io *IntelligentOptimization) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_optimizations":    len(io.optimizations),
-		"applied":                applied,
-		"reverted":               reverted,
-		"pending":                len(io.optimizations) - applied - reverted,
-		"cost_savings":           io.costOptimizer.costSavings,
-		"last_update":            io.lastUpdate,
+		"total_optimizations": len(io.optimizations),
+		"applied":             applied,
+		"reverted":            reverted,
+		"pending":             len(io.optimizations) - applied - reverted,
+		"cost_savings":        io.costOptimizer.costSavings,
+		"last_update":         io.lastUpdate,
 	}
 }
 
