@@ -47,7 +47,9 @@ type ConsulRegistry struct {
 
 // NewConsulRegistry creates a new Consul registry
 func NewConsulRegistry(cfg *config.Config, logger *zap.Logger) (*ConsulRegistry, error) {
-	logger.Info("Initializing Consul registry", "address", cfg.Consul.Address, "port", cfg.Consul.Port)
+	logger.Info("Initializing Consul registry",
+		zap.String("address", cfg.Consul.Address),
+		zap.Int("port", cfg.Consul.Port))
 
 	// Create Consul client
 	consulCfg := api.DefaultConfig()

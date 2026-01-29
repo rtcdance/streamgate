@@ -54,6 +54,11 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 	}, nil
 }
 
+// GetEthClient returns the underlying ethclient.Client
+func (cc *ChainClient) GetEthClient() *ethclient.Client {
+	return cc.client
+}
+
 // GetBalance gets the balance of an address
 func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int, error) {
 	cc.logger.Debug("Getting balance", zap.String("address", address))

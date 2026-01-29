@@ -3,6 +3,7 @@ package optimization
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // Service provides performance optimization functionality
@@ -35,11 +36,8 @@ func NewService() *Service {
 // Cache operations
 
 // SetCache sets a value in the cache
-func (s *Service) SetCache(key string, value interface{}, ttl interface{}, level CacheLevel) error {
-	// Type assertion for ttl
-	var cacheTTL interface{}
-	cacheTTL = ttl
-	return s.cache.Set(key, value, ttl.(interface{}).(interface{}), level)
+func (s *Service) SetCache(key string, value interface{}, ttl time.Duration, level CacheLevel) error {
+	return s.cache.Set(key, value, ttl, level)
 }
 
 // GetCache retrieves a value from the cache

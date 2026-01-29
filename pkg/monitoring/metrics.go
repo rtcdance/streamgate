@@ -141,7 +141,7 @@ func (mc *MetricsCollector) GetMetric(name string) *Metric {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 
-	for key, metric := range mc.metrics {
+	for _, metric := range mc.metrics {
 		if metric.Name == name {
 			return metric
 		}
