@@ -125,36 +125,44 @@ func NewMultiChainManager(logger *zap.Logger) *MultiChainManager {
 
 // AddChain adds a blockchain connection
 func (mcm *MultiChainManager) AddChain(chainID int64) error {
-	mcm.logger.Info("Adding chain", zap.String("chain_id", chainID))
+	mcm.logger.Info("Adding chain",
+		zap.Int64("chain_id", chainID))
 
 	// Get chain config
 	config, exists := SupportedChains[chainID]
 	if !exists {
-		mcm.logger.Error("Chain not supported", zap.String("chain_id", chainID))
+		mcm.logger.Error("Chain not supported",
+			zap.Int64("chain_id", chainID))
 		return fmt.Errorf("chain not supported: %d", chainID)
 	}
 
 	// Create client
 	client, err := NewChainClient(config.RPC, chainID, mcm.logger)
 	if err != nil {
-		mcm.logger.Error("Failed to create chain client", "chain_id", chainID, "error", err)
+		mcm.logger.Error("Failed to create chain client",
+			zap.Int64("chain_id", chainID),
+			zap.Error(err))
 		return err
 	}
 
 	mcm.clients[chainID] = client
-	mcm.logger.Info("Chain added", "chain_id", chainID, "name", config.Name)
+	mcm.logger.Info("Chain added",
+		zap.Int64("chain_id", chainID),
+		zap.String("name", config.Name))
 
 	return nil
 }
 
 // RemoveChain removes a blockchain connection
 func (mcm *MultiChainManager) RemoveChain(chainID int64) {
-	mcm.logger.Info("Removing chain", zap.String("chain_id", chainID))
+	mcm.logger.Info("Removing chain",
+		zap.Int64("chain_id", chainID))
 
 	if client, exists := mcm.clients[chainID]; exists {
 		client.Close()
 		delete(mcm.clients, chainID)
-		mcm.logger.Info("Chain removed", zap.String("chain_id", chainID))
+		mcm.logger.Info("Chain removed",
+			zap.Int64("chain_id", chainID))
 	}
 }
 
@@ -162,7 +170,8 @@ func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 	client, exists := mcm.clients[chainID]
 	if !exists {
-		mcm.logger.Error("Chain client not found", zap.String("chain_id", chainID))
+		mcm.logger.Error("Chain client not found",
+			zap.Int64("chain_id", chainID))
 		return nil, fmt.Errorf("chain client not found: %d", chainID)
 	}
 
@@ -173,7 +182,8 @@ func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 func (mcm *MultiChainManager) GetChainConfig(chainID int64) (*ChainConfig, error) {
 	config, exists := SupportedChains[chainID]
 	if !exists {
-		mcm.logger.Error("Chain not supported", zap.String("chain_id", chainID))
+		mcm.logger.Error("Chain not supported",
+			zap.Int64("chain_id", chainID))
 		return nil, fmt.Errorf("chain not supported: %d", chainID)
 	}
 
@@ -217,7 +227,8 @@ func (mcm *MultiChainManager) Close() {
 
 	for chainID, client := range mcm.clients {
 		client.Close()
-		mcm.logger.Info("Chain connection closed", zap.String("chain_id", chainID))
+		mcm.logger.Info("Chain connection closed",
+			zap.Int64("chain_id", chainID))
 	}
 
 	mcm.clients = make(map[int64]*ChainClient)
@@ -237,7 +248,11 @@ func NewCrossChainBridge(logger *zap.Logger) *CrossChainBridge {
 
 // BridgeAsset bridges an asset between chains (placeholder)
 func (ccb *CrossChainBridge) BridgeAsset(fromChain int64, toChain int64, asset string, amount string) error {
-	ccb.logger.Info("Bridging asset", "from_chain", fromChain, "to_chain", toChain, "asset", asset, "amount", amount)
+	ccb.logger.Info("Bridging asset",
+		zap.Int64("from_chain", fromChain),
+		zap.Int64("to_chain", toChain),
+		zap.String("asset", asset),
+		zap.String("amount", amount))
 
 	// TODO: Implement cross-chain bridge
 	return fmt.Errorf("cross-chain bridge not yet implemented")
