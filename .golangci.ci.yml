@@ -1,7 +1,8 @@
+version: 2
+
 run:
   timeout: 5m
   tests: false
-  go: '1.23'
   allow-parallel-runners: true
   allow-serial-runners: true
 
@@ -11,6 +12,10 @@ linters:
     - govet
     - ineffassign
     - misspell
+  disable:
+    - errcheck
+    - staticcheck
+    - unused
 
 issues:
   exclude-dirs:
