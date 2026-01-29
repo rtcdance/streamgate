@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
@@ -40,7 +41,7 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress s
 	// ERC721 balanceOf ABI
 	abiStr := `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`
 
-	parsedABI, err := abi.JSON([]byte(abiStr))
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(abiStr)))
 	if err != nil {
 		nv.logger.Error("Failed to parse ABI", zap.Error(err))
 		return false, fmt.Errorf("failed to parse ABI: %w", err)
@@ -93,7 +94,7 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress string
 	// ERC721 balanceOf ABI
 	abiStr := `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
 
-	parsedABI, err := abi.JSON([]byte(abiStr))
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(abiStr)))
 	if err != nil {
 		nv.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)

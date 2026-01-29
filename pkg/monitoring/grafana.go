@@ -382,7 +382,8 @@ func (db *DashboardBuilder) buildTranscodingMetricsPanel() GrafanaPanel {
 func (db *DashboardBuilder) ExportJSON(dashboard *GrafanaDashboard) (string, error) {
 	data, err := json.MarshalIndent(dashboard, "", "  ")
 	if err != nil {
-		db.logger.Error("Failed to marshal dashboard", zap.Error(err))
+		db.logger.Error("Failed to marshal dashboard",
+			zap.Error(err))
 		return "", err
 	}
 
@@ -406,7 +407,8 @@ func NewDashboardManager(logger *zap.Logger) *DashboardManager {
 // RegisterDashboard registers a dashboard
 func (dm *DashboardManager) RegisterDashboard(name string, dashboard *GrafanaDashboard) {
 	dm.dashboards[name] = dashboard
-	dm.logger.Debug("Dashboard registered", zap.String("name", name))
+	dm.logger.Debug("Dashboard registered",
+		zap.String("name", name))
 }
 
 // GetDashboard gets a dashboard
@@ -421,7 +423,9 @@ func (dm *DashboardManager) ExportAllDashboards() map[string]string {
 	for name, dashboard := range dm.dashboards {
 		data, err := json.MarshalIndent(dashboard, "", "  ")
 		if err != nil {
-			dm.logger.Error("Failed to marshal dashboard", "name", name, "error", err)
+			dm.logger.Error("Failed to marshal dashboard",
+				zap.String("name", name),
+				zap.Error(err))
 			continue
 		}
 

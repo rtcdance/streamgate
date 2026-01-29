@@ -74,11 +74,15 @@ func (b *NATSEventBus) Publish(ctx context.Context, event *Event) error {
 
 	subject := fmt.Sprintf("streamgate.%s", event.Type)
 	if err := b.conn.Publish(subject, data); err != nil {
-		b.logger.Error("Failed to publish event", zap.String("type", event.Type), zap.Error(err))
+		b.logger.Error("Failed to publish event",
+			zap.String("type", event.Type),
+			zap.Error(err))
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
 
-	b.logger.Debug("Event published", zap.String("type", event.Type), zap.String("subject", subject))
+	b.logger.Debug("Event published",
+		zap.String("type", event.Type),
+		zap.String("subject", subject))
 	return nil
 }
 
@@ -99,12 +103,16 @@ func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler 
 		}
 
 		if err := handler(ctx, &event); err != nil {
-			b.logger.Error("Error handling event", zap.Error(err), zap.String("type", event.Type))
+			b.logger.Error("Error handling event",
+				zap.Error(err),
+				zap.String("type", event.Type))
 		}
 	})
 
 	if err != nil {
-		b.logger.Error("Failed to subscribe", "type", eventType, "error", err)
+		b.logger.Error("Failed to subscribe",
+			zap.String("type", eventType),
+			zap.Error(err))
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
 
@@ -113,7 +121,9 @@ func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler 
 
 	b.subscriptions[eventType] = sub
 
-	b.logger.Info("Subscribed to events", "type", eventType, "subject", subject)
+	b.logger.Info("Subscribed to events",
+		zap.String("type", eventType),
+		zap.String("subject", subject))
 	return nil
 }
 
@@ -145,7 +155,9 @@ func (b *NATSEventBus) Close() error {
 	// Unsubscribe from all subscriptions
 	for eventType, sub := range b.subscriptions {
 		if err := sub.Unsubscribe(); err != nil {
-			b.logger.Error("Failed to unsubscribe", "type", eventType, "error", err)
+			b.logger.Error("Failed to unsubscribe",
+				zap.String("type", eventType),
+				zap.Error(err))
 		}
 	}
 
