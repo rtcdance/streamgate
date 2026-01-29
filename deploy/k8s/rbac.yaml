@@ -1,0 +1,89 @@
+---
+# RBAC Configuration for StreamGate
+# This file contains service accounts, roles, and role bindings
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: streamgate
+  namespace: streamgate
+  labels:
+    app: streamgate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: streamgate
+  namespace: streamgate
+  labels:
+    app: streamgate
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: streamgate
+  namespace: streamgate
+  labels:
+    app: streamgate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: streamgate
+subjects:
+  - kind: ServiceAccount
+    name: streamgate
+    namespace: streamgate
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: streamgate-metrics
+  labels:
+    app: streamgate
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: streamgate-metrics
+  labels:
+    app: streamgate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: streamgate-metrics
+subjects:
+  - kind: ServiceAccount
+    name: streamgate
+    namespace: streamgate

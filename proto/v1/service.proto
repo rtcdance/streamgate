@@ -1,0 +1,333 @@
+syntax = "proto3";
+
+package streamgate.v1;
+
+option go_package = "github.com/yourusername/streamgate/pkg/api/v1";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// HealthService provides health check functionality
+service HealthService {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc Watch(HealthCheckRequest) returns (stream HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+}
+
+// UploadService handles file uploads
+service UploadService {
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc GetUploadStatus(GetUploadStatusRequest) returns (UploadStatus);
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+}
+
+message UploadFileRequest {
+  string file_name = 1;
+  int64 file_size = 2;
+  string content_type = 3;
+}
+
+message UploadFileResponse {
+  string upload_id = 1;
+  string file_id = 2;
+}
+
+message GetUploadStatusRequest {
+  string upload_id = 1;
+}
+
+message UploadStatus {
+  string upload_id = 1;
+  string status = 2;
+  int32 progress = 3;
+  int64 uploaded_bytes = 4;
+}
+
+message CompleteUploadRequest {
+  string upload_id = 1;
+}
+
+message CompleteUploadResponse {
+  string file_id = 1;
+  int64 file_size = 2;
+}
+
+// StreamingService handles video streaming
+service StreamingService {
+  rpc GetHLSPlaylist(GetPlaylistRequest) returns (PlaylistResponse);
+  rpc GetDASHManifest(GetManifestRequest) returns (ManifestResponse);
+  rpc GetSegment(GetSegmentRequest) returns (SegmentResponse);
+}
+
+message GetPlaylistRequest {
+  string content_id = 1;
+}
+
+message PlaylistResponse {
+  string playlist = 1;
+  string content_type = 2;
+}
+
+message GetManifestRequest {
+  string content_id = 1;
+}
+
+message ManifestResponse {
+  string manifest = 1;
+  string content_type = 2;
+}
+
+message GetSegmentRequest {
+  string content_id = 1;
+  string segment_id = 2;
+}
+
+message SegmentResponse {
+  bytes data = 1;
+  string content_type = 2;
+}
+
+// MetadataService handles content metadata
+service MetadataService {
+  rpc GetMetadata(GetMetadataRequest) returns (Metadata);
+  rpc CreateMetadata(CreateMetadataRequest) returns (Metadata);
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (Metadata);
+  rpc DeleteMetadata(DeleteMetadataRequest) returns (google.protobuf.Empty);
+  rpc SearchMetadata(SearchMetadataRequest) returns (SearchMetadataResponse);
+}
+
+message GetMetadataRequest {
+  string content_id = 1;
+}
+
+message CreateMetadataRequest {
+  string title = 1;
+  string description = 2;
+  int32 duration = 3;
+  string format = 4;
+}
+
+message UpdateMetadataRequest {
+  string content_id = 1;
+  string title = 2;
+  string description = 3;
+}
+
+message DeleteMetadataRequest {
+  string content_id = 1;
+}
+
+message Metadata {
+  string content_id = 1;
+  string title = 2;
+  string description = 3;
+  int32 duration = 4;
+  int64 file_size = 5;
+  string format = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message SearchMetadataRequest {
+  string query = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message SearchMetadataResponse {
+  repeated Metadata results = 1;
+  int32 total = 2;
+}
+
+// AuthService handles authentication
+service AuthService {
+  rpc VerifySignature(VerifySignatureRequest) returns (VerifySignatureResponse);
+  rpc VerifyNFT(VerifyNFTRequest) returns (VerifyNFTResponse);
+  rpc VerifyToken(VerifyTokenRequest) returns (VerifyTokenResponse);
+  rpc GetChallenge(GetChallengeRequest) returns (GetChallengeResponse);
+}
+
+message VerifySignatureRequest {
+  string address = 1;
+  string message = 2;
+  string signature = 3;
+}
+
+message VerifySignatureResponse {
+  bool valid = 1;
+  string error = 2;
+}
+
+message VerifyNFTRequest {
+  string address = 1;
+  string contract_address = 2;
+  string token_id = 3;
+}
+
+message VerifyNFTResponse {
+  bool valid = 1;
+  string error = 2;
+}
+
+message VerifyTokenRequest {
+  string token = 1;
+}
+
+message VerifyTokenResponse {
+  bool valid = 1;
+  string error = 2;
+}
+
+message GetChallengeRequest {
+  string address = 1;
+}
+
+message GetChallengeResponse {
+  string challenge = 1;
+  int64 expires_at = 2;
+}
+
+// CacheService handles distributed caching
+service CacheService {
+  rpc Get(GetCacheRequest) returns (GetCacheResponse);
+  rpc Set(SetCacheRequest) returns (google.protobuf.Empty);
+  rpc Delete(DeleteCacheRequest) returns (google.protobuf.Empty);
+  rpc Clear(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message GetCacheRequest {
+  string key = 1;
+}
+
+message GetCacheResponse {
+  bytes value = 1;
+  bool found = 2;
+}
+
+message SetCacheRequest {
+  string key = 1;
+  bytes value = 2;
+  int32 ttl = 3;
+}
+
+message DeleteCacheRequest {
+  string key = 1;
+}
+
+// TranscoderService handles video transcoding
+service TranscoderService {
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc GetJobStatus(GetJobStatusRequest) returns (JobStatus);
+  rpc CancelJob(CancelJobRequest) returns (google.protobuf.Empty);
+}
+
+message SubmitJobRequest {
+  string input_file = 1;
+  string output_file = 2;
+  string format = 3;
+  string bitrate = 4;
+  string resolution = 5;
+}
+
+message SubmitJobResponse {
+  string job_id = 1;
+}
+
+message GetJobStatusRequest {
+  string job_id = 1;
+}
+
+message JobStatus {
+  string job_id = 1;
+  string status = 2;
+  int32 progress = 3;
+  string error = 4;
+}
+
+message CancelJobRequest {
+  string job_id = 1;
+}
+
+// WorkerService handles background jobs
+service WorkerService {
+  rpc SubmitJob(SubmitWorkerJobRequest) returns (SubmitWorkerJobResponse);
+  rpc GetJobStatus(GetWorkerJobStatusRequest) returns (WorkerJobStatus);
+  rpc CancelJob(CancelWorkerJobRequest) returns (google.protobuf.Empty);
+  rpc ScheduleJob(ScheduleJobRequest) returns (ScheduleJobResponse);
+}
+
+message SubmitWorkerJobRequest {
+  string job_type = 1;
+  map<string, string> payload = 2;
+}
+
+message SubmitWorkerJobResponse {
+  string job_id = 1;
+}
+
+message GetWorkerJobStatusRequest {
+  string job_id = 1;
+}
+
+message WorkerJobStatus {
+  string job_id = 1;
+  string status = 2;
+  string error = 3;
+}
+
+message CancelWorkerJobRequest {
+  string job_id = 1;
+}
+
+message ScheduleJobRequest {
+  string job_type = 1;
+  string schedule = 2;
+}
+
+message ScheduleJobResponse {
+  string scheduled_job_id = 1;
+}
+
+// MonitorService handles monitoring
+service MonitorService {
+  rpc GetHealth(google.protobuf.Empty) returns (HealthStatus);
+  rpc GetMetrics(google.protobuf.Empty) returns (SystemMetrics);
+  rpc GetAlerts(google.protobuf.Empty) returns (AlertsResponse);
+}
+
+message HealthStatus {
+  string status = 1;
+  map<string, string> services = 2;
+}
+
+message SystemMetrics {
+  double cpu_usage = 1;
+  double memory_usage = 2;
+  int64 request_count = 3;
+  int64 error_count = 4;
+  double avg_latency = 5;
+}
+
+message AlertsResponse {
+  repeated Alert alerts = 1;
+}
+
+message Alert {
+  string id = 1;
+  string level = 2;
+  string message = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
