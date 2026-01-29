@@ -11,6 +11,7 @@ on:
 env:
   GO_VERSION: '1.21'
   GOPROXY: 'https://goproxy.io,direct'
+  GOTOOLCHAIN: 'local'
 
 jobs:
   unit-tests:
