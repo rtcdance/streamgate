@@ -15,7 +15,7 @@ func TestRateLimitMiddleware_AllowsRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RateLimitMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {
@@ -38,7 +38,7 @@ func TestRateLimitMiddleware_EnforcesLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.RateLimitMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {

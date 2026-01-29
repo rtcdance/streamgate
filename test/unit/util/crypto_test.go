@@ -25,12 +25,12 @@ func TestCrypto_VerifyPassword(t *testing.T) {
 	helpers.AssertNoError(t, err)
 
 	// Verify correct password
-	err = util.VerifyPassword(hash, password)
-	helpers.AssertNoError(t, err)
+	valid := util.VerifyPassword(hash, password)
+	helpers.AssertTrue(t, valid)
 
 	// Verify wrong password
-	err = util.VerifyPassword(hash, "wrongpassword")
-	helpers.AssertError(t, err)
+	valid = util.VerifyPassword(hash, "wrongpassword")
+	helpers.AssertFalse(t, valid)
 }
 
 func TestCrypto_GenerateRandomString(t *testing.T) {
@@ -69,14 +69,14 @@ func TestCrypto_EncryptDecrypt(t *testing.T) {
 	key := "32-byte-encryption-key-for-aes-"
 
 	// Encrypt
-	ciphertext, err := util.Encrypt(plaintext, key)
+	ciphertext, err := util.Encrypt([]byte(plaintext), []byte(key))
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEqual(t, plaintext, ciphertext)
 
 	// Decrypt
-	decrypted, err := util.Decrypt(ciphertext, key)
+	decrypted, err := util.Decrypt(ciphertext, []byte(key))
 	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, plaintext, decrypted)
+	helpers.AssertEqual(t, plaintext, string(decrypted))
 }
 
 func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
@@ -85,10 +85,10 @@ func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
 	key2 := "different-32-byte-encryption-key"
 
 	// Encrypt with key1
-	ciphertext, err := util.Encrypt(plaintext, key1)
+	ciphertext, err := util.Encrypt([]byte(plaintext), []byte(key1))
 	helpers.AssertNoError(t, err)
 
 	// Try to decrypt with key2
-	_, err = util.Decrypt(ciphertext, key2)
+	_, err = util.Decrypt(ciphertext, []byte(key2))
 	helpers.AssertError(t, err)
 }

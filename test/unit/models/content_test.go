@@ -13,7 +13,7 @@ func TestContent_Creation(t *testing.T) {
 		ID:        "content123",
 		Title:     "Test Video",
 		Type:      "video",
-		Size:      1024000,
+		FileSize:  1024000,
 		Status:    "ready",
 		CreatedAt: time.Now(),
 	}
@@ -21,7 +21,7 @@ func TestContent_Creation(t *testing.T) {
 	helpers.AssertEqual(t, "content123", content.ID)
 	helpers.AssertEqual(t, "Test Video", content.Title)
 	helpers.AssertEqual(t, "video", content.Type)
-	helpers.AssertEqual(t, int64(1024000), content.Size)
+	helpers.AssertEqual(t, int64(1024000), content.FileSize)
 }
 
 func TestContent_StatusTransition(t *testing.T) {

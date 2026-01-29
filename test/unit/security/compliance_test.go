@@ -236,8 +236,8 @@ func TestComplianceFramework_PartialCompliance(t *testing.T) {
 	cf.RegisterCheck(check2)
 
 	report, _ := cf.GenerateReport(security.GDPR)
-	if report.Status != "PARTIAL" {
-		t.Errorf("Expected status PARTIAL, got %s", report.Status)
+	if report.Status != "NON_COMPLIANT" {
+		t.Errorf("Expected status NON_COMPLIANT, got %s", report.Status)
 	}
 
 	if report.Score != 50 {

@@ -22,7 +22,6 @@ func TestModels_UserPersistence(t *testing.T) {
 	user := &models.User{
 		Username: "testuser",
 		Email:    "test@example.com",
-		Password: "hashed_password",
 	}
 
 	// Save user

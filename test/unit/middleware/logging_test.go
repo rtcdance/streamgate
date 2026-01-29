@@ -15,7 +15,7 @@ func TestLoggingMiddleware_LogsRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.LoggingMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {
@@ -37,7 +37,7 @@ func TestLoggingMiddleware_LogsErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil, nil, nil)
+	service := middleware.NewService(nil)
 	router.Use(service.LoggingMiddleware())
 
 	router.GET("/error", func(c *gin.Context) {

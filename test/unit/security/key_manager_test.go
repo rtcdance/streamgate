@@ -212,8 +212,10 @@ func TestKeyManager_GetRotatedKeyCount(t *testing.T) {
 func TestKeyManager_GetLastRotationTime(t *testing.T) {
 	km := security.NewKeyManager(24*time.Hour, 32)
 
-	before := time.Now()
 	km.GenerateKey()
+
+	before := time.Now()
+	km.RotateKey()
 	after := time.Now()
 
 	lastRotation := km.GetLastRotationTime()

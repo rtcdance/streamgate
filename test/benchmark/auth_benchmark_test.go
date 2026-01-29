@@ -1,98 +1,57 @@
 package benchmark_test
 
 import (
-	"context"
 	"testing"
 
-	"streamgate/pkg/models"
 	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 func BenchmarkAuthService_Register(b *testing.B) {
-	db := helpers.SetupTestDB(&testing.T{})
-	if db == nil {
-		b.Skip("Database not available")
-	}
-	defer helpers.CleanupTestDB(&testing.T{}, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret", storage)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		user := &models.User{
-			Username: "testuser" + string(rune(i)),
-			Email:    "test" + string(rune(i)) + "@example.com",
-			Password: "password123",
-		}
-		authService.Register(context.Background(), user)
+		username := "testuser" + string(rune(i))
+		email := "test" + string(rune(i)) + "@example.com"
+		authService.Register(username, "password123", email)
 	}
 }
 
 func BenchmarkAuthService_Login(b *testing.B) {
-	db := helpers.SetupTestDB(&testing.T{})
-	if db == nil {
-		b.Skip("Database not available")
-	}
-	defer helpers.CleanupTestDB(&testing.T{}, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create a user
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
+	authService.Register("testuser", "password123", "test@example.com")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.Login(context.Background(), user.Email, "password123")
+		authService.Authenticate("testuser", "password123")
 	}
 }
 
 func BenchmarkAuthService_ValidateToken(b *testing.B) {
-	db := helpers.SetupTestDB(&testing.T{})
-	if db == nil {
-		b.Skip("Database not available")
-	}
-	defer helpers.CleanupTestDB(&testing.T{}, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create user and get token
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
-	token, _ := authService.Login(context.Background(), user.Email, "password123")
+	authService.Register("testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate("testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.ValidateToken(token)
+		authService.Verify(token)
 	}
 }
 
 func BenchmarkAuthService_RefreshToken(b *testing.B) {
-	db := helpers.SetupTestDB(&testing.T{})
-	if db == nil {
-		b.Skip("Database not available")
-	}
-	defer helpers.CleanupTestDB(&testing.T{}, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create user and get token
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
-	token, _ := authService.Login(context.Background(), user.Email, "password123")
+	authService.Register("testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate("testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -116,25 +75,44 @@ func hashPassword(password string) string {
 }
 
 func BenchmarkAuthService_ConcurrentLogins(b *testing.B) {
-	db := helpers.SetupTestDB(&testing.T{})
-	if db == nil {
-		b.Skip("Database not available")
-	}
-	defer helpers.CleanupTestDB(&testing.T{}, db)
-
-	authService := service.NewAuthService(db)
+	storage := NewMockAuthStorage()
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create a user
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
+	authService.Register("testuser", "password123", "test@example.com")
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			authService.Login(context.Background(), user.Email, "password123")
+			authService.Authenticate("testuser", "password123")
 		}
 	})
+}
+
+// MockAuthStorage implements service.AuthStorage for testing
+type MockAuthStorage struct {
+	users map[string]*service.User
+}
+
+func NewMockAuthStorage() *MockAuthStorage {
+	return &MockAuthStorage{
+		users: make(map[string]*service.User),
+	}
+}
+
+func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
+	user, exists := m.users[username]
+	if !exists {
+		return nil, nil
+	}
+	return user, nil
+}
+
+func (m *MockAuthStorage) CreateUser(user *service.User) error {
+	m.users[user.Username] = user
+	return nil
+}
+
+func (m *MockAuthStorage) UpdateUser(user *service.User) error {
+	m.users[user.Username] = user
+	return nil
 }

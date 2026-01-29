@@ -371,8 +371,7 @@ func TestScalingE2E_DisasterRecoveryProcedure(t *testing.T) {
 			PrimaryRegion:   p.primary,
 			SecondaryRegion: p.secondary,
 		}
-		drm.CreatePlan(p.id)
-		drm.CreatePlan(p.id)
+		drm.CreatePlan(plan)
 	}
 
 	// Create recovery points for each plan
