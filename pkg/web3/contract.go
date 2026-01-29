@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
@@ -33,7 +34,7 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 	contract := common.HexToAddress(contractAddress)
 
 	// Parse ABI
-	parsedABI, err := abi.JSON([]byte(abiJSON))
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(abiJSON)))
 	if err != nil {
 		ci.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)

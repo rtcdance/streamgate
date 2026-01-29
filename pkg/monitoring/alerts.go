@@ -164,7 +164,8 @@ func (am *AlertManager) ResolveAlert(alertID string) {
 	alert.ResolvedAt = &now
 	alert.Status = "resolved"
 
-	am.logger.Info("Alert resolved", zap.String("alert_id", alertID))
+	am.logger.Info("Alert resolved",
+		zap.String("alert_id", alertID))
 }
 
 // GetAlert gets an alert by ID
@@ -279,7 +280,8 @@ func (hc *HealthChecker) RegisterCheck(name string, check HealthCheck) {
 	defer hc.mu.Unlock()
 
 	hc.checks[name] = check
-	hc.logger.Debug("Health check registered", zap.String("name", name))
+	hc.logger.Debug("Health check registered",
+		zap.String("name", name))
 }
 
 // Check performs all health checks
