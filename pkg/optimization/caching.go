@@ -18,8 +18,8 @@ const (
 	L3                   // CDN cache
 )
 
-// CacheEntry represents a cache entry
-type CacheEntry struct {
+// MultiLevelCacheEntry represents a cache entry in multi-level cache
+type MultiLevelCacheEntry struct {
 	ID        string
 	Key       string
 	Value     interface{}

@@ -10,7 +10,7 @@ import (
 type AlertingSystem struct {
 	mu              sync.RWMutex
 	alerts          []*Alert
-	alertRules      map[string]*AlertRule
+	alertRules      map[string]*MLAlertRule
 	alertChannels   map[string]AlertChannel
 	alertHistory    map[string][]*Alert
 	suppressedUntil map[string]time.Time
@@ -31,8 +31,8 @@ type Alert struct {
 	ResolvedAt     time.Time
 }
 
-// AlertRule defines rules for generating alerts
-type AlertRule struct {
+// MLAlertRule defines rules for generating ML-based alerts
+type MLAlertRule struct {
 	ID               string
 	Name             string
 	Condition        string
@@ -53,7 +53,7 @@ type AlertChannel interface {
 func NewAlertingSystem() *AlertingSystem {
 	return &AlertingSystem{
 		alerts:          make([]*Alert, 0),
-		alertRules:      make(map[string]*AlertRule),
+		alertRules:      make(map[string]*MLAlertRule),
 		alertChannels:   make(map[string]AlertChannel),
 		alertHistory:    make(map[string][]*Alert),
 		suppressedUntil: make(map[string]time.Time),

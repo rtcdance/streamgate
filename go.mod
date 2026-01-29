@@ -2,6 +2,8 @@ module streamgate
 
 go 1.21
 
+toolchain go1.21.13
+
 require (
 	// Object Storage
 	github.com/aws/aws-sdk-go v1.44.0
