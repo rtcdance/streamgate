@@ -7,14 +7,15 @@ on:
     branches: [ main, master, develop ]
 
 env:
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.24'
   GOPROXY: 'https://goproxy.io,direct'
-  GOTOOLCHAIN: 'local'
 
 jobs:
   lint:
     name: Lint & Format Check
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@v4
       
@@ -28,6 +29,7 @@ jobs:
         with:
           version: v1.64.8
           args: --timeout=5m ./...
+          skip-cache: true
       
       - name: Check code formatting
         run: |
