@@ -9,6 +9,7 @@ on:
 env:
   GO_VERSION: '1.21'
   GOPROXY: 'https://goproxy.io,direct'
+  GOTOOLCHAIN: 'local'
 
 jobs:
   lint:
@@ -25,8 +26,8 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: latest
-          args: --timeout=5m
+          version: v1.64.8
+          args: --timeout=5m ./...
       
       - name: Check code formatting
         run: |
