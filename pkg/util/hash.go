@@ -3,7 +3,6 @@ package util
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 )
 
 // SHA256Hash computes SHA256 hash of data

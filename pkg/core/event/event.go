@@ -2,7 +2,6 @@ package event
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 )
@@ -87,43 +86,5 @@ func (b *MemoryEventBus) Unsubscribe(ctx context.Context, eventType string, hand
 
 // Close closes the event bus
 func (b *MemoryEventBus) Close() error {
-	return nil
-}
-
-// NATSEventBus is a NATS-based implementation of EventBus
-type NATSEventBus struct {
-	url string
-	// TODO: Add NATS connection
-}
-
-// NewNATSEventBus creates a new NATS event bus
-func NewNATSEventBus(config interface{}) (*NATSEventBus, error) {
-	// TODO: Implement NATS connection
-	return &NATSEventBus{}, nil
-}
-
-// Publish publishes an event via NATS
-func (b *NATSEventBus) Publish(ctx context.Context, event *Event) error {
-	// TODO: Implement NATS publish
-	data, _ := json.Marshal(event)
-	fmt.Printf("Publishing event: %s\n", string(data))
-	return nil
-}
-
-// Subscribe subscribes to events via NATS
-func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) error {
-	// TODO: Implement NATS subscribe
-	return nil
-}
-
-// Unsubscribe unsubscribes from events
-func (b *NATSEventBus) Unsubscribe(ctx context.Context, eventType string, handler EventHandler) error {
-	// TODO: Implement NATS unsubscribe
-	return nil
-}
-
-// Close closes the event bus
-func (b *NATSEventBus) Close() error {
-	// TODO: Close NATS connection
 	return nil
 }

@@ -85,7 +85,7 @@ func TestSecurityIntegration_KeyRotationWithEncryption(t *testing.T) {
 func TestSecurityIntegration_ComplianceWithAuditLogging(t *testing.T) {
 	// Setup
 	cf := security.NewComplianceFramework()
-	sh := security.NewSecurityHardening(security.SecurityPolicy{})
+	_ = security.NewSecurityHardening(security.SecurityPolicy{}) // Create but not used yet
 
 	// Register compliance checks
 	for i := 1; i <= 3; i++ {

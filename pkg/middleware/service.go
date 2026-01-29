@@ -9,6 +9,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// Service provides middleware services
+type Service struct {
+	logger *zap.Logger
+}
+
+// NewService creates a new middleware service
+func NewService(logger *zap.Logger) *Service {
+	return &Service{
+		logger: logger,
+	}
+}
+
 // ServiceMiddleware provides middleware for inter-service communication
 type ServiceMiddleware struct {
 	logger *zap.Logger

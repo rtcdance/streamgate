@@ -4,8 +4,8 @@ import (
 	"testing"
 )
 
-// TestPlaceholder is a placeholder test
-func TestPlaceholder(t *testing.T) {
+// TestWeb3MockPlaceholder is a placeholder test
+func TestWeb3MockPlaceholder(t *testing.T) {
 	// TODO: Implement tests
 	t.Skip("Tests not yet implemented")
 }
