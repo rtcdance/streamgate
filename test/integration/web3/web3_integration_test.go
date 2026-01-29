@@ -85,10 +85,10 @@ func TestWeb3Service_CreateNFT(t *testing.T) {
 
 	// Create NFT model
 	nft := &models.NFT{
-		Title:       "Test NFT",
-		Description: "A test NFT",
-		ContentID:   "content-123",
-		ChainID:     1,
+		Title:        "Test NFT",
+		Description:  "A test NFT",
+		ContentID:    "content-123",
+		ChainID:      1,
 		ContractAddr: "0x1234567890123456789012345678901234567890",
 	}
 
@@ -112,10 +112,10 @@ func TestWeb3Service_GetNFT(t *testing.T) {
 
 	// Create NFT first
 	nft := &models.NFT{
-		Title:       "Test NFT",
-		Description: "A test NFT",
-		ContentID:   "content-123",
-		ChainID:     1,
+		Title:        "Test NFT",
+		Description:  "A test NFT",
+		ContentID:    "content-123",
+		ChainID:      1,
 		ContractAddr: "0x1234567890123456789012345678901234567890",
 	}
 

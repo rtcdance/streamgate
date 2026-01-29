@@ -11,27 +11,27 @@ import (
 
 // LoadTestResult tracks load test results
 type LoadTestResult struct {
-	Duration          time.Duration
-	TotalRequests     int64
-	SuccessRequests   int64
-	FailedRequests    int64
-	Throughput        float64 // requests per second
-	ErrorRate         float64 // percentage
-	AvgLatency        time.Duration
-	P95Latency        time.Duration
-	P99Latency        time.Duration
-	MaxLatency        time.Duration
-	MemoryUsageMB     float64
-	CPUUsagePercent   float64
+	Duration        time.Duration
+	TotalRequests   int64
+	SuccessRequests int64
+	FailedRequests  int64
+	Throughput      float64 // requests per second
+	ErrorRate       float64 // percentage
+	AvgLatency      time.Duration
+	P95Latency      time.Duration
+	P99Latency      time.Duration
+	MaxLatency      time.Duration
+	MemoryUsageMB   float64
+	CPUUsagePercent float64
 }
 
 // LoadTestConfig configures load test parameters
 type LoadTestConfig struct {
-	Duration           time.Duration
-	Concurrency        int
-	RequestsPerSecond  int
-	TimeoutPerRequest  time.Duration
-	RampUpDuration     time.Duration
+	Duration          time.Duration
+	Concurrency       int
+	RequestsPerSecond int
+	TimeoutPerRequest time.Duration
+	RampUpDuration    time.Duration
 }
 
 // TestUploadServiceLoad simulates upload service load

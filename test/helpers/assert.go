@@ -136,7 +136,7 @@ func AssertNoPanic(t *testing.T, fn func()) {
 
 // contains checks if a string contains a substring
 func contains(str, substr string) bool {
-	return len(str) >= len(substr) && (str == substr || len(substr) == 0 || 
+	return len(str) >= len(substr) && (str == substr || len(substr) == 0 ||
 		(len(str) > 0 && len(substr) > 0 && findSubstring(str, substr)))
 }
 

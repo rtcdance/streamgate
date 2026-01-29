@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // WorkerServer handles background job processing
@@ -102,11 +102,11 @@ func (s *WorkerServer) Health(ctx context.Context) error {
 
 // JobScheduler manages job scheduling and execution
 type JobScheduler struct {
-	logger    *zap.Logger
-	jobQueue  chan *Job
-	running   bool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	logger   *zap.Logger
+	jobQueue chan *Job
+	running  bool
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewJobScheduler creates a new job scheduler
@@ -188,16 +188,16 @@ func (s *JobScheduler) executeJob(job *Job) {
 
 // Job represents a background job
 type Job struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"` // email, notification, cleanup, etc.
-	Status    string                 `json:"status"` // pending, processing, completed, failed
-	Payload   map[string]interface{} `json:"payload"`
-	Retries   int                    `json:"retries"`
-	MaxRetries int                   `json:"max_retries"`
-	Error     string                 `json:"error,omitempty"`
-	CreatedAt int64                  `json:"created_at"`
-	CompletedAt int64                `json:"completed_at,omitempty"`
-	ScheduledFor int64               `json:"scheduled_for,omitempty"`
+	ID           string                 `json:"id"`
+	Type         string                 `json:"type"`   // email, notification, cleanup, etc.
+	Status       string                 `json:"status"` // pending, processing, completed, failed
+	Payload      map[string]interface{} `json:"payload"`
+	Retries      int                    `json:"retries"`
+	MaxRetries   int                    `json:"max_retries"`
+	Error        string                 `json:"error,omitempty"`
+	CreatedAt    int64                  `json:"created_at"`
+	CompletedAt  int64                  `json:"completed_at,omitempty"`
+	ScheduledFor int64                  `json:"scheduled_for,omitempty"`
 }
 
 // ScheduledJob represents a scheduled job

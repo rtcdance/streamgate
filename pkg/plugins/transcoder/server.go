@@ -6,18 +6,18 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // TranscoderServer handles video transcoding
 type TranscoderServer struct {
-	config  *config.Config
-	logger  *zap.Logger
-	kernel  *core.Microkernel
-	server  *http.Server
-	plugin  *TranscoderPlugin
+	config *config.Config
+	logger *zap.Logger
+	kernel *core.Microkernel
+	server *http.Server
+	plugin *TranscoderPlugin
 }
 
 // NewTranscoderServer creates a new transcoder server

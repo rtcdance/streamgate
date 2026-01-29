@@ -5,31 +5,31 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	verifier           *SignatureVerifier
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
+	verifier         *SignatureVerifier
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
 }
 
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler(verifier *SignatureVerifier, logger *zap.Logger, kernel *core.Microkernel) *AuthHandler {
 	return &AuthHandler{
-		verifier:           verifier,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(50, 5, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
+		verifier:         verifier,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(50, 5, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 

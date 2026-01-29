@@ -12,14 +12,14 @@ import (
 
 // Predictor makes predictions based on historical data
 type Predictor struct {
-	mu              sync.RWMutex
-	models          map[string]*PredictionModel
-	predictions     []*PredictionResult
-	metricsHistory  map[string][]*MetricsSnapshot
-	maxHistorySize  int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	mu             sync.RWMutex
+	models         map[string]*PredictionModel
+	predictions    []*PredictionResult
+	metricsHistory map[string][]*MetricsSnapshot
+	maxHistorySize int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 // PredictionModel represents a trained prediction model

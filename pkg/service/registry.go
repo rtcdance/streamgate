@@ -7,8 +7,8 @@ import (
 	"strconv"
 
 	"github.com/hashicorp/consul/api"
-	"streamgate/pkg/core/config"
 	"go.uber.org/zap"
+	"streamgate/pkg/core/config"
 )
 
 // ServiceRegistry handles service registration and discovery

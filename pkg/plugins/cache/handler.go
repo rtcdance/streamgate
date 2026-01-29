@@ -6,31 +6,31 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // CacheHandler handles cache requests
 type CacheHandler struct {
-	store              *CacheStore
-	logger             *zap.Logger
-	kernel             *core.Microkernel
-	metricsCollector   *monitoring.MetricsCollector
-	rateLimiter        *security.RateLimiter
-	auditLogger        *security.AuditLogger
+	store            *CacheStore
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
 }
 
 // NewCacheHandler creates a new cache handler
 func NewCacheHandler(store *CacheStore, logger *zap.Logger, kernel *core.Microkernel) *CacheHandler {
 	return &CacheHandler{
-		store:              store,
-		logger:             logger,
-		kernel:             kernel,
-		metricsCollector:   monitoring.NewMetricsCollector(logger),
-		rateLimiter:        security.NewRateLimiter(1000, 100, time.Second, logger),
-		auditLogger:        security.NewAuditLogger(logger),
+		store:            store,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(1000, 100, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
 	}
 }
 

@@ -7,11 +7,11 @@ import (
 
 // Service provides debugging and profiling functionality
 type Service struct {
-	mu        sync.RWMutex
-	debugger  *Debugger
-	profiler  *Profiler
-	ctx       context.Context
-	cancel    context.CancelFunc
+	mu       sync.RWMutex
+	debugger *Debugger
+	profiler *Profiler
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 // NewService creates a new debug service

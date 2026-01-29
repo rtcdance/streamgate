@@ -9,27 +9,27 @@ import (
 
 // HybridRecommender combines multiple recommendation algorithms
 type HybridRecommender struct {
-	mu                    sync.RWMutex
-	collaborativeWeight   float64
-	contentBasedWeight    float64
-	trendingWeight        float64
-	personalizedWeight    float64
-	diversityFactor       float64
-	trendingContent       map[string]float64
-	personalizedScores    map[string]map[string]float64
-	lastUpdate            time.Time
+	mu                  sync.RWMutex
+	collaborativeWeight float64
+	contentBasedWeight  float64
+	trendingWeight      float64
+	personalizedWeight  float64
+	diversityFactor     float64
+	trendingContent     map[string]float64
+	personalizedScores  map[string]map[string]float64
+	lastUpdate          time.Time
 }
 
 // NewHybridRecommender creates a new hybrid recommender
 func NewHybridRecommender() *HybridRecommender {
 	return &HybridRecommender{
-		collaborativeWeight:   0.4,
-		contentBasedWeight:    0.4,
-		trendingWeight:        0.1,
-		personalizedWeight:    0.1,
-		diversityFactor:       0.2,
-		trendingContent:       make(map[string]float64),
-		personalizedScores:    make(map[string]map[string]float64),
+		collaborativeWeight: 0.4,
+		contentBasedWeight:  0.4,
+		trendingWeight:      0.1,
+		personalizedWeight:  0.1,
+		diversityFactor:     0.2,
+		trendingContent:     make(map[string]float64),
+		personalizedScores:  make(map[string]map[string]float64),
 	}
 }
 
@@ -287,11 +287,11 @@ func (hr *HybridRecommender) GetWeights() map[string]float64 {
 	defer hr.mu.RUnlock()
 
 	return map[string]float64{
-		"collaborative":  hr.collaborativeWeight,
-		"content_based":  hr.contentBasedWeight,
-		"trending":       hr.trendingWeight,
-		"personalized":   hr.personalizedWeight,
-		"diversity":      hr.diversityFactor,
+		"collaborative": hr.collaborativeWeight,
+		"content_based": hr.contentBasedWeight,
+		"trending":      hr.trendingWeight,
+		"personalized":  hr.personalizedWeight,
+		"diversity":     hr.diversityFactor,
 	}
 }
 
@@ -301,10 +301,10 @@ func (hr *HybridRecommender) GetStats() map[string]interface{} {
 	defer hr.mu.RUnlock()
 
 	return map[string]interface{}{
-		"trending_content":      len(hr.trendingContent),
-		"personalized_scores":   len(hr.personalizedScores),
-		"weights":               hr.GetWeights(),
-		"last_update":           hr.lastUpdate,
+		"trending_content":    len(hr.trendingContent),
+		"personalized_scores": len(hr.personalizedScores),
+		"weights":             hr.GetWeights(),
+		"last_update":         hr.lastUpdate,
 	}
 }
 

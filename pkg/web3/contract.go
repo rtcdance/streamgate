@@ -152,12 +152,12 @@ func (el *EventListener) ListenForEvents(ctx context.Context, contractAddress st
 
 // ContractEvent represents a contract event
 type ContractEvent struct {
-	Address   string
-	Topics    []string
-	Data      string
+	Address     string
+	Topics      []string
+	Data        string
 	BlockNumber uint64
-	TxHash    string
-	Index     uint
+	TxHash      string
+	Index       uint
 }
 
 // GetContractEvents gets events from a contract

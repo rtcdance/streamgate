@@ -33,19 +33,19 @@ type ContentCacheStorage interface {
 
 // Content represents a content item
 type Content struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Type        string    `json:"type"` // video, audio, image, etc.
-	URL         string    `json:"url"`
-	ThumbnailURL string   `json:"thumbnail_url"`
-	Duration    int       `json:"duration"` // in seconds
-	Size        int64     `json:"size"`     // in bytes
-	Status      string    `json:"status"`   // pending, processing, ready, failed
-	OwnerID     string    `json:"owner_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID           string                 `json:"id"`
+	Title        string                 `json:"title"`
+	Description  string                 `json:"description"`
+	Type         string                 `json:"type"` // video, audio, image, etc.
+	URL          string                 `json:"url"`
+	ThumbnailURL string                 `json:"thumbnail_url"`
+	Duration     int                    `json:"duration"` // in seconds
+	Size         int64                  `json:"size"`     // in bytes
+	Status       string                 `json:"status"`   // pending, processing, ready, failed
+	OwnerID      string                 `json:"owner_id"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	Metadata     map[string]interface{} `json:"metadata"`
 }
 
 // NewContentService creates a new content service

@@ -27,7 +27,7 @@ type TranscodingTask struct {
 	ID          string                 `json:"id"`
 	ContentID   string                 `json:"content_id"`
 	Profile     string                 `json:"profile"`
-	Status      string                 `json:"status"` // pending, processing, completed, failed
+	Status      string                 `json:"status"`   // pending, processing, completed, failed
 	Progress    int                    `json:"progress"` // 0-100
 	InputURL    string                 `json:"input_url"`
 	OutputURL   string                 `json:"output_url"`

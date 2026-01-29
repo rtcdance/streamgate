@@ -6,17 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // AuthServer handles authentication and authorization
 type AuthServer struct {
-	config *config.Config
-	logger *zap.Logger
-	kernel *core.Microkernel
-	server *http.Server
+	config   *config.Config
+	logger   *zap.Logger
+	kernel   *core.Microkernel
+	server   *http.Server
 	verifier *SignatureVerifier
 }
 

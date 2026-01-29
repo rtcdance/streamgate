@@ -10,17 +10,17 @@ import (
 
 // Alert represents a system alert
 type Alert struct {
-	ID        string
-	Level     string // critical, warning, info
-	Title     string
-	Message   string
-	Service   string
-	Metric    string
-	Value     float64
-	Threshold float64
-	CreatedAt time.Time
+	ID         string
+	Level      string // critical, warning, info
+	Title      string
+	Message    string
+	Service    string
+	Metric     string
+	Value      float64
+	Threshold  float64
+	CreatedAt  time.Time
 	ResolvedAt *time.Time
-	Status    string // active, resolved
+	Status     string // active, resolved
 }
 
 // AlertRule defines a rule for triggering alerts
@@ -241,9 +241,9 @@ func (am *AlertManager) GetAlertCount() map[string]int {
 
 // HealthChecker checks system health
 type HealthChecker struct {
-	logger      *zap.Logger
-	checks      map[string]HealthCheck
-	mu          sync.RWMutex
+	logger *zap.Logger
+	checks map[string]HealthCheck
+	mu     sync.RWMutex
 }
 
 // HealthCheck is a function that checks health
@@ -251,17 +251,17 @@ type HealthCheck func() (bool, string, error)
 
 // HealthStatus represents the health status
 type HealthStatus struct {
-	Status   string
-	Checks   map[string]CheckResult
-	Uptime   time.Duration
+	Status    string
+	Checks    map[string]CheckResult
+	Uptime    time.Duration
 	LastCheck time.Time
 }
 
 // CheckResult represents the result of a health check
 type CheckResult struct {
-	Status  bool
-	Message string
-	Error   string
+	Status    bool
+	Message   string
+	Error     string
 	LastCheck time.Time
 }
 

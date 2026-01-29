@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // MonitorPlugin is the monitoring service plugin

@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // MetadataServer handles content metadata operations

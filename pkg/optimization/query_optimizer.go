@@ -35,15 +35,15 @@ type QueryPlan struct {
 
 // QueryOptimizer optimizes database queries
 type QueryOptimizer struct {
-	mu              sync.RWMutex
-	metrics         []*QueryMetrics
-	plans           map[string]*QueryPlan
-	slowQueries     []*QueryMetrics
+	mu                 sync.RWMutex
+	metrics            []*QueryMetrics
+	plans              map[string]*QueryPlan
+	slowQueries        []*QueryMetrics
 	slowQueryThreshold float64
-	maxMetricsSize  int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	maxMetricsSize     int
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
 }
 
 // NewQueryOptimizer creates a new query optimizer
@@ -93,14 +93,14 @@ func (qo *QueryOptimizer) RecordQuery(query string, executionTime float64, rowsA
 	defer qo.mu.Unlock()
 
 	metric := &QueryMetrics{
-		ID:           uuid.New().String(),
-		Query:        query,
+		ID:            uuid.New().String(),
+		Query:         query,
 		ExecutionTime: executionTime,
-		RowsAffected: rowsAffected,
-		RowsScanned:  rowsScanned,
-		IndexUsed:    indexUsed,
-		Timestamp:    time.Now(),
-		Optimized:    false,
+		RowsAffected:  rowsAffected,
+		RowsScanned:   rowsScanned,
+		IndexUsed:     indexUsed,
+		Timestamp:     time.Now(),
+		Optimized:     false,
 	}
 
 	qo.metrics = append(qo.metrics, metric)

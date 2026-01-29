@@ -26,12 +26,12 @@ type SecurityPolicy struct {
 
 // SecurityHardening provides security hardening utilities
 type SecurityHardening struct {
-	policy              SecurityPolicy
-	failedAttempts      map[string]int
-	lockedAccounts      map[string]time.Time
-	mu                  sync.RWMutex
-	inputValidators     map[string]*regexp.Regexp
-	outputEncoders      map[string]func(string) string
+	policy          SecurityPolicy
+	failedAttempts  map[string]int
+	lockedAccounts  map[string]time.Time
+	mu              sync.RWMutex
+	inputValidators map[string]*regexp.Regexp
+	outputEncoders  map[string]func(string) string
 }
 
 // NewSecurityHardening creates a new security hardening instance

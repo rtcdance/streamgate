@@ -18,29 +18,29 @@ type AlertingSystem struct {
 
 // Alert represents an alert
 type Alert struct {
-	ID          string
-	AnomalyID   string
-	Severity    string
-	Title       string
-	Description string
-	Timestamp   time.Time
-	Acknowledged bool
+	ID             string
+	AnomalyID      string
+	Severity       string
+	Title          string
+	Description    string
+	Timestamp      time.Time
+	Acknowledged   bool
 	AcknowledgedAt time.Time
 	AcknowledgedBy string
-	Resolved    bool
-	ResolvedAt  time.Time
+	Resolved       bool
+	ResolvedAt     time.Time
 }
 
 // AlertRule defines rules for generating alerts
 type AlertRule struct {
-	ID              string
-	Name            string
-	Condition       string
-	Threshold       float64
-	Severity        string
-	Enabled         bool
+	ID               string
+	Name             string
+	Condition        string
+	Threshold        float64
+	Severity         string
+	Enabled          bool
 	SuppressDuration time.Duration
-	NotifyChannels  []string
+	NotifyChannels   []string
 }
 
 // AlertChannel defines how alerts are sent
@@ -225,11 +225,11 @@ func (as *AlertingSystem) GetStats() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"total_alerts":      len(as.alerts),
-		"active_alerts":     activeAlerts,
-		"alert_rules":       len(as.alertRules),
-		"alert_channels":    len(as.alertChannels),
-		"alert_history":     len(as.alertHistory),
+		"total_alerts":   len(as.alerts),
+		"active_alerts":  activeAlerts,
+		"alert_rules":    len(as.alertRules),
+		"alert_channels": len(as.alertChannels),
+		"alert_history":  len(as.alertHistory),
 	}
 }
 

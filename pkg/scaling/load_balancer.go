@@ -10,9 +10,9 @@ import (
 type LoadBalancingStrategy string
 
 const (
-	RoundRobin LoadBalancingStrategy = "round_robin"
-	LeastConn  LoadBalancingStrategy = "least_conn"
-	GeoLocation LoadBalancingStrategy = "geo_location"
+	RoundRobin   LoadBalancingStrategy = "round_robin"
+	LeastConn    LoadBalancingStrategy = "least_conn"
+	GeoLocation  LoadBalancingStrategy = "geo_location"
 	LatencyBased LoadBalancingStrategy = "latency_based"
 )
 
@@ -43,13 +43,13 @@ type BackendMetrics struct {
 
 // GlobalLoadBalancer manages global load balancing
 type GlobalLoadBalancer struct {
-	backends        map[string]*Backend
-	metrics         map[string]*BackendMetrics
-	strategy        LoadBalancingStrategy
-	currentIndex    int
-	mu              sync.RWMutex
+	backends            map[string]*Backend
+	metrics             map[string]*BackendMetrics
+	strategy            LoadBalancingStrategy
+	currentIndex        int
+	mu                  sync.RWMutex
 	healthCheckInterval time.Duration
-	lastHealthCheck time.Time
+	lastHealthCheck     time.Time
 }
 
 // NewGlobalLoadBalancer creates a new global load balancer

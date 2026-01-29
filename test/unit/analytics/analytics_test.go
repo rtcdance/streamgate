@@ -58,14 +58,14 @@ func TestAnomalyDetector(t *testing.T) {
 	// Record some metrics
 	for i := 0; i < 20; i++ {
 		metric := &analytics.MetricsSnapshot{
-			ID:           "test",
-			Timestamp:    time.Now(),
-			ServiceID:    "service1",
-			CPUUsage:     50.0 + float64(i),
-			MemoryUsage:  60.0,
-			ErrorRate:    0.01,
-			Latency:      100.0,
-			RequestRate:  1000.0,
+			ID:          "test",
+			Timestamp:   time.Now(),
+			ServiceID:   "service1",
+			CPUUsage:    50.0 + float64(i),
+			MemoryUsage: 60.0,
+			ErrorRate:   0.01,
+			Latency:     100.0,
+			RequestRate: 1000.0,
 		}
 		detector.RecordMetric(metric)
 	}
@@ -88,14 +88,14 @@ func TestPredictor(t *testing.T) {
 	// Record some metrics
 	for i := 0; i < 30; i++ {
 		metric := &analytics.MetricsSnapshot{
-			ID:           "test",
-			Timestamp:    time.Now(),
-			ServiceID:    "service1",
-			CPUUsage:     50.0 + float64(i),
-			MemoryUsage:  60.0,
-			ErrorRate:    0.01,
-			Latency:      100.0,
-			RequestRate:  1000.0,
+			ID:          "test",
+			Timestamp:   time.Now(),
+			ServiceID:   "service1",
+			CPUUsage:    50.0 + float64(i),
+			MemoryUsage: 60.0,
+			ErrorRate:   0.01,
+			Latency:     100.0,
+			RequestRate: 1000.0,
 		}
 		predictor.RecordMetric(metric)
 	}

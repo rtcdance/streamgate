@@ -12,12 +12,12 @@ import (
 
 // SecurityAuditResult tracks security audit findings
 type SecurityAuditResult struct {
-	TotalChecks      int
-	PassedChecks     int
-	FailedChecks     int
-	Vulnerabilities  []string
-	Warnings         []string
-	PassPercentage   float64
+	TotalChecks     int
+	PassedChecks    int
+	FailedChecks    int
+	Vulnerabilities []string
+	Warnings        []string
+	PassPercentage  float64
 }
 
 // TestInputValidation validates input validation security

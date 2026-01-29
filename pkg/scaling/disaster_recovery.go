@@ -10,8 +10,8 @@ import (
 type BackupStrategy string
 
 const (
-	FullBackup       BackupStrategy = "full"
-	IncrementalBackup BackupStrategy = "incremental"
+	FullBackup         BackupStrategy = "full"
+	IncrementalBackup  BackupStrategy = "incremental"
 	DifferentialBackup BackupStrategy = "differential"
 )
 
@@ -28,25 +28,25 @@ type RecoveryPoint struct {
 
 // DisasterRecoveryPlan represents a disaster recovery plan
 type DisasterRecoveryPlan struct {
-	ID                  string
-	Name                string
-	BackupStrategy      BackupStrategy
-	BackupInterval      time.Duration
-	RetentionDays       int
-	RPOMinutes          int // Recovery Point Objective
-	RTOMinutes          int // Recovery Time Objective
-	PrimaryRegion       string
-	SecondaryRegion     string
-	Active              bool
-	LastBackupTime      time.Time
-	LastRecoveryTest    time.Time
+	ID               string
+	Name             string
+	BackupStrategy   BackupStrategy
+	BackupInterval   time.Duration
+	RetentionDays    int
+	RPOMinutes       int // Recovery Point Objective
+	RTOMinutes       int // Recovery Time Objective
+	PrimaryRegion    string
+	SecondaryRegion  string
+	Active           bool
+	LastBackupTime   time.Time
+	LastRecoveryTest time.Time
 }
 
 // DisasterRecoveryManager manages disaster recovery
 type DisasterRecoveryManager struct {
-	plans           map[string]*DisasterRecoveryPlan
-	recoveryPoints  map[string]*RecoveryPoint
-	mu              sync.RWMutex
+	plans             map[string]*DisasterRecoveryPlan
+	recoveryPoints    map[string]*RecoveryPoint
+	mu                sync.RWMutex
 	maxRecoveryPoints int
 }
 

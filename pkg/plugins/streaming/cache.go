@@ -5,7 +5,7 @@ type StreamCache struct{}
 
 // Get gets cached stream
 func (c *StreamCache) Get(key string) (interface{}, bool) {
-return nil, false
+	return nil, false
 }
 
 // Set sets stream cache

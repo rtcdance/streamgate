@@ -13,12 +13,12 @@ import (
 
 // GasMonitor monitors gas prices
 type GasMonitor struct {
-	client        *ethclient.Client
-	logger        *zap.Logger
-	currentPrice  *big.Int
-	mu            sync.RWMutex
-	updateTicker  *time.Ticker
-	stopChan      chan struct{}
+	client         *ethclient.Client
+	logger         *zap.Logger
+	currentPrice   *big.Int
+	mu             sync.RWMutex
+	updateTicker   *time.Ticker
+	stopChan       chan struct{}
 	updateInterval time.Duration
 }
 
@@ -118,12 +118,12 @@ func (gm *GasMonitor) updateGasPrice(ctx context.Context) {
 
 // GasEstimate contains gas estimation information
 type GasEstimate struct {
-	StandardGas uint64
-	FastGas     uint64
-	InstantGas  uint64
-	SafeGasPrice *big.Int
+	StandardGas      uint64
+	FastGas          uint64
+	InstantGas       uint64
+	SafeGasPrice     *big.Int
 	StandardGasPrice *big.Int
-	FastGasPrice *big.Int
+	FastGasPrice     *big.Int
 }
 
 // EstimateGasCost estimates the cost of a transaction
@@ -156,9 +156,9 @@ func (gm *GasMonitor) EstimateGasCostInEther(gasAmount uint64) float64 {
 
 // GasPrice represents a gas price level
 type GasPrice struct {
-	Level    string
-	GasPrice *big.Int
-	Gwei     float64
+	Level         string
+	GasPrice      *big.Int
+	Gwei          float64
 	EstimatedTime string
 }
 
@@ -178,21 +178,21 @@ func (gm *GasMonitor) GetGasPriceLevels() []*GasPrice {
 
 	return []*GasPrice{
 		{
-			Level:    "safe",
-			GasPrice: safe,
-			Gwei:     toGwei(safe),
+			Level:         "safe",
+			GasPrice:      safe,
+			Gwei:          toGwei(safe),
 			EstimatedTime: "> 30 seconds",
 		},
 		{
-			Level:    "standard",
-			GasPrice: standard,
-			Gwei:     toGwei(standard),
+			Level:         "standard",
+			GasPrice:      standard,
+			Gwei:          toGwei(standard),
 			EstimatedTime: "15-30 seconds",
 		},
 		{
-			Level:    "fast",
-			GasPrice: fast,
-			Gwei:     toGwei(fast),
+			Level:         "fast",
+			GasPrice:      fast,
+			Gwei:          toGwei(fast),
 			EstimatedTime: "< 15 seconds",
 		},
 	}

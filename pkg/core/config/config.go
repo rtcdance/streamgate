@@ -23,22 +23,22 @@ type Config struct {
 
 	// Database
 	Database DatabaseConfig
-	
+
 	// Redis
 	Redis RedisConfig
-	
+
 	// Storage
 	Storage StorageConfig
-	
+
 	// NATS (for microservices mode)
 	NATS NATSConfig
 
 	// Consul (for service discovery)
 	Consul ConsulConfig
-	
+
 	// Web3
 	Web3 Web3Config
-	
+
 	// Monitoring
 	Monitoring MonitoringConfig
 

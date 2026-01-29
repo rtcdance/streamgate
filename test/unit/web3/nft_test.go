@@ -29,11 +29,11 @@ func TestNFT_ValidateAddress(t *testing.T) {
 
 func TestNFT_ValidateContractAddress(t *testing.T) {
 	contractAddress := "0x1234567890123456789012345678901234567890"
-	
+
 	// Valid contract address
 	isValid := web3.IsValidAddress(contractAddress)
 	helpers.AssertTrue(t, isValid)
-	
+
 	// Invalid contract address
 	isValid = web3.IsValidAddress("invalid")
 	helpers.AssertFalse(t, isValid)
@@ -62,7 +62,7 @@ func TestNFT_ValidateTokenID(t *testing.T) {
 
 func TestNFT_ParseContractAddress(t *testing.T) {
 	address := "0x1234567890123456789012345678901234567890"
-	
+
 	// Parse address
 	parsed := web3.ParseAddress(address)
 	helpers.AssertNotNil(t, parsed)
@@ -73,15 +73,15 @@ func TestNFT_CompareAddresses(t *testing.T) {
 	addr1 := "0x1234567890123456789012345678901234567890"
 	addr2 := "0x1234567890123456789012345678901234567890"
 	addr3 := "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"
-	
+
 	// Same addresses
 	result := web3.CompareAddresses(addr1, addr2)
 	helpers.AssertTrue(t, result)
-	
+
 	// Different addresses
 	result = web3.CompareAddresses(addr1, addr3)
 	helpers.AssertFalse(t, result)
-	
+
 	// Case insensitive comparison
 	result = web3.CompareAddresses(addr1, "0x1234567890123456789012345678901234567890")
 	helpers.AssertTrue(t, result)
@@ -89,7 +89,7 @@ func TestNFT_CompareAddresses(t *testing.T) {
 
 func TestNFT_FormatAddress(t *testing.T) {
 	address := "0x1234567890123456789012345678901234567890"
-	
+
 	// Format address
 	formatted := web3.FormatAddress(address)
 	helpers.AssertNotNil(t, formatted)

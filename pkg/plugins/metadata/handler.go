@@ -5,34 +5,34 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // MetadataHandler handles metadata requests
 type MetadataHandler struct {
-	db                *MetadataDB
-	logger            *zap.Logger
-	kernel            *core.Microkernel
-	metricsCollector  *monitoring.MetricsCollector
-	rateLimiter       *security.RateLimiter
-	auditLogger       *security.AuditLogger
-	cache             *optimization.LocalCache
+	db               *MetadataDB
+	logger           *zap.Logger
+	kernel           *core.Microkernel
+	metricsCollector *monitoring.MetricsCollector
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
+	cache            *optimization.LocalCache
 }
 
 // NewMetadataHandler creates a new metadata handler
 func NewMetadataHandler(db *MetadataDB, logger *zap.Logger, kernel *core.Microkernel) *MetadataHandler {
 	return &MetadataHandler{
-		db:                db,
-		logger:            logger,
-		kernel:            kernel,
-		metricsCollector:  monitoring.NewMetricsCollector(logger),
-		rateLimiter:       security.NewRateLimiter(500, 50, time.Second, logger),
-		auditLogger:       security.NewAuditLogger(logger),
-		cache:             optimization.NewLocalCache(10000, 30*time.Minute, logger),
+		db:               db,
+		logger:           logger,
+		kernel:           kernel,
+		metricsCollector: monitoring.NewMetricsCollector(logger),
+		rateLimiter:      security.NewRateLimiter(500, 50, time.Second, logger),
+		auditLogger:      security.NewAuditLogger(logger),
+		cache:            optimization.NewLocalCache(10000, 30*time.Minute, logger),
 	}
 }
 

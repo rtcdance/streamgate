@@ -6,26 +6,26 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
 	"streamgate/pkg/security"
-	"go.uber.org/zap"
 )
 
 // GatewayPlugin is the API Gateway plugin
 type GatewayPlugin struct {
-	name              string
-	kernel            *core.Microkernel
-	logger            *zap.Logger
-	server            *http.Server
-	config            *config.Config
-	metricsCollector  *monitoring.MetricsCollector
-	alertManager      *monitoring.AlertManager
-	rateLimiter       *security.RateLimiter
-	auditLogger       *security.AuditLogger
-	cache             *optimization.LocalCache
+	name             string
+	kernel           *core.Microkernel
+	logger           *zap.Logger
+	server           *http.Server
+	config           *config.Config
+	metricsCollector *monitoring.MetricsCollector
+	alertManager     *monitoring.AlertManager
+	rateLimiter      *security.RateLimiter
+	auditLogger      *security.AuditLogger
+	cache            *optimization.LocalCache
 }
 
 // NewGatewayPlugin creates a new API Gateway plugin

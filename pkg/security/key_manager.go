@@ -28,12 +28,12 @@ type KeyEntry struct {
 
 // KeyManager manages encryption keys
 type KeyManager struct {
-	keys              map[string]*KeyEntry
-	activeKeyID       string
-	mu                sync.RWMutex
-	rotationInterval  time.Duration
-	keySize           int
-	lastRotationTime  time.Time
+	keys             map[string]*KeyEntry
+	activeKeyID      string
+	mu               sync.RWMutex
+	rotationInterval time.Duration
+	keySize          int
+	lastRotationTime time.Time
 }
 
 // NewKeyManager creates a new key manager

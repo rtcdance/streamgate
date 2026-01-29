@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // WorkerPlugin is the worker service plugin

@@ -10,11 +10,11 @@ import (
 
 func TestContent_Creation(t *testing.T) {
 	content := &models.Content{
-		ID:    "content123",
-		Title: "Test Video",
-		Type:  "video",
-		Size:  1024000,
-		Status: "ready",
+		ID:        "content123",
+		Title:     "Test Video",
+		Type:      "video",
+		Size:      1024000,
+		Status:    "ready",
 		CreatedAt: time.Now(),
 	}
 

@@ -31,16 +31,16 @@ type StreamingCacheStorage interface {
 
 // StreamInfo represents stream information
 type StreamInfo struct {
-	ID          string    `json:"id"`
-	ContentID   string    `json:"content_id"`
-	Type        string    `json:"type"` // hls, dash, progressive
-	URL         string    `json:"url"`
-	Playlist    string    `json:"playlist"`
-	Qualities   []Quality `json:"qualities"`
-	Duration    int       `json:"duration"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	ID        string    `json:"id"`
+	ContentID string    `json:"content_id"`
+	Type      string    `json:"type"` // hls, dash, progressive
+	URL       string    `json:"url"`
+	Playlist  string    `json:"playlist"`
+	Qualities []Quality `json:"qualities"`
+	Duration  int       `json:"duration"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // Quality represents a stream quality variant

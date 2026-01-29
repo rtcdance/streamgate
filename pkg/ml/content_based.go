@@ -13,7 +13,7 @@ type ContentBasedFilter struct {
 	mu              sync.RWMutex
 	contentFeatures map[string][]float64
 	userPreferences map[string][]float64
-	categoryWeights  map[string]float64
+	categoryWeights map[string]float64
 	tagWeights      map[string]float64
 	lastUpdate      time.Time
 }
@@ -23,7 +23,7 @@ func NewContentBasedFilter() *ContentBasedFilter {
 	return &ContentBasedFilter{
 		contentFeatures: make(map[string][]float64),
 		userPreferences: make(map[string][]float64),
-		categoryWeights:  make(map[string]float64),
+		categoryWeights: make(map[string]float64),
 		tagWeights:      make(map[string]float64),
 	}
 }
@@ -250,11 +250,11 @@ func (cbf *ContentBasedFilter) GetStats() map[string]interface{} {
 	defer cbf.mu.RUnlock()
 
 	return map[string]interface{}{
-		"total_content":        len(cbf.contentFeatures),
-		"total_users":          len(cbf.userPreferences),
-		"category_weights":     len(cbf.categoryWeights),
-		"tag_weights":          len(cbf.tagWeights),
-		"last_update":          cbf.lastUpdate,
+		"total_content":    len(cbf.contentFeatures),
+		"total_users":      len(cbf.userPreferences),
+		"category_weights": len(cbf.categoryWeights),
+		"tag_weights":      len(cbf.tagWeights),
+		"last_update":      cbf.lastUpdate,
 	}
 }
 

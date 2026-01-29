@@ -17,11 +17,11 @@ const (
 
 // CDNConfig holds CDN configuration
 type CDNConfig struct {
-	Provider   CDNProvider
-	APIKey     string
-	APISecret  string
-	ZoneID     string
-	Endpoint   string
+	Provider  CDNProvider
+	APIKey    string
+	APISecret string
+	ZoneID    string
+	Endpoint  string
 }
 
 // CDNCache represents a cached item
@@ -49,10 +49,10 @@ type CDNMetrics struct {
 
 // CDNManager manages CDN integration
 type CDNManager struct {
-	config      CDNConfig
-	cache       map[string]*CDNCache
-	metrics     *CDNMetrics
-	mu          sync.RWMutex
+	config       CDNConfig
+	cache        map[string]*CDNCache
+	metrics      *CDNMetrics
+	mu           sync.RWMutex
 	maxCacheSize int64 // bytes
 }
 
@@ -82,7 +82,7 @@ func (cm *CDNManager) CacheContent(key, url string, ttl int64, size int64) error
 	}
 
 	// Check if cache is full
-	if cm.getCachedSize() + size > cm.maxCacheSize {
+	if cm.getCachedSize()+size > cm.maxCacheSize {
 		// Evict oldest item
 		cm.evictOldest()
 	}

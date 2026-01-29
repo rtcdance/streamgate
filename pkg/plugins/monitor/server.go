@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
-	"go.uber.org/zap"
 )
 
 // MonitorServer handles health monitoring and metrics
@@ -166,11 +166,11 @@ func (c *MetricsCollector) collectMetrics() {
 func (c *MetricsCollector) GetMetrics() *SystemMetrics {
 	// TODO: Implement metrics retrieval
 	return &SystemMetrics{
-		Timestamp:   time.Now().Unix(),
-		CPUUsage:    0,
-		MemoryUsage: 0,
+		Timestamp:    time.Now().Unix(),
+		CPUUsage:     0,
+		MemoryUsage:  0,
 		RequestCount: 0,
-		ErrorCount:  0,
+		ErrorCount:   0,
 	}
 }
 
@@ -195,8 +195,8 @@ type SystemMetrics struct {
 
 // HealthStatus represents system health status
 type HealthStatus struct {
-	Status    string `json:"status"` // healthy, degraded, unhealthy
-	Timestamp int64  `json:"timestamp"`
+	Status    string            `json:"status"` // healthy, degraded, unhealthy
+	Timestamp int64             `json:"timestamp"`
 	Services  map[string]string `json:"services,omitempty"`
 }
 

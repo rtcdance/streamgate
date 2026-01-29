@@ -9,10 +9,10 @@ import (
 
 // MetricsCollector collects system metrics
 type MetricsCollector struct {
-	logger      *zap.Logger
-	mu          sync.RWMutex
-	metrics     map[string]*Metric
-	startTime   time.Time
+	logger    *zap.Logger
+	mu        sync.RWMutex
+	metrics   map[string]*Metric
+	startTime time.Time
 }
 
 // Metric represents a single metric
@@ -47,13 +47,13 @@ func (mc *MetricsCollector) IncrementCounter(name string, tags map[string]string
 
 	if !exists {
 		metric = &Metric{
-			Name:        name,
-			Type:        "counter",
-			Value:       0,
-			Count:       0,
-			Min:         0,
-			Max:         0,
-			Tags:        tags,
+			Name:  name,
+			Type:  "counter",
+			Value: 0,
+			Count: 0,
+			Min:   0,
+			Max:   0,
+			Tags:  tags,
 		}
 		mc.metrics[key] = metric
 	}
@@ -73,13 +73,13 @@ func (mc *MetricsCollector) SetGauge(name string, value float64, tags map[string
 
 	if !exists {
 		metric = &Metric{
-			Name:        name,
-			Type:        "gauge",
-			Value:       value,
-			Count:       1,
-			Min:         value,
-			Max:         value,
-			Tags:        tags,
+			Name:  name,
+			Type:  "gauge",
+			Value: value,
+			Count: 1,
+			Min:   value,
+			Max:   value,
+			Tags:  tags,
 		}
 		mc.metrics[key] = metric
 	} else {
@@ -106,14 +106,14 @@ func (mc *MetricsCollector) RecordHistogram(name string, value float64, tags map
 
 	if !exists {
 		metric = &Metric{
-			Name:        name,
-			Type:        "histogram",
-			Value:       value,
-			Count:       1,
-			Sum:         value,
-			Min:         value,
-			Max:         value,
-			Tags:        tags,
+			Name:  name,
+			Type:  "histogram",
+			Value: value,
+			Count: 1,
+			Sum:   value,
+			Min:   value,
+			Max:   value,
+			Tags:  tags,
 		}
 		mc.metrics[key] = metric
 	} else {
@@ -209,15 +209,15 @@ func (mc *MetricsCollector) getMetricKey(name string, tags map[string]string) st
 
 // ServiceMetrics tracks service-specific metrics
 type ServiceMetrics struct {
-	ServiceName      string
-	RequestCount     int64
-	ErrorCount       int64
-	SuccessCount     int64
-	TotalLatency     int64
-	AverageLatency   float64
-	MinLatency       int64
-	MaxLatency       int64
-	LastUpdated      time.Time
+	ServiceName    string
+	RequestCount   int64
+	ErrorCount     int64
+	SuccessCount   int64
+	TotalLatency   int64
+	AverageLatency float64
+	MinLatency     int64
+	MaxLatency     int64
+	LastUpdated    time.Time
 }
 
 // ServiceMetricsTracker tracks metrics for multiple services

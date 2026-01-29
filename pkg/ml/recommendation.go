@@ -10,16 +10,16 @@ import (
 
 // RecommendationEngine provides content recommendations using multiple algorithms
 type RecommendationEngine struct {
-	mu                    sync.RWMutex
-	collaborativeFilter   *CollaborativeFilter
-	contentBasedFilter    *ContentBasedFilter
-	hybridRecommender     *HybridRecommender
-	userProfiles          map[string]*UserProfile
-	contentProfiles       map[string]*ContentProfile
-	recommendations       map[string][]*Recommendation
-	metrics               *RecommendationMetrics
-	lastUpdateTime        time.Time
-	updateInterval        time.Duration
+	mu                  sync.RWMutex
+	collaborativeFilter *CollaborativeFilter
+	contentBasedFilter  *ContentBasedFilter
+	hybridRecommender   *HybridRecommender
+	userProfiles        map[string]*UserProfile
+	contentProfiles     map[string]*ContentProfile
+	recommendations     map[string][]*Recommendation
+	metrics             *RecommendationMetrics
+	lastUpdateTime      time.Time
+	updateInterval      time.Duration
 }
 
 // UserProfile represents a user's preferences and behavior
@@ -36,28 +36,28 @@ type UserProfile struct {
 
 // ContentProfile represents content characteristics
 type ContentProfile struct {
-	ContentID      string
-	Title          string
-	Category       string
-	Tags           []string
-	Features       map[string]float64
-	Popularity     float64
-	ViewCount      int64
-	AvgRating      float64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Embeddings     []float64
+	ContentID  string
+	Title      string
+	Category   string
+	Tags       []string
+	Features   map[string]float64
+	Popularity float64
+	ViewCount  int64
+	AvgRating  float64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	Embeddings []float64
 }
 
 // Recommendation represents a recommended content item
 type Recommendation struct {
-	ContentID      string
-	Score          float64
-	Reason         string
-	Algorithm      string
-	Confidence     float64
-	Timestamp      time.Time
-	ExpiresAt      time.Time
+	ContentID  string
+	Score      float64
+	Reason     string
+	Algorithm  string
+	Confidence float64
+	Timestamp  time.Time
+	ExpiresAt  time.Time
 }
 
 // RecommendationMetrics tracks recommendation performance
@@ -135,10 +135,10 @@ func (re *RecommendationEngine) RecordUserInteraction(userID, contentID string, 
 	userProfile, exists := re.userProfiles[userID]
 	if !exists {
 		userProfile = &UserProfile{
-			UserID:      userID,
+			UserID:        userID,
 			ViewedContent: []string{},
-			Ratings:     make(map[string]float64),
-			Preferences: make(map[string]float64),
+			Ratings:       make(map[string]float64),
+			Preferences:   make(map[string]float64),
 		}
 		re.userProfiles[userID] = userProfile
 	}
@@ -425,9 +425,9 @@ func (re *RecommendationEngine) GetStats() map[string]interface{} {
 	defer re.mu.RUnlock()
 
 	return map[string]interface{}{
-		"total_users":           len(re.userProfiles),
-		"total_content":         len(re.contentProfiles),
+		"total_users":            len(re.userProfiles),
+		"total_content":          len(re.contentProfiles),
 		"cached_recommendations": len(re.recommendations),
-		"metrics":               re.metrics,
+		"metrics":                re.metrics,
 	}
 }

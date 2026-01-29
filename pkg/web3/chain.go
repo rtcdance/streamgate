@@ -133,14 +133,14 @@ func (cc *ChainClient) GetBlockByNumber(ctx context.Context, blockNumber *big.In
 	}
 
 	blockInfo := &BlockInfo{
-		Number:      block.Number().Uint64(),
-		Hash:        block.Hash().Hex(),
-		ParentHash:  block.ParentHash().Hex(),
-		Timestamp:   block.Time(),
-		Miner:       block.Coinbase().Hex(),
-		GasUsed:     block.GasUsed(),
-		GasLimit:    block.GasLimit(),
-		Difficulty:  block.Difficulty().String(),
+		Number:       block.Number().Uint64(),
+		Hash:         block.Hash().Hex(),
+		ParentHash:   block.ParentHash().Hex(),
+		Timestamp:    block.Time(),
+		Miner:        block.Coinbase().Hex(),
+		GasUsed:      block.GasUsed(),
+		GasLimit:     block.GasLimit(),
+		Difficulty:   block.Difficulty().String(),
 		Transactions: uint64(len(block.Transactions())),
 	}
 
@@ -160,14 +160,14 @@ func (cc *ChainClient) GetTransactionByHash(ctx context.Context, txHash string) 
 	}
 
 	txInfo := &TransactionInfo{
-		Hash:     tx.Hash().Hex(),
-		From:     tx.From().Hex(),
-		To:       tx.To().Hex(),
-		Value:    tx.Value().String(),
-		Gas:      tx.Gas(),
-		GasPrice: tx.GasPrice().String(),
-		Nonce:    tx.Nonce(),
-		Data:     fmt.Sprintf("0x%x", tx.Data()),
+		Hash:      tx.Hash().Hex(),
+		From:      tx.From().Hex(),
+		To:        tx.To().Hex(),
+		Value:     tx.Value().String(),
+		Gas:       tx.Gas(),
+		GasPrice:  tx.GasPrice().String(),
+		Nonce:     tx.Nonce(),
+		Data:      fmt.Sprintf("0x%x", tx.Data()),
 		IsPending: isPending,
 	}
 
@@ -221,14 +221,14 @@ type BlockInfo struct {
 
 // TransactionInfo contains transaction information
 type TransactionInfo struct {
-	Hash     string
-	From     string
-	To       string
-	Value    string
-	Gas      uint64
-	GasPrice string
-	Nonce    uint64
-	Data     string
+	Hash      string
+	From      string
+	To        string
+	Value     string
+	Gas       uint64
+	GasPrice  string
+	Nonce     uint64
+	Data      string
 	IsPending bool
 }
 

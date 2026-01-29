@@ -159,20 +159,20 @@ func (b *NATSEventBus) Close() error {
 
 // EventTypes defines common event types
 const (
-	EventFileUploaded       = "file.uploaded"
-	EventTranscodingStarted = "transcoding.started"
+	EventFileUploaded         = "file.uploaded"
+	EventTranscodingStarted   = "transcoding.started"
 	EventTranscodingCompleted = "transcoding.completed"
-	EventTranscodingFailed  = "transcoding.failed"
-	EventStreamingStarted   = "streaming.started"
-	EventStreamingStopped   = "streaming.stopped"
-	EventMetadataCreated    = "metadata.created"
-	EventMetadataUpdated    = "metadata.updated"
-	EventMetadataDeleted    = "metadata.deleted"
-	EventJobSubmitted       = "job.submitted"
-	EventJobCompleted       = "job.completed"
-	EventJobFailed          = "job.failed"
-	EventAlertTriggered     = "alert.triggered"
-	EventAlertResolved      = "alert.resolved"
+	EventTranscodingFailed    = "transcoding.failed"
+	EventStreamingStarted     = "streaming.started"
+	EventStreamingStopped     = "streaming.stopped"
+	EventMetadataCreated      = "metadata.created"
+	EventMetadataUpdated      = "metadata.updated"
+	EventMetadataDeleted      = "metadata.deleted"
+	EventJobSubmitted         = "job.submitted"
+	EventJobCompleted         = "job.completed"
+	EventJobFailed            = "job.failed"
+	EventAlertTriggered       = "alert.triggered"
+	EventAlertResolved        = "alert.resolved"
 )
 
 // PublishFileUploaded publishes a file uploaded event
@@ -198,7 +198,7 @@ func PublishTranscodingStarted(ctx context.Context, bus EventBus, jobID string, 
 		Source:    "transcoder-service",
 		Timestamp: 0, // TODO: Use current timestamp
 		Data: map[string]interface{}{
-			"job_id":      jobID,
+			"job_id":     jobID,
 			"input_file": inputFile,
 		},
 	}
@@ -213,7 +213,7 @@ func PublishTranscodingCompleted(ctx context.Context, bus EventBus, jobID string
 		Source:    "transcoder-service",
 		Timestamp: 0, // TODO: Use current timestamp
 		Data: map[string]interface{}{
-			"job_id":       jobID,
+			"job_id":      jobID,
 			"output_file": outputFile,
 		},
 	}

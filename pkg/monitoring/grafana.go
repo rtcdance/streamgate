@@ -10,24 +10,24 @@ import (
 
 // GrafanaDashboard represents a Grafana dashboard configuration
 type GrafanaDashboard struct {
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Tags        []string               `json:"tags"`
-	Timezone    string                 `json:"timezone"`
-	Panels      []GrafanaPanel         `json:"panels"`
-	Templating  GrafanaTemplating      `json:"templating"`
-	Time        GrafanaTime            `json:"time"`
-	Refresh     string                 `json:"refresh"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Tags        []string          `json:"tags"`
+	Timezone    string            `json:"timezone"`
+	Panels      []GrafanaPanel    `json:"panels"`
+	Templating  GrafanaTemplating `json:"templating"`
+	Time        GrafanaTime       `json:"time"`
+	Refresh     string            `json:"refresh"`
 }
 
 // GrafanaPanel represents a Grafana panel
 type GrafanaPanel struct {
-	ID       int                    `json:"id"`
-	Title    string                 `json:"title"`
-	Type     string                 `json:"type"`
-	GridPos  GrafanaGridPos         `json:"gridPos"`
-	Targets  []GrafanaTarget        `json:"targets"`
-	Options  map[string]interface{} `json:"options"`
+	ID          int                    `json:"id"`
+	Title       string                 `json:"title"`
+	Type        string                 `json:"type"`
+	GridPos     GrafanaGridPos         `json:"gridPos"`
+	Targets     []GrafanaTarget        `json:"targets"`
+	Options     map[string]interface{} `json:"options"`
 	FieldConfig map[string]interface{} `json:"fieldConfig"`
 }
 
@@ -224,8 +224,8 @@ func (db *DashboardBuilder) buildCacheHitRatePanel() GrafanaPanel {
 			},
 		},
 		Options: map[string]interface{}{
-			"orientation": "auto",
-			"showThresholdLabels": false,
+			"orientation":          "auto",
+			"showThresholdLabels":  false,
 			"showThresholdMarkers": true,
 		},
 	}

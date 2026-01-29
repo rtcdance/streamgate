@@ -12,23 +12,23 @@ import (
 
 // Profiler provides profiling capabilities
 type Profiler struct {
-	mu              sync.RWMutex
-	cpuProfiles     []*CPUProfile
-	memProfiles     []*MemProfile
+	mu                sync.RWMutex
+	cpuProfiles       []*CPUProfile
+	memProfiles       []*MemProfile
 	goroutineProfiles []*GoroutineProfile
-	blockProfiles   []*BlockProfile
-	maxProfileSize  int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	blockProfiles     []*BlockProfile
+	maxProfileSize    int
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
 }
 
 // CPUProfile represents a CPU profile
 type CPUProfile struct {
-	ID        string
-	Timestamp time.Time
-	Duration  time.Duration
-	Samples   int
+	ID           string
+	Timestamp    time.Time
+	Duration     time.Duration
+	Samples      int
 	TopFunctions []FunctionSample
 }
 
@@ -41,12 +41,12 @@ type FunctionSample struct {
 
 // MemProfile represents a memory profile
 type MemProfile struct {
-	ID        string
-	Timestamp time.Time
-	Alloc     uint64
+	ID         string
+	Timestamp  time.Time
+	Alloc      uint64
 	TotalAlloc uint64
-	Sys       uint64
-	NumGC     uint32
+	Sys        uint64
+	NumGC      uint32
 	Goroutines int
 }
 
@@ -63,17 +63,17 @@ type GoroutineProfile struct {
 
 // BlockProfile represents a block profile
 type BlockProfile struct {
-	ID        string
-	Timestamp time.Time
+	ID         string
+	Timestamp  time.Time
 	Contention time.Duration
-	Count     int
-	TopBlocks []BlockSample
+	Count      int
+	TopBlocks  []BlockSample
 }
 
 // BlockSample represents a block sample
 type BlockSample struct {
-	Function string
-	Count    int
+	Function   string
+	Count      int
 	Contention time.Duration
 }
 
@@ -82,13 +82,13 @@ func NewProfiler() *Profiler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := &Profiler{
-		cpuProfiles:    make([]*CPUProfile, 0),
-		memProfiles:    make([]*MemProfile, 0),
+		cpuProfiles:       make([]*CPUProfile, 0),
+		memProfiles:       make([]*MemProfile, 0),
 		goroutineProfiles: make([]*GoroutineProfile, 0),
-		blockProfiles:  make([]*BlockProfile, 0),
-		maxProfileSize: 1000,
-		ctx:            ctx,
-		cancel:         cancel,
+		blockProfiles:     make([]*BlockProfile, 0),
+		maxProfileSize:    1000,
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
 	p.start()

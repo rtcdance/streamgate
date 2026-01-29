@@ -17,21 +17,21 @@ type User struct {
 
 // UserProfile represents user profile information
 type UserProfile struct {
-	UserID       string            `json:"user_id"`
-	DisplayName  string            `json:"display_name"`
-	Avatar       string            `json:"avatar"`
-	Bio          string            `json:"bio"`
-	Preferences  map[string]string `json:"preferences"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	UserID      string                 `json:"user_id"`
+	DisplayName string                 `json:"display_name"`
+	Avatar      string                 `json:"avatar"`
+	Bio         string                 `json:"bio"`
+	Preferences map[string]string      `json:"preferences"`
+	Metadata    map[string]interface{} `json:"metadata"`
+	UpdatedAt   time.Time              `json:"updated_at"`
 }
 
 // UserRole defines user roles
 type UserRole string
 
 const (
-	RoleAdmin    UserRole = "admin"
-	RoleUser     UserRole = "user"
+	RoleAdmin     UserRole = "admin"
+	RoleUser      UserRole = "user"
 	RoleModerator UserRole = "moderator"
 )
 

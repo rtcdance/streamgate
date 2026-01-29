@@ -19,24 +19,24 @@ type Region struct {
 
 // RegionMetrics holds metrics for a region
 type RegionMetrics struct {
-	RegionID      string
-	RequestCount  int64
-	ErrorCount    int64
-	AvgLatency    int64
-	P95Latency    int64
-	P99Latency    int64
-	HealthStatus  string
-	LastUpdated   time.Time
+	RegionID     string
+	RequestCount int64
+	ErrorCount   int64
+	AvgLatency   int64
+	P95Latency   int64
+	P99Latency   int64
+	HealthStatus string
+	LastUpdated  time.Time
 }
 
 // MultiRegionManager manages multi-region deployment
 type MultiRegionManager struct {
-	regions         map[string]*Region
-	metrics         map[string]*RegionMetrics
-	primaryRegion   string
-	mu              sync.RWMutex
+	regions             map[string]*Region
+	metrics             map[string]*RegionMetrics
+	primaryRegion       string
+	mu                  sync.RWMutex
 	healthCheckInterval time.Duration
-	lastHealthCheck time.Time
+	lastHealthCheck     time.Time
 }
 
 // NewMultiRegionManager creates a new multi-region manager

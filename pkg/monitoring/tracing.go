@@ -33,10 +33,10 @@ type SpanLog struct {
 
 // Tracer manages distributed tracing
 type Tracer struct {
-	logger    *zap.Logger
-	mu        sync.RWMutex
-	spans     map[string]*Span
-	traces    map[string][]*Span
+	logger      *zap.Logger
+	mu          sync.RWMutex
+	spans       map[string]*Span
+	traces      map[string][]*Span
 	serviceName string
 }
 
