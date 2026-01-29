@@ -1,229 +1,223 @@
-2026-01-29T07:54:06.2293130Z Current runner version: '2.331.0'
-2026-01-29T07:54:06.2316332Z ##[group]Runner Image Provisioner
-2026-01-29T07:54:06.2317232Z Hosted Compute Agent
-2026-01-29T07:54:06.2317730Z Version: 20260115.477
-2026-01-29T07:54:06.2318416Z Commit: 4b342d620503cbe250a3154040964899ea7c9b00
-2026-01-29T07:54:06.2319073Z Build Date: 2026-01-15T22:32:41Z
-2026-01-29T07:54:06.2320040Z Worker ID: {e1cc7cd7-cf1b-45b9-9031-2b57cd2aa3f5}
-2026-01-29T07:54:06.2320817Z Azure Region: westus
-2026-01-29T07:54:06.2321341Z ##[endgroup]
-2026-01-29T07:54:06.2322708Z ##[group]Operating System
-2026-01-29T07:54:06.2323381Z Ubuntu
-2026-01-29T07:54:06.2323834Z 24.04.3
-2026-01-29T07:54:06.2324243Z LTS
-2026-01-29T07:54:06.2324788Z ##[endgroup]
-2026-01-29T07:54:06.2325246Z ##[group]Runner Image
-2026-01-29T07:54:06.2325762Z Image: ubuntu-24.04
-2026-01-29T07:54:06.2326252Z Version: 20260119.4.1
-2026-01-29T07:54:06.2327424Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260119.4/images/ubuntu/Ubuntu2404-Readme.md
-2026-01-29T07:54:06.2328941Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260119.4
-2026-01-29T07:54:06.2330145Z ##[endgroup]
-2026-01-29T07:54:06.2331135Z ##[group]GITHUB_TOKEN Permissions
-2026-01-29T07:54:06.2332972Z Contents: read
-2026-01-29T07:54:06.2333521Z Metadata: read
-2026-01-29T07:54:06.2333967Z Packages: read
-2026-01-29T07:54:06.2334597Z ##[endgroup]
-2026-01-29T07:54:06.2336633Z Secret source: Actions
-2026-01-29T07:54:06.2337284Z Prepare workflow directory
-2026-01-29T07:54:06.2723888Z Prepare all required actions
-2026-01-29T07:54:06.2760829Z Getting action download info
-2026-01-29T07:54:06.7452785Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
-2026-01-29T07:54:06.8845120Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
-2026-01-29T07:54:07.4558039Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
-2026-01-29T07:54:08.1982652Z Complete job name: Lint & Format Check
-2026-01-29T07:54:08.2805149Z ##[group]Run actions/checkout@v4
-2026-01-29T07:54:08.2806439Z with:
-2026-01-29T07:54:08.2807193Z   repository: rtcdance/streamgate
-2026-01-29T07:54:08.2808427Z   token: ***
-2026-01-29T07:54:08.2809161Z   ssh-strict: true
-2026-01-29T07:54:08.2810084Z   ssh-user: git
-2026-01-29T07:54:08.2810890Z   persist-credentials: true
-2026-01-29T07:54:08.2811779Z   clean: true
-2026-01-29T07:54:08.2812577Z   sparse-checkout-cone-mode: true
-2026-01-29T07:54:08.2813532Z   fetch-depth: 1
-2026-01-29T07:54:08.2814292Z   fetch-tags: false
-2026-01-29T07:54:08.2815092Z   show-progress: true
-2026-01-29T07:54:08.2815909Z   lfs: false
-2026-01-29T07:54:08.2816650Z   submodules: false
-2026-01-29T07:54:08.2817474Z   set-safe-directory: true
-2026-01-29T07:54:08.2818610Z env:
-2026-01-29T07:54:08.2819318Z   GO_VERSION: 1.24
-2026-01-29T07:54:08.2820563Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:54:08.2821605Z   GOTOOLCHAIN: auto
-2026-01-29T07:54:08.2822404Z ##[endgroup]
-2026-01-29T07:54:08.3887929Z Syncing repository: rtcdance/streamgate
-2026-01-29T07:54:08.3890903Z ##[group]Getting Git version info
-2026-01-29T07:54:08.3892288Z Working directory is '/home/runner/work/streamgate/streamgate'
-2026-01-29T07:54:08.3894239Z [command]/usr/bin/git version
-2026-01-29T07:54:08.3964102Z git version 2.52.0
-2026-01-29T07:54:08.3990126Z ##[endgroup]
-2026-01-29T07:54:08.4003957Z Temporarily overriding HOME='/home/runner/work/_temp/da7d36c6-0740-44a8-ad0f-552ccfa1d3e2' before making global git config changes
-2026-01-29T07:54:08.4006786Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T07:54:08.4009842Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T07:54:08.4046501Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
-2026-01-29T07:54:08.4050161Z ##[group]Initializing the repository
-2026-01-29T07:54:08.4054114Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
-2026-01-29T07:54:08.4154838Z hint: Using 'master' as the name for the initial branch. This default branch name
-2026-01-29T07:54:08.4156833Z hint: will change to "main" in Git 3.0. To configure the initial branch name
-2026-01-29T07:54:08.4159125Z hint: to use in all of your new repositories, which will suppress this warning,
-2026-01-29T07:54:08.4160870Z hint: call:
-2026-01-29T07:54:08.4161592Z hint:
-2026-01-29T07:54:08.4162567Z hint: 	git config --global init.defaultBranch <name>
-2026-01-29T07:54:08.4164188Z hint:
-2026-01-29T07:54:08.4165288Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
-2026-01-29T07:54:08.4167103Z hint: 'development'. The just-created branch can be renamed via this command:
-2026-01-29T07:54:08.4168924Z hint:
-2026-01-29T07:54:08.4169895Z hint: 	git branch -m <name>
-2026-01-29T07:54:08.4170842Z hint:
-2026-01-29T07:54:08.4172026Z hint: Disable this message with "git config set advice.defaultBranchName false"
-2026-01-29T07:54:08.4174110Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
-2026-01-29T07:54:08.4177211Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
-2026-01-29T07:54:08.4204650Z ##[endgroup]
-2026-01-29T07:54:08.4206109Z ##[group]Disabling automatic garbage collection
-2026-01-29T07:54:08.4207765Z [command]/usr/bin/git config --local gc.auto 0
-2026-01-29T07:54:08.4236373Z ##[endgroup]
-2026-01-29T07:54:08.4237657Z ##[group]Setting up auth
-2026-01-29T07:54:08.4242392Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T07:54:08.4272769Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T07:54:08.4604797Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T07:54:08.4633551Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T07:54:08.4847410Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T07:54:08.4876514Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T07:54:08.5106368Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
-2026-01-29T07:54:08.5139594Z ##[endgroup]
-2026-01-29T07:54:08.5141678Z ##[group]Fetching the repository
-2026-01-29T07:54:08.5149637Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +2d4b7248f1ed8291d8aa903c02ba58bcb6622937:refs/remotes/origin/master
-2026-01-29T07:54:09.0533585Z From https://github.com/rtcdance/streamgate
-2026-01-29T07:54:09.0534668Z  * [new ref]         2d4b7248f1ed8291d8aa903c02ba58bcb6622937 -> origin/master
-2026-01-29T07:54:09.0565252Z ##[endgroup]
-2026-01-29T07:54:09.0565680Z ##[group]Determining the checkout info
-2026-01-29T07:54:09.0568079Z ##[endgroup]
-2026-01-29T07:54:09.0573591Z [command]/usr/bin/git sparse-checkout disable
-2026-01-29T07:54:09.0669216Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
-2026-01-29T07:54:09.0696563Z ##[group]Checking out the ref
-2026-01-29T07:54:09.0701183Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
-2026-01-29T07:54:09.1118153Z Reset branch 'master'
-2026-01-29T07:54:09.1120185Z branch 'master' set up to track 'origin/master'.
-2026-01-29T07:54:09.1127394Z ##[endgroup]
-2026-01-29T07:54:09.1165662Z [command]/usr/bin/git log -1 --format=%H
-2026-01-29T07:54:09.1187284Z 2d4b7248f1ed8291d8aa903c02ba58bcb6622937
-2026-01-29T07:54:09.1401227Z ##[group]Run actions/setup-go@v4
-2026-01-29T07:54:09.1401496Z with:
-2026-01-29T07:54:09.1401675Z   go-version: 1.24
-2026-01-29T07:54:09.1401865Z   check-latest: false
-2026-01-29T07:54:09.1402393Z   token: ***
-2026-01-29T07:54:09.1402565Z   cache: true
-2026-01-29T07:54:09.1402733Z env:
-2026-01-29T07:54:09.1402897Z   GO_VERSION: 1.24
-2026-01-29T07:54:09.1403110Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:54:09.1403378Z   GOTOOLCHAIN: auto
-2026-01-29T07:54:09.1403562Z ##[endgroup]
-2026-01-29T07:54:09.2972311Z Setup go version spec 1.24
-2026-01-29T07:54:09.3393047Z Found in cache @ /opt/hostedtoolcache/go/1.24.12/x64
-2026-01-29T07:54:09.3397063Z Added go to the path
-2026-01-29T07:54:09.3401204Z Successfully set up Go version 1.24
-2026-01-29T07:54:09.8943391Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOMODCACHE
-2026-01-29T07:54:09.8975403Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOCACHE
-2026-01-29T07:54:09.8997153Z /home/runner/go/pkg/mod
-2026-01-29T07:54:09.9022327Z /home/runner/.cache/go-build
-2026-01-29T07:54:10.2064729Z Cache is not found
-2026-01-29T07:54:10.2085230Z go version go1.24.12 linux/amd64
-2026-01-29T07:54:10.2085488Z 
-2026-01-29T07:54:10.2085844Z ##[group]go env
-2026-01-29T07:54:10.7863369Z AR='ar'
-2026-01-29T07:54:10.7863864Z CC='gcc'
-2026-01-29T07:54:10.7864176Z CGO_CFLAGS='-O2 -g'
-2026-01-29T07:54:10.7864544Z CGO_CPPFLAGS=''
-2026-01-29T07:54:10.7864866Z CGO_CXXFLAGS='-O2 -g'
-2026-01-29T07:54:10.7865370Z CGO_ENABLED='1'
-2026-01-29T07:54:10.7865709Z CGO_FFLAGS='-O2 -g'
-2026-01-29T07:54:10.7866088Z CGO_LDFLAGS='-O2 -g'
-2026-01-29T07:54:10.7866462Z CXX='g++'
-2026-01-29T07:54:10.7866832Z GCCGO='gccgo'
-2026-01-29T07:54:10.7867231Z GO111MODULE=''
-2026-01-29T07:54:10.7867651Z GOAMD64='v1'
-2026-01-29T07:54:10.7868055Z GOARCH='amd64'
-2026-01-29T07:54:10.7868474Z GOAUTH='netrc'
-2026-01-29T07:54:10.7868833Z GOBIN=''
-2026-01-29T07:54:10.7869208Z GOCACHE='/home/runner/.cache/go-build'
-2026-01-29T07:54:10.7870012Z GOCACHEPROG=''
-2026-01-29T07:54:10.7870442Z GODEBUG=''
-2026-01-29T07:54:10.7870898Z GOENV='/home/runner/.config/go/env'
-2026-01-29T07:54:10.7871451Z GOEXE=''
-2026-01-29T07:54:10.7871847Z GOEXPERIMENT=''
-2026-01-29T07:54:10.7872328Z GOFIPS140='off'
-2026-01-29T07:54:10.7872680Z GOFLAGS=''
-2026-01-29T07:54:10.7874018Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build2855464381=/tmp/go-build -gno-record-gcc-switches'
-2026-01-29T07:54:10.7875299Z GOHOSTARCH='amd64'
-2026-01-29T07:54:10.7875697Z GOHOSTOS='linux'
-2026-01-29T07:54:10.7876063Z GOINSECURE=''
-2026-01-29T07:54:10.7876566Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
-2026-01-29T07:54:10.7877155Z GOMODCACHE='/home/runner/go/pkg/mod'
-2026-01-29T07:54:10.7877628Z GONOPROXY=''
-2026-01-29T07:54:10.7877972Z GONOSUMDB=''
-2026-01-29T07:54:10.7878294Z GOOS='linux'
-2026-01-29T07:54:10.7878650Z GOPATH='/home/runner/go'
-2026-01-29T07:54:10.7879042Z GOPRIVATE=''
-2026-01-29T07:54:10.7879652Z GOPROXY='https://goproxy.io,direct'
-2026-01-29T07:54:10.7880196Z GOROOT='/opt/hostedtoolcache/go/1.24.12/x64'
-2026-01-29T07:54:10.7880703Z GOSUMDB='sum.golang.org'
-2026-01-29T07:54:10.7881088Z GOTELEMETRY='local'
-2026-01-29T07:54:10.7881529Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
-2026-01-29T07:54:10.7882042Z GOTMPDIR=''
-2026-01-29T07:54:10.7882352Z GOTOOLCHAIN='auto'
-2026-01-29T07:54:10.7882900Z GOTOOLDIR='/opt/hostedtoolcache/go/1.24.12/x64/pkg/tool/linux_amd64'
-2026-01-29T07:54:10.7883505Z GOVCS=''
-2026-01-29T07:54:10.7883811Z GOVERSION='go1.24.12'
-2026-01-29T07:54:10.7884133Z GOWORK=''
-2026-01-29T07:54:10.7884463Z PKG_CONFIG='pkg-config'
-2026-01-29T07:54:10.7884703Z 
-2026-01-29T07:54:10.7885749Z ##[endgroup]
-2026-01-29T07:54:10.8006444Z ##[group]Run golangci/golangci-lint-action@v3
-2026-01-29T07:54:10.8006755Z with:
-2026-01-29T07:54:10.8006925Z   version: v1.64.8
-2026-01-29T07:54:10.8007137Z   args: --timeout=5m ./...
-2026-01-29T07:54:10.8007361Z   skip-cache: true
-2026-01-29T07:54:10.8007690Z   github-token: ***
-2026-01-29T07:54:10.8007893Z   only-new-issues: false
-2026-01-29T07:54:10.8008104Z   skip-pkg-cache: false
-2026-01-29T07:54:10.8008316Z   skip-build-cache: false
-2026-01-29T07:54:10.8008523Z   install-mode: binary
-2026-01-29T07:54:10.8008909Z env:
-2026-01-29T07:54:10.8009070Z   GO_VERSION: 1.24
-2026-01-29T07:54:10.8009283Z   GOPROXY: https://goproxy.io,direct
-2026-01-29T07:54:10.8009796Z   GOTOOLCHAIN: auto
-2026-01-29T07:54:10.8009989Z ##[endgroup]
-2026-01-29T07:54:10.9220579Z ##[group]prepare environment
-2026-01-29T07:54:10.9224773Z Finding needed golangci-lint version...
-2026-01-29T07:54:10.9228106Z Installation mode: binary
-2026-01-29T07:54:10.9229143Z Installing golangci-lint binary v1.64.8...
-2026-01-29T07:54:10.9230725Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz ...
-2026-01-29T07:54:11.2587580Z [command]/usr/bin/tar xz --overwrite --warning=no-unknown-keyword --overwrite -C /home/runner -f /home/runner/work/_temp/5e3c7e04-f89f-403a-9a96-eb898c5c9907
-2026-01-29T07:54:11.4704997Z Installed golangci-lint into /home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint in 548ms
-2026-01-29T07:54:11.4706065Z Prepared env in 548ms
-2026-01-29T07:54:11.4706779Z ##[endgroup]
-2026-01-29T07:54:11.4709359Z ##[group]run golangci-lint
-2026-01-29T07:54:11.4715906Z Running [/home/runner/golangci-lint-1.64.8-linux-amd64/golangci-lint run --out-format=github-actions --timeout=5m ./...] in [] ...
-2026-01-29T07:54:11.5637345Z level=warning msg="[config_reader] The output format `github-actions` is deprecated, please use `colored-line-number`"
-2026-01-29T07:54:11.5648845Z Error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-lint v2
-2026-01-29T07:54:11.5652083Z Failed executing command with error: you are using a configuration file for golangci-lint v2 with golangci-lint v1: please use golangci-lint v2
-2026-01-29T07:54:11.5652969Z 
-2026-01-29T07:54:11.5669034Z ##[error]golangci-lint exit with code 3
-2026-01-29T07:54:11.5676240Z Ran golangci-lint in 92ms
-2026-01-29T07:54:11.5676702Z ##[endgroup]
-2026-01-29T07:54:11.5790787Z Post job cleanup.
-2026-01-29T07:54:11.7125063Z Post job cleanup.
-2026-01-29T07:54:11.8052701Z [command]/usr/bin/git version
-2026-01-29T07:54:11.8087787Z git version 2.52.0
-2026-01-29T07:54:11.8131529Z Temporarily overriding HOME='/home/runner/work/_temp/741db95d-ca96-4a26-ab9b-37f6c6cde570' before making global git config changes
-2026-01-29T07:54:11.8132901Z Adding repository directory to the temporary git global config as a safe directory
-2026-01-29T07:54:11.8144429Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
-2026-01-29T07:54:11.8180239Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
-2026-01-29T07:54:11.8213160Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
-2026-01-29T07:54:11.8440749Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
-2026-01-29T07:54:11.8460784Z http.https://github.com/.extraheader
-2026-01-29T07:54:11.8472908Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
-2026-01-29T07:54:11.8503136Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
-2026-01-29T07:54:11.8720319Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
-2026-01-29T07:54:11.8750590Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
-2026-01-29T07:54:11.9067012Z Cleaning up orphan processes
+2026-01-29T08:33:11.1843552Z Current runner version: '2.331.0'
+2026-01-29T08:33:11.1881854Z ##[group]Runner Image Provisioner
+2026-01-29T08:33:11.1883058Z Hosted Compute Agent
+2026-01-29T08:33:11.1883827Z Version: 20260123.484
+2026-01-29T08:33:11.1884762Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+2026-01-29T08:33:11.1885792Z Build Date: 2026-01-23T19:41:17Z
+2026-01-29T08:33:11.1886695Z Worker ID: {6dc9f98c-1103-4d9b-bcd6-27c212813947}
+2026-01-29T08:33:11.1888088Z Azure Region: eastus2
+2026-01-29T08:33:11.1888805Z ##[endgroup]
+2026-01-29T08:33:11.1890711Z ##[group]Operating System
+2026-01-29T08:33:11.1891701Z Ubuntu
+2026-01-29T08:33:11.1892329Z 24.04.3
+2026-01-29T08:33:11.1892994Z LTS
+2026-01-29T08:33:11.1893762Z ##[endgroup]
+2026-01-29T08:33:11.1894498Z ##[group]Runner Image
+2026-01-29T08:33:11.1895254Z Image: ubuntu-24.04
+2026-01-29T08:33:11.1896085Z Version: 20260126.10.1
+2026-01-29T08:33:11.1898041Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260126.10/images/ubuntu/Ubuntu2404-Readme.md
+2026-01-29T08:33:11.1900462Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260126.10
+2026-01-29T08:33:11.1901890Z ##[endgroup]
+2026-01-29T08:33:11.1903561Z ##[group]GITHUB_TOKEN Permissions
+2026-01-29T08:33:11.1906398Z Contents: read
+2026-01-29T08:33:11.1907110Z Metadata: read
+2026-01-29T08:33:11.1908396Z Packages: read
+2026-01-29T08:33:11.1909141Z ##[endgroup]
+2026-01-29T08:33:11.1911777Z Secret source: Actions
+2026-01-29T08:33:11.1912931Z Prepare workflow directory
+2026-01-29T08:33:11.2434554Z Prepare all required actions
+2026-01-29T08:33:11.2487664Z Getting action download info
+2026-01-29T08:33:11.5556889Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-01-29T08:33:11.6745008Z Download action repository 'actions/setup-go@v4' (SHA:7b8cf10d4e4a01d4992d18a89f4d7dc5a3e6d6f4)
+2026-01-29T08:33:11.9668739Z Download action repository 'golangci/golangci-lint-action@v3' (SHA:3a919529898de77ec3da873e3063ca4b10e7f5cc)
+2026-01-29T08:33:12.3289498Z Complete job name: Lint & Format Check
+2026-01-29T08:33:12.3967117Z ##[group]Run actions/checkout@v4
+2026-01-29T08:33:12.3968273Z with:
+2026-01-29T08:33:12.3968741Z   repository: rtcdance/streamgate
+2026-01-29T08:33:12.3969479Z   token: ***
+2026-01-29T08:33:12.3969927Z   ssh-strict: true
+2026-01-29T08:33:12.3970374Z   ssh-user: git
+2026-01-29T08:33:12.3970832Z   persist-credentials: true
+2026-01-29T08:33:12.3971332Z   clean: true
+2026-01-29T08:33:12.3971799Z   sparse-checkout-cone-mode: true
+2026-01-29T08:33:12.3972350Z   fetch-depth: 1
+2026-01-29T08:33:12.3972808Z   fetch-tags: false
+2026-01-29T08:33:12.3973263Z   show-progress: true
+2026-01-29T08:33:12.3973723Z   lfs: false
+2026-01-29T08:33:12.3974162Z   submodules: false
+2026-01-29T08:33:12.3974634Z   set-safe-directory: true
+2026-01-29T08:33:12.3975289Z env:
+2026-01-29T08:33:12.3975696Z   GO_VERSION: 1.24
+2026-01-29T08:33:12.3976177Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T08:33:12.3976740Z   GOTOOLCHAIN: auto
+2026-01-29T08:33:12.3977194Z ##[endgroup]
+2026-01-29T08:33:12.5054650Z Syncing repository: rtcdance/streamgate
+2026-01-29T08:33:12.5056715Z ##[group]Getting Git version info
+2026-01-29T08:33:12.5057669Z Working directory is '/home/runner/work/streamgate/streamgate'
+2026-01-29T08:33:12.5058732Z [command]/usr/bin/git version
+2026-01-29T08:33:12.5113629Z git version 2.52.0
+2026-01-29T08:33:12.5138045Z ##[endgroup]
+2026-01-29T08:33:12.5158612Z Temporarily overriding HOME='/home/runner/work/_temp/87e01a4d-3b39-43d5-a129-dc71b518a004' before making global git config changes
+2026-01-29T08:33:12.5160119Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T08:33:12.5163646Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T08:33:12.5201409Z Deleting the contents of '/home/runner/work/streamgate/streamgate'
+2026-01-29T08:33:12.5205125Z ##[group]Initializing the repository
+2026-01-29T08:33:12.5209524Z [command]/usr/bin/git init /home/runner/work/streamgate/streamgate
+2026-01-29T08:33:12.5291495Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-01-29T08:33:12.5293219Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-01-29T08:33:12.5294857Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-01-29T08:33:12.5296137Z hint: call:
+2026-01-29T08:33:12.5296803Z hint:
+2026-01-29T08:33:12.5298031Z hint: 	git config --global init.defaultBranch <name>
+2026-01-29T08:33:12.5298703Z hint:
+2026-01-29T08:33:12.5299314Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-01-29T08:33:12.5300319Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-01-29T08:33:12.5301087Z hint:
+2026-01-29T08:33:12.5301720Z hint: 	git branch -m <name>
+2026-01-29T08:33:12.5302506Z hint:
+2026-01-29T08:33:12.5303155Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-01-29T08:33:12.5304257Z Initialized empty Git repository in /home/runner/work/streamgate/streamgate/.git/
+2026-01-29T08:33:12.5307374Z [command]/usr/bin/git remote add origin https://github.com/rtcdance/streamgate
+2026-01-29T08:33:12.5341463Z ##[endgroup]
+2026-01-29T08:33:12.5342282Z ##[group]Disabling automatic garbage collection
+2026-01-29T08:33:12.5345283Z [command]/usr/bin/git config --local gc.auto 0
+2026-01-29T08:33:12.5374575Z ##[endgroup]
+2026-01-29T08:33:12.5375322Z ##[group]Setting up auth
+2026-01-29T08:33:12.5381302Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T08:33:12.5412426Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T08:33:12.5739083Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T08:33:12.5768631Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T08:33:12.5998447Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T08:33:12.6030336Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T08:33:12.6266717Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-01-29T08:33:12.6302144Z ##[endgroup]
+2026-01-29T08:33:12.6303445Z ##[group]Fetching the repository
+2026-01-29T08:33:12.6311785Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +2808ef4cf3b73d48834026c33dbce7c402830c23:refs/remotes/origin/master
+2026-01-29T08:33:12.9135553Z From https://github.com/rtcdance/streamgate
+2026-01-29T08:33:12.9136460Z  * [new ref]         2808ef4cf3b73d48834026c33dbce7c402830c23 -> origin/master
+2026-01-29T08:33:12.9168154Z ##[endgroup]
+2026-01-29T08:33:12.9169210Z ##[group]Determining the checkout info
+2026-01-29T08:33:12.9170812Z ##[endgroup]
+2026-01-29T08:33:12.9176445Z [command]/usr/bin/git sparse-checkout disable
+2026-01-29T08:33:12.9218265Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-01-29T08:33:12.9244712Z ##[group]Checking out the ref
+2026-01-29T08:33:12.9249503Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+2026-01-29T08:33:12.9672888Z Reset branch 'master'
+2026-01-29T08:33:12.9674552Z branch 'master' set up to track 'origin/master'.
+2026-01-29T08:33:12.9684145Z ##[endgroup]
+2026-01-29T08:33:12.9726225Z [command]/usr/bin/git log -1 --format=%H
+2026-01-29T08:33:12.9751850Z 2808ef4cf3b73d48834026c33dbce7c402830c23
+2026-01-29T08:33:12.9984586Z ##[group]Run actions/setup-go@v4
+2026-01-29T08:33:12.9985078Z with:
+2026-01-29T08:33:12.9985411Z   go-version: 1.24
+2026-01-29T08:33:12.9985791Z   check-latest: false
+2026-01-29T08:33:12.9986552Z   token: ***
+2026-01-29T08:33:12.9986900Z   cache: true
+2026-01-29T08:33:12.9987253Z env:
+2026-01-29T08:33:12.9987728Z   GO_VERSION: 1.24
+2026-01-29T08:33:12.9988135Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T08:33:12.9988613Z   GOTOOLCHAIN: auto
+2026-01-29T08:33:12.9988988Z ##[endgroup]
+2026-01-29T08:33:13.1595298Z Setup go version spec 1.24
+2026-01-29T08:33:13.2431253Z Found in cache @ /opt/hostedtoolcache/go/1.24.12/x64
+2026-01-29T08:33:13.2435632Z Added go to the path
+2026-01-29T08:33:13.2438875Z Successfully set up Go version 1.24
+2026-01-29T08:33:16.1803601Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOMODCACHE
+2026-01-29T08:33:16.1834112Z [command]/opt/hostedtoolcache/go/1.24.12/x64/bin/go env GOCACHE
+2026-01-29T08:33:16.1855702Z /home/runner/go/pkg/mod
+2026-01-29T08:33:16.1883523Z /home/runner/.cache/go-build
+2026-01-29T08:33:16.3215635Z Cache is not found
+2026-01-29T08:33:16.3240687Z go version go1.24.12 linux/amd64
+2026-01-29T08:33:16.3241252Z 
+2026-01-29T08:33:16.3242161Z ##[group]go env
+2026-01-29T08:33:19.2849266Z AR='ar'
+2026-01-29T08:33:19.2849659Z CC='gcc'
+2026-01-29T08:33:19.2849975Z CGO_CFLAGS='-O2 -g'
+2026-01-29T08:33:19.2850277Z CGO_CPPFLAGS=''
+2026-01-29T08:33:19.2850565Z CGO_CXXFLAGS='-O2 -g'
+2026-01-29T08:33:19.2850871Z CGO_ENABLED='1'
+2026-01-29T08:33:19.2851174Z CGO_FFLAGS='-O2 -g'
+2026-01-29T08:33:19.2851503Z CGO_LDFLAGS='-O2 -g'
+2026-01-29T08:33:19.2851794Z CXX='g++'
+2026-01-29T08:33:19.2852029Z GCCGO='gccgo'
+2026-01-29T08:33:19.2852292Z GO111MODULE=''
+2026-01-29T08:33:19.2852540Z GOAMD64='v1'
+2026-01-29T08:33:19.2852809Z GOARCH='amd64'
+2026-01-29T08:33:19.2853064Z GOAUTH='netrc'
+2026-01-29T08:33:19.2853320Z GOBIN=''
+2026-01-29T08:33:19.2853620Z GOCACHE='/home/runner/.cache/go-build'
+2026-01-29T08:33:19.2854005Z GOCACHEPROG=''
+2026-01-29T08:33:19.2854370Z GODEBUG=''
+2026-01-29T08:33:19.2854678Z GOENV='/home/runner/.config/go/env'
+2026-01-29T08:33:19.2855043Z GOEXE=''
+2026-01-29T08:33:19.2855296Z GOEXPERIMENT=''
+2026-01-29T08:33:19.2856855Z GOFIPS140='off'
+2026-01-29T08:33:19.2857167Z GOFLAGS=''
+2026-01-29T08:33:19.2858320Z GOGCCFLAGS='-fPIC -m64 -pthread -Wl,--no-gc-sections -fmessage-length=0 -ffile-prefix-map=/tmp/go-build3853004968=/tmp/go-build -gno-record-gcc-switches'
+2026-01-29T08:33:19.2859254Z GOHOSTARCH='amd64'
+2026-01-29T08:33:19.2859545Z GOHOSTOS='linux'
+2026-01-29T08:33:19.2859832Z GOINSECURE=''
+2026-01-29T08:33:19.2860600Z GOMOD='/home/runner/work/streamgate/streamgate/go.mod'
+2026-01-29T08:33:19.2861110Z GOMODCACHE='/home/runner/go/pkg/mod'
+2026-01-29T08:33:19.2861480Z GONOPROXY=''
+2026-01-29T08:33:19.2861752Z GONOSUMDB=''
+2026-01-29T08:33:19.2862007Z GOOS='linux'
+2026-01-29T08:33:19.2862293Z GOPATH='/home/runner/go'
+2026-01-29T08:33:19.2862679Z GOPRIVATE=''
+2026-01-29T08:33:19.2863193Z GOPROXY='https://goproxy.io,direct'
+2026-01-29T08:33:19.2863677Z GOROOT='/opt/hostedtoolcache/go/1.24.12/x64'
+2026-01-29T08:33:19.2864099Z GOSUMDB='sum.golang.org'
+2026-01-29T08:33:19.2864428Z GOTELEMETRY='local'
+2026-01-29T08:33:19.2864810Z GOTELEMETRYDIR='/home/runner/.config/go/telemetry'
+2026-01-29T08:33:19.2865247Z GOTMPDIR=''
+2026-01-29T08:33:19.2865515Z GOTOOLCHAIN='auto'
+2026-01-29T08:33:19.2865989Z GOTOOLDIR='/opt/hostedtoolcache/go/1.24.12/x64/pkg/tool/linux_amd64'
+2026-01-29T08:33:19.2866499Z GOVCS=''
+2026-01-29T08:33:19.2866777Z GOVERSION='go1.24.12'
+2026-01-29T08:33:19.2867079Z GOWORK=''
+2026-01-29T08:33:19.2867364Z PKG_CONFIG='pkg-config'
+2026-01-29T08:33:19.2867819Z 
+2026-01-29T08:33:19.2868495Z ##[endgroup]
+2026-01-29T08:33:19.2998729Z ##[group]Run golangci/golangci-lint-action@v3
+2026-01-29T08:33:19.2999054Z with:
+2026-01-29T08:33:19.2999231Z   version: v1.65.0
+2026-01-29T08:33:19.2999446Z   args: --timeout=5m ./...
+2026-01-29T08:33:19.2999666Z   skip-cache: true
+2026-01-29T08:33:19.3000024Z   github-token: ***
+2026-01-29T08:33:19.3000235Z   only-new-issues: false
+2026-01-29T08:33:19.3000445Z   skip-pkg-cache: false
+2026-01-29T08:33:19.3000660Z   skip-build-cache: false
+2026-01-29T08:33:19.3000866Z   install-mode: binary
+2026-01-29T08:33:19.3001310Z env:
+2026-01-29T08:33:19.3001481Z   GO_VERSION: 1.24
+2026-01-29T08:33:19.3001705Z   GOPROXY: https://goproxy.io,direct
+2026-01-29T08:33:19.3001977Z   GOTOOLCHAIN: auto
+2026-01-29T08:33:19.3002162Z ##[endgroup]
+2026-01-29T08:33:19.4229423Z ##[group]prepare environment
+2026-01-29T08:33:19.4235027Z Finding needed golangci-lint version...
+2026-01-29T08:33:19.4239490Z Installation mode: binary
+2026-01-29T08:33:19.4240169Z Installing golangci-lint binary v1.65.0...
+2026-01-29T08:33:19.4241276Z Downloading binary https://github.com/golangci/golangci-lint/releases/download/v1.65.0/golangci-lint-1.65.0-linux-amd64.tar.gz ...
+2026-01-29T08:33:19.5475166Z ##[endgroup]
+2026-01-29T08:33:19.5534305Z ##[error]Failed to run: Error: Unexpected HTTP response: 404, Error: Unexpected HTTP response: 404
+    at /home/runner/work/_actions/golangci/golangci-lint-action/v3/dist/run/index.js:7008:25
+    at Generator.next (<anonymous>)
+    at fulfilled (/home/runner/work/_actions/golangci/golangci-lint-action/v3/dist/run/index.js:6918:58)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-01-29T08:33:19.5543703Z ##[error]Unexpected HTTP response: 404
+2026-01-29T08:33:49.5600952Z Post job cleanup.
+2026-01-29T08:33:49.6918964Z Post job cleanup.
+2026-01-29T08:33:49.7859590Z [command]/usr/bin/git version
+2026-01-29T08:33:49.7895440Z git version 2.52.0
+2026-01-29T08:33:49.7935448Z Temporarily overriding HOME='/home/runner/work/_temp/5d1390e4-43a8-492d-8277-a634f88d8eae' before making global git config changes
+2026-01-29T08:33:49.7936525Z Adding repository directory to the temporary git global config as a safe directory
+2026-01-29T08:33:49.7941227Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/streamgate/streamgate
+2026-01-29T08:33:49.7977178Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-01-29T08:33:49.8010881Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-01-29T08:33:49.8253936Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-01-29T08:33:49.8275485Z http.https://github.com/.extraheader
+2026-01-29T08:33:49.8287293Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-01-29T08:33:49.8319279Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-01-29T08:33:49.8554269Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-01-29T08:33:49.8585329Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-01-29T08:33:49.8937978Z Cleaning up orphan processes
