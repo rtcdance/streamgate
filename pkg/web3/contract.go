@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -28,7 +29,9 @@ func NewContractInteractor(client *ethclient.Client, logger *zap.Logger) *Contra
 
 // CallContractFunction calls a read-only contract function
 func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contractAddress string, abiJSON string, functionName string, args ...interface{}) (interface{}, error) {
-	ci.logger.Debug("Calling contract function", "contract", contractAddress, "function", functionName)
+	ci.logger.Debug("Calling contract function",
+		zap.String("contract", contractAddress),
+		zap.String("function", functionName))
 
 	// Parse contract address
 	contract := common.HexToAddress(contractAddress)
@@ -43,21 +46,23 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 	// Pack function call
 	data, err := parsedABI.Pack(functionName, args...)
 	if err != nil {
-		ci.logger.Error("Failed to pack function call", "function", functionName, "error", err)
+		ci.logger.Error("Failed to pack function call",
+			zap.String("function", functionName),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to pack function call: %w", err)
 	}
 
 	// Execute call
-	result, err := ci.client.CallContract(ctx, struct {
-		To   *common.Address
-		Data []byte
-	}{
+	msg := ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
-	}, nil)
+	}
+	result, err := ci.client.CallContract(ctx, msg, nil)
 
 	if err != nil {
-		ci.logger.Error("Failed to call contract function", "function", functionName, "error", err)
+		ci.logger.Error("Failed to call contract function",
+			zap.String("function", functionName),
+			zap.Error(err))
 		return nil, fmt.Errorf("failed to call contract function: %w", err)
 	}
 
@@ -72,11 +77,15 @@ func (ci *ContractInteractor) GetContractCode(ctx context.Context, contractAddre
 	contract := common.HexToAddress(contractAddress)
 	code, err := ci.client.CodeAt(ctx, contract, nil)
 	if err != nil {
-		ci.logger.Error("Failed to get contract code", "contract", contractAddress, "error", err)
+		ci.logger.Error("Failed to get contract code",
+			zap.String("contract", contractAddress),
+			zap.Error(err))
 		return "", fmt.Errorf("failed to get contract code: %w", err)
 	}
 
-	ci.logger.Debug("Contract code retrieved", "contract", contractAddress, "size", len(code))
+	ci.logger.Debug("Contract code retrieved",
+		zap.String("contract", contractAddress),
+		zap.Int("size", len(code)))
 	return fmt.Sprintf("0x%x", code), nil
 }
 
@@ -87,12 +96,16 @@ func (ci *ContractInteractor) IsContractAddress(ctx context.Context, address str
 	addr := common.HexToAddress(address)
 	code, err := ci.client.CodeAt(ctx, addr, nil)
 	if err != nil {
-		ci.logger.Error("Failed to check contract address", "address", address, "error", err)
+		ci.logger.Error("Failed to check contract address",
+			zap.String("address", address),
+			zap.Error(err))
 		return false, fmt.Errorf("failed to check contract address: %w", err)
 	}
 
 	isContract := len(code) > 0
-	ci.logger.Debug("Contract address check completed", "address", address, "is_contract", isContract)
+	ci.logger.Debug("Contract address check completed",
+		zap.String("address", address),
+		zap.Bool("is_contract", isContract))
 	return isContract, nil
 }
 
@@ -145,7 +158,9 @@ func NewContractEventListener(client *ethclient.Client, logger *zap.Logger) *Con
 
 // ListenForEvents listens for contract events
 func (el *ContractEventListener) ListenForEvents(ctx context.Context, contractAddress string, eventSignature string) error {
-	el.logger.Info("Listening for events", "contract", contractAddress, "event", eventSignature)
+	el.logger.Info("Listening for events",
+		zap.String("contract", contractAddress),
+		zap.String("event", eventSignature))
 
 	// TODO: Implement event listening
 	return fmt.Errorf("event listening not yet implemented")
@@ -163,7 +178,10 @@ type ContractEvent struct {
 
 // GetContractEvents gets events from a contract
 func (el *ContractEventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock int64, toBlock int64) ([]*ContractEvent, error) {
-	el.logger.Debug("Getting contract events", "contract", contractAddress, "from_block", fromBlock, "to_block", toBlock)
+	el.logger.Debug("Getting contract events",
+		zap.String("contract", contractAddress),
+		zap.Int64("from_block", fromBlock),
+		zap.Int64("to_block", toBlock))
 
 	// TODO: Implement get contract events
 	return nil, fmt.Errorf("get contract events not yet implemented")
@@ -183,7 +201,10 @@ func NewTransactionBuilder(logger *zap.Logger) *TransactionBuilder {
 
 // BuildTransaction builds a transaction
 func (tb *TransactionBuilder) BuildTransaction(to string, value *big.Int, data string, gasLimit uint64, gasPrice *big.Int) *Transaction {
-	tb.logger.Debug("Building transaction", "to", to, "value", value.String(), "gas_limit", gasLimit)
+	tb.logger.Debug("Building transaction",
+		zap.String("to", to),
+		zap.String("value", value.String()),
+		zap.Uint64("gas_limit", gasLimit))
 
 	return &Transaction{
 		To:       to,
