@@ -1,6 +1,6 @@
 module streamgate
 
-go 1.25.0
+go 1.21
 
 require (
 	// Object Storage
