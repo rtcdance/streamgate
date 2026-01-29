@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go.uber.org/zap"
 	"context"
 	"os"
 	"os/signal"
@@ -23,24 +24,27 @@ func main() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatal("Failed to load configuration", "error", err)
+		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	// Force microservice mode
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "streaming"
 	cfg.Server.Port = 9093
-	log.Info("Configuration loaded", "mode", cfg.Mode, "service", cfg.ServiceName, "port", cfg.Server.Port)
+	log.Info("Configuration loaded",
+		zap.String("mode", cfg.Mode),
+		zap.String("service", cfg.ServiceName),
+		zap.Int("port", cfg.Server.Port))
 
 	// Initialize microkernel
 	kernel, err := core.NewMicrokernel(cfg, log)
 	if err != nil {
-		log.Fatal("Failed to initialize microkernel", "error", err)
+		log.Fatal("Failed to initialize microkernel", zap.Error(err))
 	}
 
 	// Register streaming plugin
 	if err := kernel.RegisterPlugin(streaming.NewStreamingPlugin(cfg, log)); err != nil {
-		log.Fatal("Failed to register streaming plugin", "error", err)
+		log.Fatal("Failed to register streaming plugin", zap.Error(err))
 	}
 
 	// Start microkernel
@@ -48,24 +52,24 @@ func main() {
 	defer cancel()
 
 	if err := kernel.Start(ctx); err != nil {
-		log.Fatal("Failed to start microkernel", "error", err)
+		log.Fatal("Failed to start microkernel", zap.Error(err))
 	}
 
-	log.Info("StreamGate Streaming Service started successfully", "port", cfg.Server.Port)
+	log.Info("StreamGate Streaming Service started successfully", zap.Int("port", cfg.Server.Port))
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	sig := <-sigChan
-	log.Info("Received shutdown signal", "signal", sig)
+	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
 	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := kernel.Shutdown(shutdownCtx); err != nil {
-		log.Error("Error during shutdown", "error", err)
+		log.Error("Error during shutdown", zap.Error(err))
 		os.Exit(1)
 	}
 
