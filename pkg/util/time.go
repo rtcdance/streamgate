@@ -9,6 +9,11 @@ func GetCurrentTime() time.Time {
 	return time.Now()
 }
 
+// Now is an alias for GetCurrentTime for compatibility
+func Now() time.Time {
+	return time.Now()
+}
+
 // GetCurrentTimeUnix returns current time as Unix timestamp
 func GetCurrentTimeUnix() int64 {
 	return time.Now().Unix()

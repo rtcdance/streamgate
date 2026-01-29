@@ -1,12 +1,21 @@
 package util
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"html"
 	"strings"
 	"unicode"
 )
 
 // TrimSpace trims leading and trailing whitespace
 func TrimSpace(s string) string {
+	return strings.TrimSpace(s)
+}
+
+// Trim is an alias for TrimSpace for compatibility
+func Trim(s string) string {
 	return strings.TrimSpace(s)
 }
 
@@ -61,4 +70,38 @@ func Truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen]
+}
+
+// GenerateRandomString generates a random string of specified length
+func GenerateRandomString(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(bytes)[:length], nil
+}
+
+// Base64Encode encodes data to base64 string
+func Base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// Base64Decode decodes base64 string to data
+func Base64Decode(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
+}
+
+// HexEncode encodes data to hex string
+func HexEncode(data []byte) string {
+	return hex.EncodeToString(data)
+}
+
+// HexDecode decodes hex string to data
+func HexDecode(s string) ([]byte, error) {
+	return hex.DecodeString(s)
+}
+
+// SanitizeInput sanitizes user input by escaping HTML
+func SanitizeInput(s string) string {
+	return html.EscapeString(strings.TrimSpace(s))
 }
