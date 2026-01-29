@@ -7,7 +7,7 @@ on:
     branches: [ main, master, develop ]
 
 env:
-  GO_VERSION: '1.24'
+  GO_VERSION: '1.23'
   GOPROXY: 'https://goproxy.io,direct'
 
 jobs:
