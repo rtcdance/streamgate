@@ -67,7 +67,7 @@ func (lc *LocalCache) Set(key string, value interface{}) error {
 	}
 
 	lc.entries[key] = entry
-	lc.logger.Debug("Cache entry set", "key", key)
+	lc.logger.Debug("Cache entry set", zap.String("key", key))
 
 	return nil
 }
@@ -101,7 +101,7 @@ func (lc *LocalCache) Delete(key string) {
 	defer lc.mu.Unlock()
 
 	delete(lc.entries, key)
-	lc.logger.Debug("Cache entry deleted", "key", key)
+	lc.logger.Debug("Cache entry deleted", zap.String("key", key))
 }
 
 // Clear clears all cache entries
@@ -135,7 +135,7 @@ func (lc *LocalCache) evictOldest() {
 
 	if oldestKey != "" {
 		delete(lc.entries, oldestKey)
-		lc.logger.Debug("Cache entry evicted", "key", oldestKey)
+		lc.logger.Debug("Cache entry evicted", zap.String("key", oldestKey))
 	}
 }
 
@@ -170,7 +170,7 @@ func (lc *LocalCache) cleanup() {
 	}
 
 	if expiredCount > 0 {
-		lc.logger.Debug("Cache cleanup completed", "expired_count", expiredCount)
+		lc.logger.Debug("Cache cleanup completed", zap.Int("expired_count", expiredCount))
 	}
 }
 
@@ -273,7 +273,7 @@ func (cw *CacheWarmer) RegisterLoader(name string, loader CacheLoader) {
 	defer cw.mu.Unlock()
 
 	cw.loaders[name] = loader
-	cw.logger.Debug("Cache loader registered", "name", name)
+	cw.logger.Debug("Cache loader registered", zap.String("name", name))
 }
 
 // Warm warms the cache
@@ -288,17 +288,17 @@ func (cw *CacheWarmer) Warm() error {
 	for name, loader := range loaders {
 		data, err := loader()
 		if err != nil {
-			cw.logger.Error("Failed to load cache data", "loader", name, "error", err)
+			cw.logger.Error("Failed to load cache data", zap.String("loader", name), zap.Error(err))
 			continue
 		}
 
 		for key, value := range data {
 			if err := cw.cache.Set(key, value); err != nil {
-				cw.logger.Error("Failed to set cache entry", "key", key, "error", err)
+				cw.logger.Error("Failed to set cache entry", zap.String("key", key), zap.Error(err))
 			}
 		}
 
-		cw.logger.Info("Cache warmed", "loader", name, "entries", len(data))
+		cw.logger.Info("Cache warmed", zap.String("loader", name), zap.Int("entries", len(data)))
 	}
 
 	return nil

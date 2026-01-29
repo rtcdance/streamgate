@@ -24,7 +24,7 @@ type NATSEventBus struct {
 
 // NewNATSEventBus creates a new NATS event bus
 func NewNATSEventBus(url string, logger *zap.Logger) (*NATSEventBus, error) {
-	logger.Info("Connecting to NATS", "url", url)
+	logger.Info("Connecting to NATS", zap.String("url", url))
 
 	// Create NATS connection with reconnect options
 	opts := []nats.Option{
@@ -32,10 +32,10 @@ func NewNATSEventBus(url string, logger *zap.Logger) (*NATSEventBus, error) {
 		nats.MaxReconnects(10),
 		nats.ReconnectWait(2 * time.Second),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			logger.Warn("NATS disconnected", "error", err)
+			logger.Warn("NATS disconnected", zap.Error(err))
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
-			logger.Info("NATS reconnected", "url", nc.ConnectedUrl())
+			logger.Info("NATS reconnected", zap.String("url", nc.ConnectedUrl()))
 		}),
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			logger.Info("NATS connection closed")
@@ -44,11 +44,11 @@ func NewNATSEventBus(url string, logger *zap.Logger) (*NATSEventBus, error) {
 
 	conn, err := nats.Connect(url, opts...)
 	if err != nil {
-		logger.Error("Failed to connect to NATS", "error", err)
+		logger.Error("Failed to connect to NATS", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-	logger.Info("Connected to NATS", "url", conn.ConnectedUrl())
+	logger.Info("Connected to NATS", zap.String("url", conn.ConnectedUrl()))
 
 	return &NATSEventBus{
 		conn:          conn,

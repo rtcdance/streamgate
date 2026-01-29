@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // LoggingMiddleware returns a logging middleware
@@ -15,10 +16,10 @@ func (s *Service) LoggingMiddleware() gin.HandlerFunc {
 
 		duration := time.Since(startTime)
 		s.logger.Info("HTTP Request",
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", c.Writer.Status(),
-			"duration_ms", duration.Milliseconds(),
+			zap.String("method", c.Request.Method),
+			zap.String("path", c.Request.URL.Path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Int64("duration_ms", duration.Milliseconds()),
 		)
 	}
 }
