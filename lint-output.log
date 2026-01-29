@@ -1,0 +1,5 @@
+test/integration/ml/ml_integration_test.go:1: : # streamgate/test/integration/ml [streamgate/test/integration/ml.test]
+test/integration/ml/ml_integration_test.go:187:14: undefined: ml.AlertRule (typecheck)
+package ml
+1 issues:
+* typecheck: 1

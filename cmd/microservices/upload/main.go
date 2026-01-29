@@ -1,8 +1,8 @@
 package main
 
 import (
-	"go.uber.org/zap"
 	"context"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
 	"syscall"

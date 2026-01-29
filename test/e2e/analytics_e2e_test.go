@@ -43,13 +43,13 @@ func TestAnalyticsAPIEndToEnd(t *testing.T) {
 
 	// Test recording metrics
 	metricsPayload := map[string]interface{}{
-		"service_id":    "api-gateway",
-		"cpu_usage":     45.5,
-		"memory_usage":  62.3,
-		"disk_usage":    78.1,
-		"request_rate":  1250.5,
-		"error_rate":    0.02,
-		"latency":       125.3,
+		"service_id":     "api-gateway",
+		"cpu_usage":      45.5,
+		"memory_usage":   62.3,
+		"disk_usage":     78.1,
+		"request_rate":   1250.5,
+		"error_rate":     0.02,
+		"latency":        125.3,
 		"cache_hit_rate": 0.95,
 	}
 
@@ -149,13 +149,13 @@ func TestAnalyticsAPIMultipleRequests(t *testing.T) {
 	// Send multiple requests
 	for i := 0; i < 10; i++ {
 		metricsPayload := map[string]interface{}{
-			"service_id":    "api-gateway",
-			"cpu_usage":     45.5 + float64(i),
-			"memory_usage":  62.3,
-			"disk_usage":    78.1,
-			"request_rate":  1250.5,
-			"error_rate":    0.02,
-			"latency":       125.3,
+			"service_id":     "api-gateway",
+			"cpu_usage":      45.5 + float64(i),
+			"memory_usage":   62.3,
+			"disk_usage":     78.1,
+			"request_rate":   1250.5,
+			"error_rate":     0.02,
+			"latency":        125.3,
 			"cache_hit_rate": 0.95,
 		}
 
@@ -190,13 +190,13 @@ func TestAnalyticsAPIDataConsistency(t *testing.T) {
 
 	// Record metrics
 	metricsPayload := map[string]interface{}{
-		"service_id":    "test-service",
-		"cpu_usage":     50.0,
-		"memory_usage":  60.0,
-		"disk_usage":    70.0,
-		"request_rate":  1000.0,
-		"error_rate":    0.01,
-		"latency":       100.0,
+		"service_id":     "test-service",
+		"cpu_usage":      50.0,
+		"memory_usage":   60.0,
+		"disk_usage":     70.0,
+		"request_rate":   1000.0,
+		"error_rate":     0.01,
+		"latency":        100.0,
 		"cache_hit_rate": 0.95,
 	}
 
