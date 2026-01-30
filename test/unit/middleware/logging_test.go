@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
 	"streamgate/test/helpers"
 )
@@ -15,7 +16,11 @@ func TestLoggingMiddleware_LogsRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	service := middleware.NewService(logger)
 	router.Use(service.LoggingMiddleware())
 
 	router.GET("/test", func(c *gin.Context) {
@@ -37,7 +42,11 @@ func TestLoggingMiddleware_LogsErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	service := middleware.NewService(logger)
 	router.Use(service.LoggingMiddleware())
 
 	router.GET("/error", func(c *gin.Context) {

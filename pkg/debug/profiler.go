@@ -118,7 +118,7 @@ func (p *Profiler) profilingLoop() {
 	}
 }
 
-// profileSystem profiles the system
+// profileSystem profiles system
 func (p *Profiler) profileSystem() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -131,6 +131,11 @@ func (p *Profiler) profileSystem() {
 
 	// Profile blocks
 	p.profileBlocks()
+}
+
+// ProfileNow profiles the system immediately
+func (p *Profiler) ProfileNow() {
+	p.profileSystem()
 }
 
 // profileMemory profiles memory usage
@@ -366,32 +371,70 @@ func (p *Profiler) DetectGoroutineLeak() bool {
 	return float64(increasing)/float64(len(p.goroutineProfiles)-1) > 0.8
 }
 
+// detectMemoryLeakLocked detects potential memory leaks (assumes lock is held)
+func (p *Profiler) detectMemoryLeakLocked() bool {
+	if len(p.memProfiles) < 10 {
+		return false
+	}
+
+	// Check if memory is consistently increasing
+	increasing := 0
+	for i := 1; i < len(p.memProfiles); i++ {
+		if p.memProfiles[i].Alloc > p.memProfiles[i-1].Alloc {
+			increasing++
+		}
+	}
+
+	// If memory increased in 80% of samples, likely a leak
+	return float64(increasing)/float64(len(p.memProfiles)-1) > 0.8
+}
+
+// detectGoroutineLeakLocked detects potential goroutine leaks (assumes lock is held)
+func (p *Profiler) detectGoroutineLeakLocked() bool {
+	if len(p.goroutineProfiles) < 10 {
+		return false
+	}
+
+	// Check if goroutine count is consistently increasing
+	increasing := 0
+	for i := 1; i < len(p.goroutineProfiles); i++ {
+		if p.goroutineProfiles[i].Count > p.goroutineProfiles[i-1].Count {
+			increasing++
+		}
+	}
+
+	// If goroutines increased in 80% of samples, likely a leak
+	return float64(increasing)/float64(len(p.goroutineProfiles)-1) > 0.8
+}
+
 // GetOptimizationRecommendations returns optimization recommendations
 func (p *Profiler) GetOptimizationRecommendations() []string {
+	recommendations := []string{}
+
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	var recommendations []string
-
-	// Check memory
-	if p.DetectMemoryLeak() {
+	// Check memory leak (lock already held)
+	if p.detectMemoryLeakLocked() {
 		recommendations = append(recommendations, "Potential memory leak detected - review memory allocation patterns")
 	}
 
-	// Check goroutines
-	if p.DetectGoroutineLeak() {
+	// Check goroutine leak (lock already held)
+	if p.detectGoroutineLeakLocked() {
 		recommendations = append(recommendations, "Potential goroutine leak detected - ensure goroutines are properly cleaned up")
 	}
 
 	// Check memory usage
-	if latest := p.GetLatestMemProfile(); latest != nil {
+	if len(p.memProfiles) > 0 {
+		latest := p.memProfiles[len(p.memProfiles)-1]
 		if latest.Alloc > 1024*1024*1024 { // 1GB
 			recommendations = append(recommendations, fmt.Sprintf("High memory usage: %d MB - consider optimization", latest.Alloc/1024/1024))
 		}
 	}
 
 	// Check goroutine count
-	if latest := p.GetLatestGoroutineProfile(); latest != nil {
+	if len(p.goroutineProfiles) > 0 {
+		latest := p.goroutineProfiles[len(p.goroutineProfiles)-1]
 		if latest.Count > 10000 {
 			recommendations = append(recommendations, fmt.Sprintf("High goroutine count: %d - consider pooling", latest.Count))
 		}

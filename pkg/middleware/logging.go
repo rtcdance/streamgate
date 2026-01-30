@@ -15,11 +15,13 @@ func (s *Service) LoggingMiddleware() gin.HandlerFunc {
 		c.Next()
 
 		duration := time.Since(startTime)
-		s.logger.Info("HTTP Request",
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
-			zap.Int("status", c.Writer.Status()),
-			zap.Int64("duration_ms", duration.Milliseconds()),
-		)
+		if s.logger != nil {
+			s.logger.Info("HTTP Request",
+				zap.String("method", c.Request.Method),
+				zap.String("path", c.Request.URL.Path),
+				zap.Int("status", c.Writer.Status()),
+				zap.Int64("duration_ms", duration.Milliseconds()),
+			)
+		}
 	}
 }
