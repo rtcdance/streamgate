@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func TestModels_ContentPersistence(t *testing.T) {
 	}
 
 	// Save content using direct SQL
-	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
 	helpers.AssertNoError(t, err)
 
 	// Retrieve content
@@ -132,8 +133,14 @@ func TestModels_TaskPersistence(t *testing.T) {
 		},
 	}
 
+	// Serialize payload to JSON
+	payloadJSON, err := json.Marshal(task.Payload)
+	if err != nil {
+		t.Fatalf("Failed to serialize payload: %v", err)
+	}
+
 	// Save task using direct SQL
-	_, err := db.Exec("INSERT INTO tasks (type, status, priority, payload) VALUES ($1, $2, $3, $4)", task.Type, task.Status, task.Priority, task.Payload)
+	_, err = db.Exec("INSERT INTO tasks (type, status, priority, payload) VALUES ($1, $2, $3, $4)", task.Type, task.Status, task.Priority, payloadJSON)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve task
@@ -190,7 +197,7 @@ func TestModels_UpdateTimestamp(t *testing.T) {
 		FileSize:    1024000,
 	}
 
-	_, err := db.Exec("INSERT INTO content (title, description, type, duration, file_size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
 	helpers.AssertNoError(t, err)
 
 	// Retrieve to get original timestamp
@@ -243,7 +250,7 @@ func TestModels_Relationships(t *testing.T) {
 		FileSize:    1024000,
 	}
 
-	_, err = db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err = db.Exec("INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, userID)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve content

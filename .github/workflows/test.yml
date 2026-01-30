@@ -139,7 +139,7 @@ jobs:
         ports:
           - 9000:9000
           - 9001:9001
-        command: server /data --console-address ":9001"
+        args: ["server", "/data", "--console-address", ":9001"]
     
     steps:
       - uses: actions/checkout@v4
@@ -175,6 +175,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
       
       - name: Set test path
         id: set-path
@@ -280,6 +281,21 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
+      
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 9000:9000
+          - 9001:9001
+        args: ["server", "/data", "--console-address", ":9001"]
     
     steps:
       - uses: actions/checkout@v4
@@ -315,6 +331,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
       
       - name: Run E2E test - ${{ matrix.test-file }}
         env:
@@ -325,6 +342,10 @@ jobs:
           DATABASE_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_USE_SSL: false
         run: go test -v -race -coverprofile=coverage.out -run TestFile ./test/e2e/${{ matrix.test-file }}
       
       - name: Upload coverage
@@ -410,6 +431,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
       
       - name: Run load tests
         env:
@@ -472,6 +494,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
       
       - name: Run security tests
         env:
