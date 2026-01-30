@@ -1,0 +1,2 @@
+-- Users table already created in 001_init_schema.sql
+-- This file is kept for migration history consistency

@@ -102,7 +102,7 @@ func IsValidJSON(s string) bool {
 	if len(s) == 0 {
 		return false
 	}
-	
+
 	var js interface{}
 	return json.Unmarshal([]byte(s), &js) == nil
 }

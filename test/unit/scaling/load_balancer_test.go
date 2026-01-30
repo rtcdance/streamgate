@@ -81,12 +81,12 @@ func TestGlobalLoadBalancer_SelectBackend_RoundRobin(t *testing.T) {
 	if selections[3].ID != selections[0].ID {
 		t.Error("Round-robin should wrap around after cycling through all backends")
 	}
-	
+
 	// selections[4] should equal selections[1]
 	if selections[4].ID != selections[1].ID {
 		t.Error("Round-robin should maintain consistent order after wrap-around")
 	}
-	
+
 	// selections[5] should equal selections[2]
 	if selections[5].ID != selections[2].ID {
 		t.Error("Round-robin should maintain consistent order after wrap-around")

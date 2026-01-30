@@ -153,7 +153,7 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 			for j := 0; j < numRequests; j++ {
 				username := "user_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
 				email := "user" + string(rune('0'+id)) + string(rune('0'+j)) + "@example.com"
-				
+
 				err := authService.Register(username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)

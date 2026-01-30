@@ -105,6 +105,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          POSTGRES_USER: streamgate
           POSTGRES_PASSWORD: streamgate
           POSTGRES_DB: streamgate
         options: >-
@@ -148,11 +149,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/001_init_schema.sql
+          psql -h localhost -U postgres -d streamgate < migrations/002_add_content_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/003_add_user_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/004_add_nft_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/005_add_transaction_table.sql
       
       - name: Set test path
         id: set-path
@@ -183,7 +184,7 @@ jobs:
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_USER: streamgate
+          DB_USER: postgres
           DB_PASSWORD: streamgate
           DB_NAME: streamgate
           REDIS_HOST: localhost
@@ -234,6 +235,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          POSTGRES_USER: streamgate
           POSTGRES_PASSWORD: streamgate
           POSTGRES_DB: streamgate
         options: >-
@@ -277,17 +279,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/001_init_schema.sql
+          psql -h localhost -U postgres -d streamgate < migrations/002_add_content_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/003_add_user_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/004_add_nft_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/005_add_transaction_table.sql
       
       - name: Run E2E test - ${{ matrix.test-file }}
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_USER: streamgate
+          DB_USER: postgres
           DB_PASSWORD: streamgate
           DB_NAME: streamgate
           REDIS_HOST: localhost
@@ -330,6 +332,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          POSTGRES_USER: streamgate
           POSTGRES_PASSWORD: streamgate
           POSTGRES_DB: streamgate
         options: >-
@@ -365,17 +368,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/001_init_schema.sql
+          psql -h localhost -U postgres -d streamgate < migrations/002_add_content_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/003_add_user_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/004_add_nft_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/005_add_transaction_table.sql
       
       - name: Run load tests
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_USER: streamgate
+          DB_USER: postgres
           DB_PASSWORD: streamgate
           DB_NAME: streamgate
           REDIS_HOST: localhost
@@ -395,6 +398,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          POSTGRES_USER: streamgate
           POSTGRES_PASSWORD: streamgate
           POSTGRES_DB: streamgate
         options: >-
@@ -420,17 +424,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/001_init_schema.sql
+          psql -h localhost -U postgres -d streamgate < migrations/002_add_content_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/003_add_user_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/004_add_nft_table.sql
+          psql -h localhost -U postgres -d streamgate < migrations/005_add_transaction_table.sql
       
       - name: Run security tests
         env:
           DB_HOST: localhost
           DB_PORT: 5432
-          DB_USER: streamgate
+          DB_USER: postgres
           DB_PASSWORD: streamgate
           DB_NAME: streamgate
         run: go test -v ./test/security/...
