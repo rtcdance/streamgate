@@ -139,7 +139,6 @@ jobs:
         ports:
           - 9000:9000
           - 9001:9001
-        args: ["server", "/data", "--console-address", ":9001"]
     
     steps:
       - uses: actions/checkout@v4
@@ -295,7 +294,6 @@ jobs:
         ports:
           - 9000:9000
           - 9001:9001
-        args: ["server", "/data", "--console-address", ":9001"]
     
     steps:
       - uses: actions/checkout@v4
