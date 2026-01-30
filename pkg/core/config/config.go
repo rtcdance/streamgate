@@ -128,8 +128,18 @@ func LoadConfig() (*Config, error) {
 	// Set defaults
 	setDefaults()
 
-	// Read from environment
+	// Read from environment - allow DATABASE_ prefix to map to database.* keys
+	viper.SetEnvPrefix("")
 	viper.AutomaticEnv()
+
+	// Explicitly bind environment variables for database config
+	viper.BindEnv("database.host", "DATABASE_HOST")
+	viper.BindEnv("database.port", "DATABASE_PORT")
+	viper.BindEnv("database.user", "DATABASE_USER")
+	viper.BindEnv("database.password", "DATABASE_PASSWORD")
+	viper.BindEnv("database.database", "DATABASE_NAME")
+	viper.BindEnv("database.sslmode", "DATABASE_SSLMODE")
+	viper.BindEnv("database.maxconns", "DATABASE_MAXCONNS")
 
 	// Read config file if it exists
 	if err := viper.ReadInConfig(); err != nil {
