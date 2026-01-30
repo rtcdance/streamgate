@@ -55,7 +55,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage) *AuthService {
 func (s *AuthService) Authenticate(username, password string) (string, error) {
 	// 1. Get user from storage
 	user, err := s.storage.GetUser(username)
-	if err != nil {
+	if err != nil || user == nil {
 		return "", errors.New("invalid username or password")
 	}
 
@@ -169,7 +169,7 @@ func (s *AuthService) Register(username, password, email string) error {
 func (s *AuthService) ChangePassword(username, oldPassword, newPassword string) error {
 	// 1. Get user
 	user, err := s.storage.GetUser(username)
-	if err != nil {
+	if err != nil || user == nil {
 		return errors.New("user not found")
 	}
 
