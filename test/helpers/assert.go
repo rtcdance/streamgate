@@ -67,7 +67,7 @@ func AssertNotNil(t *testing.T, value interface{}) {
 	if value == nil {
 		t.Fatal("Expected non-nil value, got nil")
 	}
-	
+
 	// Check if the value is a pointer, interface, map, slice, or function
 	rv := reflect.ValueOf(value)
 	switch rv.Kind() {
