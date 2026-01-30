@@ -139,7 +139,7 @@ func TestEndToEndAnomalyDetectionFlow(t *testing.T) {
 	}
 
 	// Add alert rules
-	rules := []*ml.AlertRule{
+	rules := []*ml.MLAlertRule{
 		{
 			ID:               "rule_cpu",
 			Name:             "High CPU Alert",

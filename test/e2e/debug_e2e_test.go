@@ -52,6 +52,17 @@ func TestDebugAPIEndToEnd(t *testing.T) {
 		t.Error("Should have breakpoints")
 	}
 
+	found := false
+	for _, bp := range breakpoints {
+		if bp.ID == breakpointID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Breakpoint with ID %s not found in list", breakpointID)
+	}
+
 	// Test watching variable
 	watchPayload := map[string]interface{}{
 		"name":  "x",
