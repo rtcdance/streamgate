@@ -319,9 +319,11 @@ func TestDisasterRecoveryManager_RecoveryPointEviction(t *testing.T) {
 
 	drm.CreatePlan(plan)
 
-	// Create 3 recovery points
+	// Create 3 recovery points with small delays to ensure different timestamps
 	drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-1")
+	time.Sleep(10 * time.Millisecond)
 	drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-2")
+	time.Sleep(10 * time.Millisecond)
 	drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-3")
 
 	// Should have evicted oldest (rp-1)

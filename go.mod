@@ -1,6 +1,6 @@
 module streamgate
 
-go 1.24.0
+go 1.25.0
 
 require (
 	// Object Storage
@@ -29,9 +29,9 @@ require (
 require (
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/ipfs/go-ipfs-api v0.7.0
-	k8s.io/api v0.28.4
-	k8s.io/apimachinery v0.28.4
-	k8s.io/client-go v0.28.4
+	k8s.io/api v0.35.0
+	k8s.io/apimachinery v0.35.0
+	k8s.io/client-go v0.35.0
 )
 
 require (
