@@ -1,6 +1,7 @@
 package scaling_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -131,7 +132,8 @@ func TestDisasterRecoveryManager_ListRecoveryPoints(t *testing.T) {
 	drm.CreatePlan(plan)
 
 	for i := 1; i <= 3; i++ {
-		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune(i)))
+		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+strconv.Itoa(i))
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	rps := drm.ListRecoveryPoints("plan-1")

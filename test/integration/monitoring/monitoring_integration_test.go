@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"streamgate/pkg/monitoring"
 	"streamgate/test/helpers"
 )
@@ -63,7 +65,8 @@ func TestMonitoring_ResetMetrics(t *testing.T) {
 }
 
 func TestMonitoring_Alerting(t *testing.T) {
-	am := monitoring.NewAlertManager(nil)
+	logger, _ := zap.NewDevelopment()
+	am := monitoring.NewAlertManager(logger)
 
 	rule := &monitoring.AlertRule{
 		ID:        "rule-1",
@@ -96,8 +99,8 @@ func TestMonitoring_HealthCheck(t *testing.T) {
 }
 
 func TestMonitoring_Tracing(t *testing.T) {
-	tracer := monitoring.NewTracer("test", nil)
-
+	logger, _ := zap.NewDevelopment()
+	tracer := monitoring.NewTracer("test", logger)
 	span, ctx := tracer.StartSpan(context.Background(), "test_operation")
 	helpers.AssertNotNil(t, span)
 	helpers.AssertNotNil(t, ctx)

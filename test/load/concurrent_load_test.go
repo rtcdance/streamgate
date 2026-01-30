@@ -1,13 +1,11 @@
 package load_test
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -22,12 +20,8 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create a user
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
+	helpers.AssertNoError(t, err)
 
 	// Concurrent login requests
 	numGoroutines := 100
@@ -43,7 +37,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				_, err := authService.Login(context.Background(), user.Email, "password123")
+				_, err := authService.Authenticate("testuser", "password123")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -76,17 +70,26 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	contentService := service.NewContentService(db)
+	storage := helpers.SetupTestStorage(t)
+	if storage == nil {
+		return
+	}
+	defer helpers.CleanupTestStorage(t, storage)
+
+	contentService := service.NewContentService(db.GetDB(), storage, nil)
 
 	// Setup: Create initial content
-	content := &models.Content{
+	content := &service.Content{
 		Title:       "Test Video",
 		Description: "A test video",
 		Type:        "video",
 		Duration:    3600,
-		FileSize:    1024000,
+		Size:        1024000,
+		OwnerID:     "test-owner",
 	}
-	contentService.Create(context.Background(), content)
+	id, err := contentService.CreateContent(content)
+	helpers.AssertNoError(t, err)
+	content.ID = id
 
 	// Concurrent read operations
 	numGoroutines := 50
@@ -102,7 +105,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				_, err := contentService.GetByID(context.Background(), content.ID)
+				_, err := contentService.GetContent(content.ID)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -149,15 +152,15 @@ func TestLoad_ConcurrentCacheOperations(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				key := "key_" + string(rune(id)) + "_" + string(rune(j))
-				err := cache.Set(context.Background(), key, "value", 0)
+				key := "key_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
+				err := cache.Set(key, "value")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
 					atomic.AddInt64(&errorCount, 1)
 				}
 
-				_, err = cache.Get(context.Background(), key)
+				_, err = cache.Get(key)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -190,6 +193,8 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
+	authService := service.NewAuthService("test-secret-key", db)
+
 	// Concurrent database operations
 	numGoroutines := 50
 	numRequests := 20
@@ -204,12 +209,9 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				user := &models.User{
-					Username: "user_" + string(rune(id)) + "_" + string(rune(j)),
-					Email:    "user" + string(rune(id)) + string(rune(j)) + "@example.com",
-					Password: "password",
-				}
-				err := db.SaveUser(context.Background(), user)
+				username := "user_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
+				email := "user" + string(rune('0'+id)) + string(rune('0'+j)) + "@example.com"
+				err := authService.Register(username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -242,15 +244,11 @@ func TestLoad_SustainedLoad(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService(db)
+	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create a user
-	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password123",
-	}
-	authService.Register(context.Background(), user)
+	err := authService.Register("testuser", "password123", "test@example.com")
+	helpers.AssertNoError(t, err)
 
 	// Sustained load for 10 seconds
 	duration := 10 * time.Second
@@ -267,7 +265,7 @@ func TestLoad_SustainedLoad(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
-				_, err := authService.Login(context.Background(), user.Email, "password123")
+				_, err := authService.Authenticate("testuser", "password123")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {

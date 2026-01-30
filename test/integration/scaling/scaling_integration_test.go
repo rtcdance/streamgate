@@ -18,10 +18,10 @@ func TestScalingIntegration_MultiRegionWithCDN(t *testing.T) {
 	// Register regions
 	for i := 1; i <= 3; i++ {
 		region := &scaling.Region{
-			ID:       "region-" + string(rune(i)),
-			Name:     "Region " + string(rune(i)),
-			Location: "Location " + string(rune(i)),
-			Endpoint: "https://region-" + string(rune(i)) + ".example.com",
+			ID:       "region-" + string(rune('0'+i)),
+			Name:     "Region " + string(rune('0'+i)),
+			Location: "Location " + string(rune('0'+i)),
+			Endpoint: "https://region-" + string(rune('0'+i)) + ".example.com",
 			Active:   true,
 		}
 		mrm.RegisterRegion(region)
@@ -32,7 +32,7 @@ func TestScalingIntegration_MultiRegionWithCDN(t *testing.T) {
 
 	// Record requests across regions
 	for i := 1; i <= 3; i++ {
-		regionID := "region-" + string(rune(i))
+		regionID := "region-" + string(rune('0'+i))
 		mrm.RecordRequest(regionID, 50, true)
 	}
 
@@ -59,10 +59,10 @@ func TestScalingIntegration_CDNWithLoadBalancing(t *testing.T) {
 	// Register backends
 	for i := 1; i <= 3; i++ {
 		backend := &scaling.Backend{
-			ID:      "backend-" + string(rune(i)),
-			Address: "192.168.1." + string(rune(i)),
+			ID:      "backend-" + string(rune('0'+i)),
+			Address: "192.168.1." + string(rune('0'+i)),
 			Port:    8080,
-			Region:  "region-" + string(rune(i)),
+			Region:  "region-" + string(rune('0'+i)),
 		}
 		glb.RegisterBackend(backend)
 	}
@@ -99,10 +99,10 @@ func TestScalingIntegration_LoadBalancingWithDisasterRecovery(t *testing.T) {
 	// Register backends
 	for i := 1; i <= 3; i++ {
 		backend := &scaling.Backend{
-			ID:          "backend-" + string(rune(i)),
-			Address:     "192.168.1." + string(rune(i)),
+			ID:          "backend-" + string(rune('0'+i)),
+			Address:     "192.168.1." + string(rune('0'+i)),
 			Port:        8080,
-			Region:      "region-" + string(rune(i)),
+			Region:      "region-" + string(rune('0'+i)),
 			Connections: int64(i),
 		}
 		glb.RegisterBackend(backend)
@@ -125,7 +125,8 @@ func TestScalingIntegration_LoadBalancingWithDisasterRecovery(t *testing.T) {
 
 	// Create recovery points
 	for i := 1; i <= 3; i++ {
-		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune(i)))
+		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune('0'+i)))
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	// Select backend with least connections
@@ -151,10 +152,10 @@ func TestScalingIntegration_FullGlobalScalingStack(t *testing.T) {
 	// Step 1: Register regions
 	for i := 1; i <= 3; i++ {
 		region := &scaling.Region{
-			ID:       "region-" + string(rune(i)),
-			Name:     "Region " + string(rune(i)),
-			Location: "Location " + string(rune(i)),
-			Endpoint: "https://region-" + string(rune(i)) + ".example.com",
+			ID:       "region-" + string(rune('0'+i)),
+			Name:     "Region " + string(rune('0'+i)),
+			Location: "Location " + string(rune('0'+i)),
+			Endpoint: "https://region-" + string(rune('0'+i)) + ".example.com",
 			Active:   true,
 			Latency:  int64(50 * i),
 		}
@@ -164,10 +165,10 @@ func TestScalingIntegration_FullGlobalScalingStack(t *testing.T) {
 	// Step 2: Register backends
 	for i := 1; i <= 3; i++ {
 		backend := &scaling.Backend{
-			ID:      "backend-" + string(rune(i)),
-			Address: "192.168.1." + string(rune(i)),
+			ID:      "backend-" + string(rune('0'+i)),
+			Address: "192.168.1." + string(rune('0'+i)),
 			Port:    8080,
-			Region:  "region-" + string(rune(i)),
+			Region:  "region-" + string(rune('0'+i)),
 			Latency: int64(50 * i),
 		}
 		glb.RegisterBackend(backend)
@@ -175,7 +176,7 @@ func TestScalingIntegration_FullGlobalScalingStack(t *testing.T) {
 
 	// Step 3: Cache content
 	for i := 1; i <= 5; i++ {
-		cm.CacheContent("key-"+string(rune(i)), "https://example.com/file"+string(rune(i))+".mp4", 3600, 1024)
+		cm.CacheContent("key-"+string(rune('0'+i)), "https://example.com/file"+string(rune('0'+i))+".mp4", 3600, 1024)
 	}
 
 	// Step 4: Create disaster recovery plan
@@ -208,7 +209,8 @@ func TestScalingIntegration_FullGlobalScalingStack(t *testing.T) {
 
 	// Step 6: Create recovery points
 	for i := 1; i <= 3; i++ {
-		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune(i)))
+		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune('0'+i)))
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	// Verify all components
@@ -365,8 +367,8 @@ func BenchmarkScalingIntegration_MultiRegionWithCDN(b *testing.B) {
 
 	for i := 1; i <= 3; i++ {
 		region := &scaling.Region{
-			ID:     "region-" + string(rune(i)),
-			Name:   "Region " + string(rune(i)),
+			ID:     "region-" + string(rune('0'+i)),
+			Name:   "Region " + string(rune('0'+i)),
 			Active: true,
 		}
 		mrm.RegisterRegion(region)
@@ -374,7 +376,7 @@ func BenchmarkScalingIntegration_MultiRegionWithCDN(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cm.CacheContent("key-"+string(rune(i)), "https://example.com/file.mp4", 3600, 1024)
+		cm.CacheContent("key-"+string(rune('0'+i)), "https://example.com/file.mp4", 3600, 1024)
 		mrm.RecordRequest("region-1", 50, true)
 	}
 }
@@ -387,10 +389,10 @@ func BenchmarkScalingIntegration_FullStack(b *testing.B) {
 	drm := scaling.NewDisasterRecoveryManager(1000)
 
 	for i := 1; i <= 3; i++ {
-		region := &scaling.Region{ID: "region-" + string(rune(i)), Name: "Region " + string(rune(i)), Active: true}
+		region := &scaling.Region{ID: "region-" + string(rune('0'+i)), Name: "Region " + string(rune('0'+i)), Active: true}
 		mrm.RegisterRegion(region)
 
-		backend := &scaling.Backend{ID: "backend-" + string(rune(i)), Address: "192.168.1." + string(rune(i)), Port: 8080}
+		backend := &scaling.Backend{ID: "backend-" + string(rune('0'+i)), Address: "192.168.1." + string(rune('0'+i)), Port: 8080}
 		glb.RegisterBackend(backend)
 	}
 
@@ -399,9 +401,9 @@ func BenchmarkScalingIntegration_FullStack(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cm.CacheContent("key-"+string(rune(i)), "https://example.com/file.mp4", 3600, 1024)
+		cm.CacheContent("key-"+string(rune('0'+i)), "https://example.com/file.mp4", 3600, 1024)
 		glb.SelectBackend()
 		mrm.RecordRequest("region-1", 50, true)
-		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune(i)))
+		drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-"+string(rune('0'+i)))
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/optimization"
 	"streamgate/pkg/plugins/api"
@@ -52,7 +54,8 @@ func TestMetricsCollection(t *testing.T) {
 
 // TestCachePerformance validates cache performance
 func TestCachePerformance(t *testing.T) {
-	cache := optimization.NewLocalCache(1000, 5*time.Minute, nil)
+	logger, _ := zap.NewDevelopment()
+	cache := optimization.NewLocalCache(1000, 5*time.Minute, logger)
 
 	// Warm up cache
 	for i := 0; i < 1000; i++ {
@@ -187,7 +190,8 @@ func TestConcurrentRequests(t *testing.T) {
 
 // TestMemoryUsage validates memory efficiency
 func TestMemoryUsage(t *testing.T) {
-	cache := optimization.NewLocalCache(10000, 5*time.Minute, nil)
+	logger, _ := zap.NewDevelopment()
+	cache := optimization.NewLocalCache(10000, 5*time.Minute, logger)
 
 	// Fill cache with 10k entries
 	for i := 0; i < 10000; i++ {
@@ -207,9 +211,10 @@ func TestMemoryUsage(t *testing.T) {
 
 // TestPrometheusExportPerformance validates Prometheus export performance
 func TestPrometheusExportPerformance(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
 	mc := monitoring.NewMetricsCollector(nil)
-	smt := monitoring.NewServiceMetricsTracker(nil)
-	pe := monitoring.NewPrometheusExporter(mc, smt, nil)
+	smt := monitoring.NewServiceMetricsTracker(logger)
+	pe := monitoring.NewPrometheusExporter(mc, smt, logger)
 
 	// Create 1000 metrics
 	for i := 0; i < 1000; i++ {
@@ -235,7 +240,8 @@ func TestPrometheusExportPerformance(t *testing.T) {
 
 // TestDistributedTracingPerformance validates tracing overhead
 func TestDistributedTracingPerformance(t *testing.T) {
-	tracer := monitoring.NewTracer("test-service", nil)
+	logger, _ := zap.NewDevelopment()
+	tracer := monitoring.NewTracer("test-service", logger)
 
 	// Measure span creation overhead
 	start := time.Now()
@@ -258,7 +264,8 @@ func TestDistributedTracingPerformance(t *testing.T) {
 
 // TestAlertingPerformance validates alert triggering performance
 func TestAlertingPerformance(t *testing.T) {
-	alertManager := monitoring.NewAlertManager(nil)
+	logger, _ := zap.NewDevelopment()
+	alertManager := monitoring.NewAlertManager(logger)
 
 	// Add alert rules
 	alertManager.AddRule(&monitoring.AlertRule{

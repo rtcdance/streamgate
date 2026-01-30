@@ -39,6 +39,7 @@ type User struct {
 type Claims struct {
 	Username      string `json:"username"`
 	WalletAddress string `json:"wallet_address,omitempty"`
+	JTI           string `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -203,10 +204,18 @@ func (s *AuthService) RefreshToken(tokenString string) (string, error) {
 	}
 
 	// 2. Create new token with extended expiration
-	claims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(24 * time.Hour))
-	claims.IssuedAt = jwt.NewNumericDate(time.Now())
+	newClaims := &Claims{
+		Username:      claims.Username,
+		WalletAddress: claims.WalletAddress,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Subject:   claims.Subject,
+		},
+	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
 	newTokenString, err := token.SignedString(s.jwtSecret)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
@@ -220,6 +229,7 @@ func (s *AuthService) generateToken(user *User) (string, error) {
 	claims := &Claims{
 		Username:      user.Username,
 		WalletAddress: user.WalletAddress,
+		JTI:           generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
