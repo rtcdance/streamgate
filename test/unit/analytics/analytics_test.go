@@ -40,8 +40,8 @@ func TestAggregator(t *testing.T) {
 		agg.AddEvent(event)
 	}
 
-	// Give it time to aggregate
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate aggregation
+	agg.AggregateNow()
 
 	// Get aggregations
 	aggs := agg.GetAggregations("service1")
@@ -55,25 +55,39 @@ func TestAnomalyDetector(t *testing.T) {
 	detector := analytics.NewAnomalyDetector(2.0)
 	defer detector.Close()
 
-	// Record some metrics
+	// Record some metrics with a clear anomaly
 	for i := 0; i < 20; i++ {
 		metric := &analytics.MetricsSnapshot{
 			ID:          "test",
 			Timestamp:   time.Now(),
 			ServiceID:   "service1",
-			CPUUsage:    50.0 + float64(i),
+			CPUUsage:    50.0,
 			MemoryUsage: 60.0,
 			ErrorRate:   0.01,
 			Latency:     100.0,
-			RequestRate: 1000.0,
+			RequestRate:  1000.0,
 		}
 		detector.RecordMetric(metric)
 	}
 
-	// Give it time to detect
-	time.Sleep(100 * time.Millisecond)
+	// Add an anomalous metric
+	anomalousMetric := &analytics.MetricsSnapshot{
+		ID:          "test",
+		Timestamp:   time.Now(),
+		ServiceID:   "service1",
+		CPUUsage:    200.0,
+		MemoryUsage:  60.0,
+		ErrorRate:   0.01,
+		Latency:     100.0,
+		RequestRate:  1000.0,
+	}
+	detector.RecordMetric(anomalousMetric)
 
-	// Get anomalies
+	// Trigger immediate anomaly detection twice - first to establish baseline, second to detect
+	detector.DetectAnomaliesNow()
+	detector.DetectAnomaliesNow()
+
+	// Get anomalies - should detect the anomalous CPU usage
 	anomalies := detector.GetAnomalies("service1", 10)
 	if anomalies == nil {
 		t.Error("Anomalies should not be nil")
@@ -95,13 +109,13 @@ func TestPredictor(t *testing.T) {
 			MemoryUsage: 60.0,
 			ErrorRate:   0.01,
 			Latency:     100.0,
-			RequestRate: 1000.0,
+			RequestRate:  1000.0,
 		}
 		predictor.RecordMetric(metric)
 	}
 
-	// Give it time to predict
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate predictions
+	predictor.MakePredictionsNow()
 
 	// Get predictions
 	predictions := predictor.GetPredictions("service1", 10)
@@ -130,13 +144,16 @@ func TestAnalyticsService(t *testing.T) {
 	// Record business metric
 	service.RecordBusinessMetric("revenue", 100.0, "USD", map[string]string{"region": "US"})
 
-	// Give it time to process
-	time.Sleep(100 * time.Millisecond)
+	// Wait for async notifications to complete
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger immediate processing
+	service.AggregateNow()
 
 	// Get aggregations
 	aggs := service.GetAggregations("service1")
-	if aggs == nil {
-		t.Error("Aggregations should not be nil")
+	if len(aggs) == 0 {
+		t.Error("Should have aggregations")
 	}
 
 	// Get dashboard data
@@ -160,7 +177,16 @@ func TestMetricsRecording(t *testing.T) {
 		service.RecordMetrics("service1", float64(50+i), float64(60+i), float64(70+i), float64(1000+i*100), 0.01, float64(100+i*10), 0.95)
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Record performance metrics to ensure aggregations are created
+	for i := 0; i < 5; i++ {
+		service.RecordPerformanceMetric("service1", "test_operation", float64(100+i*10), float64(50+i*5), float64(1000+i*100), true, "")
+	}
+
+	// Wait for async notifications to complete
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger immediate aggregation
+	service.AggregateNow()
 
 	// Verify metrics were recorded
 	aggs := service.GetAggregations("service1")

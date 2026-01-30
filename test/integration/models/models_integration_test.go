@@ -101,14 +101,14 @@ func TestModels_TransactionPersistence(t *testing.T) {
 
 	// Create transaction
 	transaction := &models.Transaction{
-		Type:      "transfer",
+		Type:        "transfer",
 		FromAddress: "0x0987654321098765432109876543210987654321",
 		ToAddress:   "0x1234567890123456789012345678901234567890",
-		Value:      "1000000000000000000000",
-		Status:    "confirmed",
-		TxHash:    "0xabcdef123456",
-		ChainID:   1,
-		ChainName: "ethereum",
+		Value:       "1000000000000000000000",
+		Status:      "confirmed",
+		TxHash:      "0xabcdef123456",
+		ChainID:     1,
+		ChainName:   "ethereum",
 	}
 
 	// Save transaction using direct SQL
@@ -137,7 +137,7 @@ func TestModels_TaskPersistence(t *testing.T) {
 		Priority: 5,
 		Payload: map[string]interface{}{
 			"content_id": "content-123",
-			"profile":     "1080p",
+			"profile":    "1080p",
 		},
 	}
 

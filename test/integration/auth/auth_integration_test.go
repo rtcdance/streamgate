@@ -130,7 +130,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	newToken, err := authService.RefreshToken(token)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, newToken)
-	
+
 	// Verify the new token is valid
 	valid, err := authService.Verify(newToken)
 	helpers.AssertNoError(t, err)

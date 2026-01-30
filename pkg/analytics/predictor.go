@@ -104,6 +104,11 @@ func (p *Predictor) makePredictions() {
 	}
 }
 
+// MakePredictionsNow performs predictions immediately
+func (p *Predictor) MakePredictionsNow() {
+	p.makePredictions()
+}
+
 // predictMetric makes a prediction for a specific metric
 func (p *Predictor) predictMetric(serviceID, metricName string, metrics []*MetricsSnapshot) {
 	var values []float64
