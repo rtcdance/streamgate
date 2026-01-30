@@ -1,6 +1,7 @@
 package scaling_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -54,8 +55,8 @@ func TestGlobalLoadBalancer_SelectBackend_RoundRobin(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		backend := &scaling.Backend{
-			ID:      "backend-" + string(rune(i)),
-			Address: "192.168.1." + string(rune(i)),
+			ID:      "backend-" + strconv.Itoa(i),
+			Address: "192.168.1." + strconv.Itoa(i),
 			Port:    8080,
 			Region:  "us-east-1",
 		}
@@ -63,17 +64,32 @@ func TestGlobalLoadBalancer_SelectBackend_RoundRobin(t *testing.T) {
 	}
 
 	// Select backends in round-robin order
-	selected1, _ := glb.SelectBackend()
-	selected2, _ := glb.SelectBackend()
-	selected3, _ := glb.SelectBackend()
-	selected4, _ := glb.SelectBackend()
-
-	if selected1.ID == selected2.ID || selected2.ID == selected3.ID {
-		t.Error("Round-robin selection not working correctly")
+	selections := make([]*scaling.Backend, 6)
+	for i := 0; i < 6; i++ {
+		selections[i], _ = glb.SelectBackend()
 	}
 
-	if selected4.ID != selected1.ID {
-		t.Error("Round-robin should wrap around")
+	// Check that consecutive selections are different
+	for i := 0; i < len(selections)-1; i++ {
+		if selections[i].ID == selections[i+1].ID {
+			t.Error("Round-robin selection not working correctly - consecutive selections should be different")
+		}
+	}
+
+	// Check that after cycling through all backends, we wrap around
+	// Since we have 3 backends, selections[3] should equal selections[0]
+	if selections[3].ID != selections[0].ID {
+		t.Error("Round-robin should wrap around after cycling through all backends")
+	}
+	
+	// selections[4] should equal selections[1]
+	if selections[4].ID != selections[1].ID {
+		t.Error("Round-robin should maintain consistent order after wrap-around")
+	}
+	
+	// selections[5] should equal selections[2]
+	if selections[5].ID != selections[2].ID {
+		t.Error("Round-robin should maintain consistent order after wrap-around")
 	}
 }
 

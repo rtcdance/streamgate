@@ -2,6 +2,7 @@ package scaling
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -115,6 +116,11 @@ func (glb *GlobalLoadBalancer) SelectBackend() (*Backend, error) {
 			activeBackends = append(activeBackends, backend)
 		}
 	}
+
+	// Sort by ID for deterministic ordering
+	sort.Slice(activeBackends, func(i, j int) bool {
+		return activeBackends[i].ID < activeBackends[j].ID
+	})
 
 	if len(activeBackends) == 0 {
 		return nil, fmt.Errorf("no active backends available")

@@ -46,6 +46,9 @@ func TestAnalyticsEndToEnd(t *testing.T) {
 	// Give time for processing
 	time.Sleep(2 * time.Second)
 
+	service.FlushNow()
+	service.AggregateNow()
+
 	// Verify aggregations
 	aggs := service.GetAggregations("api-gateway")
 	if len(aggs) == 0 {
@@ -89,6 +92,9 @@ func TestAnalyticsMultiService(t *testing.T) {
 
 	time.Sleep(1 * time.Second)
 
+	service.FlushNow()
+	service.AggregateNow()
+
 	// Verify each service has aggregations
 	for _, svc := range services {
 		aggs := service.GetAggregations(svc)
@@ -108,12 +114,19 @@ func TestAnalyticsAnomalyDetectionAccuracy(t *testing.T) {
 		service.RecordMetrics("test-service", 50.0, 60.0, 70.0, 1000.0, 0.01, 100.0, 0.95)
 	}
 
+	time.Sleep(100 * time.Millisecond)
+	service.FlushNow()
+	service.DetectAnomaliesNow() // Establish baseline
+
 	// Record anomalous metrics
 	for i := 0; i < 5; i++ {
 		service.RecordMetrics("test-service", 95.0, 60.0, 70.0, 1000.0, 0.05, 100.0, 0.95)
 	}
 
 	time.Sleep(2 * time.Second)
+
+	service.FlushNow()
+	service.DetectAnomaliesNow()
 
 	// Get anomalies
 	anomalies := service.GetAnomalies("test-service", 100)
@@ -189,6 +202,9 @@ func TestAnalyticsHighLoad(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
+
+	service.FlushNow()
+	service.AggregateNow()
 
 	// Verify data was processed
 	aggs := service.GetAggregations("service")

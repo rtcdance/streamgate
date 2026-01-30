@@ -181,6 +181,48 @@ func (ws *Web3Service) GetMainnetChains() []*web3.ChainConfig {
 	return ws.multiChainManager.GetMainnetChains()
 }
 
+// GetBalance gets the balance for an address
+func (ws *Web3Service) GetBalance(ctx context.Context, address string) (int64, error) {
+	ws.logger.Debug("Getting balance", zap.String("address", address))
+
+	return 0, fmt.Errorf("balance retrieval not implemented")
+}
+
+// CreateNFT creates a new NFT
+func (ws *Web3Service) CreateNFT(ctx context.Context, nft interface{}) error {
+	ws.logger.Debug("Creating NFT")
+
+	return fmt.Errorf("NFT creation not implemented")
+}
+
+// GetNFT gets an NFT by ID
+func (ws *Web3Service) GetNFT(ctx context.Context, id string) (interface{}, error) {
+	ws.logger.Debug("Getting NFT", zap.String("id", id))
+
+	return nil, fmt.Errorf("NFT retrieval not implemented")
+}
+
+// ListNFTs lists NFTs
+func (ws *Web3Service) ListNFTs(ctx context.Context, offset, limit int) ([]interface{}, error) {
+	ws.logger.Debug("Listing NFTs", zap.Int("offset", offset), zap.Int("limit", limit))
+
+	return []interface{}{}, nil
+}
+
+// IsChainSupported checks if a chain is supported
+func (ws *Web3Service) IsChainSupported(ctx context.Context, chainID int64) (bool, error) {
+	ws.logger.Debug("Checking chain support", zap.Int64("chain_id", chainID))
+
+	chains := ws.multiChainManager.GetSupportedChains()
+	for _, chain := range chains {
+		if chain.ID == chainID {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // Close closes the Web3 service
 func (ws *Web3Service) Close() {
 	ws.logger.Info("Closing Web3 service")

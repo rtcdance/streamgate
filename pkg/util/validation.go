@@ -1,6 +1,7 @@
 package util
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 )
@@ -97,12 +98,13 @@ func IsValidHash(hash string) bool {
 
 // IsValidJSON checks if string is valid JSON
 func IsValidJSON(s string) bool {
-	// Simple check - just verify it's not empty and has braces or brackets
 	s = TrimSpace(s)
 	if len(s) == 0 {
 		return false
 	}
-	return (s[0] == '{' && s[len(s)-1] == '}') || (s[0] == '[' && s[len(s)-1] == ']')
+	
+	var js interface{}
+	return json.Unmarshal([]byte(s), &js) == nil
 }
 
 // ValidateNotEmpty validates string is not empty

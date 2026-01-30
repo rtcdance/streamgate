@@ -186,6 +186,18 @@ func (agg *Aggregator) aggregateServiceMetrics(serviceID, period string, now tim
 				}
 			}
 		}
+
+		for _, metric := range agg.metrics {
+			if metric.ServiceID == serviceID {
+				latencies = append(latencies, metric.Latency)
+				eventCount++
+				if metric.ErrorRate > 0 {
+					errorCount++
+				} else {
+					successCount++
+				}
+			}
+		}
 	}
 
 	if eventCount == 0 && len(latencies) == 0 {

@@ -79,8 +79,8 @@ func TestProfilerEndToEnd(t *testing.T) {
 	service := debug.NewService()
 	defer service.Close()
 
-	// Give profiler time to collect initial profiles
-	time.Sleep(1 * time.Second)
+	// Trigger profiling immediately
+	service.ProfileNow()
 
 	// Get memory profiles
 	memProfiles := service.GetMemProfiles(10)
@@ -233,14 +233,18 @@ func TestProfilerMemoryTracking(t *testing.T) {
 	service := debug.NewService()
 	defer service.Close()
 
+	// Trigger initial profiling
+	service.ProfileNow()
+
 	// Get initial memory profile
 	initial := service.GetLatestMemProfile()
 	if initial == nil {
 		t.Error("Should have initial memory profile")
 	}
 
-	// Wait for more profiles
-	time.Sleep(2 * time.Second)
+	// Wait a bit and trigger another profile
+	time.Sleep(100 * time.Millisecond)
+	service.ProfileNow()
 
 	// Get updated memory profile
 	updated := service.GetLatestMemProfile()
@@ -259,6 +263,9 @@ func TestProfilerGoroutineTracking(t *testing.T) {
 	service := debug.NewService()
 	defer service.Close()
 
+	// Trigger initial profiling
+	service.ProfileNow()
+
 	// Get initial goroutine profile
 	initial := service.GetLatestGoroutineProfile()
 	if initial == nil {
@@ -269,8 +276,9 @@ func TestProfilerGoroutineTracking(t *testing.T) {
 		t.Error("Should have goroutines")
 	}
 
-	// Wait for more profiles
-	time.Sleep(2 * time.Second)
+	// Wait a bit and trigger another profile
+	time.Sleep(100 * time.Millisecond)
+	service.ProfileNow()
 
 	// Get updated goroutine profile
 	updated := service.GetLatestGoroutineProfile()

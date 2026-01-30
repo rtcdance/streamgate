@@ -25,11 +25,11 @@ func TestCrypto_VerifyPassword(t *testing.T) {
 	helpers.AssertNoError(t, err)
 
 	// Verify correct password
-	valid := util.VerifyPassword(hash, password)
+	valid := util.VerifyPassword(password, hash)
 	helpers.AssertTrue(t, valid)
 
 	// Verify wrong password
-	valid = util.VerifyPassword(hash, "wrongpassword")
+	valid = util.VerifyPassword("wrongpassword", hash)
 	helpers.AssertFalse(t, valid)
 }
 
@@ -66,7 +66,7 @@ func TestCrypto_SHA256Hash(t *testing.T) {
 
 func TestCrypto_EncryptDecrypt(t *testing.T) {
 	plaintext := "sensitive data"
-	key := "32-byte-encryption-key-for-aes-"
+	key := "12345678901234567890123456789012"
 
 	// Encrypt
 	ciphertext, err := util.Encrypt([]byte(plaintext), []byte(key))
@@ -81,8 +81,8 @@ func TestCrypto_EncryptDecrypt(t *testing.T) {
 
 func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
 	plaintext := "sensitive data"
-	key1 := "32-byte-encryption-key-for-aes-"
-	key2 := "different-32-byte-encryption-key"
+	key1 := "12345678901234567890123456789012"
+	key2 := "98765432109876543210987654321098"
 
 	// Encrypt with key1
 	ciphertext, err := util.Encrypt([]byte(plaintext), []byte(key1))

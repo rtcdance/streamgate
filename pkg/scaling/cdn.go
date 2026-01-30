@@ -107,6 +107,10 @@ func (cm *CDNManager) GetCachedContent(key string) (*CDNCache, error) {
 	cache, exists := cm.cache[key]
 	if !exists {
 		cm.metrics.CacheMisses++
+		cm.metrics.TotalRequests++
+		if cm.metrics.TotalRequests > 0 {
+			cm.metrics.HitRate = float64(cm.metrics.CacheHits) / float64(cm.metrics.TotalRequests) * 100
+		}
 		return nil, fmt.Errorf("cache not found: %s", key)
 	}
 
@@ -114,6 +118,10 @@ func (cm *CDNManager) GetCachedContent(key string) (*CDNCache, error) {
 	if time.Since(cache.CreatedAt) > time.Duration(cache.TTL)*time.Second {
 		delete(cm.cache, key)
 		cm.metrics.CacheMisses++
+		cm.metrics.TotalRequests++
+		if cm.metrics.TotalRequests > 0 {
+			cm.metrics.HitRate = float64(cm.metrics.CacheHits) / float64(cm.metrics.TotalRequests) * 100
+		}
 		return nil, fmt.Errorf("cache expired: %s", key)
 	}
 

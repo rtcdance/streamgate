@@ -1,7 +1,6 @@
 package load_test
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
