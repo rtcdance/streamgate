@@ -150,6 +150,11 @@ func (s *Service) GetOptimizationRecommendations() []string {
 	return s.profiler.GetOptimizationRecommendations()
 }
 
+// ProfileNow profiles the system immediately
+func (s *Service) ProfileNow() {
+	s.profiler.ProfileNow()
+}
+
 // Close closes the debug service
 func (s *Service) Close() error {
 	s.cancel()

@@ -114,7 +114,10 @@ func TestProfiler(t *testing.T) {
 	profiler := debug.NewProfiler()
 	defer profiler.Close()
 
-	// Give profiler time to collect profiles
+	// Trigger immediate profiling
+	profiler.ProfileNow()
+
+	// Wait a moment for profiling to complete
 	time.Sleep(100 * time.Millisecond)
 
 	// Get memory profiles
@@ -127,6 +130,7 @@ func TestProfiler(t *testing.T) {
 	latest := profiler.GetLatestMemProfile()
 	if latest == nil {
 		t.Error("Should have a latest memory profile")
+		return
 	}
 
 	if latest.Goroutines == 0 {
@@ -139,8 +143,8 @@ func TestGoroutineProfile(t *testing.T) {
 	profiler := debug.NewProfiler()
 	defer profiler.Close()
 
-	// Give profiler time to collect profiles
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate profiling
+	profiler.ProfileNow()
 
 	// Get goroutine profiles
 	profiles := profiler.GetGoroutineProfiles(10)
@@ -164,8 +168,8 @@ func TestMemoryTrend(t *testing.T) {
 	profiler := debug.NewProfiler()
 	defer profiler.Close()
 
-	// Give profiler time to collect profiles
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate profiling
+	profiler.ProfileNow()
 
 	// Get memory trend
 	trend := profiler.GetMemoryTrend(10)
@@ -179,8 +183,8 @@ func TestGoroutineTrend(t *testing.T) {
 	profiler := debug.NewProfiler()
 	defer profiler.Close()
 
-	// Give profiler time to collect profiles
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate profiling
+	profiler.ProfileNow()
 
 	// Get goroutine trend
 	trend := profiler.GetGoroutineTrend(10)
@@ -193,6 +197,9 @@ func TestGoroutineTrend(t *testing.T) {
 func TestDebugService(t *testing.T) {
 	service := debug.NewService()
 	defer service.Close()
+
+	// Trigger immediate profiling
+	service.ProfileNow()
 
 	// Set breakpoint
 	id := service.SetBreakpoint("main.go:10", "x > 5")
@@ -236,19 +243,20 @@ func TestDebugService(t *testing.T) {
 	// Get profiles
 	memProfiles := service.GetMemProfiles(10)
 	if memProfiles == nil {
-		t.Error("Should have memory profiles")
+		t.Error("Should have memory profiles (even if empty)")
 	}
 
 	goroutineProfiles := service.GetGoroutineProfiles(10)
 	if goroutineProfiles == nil {
-		t.Error("Should have goroutine profiles")
+		t.Error("Should have goroutine profiles (even if empty)")
 	}
 
 	// Get recommendations
 	recommendations := service.GetOptimizationRecommendations()
 	if recommendations == nil {
-		t.Error("Should have recommendations")
+		t.Error("Should have recommendations (even if empty)")
 	}
+	// Recommendations may be empty in normal test conditions
 }
 
 // TestLeakDetection tests leak detection
@@ -256,8 +264,8 @@ func TestLeakDetection(t *testing.T) {
 	profiler := debug.NewProfiler()
 	defer profiler.Close()
 
-	// Give profiler time to collect profiles
-	time.Sleep(100 * time.Millisecond)
+	// Trigger immediate profiling
+	profiler.ProfileNow()
 
 	// Check for leaks
 	memoryLeak := profiler.DetectMemoryLeak()
@@ -278,10 +286,13 @@ func TestOptimizationRecommendations(t *testing.T) {
 	service := debug.NewService()
 	defer service.Close()
 
+	// Trigger immediate profiling
+	service.ProfileNow()
+
 	// Get recommendations
 	recommendations := service.GetOptimizationRecommendations()
 	if recommendations == nil {
-		t.Error("Should have recommendations")
+		t.Error("Should have recommendations (even if empty)")
 	}
 
 	// Should be empty or have valid recommendations
