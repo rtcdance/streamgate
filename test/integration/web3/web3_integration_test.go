@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"go.uber.org/zap"
 	"streamgate/pkg/config"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
-	"go.uber.org/zap"
 )
 
 func TestWeb3Service_VerifyNFT(t *testing.T) {

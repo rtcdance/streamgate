@@ -119,6 +119,11 @@ func (ad *AnomalyDetector) detectAnomalies() {
 	}
 }
 
+// DetectAnomaliesNow performs anomaly detection immediately
+func (ad *AnomalyDetector) DetectAnomaliesNow() {
+	ad.detectAnomalies()
+}
+
 // checkMetricAnomaly checks if a metric value is anomalous
 func (ad *AnomalyDetector) checkMetricAnomaly(serviceID, metricName string, value float64, metrics []*MetricsSnapshot) {
 	key := serviceID + ":" + metricName

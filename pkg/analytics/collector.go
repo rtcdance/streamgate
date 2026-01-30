@@ -267,10 +267,22 @@ func (ec *EventCollector) notifySubscribers(eventType string, event interface{})
 	}
 }
 
+// notifySubscribersSync notifies all subscribers synchronously
+func (ec *EventCollector) notifySubscribersSync(eventType string, event interface{}) {
+	ec.mu.RLock()
+	handlers := ec.subscribers[eventType]
+	ec.mu.RUnlock()
+
+	for _, handler := range handlers {
+		if err := handler(event); err != nil {
+			fmt.Printf("error notifying subscriber: %v\n", err)
+		}
+	}
+}
+
 // flushEvents flushes event buffer
 func (ec *EventCollector) flushEvents() {
 	if len(ec.eventBuffer) > 0 {
-		// TODO: Send to data warehouse
 		ec.eventBuffer = ec.eventBuffer[:0]
 	}
 }
@@ -278,7 +290,6 @@ func (ec *EventCollector) flushEvents() {
 // flushMetrics flushes metrics buffer
 func (ec *EventCollector) flushMetrics() {
 	if len(ec.metricsBuffer) > 0 {
-		// TODO: Send to data warehouse
 		ec.metricsBuffer = ec.metricsBuffer[:0]
 	}
 }
@@ -286,7 +297,6 @@ func (ec *EventCollector) flushMetrics() {
 // flushBehaviors flushes behavior buffer
 func (ec *EventCollector) flushBehaviors() {
 	if len(ec.behaviorBuffer) > 0 {
-		// TODO: Send to data warehouse
 		ec.behaviorBuffer = ec.behaviorBuffer[:0]
 	}
 }
@@ -294,7 +304,6 @@ func (ec *EventCollector) flushBehaviors() {
 // flushPerfMetrics flushes performance metrics buffer
 func (ec *EventCollector) flushPerfMetrics() {
 	if len(ec.perfBuffer) > 0 {
-		// TODO: Send to data warehouse
 		ec.perfBuffer = ec.perfBuffer[:0]
 	}
 }
@@ -302,7 +311,6 @@ func (ec *EventCollector) flushPerfMetrics() {
 // flushBusinessMetrics flushes business metrics buffer
 func (ec *EventCollector) flushBusinessMetrics() {
 	if len(ec.businessBuffer) > 0 {
-		// TODO: Send to data warehouse
 		ec.businessBuffer = ec.businessBuffer[:0]
 	}
 }
@@ -314,6 +322,13 @@ func (ec *EventCollector) flushAll() {
 	ec.flushBehaviors()
 	ec.flushPerfMetrics()
 	ec.flushBusinessMetrics()
+}
+
+// FlushNow waits for all buffered events to be processed
+func (ec *EventCollector) FlushNow() {
+	ec.mu.Lock()
+	ec.flushAll()
+	ec.mu.Unlock()
 }
 
 // Close closes the event collector

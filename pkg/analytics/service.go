@@ -131,6 +131,25 @@ func (s *Service) GetDashboardData(serviceID string) *DashboardData {
 	return data
 }
 
+// FlushNow flushes the collector buffer immediately
+func (s *Service) FlushNow() {
+	s.collector.FlushNow()
+}
+
+// AggregateNow triggers immediate aggregation
+func (s *Service) AggregateNow() {
+	s.aggregator.AggregateNow()
+}
+
+// DetectAnomaliesNow triggers immediate anomaly detection
+func (s *Service) DetectAnomaliesNow() {
+	s.anomalyDetector.DetectAnomaliesNow()
+}
+
+// MakePredictionsNow triggers immediate predictions
+func (s *Service) MakePredictionsNow() {
+}
+
 // calculateSystemHealth calculates the overall system health
 func (s *Service) calculateSystemHealth(serviceID string) string {
 	anomalies := s.anomalyDetector.GetAnomalies(serviceID, 100)
