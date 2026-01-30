@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
-	"streamgate/pkg/config"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"

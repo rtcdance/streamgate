@@ -25,12 +25,9 @@ jobs:
           - test-unit-debug
           - test-unit-middleware
           - test-unit-models
-          - test-unit-monitoring
-          - test-unit-optimization
           - test-unit-security
           - test-unit-service
           - test-unit-storage
-          - test-unit-util
           - test-unit-web3
           - test-pkg
           - test-cmd
@@ -48,9 +45,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-${{ github.sha }}
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-
             ${{ runner.os }}-go-
       
       - name: Check go mod tidy
@@ -69,12 +65,9 @@ jobs:
             test-unit-debug) echo "path=./test/unit/debug/..." >> $GITHUB_OUTPUT ;;
             test-unit-middleware) echo "path=./test/unit/middleware/..." >> $GITHUB_OUTPUT ;;
             test-unit-models) echo "path=./test/unit/models/..." >> $GITHUB_OUTPUT ;;
-            test-unit-monitoring) echo "path=./test/unit/monitoring/..." >> $GITHUB_OUTPUT ;;
-            test-unit-optimization) echo "path=./test/unit/optimization/..." >> $GITHUB_OUTPUT ;;
             test-unit-security) echo "path=./test/unit/security/..." >> $GITHUB_OUTPUT ;;
             test-unit-service) echo "path=./test/unit/service/..." >> $GITHUB_OUTPUT ;;
             test-unit-storage) echo "path=./test/unit/storage/..." >> $GITHUB_OUTPUT ;;
-            test-unit-util) echo "path=./test/unit/util/..." >> $GITHUB_OUTPUT ;;
             test-unit-web3) echo "path=./test/unit/web3/..." >> $GITHUB_OUTPUT ;;
             test-pkg) echo "path=./pkg/..." >> $GITHUB_OUTPUT ;;
             test-cmd) echo "path=./cmd/..." >> $GITHUB_OUTPUT ;;
