@@ -154,6 +154,324 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
       
       - name: Set test path
         id: set-path
@@ -182,11 +500,11 @@ jobs:
       
       - name: Run integration tests
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: streamgate
+          DATABASE_PASSWORD: streamgate
+          DATABASE_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: go test -v -race -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
@@ -287,11 +605,11 @@ jobs:
       
       - name: Run E2E test - ${{ matrix.test-file }}
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: streamgate
+          DATABASE_PASSWORD: streamgate
+          DATABASE_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: go test -v -race -coverprofile=coverage.out -run TestFile ./test/e2e/${{ matrix.test-file }}
@@ -376,11 +694,11 @@ jobs:
       
       - name: Run load tests
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: streamgate
+          DATABASE_PASSWORD: streamgate
+          DATABASE_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: go test -v -timeout=30m ./test/load/...
@@ -432,11 +750,11 @@ jobs:
       
       - name: Run security tests
         env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
+          DATABASE_HOST: localhost
+          DATABASE_PORT: 5432
+          DATABASE_USER: streamgate
+          DATABASE_PASSWORD: streamgate
+          DATABASE_NAME: streamgate
         run: go test -v ./test/security/...
       
       - name: Upload security test results
