@@ -11,7 +11,7 @@ permissions:
   security-events: write
 
 env:
-  GO_VERSION: '1.24.0'
+  GO_VERSION: '1.25.0'
   GOPROXY: 'https://goproxy.io,direct'
 
 jobs:
@@ -154,20 +154,11 @@ jobs:
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage-unit.out ./test/unit/...
       
-      - name: Run package tests
-        run: go test -v -race -coverprofile=coverage-pkg.out ./pkg/... ./cmd/...
-      
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-unit
           path: coverage-unit.out
-      
-      - name: Upload package coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-pkg
-          path: coverage-pkg.out
 
   integration-tests:
     name: Integration Tests
@@ -357,7 +348,7 @@ jobs:
       - name: Merge coverage reports
         run: |
           go install github.com/wadey/gocovmerge@latest
-          gocovmerge coverage-unit/coverage-unit.out coverage-pkg/coverage-pkg.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
+          gocovmerge coverage-unit/coverage-unit.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
       
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3

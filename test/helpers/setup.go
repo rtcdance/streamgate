@@ -22,7 +22,7 @@ type TestConfig struct {
 func DefaultTestConfig() TestConfig {
 	return TestConfig{
 		DBType:          "postgres",
-		DBDSN:           "postgres://test:test@localhost:5432/streamgate_test?sslmode=disable",
+		DBDSN:           "postgres://streamgate:streamgate@localhost:5432/streamgate?sslmode=disable",
 		StorageType:     "minio",
 		StorageEndpoint: "localhost:9000",
 		StorageKey:      "minioadmin",
