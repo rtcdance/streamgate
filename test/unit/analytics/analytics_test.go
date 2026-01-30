@@ -65,7 +65,7 @@ func TestAnomalyDetector(t *testing.T) {
 			MemoryUsage: 60.0,
 			ErrorRate:   0.01,
 			Latency:     100.0,
-			RequestRate:  1000.0,
+			RequestRate: 1000.0,
 		}
 		detector.RecordMetric(metric)
 	}
@@ -76,10 +76,10 @@ func TestAnomalyDetector(t *testing.T) {
 		Timestamp:   time.Now(),
 		ServiceID:   "service1",
 		CPUUsage:    200.0,
-		MemoryUsage:  60.0,
+		MemoryUsage: 60.0,
 		ErrorRate:   0.01,
 		Latency:     100.0,
-		RequestRate:  1000.0,
+		RequestRate: 1000.0,
 	}
 	detector.RecordMetric(anomalousMetric)
 
@@ -109,7 +109,7 @@ func TestPredictor(t *testing.T) {
 			MemoryUsage: 60.0,
 			ErrorRate:   0.01,
 			Latency:     100.0,
-			RequestRate:  1000.0,
+			RequestRate: 1000.0,
 		}
 		predictor.RecordMetric(metric)
 	}
