@@ -1,7 +1,5 @@
--- Add missing columns to content table
-ALTER TABLE content ADD COLUMN IF NOT EXISTS type VARCHAR(50);
-ALTER TABLE content ADD COLUMN IF NOT EXISTS duration INTEGER;
-ALTER TABLE content ADD COLUMN IF NOT EXISTS file_size BIGINT;
-ALTER TABLE content ADD COLUMN IF NOT EXISTS file_path TEXT;
-ALTER TABLE content ADD COLUMN IF NOT EXISTS thumbnail_path TEXT;
-ALTER TABLE content ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);
+-- Add columns to content table
+ALTER TABLE contents ADD COLUMN IF NOT EXISTS thumbnail_url VARCHAR(500);
+ALTER TABLE contents ADD COLUMN IF NOT EXISTS duration INTEGER;
+ALTER TABLE contents ADD COLUMN IF NOT EXISTS size BIGINT;
+ALTER TABLE contents ADD COLUMN IF NOT EXISTS owner_id UUID;

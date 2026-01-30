@@ -72,6 +72,13 @@ func SetupTestStorage(t *testing.T) *storage.ObjectStorage {
 		return nil
 	}
 
+	// Verify storage is accessible by trying to list objects (will fail if MinIO is not running)
+	_, err = objStorage.ListObjects("test-bucket", "")
+	if err != nil {
+		t.Skipf("Skipping test: storage not accessible: %v", err)
+		return nil
+	}
+
 	return objStorage
 }
 

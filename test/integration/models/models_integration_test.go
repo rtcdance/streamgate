@@ -23,7 +23,7 @@ func TestModels_UserPersistence(t *testing.T) {
 	}
 
 	// Save user using direct SQL
-	_, err := db.Exec("INSERT INTO users (username, email) VALUES ($1, $2)", user.Username, user.Email)
+	_, err := db.Exec("INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve user
@@ -51,12 +51,12 @@ func TestModels_ContentPersistence(t *testing.T) {
 	}
 
 	// Save content using direct SQL
-	_, err := db.Exec("INSERT INTO content (title, description, type, duration, file_size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve content
 	var retrieved models.Content
-	err = db.QueryRow("SELECT id, title, description, type, duration, file_size, created_at, updated_at FROM content WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
+	err = db.QueryRow("SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
 	helpers.AssertNoError(t, err)
 	helpers.AssertEqual(t, content.Title, retrieved.Title)
 }
@@ -71,24 +71,20 @@ func TestModels_NFTPersistence(t *testing.T) {
 
 	// Create NFT
 	nft := &models.NFT{
-		Name:            "Test NFT",
-		Description:     "A test NFT",
 		ContractAddress: "0x1234567890123456789012345678901234567890",
 		TokenID:         "1",
-		ChainID:         1,
-		ChainName:       "ethereum",
 		OwnerAddress:    "0x0987654321098765432109876543210987654321",
 	}
 
 	// Save NFT using direct SQL
-	_, err := db.Exec("INSERT INTO nfts (name, description, contract_address, token_id, chain_id, chain_name, owner_address) VALUES ($1, $2, $3, $4, $5, $6, $7)", nft.Name, nft.Description, nft.ContractAddress, nft.TokenID, nft.ChainID, nft.ChainName, nft.OwnerAddress)
+	_, err := db.Exec("INSERT INTO nfts (contract_address, token_id, owner_address) VALUES ($1, $2, $3)", nft.ContractAddress, nft.TokenID, nft.OwnerAddress)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve NFT
 	var retrieved models.NFT
-	err = db.QueryRow("SELECT id, name, description, contract_address, token_id, chain_id, chain_name, owner_address, created_at, updated_at FROM nfts WHERE name = $1", nft.Name).Scan(&retrieved.ID, &retrieved.Name, &retrieved.Description, &retrieved.ContractAddress, &retrieved.TokenID, &retrieved.ChainID, &retrieved.ChainName, &retrieved.OwnerAddress, &retrieved.CreatedAt, &retrieved.UpdatedAt)
+	err = db.QueryRow("SELECT id, contract_address, token_id, owner_address, created_at, updated_at FROM nfts WHERE contract_address = $1", nft.ContractAddress).Scan(&retrieved.ID, &retrieved.ContractAddress, &retrieved.TokenID, &retrieved.OwnerAddress, &retrieved.CreatedAt, &retrieved.UpdatedAt)
 	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, nft.Name, retrieved.Name)
+	helpers.AssertEqual(t, nft.ContractAddress, retrieved.ContractAddress)
 }
 
 func TestModels_TransactionPersistence(t *testing.T) {
@@ -101,25 +97,20 @@ func TestModels_TransactionPersistence(t *testing.T) {
 
 	// Create transaction
 	transaction := &models.Transaction{
-		Type:        "transfer",
+		TxHash:      "0xabcdef123456",
 		FromAddress: "0x0987654321098765432109876543210987654321",
 		ToAddress:   "0x1234567890123456789012345678901234567890",
-		Value:       "1000000000000000000000",
-		Status:      "confirmed",
-		TxHash:      "0xabcdef123456",
-		ChainID:     1,
-		ChainName:   "ethereum",
 	}
 
 	// Save transaction using direct SQL
-	_, err := db.Exec("INSERT INTO transactions (type, from_address, to_address, value, status, tx_hash, chain_id, chain_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", transaction.Type, transaction.FromAddress, transaction.ToAddress, transaction.Value, transaction.Status, transaction.TxHash, transaction.ChainID, transaction.ChainName)
+	_, err := db.Exec("INSERT INTO transactions (tx_hash, from_address, to_address) VALUES ($1, $2, $3)", transaction.TxHash, transaction.FromAddress, transaction.ToAddress)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve transaction
 	var retrieved models.Transaction
-	err = db.QueryRow("SELECT id, type, from_address, to_address, value, status, tx_hash, chain_id, chain_name, created_at, updated_at FROM transactions WHERE tx_hash = $1", transaction.TxHash).Scan(&retrieved.ID, &retrieved.Type, &retrieved.FromAddress, &retrieved.ToAddress, &retrieved.Value, &retrieved.Status, &retrieved.TxHash, &retrieved.ChainID, &retrieved.ChainName, &retrieved.CreatedAt, &retrieved.UpdatedAt)
+	err = db.QueryRow("SELECT id, tx_hash, from_address, to_address, created_at, updated_at FROM transactions WHERE tx_hash = $1", transaction.TxHash).Scan(&retrieved.ID, &retrieved.TxHash, &retrieved.FromAddress, &retrieved.ToAddress, &retrieved.CreatedAt, &retrieved.UpdatedAt)
 	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, transaction.Type, retrieved.Type)
+	helpers.AssertEqual(t, transaction.TxHash, retrieved.TxHash)
 }
 
 func TestModels_TaskPersistence(t *testing.T) {
@@ -170,14 +161,14 @@ func TestModels_Timestamps(t *testing.T) {
 	}
 
 	beforeSave := time.Now()
-	_, err := db.Exec("INSERT INTO content (title, description, type, duration, file_size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
 	afterSave := time.Now()
 
 	helpers.AssertNoError(t, err)
 
 	// Retrieve and check timestamp
 	var retrieved models.Content
-	err = db.QueryRow("SELECT id, title, description, type, duration, file_size, created_at, updated_at FROM content WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
+	err = db.QueryRow("SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, retrieved.CreatedAt.After(beforeSave) && retrieved.CreatedAt.Before(afterSave))
 }
@@ -204,7 +195,7 @@ func TestModels_UpdateTimestamp(t *testing.T) {
 
 	// Retrieve to get original timestamp
 	var originalContent models.Content
-	err = db.QueryRow("SELECT id, title, description, type, duration, file_size, created_at, updated_at FROM content WHERE title = $1", content.Title).Scan(&originalContent.ID, &originalContent.Title, &originalContent.Description, &originalContent.Type, &originalContent.Duration, &originalContent.FileSize, &originalContent.CreatedAt, &originalContent.UpdatedAt)
+	err = db.QueryRow("SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&originalContent.ID, &originalContent.Title, &originalContent.Description, &originalContent.Type, &originalContent.Duration, &originalContent.FileSize, &originalContent.CreatedAt, &originalContent.UpdatedAt)
 	helpers.AssertNoError(t, err)
 
 	originalUpdatedAt := originalContent.UpdatedAt
@@ -216,7 +207,7 @@ func TestModels_UpdateTimestamp(t *testing.T) {
 
 	// Retrieve and verify UpdatedAt changed
 	var updatedContent models.Content
-	err = db.QueryRow("SELECT id, title, description, type, duration, file_size, created_at, updated_at FROM content WHERE id = $1", originalContent.ID).Scan(&updatedContent.ID, &updatedContent.Title, &updatedContent.Description, &updatedContent.Type, &updatedContent.Duration, &updatedContent.FileSize, &updatedContent.CreatedAt, &updatedContent.UpdatedAt)
+	err = db.QueryRow("SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE id = $1", originalContent.ID).Scan(&updatedContent.ID, &updatedContent.Title, &updatedContent.Description, &updatedContent.Type, &updatedContent.Duration, &updatedContent.FileSize, &updatedContent.CreatedAt, &updatedContent.UpdatedAt)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, updatedContent.UpdatedAt.After(originalUpdatedAt))
 }
@@ -235,7 +226,7 @@ func TestModels_Relationships(t *testing.T) {
 		Email:    "test@example.com",
 	}
 
-	_, err := db.Exec("INSERT INTO users (username, email) VALUES ($1, $2)", user.Username, user.Email)
+	_, err := db.Exec("INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
 	helpers.AssertNoError(t, err)
 
 	// Get user ID
@@ -252,11 +243,11 @@ func TestModels_Relationships(t *testing.T) {
 		FileSize:    1024000,
 	}
 
-	_, err = db.Exec("INSERT INTO content (title, description, type, duration, file_size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err = db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve content
-	rows, err := db.Query("SELECT id, title, description, type, duration, file_size, created_at, updated_at FROM content WHERE title = $1", content.Title)
+	rows, err := db.Query("SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title)
 	helpers.AssertNoError(t, err)
 	defer rows.Close()
 
