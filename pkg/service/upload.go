@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // UploadService handles upload operations
@@ -16,6 +17,7 @@ type UploadService struct {
 	db      *sql.DB
 	storage UploadObjectStorage
 	bucket  string
+	logger  *zap.Logger
 }
 
 // UploadObjectStorage defines the interface for object storage
@@ -55,6 +57,7 @@ func NewUploadService(db *sql.DB, storage UploadObjectStorage, bucket string) *U
 		db:      db,
 		storage: storage,
 		bucket:  bucket,
+		logger:  zap.NewNop(),
 	}
 }
 
