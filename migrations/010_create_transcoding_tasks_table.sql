@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS transcoding_tasks (
     progress INTEGER DEFAULT 0,
     input_url VARCHAR(500),
     output_url VARCHAR(500),
+    metadata JSONB,
     error TEXT,
     priority INTEGER DEFAULT 5,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
