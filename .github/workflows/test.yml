@@ -137,6 +137,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          server /data
         ports:
           - 9000:9000
           - 9001:9001
@@ -294,6 +295,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          server /data
         ports:
           - 9000:9000
           - 9001:9001
