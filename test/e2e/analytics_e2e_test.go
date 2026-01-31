@@ -64,6 +64,8 @@ func TestAnalyticsAPIEndToEnd(t *testing.T) {
 
 	time.Sleep(500 * time.Millisecond)
 
+	service.AggregateNow()
+
 	// Test getting aggregations
 	req = httptest.NewRequest("GET", "/api/v1/analytics/aggregations?service_id=api-gateway", nil)
 	w = httptest.NewRecorder()
@@ -205,7 +207,7 @@ func TestAnalyticsAPIDataConsistency(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.RecordMetricsHandler(w, req)
 
-	time.Sleep(500 * time.Millisecond)
+	service.AggregateNow()
 
 	// Get aggregations multiple times
 	for i := 0; i < 3; i++ {

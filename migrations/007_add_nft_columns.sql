@@ -1,3 +1,3 @@
 -- Add columns to nfts table
-ALTER TABLE nfts ADD COLUMN IF NOT EXISTS metadata_url VARCHAR(500);
-ALTER TABLE nfts ADD COLUMN IF NOT EXISTS content_id UUID;
+-- Note: metadata_url and content_id already exist in 004_add_nft_table.sql
+-- This file is kept for migration history consistency
