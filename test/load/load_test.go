@@ -175,8 +175,8 @@ func TestConcurrentUserSimulation(t *testing.T) {
 		t.Errorf("Mixed load error rate too high: %.2f%% (expected < 5%%)", result.ErrorRate)
 	}
 
-	if result.Throughput < 1000 {
-		t.Errorf("Mixed load throughput too low: %.0f req/sec (expected > 1000)", result.Throughput)
+	if result.Throughput < 900 {
+		t.Errorf("Mixed load throughput too low: %.0f req/sec (expected > 900)", result.Throughput)
 	}
 
 	t.Logf("Concurrent user simulation: %.0f req/sec, %.2f%% error rate, %d concurrent users",

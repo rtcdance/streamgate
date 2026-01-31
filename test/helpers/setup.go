@@ -77,7 +77,7 @@ func ApplyMigrations(t *testing.T, db *storage.Database) error {
 	}
 
 	// Find all migration files
-	migrationsDir := "migrations"
+	migrationsDir := "../../migrations"
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
