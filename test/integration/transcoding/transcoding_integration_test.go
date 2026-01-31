@@ -51,7 +51,7 @@ func TestTranscodingService_Transcode(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create transcoding task
-	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
+	taskID, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000001", "1080p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, taskID)
 }
@@ -68,7 +68,7 @@ func TestTranscodingService_GetTranscodingStatus(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create transcoding task
-	taskID, err := transcodingService.Transcode("content-123", "720p", "http://localhost:8080/input.mp4", 5)
+	taskID, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000002", "720p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Get task status
@@ -90,7 +90,7 @@ func TestTranscodingService_UpdateTaskStatus(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create transcoding task
-	taskID, err := transcodingService.Transcode("content-123", "480p", "http://localhost:8080/input.mp4", 5)
+	taskID, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000003", "480p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Update task status
@@ -117,12 +117,12 @@ func TestTranscodingService_ListTasks(t *testing.T) {
 
 	// Create multiple tasks
 	for i := 0; i < 3; i++ {
-		_, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
+		_, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000001", "1080p", "http://localhost:8080/input.mp4", 5)
 		helpers.AssertNoError(t, err)
 	}
 
 	// List tasks
-	tasks, err := transcodingService.ListTasks("content-123", 10, 0)
+	tasks, err := transcodingService.ListTasks("00000000-0000-0000-0000-000000000001", 10, 0)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(tasks) >= 3)
 }
@@ -139,7 +139,7 @@ func TestTranscodingService_CancelTask(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create transcoding task
-	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
+	taskID, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000004", "1080p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Cancel task
@@ -164,7 +164,7 @@ func TestTranscodingService_DeleteTask(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create transcoding task
-	taskID, err := transcodingService.Transcode("content-123", "1080p", "http://localhost:8080/input.mp4", 5)
+	taskID, err := transcodingService.Transcode("00000000-0000-0000-0000-000000000005", "1080p", "http://localhost:8080/input.mp4", 5)
 	helpers.AssertNoError(t, err)
 
 	// Delete task
