@@ -119,8 +119,9 @@ func (wh *Web3Handler) HandleGetGasPrice(w http.ResponseWriter, r *http.Request)
 
 	chainID := int64(80001) // Default to Polygon Mumbai
 	if chainIDStr := r.URL.Query().Get("chain_id"); chainIDStr != "" {
-		// Parse chain ID
-		// TODO: Parse chain ID from query parameter
+		if parsed, err := strconv.ParseInt(chainIDStr, 10, 64); err == nil {
+			chainID = parsed
+		}
 	}
 
 	// Get gas price

@@ -48,7 +48,7 @@ func (rc *RedisCache) Connect(addr string) error {
 // Get gets value from Redis
 func (rc *RedisCache) Get(key string) (string, error) {
 	if rc.client == nil {
-		return "", fmt.Errorf("Redis not connected")
+		return "", fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
@@ -72,7 +72,7 @@ func (rc *RedisCache) Set(key string, value string) error {
 // SetWithExpiration sets value in Redis with expiration
 func (rc *RedisCache) SetWithExpiration(key string, value string, expiration time.Duration) error {
 	if rc.client == nil {
-		return fmt.Errorf("Redis not connected")
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
@@ -88,7 +88,7 @@ func (rc *RedisCache) SetWithExpiration(key string, value string, expiration tim
 // Delete deletes a key from Redis
 func (rc *RedisCache) Delete(key string) error {
 	if rc.client == nil {
-		return fmt.Errorf("Redis not connected")
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
@@ -104,7 +104,7 @@ func (rc *RedisCache) Delete(key string) error {
 // Exists checks if a key exists in Redis
 func (rc *RedisCache) Exists(key string) (bool, error) {
 	if rc.client == nil {
-		return false, fmt.Errorf("Redis not connected")
+		return false, fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
@@ -121,7 +121,7 @@ func (rc *RedisCache) Exists(key string) (bool, error) {
 // Expire sets expiration on a key
 func (rc *RedisCache) Expire(key string, expiration time.Duration) error {
 	if rc.client == nil {
-		return fmt.Errorf("Redis not connected")
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
@@ -145,7 +145,7 @@ func (rc *RedisCache) Close() error {
 // Ping checks if Redis is alive
 func (rc *RedisCache) Ping() error {
 	if rc.client == nil {
-		return fmt.Errorf("Redis not connected")
+		return fmt.Errorf("redis not connected")
 	}
 
 	ctx, cancel := context.WithTimeout(rc.ctx, 3*time.Second)
