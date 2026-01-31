@@ -2,6 +2,11 @@ package helpers
 
 import (
 	"database/sql"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"streamgate/pkg/storage"
@@ -52,7 +57,57 @@ func SetupTestDB(t *testing.T) *storage.Database {
 		return nil
 	}
 
+	// Apply migrations
+	if err := ApplyMigrations(t, db); err != nil {
+		db.Close()
+		t.Skipf("Skipping test: failed to apply migrations: %v", err)
+		return nil
+	}
+
 	return db
+}
+
+// ApplyMigrations applies all database migrations
+func ApplyMigrations(t *testing.T, db *storage.Database) error {
+	t.Helper()
+
+	sqlDB := db.GetDB()
+	if sqlDB == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	// Find all migration files
+	migrationsDir := "migrations"
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	// Filter and sort migration files
+	var migrationFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			migrationFiles = append(migrationFiles, entry.Name())
+		}
+	}
+	sort.Strings(migrationFiles)
+
+	// Apply each migration
+	for _, file := range migrationFiles {
+		migrationPath := filepath.Join(migrationsDir, file)
+		content, err := os.ReadFile(migrationPath)
+		if err != nil {
+			return fmt.Errorf("failed to read migration file %s: %w", file, err)
+		}
+
+		// Execute migration
+		_, err = sqlDB.Exec(string(content))
+		if err != nil {
+			return fmt.Errorf("failed to apply migration %s: %w", file, err)
+		}
+	}
+
+	return nil
 }
 
 // SetupTestStorage creates test object storage

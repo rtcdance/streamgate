@@ -130,7 +130,7 @@ func TestDebugAPIEndToEnd(t *testing.T) {
 	}
 
 	// Test getting memory profiles
-	time.Sleep(500 * time.Millisecond)
+	service.ProfileNow()
 
 	req = httptest.NewRequest("GET", "/api/v1/debug/profiles/memory?limit=10", nil)
 	w = httptest.NewRecorder()
