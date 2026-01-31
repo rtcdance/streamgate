@@ -131,8 +131,8 @@ jobs:
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
-        args: server /data --console-address ":9001"
         options: >-
+          --entrypoint "minio server /data --console-address :9001"
           --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
           --health-interval 10s
           --health-timeout 5s
@@ -287,8 +287,8 @@ jobs:
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
-        args: server /data --console-address ":9001"
         options: >-
+          --entrypoint "minio server /data --console-address :9001"
           --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
           --health-interval 10s
           --health-timeout 5s
