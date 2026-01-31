@@ -249,6 +249,7 @@ func (s *AuthService) generateToken(user *User) (string, error) {
 
 // generateID generates a unique ID
 func generateID() string {
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", time.Now().UnixNano())))
+	data := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])[:16]
 }

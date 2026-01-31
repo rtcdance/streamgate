@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // ContentService handles content operations
@@ -14,6 +15,7 @@ type ContentService struct {
 	db      *sql.DB
 	storage ContentObjectStorage
 	cache   ContentCacheStorage
+	logger  *zap.Logger
 }
 
 // ContentObjectStorage defines the interface for object storage
@@ -54,6 +56,7 @@ func NewContentService(db *sql.DB, storage ContentObjectStorage, cache ContentCa
 		db:      db,
 		storage: storage,
 		cache:   cache,
+		logger:  zap.NewNop(),
 	}
 }
 
