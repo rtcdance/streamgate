@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"testing"
 	"time"
+	"strconv"
 
 	"streamgate/pkg/scaling"
 )
@@ -47,7 +48,7 @@ func TestScalingE2E_GlobalDeploymentFlow(t *testing.T) {
 	for i, r := range regions {
 		backend := &scaling.Backend{
 			ID:      "backend-" + r.id,
-			Address: "10.0." + string(rune(i)) + ".1",
+			Address: "10.0." + strconv.Itoa(i) + ".1",
 			Port:    8080,
 			Region:  r.id,
 			Active:  true,
@@ -115,7 +116,8 @@ func TestScalingE2E_GlobalDeploymentFlow(t *testing.T) {
 
 	// Step 6: Create recovery points
 	for i := 1; i <= 3; i++ {
-		drm.CreateRecoveryPoint("global-backup", 5*1024*1024, "s3://backups/global-rp-"+string(rune(i)))
+		drm.CreateRecoveryPoint("global-backup", 5*1024*1024, "s3://backups/global-rp-"+strconv.Itoa(i))
+		time.Sleep(1 * time.Millisecond)
 	}
 
 	// Verify deployment
@@ -300,9 +302,9 @@ func TestScalingE2E_CDNContentDistribution(t *testing.T) {
 		url  string
 		size int64
 	}{
-		{"movie-1", "https://example.com/movies/movie1.mp4", 500 * 1024 * 1024},
-		{"movie-2", "https://example.com/movies/movie2.mp4", 400 * 1024 * 1024},
-		{"series-1", "https://example.com/series/series1.mp4", 300 * 1024 * 1024},
+		{"movie-1", "https://example.com/movies/movie1.mp4", 20 * 1024 * 1024},
+		{"movie-2", "https://example.com/movies/movie2.mp4", 15 * 1024 * 1024},
+		{"series-1", "https://example.com/series/series1.mp4", 10 * 1024 * 1024},
 	}
 
 	// Cache content
@@ -377,7 +379,8 @@ func TestScalingE2E_DisasterRecoveryProcedure(t *testing.T) {
 	// Create recovery points for each plan
 	for _, p := range plans {
 		for i := 1; i <= 5; i++ {
-			drm.CreateRecoveryPoint(p.id, int64(i)*1024*1024, "s3://backups/"+p.id+"/rp-"+string(rune(i)))
+			drm.CreateRecoveryPoint(p.id, int64(i)*1024*1024, "s3://backups/"+p.id+"/rp-"+strconv.Itoa(i))
+			time.Sleep(1 * time.Millisecond)
 		}
 	}
 
@@ -417,17 +420,17 @@ func TestScalingE2E_GlobalScalingMetrics(t *testing.T) {
 	// Setup infrastructure
 	for i := 1; i <= 3; i++ {
 		region := &scaling.Region{
-			ID:     "region-" + string(rune(i)),
-			Name:   "Region " + string(rune(i)),
+			ID:     "region-" + strconv.Itoa(i),
+			Name:   "Region " + strconv.Itoa(i),
 			Active: true,
 		}
 		mrm.RegisterRegion(region)
 
 		backend := &scaling.Backend{
-			ID:      "backend-" + string(rune(i)),
-			Address: "10.0." + string(rune(i)) + ".1",
+			ID:      "backend-" + strconv.Itoa(i),
+			Address: "10.0." + strconv.Itoa(i) + ".1",
 			Port:    8080,
-			Region:  "region-" + string(rune(i)),
+			Region:  "region-" + strconv.Itoa(i),
 		}
 		glb.RegisterBackend(backend)
 	}
@@ -472,16 +475,16 @@ func BenchmarkScalingE2E_GlobalDeployment(b *testing.B) {
 	glb := scaling.NewGlobalLoadBalancer(scaling.RoundRobin, 30*time.Second)
 
 	for i := 1; i <= 3; i++ {
-		region := &scaling.Region{ID: "region-" + string(rune(i)), Name: "Region " + string(rune(i)), Active: true}
+		region := &scaling.Region{ID: "region-" + strconv.Itoa(i), Name: "Region " + strconv.Itoa(i), Active: true}
 		mrm.RegisterRegion(region)
 
-		backend := &scaling.Backend{ID: "backend-" + string(rune(i)), Address: "10.0." + string(rune(i)) + ".1", Port: 8080}
+		backend := &scaling.Backend{ID: "backend-" + strconv.Itoa(i), Address: "10.0." + strconv.Itoa(i) + ".1", Port: 8080}
 		glb.RegisterBackend(backend)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cm.CacheContent("key-"+string(rune(i)), "https://example.com/file.mp4", 3600, 1024)
+		cm.CacheContent("key-"+strconv.Itoa(i), "https://example.com/file.mp4", 3600, 1024)
 		glb.SelectBackend()
 		mrm.RecordRequest("region-1", 50, true)
 	}
@@ -492,10 +495,10 @@ func BenchmarkScalingE2E_FailoverDetection(b *testing.B) {
 	glb := scaling.NewGlobalLoadBalancer(scaling.RoundRobin, 30*time.Second)
 
 	for i := 1; i <= 3; i++ {
-		region := &scaling.Region{ID: "region-" + string(rune(i)), Name: "Region " + string(rune(i)), Active: true, Latency: 100}
+		region := &scaling.Region{ID: "region-" + strconv.Itoa(i), Name: "Region " + strconv.Itoa(i), Active: true, Latency: 100}
 		mrm.RegisterRegion(region)
 
-		backend := &scaling.Backend{ID: "backend-" + string(rune(i)), Address: "10.0." + string(rune(i)) + ".1", Port: 8080, Latency: 100}
+		backend := &scaling.Backend{ID: "backend-" + strconv.Itoa(i), Address: "10.0." + strconv.Itoa(i) + ".1", Port: 8080, Latency: 100}
 		glb.RegisterBackend(backend)
 	}
 

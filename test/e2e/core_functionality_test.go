@@ -2,7 +2,9 @@ package e2e_test
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
@@ -88,10 +90,13 @@ func TestE2E_EventPublishing(t *testing.T) {
 	helpers.AssertNoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
-	eventReceived := false
+	var eventReceived bool
+	var mu sync.Mutex
 	eventBus := kernel.GetEventBus()
 	eventBus.Subscribe(context.Background(), "test-event", func(ctx context.Context, e *event.Event) error {
+		mu.Lock()
 		eventReceived = true
+		mu.Unlock()
 		return nil
 	})
 
@@ -103,7 +108,12 @@ func TestE2E_EventPublishing(t *testing.T) {
 	err = eventBus.Publish(context.Background(), ev)
 	helpers.AssertNoError(t, err)
 
-	helpers.AssertTrue(t, eventReceived)
+	time.Sleep(10 * time.Millisecond)
+
+	mu.Lock()
+	received := eventReceived
+	mu.Unlock()
+	helpers.AssertTrue(t, received)
 }
 
 func TestE2E_HealthCheck(t *testing.T) {

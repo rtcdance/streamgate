@@ -25,6 +25,7 @@ func TestE2E_MonitoringFlow(t *testing.T) {
 		Metric:    "cpu_usage",
 		Threshold: 70,
 		Level:     "warning",
+		Enabled:   true,
 	}
 	alerts.AddRule(rule)
 
@@ -51,22 +52,26 @@ func TestE2E_AlertingFlow(t *testing.T) {
 	alerts := monitoring.NewAlertManager(nil)
 
 	rules := []struct {
+		id        string
 		name      string
 		metric    string
 		threshold float64
 		level     string
 	}{
-		{"low_alert", "test_metric", 10, "info"},
-		{"medium_alert", "test_metric", 50, "warning"},
-		{"high_alert", "test_metric", 90, "critical"},
+		{"low_alert", "low_alert", "test_metric", 10, "info"},
+		{"medium_alert", "medium_alert", "test_metric", 50, "warning"},
+		{"high_alert", "high_alert", "test_metric", 90, "critical"},
 	}
 
 	for _, rule := range rules {
 		alertRule := &monitoring.AlertRule{
+			ID:        rule.id,
 			Name:      rule.name,
 			Metric:    rule.metric,
+			Condition: "gt",
 			Threshold: rule.threshold,
 			Level:     rule.level,
+			Enabled:   true,
 		}
 		alerts.AddRule(alertRule)
 	}
@@ -130,10 +135,13 @@ func TestE2E_AlertNotification(t *testing.T) {
 	alerts := monitoring.NewAlertManager(nil)
 
 	rule := &monitoring.AlertRule{
+		ID:        "test_alert",
 		Name:      "test_alert",
 		Metric:    "test_metric",
+		Condition: "gt",
 		Threshold: 50,
 		Level:     "critical",
+		Enabled:   true,
 	}
 	alerts.AddRule(rule)
 

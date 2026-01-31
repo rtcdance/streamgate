@@ -104,6 +104,17 @@ func (sh *SecurityHardening) ValidateInput(inputType, value string) error {
 		return fmt.Errorf("invalid %s: %s", inputType, value)
 	}
 
+	if inputType == "ipv4" {
+		parts := strings.Split(value, ".")
+		for _, part := range parts {
+			num := 0
+			fmt.Sscanf(part, "%d", &num)
+			if num < 0 || num > 255 {
+				return fmt.Errorf("invalid %s: %s (octet out of range 0-255)", inputType, value)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -221,13 +232,18 @@ func (sh *SecurityHardening) initializeEncoders() {
 
 	// JSON encoding
 	sh.outputEncoders["json"] = func(s string) string {
-		return strings.NewReplacer(
+		s = strings.NewReplacer(
+			"&", "\\u0026",
+			"<", "\\u003c",
+			">", "\\u003e",
 			"\"", "\\\"",
+			"'", "\\u0027",
 			"\\", "\\\\",
 			"\n", "\\n",
 			"\r", "\\r",
 			"\t", "\\t",
 		).Replace(s)
+		return s
 	}
 
 	// SQL encoding (basic)
