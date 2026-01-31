@@ -257,7 +257,8 @@ func (ad *AnomalyDetector) calculateStdDev(values []float64, mean float64) float
 
 	variance := 0.0
 	for _, v := range values {
-		variance += math.Pow(v-mean, 2)
+		diff := v - mean
+		variance += diff * diff
 	}
 
 	variance /= float64(len(values))

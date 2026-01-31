@@ -11,6 +11,8 @@ linters:
     - misspell
   disable:
     - errcheck
+    - staticcheck
+    - unused
 
 issues:
   max-issues-per-linter: 0

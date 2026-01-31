@@ -231,9 +231,5 @@ func (ws *Web3Service) Close() {
 		ws.multiChainManager.Close()
 	}
 
-	if ws.ipfsClient != nil {
-		// Close IPFS client if needed
-	}
-
 	ws.logger.Info("Web3 service closed")
 }

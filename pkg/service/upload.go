@@ -234,7 +234,7 @@ func (s *UploadService) DeleteUpload(uploadID string) error {
 
 	// Delete from storage
 	if err := s.storage.Delete(s.bucket, storageKey); err != nil {
-		// Log error but continue with database deletion
+		s.logger.Warn("Failed to delete from storage", zap.Error(err))
 	}
 
 	// Delete from database

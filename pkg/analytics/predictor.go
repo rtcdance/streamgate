@@ -182,8 +182,10 @@ func (p *Predictor) trainModel(serviceID, metricName string, values []float64) *
 
 	for i, v := range values {
 		predicted := intercept + slope*float64(i)
-		ssRes += math.Pow(v-predicted, 2)
-		ssTot += math.Pow(v-meanY, 2)
+		diffRes := v - predicted
+		ssRes += diffRes * diffRes
+		diffTot := v - meanY
+		ssTot += diffTot * diffTot
 	}
 
 	accuracy := 1.0
