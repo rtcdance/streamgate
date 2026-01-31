@@ -22,18 +22,18 @@ jobs:
       GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.8.0
           args: --config=.golangci.yml --timeout=5m ./...
-      
+
       - name: Check code formatting
         run: |
           if [ -n "$(gofmt -s -l .)" ]; then
@@ -41,15 +41,15 @@ jobs:
             gofmt -s -d .
             exit 1
           fi
-      
+
       - name: Run go vet
         run: go vet ./...
-      
+
       - name: Check go mod tidy
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-      
+
       - name: Verify dependencies
         run: go mod verify
 
@@ -58,17 +58,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Run gosec
         uses: securego/gosec@master
         with:
           args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
-      
+
       - name: Upload gosec results
         uses: github/codeql-action/upload-sarif@v4
         if: always()
@@ -81,12 +81,12 @@ jobs:
     needs: [lint, security]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -94,13 +94,13 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      
+
       - name: Download dependencies
         run: go mod download
-      
+
       - name: Build monolith
         run: go build -o bin/streamgate ./cmd/monolith/streamgate
-      
+
       - name: Build microservices
         run: |
           go build -o bin/api-gateway ./cmd/microservices/api-gateway
@@ -112,7 +112,7 @@ jobs:
           go build -o bin/transcoder ./cmd/microservices/transcoder
           go build -o bin/upload ./cmd/microservices/upload
           go build -o bin/worker ./cmd/microservices/worker
-      
+
       - name: Verify binaries
         run: |
           for binary in bin/streamgate bin/api-gateway bin/auth bin/cache bin/metadata bin/monitor bin/streaming bin/transcoder bin/upload bin/worker; do
@@ -123,7 +123,7 @@ jobs:
             echo "✓ Found $binary"
           done
           echo "All binaries built successfully"
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -137,12 +137,12 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -150,10 +150,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      
+
       - name: Run unit tests
         run: go test -v -race -coverprofile=coverage-unit.out ./test/unit/...
-      
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -178,7 +178,7 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
+
       redis:
         image: redis:7
         options: >-
@@ -188,15 +188,15 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -204,7 +204,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -222,55 +222,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-      
+
       - name: Run integration tests
         env:
           DB_HOST: localhost
@@ -281,7 +233,7 @@ jobs:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: go test -v -race -coverprofile=coverage-integration.out ./test/integration/...
-      
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -306,7 +258,7 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
+
       redis:
         image: redis:7
         options: >-
@@ -316,15 +268,15 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -332,7 +284,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -350,7 +302,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-      
+
       - name: Run E2E tests
         env:
           DB_HOST: localhost
@@ -361,7 +313,7 @@ jobs:
           REDIS_HOST: localhost
           REDIS_PORT: 6379
         run: go test -v -race -coverprofile=coverage-e2e.out ./test/e2e/...
-      
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -374,12 +326,12 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
-      
+
       - name: Cache Go modules
         uses: actions/cache@v4
         with:
@@ -387,10 +339,10 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      
+
       - name: Run benchmarks
         run: go test -bench=. -benchmem -run=^$ ./test/benchmark/... | tee benchmark-results.txt
-      
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
@@ -403,15 +355,28 @@ jobs:
     needs: [unit-tests, integration-tests, e2e-tests]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Download coverage artifacts
         uses: actions/download-artifact@v4
-      
+
       - name: Merge coverage reports
         run: |
           go install github.com/wadey/gocovmerge@latest
+          export PATH=$PATH:$(go env GOPATH)/bin
           gocovmerge coverage-unit/coverage-unit.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
-      
+
+      - name: Generate HTML coverage report
+        run: |
+          go tool cover -html=coverage-total.out -o coverage.html
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage-total.out
+            coverage.html
+
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3
         with:
