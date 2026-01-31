@@ -64,7 +64,7 @@ func TestE2E_TranscodingFlow(t *testing.T) {
 	helpers.AssertNotEmpty(t, contentID)
 
 	// Step 3: Create transcoding tasks for multiple formats
-	formats := []string{"hls", "dash", "mp4"}
+	formats := []string{"1080p", "720p", "480p"}
 	taskIDs := []string{}
 
 	for _, format := range formats {
@@ -113,7 +113,7 @@ func TestE2E_TranscodingWithRetry(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create task
-	taskID, err := transcodingService.Transcode("content-123", "hls", "test-url", 1)
+	taskID, err := transcodingService.Transcode("content-123", "1080p", "test-url", 1)
 	helpers.AssertNoError(t, err)
 
 	// Simulate failure
@@ -156,7 +156,7 @@ func TestE2E_TranscodingCancellation(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create task
-	taskID, err := transcodingService.Transcode("content-123", "hls", "test-url", 1)
+	taskID, err := transcodingService.Transcode("content-123", "1080p", "test-url", 1)
 	helpers.AssertNoError(t, err)
 
 	// Start processing

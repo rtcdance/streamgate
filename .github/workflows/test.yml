@@ -9,7 +9,7 @@ on:
     - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 

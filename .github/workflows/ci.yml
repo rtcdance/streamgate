@@ -7,7 +7,7 @@ on:
     branches: [ main, master, develop ]
 
 permissions:
-  contents: read
+  contents: write
   security-events: write
   pages: write
   id-token: write
@@ -207,6 +207,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Start MinIO
+        run: |
+          mkdir -p /tmp/minio
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -v /tmp/minio:/data \
+            minio/minio:latest server /data --console-address ":9001"
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -234,6 +255,10 @@ jobs:
           DB_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_USE_SSL: false
         run: go test -v -race -coverprofile=coverage-integration.out ./test/integration/...
 
       - name: Upload coverage
@@ -241,6 +266,12 @@ jobs:
         with:
           name: coverage-integration
           path: coverage-integration.out
+
+      - name: Cleanup MinIO
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true
 
   e2e-tests:
     name: E2E Tests
@@ -287,6 +318,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Start MinIO
+        run: |
+          mkdir -p /tmp/minio
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -v /tmp/minio:/data \
+            minio/minio:latest server /data --console-address ":9001"
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -314,6 +366,10 @@ jobs:
           DB_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_USE_SSL: false
         run: go test -v -race -coverprofile=coverage-e2e.out ./test/e2e/...
 
       - name: Upload coverage
@@ -321,6 +377,12 @@ jobs:
         with:
           name: coverage-e2e
           path: coverage-e2e.out
+
+      - name: Cleanup MinIO
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true
 
   benchmark-tests:
     name: Benchmark Tests
