@@ -230,13 +230,11 @@ func (s *ContentService) DeleteContent(id string) error {
 
 	// Delete from storage if URL exists
 	if content.URL != "" && s.storage != nil {
-		// Extract bucket and key from URL
-		// This is a simplified version, actual implementation would parse the URL
 		bucket := "content"
-	key := id
-	if err := s.storage.Delete(bucket, key); err != nil {
-		s.logger.Warn("Failed to delete from storage", zap.Error(err))
-	}
+		key := id
+		if err := s.storage.Delete(bucket, key); err != nil {
+			s.logger.Warn("Failed to delete from storage", zap.Error(err))
+		}
 	}
 
 	// Delete from database
