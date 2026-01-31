@@ -125,21 +125,6 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 9000:9000
-        volumes:
-          - /tmp/minio:/data
     steps:
       - uses: actions/checkout@v4
 
@@ -156,6 +141,27 @@ jobs:
 
       - name: Verify dependencies
         run: go mod verify
+
+      - name: Start MinIO
+        run: |
+          mkdir -p /tmp/minio
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -v /tmp/minio:/data \
+            minio/minio:latest server /data --console-address ":9001"
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
 
       - name: Setup database
         env:
@@ -224,6 +230,12 @@ jobs:
           path: coverage.out
           if-no-files-found: ignore
 
+      - name: Cleanup MinIO
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true
+
   e2e-tests:
     name: E2E Tests - ${{ matrix.test-file }}
     runs-on: ubuntu-latest
@@ -281,21 +293,6 @@ jobs:
           --health-retries 5
         ports:
           - 6379:6379
-
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 9000:9000
-        volumes:
-          - /tmp/minio:/data
     steps:
       - uses: actions/checkout@v4
 
@@ -312,6 +309,27 @@ jobs:
 
       - name: Verify dependencies
         run: go mod verify
+
+      - name: Start MinIO
+        run: |
+          mkdir -p /tmp/minio
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -v /tmp/minio:/data \
+            minio/minio:latest server /data --console-address ":9001"
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
 
       - name: Setup database
         env:
@@ -355,6 +373,12 @@ jobs:
           path: coverage.out
           if-no-files-found: ignore
           retention-days: 1
+
+      - name: Cleanup MinIO
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true
 
   benchmark-tests:
     name: Benchmark Tests
