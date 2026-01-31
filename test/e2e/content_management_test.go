@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -90,7 +91,7 @@ func TestContentManagement_CreateAndRetrieve(t *testing.T) {
 		Title:       "Test Video",
 		Description: "A test video",
 		Type:        "video",
-		OwnerID:     "user123",
+		OwnerID:     uuid.New().String(),
 		Metadata:    make(map[string]interface{}),
 	}
 
@@ -128,7 +129,7 @@ func TestContentManagement_UpdateContent(t *testing.T) {
 		Title:       "Original Title",
 		Description: "Original description",
 		Type:        "video",
-		OwnerID:     "user123",
+		OwnerID:     uuid.New().String(),
 		Metadata:    make(map[string]interface{}),
 	}
 
@@ -170,7 +171,7 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 		Title:       "Test Video",
 		Description: "A test video",
 		Type:        "video",
-		OwnerID:     "user123",
+		OwnerID:     uuid.New().String(),
 		Metadata:    make(map[string]interface{}),
 	}
 
