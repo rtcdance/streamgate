@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   security-events: write
+  pages: write
+  id-token: write
 
 env:
   GO_VERSION: '1.25.0'
@@ -379,6 +381,26 @@ jobs:
           path: |
             coverage-total.out
             coverage.html
+
+      - name: Prepare deployment directory
+        run: |
+          mkdir -p deploy/coverage
+          cp coverage.html deploy/coverage/index.html
+          cp coverage-total.out deploy/coverage/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./deploy/coverage
+          publish_branch: gh-pages
+          force_orphan: true
+
+      - name: Output coverage URL
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: |
+          echo "Coverage report will be available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3
