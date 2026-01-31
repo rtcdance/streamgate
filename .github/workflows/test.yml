@@ -142,7 +142,11 @@ jobs:
           - 9001:9001
         volumes:
           - /tmp/minio:/data
-    
+        args:
+          - server
+          - /data
+          - --console-address
+          - :9001
     steps:
       - uses: actions/checkout@v4
       
@@ -301,7 +305,11 @@ jobs:
           - 9001:9001
         volumes:
           - /tmp/minio:/data
-    
+        args:
+          - server
+          - /data
+          - --console-address
+          - :9001
     steps:
       - uses: actions/checkout@v4
       
