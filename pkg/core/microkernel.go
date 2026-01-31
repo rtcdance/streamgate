@@ -39,6 +39,15 @@ type Microkernel struct {
 func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	if logger == nil {
+		var err error
+		logger, err = zap.NewDevelopment()
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to initialize logger: %w", err)
+		}
+	}
+
 	// Initialize event bus based on mode
 	var eventBus event.EventBus
 	var err error

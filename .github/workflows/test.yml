@@ -65,7 +65,7 @@ jobs:
           esac
       
       - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
+        run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
       
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -214,7 +214,7 @@ jobs:
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           MINIO_USE_SSL: false
-        run: go test -v -race -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
+        run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
       
       - name: Upload coverage
         uses: actions/upload-artifact@v4
