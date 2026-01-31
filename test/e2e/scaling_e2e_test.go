@@ -1,9 +1,9 @@
 package e2e_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
-	"strconv"
 
 	"streamgate/pkg/scaling"
 )
