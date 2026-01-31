@@ -131,7 +131,6 @@ jobs:
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_CONSOLE_ADDRESS: ":9001"
         options: >-
           --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
           --health-interval 10s
@@ -139,10 +138,8 @@ jobs:
           --health-retries 5
         ports:
           - 9000:9000
-          - 9001:9001
         volumes:
           - /tmp/minio:/data
-        command: server /data --console-address :9001
     steps:
       - uses: actions/checkout@v4
 
@@ -290,7 +287,6 @@ jobs:
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_CONSOLE_ADDRESS: ":9001"
         options: >-
           --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
           --health-interval 10s
@@ -298,10 +294,8 @@ jobs:
           --health-retries 5
         ports:
           - 9000:9000
-          - 9001:9001
         volumes:
           - /tmp/minio:/data
-        command: server /data --console-address :9001
     steps:
       - uses: actions/checkout@v4
 
@@ -519,10 +513,49 @@ jobs:
           name: security-test-results
           path: test/security/
 
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Merge coverage reports
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          export PATH=$PATH:$(go env GOPATH)/bin
+          find . -name "coverage-unit-*.out" -exec cat {} \; > coverage-unit.out
+          find . -name "coverage-integration-*.out" -exec cat {} \; > coverage-integration.out
+          find . -name "coverage-e2e-*.out" -exec cat {} \; > coverage-e2e.out
+          gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
+
+      - name: Generate HTML coverage report
+        run: |
+          go tool cover -html=coverage-total.out -o coverage.html
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage-total.out
+            coverage.html
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage-total.out
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests, benchmark-tests, load-tests, security-tests]
+    needs: [unit-tests, integration-tests, e2e-tests, benchmark-tests, load-tests, security-tests, coverage-report]
     if: always()
     steps:
       - name: Download all artifacts

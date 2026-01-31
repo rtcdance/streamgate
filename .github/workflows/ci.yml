@@ -363,7 +363,10 @@ jobs:
         run: |
           go install github.com/wadey/gocovmerge@latest
           export PATH=$PATH:$(go env GOPATH)/bin
-          gocovmerge coverage-unit/coverage-unit.out coverage-integration/coverage-integration.out coverage-e2e/coverage-e2e.out > coverage-total.out
+          find . -name "coverage-unit.out" -exec cp {} coverage-unit.out \;
+          find . -name "coverage-integration.out" -exec cp {} coverage-integration.out \;
+          find . -name "coverage-e2e.out" -exec cp {} coverage-e2e.out \;
+          gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
 
       - name: Generate HTML coverage report
         run: |
