@@ -52,7 +52,7 @@ func TestE2E_PluginExecution(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -80,7 +80,7 @@ func TestE2E_GatewayPlugin(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	plugin := api.NewGatewayPlugin(cfg, nil)

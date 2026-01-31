@@ -207,6 +207,7 @@ func TestAnalyticsAPIDataConsistency(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.RecordMetricsHandler(w, req)
 
+	service.FlushNow()
 	service.AggregateNow()
 
 	// Get aggregations multiple times

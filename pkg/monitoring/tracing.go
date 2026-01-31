@@ -50,6 +50,12 @@ func NewTracer(serviceName string, logger *zap.Logger) *Tracer {
 	}
 }
 
+func (t *Tracer) logDebug(msg string, fields ...zap.Field) {
+	if t.logger != nil {
+		t.logger.Debug(msg, fields...)
+	}
+}
+
 // StartSpan starts a new span
 func (t *Tracer) StartSpan(ctx context.Context, operationName string) (*Span, context.Context) {
 	traceID := t.getTraceID(ctx)
@@ -75,7 +81,7 @@ func (t *Tracer) StartSpan(ctx context.Context, operationName string) (*Span, co
 	t.traces[traceID] = append(t.traces[traceID], span)
 	t.mu.Unlock()
 
-	t.logger.Debug("Span started",
+	t.logDebug("Span started",
 		zap.String("span_id", span.ID),
 		zap.String("trace_id", traceID),
 		zap.String("operation", operationName))
@@ -93,7 +99,7 @@ func (t *Tracer) FinishSpan(span *Span) {
 	span.Duration = span.EndTime.Sub(span.StartTime)
 	span.Status = "finished"
 
-	t.logger.Debug("Span finished",
+	t.logDebug("Span finished",
 		zap.String("span_id", span.ID),
 		zap.String("trace_id", span.TraceID),
 		zap.Int64("duration_ms", span.Duration.Milliseconds()))
@@ -286,6 +292,12 @@ func NewTraceCollector(logger *zap.Logger) *TraceCollector {
 	}
 }
 
+func (tc *TraceCollector) logDebug(msg string, fields ...zap.Field) {
+	if tc.logger != nil {
+		tc.logger.Debug(msg, fields...)
+	}
+}
+
 // RecordTrace records a trace
 func (tc *TraceCollector) RecordTrace(traceID string, metrics *TraceMetrics) {
 	tc.mu.Lock()
@@ -309,7 +321,7 @@ func (tc *TraceCollector) RecordTrace(traceID string, metrics *TraceMetrics) {
 	}
 
 	tc.traces[traceID] = metrics
-	tc.logger.Debug("Trace recorded",
+	tc.logDebug("Trace recorded",
 		zap.String("trace_id", traceID),
 		zap.Int64("duration_ms", metrics.Duration.Milliseconds()))
 }

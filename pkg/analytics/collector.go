@@ -176,7 +176,7 @@ func (ec *EventCollector) RecordMetrics(serviceID string, cpu, memory, disk, req
 	case <-ec.ctx.Done():
 	}
 
-	ec.notifySubscribers("metrics", metric)
+	ec.notifySubscribersSync("metrics", metric)
 }
 
 // RecordUserBehavior records user behavior

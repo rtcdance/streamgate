@@ -43,7 +43,7 @@ func TestE2E_MicrokernelInitialization(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -57,7 +57,7 @@ func TestE2E_PluginRegistration(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -81,7 +81,7 @@ func TestE2E_EventPublishing(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -110,7 +110,7 @@ func TestE2E_HealthCheck(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -125,7 +125,7 @@ func TestE2E_Lifecycle(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -142,7 +142,7 @@ func TestE2E_ConfigurationManagement(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -158,7 +158,7 @@ func TestE2E_Logging(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
@@ -178,7 +178,7 @@ func TestE2E_MetricsCollection(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",
 		Port:    8080,
-		Mode:    "monolith",
+		Mode:    "monolithic",
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)

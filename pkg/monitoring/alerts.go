@@ -59,13 +59,37 @@ func NewAlertManager(logger *zap.Logger) *AlertManager {
 	}
 }
 
+func (am *AlertManager) logInfo(msg string, fields ...zap.Field) {
+	if am.logger != nil {
+		am.logger.Info(msg, fields...)
+	}
+}
+
+func (am *AlertManager) logWarn(msg string, fields ...zap.Field) {
+	if am.logger != nil {
+		am.logger.Warn(msg, fields...)
+	}
+}
+
+func (am *AlertManager) logError(msg string, fields ...zap.Field) {
+	if am.logger != nil {
+		am.logger.Error(msg, fields...)
+	}
+}
+
+func (am *AlertManager) logDebug(msg string, fields ...zap.Field) {
+	if am.logger != nil {
+		am.logger.Debug(msg, fields...)
+	}
+}
+
 // AddRule adds an alert rule
 func (am *AlertManager) AddRule(rule *AlertRule) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
 	am.rules[rule.ID] = rule
-	am.logger.Info("Alert rule added", zap.String("rule_id", rule.ID), zap.String("name", rule.Name))
+	am.logInfo("Alert rule added", zap.String("rule_id", rule.ID), zap.String("name", rule.Name))
 }
 
 // RemoveRule removes an alert rule
@@ -74,7 +98,7 @@ func (am *AlertManager) RemoveRule(ruleID string) {
 	defer am.mu.Unlock()
 
 	delete(am.rules, ruleID)
-	am.logger.Info("Alert rule removed", zap.String("rule_id", ruleID))
+	am.logInfo("Alert rule removed", zap.String("rule_id", ruleID))
 }
 
 // RegisterHandler registers an alert handler
@@ -83,7 +107,7 @@ func (am *AlertManager) RegisterHandler(handler AlertHandler) {
 	defer am.mu.Unlock()
 
 	am.handlers = append(am.handlers, handler)
-	am.logger.Debug("Alert handler registered")
+	am.logDebug("Alert handler registered")
 }
 
 // CheckMetric checks a metric against alert rules
@@ -140,12 +164,12 @@ func (am *AlertManager) triggerAlert(rule *AlertRule, value float64) {
 	am.alerts[alert.ID] = alert
 	am.mu.Unlock()
 
-	am.logger.Warn("Alert triggered", zap.String("alert_id", alert.ID), zap.String("level", alert.Level), zap.String("title", alert.Title))
+	am.logWarn("Alert triggered", zap.String("alert_id", alert.ID), zap.String("level", alert.Level), zap.String("title", alert.Title))
 
 	// Call handlers
 	for _, handler := range am.handlers {
 		if err := handler(alert); err != nil {
-			am.logger.Error("Error handling alert", zap.String("alert_id", alert.ID), zap.Error(err))
+			am.logError("Error handling alert", zap.String("alert_id", alert.ID), zap.Error(err))
 		}
 	}
 }
@@ -164,7 +188,7 @@ func (am *AlertManager) ResolveAlert(alertID string) {
 	alert.ResolvedAt = &now
 	alert.Status = "resolved"
 
-	am.logger.Info("Alert resolved",
+	am.logInfo("Alert resolved",
 		zap.String("alert_id", alertID))
 }
 
@@ -280,8 +304,10 @@ func (hc *HealthChecker) RegisterCheck(name string, check HealthCheck) {
 	defer hc.mu.Unlock()
 
 	hc.checks[name] = check
-	hc.logger.Debug("Health check registered",
-		zap.String("name", name))
+	if hc.logger != nil {
+		hc.logger.Debug("Health check registered",
+			zap.String("name", name))
+	}
 }
 
 // Check performs all health checks
