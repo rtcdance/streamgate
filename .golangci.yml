@@ -1,34 +1,15 @@
-version: 2
+version: "2"
 
 run:
   timeout: 5m
   tests: false
 
 linters:
-  disable-all: true
   enable:
     - govet
     - ineffassign
     - misspell
 
 issues:
-  exclude-dirs:
-    - vendor
-    - .git
-    - node_modules
-    - test
-    - tests
-  exclude-files:
-    - ".*_test\\.go$"
-    - ".*_mock\\.go$"
-  exclude-rules:
-    - path: ".*\\.pb\\.go$"
-      linters:
-        - all
-    
-    - path: ".*_mock\\.go$"
-      linters:
-        - all
-
   max-issues-per-linter: 0
   max-same-issues: 0
