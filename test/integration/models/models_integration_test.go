@@ -19,8 +19,8 @@ func TestModels_UserPersistence(t *testing.T) {
 
 	// Create user
 	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
+		Username: "testuser_userpersistence",
+		Email:    "test_userpersistence@example.com",
 	}
 
 	// Save user using direct SQL
@@ -160,7 +160,7 @@ func TestModels_Timestamps(t *testing.T) {
 
 	// Create content with timestamps
 	content := &models.Content{
-		Title:       "Test Video",
+		Title:       "Test Video Timestamps",
 		Description: "A test video",
 		Type:        "video",
 		Duration:    3600,
@@ -168,7 +168,7 @@ func TestModels_Timestamps(t *testing.T) {
 	}
 
 	beforeSave := time.Now()
-	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size) VALUES ($1, $2, $3, $4, $5)", content.Title, content.Description, content.Type, content.Duration, content.FileSize)
+	_, err := db.Exec("INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
 	afterSave := time.Now()
 
 	helpers.AssertNoError(t, err)
@@ -209,7 +209,7 @@ func TestModels_UpdateTimestamp(t *testing.T) {
 
 	// Wait a bit and update
 	time.Sleep(100 * time.Millisecond)
-	_, err = db.Exec("UPDATE content SET title = $1 WHERE id = $2", "Updated Title", originalContent.ID)
+	_, err = db.Exec("UPDATE contents SET title = $1 WHERE id = $2", "Updated Title", originalContent.ID)
 	helpers.AssertNoError(t, err)
 
 	// Retrieve and verify UpdatedAt changed
@@ -229,8 +229,8 @@ func TestModels_Relationships(t *testing.T) {
 
 	// Create user
 	user := &models.User{
-		Username: "testuser",
-		Email:    "test@example.com",
+		Username: "testuser_relationships",
+		Email:    "test_relationships@example.com",
 	}
 
 	_, err := db.Exec("INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)

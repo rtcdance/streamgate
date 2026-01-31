@@ -65,7 +65,7 @@ func (pdb *PostgresDB) Query(query string, args ...interface{}) (*sql.Rows, erro
 // QueryRow queries PostgreSQL and returns a single row
 func (pdb *PostgresDB) QueryRow(query string, args ...interface{}) *sql.Row {
 	if pdb.db == nil {
-		return nil
+		return &sql.Row{}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
