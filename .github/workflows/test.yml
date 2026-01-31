@@ -137,10 +137,11 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          server /data
         ports:
           - 9000:9000
           - 9001:9001
+        volumes:
+          - /tmp/minio:/data
     
     steps:
       - uses: actions/checkout@v4
@@ -295,10 +296,11 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          server /data
         ports:
           - 9000:9000
           - 9001:9001
+        volumes:
+          - /tmp/minio:/data
     
     steps:
       - uses: actions/checkout@v4
