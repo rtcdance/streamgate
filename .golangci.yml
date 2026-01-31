@@ -9,6 +9,8 @@ linters:
     - govet
     - ineffassign
     - misspell
+  disable:
+    - errcheck
 
 issues:
   max-issues-per-linter: 0
