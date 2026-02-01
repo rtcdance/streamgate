@@ -228,6 +228,13 @@ jobs:
             sleep 2
           done
 
+      - name: Create MinIO bucket
+        run: |
+          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc alias set local http://localhost:9000 minioadmin minioadmin
+          ./mc mb local/test-bucket --ignore-existing
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -338,6 +345,13 @@ jobs:
             echo "Waiting for MinIO... ($i/30)"
             sleep 2
           done
+
+      - name: Create MinIO bucket
+        run: |
+          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc alias set local http://localhost:9000 minioadmin minioadmin
+          ./mc mb local/test-bucket --ignore-existing
 
       - name: Setup database
         env:
