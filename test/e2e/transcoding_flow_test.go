@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -113,7 +114,7 @@ func TestE2E_TranscodingWithRetry(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create task
-	taskID, err := transcodingService.Transcode("content-123", "1080p", "test-url", 1)
+	taskID, err := transcodingService.Transcode(uuid.New().String(), "1080p", "test-url", 1)
 	helpers.AssertNoError(t, err)
 
 	// Simulate failure
@@ -156,7 +157,7 @@ func TestE2E_TranscodingCancellation(t *testing.T) {
 	transcodingService := service.NewTranscodingService(db.GetDB(), queue)
 
 	// Create task
-	taskID, err := transcodingService.Transcode("content-123", "1080p", "test-url", 1)
+	taskID, err := transcodingService.Transcode(uuid.New().String(), "1080p", "test-url", 1)
 	helpers.AssertNoError(t, err)
 
 	// Start processing

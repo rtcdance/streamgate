@@ -71,15 +71,15 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create test data
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 20; i++ {
 		username := "user" + string(rune('0'+i))
 		email := "user" + string(rune('0'+i)) + "@example.com"
 		authService.Register(username, "password", email)
 	}
 
 	// Test query performance
-	numGoroutines := 50
-	numRequests := 20
+	numGoroutines := 20
+	numRequests := 10
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64

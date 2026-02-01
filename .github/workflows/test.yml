@@ -443,6 +443,34 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Start MinIO
+        run: |
+          mkdir -p /tmp/minio
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -p 9001:9001 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            -v /tmp/minio:/data \
+            minio/minio:latest server /data --console-address ":9001"
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              break
+            fi
+            echo "Waiting for MinIO... ($i/30)"
+            sleep 2
+          done
+
+      - name: Create MinIO bucket
+        run: |
+          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc alias set local http://localhost:9000 minioadmin minioadmin
+          ./mc mb local/test-bucket --ignore-existing
+
       - name: Setup database
         env:
           PGPASSWORD: streamgate
@@ -472,6 +500,10 @@ jobs:
           DATABASE_NAME: streamgate
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_USE_SSL: false
         run: go test -v -timeout=30m ./test/load/...
 
       - name: Upload load test results
@@ -479,6 +511,12 @@ jobs:
         with:
           name: load-test-results
           path: test/load/
+
+      - name: Cleanup MinIO
+        if: always()
+        run: |
+          docker stop minio || true
+          docker rm minio || true
 
   security-tests:
     name: Security Tests
