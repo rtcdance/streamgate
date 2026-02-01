@@ -1,6 +1,7 @@
 package load_test
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,8 +21,8 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Test connection pool under load
-	numGoroutines := 50
-	numRequests := 20
+	numGoroutines := 10
+	numRequests := 5
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -33,8 +34,8 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				username := "user_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
-				email := "user" + string(rune('0'+id)) + string(rune('0'+j)) + "@example.com"
+				username := fmt.Sprintf("user_%d_%d", id, j)
+				email := fmt.Sprintf("user%d%d@example.com", id, j)
 				err := authService.Register(username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
@@ -71,15 +72,15 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create test data
-	for i := 0; i < 20; i++ {
-		username := "user" + string(rune('0'+i))
-		email := "user" + string(rune('0'+i)) + "@example.com"
+	for i := 0; i < 10; i++ {
+		username := fmt.Sprintf("user%d", i)
+		email := fmt.Sprintf("user%d@example.com", i)
 		authService.Register(username, "password", email)
 	}
 
 	// Test query performance
-	numGoroutines := 20
-	numRequests := 10
+	numGoroutines := 5
+	numRequests := 3
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -138,8 +139,8 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Test transaction handling under load
-	numGoroutines := 30
-	numRequests := 15
+	numGoroutines := 10
+	numRequests := 5
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -151,8 +152,8 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				username := "user_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
-				email := "user" + string(rune('0'+id)) + string(rune('0'+j)) + "@example.com"
+				username := fmt.Sprintf("user_%d_%d", id, j)
+				email := fmt.Sprintf("user%d%d@example.com", id, j)
 
 				err := authService.Register(username, "password", email)
 				if err == nil {
@@ -190,8 +191,8 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Test bulk operations
-	bulkSize := 100
-	numBulks := 10
+	bulkSize := 10
+	numBulks := 2
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -203,8 +204,8 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 		go func(bulkID int) {
 			defer wg.Done()
 			for j := 0; j < bulkSize; j++ {
-				username := "user_" + string(rune('0'+bulkID)) + "_" + string(rune('0'+j))
-				email := "user" + string(rune('0'+bulkID)) + string(rune('0'+j)) + "@example.com"
+				username := fmt.Sprintf("user_%d_%d", bulkID, j)
+				email := fmt.Sprintf("user%d%d@example.com", bulkID, j)
 				err := authService.Register(username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)

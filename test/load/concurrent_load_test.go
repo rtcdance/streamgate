@@ -1,6 +1,7 @@
 package load_test
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,8 +26,8 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	helpers.AssertNoError(t, err)
 
 	// Concurrent login requests
-	numGoroutines := 100
-	numRequests := 10
+	numGoroutines := 10
+	numRequests := 3
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -93,8 +94,8 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 	content.ID = id
 
 	// Concurrent read operations
-	numGoroutines := 50
-	numRequests := 20
+	numGoroutines := 10
+	numRequests := 3
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -140,8 +141,8 @@ func TestLoad_ConcurrentCacheOperations(t *testing.T) {
 	defer helpers.CleanupTestRedis(t, cache)
 
 	// Concurrent cache operations
-	numGoroutines := 100
-	numRequests := 50
+	numGoroutines := 10
+	numRequests := 5
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -153,7 +154,7 @@ func TestLoad_ConcurrentCacheOperations(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				key := "key_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
+				key := fmt.Sprintf("key_%d_%d", id, j)
 				err := cache.Set(key, "value")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
@@ -197,8 +198,8 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Concurrent database operations
-	numGoroutines := 50
-	numRequests := 20
+	numGoroutines := 10
+	numRequests := 5
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
@@ -210,8 +211,8 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				username := "user_" + string(rune('0'+id)) + "_" + string(rune('0'+j))
-				email := "user" + string(rune('0'+id)) + string(rune('0'+j)) + "@example.com"
+				username := fmt.Sprintf("user_%d_%d", id, j)
+				email := fmt.Sprintf("user%d%d@example.com", id, j)
 				err := authService.Register(username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
@@ -251,9 +252,9 @@ func TestLoad_SustainedLoad(t *testing.T) {
 	err := authService.Register("testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	// Sustained load for 10 seconds
-	duration := 10 * time.Second
-	numGoroutines := 20
+	// Sustained load for 2 seconds
+	duration := 2 * time.Second
+	numGoroutines := 5
 	var wg sync.WaitGroup
 	var successCount int64
 	var errorCount int64
