@@ -404,6 +404,89 @@ jobs:
           docker stop minio || true
           docker rm minio || true
 
+  load-tests:
+    name: Load Tests
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: streamgate
+          POSTGRES_PASSWORD: streamgate
+          POSTGRES_DB: streamgate
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Setup database
+        env:
+          PGPASSWORD: streamgate
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
+
+      - name: Run load tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: streamgate
+          DB_PASSWORD: streamgate
+          DB_NAME: streamgate
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+        run: go test -v -race -coverprofile=coverage-load.out -timeout=30m ./test/load/...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-load
+          path: coverage-load.out
+
   benchmark-tests:
     name: Benchmark Tests
     runs-on: ubuntu-latest
@@ -436,7 +519,7 @@ jobs:
   coverage:
     name: Coverage Report
     runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests]
+    needs: [unit-tests, integration-tests, e2e-tests, load-tests]
     steps:
       - uses: actions/checkout@v4
 
@@ -450,7 +533,8 @@ jobs:
           find . -name "coverage-unit.out" -exec cp {} coverage-unit.out \;
           find . -name "coverage-integration.out" -exec cp {} coverage-integration.out \;
           find . -name "coverage-e2e.out" -exec cp {} coverage-e2e.out \;
-          gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
+          find . -name "coverage-load.out" -exec cp {} coverage-load.out \;
+          gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out coverage-load.out > coverage-total.out
 
       - name: Generate HTML coverage report
         run: |
@@ -495,7 +579,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [lint, security, build, unit-tests, integration-tests, e2e-tests, benchmark-tests, coverage]
+    needs: [lint, security, build, unit-tests, integration-tests, e2e-tests, benchmark-tests, load-tests, coverage]
     if: always()
     steps:
       - name: Check job status
@@ -522,6 +606,10 @@ jobs:
           fi
           if [ "${{ needs.e2e-tests.result }}" != "success" ]; then
             echo "E2E tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.load-tests.result }}" != "success" ]; then
+            echo "Load tests failed"
             exit 1
           fi
           echo "All quality gates passed!"
