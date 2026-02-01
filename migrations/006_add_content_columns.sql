@@ -5,5 +5,6 @@ ALTER TABLE contents ADD COLUMN IF NOT EXISTS size BIGINT;
 ALTER TABLE contents ADD COLUMN IF NOT EXISTS owner_id UUID;
 ALTER TABLE contents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending';
 
--- Create index on owner_id
+-- Create indexes
 CREATE INDEX IF NOT EXISTS idx_contents_owner ON contents(owner_id);
+CREATE INDEX IF NOT EXISTS idx_contents_status ON contents(status);

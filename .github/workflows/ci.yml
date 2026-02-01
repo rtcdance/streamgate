@@ -373,6 +373,9 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
 
       - name: Run E2E tests
         env:

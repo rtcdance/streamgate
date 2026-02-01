@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -85,7 +86,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 		Type:        "video",
 		Duration:    3600,
 		Size:        1024000,
-		OwnerID:     "test-owner",
+		OwnerID:     uuid.New().String(),
 	}
 	id, err := contentService.CreateContent(content)
 	helpers.AssertNoError(t, err)
