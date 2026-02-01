@@ -1,13 +1,12 @@
 package service
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -249,7 +248,5 @@ func (s *AuthService) generateToken(user *User) (string, error) {
 
 // generateID generates a unique ID
 func generateID() string {
-	data := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])[:16]
+	return uuid.New().String()
 }

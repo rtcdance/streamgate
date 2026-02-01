@@ -507,7 +507,7 @@ jobs:
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           MINIO_USE_SSL: false
-        run: go test -v -timeout=30m ./test/load/...
+        run: go test -v -timeout=10m ./test/load/...
 
       - name: Upload load test results
         uses: actions/upload-artifact@v4
