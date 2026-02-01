@@ -187,6 +187,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
 
       - name: Set test path
         id: set-path
@@ -355,6 +356,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
 
       - name: Run E2E test - ${{ matrix.test-file }}
         env:
@@ -490,6 +492,7 @@ jobs:
           psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
           psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
+          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
 
       - name: Run load tests
         env:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/service"
@@ -39,6 +40,7 @@ func TestE2E_NFTCreationAndVerification(t *testing.T) {
 		Type:        "video",
 		Duration:    3600,
 		Size:        1024000,
+		OwnerID:     uuid.New().String(),
 	}
 
 	_, err = contentService.CreateContent(content)
@@ -86,6 +88,7 @@ func TestE2E_MultiChainNFTMinting(t *testing.T) {
 		Type:        "video",
 		Duration:    3600,
 		Size:        1024000,
+		OwnerID:     uuid.New().String(),
 	}
 
 	_, err = contentService.CreateContent(content)
