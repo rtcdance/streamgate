@@ -371,7 +371,7 @@ jobs:
           MINIO_ACCESS_KEY: minioadmin
           MINIO_SECRET_KEY: minioadmin
           MINIO_USE_SSL: false
-        run: go test -v -race -coverprofile=coverage.out -run TestFile ./test/e2e/${{ matrix.test-file }}
+        run: go test -v -race -coverprofile=coverage.out ./test/e2e/${{ matrix.test-file }}
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -597,14 +597,47 @@ jobs:
         run: |
           go install github.com/wadey/gocovmerge@latest
           export PATH=$PATH:$(go env GOPATH)/bin
-          find . -name "coverage-unit-*.out" -exec cat {} \; > coverage-unit.out
-          find . -name "coverage-integration-*.out" -exec cat {} \; > coverage-integration.out
-          find . -name "coverage-e2e-*.out" -exec cat {} \; > coverage-e2e.out
-          gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
+          
+          echo "Listing all downloaded artifacts:"
+          find . -type f -name "*.out" | head -20
+          
+          # Collect all coverage files
+          find . -name "coverage-unit-*/coverage.out" -exec cat {} \; > coverage-unit.out || true
+          find . -name "coverage-integration-*/coverage.out" -exec cat {} \; > coverage-integration.out || true
+          find . -name "coverage-e2e-*/coverage.out" -exec cat {} \; > coverage-e2e.out || true
+          
+          echo "Coverage file sizes:"
+          ls -lh coverage-unit.out coverage-integration.out coverage-e2e.out 2>&1 || true
+          
+          # Merge all coverage files
+          if [ -s coverage-unit.out ] || [ -s coverage-integration.out ] || [ -s coverage-e2e.out ]; then
+            gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
+            echo "Coverage merge completed"
+          else
+            echo "No coverage files found, creating empty coverage-total.out"
+            echo "mode: set" > coverage-total.out
+          fi
+          
+          echo "Final coverage file size:"
+          ls -lh coverage-total.out
 
       - name: Generate HTML coverage report
         run: |
           go tool cover -html=coverage-total.out -o coverage.html
+
+      - name: Display coverage summary
+        run: |
+          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
