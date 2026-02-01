@@ -64,7 +64,40 @@ func SetupTestDB(t *testing.T) *storage.Database {
 		return nil
 	}
 
+	// Clean up existing data to avoid conflicts with concurrent tests
+	CleanupTestData(t, db)
+
 	return db
+}
+
+// CleanupTestData removes all test data from the database
+func CleanupTestData(t *testing.T, db *storage.Database) {
+	t.Helper()
+
+	sqlDB := db.GetDB()
+	if sqlDB == nil {
+		return
+	}
+
+	// Truncate all tables in correct order (respecting foreign key constraints)
+	tables := []string{
+		"transactions",
+		"nfts",
+		"uploads",
+		"transcoding_tasks",
+		"streams",
+		"tasks",
+		"content",
+		"users",
+	}
+
+	for _, table := range tables {
+		_, err := sqlDB.Exec("TRUNCATE TABLE " + table + " CASCADE")
+		if err != nil {
+			// Ignore errors for tables that might not exist
+			continue
+		}
+	}
 }
 
 // ApplyMigrations applies all database migrations
