@@ -11,4 +11,3 @@ CREATE TABLE IF NOT EXISTS contents (
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_contents_type ON contents(type);
-CREATE INDEX IF NOT EXISTS idx_contents_status ON contents(status);
