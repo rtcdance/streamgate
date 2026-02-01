@@ -45,8 +45,9 @@ func TestE2E_TranscodingFlow(t *testing.T) {
 	// Step 1: Upload video file
 	videoContent := []byte("fake video content")
 	filename := "test_video.mp4"
+	testUserID := uuid.New().String()
 
-	uploadID, err := uploadService.Upload(filename, videoContent, "test-user")
+	uploadID, err := uploadService.Upload(filename, videoContent, testUserID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, uploadID)
 
@@ -57,7 +58,7 @@ func TestE2E_TranscodingFlow(t *testing.T) {
 		Type:        "video",
 		Duration:    3600,
 		Size:        int64(len(videoContent)),
-		OwnerID:     "test-user",
+		OwnerID:     testUserID,
 	}
 
 	contentID, err := contentService.CreateContent(content)
