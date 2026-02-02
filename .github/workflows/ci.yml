@@ -154,7 +154,12 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage-unit.out ./test/unit/...
+        run: |
+          go test -v -race -coverprofile=coverage-unit-pkg.out ./pkg/...
+          go test -v -race -coverprofile=coverage-unit-test.out ./test/unit/...
+          go tool cover -func=coverage-unit-pkg.out > coverage-unit-pkg.txt
+          go tool cover -func=coverage-unit-test.out > coverage-unit-test.txt
+          cat coverage-unit-pkg.out coverage-unit-test.out > coverage-unit.out
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

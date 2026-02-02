@@ -27,12 +27,18 @@ jobs:
       matrix:
         test-path:
           - test-unit-analytics
+          - test-unit-core
           - test-unit-debug
           - test-unit-middleware
+          - test-unit-ml
           - test-unit-models
+          - test-unit-monitoring
+          - test-unit-optimization
+          - test-unit-scaling
           - test-unit-security
           - test-unit-service
           - test-unit-storage
+          - test-unit-util
           - test-unit-web3
           - test-pkg
           - test-cmd
@@ -57,14 +63,20 @@ jobs:
         id: set-path
         run: |
           case "${{ matrix.test-path }}" in
-            test-unit-analytics) echo "path=./test/unit/analytics/..." >> $GITHUB_OUTPUT ;;
-            test-unit-debug) echo "path=./test/unit/debug/..." >> $GITHUB_OUTPUT ;;
-            test-unit-middleware) echo "path=./test/unit/middleware/..." >> $GITHUB_OUTPUT ;;
-            test-unit-models) echo "path=./test/unit/models/..." >> $GITHUB_OUTPUT ;;
-            test-unit-security) echo "path=./test/unit/security/..." >> $GITHUB_OUTPUT ;;
-            test-unit-service) echo "path=./test/unit/service/..." >> $GITHUB_OUTPUT ;;
-            test-unit-storage) echo "path=./test/unit/storage/..." >> $GITHUB_OUTPUT ;;
-            test-unit-web3) echo "path=./test/unit/web3/..." >> $GITHUB_OUTPUT ;;
+            test-unit-analytics) echo "path=./pkg/analytics/..." >> $GITHUB_OUTPUT ;;
+            test-unit-core) echo "path=./pkg/core/..." >> $GITHUB_OUTPUT ;;
+            test-unit-debug) echo "path=./pkg/debug/..." >> $GITHUB_OUTPUT ;;
+            test-unit-middleware) echo "path=./pkg/middleware/..." >> $GITHUB_OUTPUT ;;
+            test-unit-ml) echo "path=./pkg/ml/..." >> $GITHUB_OUTPUT ;;
+            test-unit-models) echo "path=./pkg/models/..." >> $GITHUB_OUTPUT ;;
+            test-unit-monitoring) echo "path=./pkg/monitoring/..." >> $GITHUB_OUTPUT ;;
+            test-unit-optimization) echo "path=./pkg/optimization/..." >> $GITHUB_OUTPUT ;;
+            test-unit-scaling) echo "path=./pkg/scaling/..." >> $GITHUB_OUTPUT ;;
+            test-unit-security) echo "path=./pkg/security/..." >> $GITHUB_OUTPUT ;;
+            test-unit-service) echo "path=./pkg/service/..." >> $GITHUB_OUTPUT ;;
+            test-unit-storage) echo "path=./pkg/storage/..." >> $GITHUB_OUTPUT ;;
+            test-unit-util) echo "path=./pkg/util/..." >> $GITHUB_OUTPUT ;;
+            test-unit-web3) echo "path=./pkg/web3/..." >> $GITHUB_OUTPUT ;;
             test-pkg) echo "path=./pkg/..." >> $GITHUB_OUTPUT ;;
             test-cmd) echo "path=./cmd/..." >> $GITHUB_OUTPUT ;;
           esac
