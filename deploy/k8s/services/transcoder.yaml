@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcoder
+  namespace: streamgate
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: transcoder
+  template:
+    metadata:
+      labels:
+        app: transcoder
+    spec:
+      containers:
+      - name: transcoder
+        image: streamgate:transcoder
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8081
+          name: http
+        - containerPort: 9091
+          name: metrics
+        envFrom:
+        - configMapRef:
+            name: streamgate-config
+        - secretRef:
+            name: streamgate-secrets
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transcoder-service
+  namespace: streamgate
+spec:
+  selector:
+    app: transcoder
+  ports:
+  - name: http
+    port: 8081
+    targetPort: 8081
+  - name: metrics
+    port: 9091
+    targetPort: 9091
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: transcoder-hpa
+  namespace: streamgate
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: transcoder
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

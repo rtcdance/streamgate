@@ -4,4 +4,3 @@ metadata:
   name: streamgate
   labels:
     name: streamgate
-    environment: production

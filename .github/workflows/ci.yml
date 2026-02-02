@@ -592,24 +592,86 @@ jobs:
           
           echo "Final coverage file size:"
           ls -lh coverage-total.out
+          
+          # Calculate and display coverage percentage
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
+          
+          # Check if coverage meets threshold
+          COVERAGE_THRESHOLD=80
+          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+            echo "⚠️  Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
+            echo "::warning::Coverage is ${TOTAL_COVERAGE}%, below ${COVERAGE_THRESHOLD}% threshold"
+          else
+            echo "✅ Coverage ${TOTAL_COVERAGE}% meets ${COVERAGE_THRESHOLD}% threshold"
+          fi
 
       - name: Generate HTML coverage report
         run: |
           go tool cover -html=coverage-total.out -o coverage.html
+          go tool cover -func=coverage-total.out -o coverage-func.txt
+
+      - name: Generate coverage badge
+        run: |
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          COVERAGE_INT=${TOTAL_COVERAGE%.*}
+          
+          # Generate SVG badge
+          cat > coverage-badge.svg <<EOF
+          <svg xmlns="http://www.w3.org/2000/svg" width="120" height="20">
+            <linearGradient id="b" x2="0" y2="100%">
+              <stop offset="0%" stop-color="#bbb" stop-opacity=".1"/>
+              <stop offset="1%" stop-opacity=".1"/>
+            </linearGradient>
+            <mask id="a">
+              <rect x="0" y="0" width="120" height="20" rx="3" fill="#fff"/>
+            </mask>
+            <g mask="url(#a)">
+              <path fill="#555" d="M0 0h120v20H0z"/>
+              <path fill="#007ec6" d="M0 0h55v20H0z"/>
+              <path fill="#dfb317" d="M55 0h65v20H55z"/>
+              <text x="65" y="15" fill="#010101" font-family="Verdana,Geneva,DejaVu,sans-serif" font-size="11" font-weight="bold">coverage</text>
+              <text x="10" y="15" fill="#fff" font-family="Verdana,Geneva,DejaVu,sans-serif" font-size="11">${TOTAL_COVERAGE}%</text>
+            </g>
+          </svg>
+          EOF
+          
+          echo "Coverage badge generated: ${TOTAL_COVERAGE}%"
 
       - name: Display coverage summary
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Calculate overall coverage percentage
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "### Overall Coverage: ${TOTAL_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check coverage threshold
+          COVERAGE_THRESHOLD=80
+          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+            echo "⚠️ Coverage is below ${COVERAGE_THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ Coverage meets ${COVERAGE_THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
           echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Coverage Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|----------|" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out | grep -E "^github.com/streamgate" | awk -F: '{print $1}' | sort -u | while read pkg; do
+            pkg_cov=$(go tool cover -func=coverage-total.out | grep "$pkg:" | awk '{sum+=$3} END {printf "%.1f", sum}')
+            echo "| $pkg | ${pkg_cov}% |" >> $GITHUB_STEP_SUMMARY
+          done
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
@@ -618,6 +680,53 @@ jobs:
           path: |
             coverage-total.out
             coverage.html
+            coverage-func.txt
+            coverage-badge.svg
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let totalCoverage = '0.0';
+            
+            try {
+              const coverageData = fs.readFileSync('coverage-func.txt', 'utf8');
+              const match = coverageData.match(/total:\s*(\d+\.\d+)%/);
+              if (match) {
+                totalCoverage = match[1];
+              }
+            } catch (error) {
+              console.log('Could not read coverage file:', error.message);
+            }
+            
+            const comment = `## 📊 Code Coverage Report
+            
+            ### Overall Coverage: ${totalCoverage}%
+            
+            <details>
+            <summary>View detailed coverage</summary>
+            
+            \`\`\`
+            See coverage report artifact for detailed breakdown
+            \`\`\`
+            </details>
+            
+            ---
+            
+            📈 Coverage Badge: ![coverage](https://img.shields.io/badge/coverage-${totalCoverage}%25-brightgreen)
+            
+            📄 Full Report: [View HTML](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
 
       - name: Prepare deployment directory
         run: |
@@ -646,6 +755,17 @@ jobs:
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
+          verbose: true
+
+      - name: Check coverage threshold
+        run: |
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          COVERAGE_THRESHOLD=80
+          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+            echo "::error::Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
+            exit 1
+          fi
+          echo "✅ Coverage ${TOTAL_COVERAGE}% meets ${COVERAGE_THRESHOLD}% threshold"
 
   quality-gate:
     name: Quality Gate

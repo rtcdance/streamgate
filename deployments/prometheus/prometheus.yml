@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'streamgate-api-gateway'
+    static_configs:
+      - targets: ['api-gateway:9090']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-transcoder'
+    static_configs:
+      - targets: ['transcoder:9091']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-upload'
+    static_configs:
+      - targets: ['upload:9092']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-streaming'
+    static_configs:
+      - targets: ['streaming:9093']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-metadata'
+    static_configs:
+      - targets: ['metadata:9094']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-cache'
+    static_configs:
+      - targets: ['cache:9095']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-auth'
+    static_configs:
+      - targets: ['auth:9096']
+    metrics_path: '/metrics'
+
+  - job_name: 'streamgate-worker'
+    static_configs:
+      - targets: ['worker:9097']
+    metrics_path: '/metrics'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
