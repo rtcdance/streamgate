@@ -578,17 +578,22 @@ jobs:
           find . -type f -name "*.out" | head -20
           
           # Collect all coverage files from artifact directories
-          find . -path "*/coverage-unit/coverage.out" -exec cat {} \; > coverage-unit.out || true
-          find . -path "*/coverage-integration/coverage.out" -exec cat {} \; > coverage-integration.out || true
-          find . -path "*/coverage-e2e/coverage.out" -exec cat {} \; > coverage-e2e.out || true
-          find . -path "*/coverage-load/coverage.out" -exec cat {} \; > coverage-load.out || true
+          find . -name "coverage-unit.out" -exec cat {} \; > coverage-unit-merged.out || true
+          find . -name "coverage-integration.out" -exec cat {} \; > coverage-integration-merged.out || true
+          find . -name "coverage-e2e.out" -exec cat {} \; > coverage-e2e-merged.out || true
+          find . -name "coverage-load.out" -exec cat {} \; > coverage-load-merged.out || true
           
           echo "Coverage file sizes:"
-          ls -lh coverage-unit.out coverage-integration.out coverage-e2e.out coverage-load.out 2>&1 || true
+          ls -lh coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out 2>&1 || true
           
-          # Merge all coverage files
-          if [ -s coverage-unit.out ] || [ -s coverage-integration.out ] || [ -s coverage-e2e.out ] || [ -s coverage-load.out ]; then
-            gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out coverage-load.out > coverage-total.out
+          # Merge all coverage files - keep only first mode line
+          if [ -s coverage-unit-merged.out ]; then
+            head -1 coverage-unit-merged.out > coverage-total.out
+            for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out; do
+              if [ -s "$f" ]; then
+                tail -n +2 "$f" >> coverage-total.out
+              fi
+            done
             echo "Coverage merge completed"
           else
             echo "No coverage files found, creating empty coverage-total.out"
