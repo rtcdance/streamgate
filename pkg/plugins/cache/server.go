@@ -160,10 +160,12 @@ func (s *CacheStore) Clear(ctx context.Context) error {
 func (s *CacheStore) Stats(ctx context.Context) *CacheStats {
 	// TODO: Implement stats retrieval
 	return &CacheStats{
-		Keys:     0,
-		Memory:   0,
-		HitRate:  0,
-		MissRate: 0,
+		Hits:      0,
+		Misses:    0,
+		Evictions: 0,
+		Sets:      0,
+		Gets:      0,
+		Deletes:   0,
 	}
 }
 
@@ -177,12 +179,4 @@ func (s *CacheStore) Health(ctx context.Context) error {
 func (s *CacheStore) Close() error {
 	// TODO: Close Redis connection
 	return nil
-}
-
-// CacheStats represents cache statistics
-type CacheStats struct {
-	Keys     int64   `json:"keys"`
-	Memory   int64   `json:"memory"`
-	HitRate  float64 `json:"hit_rate"`
-	MissRate float64 `json:"miss_rate"`
 }

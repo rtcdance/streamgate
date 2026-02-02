@@ -11,14 +11,14 @@ import (
 
 // AuthHandler handles authentication requests
 type AuthHandler struct {
-	verifier         *SignatureVerifier
+	verifier         *AuthVerifier
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(verifier *SignatureVerifier, logger *zap.Logger, kernel *core.Microkernel) *AuthHandler {
+func NewAuthHandler(verifier *AuthVerifier, logger *zap.Logger, kernel *core.Microkernel) *AuthHandler {
 	return &AuthHandler{
 		verifier:         verifier,
 		logger:           logger,

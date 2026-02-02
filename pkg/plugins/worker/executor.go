@@ -1,14 +1,23 @@
 package worker
 
-// JobExecutor executes jobs
-type JobExecutor struct{}
+import (
+	"context"
+)
 
-// Execute executes a job
-func (je *JobExecutor) Execute(job interface{}) error {
-	return nil
+// DefaultExecutor is a default implementation of JobExecutor
+type DefaultExecutor struct{}
+
+// NewDefaultExecutor creates a new default executor
+func NewDefaultExecutor() *DefaultExecutor {
+	return &DefaultExecutor{}
 }
 
-// Cancel cancels a job
-func (je *JobExecutor) Cancel(jobID string) error {
-	return nil
+// Execute executes a job
+func (de *DefaultExecutor) Execute(ctx context.Context, job *Job) (interface{}, error) {
+	return nil, nil
+}
+
+// CanExecute checks if this executor can execute a job type
+func (de *DefaultExecutor) CanExecute(jobType string) bool {
+	return true
 }

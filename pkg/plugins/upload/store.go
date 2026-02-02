@@ -68,7 +68,7 @@ func (s *FileStore) CompleteUpload(ctx context.Context, uploadID string) (string
 }
 
 // GetUploadStatus gets the status of an upload
-func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*UploadStatus, error) {
+func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*UploadStatusInfo, error) {
 	s.logger.Info("Getting upload status", zap.String("upload_id", uploadID))
 
 	// TODO: Implement status retrieval
@@ -76,7 +76,7 @@ func (s *FileStore) GetUploadStatus(ctx context.Context, uploadID string) (*Uplo
 	// - Return uploaded chunks
 	// - Return estimated time remaining
 
-	return &UploadStatus{
+	return &UploadStatusInfo{
 		UploadID:       uploadID,
 		TotalChunks:    0,
 		UploadedChunks: 0,
@@ -111,8 +111,8 @@ func (s *FileStore) Close() error {
 	return nil
 }
 
-// UploadStatus represents the status of an upload
-type UploadStatus struct {
+// UploadStatusInfo represents the status of an upload
+type UploadStatusInfo struct {
 	UploadID       string  `json:"upload_id"`
 	TotalChunks    int     `json:"total_chunks"`
 	UploadedChunks int     `json:"uploaded_chunks"`
