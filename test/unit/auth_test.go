@@ -3,21 +3,22 @@ package unit_test
 import (
 	"testing"
 
+	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
 
 // MockAuthStorage implements AuthStorage for testing
 type MockAuthStorage struct {
-	users map[string]*User
+	users map[string]*service.User
 }
 
 func NewMockAuthStorage() *MockAuthStorage {
 	return &MockAuthStorage{
-		users: make(map[string]*User),
+		users: make(map[string]*service.User),
 	}
 }
 
-func (m *MockAuthStorage) GetUser(username string) (*User, error) {
+func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
 	user, exists := m.users[username]
 	if !exists {
 		return nil, nil
@@ -25,19 +26,19 @@ func (m *MockAuthStorage) GetUser(username string) (*User, error) {
 	return user, nil
 }
 
-func (m *MockAuthStorage) CreateUser(user *User) error {
+func (m *MockAuthStorage) CreateUser(user *service.User) error {
 	m.users[user.Username] = user
 	return nil
 }
 
-func (m *MockAuthStorage) UpdateUser(user *User) error {
+func (m *MockAuthStorage) UpdateUser(user *service.User) error {
 	m.users[user.Username] = user
 	return nil
 }
 
 func TestAuthService_Register(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register user
 	err := authService.Register("testuser", "password123", "test@example.com")
@@ -53,7 +54,7 @@ func TestAuthService_Register(t *testing.T) {
 
 func TestAuthService_Authenticate(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register user
 	err := authService.Register("testuser", "password123", "test@example.com")
@@ -71,7 +72,7 @@ func TestAuthService_Authenticate(t *testing.T) {
 
 func TestAuthService_Verify(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register and authenticate
 	authService.Register("testuser", "password123", "test@example.com")
@@ -91,7 +92,7 @@ func TestAuthService_Verify(t *testing.T) {
 
 func TestAuthService_ParseToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register and authenticate
 	authService.Register("testuser", "password123", "test@example.com")
@@ -107,7 +108,7 @@ func TestAuthService_ParseToken(t *testing.T) {
 
 func TestAuthService_RefreshToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register and authenticate
 	authService.Register("testuser", "password123", "test@example.com")
@@ -128,7 +129,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 func TestAuthService_ChangePassword(t *testing.T) {
 	storage := NewMockAuthStorage()
-	authService := NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret", storage)
 
 	// Register user
 	authService.Register("testuser", "oldpassword", "test@example.com")
