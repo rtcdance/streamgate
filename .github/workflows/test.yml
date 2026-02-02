@@ -614,16 +614,21 @@ jobs:
           find . -type f -name "*.out" | head -20
           
           # Collect all coverage files
-          find . -name "coverage-unit-*/coverage.out" -exec cat {} \; > coverage-unit.out || true
-          find . -name "coverage-integration-*/coverage.out" -exec cat {} \; > coverage-integration.out || true
-          find . -name "coverage-e2e-*/coverage.out" -exec cat {} \; > coverage-e2e.out || true
+          find . -name "coverage-unit.out" -exec cat {} \; > coverage-unit-merged.out || true
+          find . -name "coverage-integration.out" -exec cat {} \; > coverage-integration-merged.out || true
+          find . -name "coverage-e2e.out" -exec cat {} \; > coverage-e2e-merged.out || true
           
           echo "Coverage file sizes:"
-          ls -lh coverage-unit.out coverage-integration.out coverage-e2e.out 2>&1 || true
+          ls -lh coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out 2>&1 || true
           
-          # Merge all coverage files
-          if [ -s coverage-unit.out ] || [ -s coverage-integration.out ] || [ -s coverage-e2e.out ]; then
-            gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out > coverage-total.out
+          # Merge all coverage files - keep only first mode line
+          if [ -s coverage-unit-merged.out ]; then
+            head -1 coverage-unit-merged.out > coverage-total.out
+            for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out; do
+              if [ -s "$f" ]; then
+                tail -n +2 "$f" >> coverage-total.out
+              fi
+            done
             echo "Coverage merge completed"
           else
             echo "No coverage files found, creating empty coverage-total.out"
