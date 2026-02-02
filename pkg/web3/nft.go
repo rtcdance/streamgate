@@ -13,6 +13,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// NFTCacheStorage defines the interface for NFT cache storage
+type NFTCacheStorage interface {
+	Get(key string) (interface{}, error)
+	Set(key string, value interface{}) error
+	Delete(key string) error
+}
+
 // NFTVerifier handles NFT verification
 type NFTVerifier struct {
 	client *ethclient.Client

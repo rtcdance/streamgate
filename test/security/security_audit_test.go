@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"streamgate/pkg/models"
 	"streamgate/pkg/plugins/api"
+	"streamgate/pkg/security"
 	"streamgate/pkg/util"
 )
 
@@ -117,26 +119,86 @@ func TestSecureRandomGeneration(t *testing.T) {
 
 // TestCacheInvalidation validates cache invalidation on data changes
 func TestCacheInvalidation(t *testing.T) {
-	// Secure cache test skipped - NewSecureCache not available
-	t.Skip("NewSecureCache not available")
+	encryptor := security.NewEncryptor(security.EncryptionConfig{})
+	cache := security.NewSecureCache(encryptor)
+
+	err := cache.Set("test-key", "test-value")
+	if err != nil {
+		t.Errorf("Failed to set cache value: %v", err)
+	}
+
+	value, err := cache.Get("test-key")
+	if err != nil {
+		t.Errorf("Failed to get cache value: %v", err)
+	}
+
+	if value == nil {
+		t.Error("Expected non-nil value")
+	}
+
+	err = cache.Delete("test-key")
+	if err != nil {
+		t.Errorf("Failed to delete cache value: %v", err)
+	}
 }
 
 // TestErrorHandling validates error handling doesn't leak sensitive info
 func TestErrorHandling(t *testing.T) {
-	// Security error test skipped - NewSecurityError not available
-	t.Skip("NewSecurityError not available")
+	err := security.NewSecurityError("ERR001", "Test error")
+	if err == nil {
+		t.Error("Expected non-nil error")
+	}
+
+	if err.Code != "ERR001" {
+		t.Errorf("Expected code ERR001, got %s", err.Code)
+	}
+
+	if err.Message != "Test error" {
+		t.Errorf("Expected message 'Test error', got %s", err.Message)
+	}
+
+	errWithDetail := err.WithDetail("key", "value")
+	if len(errWithDetail.Details) != 1 {
+		t.Errorf("Expected 1 detail, got %d", len(errWithDetail.Details))
+	}
 }
 
 // TestCORSConfiguration validates CORS is properly configured
 func TestCORSConfiguration(t *testing.T) {
-	// CORS config test skipped - GetCORSConfig not available
-	t.Skip("GetCORSConfig not available")
+	config := security.GetCORSConfig()
+
+	if len(config.AllowedOrigins) == 0 {
+		t.Error("Expected non-empty AllowedOrigins")
+	}
+
+	if len(config.AllowedMethods) == 0 {
+		t.Error("Expected non-empty AllowedMethods")
+	}
+
+	if len(config.AllowedHeaders) == 0 {
+		t.Error("Expected non-empty AllowedHeaders")
+	}
+
+	if config.MaxAge <= 0 {
+		t.Error("Expected positive MaxAge")
+	}
 }
 
 // TestTLSConfiguration validates TLS is properly configured
 func TestTLSConfiguration(t *testing.T) {
-	// TLS config test skipped - GetTLSConfig not available
-	t.Skip("GetTLSConfig not available")
+	config := security.GetTLSConfig()
+
+	if config.MinVersion == 0 {
+		t.Error("Expected non-zero MinVersion")
+	}
+
+	if config.MaxVersion == 0 {
+		t.Error("Expected non-zero MaxVersion")
+	}
+
+	if config.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be false in production")
+	}
 }
 
 // TestDependencyVulnerabilities checks for known vulnerabilities
@@ -154,32 +216,121 @@ func TestDependencyVulnerabilities(t *testing.T) {
 
 // TestSQLInjectionPrevention validates SQL injection prevention
 func TestSQLInjectionPrevention(t *testing.T) {
-	// SQL injection prevention test skipped - EscapeSQL not available
-	t.Skip("EscapeSQL not available")
+	inputs := []struct {
+		input    string
+		expected string
+	}{
+		{"normal text", "normal text"},
+		{"O'Reilly", "O''Reilly"},
+		{"test; DROP TABLE users; --", "test; DROP TABLE users; --"},
+		{"", ""},
+	}
+
+	for _, tt := range inputs {
+		escaped := security.EscapeSQL(tt.input)
+		if escaped != tt.expected {
+			t.Errorf("EscapeSQL(%q) = %q, expected %q", tt.input, escaped, tt.expected)
+		}
+	}
 }
 
 // TestXSSPrevention validates XSS prevention
 func TestXSSPrevention(t *testing.T) {
-	// XSS prevention test skipped - EscapeHTML not available
-	t.Skip("EscapeHTML not available")
+	inputs := []struct {
+		input    string
+		expected string
+	}{
+		{"normal text", "normal text"},
+		{"<script>alert('xss')</script>", "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"},
+		{"test & test", "test &amp; test"},
+		{"test > test", "test &gt; test"},
+		{"test < test", "test &lt; test"},
+		{"test \"test\"", "test &quot;test&quot;"},
+		{"test 'test'", "test &#x27;test&#x27;"},
+		{"", ""},
+	}
+
+	for _, tt := range inputs {
+		escaped := security.EscapeHTML(tt.input)
+		if escaped != tt.expected {
+			t.Errorf("EscapeHTML(%q) = %q, expected %q", tt.input, escaped, tt.expected)
+		}
+	}
 }
 
 // TestCSRFProtection validates CSRF protection
 func TestCSRFProtection(t *testing.T) {
-	// CSRF protection test skipped - GenerateCSRFToken not available
-	t.Skip("GenerateCSRFToken not available")
+	token, err := security.GenerateCSRFToken()
+	if err != nil {
+		t.Errorf("GenerateCSRFToken failed: %v", err)
+	}
+
+	if token.Token == "" {
+		t.Error("Expected non-empty token")
+	}
+
+	if token.ExpiresAt.IsZero() {
+		t.Error("Expected non-zero expiration time")
+	}
+
+	valid := security.VerifyCSRFToken(token.Token, token.Token)
+	if !valid {
+		t.Error("Expected token to be valid")
+	}
+
+	invalid := security.VerifyCSRFToken("invalid-token", token.Token)
+	if invalid {
+		t.Error("Expected invalid token to be rejected")
+	}
 }
 
 // TestAuthenticationSecurity validates authentication security
 func TestAuthenticationSecurity(t *testing.T) {
-	// Authentication security test skipped - HashPassword not available
-	t.Skip("HashPassword not available")
+	encryptor := security.NewEncryptor(security.EncryptionConfig{})
+	password := "test-password-123"
+
+	hash := encryptor.HashPassword(password)
+	if hash == "" {
+		t.Error("Expected non-empty hash")
+	}
+
+	if len(hash) != 64 {
+		t.Errorf("Expected hash length 64, got %d", len(hash))
+	}
+
+	valid := encryptor.VerifyPassword(password, hash)
+	if !valid {
+		t.Error("Expected password to be valid")
+	}
+
+	invalid := encryptor.VerifyPassword("wrong-password", hash)
+	if invalid {
+		t.Error("Expected wrong password to be invalid")
+	}
 }
 
 // TestAuthorizationSecurity validates authorization security
 func TestAuthorizationSecurity(t *testing.T) {
-	// Authorization security test skipped - NewUser not available
-	t.Skip("NewUser not available")
+	user := models.User{
+		ID:            "user-123",
+		Username:      "testuser",
+		Email:         "test@example.com",
+		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f42bE1",
+		Role:          string(models.RoleUser),
+		Status:        string(models.StatusActive),
+	}
+
+	if user.ID == "" {
+		t.Error("Expected non-empty user ID")
+	}
+
+	if user.Role != string(models.RoleUser) {
+		t.Errorf("Expected role %s, got %s", models.RoleUser, user.Role)
+	}
+
+	if user.Status != string(models.StatusActive) {
+		t.Errorf("Expected status %s, got %s", models.StatusActive, user.Status)
+	}
 }
 
 // TestDataEncryption validates data encryption
@@ -215,8 +366,35 @@ func TestDataEncryption(t *testing.T) {
 
 // TestSecurityHeaders validates security headers
 func TestSecurityHeaders(t *testing.T) {
-	// Security headers test skipped - GetSecurityHeaders not available
-	t.Skip("GetSecurityHeaders not available")
+	headers := security.GetSecurityHeaders()
+
+	if headers.XFrameOptions == "" {
+		t.Error("Expected non-empty XFrameOptions")
+	}
+
+	if headers.XContentTypeOptions == "" {
+		t.Error("Expected non-empty XContentTypeOptions")
+	}
+
+	if headers.XSSProtection == "" {
+		t.Error("Expected non-empty XSSProtection")
+	}
+
+	if headers.StrictTransportSecurity == "" {
+		t.Error("Expected non-empty StrictTransportSecurity")
+	}
+
+	if headers.ContentSecurityPolicy == "" {
+		t.Error("Expected non-empty ContentSecurityPolicy")
+	}
+
+	if headers.ReferrerPolicy == "" {
+		t.Error("Expected non-empty ReferrerPolicy")
+	}
+
+	if headers.PermissionsPolicy == "" {
+		t.Error("Expected non-empty PermissionsPolicy")
+	}
 }
 
 // TestSecurityAudit runs comprehensive security audit
@@ -306,7 +484,7 @@ func testAuditLoggingCheck() bool {
 
 func testCryptographyCheck() bool {
 	hash := util.HashSHA256([]byte("test"))
-	return len(hash) == 32
+	return len(hash) == 64
 }
 
 func testCORSCheck() bool {

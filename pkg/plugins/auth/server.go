@@ -17,12 +17,12 @@ type AuthServer struct {
 	logger   *zap.Logger
 	kernel   *core.Microkernel
 	server   *http.Server
-	verifier *SignatureVerifier
+	verifier *AuthVerifier
 }
 
 // NewAuthServer creates a new auth server
 func NewAuthServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microkernel) (*AuthServer, error) {
-	verifier := NewSignatureVerifier(logger)
+	verifier := NewAuthVerifier(logger)
 
 	return &AuthServer{
 		config:   cfg,
@@ -88,21 +88,21 @@ func (s *AuthServer) Health(ctx context.Context) error {
 	return nil
 }
 
-// SignatureVerifier handles signature verification
-type SignatureVerifier struct {
+// AuthVerifier handles authentication verification
+type AuthVerifier struct {
 	logger *zap.Logger
 	// TODO: Add Web3 RPC clients for different chains
 }
 
-// NewSignatureVerifier creates a new signature verifier
-func NewSignatureVerifier(logger *zap.Logger) *SignatureVerifier {
-	return &SignatureVerifier{
+// NewAuthVerifier creates a new auth verifier
+func NewAuthVerifier(logger *zap.Logger) *AuthVerifier {
+	return &AuthVerifier{
 		logger: logger,
 	}
 }
 
 // VerifySignature verifies a wallet signature
-func (v *SignatureVerifier) VerifySignature(ctx context.Context, address string, message string, signature string) (bool, error) {
+func (v *AuthVerifier) VerifySignature(ctx context.Context, address string, message string, signature string) (bool, error) {
 	v.logger.Info("Verifying signature", zap.String("address", address))
 
 	// TODO: Implement signature verification
@@ -114,7 +114,7 @@ func (v *SignatureVerifier) VerifySignature(ctx context.Context, address string,
 }
 
 // VerifyNFT verifies NFT ownership
-func (v *SignatureVerifier) VerifyNFT(ctx context.Context, address string, contractAddress string, tokenID string) (bool, error) {
+func (v *AuthVerifier) VerifyNFT(ctx context.Context, address string, contractAddress string, tokenID string) (bool, error) {
 	v.logger.Info("Verifying NFT", zap.String("address", address), zap.String("contract", contractAddress), zap.String("token_id", tokenID))
 
 	// TODO: Implement NFT verification
@@ -126,7 +126,7 @@ func (v *SignatureVerifier) VerifyNFT(ctx context.Context, address string, contr
 }
 
 // VerifyToken verifies an authentication token
-func (v *SignatureVerifier) VerifyToken(ctx context.Context, token string) (bool, error) {
+func (v *AuthVerifier) VerifyToken(ctx context.Context, token string) (bool, error) {
 	v.logger.Info("Verifying token")
 
 	// TODO: Implement token verification
@@ -138,7 +138,7 @@ func (v *SignatureVerifier) VerifyToken(ctx context.Context, token string) (bool
 }
 
 // GetChallenge generates a challenge for signing
-func (v *SignatureVerifier) GetChallenge(ctx context.Context, address string) (string, error) {
+func (v *AuthVerifier) GetChallenge(ctx context.Context, address string) (string, error) {
 	v.logger.Info("Generating challenge", zap.String("address", address))
 
 	// TODO: Generate challenge

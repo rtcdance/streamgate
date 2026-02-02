@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	// Object Storage
 	github.com/aws/aws-sdk-go v1.44.0
+	github.com/gagliardetto/solana-go v1.14.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-redis/redis/v8 v8.11.5
 
@@ -17,6 +18,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/minio/minio-go/v7 v7.0.63
 	github.com/nats-io/nats.go v1.48.0
+	github.com/prometheus/client_golang v1.17.0
 	github.com/spf13/viper v1.16.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/crypto v0.47.0
@@ -29,19 +31,24 @@ require (
 require (
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/ipfs/go-ipfs-api v0.7.0
+	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
 )
 
 require (
+	filippo.io/edwards25519 v1.0.0-rc.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
+	github.com/andres-erbsen/clock v0.0.0-20160526145045-9e14626cd129 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/benbjohnson/clock v1.3.0 // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
+	github.com/blendle/zapdriver v1.3.1 // indirect
 	github.com/bytedance/sonic v1.9.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
@@ -61,6 +68,8 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
+	github.com/gagliardetto/binary v0.8.0 // indirect
+	github.com/gagliardetto/treeout v0.1.4 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -93,16 +102,20 @@ require (
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
 	github.com/libp2p/go-libp2p v0.26.3 // indirect
+	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
+	github.com/mitchellh/go-testing-interface v1.14.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
+	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
@@ -116,6 +129,10 @@ require (
 	github.com/nats-io/nkeys v0.4.12 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/prometheus/client_model v0.4.1-0.20230718164431-9a2bf3000d16 // indirect
+	github.com/prometheus/common v0.44.0 // indirect
+	github.com/prometheus/procfs v0.11.1 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
@@ -124,6 +141,7 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
@@ -131,7 +149,9 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.11 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	go.mongodb.org/mongo-driver v1.12.2 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
+	go.uber.org/ratelimit v0.2.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.3.0 // indirect

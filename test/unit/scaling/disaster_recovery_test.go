@@ -245,8 +245,14 @@ func TestDisasterRecoveryManager_GetTotalBackupSize(t *testing.T) {
 
 	drm.CreatePlan(plan)
 
-	drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-1")
-	drm.CreateRecoveryPoint("plan-1", 2048*1024, "s3://backups/rp-2")
+	_, err := drm.CreateRecoveryPoint("plan-1", 1024*1024, "s3://backups/rp-1")
+	if err != nil {
+		t.Fatalf("Failed to create recovery point: %v", err)
+	}
+	_, err = drm.CreateRecoveryPoint("plan-1", 2048*1024, "s3://backups/rp-2")
+	if err != nil {
+		t.Fatalf("Failed to create recovery point: %v", err)
+	}
 
 	totalSize := drm.GetTotalBackupSize()
 	if totalSize != 3072*1024 {
