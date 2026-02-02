@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: streamgate-config
+  namespace: streamgate
+data:
+  ENVIRONMENT: "production"
+  DATABASE_HOST: "postgres-service"
+  DATABASE_PORT: "5432"
+  DATABASE_USER: "postgres"
+  DATABASE_NAME: "streamgate"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  STORAGE_ENDPOINT: "minio-service:9000"
+  STORAGE_BUCKET: "streamgate"
+  NATS_URL: "nats://nats-service:4222"
+  CONSUL_HOST: "consul-service"
+  CONSUL_PORT: "8500"
+  JAEGER_ENDPOINT: "http://jaeger-service:14268/api/traces"
+  ETHEREUM_RPC: "https://mainnet.infura.io/v3/YOUR_PROJECT_ID"
+  SOLANA_RPC: "https://api.mainnet-beta.solana.com"
