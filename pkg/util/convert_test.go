@@ -153,7 +153,7 @@ func TestGzipDecompress(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:  "compressed data",
+			name: "compressed data",
 			input: func() []byte {
 				data, _ := GzipCompress([]byte("hello world"))
 				return data
@@ -166,7 +166,7 @@ func TestGzipDecompress(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:  "empty compressed data",
+			name: "empty compressed data",
 			input: func() []byte {
 				data, _ := GzipCompress([]byte{})
 				return data
@@ -190,12 +190,12 @@ func TestGzipDecompress(t *testing.T) {
 
 func TestGzipCompressDecompressRoundTrip(t *testing.T) {
 	original := []byte("test data for compression and decompression")
-	
+
 	compressed, err := GzipCompress(original)
 	require.NoError(t, err)
-	
+
 	decompressed, err := GzipDecompress(compressed)
 	require.NoError(t, err)
-	
+
 	assert.Equal(t, original, decompressed)
 }

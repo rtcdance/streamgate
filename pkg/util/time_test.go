@@ -156,7 +156,7 @@ func TestAddDuration(t *testing.T) {
 		{
 			name: "add multiple hours",
 			t:    base,
-			d:    2 * time.Hour + 30 * time.Minute,
+			d:    2*time.Hour + 30*time.Minute,
 			want: time.Date(2024, 1, 1, 14, 30, 0, 0, time.UTC),
 		},
 	}
