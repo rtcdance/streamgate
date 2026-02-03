@@ -783,13 +783,12 @@ jobs:
           echo "Coverage report will be available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
 
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           files: ./coverage-total.out
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
-          verbose: true
 
       - name: Check coverage threshold
         run: |
