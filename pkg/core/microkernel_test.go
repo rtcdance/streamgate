@@ -4,19 +4,19 @@ import (
 	"context"
 	"testing"
 
-	"go.uber.org/zap"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
 	"streamgate/pkg/service"
 )
 
 type mockPlugin struct {
-	name    string
-	version string
+	name        string
+	version     string
 	initialized bool
-	started  bool
+	started     bool
 }
 
 func (m *mockPlugin) Name() string {
@@ -96,7 +96,7 @@ func TestNewMicrokernel(t *testing.T) {
 	cfg := &config.Config{
 		Mode: "monolithic",
 	}
-	
+
 	kernel, err := NewMicrokernel(cfg, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, kernel)
@@ -108,7 +108,7 @@ func TestNewMicrokernel(t *testing.T) {
 
 func TestNewMicrokernel_MicroserviceMode(t *testing.T) {
 	t.Skip("Skipping microservice mode test - requires external services")
-	
+
 	logger := zap.NewNop()
 	cfg := &config.Config{
 		Mode: "microservice",
@@ -119,7 +119,7 @@ func TestNewMicrokernel_MicroserviceMode(t *testing.T) {
 			Address: "localhost:8500",
 		},
 	}
-	
+
 	kernel, err := NewMicrokernel(cfg, logger)
 	assert.NoError(t, err)
 	assert.NotNil(t, kernel)
@@ -132,13 +132,13 @@ func TestMicrokernel_RegisterPlugin(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	plugin := &mockPlugin{name: "test-plugin", version: "1.0.0"}
-	
+
 	err = kernel.RegisterPlugin(plugin)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(kernel.plugins))
-	
+
 	retrievedPlugin, err := kernel.GetPlugin("test-plugin")
 	assert.NoError(t, err)
 	assert.Equal(t, plugin, retrievedPlugin)
@@ -149,12 +149,12 @@ func TestMicrokernel_RegisterPlugin_Duplicate(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	plugin := &mockPlugin{name: "test-plugin", version: "1.0.0"}
-	
+
 	err = kernel.RegisterPlugin(plugin)
 	require.NoError(t, err)
-	
+
 	err = kernel.RegisterPlugin(plugin)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already registered")
@@ -165,7 +165,7 @@ func TestMicrokernel_GetPlugin_NotFound(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	_, err = kernel.GetPlugin("nonexistent")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -176,7 +176,7 @@ func TestMicrokernel_GetEventBus(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	eventBus := kernel.GetEventBus()
 	assert.NotNil(t, eventBus)
 }
@@ -186,14 +186,14 @@ func TestMicrokernel_GetRegistry(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	registry := kernel.GetRegistry()
 	assert.Nil(t, registry)
 }
 
 func TestMicrokernel_GetRegistry_MicroserviceMode(t *testing.T) {
 	t.Skip("Skipping microservice mode test - requires external services")
-	
+
 	logger := zap.NewNop()
 	cfg := &config.Config{
 		Mode: "microservice",
@@ -203,7 +203,7 @@ func TestMicrokernel_GetRegistry_MicroserviceMode(t *testing.T) {
 	}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	registry := kernel.GetRegistry()
 	assert.NotNil(t, registry)
 }
@@ -213,14 +213,14 @@ func TestMicrokernel_GetClientPool(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	clientPool := kernel.GetClientPool()
 	assert.Nil(t, clientPool)
 }
 
 func TestMicrokernel_GetClientPool_MicroserviceMode(t *testing.T) {
 	t.Skip("Skipping microservice mode test - requires external services")
-	
+
 	logger := zap.NewNop()
 	cfg := &config.Config{
 		Mode: "microservice",
@@ -230,7 +230,7 @@ func TestMicrokernel_GetClientPool_MicroserviceMode(t *testing.T) {
 	}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	clientPool := kernel.GetClientPool()
 	assert.NotNil(t, clientPool)
 }
@@ -240,7 +240,7 @@ func TestMicrokernel_GetConfig(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	retrievedConfig := kernel.GetConfig()
 	assert.Equal(t, cfg, retrievedConfig)
 }
@@ -250,7 +250,7 @@ func TestMicrokernel_GetLogger(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	retrievedLogger := kernel.GetLogger()
 	assert.Equal(t, logger, retrievedLogger)
 }
@@ -260,11 +260,11 @@ func TestMicrokernel_Start_AlreadyStarted(t *testing.T) {
 	cfg := &config.Config{Mode: "monolithic"}
 	kernel, err := NewMicrokernel(cfg, logger)
 	require.NoError(t, err)
-	
+
 	ctx := context.Background()
 	err = kernel.Start(ctx)
 	require.NoError(t, err)
-	
+
 	err = kernel.Start(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already started")
