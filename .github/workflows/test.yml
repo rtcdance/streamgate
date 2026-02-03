@@ -607,9 +607,6 @@ jobs:
 
       - name: Merge coverage reports
         run: |
-          go install github.com/wadey/gocovmerge@latest
-          export PATH=$PATH:$(go env GOPATH)/bin
-          
           echo "Listing all downloaded artifacts:"
           find . -type f -name "*.out" | head -20
           
