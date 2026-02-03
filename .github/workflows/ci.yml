@@ -578,33 +578,57 @@ jobs:
           find . -type f -name "*.out" | head -20
           
           # Collect all coverage files from artifact directories
-          find . -name "coverage-unit.out" -exec cat {} \; > coverage-unit-merged.out || true
-          find . -name "coverage-integration.out" -exec cat {} \; > coverage-integration-merged.out || true
-          find . -name "coverage-e2e.out" -exec cat {} \; > coverage-e2e-merged.out || true
-          find . -name "coverage-load.out" -exec cat {} \; > coverage-load-merged.out || true
+          # Use a loop to properly merge files without duplicate mode lines
+          > coverage-unit-merged.out
+          for f in $(find . -path "*/coverage-unit.out" 2>/dev/null); do
+            tail -n +2 "$f" >> coverage-unit-merged.out || true
+          done
+          if [ ! -s coverage-unit-merged.out ]; then
+            # If no files found, try direct path
+            find . -path "*/coverage-unit.out" -exec tail -n +2 {} \; > coverage-unit-merged.out || true
+          fi
+          
+          > coverage-integration-merged.out
+          for f in $(find . -path "*/coverage-integration.out" 2>/dev/null); do
+            tail -n +2 "$f" >> coverage-integration-merged.out || true
+          done
+          if [ ! -s coverage-integration-merged.out ]; then
+            find . -path "*/coverage-integration.out" -exec tail -n +2 {} \; > coverage-integration-merged.out || true
+          fi
+          
+          > coverage-e2e-merged.out
+          for f in $(find . -path "*/coverage-e2e.out" 2>/dev/null); do
+            tail -n +2 "$f" >> coverage-e2e-merged.out || true
+          done
+          if [ ! -s coverage-e2e-merged.out ]; then
+            find . -path "*/coverage-e2e.out" -exec tail -n +2 {} \; > coverage-e2e-merged.out || true
+          fi
+          
+          > coverage-load-merged.out
+          for f in $(find . -path "*/coverage-load.out" 2>/dev/null); do
+            tail -n +2 "$f" >> coverage-load-merged.out || true
+          done
+          if [ ! -s coverage-load-merged.out ]; then
+            find . -path "*/coverage-load.out" -exec tail -n +2 {} \; > coverage-load-merged.out || true
+          fi
           
           echo "Coverage file sizes:"
           ls -lh coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out 2>&1 || true
           
-          # Merge all coverage files - keep only first mode line
-          if [ -s coverage-unit-merged.out ]; then
-            head -1 coverage-unit-merged.out > coverage-total.out
-            for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out; do
-              if [ -s "$f" ]; then
-                tail -n +2 "$f" >> coverage-total.out
-              fi
-            done
-            echo "Coverage merge completed"
-          else
-            echo "No coverage files found, creating empty coverage-total.out"
-            echo "mode: set" > coverage-total.out
-          fi
+          # Merge all coverage files - add mode line first
+          echo "mode: atomic" > coverage-total.out
+          for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out; do
+            if [ -s "$f" ]; then
+              cat "$f" >> coverage-total.out
+            fi
+          done
+          echo "Coverage merge completed"
           
           echo "Final coverage file size:"
           ls -lh coverage-total.out
           
           # Calculate and display coverage percentage
-          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
           echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
           
           # Check if coverage meets threshold
