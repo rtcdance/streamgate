@@ -157,8 +157,8 @@ jobs:
         run: |
           go test -v -race -coverprofile=coverage-unit-pkg.out ./pkg/...
           go test -v -race -coverprofile=coverage-unit-test.out ./test/unit/...
-          $(go env GOROOT)/bin/go tool cover -func=coverage-unit-pkg.out > coverage-unit-pkg.txt
-          $(go env GOROOT)/bin/go tool cover -func=coverage-unit-test.out > coverage-unit-test.txt
+          /usr/local/go/bin/go tool cover -func=coverage-unit-pkg.out > coverage-unit-pkg.txt
+          /usr/local/go/bin/go tool cover -func=coverage-unit-test.out > coverage-unit-test.txt
           cat coverage-unit-pkg.out coverage-unit-test.out > coverage-unit.out
 
       - name: Upload coverage
@@ -625,7 +625,7 @@ jobs:
           ls -lh coverage-total.out
           
           # Calculate and display coverage percentage
-          TOTAL_COVERAGE=$($(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
+          TOTAL_COVERAGE=$(/usr/local/go/bin/go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
           echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
           
           # Check if coverage meets threshold
@@ -639,12 +639,12 @@ jobs:
 
       - name: Generate HTML coverage report
         run: |
-          $(go env GOROOT)/bin/go tool cover -html=coverage-total.out -o coverage.html
-          $(go env GOROOT)/bin/go tool cover -func=coverage-total.out -o coverage-func.txt
+          /usr/local/go/bin/go tool cover -html=coverage-total.out -o coverage.html
+          /usr/local/go/bin/go tool cover -func=coverage-total.out -o coverage-func.txt
 
       - name: Generate coverage badge
         run: |
-          TOTAL_COVERAGE=$($(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          TOTAL_COVERAGE=$(/usr/local/go/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           COVERAGE_INT=${TOTAL_COVERAGE%.*}
           
           # Generate SVG badge
@@ -675,7 +675,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Calculate overall coverage percentage
-          TOTAL_COVERAGE=$($(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          TOTAL_COVERAGE=$(/usr/local/go/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "### Overall Coverage: ${TOTAL_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -691,7 +691,7 @@ jobs:
           echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          $(go env GOROOT)/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
+          /usr/local/go/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -699,8 +699,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|----------|" >> $GITHUB_STEP_SUMMARY
-          $(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep -E "^github.com/streamgate" | awk -F: '{print $1}' | sort -u | while read pkg; do
-            pkg_cov=$($(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep "$pkg:" | awk '{sum+=$3} END {printf "%.1f", sum}')
+          /usr/local/go/bin/go tool cover -func=coverage-total.out | grep -E "^github.com/streamgate" | awk -F: '{print $1}' | sort -u | while read pkg; do
+            pkg_cov=$(/usr/local/go/bin/go tool cover -func=coverage-total.out | grep "$pkg:" | awk '{sum+=$3} END {printf "%.1f", sum}')
             echo "| $pkg | ${pkg_cov}% |" >> $GITHUB_STEP_SUMMARY
           done
 
@@ -789,7 +789,7 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          TOTAL_COVERAGE=$($(go env GOROOT)/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          TOTAL_COVERAGE=$(/usr/local/go/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           COVERAGE_THRESHOLD=80
           if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
             echo "::error::Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
