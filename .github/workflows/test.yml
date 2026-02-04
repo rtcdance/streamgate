@@ -653,20 +653,20 @@ jobs:
 
       - name: Generate HTML coverage report
         run: |
-          $(go env GOROOT)/bin/go tool cover -html=coverage-total.out -o coverage.html
+          /usr/local/go/bin/go tool cover -html=coverage-total.out -o coverage.html
 
       - name: Display coverage summary
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          $(go env GOROOT)/bin/go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
+          /usr/local/go/bin/go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          $(go env GOROOT)/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
+          /usr/local/go/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload coverage artifacts
