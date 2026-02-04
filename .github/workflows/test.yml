@@ -653,23 +653,20 @@ jobs:
 
       - name: Generate HTML coverage report
         run: |
-          GO=$(which go)
-          $GO tool cover -html=coverage-total.out -o coverage.html
+          go tool cover -html=coverage-total.out -o coverage.html
 
       - name: Display coverage summary
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          GO=$(which go)
-          $GO tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          GO=$(which go)
-          $GO tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload coverage artifacts
