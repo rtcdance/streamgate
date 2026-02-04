@@ -135,13 +135,19 @@ func TestResourceOptimizerMemoryTrend(t *testing.T) {
 func TestResourceOptimizerCPUTrend(t *testing.T) {
 	initialGoroutines := runtime.NumGoroutine()
 
-	// Create a goroutine
+	// Create a goroutine that stays alive
+	ready := make(chan bool)
 	done := make(chan bool)
 	go func() {
+		ready <- true
 		<-done
 	}()
 
-	time.Sleep(10 * time.Millisecond)
+	// Wait for goroutine to start
+	<-ready
+
+	// Give runtime time to update goroutine count
+	time.Sleep(1 * time.Millisecond)
 
 	currentGoroutines := runtime.NumGoroutine()
 
@@ -195,15 +201,23 @@ func TestResourceOptimizerMemoryLeak(t *testing.T) {
 func TestResourceOptimizerGoroutineTracking(t *testing.T) {
 	initialCount := runtime.NumGoroutine()
 
-	// Create multiple goroutines
+	// Create multiple goroutines that stay alive
+	ready := make(chan bool, 10)
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func() {
+			ready <- true
 			<-done
 		}()
 	}
 
-	time.Sleep(10 * time.Millisecond)
+	// Wait for all goroutines to start
+	for i := 0; i < 10; i++ {
+		<-ready
+	}
+
+	// Give runtime time to update goroutine count
+	time.Sleep(1 * time.Millisecond)
 
 	currentCount := runtime.NumGoroutine()
 
