@@ -792,7 +792,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Check coverage threshold
-          run: |
+        run: |
             TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           COVERAGE_THRESHOLD=80
           if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
