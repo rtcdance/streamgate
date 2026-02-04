@@ -147,7 +147,7 @@ func TestResourceOptimizerCPUTrend(t *testing.T) {
 	<-ready
 
 	// Give runtime time to update goroutine count
-	time.Sleep(1 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	currentGoroutines := runtime.NumGoroutine()
 
@@ -217,7 +217,7 @@ func TestResourceOptimizerGoroutineTracking(t *testing.T) {
 	}
 
 	// Give runtime time to update goroutine count
-	time.Sleep(1 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	currentCount := runtime.NumGoroutine()
 
