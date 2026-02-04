@@ -625,7 +625,7 @@ jobs:
           ls -lh coverage-total.out
           
           # Calculate and display coverage percentage
-            TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
           echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
           
           # Check if coverage meets threshold
@@ -643,12 +643,12 @@ jobs:
           go tool cover -func=coverage-total.out -o coverage-func.txt
 
       - name: Generate coverage badge
-          run: |
-            TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+        run: |
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           COVERAGE_INT=${TOTAL_COVERAGE%.*}
           
           # Generate SVG badge
-          cat > coverage-badge.svg <<EOF
+          cat > coverage-badge.svg <<'EOF'
           <svg xmlns="http://www.w3.org/2000/svg" width="120" height="20">
             <linearGradient id="b" x2="0" y2="100%">
               <stop offset="0%" stop-color="#bbb" stop-opacity=".1"/>
@@ -675,7 +675,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Calculate overall coverage percentage
-            TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
+          TOTAL_COVERAGE=$(go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "### Overall Coverage: ${TOTAL_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
@@ -690,8 +690,8 @@ jobs:
           
           echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
