@@ -14,6 +14,24 @@ type Event struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
+// Event type constants
+const (
+	EventTypeCacheWarmed         = "cache.warmed"
+	EventTypeNFTVerified          = "nft.verified"
+	EventTypeServiceRegistered    = "service.registered"
+	EventTypeServiceDeregistered  = "service.deregistered"
+	EventTypeStreamingStarted     = "streaming.started"
+	EventTypeStreamingStopped     = "streaming.stopped"
+	EventTypeMetadataCreated      = "metadata.created"
+	EventTypeMetadataUpdated      = "metadata.updated"
+	EventTypeMetadataDeleted      = "metadata.deleted"
+	EventTypeJobSubmitted         = "job.submitted"
+	EventTypeJobCompleted         = "job.completed"
+	EventTypeJobFailed            = "job.failed"
+	EventTypeAlertTriggered       = "alert.triggered"
+	EventTypeAlertResolved        = "alert.resolved"
+)
+
 // EventHandler is a function that handles events
 type EventHandler func(ctx context.Context, event *Event) error
 

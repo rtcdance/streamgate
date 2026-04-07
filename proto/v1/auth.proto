@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "streamgate/proto/gen/go/auth/v1;authv1";
+
+import "proto/v1/common.proto";
+
+service AuthService {
+  rpc GetNonce(GetNonceRequest) returns (GetNonceResponse);
+  rpc VerifySignature(VerifySignatureRequest) returns (VerifySignatureResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc RevokeToken(RevokeTokenRequest) returns (RevokeTokenResponse);
+  rpc VerifyToken(VerifyTokenRequest) returns (VerifyTokenResponse);
+}
+
+message GetNonceRequest {
+  string wallet_address = 1;
+  string chain_type = 2;
+}
+
+message GetNonceResponse {
+  string nonce = 1;
+  string message = 2;
+  int64 expires_at = 3;
+}
+
+message VerifySignatureRequest {
+  string wallet_address = 1;
+  string signature = 2;
+  string nonce = 3;
+  string chain_type = 4;
+  string message = 5;
+}
+
+message VerifySignatureResponse {
+  bool valid = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 expires_at = 4;
+  UserInfo user_info = 5;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  int64 expires_at = 4;
+}
+
+message RevokeTokenRequest {
+  string token = 1;
+}
+
+message RevokeTokenResponse {
+  bool success = 1;
+}
+
+message VerifyTokenRequest {
+  string token = 1;
+}
+
+message VerifyTokenResponse {
+  bool valid = 1;
+  UserInfo user_info = 2;
+  int64 expires_at = 3;
+}
+
+message UserInfo {
+  string user_id = 1;
+  string wallet_address = 2;
+  string chain_type = 3;
+  repeated string roles = 4;
+  map<string, string> metadata = 5;
+}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,8 @@ import (
 type TranscodingService struct {
 	db    *sql.DB
 	queue TranscodingQueue
+	mu    sync.RWMutex
+	tasks map[string]*TranscodingTask
 }
 
 // TranscodingQueue defines the interface for task queue
@@ -95,6 +98,7 @@ func NewTranscodingService(db *sql.DB, queue TranscodingQueue) *TranscodingServi
 	return &TranscodingService{
 		db:    db,
 		queue: queue,
+		tasks: make(map[string]*TranscodingTask),
 	}
 }
 
@@ -121,9 +125,13 @@ func (s *TranscodingService) Transcode(contentID, profile string, inputURL strin
 		Metadata:  make(map[string]interface{}),
 	}
 
-	// Save to database
-	if err := s.saveTask(task); err != nil {
-		return "", fmt.Errorf("failed to save task: %w", err)
+	// Save to database when persistence is available.
+	if s.db != nil {
+		if err := s.saveTask(task); err != nil {
+			return "", fmt.Errorf("failed to save task: %w", err)
+		}
+	} else {
+		s.storeTask(task)
 	}
 
 	// Enqueue task
@@ -138,6 +146,10 @@ func (s *TranscodingService) Transcode(contentID, profile string, inputURL strin
 
 // GetTranscodingStatus gets transcoding task status
 func (s *TranscodingService) GetTranscodingStatus(taskID string) (*TranscodingTask, error) {
+	if s.db == nil {
+		return s.getTask(taskID)
+	}
+
 	query := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url, 
 		       error, priority, created_at, started_at, completed_at, metadata
@@ -191,6 +203,13 @@ func (s *TranscodingService) GetTranscodingStatus(taskID string) (*TranscodingTa
 
 // UpdateTaskStatus updates task status
 func (s *TranscodingService) UpdateTaskStatus(taskID, status string, progress int) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			task.Status = status
+			task.Progress = progress
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET status = $2, progress = $3 WHERE id = $1"
 	_, err := s.db.Exec(query, taskID, status, progress)
 	if err != nil {
@@ -201,6 +220,12 @@ func (s *TranscodingService) UpdateTaskStatus(taskID, status string, progress in
 
 // UpdateTaskProgress updates task progress
 func (s *TranscodingService) UpdateTaskProgress(taskID string, progress int) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			task.Progress = progress
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET progress = $2 WHERE id = $1"
 	_, err := s.db.Exec(query, taskID, progress)
 	if err != nil {
@@ -211,6 +236,14 @@ func (s *TranscodingService) UpdateTaskProgress(taskID string, progress int) err
 
 // StartTask marks a task as started
 func (s *TranscodingService) StartTask(taskID string) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			task.Status = "processing"
+			now := time.Now()
+			task.StartedAt = &now
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1"
 	_, err := s.db.Exec(query, taskID, "processing", time.Now())
 	if err != nil {
@@ -221,6 +254,16 @@ func (s *TranscodingService) StartTask(taskID string) error {
 
 // CompleteTask marks a task as completed
 func (s *TranscodingService) CompleteTask(taskID, outputURL string) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			task.Status = "completed"
+			task.Progress = 100
+			task.OutputURL = outputURL
+			now := time.Now()
+			task.CompletedAt = &now
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5 WHERE id = $1"
 	_, err := s.db.Exec(query, taskID, "completed", 100, outputURL, time.Now())
 	if err != nil {
@@ -231,6 +274,15 @@ func (s *TranscodingService) CompleteTask(taskID, outputURL string) error {
 
 // FailTask marks a task as failed
 func (s *TranscodingService) FailTask(taskID, errorMsg string) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			task.Status = "failed"
+			task.Error = errorMsg
+			now := time.Now()
+			task.CompletedAt = &now
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET status = $2, error = $3, completed_at = $4 WHERE id = $1"
 	_, err := s.db.Exec(query, taskID, "failed", errorMsg, time.Now())
 	if err != nil {
@@ -241,6 +293,10 @@ func (s *TranscodingService) FailTask(taskID, errorMsg string) error {
 
 // ListTasks lists transcoding tasks
 func (s *TranscodingService) ListTasks(contentID string, limit, offset int) ([]*TranscodingTask, error) {
+	if s.db == nil {
+		return s.listTasks(contentID, limit, offset), nil
+	}
+
 	query := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url,
 		       error, priority, created_at, started_at, completed_at, metadata
@@ -305,6 +361,16 @@ func (s *TranscodingService) ListTasks(contentID string, limit, offset int) ([]*
 
 // CancelTask cancels a transcoding task
 func (s *TranscodingService) CancelTask(taskID string) error {
+	if s.db == nil {
+		return s.updateTask(taskID, func(task *TranscodingTask) {
+			if task.Status == "pending" || task.Status == "processing" {
+				task.Status = "cancelled"
+				now := time.Now()
+				task.CompletedAt = &now
+			}
+		})
+	}
+
 	query := "UPDATE transcoding_tasks SET status = $2 WHERE id = $1 AND status IN ('pending', 'processing')"
 	result, err := s.db.Exec(query, taskID, "cancelled")
 	if err != nil {
@@ -321,6 +387,13 @@ func (s *TranscodingService) CancelTask(taskID string) error {
 
 // DeleteTask deletes a transcoding task
 func (s *TranscodingService) DeleteTask(taskID string) error {
+	if s.db == nil {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		delete(s.tasks, taskID)
+		return nil
+	}
+
 	query := "DELETE FROM transcoding_tasks WHERE id = $1"
 	_, err := s.db.Exec(query, taskID)
 	if err != nil {
@@ -379,6 +452,17 @@ func (s *TranscodingService) saveTask(task *TranscodingTask) error {
 
 // GetPendingTasks gets all pending tasks
 func (s *TranscodingService) GetPendingTasks(limit int) ([]*TranscodingTask, error) {
+	if s.db == nil {
+		tasks := s.listTasks("", limit, 0)
+		pending := make([]*TranscodingTask, 0, len(tasks))
+		for _, task := range tasks {
+			if task.Status == "pending" {
+				pending = append(pending, task)
+			}
+		}
+		return pending, nil
+	}
+
 	query := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url,
 		       error, priority, created_at, started_at, completed_at, metadata
@@ -439,4 +523,71 @@ func (s *TranscodingService) GetPendingTasks(limit int) ([]*TranscodingTask, err
 	}
 
 	return tasks, nil
+}
+
+func (s *TranscodingService) storeTask(task *TranscodingTask) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	taskCopy := *task
+	if taskCopy.Metadata == nil {
+		taskCopy.Metadata = make(map[string]interface{})
+	}
+	s.tasks[task.ID] = &taskCopy
+}
+
+func (s *TranscodingService) getTask(taskID string) (*TranscodingTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	task, exists := s.tasks[taskID]
+	if !exists {
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+
+	taskCopy := *task
+	if taskCopy.Metadata == nil {
+		taskCopy.Metadata = make(map[string]interface{})
+	}
+	return &taskCopy, nil
+}
+
+func (s *TranscodingService) updateTask(taskID string, update func(task *TranscodingTask)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, exists := s.tasks[taskID]
+	if !exists {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+
+	update(task)
+	return nil
+}
+
+func (s *TranscodingService) listTasks(contentID string, limit, offset int) []*TranscodingTask {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	tasks := make([]*TranscodingTask, 0)
+	for _, task := range s.tasks {
+		if contentID != "" && task.ContentID != contentID {
+			continue
+		}
+		taskCopy := *task
+		if taskCopy.Metadata == nil {
+			taskCopy.Metadata = make(map[string]interface{})
+		}
+		tasks = append(tasks, &taskCopy)
+	}
+
+	if offset >= len(tasks) {
+		return []*TranscodingTask{}
+	}
+
+	end := offset + limit
+	if end > len(tasks) {
+		end = len(tasks)
+	}
+	return tasks[offset:end]
 }

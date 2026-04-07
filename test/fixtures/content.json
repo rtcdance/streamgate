@@ -1,0 +1,64 @@
+{
+  "contents": [
+    {
+      "id": "content-001",
+      "title": "Sample Video 1",
+      "description": "A test video for development",
+      "original_url": "https://example.com/videos/sample1.mp4",
+      "thumbnail_url": "https://example.com/thumbnails/sample1.jpg",
+      "duration": 120,
+      "size": 52428800,
+      "mime_type": "video/mp4",
+      "status": "completed",
+      "created_at": 1704067200000,
+      "updated_at": 1704067260000,
+      "tags": ["test", "sample", "video"],
+      "metadata": {
+        "resolution": "1920x1080",
+        "codec": "h264",
+        "bitrate": "5000000"
+      }
+    },
+    {
+      "id": "content-002",
+      "title": "Sample Video 2",
+      "description": "Another test video",
+      "original_url": "https://example.com/videos/sample2.mp4",
+      "thumbnail_url": "https://example.com/thumbnails/sample2.jpg",
+      "duration": 180,
+      "size": 78643200,
+      "mime_type": "video/mp4",
+      "status": "processing",
+      "created_at": 1704153600000,
+      "updated_at": 1704153660000,
+      "tags": ["test", "sample"],
+      "metadata": {
+        "resolution": "1280x720",
+        "codec": "h264",
+        "bitrate": "2500000"
+      }
+    },
+    {
+      "id": "content-003",
+      "title": "NFT Gated Content",
+      "description": "Content requiring NFT ownership",
+      "original_url": "https://example.com/videos/nft-gated.mp4",
+      "thumbnail_url": "https://example.com/thumbnails/nft-gated.jpg",
+      "duration": 240,
+      "size": 104857600,
+      "mime_type": "video/mp4",
+      "status": "completed",
+      "created_at": 1704240000000,
+      "updated_at": 1704240060000,
+      "tags": ["nft", "gated", "premium"],
+      "metadata": {
+        "resolution": "1920x1080",
+        "codec": "h264",
+        "bitrate": "5000000",
+        "nft_required": true,
+        "contract_address": "0x1234567890123456789012345678901234567890",
+        "token_id": "1"
+      }
+    }
+  ]
+}

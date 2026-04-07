@@ -12,8 +12,11 @@ import (
 
 // AuthService handles authentication
 type AuthService struct {
-	jwtSecret []byte
-	storage   AuthStorage
+	jwtSecret         []byte
+	storage           AuthStorage
+	signatureVerifier WalletSignatureVerifier
+	challengeStore    ChallengeStore
+	challengeTTL      time.Duration
 }
 
 // AuthStorage defines the interface for user storage
@@ -38,6 +41,10 @@ type User struct {
 type Claims struct {
 	Username      string `json:"username"`
 	WalletAddress string `json:"wallet_address,omitempty"`
+	ContentID     string `json:"content_id,omitempty"`
+	Contract      string `json:"contract,omitempty"`
+	TokenID       string `json:"token_id,omitempty"`
+	ChainID       int64  `json:"chain_id,omitempty"`
 	JTI           string `json:"jti,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -45,9 +52,27 @@ type Claims struct {
 // NewAuthService creates a new auth service
 func NewAuthService(jwtSecret string, storage AuthStorage) *AuthService {
 	return &AuthService{
-		jwtSecret: []byte(jwtSecret),
-		storage:   storage,
+		jwtSecret:         []byte(jwtSecret),
+		storage:           storage,
+		signatureVerifier: defaultWalletSignatureVerifier(),
+		challengeStore:    NewMemoryChallengeStore(),
+		challengeTTL:      defaultChallengeTTL,
 	}
+}
+
+// NewAuthServiceWithDeps creates a new auth service with explicit wallet auth dependencies.
+func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier WalletSignatureVerifier, challengeStore ChallengeStore, challengeTTL time.Duration) *AuthService {
+	service := NewAuthService(jwtSecret, storage)
+	if verifier != nil {
+		service.signatureVerifier = verifier
+	}
+	if challengeStore != nil {
+		service.challengeStore = challengeStore
+	}
+	if challengeTTL > 0 {
+		service.challengeTTL = challengeTTL
+	}
+	return service
 }
 
 // Authenticate authenticates user with username and password
@@ -70,34 +95,6 @@ func (s *AuthService) Authenticate(username, password string) (string, error) {
 	}
 
 	return token, nil
-}
-
-// AuthenticateWithWallet authenticates user with wallet signature
-func (s *AuthService) AuthenticateWithWallet(walletAddress, signature, message string) (string, error) {
-	// TODO: Verify wallet signature
-	// This would involve:
-	// 1. Recover address from signature
-	// 2. Compare with provided wallet address
-	// 3. Verify message timestamp to prevent replay attacks
-
-	// For now, create a simple token
-	claims := &Claims{
-		Username:      walletAddress,
-		WalletAddress: walletAddress,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
-	}
-
-	return tokenString, nil
 }
 
 // Verify verifies token and returns claims

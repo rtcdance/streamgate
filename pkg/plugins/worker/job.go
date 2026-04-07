@@ -172,8 +172,6 @@ func (pq *PriorityQueue) Dequeue(ctx context.Context) (*Job, error) {
 
 // Len returns the number of items in the queue
 func (pq *PriorityQueue) Len() int {
-	pq.mu.Lock()
-	defer pq.mu.Unlock()
 	return len(pq.items)
 }
 

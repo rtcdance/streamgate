@@ -1,0 +1,188 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamgate-monolith
+  namespace: streamgate
+  labels:
+    app: streamgate
+    component: monolith
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: streamgate
+      component: monolith
+  template:
+    metadata:
+      labels:
+        app: streamgate
+        component: monolith
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: streamgate
+      containers:
+      - name: streamgate
+        image: streamgate/monolith:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        - name: grpc
+          containerPort: 9090
+          protocol: TCP
+        - name: metrics
+          containerPort: 9091
+          protocol: TCP
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: CONFIG_PATH
+          value: "/config/config.yaml"
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: db-host
+        - name: DB_PORT
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: db-port
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: db-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: db-password
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: db-name
+        - name: REDIS_HOST
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: redis-host
+        - name: REDIS_PORT
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: redis-port
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: redis-password
+        - name: S3_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: s3-endpoint
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: s3-access-key
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: s3-secret-key
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: s3-bucket
+        - name: S3_REGION
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: s3-region
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: jwt-secret
+        - name: FRONTEND_URL
+          valueFrom:
+            configMapKeyRef:
+              name: streamgate-config
+              key: frontend-url
+        - name: ETH_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: eth-rpc-url
+        - name: POLYGON_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: polygon-rpc-url
+        - name: BSC_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-secrets
+              key: bsc-rpc-url
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: config
+        configMap:
+          name: streamgate-config
+      - name: tmp
+        emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - streamgate
+              topologyKey: kubernetes.io/hostname

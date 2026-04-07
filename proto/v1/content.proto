@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package content.v1;
+
+option go_package = "streamgate/proto/gen/go/content/v1;contentv1";
+
+import "proto/v1/common.proto";
+
+service ContentService {
+  rpc GetContent(GetContentRequest) returns (GetContentResponse);
+  rpc VerifyAccess(VerifyAccessRequest) returns (VerifyAccessResponse);
+  rpc GetTranscodeStatus(GetTranscodeStatusRequest) returns (GetTranscodeStatusResponse);
+  rpc ListContent(ListContentRequest) returns (ListContentResponse);
+  rpc DeleteContent(DeleteContentRequest) returns (DeleteContentResponse);
+}
+
+message GetContentRequest {
+  string content_id = 1;
+  string user_id = 2;
+}
+
+message GetContentResponse {
+  Content content = 1;
+  repeated string streaming_urls = 2;
+  common.v1.Metadata metadata = 3;
+}
+
+message VerifyAccessRequest {
+  string content_id = 1;
+  string user_id = 2;
+  string wallet_address = 3;
+  string contract_address = 4;
+  string token_id = 5;
+}
+
+message VerifyAccessResponse {
+  bool has_access = 1;
+  string access_type = 2;
+  int64 expires_at = 3;
+  repeated string required_nfts = 4;
+}
+
+message GetTranscodeStatusRequest {
+  string content_id = 1;
+}
+
+message GetTranscodeStatusResponse {
+  string status = 1;
+  int32 progress = 2;
+  repeated TranscodeOutput outputs = 3;
+  string error_message = 4;
+  int64 started_at = 5;
+  int64 completed_at = 6;
+}
+
+message ListContentRequest {
+  string user_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string status = 4;
+}
+
+message ListContentResponse {
+  repeated Content contents = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message DeleteContentRequest {
+  string content_id = 1;
+  string user_id = 2;
+}
+
+message DeleteContentResponse {
+  bool success = 1;
+}
+
+message Content {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  string original_url = 4;
+  string thumbnail_url = 5;
+  int64 duration = 6;
+  int64 size = 7;
+  string mime_type = 8;
+  string status = 9;
+  int64 created_at = 10;
+  int64 updated_at = 11;
+  repeated string tags = 12;
+  map<string, string> metadata = 13;
+}
+
+message TranscodeOutput {
+  string format = 1;
+  string quality = 2;
+  int32 width = 3;
+  int32 height = 4;
+  int32 bitrate = 5;
+  string url = 6;
+  int64 size = 7;
+}

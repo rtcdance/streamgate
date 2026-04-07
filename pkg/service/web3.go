@@ -42,8 +42,8 @@ func NewWeb3Service(cfg *config.Config, logger *zap.Logger) (*Web3Service, error
 	}
 
 	// Initialize Polygon testnet
-	if err := service.multiChainManager.AddChain(80001); err != nil {
-		logger.Warn("Failed to add Polygon Mumbai", zap.Error(err))
+	if err := service.multiChainManager.AddChain(80002); err != nil {
+		logger.Warn("Failed to add Polygon Amoy", zap.Error(err))
 	}
 
 	logger.Info("Web3 service initialized")
@@ -112,6 +112,27 @@ func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, co
 	return nftVerifier.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
 }
 
+// GetNFTBalance gets collection balance for an owner.
+func (ws *Web3Service) GetNFTBalance(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (int64, error) {
+	ws.logger.Debug("Getting NFT balance",
+		zap.Int64("chain_id", chainID),
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress))
+
+	client, err := ws.multiChainManager.GetClient(chainID)
+	if err != nil {
+		return 0, err
+	}
+
+	nftVerifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger)
+	balance, err := nftVerifier.GetNFTBalance(ctx, contractAddress, ownerAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	return balance.Int64(), nil
+}
+
 // GetGasPrice gets the current gas price
 func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, error) {
 	ws.logger.Debug("Getting gas price", zap.Int64("chain_id", chainID))
@@ -169,6 +190,11 @@ func (ws *Web3Service) DownloadFromIPFS(ctx context.Context, cid string) ([]byte
 // GetSupportedChains gets all supported chains
 func (ws *Web3Service) GetSupportedChains() []*web3.ChainConfig {
 	return ws.multiChainManager.GetSupportedChains()
+}
+
+// GetRPCStatuses returns the runtime RPC status for configured chains.
+func (ws *Web3Service) GetRPCStatuses() map[int64][]web3.RPCStatus {
+	return ws.multiChainManager.GetRPCStatuses()
 }
 
 // GetTestnetChains gets all testnet chains

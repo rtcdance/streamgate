@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"streamgate/pkg/web3"
 )
 
 // MockAuthStorage implements AuthStorage for testing
@@ -109,13 +112,24 @@ func TestAuthService_Authenticate(t *testing.T) {
 func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 	storage := NewMockAuthStorage()
 	auth := NewAuthService("test-secret", storage)
+	verifier := web3.NewSignatureVerifier(zap.NewNop())
+	auth.signatureVerifier = verifier
+	store, ok := auth.challengeStore.(*MemoryChallengeStore)
+	require.True(t, ok)
 
-	t.Run("wallet authentication", func(t *testing.T) {
-		walletAddress := "0x1234567890123456789012345678901234567890"
-		signature := "0xabc123"
-		message := "test message"
+	t.Run("wallet authentication with challenge", func(t *testing.T) {
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
 
-		token, err := auth.AuthenticateWithWallet(walletAddress, signature, message)
+		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
+		challenge, err := auth.GenerateWalletChallenge(walletAddress, 11155111)
+		require.NoError(t, err)
+		assert.Equal(t, walletAddress, challenge.WalletAddress)
+
+		signature, err := verifier.SignMessage(challenge.Message, privateKey)
+		require.NoError(t, err)
+
+		token, err := auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -123,6 +137,99 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, walletAddress, claims.WalletAddress)
 	})
+
+	t.Run("challenge replay fails", func(t *testing.T) {
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
+		challenge, err := auth.GenerateWalletChallenge(walletAddress, 11155111)
+		require.NoError(t, err)
+
+		signature, err := verifier.SignMessage(challenge.Message, privateKey)
+		require.NoError(t, err)
+
+		_, err = auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
+		require.NoError(t, err)
+
+		_, err = auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "challenge already used")
+	})
+
+	t.Run("expired challenge fails", func(t *testing.T) {
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
+		expiredChallenge := &WalletChallenge{
+			ID:            "expired-challenge",
+			WalletAddress: walletAddress,
+			ChainID:       11155111,
+			Nonce:         "nonce-expired",
+			Message:       "expired message",
+			IssuedAt:      time.Now().Add(-10 * time.Minute).UTC(),
+			ExpiresAt:     time.Now().Add(-time.Minute).UTC(),
+		}
+		require.NoError(t, store.SaveChallenge(expiredChallenge))
+
+		signature, err := verifier.SignMessage(expiredChallenge.Message, privateKey)
+		require.NoError(t, err)
+
+		_, err = auth.AuthenticateWithWallet(walletAddress, expiredChallenge.ID, signature)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "challenge expired")
+	})
+}
+
+func TestMemoryChallengeStore_ChallengeLifecycle(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	challenge := &WalletChallenge{
+		ID:            "challenge-1",
+		WalletAddress: "0x1234567890123456789012345678901234567890",
+		Nonce:         "nonce",
+		Message:       "message",
+		IssuedAt:      time.Now(),
+		ExpiresAt:     time.Now().Add(time.Minute),
+	}
+
+	require.NoError(t, store.SaveChallenge(challenge))
+
+	loaded, err := store.GetChallenge(challenge.ID)
+	require.NoError(t, err)
+	assert.Equal(t, challenge.WalletAddress, loaded.WalletAddress)
+	assert.True(t, loaded.UsedAt.IsZero())
+
+	usedAt := time.Now().UTC()
+	require.NoError(t, store.MarkChallengeUsed(challenge.ID, usedAt))
+
+	loaded, err = store.GetChallenge(challenge.ID)
+	require.NoError(t, err)
+	assert.Equal(t, usedAt.Unix(), loaded.UsedAt.Unix())
+}
+
+func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
+	auth := NewAuthService("test-secret", NewMockAuthStorage())
+
+	token, err := auth.GeneratePlaybackToken(
+		"0x1234567890123456789012345678901234567890",
+		"content-1",
+		"0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+		"7",
+		11155111,
+		time.Minute,
+	)
+	require.NoError(t, err)
+
+	claims, err := auth.ValidatePlaybackToken(token, "content-1")
+	require.NoError(t, err)
+	assert.Equal(t, "content-1", claims.ContentID)
+	assert.Equal(t, "7", claims.TokenID)
+	assert.Equal(t, int64(11155111), claims.ChainID)
+
+	_, err = auth.ValidatePlaybackToken(token, "other-content")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "content mismatch")
 }
 
 func TestAuthService_Verify(t *testing.T) {
