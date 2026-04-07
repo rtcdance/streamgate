@@ -1,0 +1,158 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  grpc_port: 9090
+  mode: "microservices"
+  read_timeout: 30s
+  write_timeout: 30s
+  shutdown_timeout: 60s
+
+database:
+  host: "${DB_HOST}"
+  port: ${DB_PORT}
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  dbname: "${DB_NAME}"
+  sslmode: "require"
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime: 10m
+
+redis:
+  host: "${REDIS_HOST}"
+  port: ${REDIS_PORT}
+  password: "${REDIS_PASSWORD}"
+  db: 0
+  pool_size: 20
+  min_idle_conns: 5
+
+storage:
+  type: "s3"
+  s3:
+    endpoint: "${S3_ENDPOINT}"
+    access_key: "${S3_ACCESS_KEY}"
+    secret_key: "${S3_SECRET_KEY}"
+    bucket: "${S3_BUCKET}"
+    region: "${S3_REGION}"
+    use_ssl: true
+  minio:
+    endpoint: "${MINIO_ENDPOINT}"
+    access_key: "${MINIO_ACCESS_KEY}"
+    secret_key: "${MINIO_SECRET_KEY}"
+    bucket: "${MINIO_BUCKET}"
+    use_ssl: true
+
+transcoding:
+  enabled: true
+  max_workers: 8
+  queue_size: 200
+  output_formats:
+    - "hls"
+    - "dash"
+  qualities:
+    - name: "1080p"
+      width: 1920
+      height: 1080
+      bitrate: 5000000
+    - name: "720p"
+      width: 1280
+      height: 720
+      bitrate: 2500000
+    - name: "480p"
+      width: 854
+      height: 480
+      bitrate: 1000000
+    - name: "360p"
+      width: 640
+      height: 360
+      bitrate: 600000
+    - name: "240p"
+      width: 426
+      height: 240
+      bitrate: 300000
+
+streaming:
+  hls_segment_duration: 10
+  dash_segment_duration: 10
+  cache_enabled: true
+  cache_ttl: 7200s
+  max_concurrent_streams: 5000
+
+web3:
+  enabled: true
+  chains:
+    - id: 1
+      name: "ethereum"
+      rpc_url: "${ETH_RPC_URL}"
+      explorer_url: "https://etherscan.io"
+    - id: 137
+      name: "polygon"
+      rpc_url: "${POLYGON_RPC_URL}"
+      explorer_url: "https://polygonscan.com"
+    - id: 56
+      name: "bsc"
+      rpc_url: "${BSC_RPC_URL}"
+      explorer_url: "https://bscscan.com"
+    - id: 42161
+      name: "arbitrum"
+      rpc_url: "${ARBITRUM_RPC_URL}"
+      explorer_url: "https://arbiscan.io"
+    - id: 10
+      name: "optimism"
+      rpc_url: "${OPTIMISM_RPC_URL}"
+      explorer_url: "https://optimistic.etherscan.io"
+  default_chain_id: 1
+
+auth:
+  jwt_secret: "${JWT_SECRET}"
+  jwt_expiry: 24h
+  refresh_token_expiry: 168h
+  nonce_expiry: 5m
+
+rate_limiting:
+  enabled: true
+  requests_per_minute: 60
+  requests_per_hour: 1000
+  burst_size: 10
+
+monitoring:
+  enabled: true
+  prometheus_port: 9091
+  health_check_interval: 30s
+  metrics_path: "/metrics"
+
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  file: "/var/log/streamgate/app.log"
+  max_size: 500
+  max_backups: 10
+  max_age: 90
+  compress: true
+
+cors:
+  enabled: true
+  allowed_origins:
+    - "${FRONTEND_URL}"
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Content-Type"
+    - "Authorization"
+    - "X-Request-ID"
+  exposed_headers:
+    - "X-Request-ID"
+  max_age: 86400
+
+features:
+  nft_gating: true
+  signature_auth: true
+  chunked_upload: true
+  resumable_upload: true
+  adaptive_bitrate: true
+  multi_codec: true

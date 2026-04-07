@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -158,6 +159,27 @@ type ChainInfo struct {
 	IsTestnet bool   `json:"is_testnet"`
 }
 
+// RPCStatusInfo contains runtime RPC health for a chain endpoint.
+type RPCStatusInfo struct {
+	URL           string `json:"url"`
+	IsActive      bool   `json:"is_active"`
+	Failures      int    `json:"failures"`
+	LastFailureAt string `json:"last_failure_at,omitempty"`
+	CooldownUntil string `json:"cooldown_until,omitempty"`
+}
+
+// ChainRPCStatus groups runtime RPC state by chain.
+type ChainRPCStatus struct {
+	ChainID int64           `json:"chain_id"`
+	Name    string          `json:"name"`
+	RPCs    []RPCStatusInfo `json:"rpcs"`
+}
+
+// GetRPCStatusResponse is the response for runtime RPC status.
+type GetRPCStatusResponse struct {
+	Chains []ChainRPCStatus `json:"chains"`
+}
+
 // HandleGetSupportedChains handles supported chains requests
 func (wh *Web3Handler) HandleGetSupportedChains(w http.ResponseWriter, r *http.Request) {
 	wh.logger.Debug("Handling get supported chains request")
@@ -181,6 +203,54 @@ func (wh *Web3Handler) HandleGetSupportedChains(w http.ResponseWriter, r *http.R
 	// Return response
 	resp := GetSupportedChainsResponse{
 		Chains: chainInfos,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// HandleGetRPCStatus exposes runtime RPC status including active endpoint and cooldown windows.
+func (wh *Web3Handler) HandleGetRPCStatus(w http.ResponseWriter, r *http.Request) {
+	wh.logger.Debug("Handling get rpc status request")
+
+	statusesByChain := wh.web3Service.GetRPCStatuses()
+	supported := wh.web3Service.GetSupportedChains()
+	nameByChain := make(map[int64]string, len(supported))
+	for _, chain := range supported {
+		nameByChain[chain.ID] = chain.Name
+	}
+
+	chainIDs := make([]int64, 0, len(statusesByChain))
+	for chainID := range statusesByChain {
+		chainIDs = append(chainIDs, chainID)
+	}
+	sort.Slice(chainIDs, func(i, j int) bool { return chainIDs[i] < chainIDs[j] })
+
+	resp := GetRPCStatusResponse{
+		Chains: make([]ChainRPCStatus, 0, len(chainIDs)),
+	}
+	for _, chainID := range chainIDs {
+		rpcStatuses := statusesByChain[chainID]
+		infos := make([]RPCStatusInfo, 0, len(rpcStatuses))
+		for _, status := range rpcStatuses {
+			info := RPCStatusInfo{
+				URL:      status.URL,
+				IsActive: status.IsActive,
+				Failures: status.Failures,
+			}
+			if !status.LastFailureAt.IsZero() {
+				info.LastFailureAt = status.LastFailureAt.Format("2006-01-02T15:04:05Z07:00")
+			}
+			if !status.CooldownUntil.IsZero() {
+				info.CooldownUntil = status.CooldownUntil.Format("2006-01-02T15:04:05Z07:00")
+			}
+			infos = append(infos, info)
+		}
+		resp.Chains = append(resp.Chains, ChainRPCStatus{
+			ChainID: chainID,
+			Name:    nameByChain[chainID],
+			RPCs:    infos,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -277,6 +347,7 @@ func RegisterWeb3Routes(mux *http.ServeMux, web3Handler *Web3Handler) {
 	mux.HandleFunc("/api/v1/web3/verify-nft", web3Handler.HandleVerifyNFT)
 	mux.HandleFunc("/api/v1/web3/gas-price", web3Handler.HandleGetGasPrice)
 	mux.HandleFunc("/api/v1/web3/supported-chains", web3Handler.HandleGetSupportedChains)
+	mux.HandleFunc("/api/v1/web3/rpc-status", web3Handler.HandleGetRPCStatus)
 	mux.HandleFunc("/api/v1/web3/ipfs/upload", web3Handler.HandleUploadToIPFS)
 	mux.HandleFunc("/api/v1/web3/ipfs/download", web3Handler.HandleDownloadFromIPFS)
 }

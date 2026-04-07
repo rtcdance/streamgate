@@ -1,61 +1,119 @@
 package web3
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
+// BlockchainProvider defines the interface for blockchain interactions
+type BlockchainProvider interface {
+	VerifyNFTOwnership(ctx context.Context, req VerifyRequest) (bool, error)
+	GetNFTBalance(ctx context.Context, address, contract string) (int, error)
+	GetNFTMetadata(ctx context.Context, contract, tokenID string) (*NFTMetadata, error)
+	HealthCheck(ctx context.Context) error
+}
+
+// VerifyRequest represents a verification request
+type VerifyRequest struct {
+	WalletAddress string
+	Contract      string
+	TokenID       string
+	MinBalance    int
+	Mode          GatingMode
+}
+
+// GatingMode represents the gating mode
+type GatingMode int
+
+const (
+	GatingAny GatingMode = iota
+	GatingMinBalance
+	GatingSpecificID
+	GatingCombination
+)
+
 // ChainClient handles blockchain interactions
 type ChainClient struct {
-	client  *ethclient.Client
-	rpcURL  string
-	chainID int64
-	logger  *zap.Logger
+	mu        sync.RWMutex
+	client    *ethclient.Client
+	rpcURL    string
+	rpcURLs   []string
+	rpcStates []rpcEndpointState
+	activeRPC int
+	chainID   int64
+	logger    *zap.Logger
 }
+
+type rpcEndpointState struct {
+	Failures      int
+	LastFailureAt time.Time
+	CooldownUntil time.Time
+}
+
+// RPCStatus describes the current runtime status of an RPC endpoint.
+type RPCStatus struct {
+	URL           string    `json:"url"`
+	IsActive      bool      `json:"is_active"`
+	Failures      int       `json:"failures"`
+	LastFailureAt time.Time `json:"last_failure_at,omitempty"`
+	CooldownUntil time.Time `json:"cooldown_until,omitempty"`
+}
+
+const rpcFailureCooldown = 30 * time.Second
 
 // NewChainClient creates a new chain client
 func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
-	logger.Info("Connecting to blockchain",
-		zap.String("rpc_url", rpcURL),
-		zap.Int64("chain_id", chainID))
+	return NewChainClientWithFallback([]string{rpcURL}, chainID, logger)
+}
 
-	// Connect to RPC
-	client, err := ethclient.Dial(rpcURL)
-	if err != nil {
-		logger.Error("Failed to connect to blockchain", zap.Error(err))
-		return nil, fmt.Errorf("failed to connect to blockchain: %w", err)
+// NewChainClientWithFallback creates a chain client with multiple RPC candidates.
+func NewChainClientWithFallback(rpcURLs []string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
+	normalizedRPCs := make([]string, 0, len(rpcURLs))
+	for _, rpcURL := range rpcURLs {
+		rpcURL = strings.TrimSpace(rpcURL)
+		if rpcURL != "" {
+			normalizedRPCs = append(normalizedRPCs, rpcURL)
+		}
+	}
+	if len(normalizedRPCs) == 0 {
+		return nil, fmt.Errorf("no rpc urls configured for chain %d", chainID)
 	}
 
-	// Verify connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*1000*1000*1000) // 5 seconds
-	defer cancel()
-
-	chainIDFromRPC, err := client.ChainID(ctx)
-	if err != nil {
-		logger.Error("Failed to get chain ID", zap.Error(err))
-		return nil, fmt.Errorf("failed to get chain ID: %w", err)
+	cc := &ChainClient{
+		rpcURL:    normalizedRPCs[0],
+		rpcURLs:   normalizedRPCs,
+		rpcStates: make([]rpcEndpointState, len(normalizedRPCs)),
+		activeRPC: 0,
+		chainID:   chainID,
+		logger:    logger,
 	}
 
-	logger.Info("Connected to blockchain",
-		zap.Int64("chain_id", chainIDFromRPC.Int64()))
+	if err := cc.connectAny(); err != nil {
+		return nil, err
+	}
 
-	return &ChainClient{
-		client:  client,
-		rpcURL:  rpcURL,
-		chainID: chainID,
-		logger:  logger,
-	}, nil
+	return cc, nil
 }
 
 // GetEthClient returns the underlying ethclient.Client
 func (cc *ChainClient) GetEthClient() *ethclient.Client {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
 	return cc.client
 }
 
@@ -64,7 +122,9 @@ func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int
 	cc.logger.Debug("Getting balance", zap.String("address", address))
 
 	addr := common.HexToAddress(address)
-	balance, err := cc.client.BalanceAt(ctx, addr, nil)
+	balance, err := withChainClient(ctx, cc, "BalanceAt", func(client *ethclient.Client) (*big.Int, error) {
+		return client.BalanceAt(ctx, addr, nil)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get balance",
 			zap.String("address", address),
@@ -83,7 +143,9 @@ func (cc *ChainClient) GetNonce(ctx context.Context, address string) (uint64, er
 	cc.logger.Debug("Getting nonce", zap.String("address", address))
 
 	addr := common.HexToAddress(address)
-	nonce, err := cc.client.PendingNonceAt(ctx, addr)
+	nonce, err := withChainClient(ctx, cc, "PendingNonceAt", func(client *ethclient.Client) (uint64, error) {
+		return client.PendingNonceAt(ctx, addr)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get nonce",
 			zap.String("address", address),
@@ -101,7 +163,9 @@ func (cc *ChainClient) GetNonce(ctx context.Context, address string) (uint64, er
 func (cc *ChainClient) GetGasPrice(ctx context.Context) (*big.Int, error) {
 	cc.logger.Debug("Getting gas price")
 
-	gasPrice, err := cc.client.SuggestGasPrice(ctx)
+	gasPrice, err := withChainClient(ctx, cc, "SuggestGasPrice", func(client *ethclient.Client) (*big.Int, error) {
+		return client.SuggestGasPrice(ctx)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get gas price", zap.Error(err))
 		return nil, fmt.Errorf("failed to get gas price: %w", err)
@@ -115,7 +179,9 @@ func (cc *ChainClient) GetGasPrice(ctx context.Context) (*big.Int, error) {
 func (cc *ChainClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error) {
 	cc.logger.Debug("Estimating gas")
 
-	gas, err := cc.client.EstimateGas(ctx, msg)
+	gas, err := withChainClient(ctx, cc, "EstimateGas", func(client *ethclient.Client) (uint64, error) {
+		return client.EstimateGas(ctx, msg)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to estimate gas", zap.Error(err))
 		return 0, fmt.Errorf("failed to estimate gas: %w", err)
@@ -130,7 +196,9 @@ func (cc *ChainClient) EstimateGas(ctx context.Context, msg ethereum.CallMsg) (u
 func (cc *ChainClient) GetBlockNumber(ctx context.Context) (uint64, error) {
 	cc.logger.Debug("Getting block number")
 
-	blockNumber, err := cc.client.BlockNumber(ctx)
+	blockNumber, err := withChainClient(ctx, cc, "BlockNumber", func(client *ethclient.Client) (uint64, error) {
+		return client.BlockNumber(ctx)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get block number", zap.Error(err))
 		return 0, fmt.Errorf("failed to get block number: %w", err)
@@ -145,7 +213,9 @@ func (cc *ChainClient) GetBlockNumber(ctx context.Context) (uint64, error) {
 func (cc *ChainClient) GetBlockByNumber(ctx context.Context, blockNumber *big.Int) (*BlockInfo, error) {
 	cc.logger.Debug("Getting block", zap.String("block_number", blockNumber.String()))
 
-	block, err := cc.client.BlockByNumber(ctx, blockNumber)
+	block, err := withChainClient(ctx, cc, "BlockByNumber", func(client *ethclient.Client) (*types.Block, error) {
+		return client.BlockByNumber(ctx, blockNumber)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get block",
 			zap.String("block_number", blockNumber.String()),
@@ -174,13 +244,25 @@ func (cc *ChainClient) GetTransactionByHash(ctx context.Context, txHash string) 
 	cc.logger.Debug("Getting transaction", zap.String("tx_hash", txHash))
 
 	hash := common.HexToHash(txHash)
-	tx, isPending, err := cc.client.TransactionByHash(ctx, hash)
+	txResult, err := withChainClient(ctx, cc, "TransactionByHash", func(client *ethclient.Client) (struct {
+		tx        *types.Transaction
+		isPending bool
+	}, error) {
+		tx, isPending, err := client.TransactionByHash(ctx, hash)
+		return struct {
+			tx        *types.Transaction
+			isPending bool
+		}{tx: tx, isPending: isPending}, err
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get transaction",
 			zap.String("tx_hash", txHash),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to get transaction: %w", err)
 	}
+
+	tx := txResult.tx
+	isPending := txResult.isPending
 
 	// Get sender address from transaction
 	signer := types.LatestSignerForChainID(tx.ChainId())
@@ -213,7 +295,9 @@ func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string)
 	cc.logger.Debug("Getting transaction receipt", zap.String("tx_hash", txHash))
 
 	hash := common.HexToHash(txHash)
-	receipt, err := cc.client.TransactionReceipt(ctx, hash)
+	receipt, err := withChainClient(ctx, cc, "TransactionReceipt", func(client *ethclient.Client) (*types.Receipt, error) {
+		return client.TransactionReceipt(ctx, hash)
+	})
 	if err != nil {
 		cc.logger.Error("Failed to get transaction receipt",
 			zap.String("tx_hash", txHash),
@@ -237,8 +321,535 @@ func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string)
 
 // Close closes the client connection
 func (cc *ChainClient) Close() {
-	cc.client.Close()
+	cc.mu.Lock()
+	if cc.client != nil {
+		cc.client.Close()
+		cc.client = nil
+	}
+	cc.mu.Unlock()
 	cc.logger.Info("Chain client closed")
+}
+
+// GetRPCStatuses returns the runtime status of all configured RPC endpoints.
+func (cc *ChainClient) GetRPCStatuses() []RPCStatus {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+
+	statuses := make([]RPCStatus, 0, len(cc.rpcURLs))
+	for idx, rpcURL := range cc.rpcURLs {
+		state := cc.rpcStates[idx]
+		statuses = append(statuses, RPCStatus{
+			URL:           rpcURL,
+			IsActive:      idx == cc.activeRPC,
+			Failures:      state.Failures,
+			LastFailureAt: state.LastFailureAt,
+			CooldownUntil: state.CooldownUntil,
+		})
+	}
+	return statuses
+}
+
+// GetNFTMetadata retrieves NFT metadata from the blockchain
+func (cc *ChainClient) GetNFTMetadata(ctx context.Context, contractAddress, tokenID string) (*NFTMetadata, error) {
+	cc.logger.Debug("Getting NFT metadata",
+		zap.String("contract_address", contractAddress),
+		zap.String("token_id", tokenID))
+
+	contract := common.HexToAddress(contractAddress)
+
+	tokenURI, err := cc.getTokenURI(ctx, contract, tokenID)
+	if err != nil {
+		cc.logger.Error("Failed to get token URI",
+			zap.String("contract_address", contractAddress),
+			zap.String("token_id", tokenID),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to get token URI: %w", err)
+	}
+
+	metadata, err := cc.fetchMetadataFromURI(ctx, tokenURI)
+	if err != nil {
+		cc.logger.Error("Failed to fetch metadata from URI",
+			zap.String("token_uri", tokenURI),
+			zap.Error(err))
+		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
+	}
+
+	metadata.ContractAddress = contractAddress
+	metadata.TokenID = tokenID
+
+	cc.logger.Debug("NFT metadata retrieved",
+		zap.String("contract_address", contractAddress),
+		zap.String("token_id", tokenID))
+	return metadata, nil
+}
+
+// VerifyNFTOwnership verifies if a wallet owns an NFT
+func (cc *ChainClient) VerifyNFTOwnership(ctx context.Context, req VerifyRequest) (bool, error) {
+	cc.logger.Debug("Verifying NFT ownership",
+		zap.String("wallet_address", req.WalletAddress),
+		zap.String("contract", req.Contract),
+		zap.String("token_id", req.TokenID),
+		zap.Int("min_balance", req.MinBalance))
+
+	contract := common.HexToAddress(req.Contract)
+	wallet := common.HexToAddress(req.WalletAddress)
+
+	switch req.Mode {
+	case GatingAny:
+		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		if err != nil {
+			return false, fmt.Errorf("failed to get NFT balance: %w", err)
+		}
+		return balance > 0, nil
+
+	case GatingMinBalance:
+		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		if err != nil {
+			return false, fmt.Errorf("failed to get NFT balance: %w", err)
+		}
+		return balance >= req.MinBalance, nil
+
+	case GatingSpecificID:
+		owner, err := cc.getNFTOwner(ctx, contract, req.TokenID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get NFT owner: %w", err)
+		}
+		return owner == wallet, nil
+
+	case GatingCombination:
+		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		if err != nil {
+			return false, fmt.Errorf("failed to get NFT balance: %w", err)
+		}
+		return balance >= req.MinBalance, nil
+
+	default:
+		return false, fmt.Errorf("unsupported gating mode: %d", req.Mode)
+	}
+}
+
+// GetNFTBalance gets the NFT balance for a wallet
+func (cc *ChainClient) GetNFTBalance(ctx context.Context, address, contract string) (int, error) {
+	cc.logger.Debug("Getting NFT balance",
+		zap.String("address", address),
+		zap.String("contract", contract))
+
+	wallet := common.HexToAddress(address)
+	contractAddr := common.HexToAddress(contract)
+
+	balance, err := cc.getNFTBalance(ctx, wallet, contractAddr)
+	if err != nil {
+		cc.logger.Error("Failed to get NFT balance",
+			zap.String("address", address),
+			zap.String("contract", contract),
+			zap.Error(err))
+		return 0, fmt.Errorf("failed to get NFT balance: %w", err)
+	}
+
+	cc.logger.Debug("NFT balance retrieved",
+		zap.String("address", address),
+		zap.String("contract", contract),
+		zap.Int("balance", balance))
+	return balance, nil
+}
+
+// getNFTBalance gets the balance of NFTs for a wallet (internal helper)
+func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract common.Address) (int, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`)))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+	}
+
+	data, err := parsedABI.Pack("balanceOf", wallet)
+	if err != nil {
+		return 0, fmt.Errorf("failed to pack balanceOf call: %w", err)
+	}
+
+	result, err := withChainClient(ctx, cc, "CallContract(balanceOf)", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{
+			To:   &contract,
+			Data: data,
+		}, nil)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to call balanceOf: %w", err)
+	}
+
+	values, err := parsedABI.Unpack("balanceOf", result)
+	if err != nil {
+		return 0, fmt.Errorf("failed to unpack balanceOf result: %w", err)
+	}
+	if len(values) != 1 {
+		return 0, fmt.Errorf("unexpected balanceOf result length: %d", len(values))
+	}
+
+	balance, ok := values[0].(*big.Int)
+	if !ok {
+		return 0, fmt.Errorf("unexpected balanceOf result type: %T", values[0])
+	}
+
+	return int(balance.Int64()), nil
+}
+
+// getNFTOwner gets the owner of a specific NFT (internal helper)
+func (cc *ChainClient) getNFTOwner(ctx context.Context, contract common.Address, tokenID string) (common.Address, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`)))
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+	}
+
+	tokenIDInt := new(big.Int)
+	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
+		return common.Address{}, fmt.Errorf("invalid token id: %s", tokenID)
+	}
+
+	data, err := parsedABI.Pack("ownerOf", tokenIDInt)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to pack ownerOf call: %w", err)
+	}
+
+	result, err := withChainClient(ctx, cc, "CallContract(ownerOf)", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{
+			To:   &contract,
+			Data: data,
+		}, nil)
+	})
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to call ownerOf: %w", err)
+	}
+
+	values, err := parsedABI.Unpack("ownerOf", result)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to unpack ownerOf result: %w", err)
+	}
+	if len(values) != 1 {
+		return common.Address{}, fmt.Errorf("unexpected ownerOf result length: %d", len(values))
+	}
+
+	owner, ok := values[0].(common.Address)
+	if !ok {
+		return common.Address{}, fmt.Errorf("unexpected ownerOf result type: %T", values[0])
+	}
+
+	return owner, nil
+}
+
+// getTokenURI retrieves the tokenURI from an ERC721 contract
+func (cc *ChainClient) getTokenURI(ctx context.Context, contract common.Address, tokenID string) (string, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`)))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+	}
+
+	tokenIDInt := new(big.Int)
+	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
+		return "", fmt.Errorf("invalid token id: %s", tokenID)
+	}
+
+	data, err := parsedABI.Pack("tokenURI", tokenIDInt)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack tokenURI call: %w", err)
+	}
+
+	result, err := withChainClient(ctx, cc, "CallContract(tokenURI)", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, ethereum.CallMsg{
+			To:   &contract,
+			Data: data,
+		}, nil)
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to call tokenURI: %w", err)
+	}
+
+	values, err := parsedABI.Unpack("tokenURI", result)
+	if err != nil {
+		return "", fmt.Errorf("failed to unpack tokenURI result: %w", err)
+	}
+	if len(values) != 1 {
+		return "", fmt.Errorf("unexpected tokenURI result length: %d", len(values))
+	}
+
+	tokenURI, ok := values[0].(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected tokenURI result type: %T", values[0])
+	}
+
+	return tokenURI, nil
+}
+
+// fetchMetadataFromURI fetches metadata from a URI
+func (cc *ChainClient) fetchMetadataFromURI(ctx context.Context, uri string) (*NFTMetadata, error) {
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("metadata request failed with status: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var metadata NFTMetadata
+	if err := json.Unmarshal(body, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse metadata: %w", err)
+	}
+
+	return &metadata, nil
+}
+
+// HealthCheck performs a health check on the blockchain connection
+func (cc *ChainClient) HealthCheck(ctx context.Context) error {
+	cc.logger.Debug("Performing health check")
+
+	healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Try to get the latest block number
+	blockNumber, err := withChainClient(healthCtx, cc, "HealthCheck.BlockNumber", func(client *ethclient.Client) (uint64, error) {
+		return client.BlockNumber(healthCtx)
+	})
+	if err != nil {
+		cc.logger.Error("Health check failed: cannot get block number", zap.Error(err))
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	// Try to get chain ID to verify connection
+	chainID, err := withChainClient(healthCtx, cc, "HealthCheck.ChainID", func(client *ethclient.Client) (*big.Int, error) {
+		return client.ChainID(healthCtx)
+	})
+	if err != nil {
+		cc.logger.Error("Health check failed: cannot get chain ID", zap.Error(err))
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	cc.logger.Info("Health check passed",
+		zap.Uint64("block_number", blockNumber),
+		zap.Int64("chain_id", chainID.Int64()),
+		zap.String("rpc_url", cc.rpcURL))
+
+	return nil
+}
+
+func (cc *ChainClient) connectAny() error {
+	var lastErr error
+	for idx := range cc.rpcURLs {
+		if !cc.endpointReady(idx, false) {
+			continue
+		}
+		client, chainIDFromRPC, err := cc.connectAt(idx)
+		if err != nil {
+			cc.recordEndpointFailure(idx)
+			lastErr = err
+			continue
+		}
+		cc.setActiveClient(idx, client, true)
+		cc.logger.Info("Connected to blockchain",
+			zap.Int64("configured_chain_id", cc.chainID),
+			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()),
+			zap.String("rpc_url", cc.rpcURL))
+		return nil
+	}
+	for idx := range cc.rpcURLs {
+		client, chainIDFromRPC, err := cc.connectAt(idx)
+		if err != nil {
+			cc.recordEndpointFailure(idx)
+			lastErr = err
+			continue
+		}
+		cc.setActiveClient(idx, client, true)
+		cc.logger.Info("Connected to blockchain after cooldown bypass",
+			zap.Int64("configured_chain_id", cc.chainID),
+			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()),
+			zap.String("rpc_url", cc.rpcURL))
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no rpc urls available")
+	}
+	cc.logger.Error("Failed to connect to blockchain", zap.Error(lastErr))
+	return fmt.Errorf("failed to connect to blockchain: %w", lastErr)
+}
+
+func (cc *ChainClient) connectAt(idx int) (*ethclient.Client, *big.Int, error) {
+	rpcURL := cc.rpcURLs[idx]
+	cc.logger.Info("Connecting to blockchain",
+		zap.String("rpc_url", rpcURL),
+		zap.Int64("chain_id", cc.chainID))
+
+	client, err := ethclient.Dial(rpcURL)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	chainIDFromRPC, err := client.ChainID(ctx)
+	if err != nil {
+		client.Close()
+		return nil, nil, err
+	}
+	if cc.chainID != 0 && chainIDFromRPC.Int64() != cc.chainID {
+		client.Close()
+		return nil, nil, fmt.Errorf("unexpected chain id from %s: got %d want %d", rpcURL, chainIDFromRPC.Int64(), cc.chainID)
+	}
+
+	return client, chainIDFromRPC, nil
+}
+
+func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetFailures bool) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.client != nil {
+		cc.client.Close()
+	}
+	cc.client = client
+	cc.activeRPC = idx
+	cc.rpcURL = cc.rpcURLs[idx]
+	if resetFailures {
+		cc.rpcStates[idx] = rpcEndpointState{}
+	}
+}
+
+func (cc *ChainClient) failover() error {
+	cc.mu.RLock()
+	start := cc.activeRPC
+	total := len(cc.rpcURLs)
+	cc.mu.RUnlock()
+
+	var lastErr error
+	for offset := 1; offset <= total; offset++ {
+		idx := (start + offset) % total
+		if !cc.endpointReady(idx, false) {
+			continue
+		}
+		client, chainIDFromRPC, err := cc.connectAt(idx)
+		if err != nil {
+			cc.recordEndpointFailure(idx)
+			lastErr = err
+			continue
+		}
+		cc.setActiveClient(idx, client, true)
+		cc.logger.Warn("Switched blockchain RPC endpoint",
+			zap.String("rpc_url", cc.rpcURL),
+			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
+		return nil
+	}
+	for offset := 1; offset <= total; offset++ {
+		idx := (start + offset) % total
+		client, chainIDFromRPC, err := cc.connectAt(idx)
+		if err != nil {
+			cc.recordEndpointFailure(idx)
+			lastErr = err
+			continue
+		}
+		cc.setActiveClient(idx, client, true)
+		cc.logger.Warn("Switched blockchain RPC endpoint after cooldown bypass",
+			zap.String("rpc_url", cc.rpcURL),
+			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no failover rpc available")
+	}
+	return lastErr
+}
+
+func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn func(*ethclient.Client) (T, error)) (T, error) {
+	var zero T
+
+	cc.mu.RLock()
+	client := cc.client
+	total := len(cc.rpcURLs)
+	cc.mu.RUnlock()
+
+	if client == nil {
+		if err := cc.connectAny(); err != nil {
+			return zero, err
+		}
+		cc.mu.RLock()
+		client = cc.client
+		cc.mu.RUnlock()
+	}
+
+	result, err := fn(client)
+	if err == nil || total <= 1 {
+		return result, err
+	}
+
+	cc.logger.Warn("RPC operation failed, attempting failover",
+		zap.String("operation", op),
+		zap.String("rpc_url", cc.rpcURL),
+		zap.Error(err))
+	cc.recordEndpointFailure(cc.getActiveRPCIndex())
+
+	lastErr := err
+	for attempts := 1; attempts < total; attempts++ {
+		if failoverErr := cc.failover(); failoverErr != nil {
+			lastErr = failoverErr
+			continue
+		}
+		cc.mu.RLock()
+		client = cc.client
+		cc.mu.RUnlock()
+		result, err = fn(client)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		cc.logger.Warn("RPC operation failed on fallback endpoint",
+			zap.String("operation", op),
+			zap.String("rpc_url", cc.rpcURL),
+			zap.Error(err))
+	}
+
+	return zero, fmt.Errorf("%s failed after rpc failover attempts: %w", op, lastErr)
+}
+
+func (cc *ChainClient) getActiveRPCIndex() int {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	return cc.activeRPC
+}
+
+func (cc *ChainClient) recordEndpointFailure(idx int) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if idx < 0 || idx >= len(cc.rpcStates) {
+		return
+	}
+	state := cc.rpcStates[idx]
+	state.Failures++
+	state.LastFailureAt = time.Now()
+	state.CooldownUntil = state.LastFailureAt.Add(rpcFailureCooldown)
+	cc.rpcStates[idx] = state
+}
+
+func (cc *ChainClient) endpointReady(idx int, allowCooling bool) bool {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	if idx < 0 || idx >= len(cc.rpcStates) {
+		return false
+	}
+	if allowCooling {
+		return true
+	}
+	state := cc.rpcStates[idx]
+	return state.CooldownUntil.IsZero() || time.Now().After(state.CooldownUntil)
 }
 
 // BlockInfo contains block information
@@ -276,4 +887,20 @@ type ReceiptInfo struct {
 	Status          uint64
 	ContractAddress string
 	Logs            uint64
+}
+
+// NFTMetadata contains NFT metadata information
+type NFTMetadata struct {
+	Name            string         `json:"name"`
+	Description     string         `json:"description"`
+	Image           string         `json:"image"`
+	Attributes      []NFTAttribute `json:"attributes"`
+	ContractAddress string         `json:"contract_address,omitempty"`
+	TokenID         string         `json:"token_id,omitempty"`
+}
+
+// NFTAttribute represents an NFT attribute
+type NFTAttribute struct {
+	TraitType string `json:"trait_type"`
+	Value     string `json:"value"`
 }

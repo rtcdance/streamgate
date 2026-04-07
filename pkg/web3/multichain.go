@@ -2,6 +2,7 @@ package web3
 
 import (
 	"fmt"
+	"sort"
 
 	"go.uber.org/zap"
 )
@@ -11,6 +12,7 @@ type ChainConfig struct {
 	ID        int64
 	Name      string
 	RPC       string
+	RPCs      []string
 	Explorer  string
 	Currency  string
 	IsTestnet bool
@@ -23,6 +25,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        1,
 		Name:      "Ethereum",
 		RPC:       "https://eth.llamarpc.com",
+		RPCs:      []string{"https://eth.llamarpc.com", "https://ethereum-rpc.publicnode.com"},
 		Explorer:  "https://etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
@@ -30,7 +33,8 @@ var SupportedChains = map[int64]*ChainConfig{
 	11155111: {
 		ID:        11155111,
 		Name:      "Ethereum Sepolia",
-		RPC:       "https://sepolia.infura.io/v3/YOUR_KEY",
+		RPC:       "https://rpc.sepolia.org",
+		RPCs:      []string{"https://rpc.sepolia.org", "https://ethereum-sepolia-rpc.publicnode.com"},
 		Explorer:  "https://sepolia.etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: true,
@@ -41,15 +45,17 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        137,
 		Name:      "Polygon",
 		RPC:       "https://polygon-rpc.com",
+		RPCs:      []string{"https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com"},
 		Explorer:  "https://polygonscan.com",
 		Currency:  "MATIC",
 		IsTestnet: false,
 	},
-	80001: {
-		ID:        80001,
-		Name:      "Polygon Mumbai",
-		RPC:       "https://rpc-mumbai.maticvigil.com",
-		Explorer:  "https://mumbai.polygonscan.com",
+	80002: {
+		ID:        80002,
+		Name:      "Polygon Amoy",
+		RPC:       "https://rpc-amoy.polygon.technology",
+		RPCs:      []string{"https://rpc-amoy.polygon.technology"},
+		Explorer:  "https://amoy.polygonscan.com",
 		Currency:  "MATIC",
 		IsTestnet: true,
 	},
@@ -59,6 +65,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        56,
 		Name:      "Binance Smart Chain",
 		RPC:       "https://bsc-dataseed1.binance.org:8545",
+		RPCs:      []string{"https://bsc-dataseed1.binance.org:8545", "https://bsc-rpc.publicnode.com"},
 		Explorer:  "https://bscscan.com",
 		Currency:  "BNB",
 		IsTestnet: false,
@@ -67,6 +74,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        97,
 		Name:      "BSC Testnet",
 		RPC:       "https://data-seed-prebsc-1-b.binance.org:8545",
+		RPCs:      []string{"https://data-seed-prebsc-1-b.binance.org:8545"},
 		Explorer:  "https://testnet.bscscan.com",
 		Currency:  "BNB",
 		IsTestnet: true,
@@ -77,6 +85,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        42161,
 		Name:      "Arbitrum One",
 		RPC:       "https://arb1.arbitrum.io/rpc",
+		RPCs:      []string{"https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com"},
 		Explorer:  "https://arbiscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
@@ -85,6 +94,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        421614,
 		Name:      "Arbitrum Sepolia",
 		RPC:       "https://sepolia-rollup.arbitrum.io/rpc",
+		RPCs:      []string{"https://sepolia-rollup.arbitrum.io/rpc"},
 		Explorer:  "https://sepolia.arbiscan.io",
 		Currency:  "ETH",
 		IsTestnet: true,
@@ -95,6 +105,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        10,
 		Name:      "Optimism",
 		RPC:       "https://mainnet.optimism.io",
+		RPCs:      []string{"https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"},
 		Explorer:  "https://optimistic.etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
@@ -103,6 +114,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		ID:        11155420,
 		Name:      "Optimism Sepolia",
 		RPC:       "https://sepolia.optimism.io",
+		RPCs:      []string{"https://sepolia.optimism.io"},
 		Explorer:  "https://sepolia-optimistic.etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: true,
@@ -137,7 +149,11 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 	}
 
 	// Create client
-	client, err := NewChainClient(config.RPC, chainID, mcm.logger)
+	rpcURLs := config.RPCs
+	if len(rpcURLs) == 0 && config.RPC != "" {
+		rpcURLs = []string{config.RPC}
+	}
+	client, err := NewChainClientWithFallback(rpcURLs, chainID, mcm.logger)
 	if err != nil {
 		mcm.logger.Error("Failed to create chain client",
 			zap.Int64("chain_id", chainID),
@@ -199,6 +215,15 @@ func (mcm *MultiChainManager) GetSupportedChains() []*ChainConfig {
 	return chains
 }
 
+// GetRPCStatuses returns the runtime RPC status for each configured chain.
+func (mcm *MultiChainManager) GetRPCStatuses() map[int64][]RPCStatus {
+	statuses := make(map[int64][]RPCStatus, len(mcm.clients))
+	for chainID, client := range mcm.clients {
+		statuses[chainID] = client.GetRPCStatuses()
+	}
+	return statuses
+}
+
 // GetTestnetChains gets all testnet chains
 func (mcm *MultiChainManager) GetTestnetChains() []*ChainConfig {
 	chains := make([]*ChainConfig, 0)
@@ -207,6 +232,7 @@ func (mcm *MultiChainManager) GetTestnetChains() []*ChainConfig {
 			chains = append(chains, config)
 		}
 	}
+	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
 	return chains
 }
 
@@ -218,6 +244,7 @@ func (mcm *MultiChainManager) GetMainnetChains() []*ChainConfig {
 			chains = append(chains, config)
 		}
 	}
+	sort.Slice(chains, func(i, j int) bool { return chains[i].ID < chains[j].ID })
 	return chains
 }
 

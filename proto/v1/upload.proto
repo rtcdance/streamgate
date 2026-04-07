@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package upload.v1;
+
+option go_package = "streamgate/proto/gen/go/upload/v1;uploadv1";
+
+import "proto/v1/common.proto";
+
+service UploadService {
+  rpc InitUpload(InitUploadRequest) returns (InitUploadResponse);
+  rpc UploadPart(stream UploadPartRequest) returns (UploadPartResponse);
+  rpc CompleteUpload(CompleteUploadRequest) returns (CompleteUploadResponse);
+  rpc AbortUpload(AbortUploadRequest) returns (AbortUploadResponse);
+  rpc GetUploadStatus(GetUploadStatusRequest) returns (GetUploadStatusResponse);
+}
+
+message InitUploadRequest {
+  string user_id = 1;
+  string filename = 2;
+  int64 file_size = 3;
+  string mime_type = 4;
+  string checksum = 5;
+  int32 chunk_size = 6;
+  map<string, string> metadata = 7;
+}
+
+message InitUploadResponse {
+  string upload_id = 1;
+  repeated string upload_urls = 2;
+  int32 chunk_count = 3;
+  int64 expires_at = 4;
+}
+
+message UploadPartRequest {
+  string upload_id = 1;
+  int32 part_number = 2;
+  bytes data = 3;
+  string checksum = 4;
+}
+
+message UploadPartResponse {
+  bool success = 1;
+  string etag = 2;
+  int64 bytes_received = 3;
+}
+
+message CompleteUploadRequest {
+  string upload_id = 1;
+  repeated PartETag parts = 2;
+}
+
+message CompleteUploadResponse {
+  bool success = 1;
+  string content_id = 2;
+  string url = 3;
+  int64 size = 4;
+}
+
+message AbortUploadRequest {
+  string upload_id = 1;
+  string reason = 2;
+}
+
+message AbortUploadResponse {
+  bool success = 1;
+}
+
+message GetUploadStatusRequest {
+  string upload_id = 1;
+}
+
+message GetUploadStatusResponse {
+  string upload_id = 1;
+  string status = 2;
+  int32 parts_uploaded = 3;
+  int32 total_parts = 4;
+  int64 bytes_uploaded = 5;
+  int64 total_bytes = 6;
+  int64 started_at = 7;
+  int64 updated_at = 8;
+}
+
+message PartETag {
+  int32 part_number = 1;
+  string etag = 2;
+}

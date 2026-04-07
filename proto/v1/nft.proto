@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package nft.v1;
+
+option go_package = "streamgate/proto/gen/go/nft/v1;nftv1";
+
+import "proto/v1/common.proto";
+
+service NFTService {
+  rpc VerifyOwnership(VerifyOwnershipRequest) returns (VerifyOwnershipResponse);
+  rpc GetNFTMetadata(GetNFTMetadataRequest) returns (GetNFTMetadataResponse);
+  rpc GetNFTBalance(GetNFTBalanceRequest) returns (GetNFTBalanceResponse);
+  rpc ListUserNFTs(ListUserNFTsRequest) returns (ListUserNFTsResponse);
+  rpc GetContractInfo(GetContractInfoRequest) returns (GetContractInfoResponse);
+}
+
+message VerifyOwnershipRequest {
+  string wallet_address = 1;
+  string contract_address = 2;
+  string token_id = 3;
+  int64 chain_id = 4;
+  string chain_type = 5;
+}
+
+message VerifyOwnershipResponse {
+  bool owns_nft = 1;
+  string owner_address = 2;
+  NFTMetadata metadata = 3;
+  int64 verified_at = 4;
+}
+
+message GetNFTMetadataRequest {
+  string contract_address = 1;
+  string token_id = 2;
+  int64 chain_id = 3;
+  string chain_type = 4;
+}
+
+message GetNFTMetadataResponse {
+  NFTMetadata metadata = 1;
+  bool found = 2;
+}
+
+message GetNFTBalanceRequest {
+  string wallet_address = 1;
+  string contract_address = 2;
+  int64 chain_id = 3;
+  string chain_type = 4;
+}
+
+message GetNFTBalanceResponse {
+  int32 balance = 1;
+  repeated string token_ids = 2;
+}
+
+message ListUserNFTsRequest {
+  string wallet_address = 1;
+  int64 chain_id = 2;
+  string chain_type = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ListUserNFTsResponse {
+  repeated NFTItem nfts = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message GetContractInfoRequest {
+  string contract_address = 1;
+  int64 chain_id = 2;
+  string chain_type = 3;
+}
+
+message GetContractInfoResponse {
+  ContractInfo info = 1;
+  bool found = 2;
+}
+
+message NFTMetadata {
+  string name = 1;
+  string description = 2;
+  string image = 3;
+  string animation_url = 4;
+  string external_url = 5;
+  repeated NFTAttribute attributes = 6;
+  map<string, string> properties = 7;
+}
+
+message NFTAttribute {
+  string trait_type = 1;
+  string value = 2;
+  string display_type = 3;
+  int32 max_value = 4;
+}
+
+message NFTItem {
+  string contract_address = 1;
+  string token_id = 2;
+  string name = 3;
+  string image = 4;
+  int32 balance = 5;
+  NFTMetadata metadata = 6;
+}
+
+message ContractInfo {
+  string address = 1;
+  string name = 2;
+  string symbol = 3;
+  string contract_type = 4;
+  int64 chain_id = 5;
+  string chain_name = 6;
+  int64 total_supply = 7;
+}

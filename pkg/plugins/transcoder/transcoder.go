@@ -619,7 +619,6 @@ func (wp *WorkerPool) transcode(task *TranscodeTask) error {
 // HealthCheck performs health checks on workers
 func (wp *WorkerPool) HealthCheck() {
 	wp.mu.RLock()
-	defer wp.mu.RUnlock()
 
 	now := time.Now()
 	for _, worker := range wp.workers {
@@ -636,6 +635,7 @@ func (wp *WorkerPool) HealthCheck() {
 			wp.logger.Warn("Worker marked unhealthy", zap.String("worker_id", worker.ID))
 		}
 	}
+	wp.mu.RUnlock()
 
 	wp.updateMetrics()
 }
@@ -645,6 +645,10 @@ func (wp *WorkerPool) GetMetrics() *WorkerMetrics {
 	wp.mu.RLock()
 	defer wp.mu.RUnlock()
 
+	return wp.collectMetricsLocked()
+}
+
+func (wp *WorkerPool) collectMetricsLocked() *WorkerMetrics {
 	metrics := &WorkerMetrics{
 		TotalWorkers: len(wp.workers),
 	}
@@ -675,5 +679,5 @@ func (wp *WorkerPool) updateMetrics() {
 	wp.mu.Lock()
 	defer wp.mu.Unlock()
 
-	wp.metrics = wp.GetMetrics()
+	wp.metrics = wp.collectMetricsLocked()
 }

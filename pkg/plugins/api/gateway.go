@@ -69,15 +69,22 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 	p.logger.Info("Starting API Gateway", zap.Int("port", p.config.Server.Port))
 
 	handler := NewHandler(p.kernel, p.logger)
+	web3Handler := NewWeb3Handler(handler.web3Service, p.logger)
 
 	mux := http.NewServeMux()
 
 	// Health and readiness endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
+	mux.HandleFunc("/metrics", handler.MetricsHandler)
 
 	// API v1 endpoints
 	mux.HandleFunc("/api/v1/health", handler.HealthHandler)
+	mux.HandleFunc("/api/v1/auth/challenge", handler.AuthChallengeHandler)
+	mux.HandleFunc("/api/v1/auth/login", handler.AuthLoginHandler)
+	mux.HandleFunc("/api/v1/nft/verify", handler.VerifyNFTHandler)
+	mux.HandleFunc("/api/v1/web3/rpc-status", web3Handler.HandleGetRPCStatus)
+	mux.HandleFunc("/api/v1/streaming/", handler.StreamingAccessHandler)
 
 	// Catch-all for 404
 	mux.HandleFunc("/", handler.NotFoundHandler)

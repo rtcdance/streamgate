@@ -1,0 +1,56 @@
+{
+  "users": [
+    {
+      "id": "user-001",
+      "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+      "chain_type": "evm",
+      "chain_id": 1,
+      "roles": ["user"],
+      "created_at": 1704067200000,
+      "updated_at": 1704067260000,
+      "metadata": {
+        "username": "testuser1",
+        "email": "testuser1@example.com"
+      }
+    },
+    {
+      "id": "user-002",
+      "wallet_address": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+      "chain_type": "evm",
+      "chain_id": 137,
+      "roles": ["user", "creator"],
+      "created_at": 1704153600000,
+      "updated_at": 1704153660000,
+      "metadata": {
+        "username": "creator1",
+        "email": "creator1@example.com"
+      }
+    },
+    {
+      "id": "user-003",
+      "wallet_address": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "chain_type": "evm",
+      "chain_id": 56,
+      "roles": ["user", "admin"],
+      "created_at": 1704240000000,
+      "updated_at": 1704240060000,
+      "metadata": {
+        "username": "admin1",
+        "email": "admin1@example.com"
+      }
+    },
+    {
+      "id": "user-004",
+      "wallet_address": "0x90F79bf6EB2c4f870365E785982Ea41aB74C4Cd4",
+      "chain_type": "evm",
+      "chain_id": 1,
+      "roles": ["user"],
+      "created_at": 1704326400000,
+      "updated_at": 1704326460000,
+      "metadata": {
+        "username": "testuser2",
+        "email": "testuser2@example.com"
+      }
+    }
+  ]
+}

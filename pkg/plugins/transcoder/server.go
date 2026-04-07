@@ -74,8 +74,12 @@ func (s *TranscoderServer) Start(ctx context.Context) error {
 	// Transcoding endpoints
 	mux.HandleFunc("/api/v1/transcode/submit", handler.SubmitTaskHandler)
 	mux.HandleFunc("/api/v1/transcode/status", handler.GetTaskStatusHandler)
+	mux.HandleFunc("/api/v1/transcode/status/", handler.GetTaskStatusHandler)
 	mux.HandleFunc("/api/v1/transcode/cancel", handler.CancelTaskHandler)
+	mux.HandleFunc("/api/v1/transcode/cancel/", handler.CancelTaskHandler)
 	mux.HandleFunc("/api/v1/transcode/list", handler.ListTasksHandler)
+	mux.HandleFunc("/api/v1/transcode/tasks", handler.ListTasksHandler)
+	mux.HandleFunc("/api/v1/transcode/profiles", handler.ListProfilesHandler)
 	mux.HandleFunc("/api/v1/transcode/metrics", handler.GetMetricsHandler)
 
 	// Catch-all for 404

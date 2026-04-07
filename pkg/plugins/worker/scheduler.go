@@ -124,13 +124,17 @@ func (s *Scheduler) Stop() error {
 	s.cancel()
 
 	// Cancel all running jobs
+	jobIDs := make([]string, 0)
 	s.mu.RLock()
 	for _, job := range s.jobs {
 		if job.Status == JobStatusRunning || job.Status == JobStatusQueued {
-			s.CancelJob(job.ID)
+			jobIDs = append(jobIDs, job.ID)
 		}
 	}
 	s.mu.RUnlock()
+	for _, jobID := range jobIDs {
+		_ = s.CancelJob(jobID)
+	}
 
 	// Wait for all workers to finish
 	done := make(chan struct{})

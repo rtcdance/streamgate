@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package streaming.v1;
+
+option go_package = "streamgate/proto/gen/go/streaming/v1;streamingv1";
+
+import "proto/v1/common.proto";
+
+service StreamingService {
+  rpc GetStreamURL(GetStreamURLRequest) returns (GetStreamURLResponse);
+  rpc GetManifest(GetManifestRequest) returns (GetManifestResponse);
+  rpc GetSegment(GetSegmentRequest) returns (GetSegmentResponse);
+  rpc StartStream(StartStreamRequest) returns (StartStreamResponse);
+  rpc StopStream(StopStreamRequest) returns (StopStreamResponse);
+  rpc GetStreamStats(GetStreamStatsRequest) returns (GetStreamStatsResponse);
+}
+
+message GetStreamURLRequest {
+  string content_id = 1;
+  string user_id = 2;
+  string format = 3;
+  string quality = 4;
+  string protocol = 5;
+}
+
+message GetStreamURLResponse {
+  string stream_url = 1;
+  string manifest_url = 2;
+  repeated QualityOption available_qualities = 3;
+  int64 expires_at = 4;
+}
+
+message GetManifestRequest {
+  string content_id = 1;
+  string format = 2;
+}
+
+message GetManifestResponse {
+  string manifest = 1;
+  string content_type = 2;
+  repeated SegmentInfo segments = 3;
+}
+
+message GetSegmentRequest {
+  string content_id = 1;
+  string segment_id = 2;
+  string format = 3;
+  string quality = 4;
+}
+
+message GetSegmentResponse {
+  bytes data = 1;
+  string content_type = 2;
+  int64 size = 3;
+  string etag = 4;
+}
+
+message StartStreamRequest {
+  string content_id = 1;
+  string user_id = 2;
+  string wallet_address = 3;
+}
+
+message StartStreamResponse {
+  string stream_id = 1;
+  string stream_url = 2;
+  int64 expires_at = 3;
+}
+
+message StopStreamRequest {
+  string stream_id = 1;
+  string user_id = 2;
+}
+
+message StopStreamResponse {
+  bool success = 1;
+  int64 duration = 2;
+  int64 bytes_transferred = 3;
+}
+
+message GetStreamStatsRequest {
+  string stream_id = 1;
+}
+
+message GetStreamStatsResponse {
+  string stream_id = 1;
+  string status = 2;
+  int64 started_at = 3;
+  int64 duration = 4;
+  int64 bytes_transferred = 5;
+  double average_bitrate = 6;
+  repeated BufferEvent buffer_events = 7;
+}
+
+message QualityOption {
+  string quality = 1;
+  int32 width = 2;
+  int32 height = 3;
+  int32 bitrate = 4;
+  string url = 5;
+}
+
+message SegmentInfo {
+  string segment_id = 1;
+  string quality = 2;
+  int64 duration = 3;
+  int64 size = 4;
+  string url = 5;
+}
+
+message BufferEvent {
+  int64 timestamp = 1;
+  string event_type = 2;
+  double buffer_length = 3;
+}

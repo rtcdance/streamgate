@@ -1,0 +1,164 @@
+{
+  "nfts": [
+    {
+      "contract_address": "0x1234567890123456789012345678901234567890",
+      "token_id": "1",
+      "name": "Sample NFT #1",
+      "description": "A sample NFT for testing",
+      "image": "https://example.com/nfts/1.png",
+      "animation_url": "",
+      "external_url": "https://example.com/nft/1",
+      "attributes": [
+        {
+          "trait_type": "Background",
+          "value": "Blue",
+          "display_type": "string",
+          "max_value": 0
+        },
+        {
+          "trait_type": "Rarity",
+          "value": "Common",
+          "display_type": "string",
+          "max_value": 0
+        }
+      ],
+      "properties": {
+        "creator": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+        "collection": "Sample Collection",
+        "total_supply": "10000"
+      },
+      "chain_id": 1,
+      "chain_type": "evm",
+      "owner": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+    },
+    {
+      "contract_address": "0x1234567890123456789012345678901234567890",
+      "token_id": "2",
+      "name": "Sample NFT #2",
+      "description": "Another sample NFT",
+      "image": "https://example.com/nfts/2.png",
+      "animation_url": "",
+      "external_url": "https://example.com/nft/2",
+      "attributes": [
+        {
+          "trait_type": "Background",
+          "value": "Red",
+          "display_type": "string",
+          "max_value": 0
+        },
+        {
+          "trait_type": "Rarity",
+          "value": "Rare",
+          "display_type": "string",
+          "max_value": 0
+        }
+      ],
+      "properties": {
+        "creator": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+        "collection": "Sample Collection",
+        "total_supply": "10000"
+      },
+      "chain_id": 1,
+      "chain_type": "evm",
+      "owner": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+    },
+    {
+      "contract_address": "0x9876543210987654321098765432109876543210",
+      "token_id": "100",
+      "name": "Premium NFT #100",
+      "description": "Premium gated content NFT",
+      "image": "https://example.com/nfts/premium-100.png",
+      "animation_url": "",
+      "external_url": "https://example.com/nft/premium-100",
+      "attributes": [
+        {
+          "trait_type": "Background",
+          "value": "Gold",
+          "display_type": "string",
+          "max_value": 0
+        },
+        {
+          "trait_type": "Rarity",
+          "value": "Legendary",
+          "display_type": "string",
+          "max_value": 0
+        },
+        {
+          "trait_type": "Access Level",
+          "value": "Premium",
+          "display_type": "string",
+          "max_value": 0
+        }
+      ],
+      "properties": {
+        "creator": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "collection": "Premium Collection",
+        "total_supply": "100",
+        "access_level": "premium"
+      },
+      "chain_id": 137,
+      "chain_type": "evm",
+      "owner": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+    },
+    {
+      "contract_address": "0xABCDEF012345678901234567890123456789012",
+      "token_id": "500",
+      "name": "BSC NFT #500",
+      "description": "BSC network NFT",
+      "image": "https://example.com/nfts/bsc-500.png",
+      "animation_url": "",
+      "external_url": "https://example.com/nft/bsc-500",
+      "attributes": [
+        {
+          "trait_type": "Background",
+          "value": "Purple",
+          "display_type": "string",
+          "max_value": 0
+        },
+        {
+          "trait_type": "Rarity",
+          "value": "Epic",
+          "display_type": "string",
+          "max_value": 0
+        }
+      ],
+      "properties": {
+        "creator": "0x90F79bf6EB2c4f870365E785982Ea41aB74C4Cd4",
+        "collection": "BSC Collection",
+        "total_supply": "5000"
+      },
+      "chain_id": 56,
+      "chain_type": "evm",
+      "owner": "0x90F79bf6EB2c4f870365E785982Ea41aB74C4Cd4"
+    }
+  ],
+  "contracts": [
+    {
+      "address": "0x1234567890123456789012345678901234567890",
+      "name": "Sample Collection",
+      "symbol": "SAMPLE",
+      "contract_type": "ERC721",
+      "chain_id": 1,
+      "chain_name": "Ethereum",
+      "total_supply": 10000
+    },
+    {
+      "address": "0x9876543210987654321098765432109876543210",
+      "name": "Premium Collection",
+      "symbol": "PREMIUM",
+      "contract_type": "ERC721",
+      "chain_id": 137,
+      "chain_name": "Polygon",
+      "total_supply": 100
+    },
+    {
+      "address": "0xABCDEF012345678901234567890123456789012",
+      "name": "BSC Collection",
+      "symbol": "BSCNFT",
+      "contract_type": "ERC721",
+      "chain_id": 56,
+      "chain_name": "Binance Smart Chain",
+      "total_supply": 5000
+    }
+  ]
+}
