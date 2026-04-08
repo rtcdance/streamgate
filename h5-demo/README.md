@@ -41,6 +41,17 @@ Then point the demo at:
 http://localhost:29090
 ```
 
+### Scripted acceptance
+
+If you want a repeatable local workflow instead of typing commands manually:
+
+```bash
+scripts/self-test-deploy.sh
+scripts/run-docker-acceptance.sh
+```
+
+The first script starts the self-test environment. The second script runs the current API acceptance checks against the Docker gateway path.
+
 ### 2. Open the demo
 
 Open `/Users/mingo/Applications/workspace/web3/project/streamgate/h5-demo/index.html` in a browser.
