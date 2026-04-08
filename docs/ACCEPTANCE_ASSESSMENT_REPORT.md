@@ -196,9 +196,10 @@ $ go build ./...
 
 | 优先级 | 任务 | 预估工时 |
 |--------|------|----------|
-| **P0** | 修复编译错误 + API 接线 | 10-14 h |
-| **P1** | 中间件应用 + 监控端点 | 8-10 h |
-| **P2** | FFmpeg 对接 + 集成测试 | 8-16 h |
+| **P1** | 统一旧 `pkg/api/v1` 历史骨架与当前验收入口 | 2-4 h |
+| **P1** | 统一 `/metrics` 外部抓取配置与监控文档 | 1-2 h |
+| **P1** | 把 Docker acceptance 脚本继续补成更完整的自动化回归 | 2-4 h |
+| **P2** | 继续完善 FFmpeg 真正执行闭环与 worker 生命周期 | 4-8 h |
 
 ---
 
@@ -245,7 +246,7 @@ curl -X POST http://localhost:29090/api/v1/transcode/submit \
 
 ### 3. 测试通过
 - 单元测试覆盖核心路径
-- 集成测试验证端到端流程
+- Docker acceptance 脚本和路由测试能验证端到端流程
 
 ### 4. 文档一致
 README 描述的功能可实际运行
@@ -596,8 +597,8 @@ README 描述的功能可实际运行
 - [x] `GET /health` 返回健康状态
 
 ### 安全要求
-- [ ] NFT 门禁限制 manifest 访问
-- [ ] playback token 限制 segment 访问
+- [x] NFT 门禁限制 manifest 访问
+- [x] playback token 限制 segment 访问
 
 ### 测试要求
 - [x] 核心服务有单元测试

@@ -58,7 +58,7 @@ func (pe *PrometheusExporter) exportCounterMetrics() string {
 	metrics := pe.collector.GetAllMetrics()
 	for _, metric := range metrics {
 		if metric.Type == "counter" {
-			labels := pe.formatLabels(metric.Tags)
+			labels := pe.formatLabels(pe.withMetricName(metric.Name, metric.Tags))
 			output += fmt.Sprintf("streamgate_requests_total{%s} %d\n", labels, int64(metric.Value))
 		}
 	}
@@ -74,7 +74,7 @@ func (pe *PrometheusExporter) exportGaugeMetrics() string {
 	metrics := pe.collector.GetAllMetrics()
 	for _, metric := range metrics {
 		if metric.Type == "gauge" {
-			labels := pe.formatLabels(metric.Tags)
+			labels := pe.formatLabels(pe.withMetricName(metric.Name, metric.Tags))
 			output += fmt.Sprintf("streamgate_gauge_value{%s} %.2f\n", labels, metric.Value)
 		}
 	}
@@ -90,7 +90,7 @@ func (pe *PrometheusExporter) exportHistogramMetrics() string {
 	metrics := pe.collector.GetAllMetrics()
 	for _, metric := range metrics {
 		if metric.Type == "histogram" {
-			labels := pe.formatLabels(metric.Tags)
+			labels := pe.formatLabels(pe.withMetricName(metric.Name, metric.Tags))
 			output += fmt.Sprintf("streamgate_histogram_value_sum{%s} %.2f\n", labels, metric.Sum)
 			output += fmt.Sprintf("streamgate_histogram_value_count{%s} %d\n", labels, metric.Count)
 			output += fmt.Sprintf("streamgate_histogram_value_bucket{%s,le=\"+Inf\"} %d\n", labels, metric.Count)
@@ -132,6 +132,15 @@ func (pe *PrometheusExporter) formatLabels(tags map[string]string) string {
 		labels += fmt.Sprintf("%s=\"%s\"", key, value)
 	}
 
+	return labels
+}
+
+func (pe *PrometheusExporter) withMetricName(name string, tags map[string]string) map[string]string {
+	labels := make(map[string]string, len(tags)+1)
+	for key, value := range tags {
+		labels[key] = value
+	}
+	labels["metric"] = name
 	return labels
 }
 

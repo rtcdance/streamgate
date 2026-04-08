@@ -6,6 +6,8 @@ BASE_URL="${1:-http://localhost:29090}"
 WALLET="${WALLET:-0x000000000000000000000000000000000000dEaD}"
 CONTRACT="${CONTRACT:-0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f}"
 CHAIN_ID="${CHAIN_ID:-11155111}"
+GO_BIN="${GO_BIN:-/opt/homebrew/opt/go@1.24/bin/go}"
+GOCACHE_DIR="${GOCACHE_DIR:-/tmp/streamgate-go-build-cache}"
 
 section() {
     printf '\n== %s ==\n' "$1"
@@ -50,6 +52,13 @@ fi
 run_json "transcode tasks" curl -fsS -m 10 "$BASE_URL/api/v1/transcode/tasks?content_id=demo-content&limit=20&offset=0"
 run_json "transcode profiles" curl -fsS -m 10 "$BASE_URL/api/v1/transcode/profiles"
 run_json "metrics" curl -fsS -m 10 "$BASE_URL/metrics"
+
+section "playback token route checks"
+unset GOROOT
+export GOCACHE="$GOCACHE_DIR"
+"$GO_BIN" test ./cmd/microservices/api-gateway \
+    -run 'TestRegisterStreamingRoutes_SegmentRequiresPlaybackToken|TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken|TestRegisterStreamingRoutes_ManifestSuccess' \
+    -v
 
 echo
 echo "Acceptance checks completed against $BASE_URL"

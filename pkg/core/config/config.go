@@ -42,6 +42,9 @@ type Config struct {
 	// Monitoring
 	Monitoring MonitoringConfig
 
+	// Auth
+	Auth AuthConfig
+
 	// Plugins (for monolithic mode)
 	Plugins PluginsConfig
 }
@@ -116,6 +119,12 @@ type MonitoringConfig struct {
 	PrometheusPort int
 	JaegerEndpoint string
 	LogLevel       string
+}
+
+// AuthConfig holds authentication configuration
+type AuthConfig struct {
+	JWTSecret   string
+	NonceExpiry string
 }
 
 // LoadConfig loads configuration from environment and config files
@@ -214,6 +223,11 @@ func LoadConfig() (*Config, error) {
 			LogLevel:       viper.GetString("monitoring.log_level"),
 		},
 
+		Auth: AuthConfig{
+			JWTSecret:   viper.GetString("auth.jwt_secret"),
+			NonceExpiry: viper.GetString("auth.nonce_expiry"),
+		},
+
 		Plugins: PluginsConfig{
 			Enabled: viper.GetStringSlice("plugins.enabled"),
 		},
@@ -279,6 +293,10 @@ func setDefaults() {
 	viper.SetDefault("monitoring.prometheus_port", 9090)
 	viper.SetDefault("monitoring.jaeger_endpoint", "http://localhost:14268/api/traces")
 	viper.SetDefault("monitoring.log_level", "info")
+
+	// Auth defaults
+	viper.SetDefault("auth.jwt_secret", "streamgate-dev-secret")
+	viper.SetDefault("auth.nonce_expiry", "5m")
 
 	// Plugins defaults
 	viper.SetDefault("plugins.enabled", []string{})

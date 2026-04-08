@@ -51,6 +51,7 @@ scripts/run-docker-acceptance.sh
 ```
 
 The first script starts the self-test environment. The second script runs the current API acceptance checks against the Docker gateway path.
+It also runs the targeted gateway route tests that verify manifest authorization and playback-token-protected segment access.
 
 ### 2. Open the demo
 
