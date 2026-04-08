@@ -5,7 +5,7 @@ Use this as the shortest on-site checklist when you want to validate the StreamG
 ## Pre-check
 
 - [ ] Backend gateway is running
-- [ ] Recommended backend URL is `http://localhost:9090`
+- [ ] Recommended backend URL is `http://localhost:29090`
 - [ ] MetaMask is installed and unlocked
 
 ## Core Flow

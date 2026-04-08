@@ -19,13 +19,27 @@ cd streamgate
 go run ./cmd/microservices/api-gateway/main.go
 ```
 
-Recommended backend URL:
+Recommended backend URL for the Dockerized acceptance gateway:
 
 ```text
-http://localhost:9090
+http://localhost:29090
 ```
 
-If you want to use the monolith path instead, you can, but the gateway path is the default acceptance path for this demo.
+If you want to use the monolith path instead, use `http://localhost:18080`. The gateway path is the default acceptance path for the full demo because it exposes the complete route set.
+
+### Dockerized acceptance
+
+If you want to run the full acceptance stack in Docker, use the API gateway port mapping that was validated during this pass:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.api-gateway.override.yml up -d --build api-gateway
+```
+
+Then point the demo at:
+
+```text
+http://localhost:29090
+```
 
 ### 2. Open the demo
 
@@ -56,7 +70,7 @@ The right-side checklist and the top summary bar should update as each step comp
 ### Step 1: Backend
 
 Action:
-- Set `Backend URL` to `http://localhost:9090`
+- Set `Backend URL` to `http://localhost:29090`
 - Click `Save Backend URL`
 
 Expected:
@@ -65,7 +79,7 @@ Expected:
 
 If it fails:
 - confirm the gateway is running
-- confirm the backend port is really `9090`
+- confirm the backend port is really `29090`
 - check whether your browser is blocking cross-origin requests
 
 ### Step 2: Wallet
@@ -178,11 +192,26 @@ If it fails:
 
 | Setting | Value |
 |---------|-------|
-| Backend URL | `http://localhost:9090` |
+| Backend URL | `http://localhost:29090` |
 | NFT Contract | `0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f` |
 | Chain ID | `11155111` (Sepolia) |
 | Demo Video ID | `demo` |
 | Default Transcode Profile | `720p` |
+
+## Docker Ports
+
+| Service | Local Port | Notes |
+|---------|------------|-------|
+| API Gateway | `29090` | Main acceptance API for the H5 demo |
+| Monolith | `18080` | Optional single-process path |
+| MinIO | `19000` | Object storage |
+| Redis | `16379` | Challenge / cache support |
+| Postgres | `15432` | Persistence |
+| NATS | `14222` | Event bus |
+| Consul | `18500` | Service discovery |
+| Prometheus | `19091` | Metrics |
+| Grafana | `13000` | Dashboards |
+| Jaeger | `16687` | Traces |
 
 ## Real API Endpoints Exercised
 

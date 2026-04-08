@@ -59,13 +59,14 @@ services:
     volumes:
       - nats-data:/data
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/varz"]
+      # The official nats image does not include wget/curl/shell.
+      test: ["CMD", "nats-server", "--version"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   consul:
-    image: consul:latest
+    image: hashicorp/consul:latest
     container_name: streamgate-consul
     command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
     ports:
@@ -134,11 +135,11 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: Dockerfile.api-gateway
+      dockerfile: deploy/docker/Dockerfile.api-gateway
     container_name: streamgate-api-gateway
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "28080:8080"
+      - "29090:9090"
     environment:
       - ENVIRONMENT=development
       - DATABASE_HOST=postgres

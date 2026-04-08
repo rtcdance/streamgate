@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	apiV1 "streamgate/pkg/api/v1"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
 	"streamgate/pkg/web3"
 )
@@ -64,6 +66,38 @@ func newTestRouter(authService *service.AuthService, verifier nftAccessVerifier)
 	router := gin.New()
 	cache := newNFTAccessCache()
 	transcodingHandler := apiV1.NewTranscodingHandler(service.NewTranscodingService(nil, service.NewMemoryTranscodingQueue()))
+	metricsCollector := monitoring.NewMetricsCollector(zap.NewNop())
+	serviceMetrics := monitoring.NewServiceMetricsTracker(zap.NewNop())
+	metricsExporter := monitoring.NewPrometheusExporter(metricsCollector, serviceMetrics, zap.NewNop())
+	metricsHandler := monitoring.NewPrometheusMetricsHandler(metricsExporter, zap.NewNop())
+
+	router.Use(func(c *gin.Context) {
+		startedAt := time.Now()
+		c.Next()
+
+		route := c.FullPath()
+		if route == "" {
+			route = c.Request.URL.Path
+		}
+		metricsCollector.IncrementCounter("http_requests_total", map[string]string{
+			"method": c.Request.Method,
+			"route":  route,
+			"status": strconv.Itoa(c.Writer.Status()),
+		})
+		serviceMetrics.RecordRequest("api-gateway", time.Since(startedAt).Milliseconds(), c.Writer.Status() < http.StatusInternalServerError)
+	})
+
+	router.GET("/health", func(c *gin.Context) {
+		metricsCollector.IncrementCounter("health_check_success_total", nil)
+		c.JSON(http.StatusOK, gin.H{
+			"status":    "healthy",
+			"service":   "api-gateway",
+			"timestamp": time.Now().Unix(),
+		})
+	})
+	router.GET("/metrics", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(metricsHandler.ServeMetrics()))
+	})
 	registerAuthRoutes(router, zap.NewNop(), authService)
 	registerNFTRoutes(router, zap.NewNop(), verifier, 11155111, cache)
 	registerWeb3Routes(router, zap.NewNop(), &mockWeb3StatusProvider{})
@@ -407,4 +441,23 @@ func TestRegisterWeb3Routes_RPCStatus(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"name":"Ethereum Sepolia"`)
 	assert.Contains(t, rec.Body.String(), `"url":"https://rpc-b.example"`)
 	assert.Contains(t, rec.Body.String(), `"is_active":true`)
+}
+
+func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
+	authService, _ := newTestAuthService()
+	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthRec := httptest.NewRecorder()
+	router.ServeHTTP(healthRec, healthReq)
+	require.Equal(t, http.StatusOK, healthRec.Code)
+
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsRec := httptest.NewRecorder()
+	router.ServeHTTP(metricsRec, metricsReq)
+
+	require.Equal(t, http.StatusOK, metricsRec.Code)
+	assert.Contains(t, metricsRec.Body.String(), "http_requests_total")
+	assert.Contains(t, metricsRec.Body.String(), "health_check_success_total")
+	assert.Contains(t, metricsRec.Body.String(), "streamgate_service_requests")
 }

@@ -75,7 +75,7 @@ class StreamGateApp {
             this.updateStep('backend', 'failed');
             this.setTroubleshooting(
                 'Backend unreachable',
-                'Confirm the gateway is running on the expected port, usually http://localhost:9090, and check browser CORS/network errors.'
+                'Confirm the gateway is running on the expected port, usually http://localhost:29090, and check browser CORS/network errors.'
             );
             this.showToast('Backend unreachable', 'error');
         }

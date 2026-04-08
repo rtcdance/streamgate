@@ -20,6 +20,7 @@ import (
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/middleware"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
 	"streamgate/pkg/web3"
 )
@@ -125,6 +126,10 @@ func main() {
 	nftCache := newNFTAccessCache()
 	transcodingService := service.NewTranscodingService(nil, service.NewMemoryTranscodingQueue())
 	transcodingHandler := apiV1.NewTranscodingHandler(transcodingService)
+	metricsCollector := monitoring.NewMetricsCollector(log)
+	serviceMetrics := monitoring.NewServiceMetricsTracker(log)
+	metricsExporter := monitoring.NewPrometheusExporter(metricsCollector, serviceMetrics, log)
+	metricsHandler := monitoring.NewPrometheusMetricsHandler(metricsExporter, log)
 
 	// Initialize HTTP router
 	gin.SetMode(gin.ReleaseMode)
@@ -136,14 +141,35 @@ func main() {
 	router.Use(middlewareSvc.RecoveryMiddleware())
 	router.Use(middlewareSvc.CORSMiddleware())
 	router.Use(middlewareSvc.RateLimitMiddleware())
+	router.Use(func(c *gin.Context) {
+		startedAt := time.Now()
+		c.Next()
+
+		route := c.FullPath()
+		if route == "" {
+			route = c.Request.URL.Path
+		}
+		status := strconv.Itoa(c.Writer.Status())
+		metricsCollector.IncrementCounter("http_requests_total", map[string]string{
+			"method": c.Request.Method,
+			"route":  route,
+			"status": status,
+		})
+		serviceMetrics.RecordRequest("api-gateway", time.Since(startedAt).Milliseconds(), c.Writer.Status() < http.StatusInternalServerError)
+	})
 
 	// Register health check routes
 	router.GET("/health", func(c *gin.Context) {
+		metricsCollector.IncrementCounter("health_check_success_total", nil)
 		c.JSON(http.StatusOK, gin.H{
 			"status":    "healthy",
 			"service":   "api-gateway",
 			"timestamp": time.Now().Unix(),
 		})
+	})
+
+	router.GET("/metrics", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/plain; version=0.0.4", []byte(metricsHandler.ServeMetrics()))
 	})
 
 	router.GET("/ready", func(c *gin.Context) {

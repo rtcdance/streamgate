@@ -189,13 +189,13 @@ func SkipIfShort(t *testing.T) {
 }
 
 func SkipIfEnv(t *testing.T, envVar string) {
-	if value := t.Getenv(envVar); value != "" && value != "0" && value != "false" {
+	if value := os.Getenv(envVar); value != "" && value != "0" && value != "false" {
 		t.Skipf("Skipping test due to env var %s=%s", envVar, value)
 	}
 }
 
 func RunIfEnv(t *testing.T, envVar string) {
-	if value := t.Getenv(envVar); value == "" || value == "0" || value == "false" {
+	if value := os.Getenv(envVar); value == "" || value == "0" || value == "false" {
 		t.Skipf("Skipping test due to missing env var %s", envVar)
 	}
 }
