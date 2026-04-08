@@ -22,6 +22,7 @@ This index collects the most useful interview-facing docs for the current projec
 - [`FINAL_APPLICATION_GUIDE.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/FINAL_APPLICATION_GUIDE.md)
 - [`FINAL_WORKFLOW_CHECKLIST.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/FINAL_WORKFLOW_CHECKLIST.md)
 - [`FINAL_STATE_SUMMARY.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/FINAL_STATE_SUMMARY.md)
+- [`FINAL_ACCEPTANCE_DECISION.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/FINAL_ACCEPTANCE_DECISION.md)
 - [`REMAINING_WORK_ITEMS.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/REMAINING_WORK_ITEMS.md)
 - [`RESUME_PROJECT_BLOCK.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/RESUME_PROJECT_BLOCK.md)
 - [`RESUME_PROJECT_FINAL_DRAFT.md`](/Users/mingo/Applications/workspace/web3/project/streamgate/docs/RESUME_PROJECT_FINAL_DRAFT.md)
