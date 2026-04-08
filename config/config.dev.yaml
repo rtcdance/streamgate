@@ -70,16 +70,20 @@ web3:
   chains:
     - id: 11155111
       name: "ethereum-sepolia"
-      rpc_url: "https://sepolia.infura.io/v3/YOUR_KEY"
+      rpc_url: "https://rpc.sepolia.org"
       explorer_url: "https://sepolia.etherscan.io"
-    - id: 80001
-      name: "polygon-mumbai"
-      rpc_url: "https://rpc-mumbai.maticvigil.com"
-      explorer_url: "https://mumbai.polygonscan.com"
+    - id: 80002
+      name: "polygon-amoy"
+      rpc_url: "https://rpc-amoy.polygon.technology"
+      explorer_url: "https://amoy.polygonscan.com"
     - id: 97
       name: "bsc-testnet"
       rpc_url: "https://data-seed-prebsc-1-b.binance.org:8545"
       explorer_url: "https://testnet.bscscan.com"
+    - id: 421614
+      name: "arbitrum-sepolia"
+      rpc_url: "https://sepolia-rollup.arbitrum.io/rpc"
+      explorer_url: "https://sepolia.arbiscan.io"
   default_chain_id: 11155111
 
 auth:
