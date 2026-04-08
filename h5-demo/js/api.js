@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'http://localhost:9090';
+const DEFAULT_API_BASE = 'http://localhost:29090';
 
 function inferApiBase() {
     const stored = localStorage.getItem('streamgate_api_base');
@@ -11,7 +11,7 @@ function inferApiBase() {
     }
 
     const origin = window.location.origin;
-    if (/:(8080|9090)$/.test(origin)) {
+    if (/:(8080|9090|18080|19090|28080|29090)$/.test(origin)) {
         return origin;
     }
 
