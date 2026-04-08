@@ -21,6 +21,7 @@ The following paths are considered accepted:
 - wallet signature login works
 - NFT verification works
 - protected manifest access works
+- playback-token-protected segment access works
 - RPC status visibility works
 - transcoding submit / status / tasks / profiles work
 - `/health` works
@@ -35,6 +36,7 @@ The following paths are considered accepted:
 - Scripted acceptance:
   - `scripts/self-test-deploy.sh`
   - `scripts/run-docker-acceptance.sh`
+  - targeted gateway route tests for manifest and playback-token enforcement
 
 ## What Is Still Not Claimed
 
@@ -43,7 +45,6 @@ The current acceptance does not mean:
 - all legacy `pkg/api/v1/*` endpoints have been fully retired
 - all monitoring/export paths are fully standardized for production
 - the transcoding control plane is fully productionized
-- playback token / segment acceptance has been fully documented in detail
 - all CI / automated end-to-end coverage is complete
 
 ## Practical Conclusion
@@ -64,5 +65,4 @@ If the question is:
 ### P2
 
 - deepen transcoding execution and FFmpeg workflow integration
-- add more explicit playback token / segment acceptance checks
 - continue production hardening
