@@ -12,9 +12,9 @@ database:
   port: 5432
   user: "streamgate"
   password: "streamgate_test_password"
-  dbname: "streamgate_test"
+  database: "streamgate_test"
   sslmode: "disable"
-  max_open_conns: 5
+  maxconns: 5
   max_idle_conns: 1
   conn_max_lifetime: 1m
 
@@ -23,7 +23,7 @@ redis:
   port: 6379
   password: ""
   db: 15
-  pool_size: 3
+  poolsize: 3
   min_idle_conns: 1
 
 storage:
@@ -64,7 +64,7 @@ streaming:
 web3:
   enabled: false
   chains: []
-  default_chain_id: 1
+  chain_id: 1
 
 auth:
   jwt_secret: "test-secret-key"

@@ -26,8 +26,8 @@ func TestE2E_NFTCreationAndVerification(t *testing.T) {
 	defer helpers.CleanupTestStorage(t, storage)
 
 	// Initialize services
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	contentService := 	service.NewContentService(db, storage, nil)
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return
@@ -43,7 +43,7 @@ func TestE2E_NFTCreationAndVerification(t *testing.T) {
 		OwnerID:     uuid.New().String(),
 	}
 
-	_, err = contentService.CreateContent(content)
+	_, err = contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Step 2: Verify NFT ownership
@@ -74,8 +74,8 @@ func TestE2E_MultiChainNFTMinting(t *testing.T) {
 	defer helpers.CleanupTestStorage(t, storage)
 
 	// Initialize services
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	contentService := 	service.NewContentService(db, storage, nil)
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return
@@ -91,7 +91,7 @@ func TestE2E_MultiChainNFTMinting(t *testing.T) {
 		OwnerID:     uuid.New().String(),
 	}
 
-	_, err = contentService.CreateContent(content)
+	_, err = contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Test multi-chain support
@@ -127,7 +127,7 @@ func TestE2E_SignatureVerification(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return
@@ -154,7 +154,7 @@ func TestE2E_NFTOwnershipVerification(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return
@@ -181,7 +181,7 @@ func TestE2E_WalletIntegration(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return
@@ -205,7 +205,7 @@ func TestE2E_SmartContractInteraction(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	web3Service, err := service.NewWeb3Service(&config.Config{}, zap.NewNop())
+	web3Service, err := service.NewWeb3Service(service.DefaultWeb3Deps(&config.Config{}, zap.NewNop()), &config.Config{}, zap.NewNop())
 	if err != nil {
 		t.Skipf("Skipping test: failed to create Web3 service: %v", err)
 		return

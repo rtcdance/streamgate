@@ -43,7 +43,7 @@ func (h *Handler) RecordEventHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.RecordEvent(req.EventType, req.ServiceID, req.UserID, req.Metadata, req.Tags)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 }
 
 // RecordMetricsHandler handles metrics recording
@@ -72,7 +72,7 @@ func (h *Handler) RecordMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.RecordMetrics(req.ServiceID, req.CPUUsage, req.MemoryUsage, req.DiskUsage, req.RequestRate, req.ErrorRate, req.Latency, req.CacheHitRate)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 }
 
 // GetAggregationsHandler returns aggregations for a service
@@ -91,7 +91,7 @@ func (h *Handler) GetAggregationsHandler(w http.ResponseWriter, r *http.Request)
 	aggregations := h.service.GetAggregations(serviceID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(aggregations)
+	_ = json.NewEncoder(w).Encode(aggregations)
 }
 
 // GetAnomaliesHandler returns anomalies for a service
@@ -117,7 +117,7 @@ func (h *Handler) GetAnomaliesHandler(w http.ResponseWriter, r *http.Request) {
 	anomalies := h.service.GetAnomalies(serviceID, limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(anomalies)
+	_ = json.NewEncoder(w).Encode(anomalies)
 }
 
 // GetPredictionsHandler returns predictions for a service
@@ -143,7 +143,7 @@ func (h *Handler) GetPredictionsHandler(w http.ResponseWriter, r *http.Request) 
 	predictions := h.predictor.GetPredictions(serviceID, limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(predictions)
+	_ = json.NewEncoder(w).Encode(predictions)
 }
 
 // GetDashboardHandler returns dashboard data
@@ -162,7 +162,7 @@ func (h *Handler) GetDashboardHandler(w http.ResponseWriter, r *http.Request) {
 	data := h.service.GetDashboardData(serviceID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 // HealthHandler returns health status
@@ -173,5 +173,5 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }

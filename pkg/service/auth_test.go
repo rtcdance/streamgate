@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -10,21 +11,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"streamgate/pkg/models"
 	"streamgate/pkg/web3"
 )
 
 // MockAuthStorage implements AuthStorage for testing
 type MockAuthStorage struct {
-	users map[string]*User
+	users map[string]*models.User
 }
 
 func NewMockAuthStorage() *MockAuthStorage {
 	return &MockAuthStorage{
-		users: make(map[string]*User),
+		users: make(map[string]*models.User),
 	}
 }
 
-func (m *MockAuthStorage) GetUser(username string) (*User, error) {
+func (m *MockAuthStorage) GetUser(_ context.Context, username string) (*models.User, error) {
 	user, exists := m.users[username]
 	if !exists {
 		return nil, errors.New("user not found")
@@ -33,7 +35,7 @@ func (m *MockAuthStorage) GetUser(username string) (*User, error) {
 	return &userCopy, nil
 }
 
-func (m *MockAuthStorage) CreateUser(user *User) error {
+func (m *MockAuthStorage) CreateUser(_ context.Context, user *models.User) error {
 	if _, exists := m.users[user.Username]; exists {
 		return errors.New("user already exists")
 	}
@@ -41,7 +43,7 @@ func (m *MockAuthStorage) CreateUser(user *User) error {
 	return nil
 }
 
-func (m *MockAuthStorage) UpdateUser(user *User) error {
+func (m *MockAuthStorage) UpdateUser(_ context.Context, user *models.User) error {
 	if _, exists := m.users[user.Username]; !exists {
 		return errors.New("user not found")
 	}
@@ -66,7 +68,7 @@ func TestAuthService_Authenticate(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser",
 			Password:  string(hashedPassword),
@@ -74,38 +76,25 @@ func TestAuthService_Authenticate(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate("testuser", "password123")
+		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 	})
 
 	t.Run("invalid username", func(t *testing.T) {
-		_, err := auth.Authenticate("nonexistent", "password")
+		_, err := auth.Authenticate(context.Background(),"nonexistent", "password")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid username or password")
+		assert.ErrorIs(t, err, ErrInvalidCredential)
+		assert.NotContains(t, err.Error(), "username")
 	})
 
 	t.Run("invalid password", func(t *testing.T) {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
-		require.NoError(t, err)
-
-		user := &User{
-			ID:        "1",
-			Username:  "testuser2",
-			Password:  string(hashedPassword),
-			Email:     "test@example.com",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		err = storage.CreateUser(user)
-		require.NoError(t, err)
-
-		_, err = auth.Authenticate("testuser2", "wrongpassword")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid username or password")
+		auth.Register(context.Background(), "testuser2", "password123", "test2@example.com")
+		_, err := auth.Authenticate(context.Background(), "testuser2", "wrongpassword")
+		assert.ErrorIs(t, err, ErrInvalidCredential)
 	})
 }
 
@@ -122,14 +111,14 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		require.NoError(t, err)
 
 		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
-		challenge, err := auth.GenerateWalletChallenge(walletAddress, 11155111)
+		challenge, err := auth.GenerateWalletChallenge(context.Background(), walletAddress, 11155111)
 		require.NoError(t, err)
 		assert.Equal(t, walletAddress, challenge.WalletAddress)
 
 		signature, err := verifier.SignMessage(challenge.Message, privateKey)
 		require.NoError(t, err)
 
-		token, err := auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
+		token, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -143,16 +132,16 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		require.NoError(t, err)
 
 		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
-		challenge, err := auth.GenerateWalletChallenge(walletAddress, 11155111)
+		challenge, err := auth.GenerateWalletChallenge(context.Background(), walletAddress, 11155111)
 		require.NoError(t, err)
 
 		signature, err := verifier.SignMessage(challenge.Message, privateKey)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(walletAddress, challenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "challenge already used")
 	})
@@ -171,12 +160,12 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 			IssuedAt:      time.Now().Add(-10 * time.Minute).UTC(),
 			ExpiresAt:     time.Now().Add(-time.Minute).UTC(),
 		}
-		require.NoError(t, store.SaveChallenge(expiredChallenge))
+		require.NoError(t, store.SaveChallenge(context.Background(), expiredChallenge))
 
 		signature, err := verifier.SignMessage(expiredChallenge.Message, privateKey)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(walletAddress, expiredChallenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, expiredChallenge.ID, signature)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "challenge expired")
 	})
@@ -193,17 +182,17 @@ func TestMemoryChallengeStore_ChallengeLifecycle(t *testing.T) {
 		ExpiresAt:     time.Now().Add(time.Minute),
 	}
 
-	require.NoError(t, store.SaveChallenge(challenge))
+	require.NoError(t, store.SaveChallenge(context.Background(), challenge))
 
-	loaded, err := store.GetChallenge(challenge.ID)
+	loaded, err := store.GetChallenge(context.Background(), challenge.ID)
 	require.NoError(t, err)
 	assert.Equal(t, challenge.WalletAddress, loaded.WalletAddress)
 	assert.True(t, loaded.UsedAt.IsZero())
 
 	usedAt := time.Now().UTC()
-	require.NoError(t, store.MarkChallengeUsed(challenge.ID, usedAt))
+	require.NoError(t, store.MarkChallengeUsed(context.Background(), challenge.ID, usedAt))
 
-	loaded, err = store.GetChallenge(challenge.ID)
+	loaded, err = store.GetChallenge(context.Background(), challenge.ID)
 	require.NoError(t, err)
 	assert.Equal(t, usedAt.Unix(), loaded.UsedAt.Unix())
 }
@@ -240,7 +229,7 @@ func TestAuthService_Verify(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser",
 			Password:  string(hashedPassword),
@@ -248,10 +237,10 @@ func TestAuthService_Verify(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate("testuser", "password123")
+		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
 		require.NoError(t, err)
 
 		valid, err := auth.Verify(token)
@@ -274,7 +263,7 @@ func TestAuthService_ParseToken(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser",
 			Password:  string(hashedPassword),
@@ -282,10 +271,10 @@ func TestAuthService_ParseToken(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate("testuser", "password123")
+		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
 		require.NoError(t, err)
 
 		claims, err := auth.ParseToken(token)
@@ -305,10 +294,10 @@ func TestAuthService_Register(t *testing.T) {
 	auth := NewAuthService("test-secret", storage)
 
 	t.Run("successful registration", func(t *testing.T) {
-		err := auth.Register("newuser", "password123", "new@example.com")
+		err := auth.Register(context.Background(), "newuser", "password123", "new@example.com")
 		require.NoError(t, err)
 
-		user, err := storage.GetUser("newuser")
+		user, err := storage.GetUser(context.Background(), "newuser")
 		require.NoError(t, err)
 		assert.Equal(t, "newuser", user.Username)
 		assert.Equal(t, "new@example.com", user.Email)
@@ -317,10 +306,10 @@ func TestAuthService_Register(t *testing.T) {
 	})
 
 	t.Run("duplicate registration", func(t *testing.T) {
-		err := auth.Register("duplicateuser", "password123", "new@example.com")
+		err := auth.Register(context.Background(), "duplicateuser", "password123", "new@example.com")
 		require.NoError(t, err)
 
-		err = auth.Register("duplicateuser", "password456", "another@example.com")
+		err = auth.Register(context.Background(), "duplicateuser", "password456", "another@example.com")
 		assert.Error(t, err)
 	})
 }
@@ -333,7 +322,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser",
 			Password:  string(hashedPassword),
@@ -341,19 +330,19 @@ func TestAuthService_ChangePassword(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		err = auth.ChangePassword("testuser", "password123", "newpassword456")
+		err = auth.ChangePassword(context.Background(), "testuser", "password123", "newpassword456")
 		require.NoError(t, err)
 
-		updatedUser, err := storage.GetUser("testuser")
+		updatedUser, err := storage.GetUser(context.Background(), "testuser")
 		require.NoError(t, err)
 		assert.NotEqual(t, user.Password, updatedUser.Password)
 	})
 
 	t.Run("user not found", func(t *testing.T) {
-		err := auth.ChangePassword("nonexistent", "old", "new")
+		err := auth.ChangePassword(context.Background(), "nonexistent", "old", "new")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "user not found")
 	})
@@ -362,7 +351,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser2",
 			Password:  string(hashedPassword),
@@ -370,10 +359,10 @@ func TestAuthService_ChangePassword(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		err = auth.ChangePassword("testuser2", "wrongpassword", "newpassword")
+		err = auth.ChangePassword(context.Background(), "testuser2", "wrongpassword", "newpassword")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid old password")
 	})
@@ -387,7 +376,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
 		require.NoError(t, err)
 
-		user := &User{
+		user := &models.User{
 			ID:        "1",
 			Username:  "testuser",
 			Password:  string(hashedPassword),
@@ -395,13 +384,13 @@ func TestAuthService_RefreshToken(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err = storage.CreateUser(user)
+		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		oldToken, err := auth.Authenticate("testuser", "password123")
+		oldToken, err := auth.Authenticate(context.Background(),"testuser", "password123")
 		require.NoError(t, err)
 
-		newToken, err := auth.RefreshToken(oldToken)
+		newToken, err := auth.RefreshToken(context.Background(), oldToken)
 		require.NoError(t, err)
 		assert.NotEmpty(t, newToken)
 		assert.NotEqual(t, oldToken, newToken)
@@ -413,7 +402,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	})
 
 	t.Run("refresh invalid token", func(t *testing.T) {
-		_, err := auth.RefreshToken("invalid.token.here")
+		_, err := auth.RefreshToken(context.Background(), "invalid.token.here")
 		assert.Error(t, err)
 	})
 }

@@ -44,7 +44,7 @@ golangci-lint run ./... --no-config
 ```bash
 # 1. Check Go version
 go version
-# Expected: go1.21 or higher
+# Expected: go1.24 or higher
 
 # 2. Check Docker version
 docker --version

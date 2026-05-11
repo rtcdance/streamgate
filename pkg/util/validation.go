@@ -99,7 +99,7 @@ func IsValidHash(hash string) bool {
 // IsValidJSON checks if string is valid JSON
 func IsValidJSON(s string) bool {
 	s = TrimSpace(s)
-	if len(s) == 0 {
+	if s == "" {
 		return false
 	}
 
@@ -108,7 +108,7 @@ func IsValidJSON(s string) bool {
 }
 
 // ValidateNotEmpty validates string is not empty
-func ValidateNotEmpty(s string, fieldName string) error {
+func ValidateNotEmpty(s, fieldName string) error {
 	if s == "" {
 		return fmt.Errorf("%s cannot be empty", fieldName)
 	}

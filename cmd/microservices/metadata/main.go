@@ -17,7 +17,7 @@ import (
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-metadata")
-	defer log.Sync()
+	defer func() { _ = log.Sync() }()
 
 	log.Info("Starting StreamGate Metadata Service...")
 

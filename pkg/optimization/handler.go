@@ -28,7 +28,7 @@ func (h *Handler) GetCacheStatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := h.service.GetCacheStats()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // GetSlowQueriesHandler returns slow queries
@@ -48,7 +48,7 @@ func (h *Handler) GetSlowQueriesHandler(w http.ResponseWriter, r *http.Request) 
 	queries := h.service.GetSlowQueries(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(queries)
+	_ = json.NewEncoder(w).Encode(queries)
 }
 
 // GetQueryMetricsHandler returns query metrics
@@ -68,7 +68,7 @@ func (h *Handler) GetQueryMetricsHandler(w http.ResponseWriter, r *http.Request)
 	metrics := h.service.GetQueryMetrics(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // GetQueryStatsHandler returns query statistics
@@ -87,7 +87,7 @@ func (h *Handler) GetQueryStatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := h.service.GetQueryStats(query)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // GetIndexMetricsHandler returns index metrics
@@ -102,14 +102,14 @@ func (h *Handler) GetIndexMetricsHandler(w http.ResponseWriter, r *http.Request)
 		// Return all indexes
 		metrics := h.service.GetAllIndexMetrics()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metrics)
+		_ = json.NewEncoder(w).Encode(metrics)
 		return
 	}
 
 	metric := h.service.GetIndexMetrics(indexName)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metric)
+	_ = json.NewEncoder(w).Encode(metric)
 }
 
 // GetUnusedIndexesHandler returns unused indexes
@@ -122,7 +122,7 @@ func (h *Handler) GetUnusedIndexesHandler(w http.ResponseWriter, r *http.Request
 	indexes := h.service.GetUnusedIndexes()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(indexes)
+	_ = json.NewEncoder(w).Encode(indexes)
 }
 
 // GetDuplicateIndexesHandler returns duplicate indexes
@@ -135,7 +135,7 @@ func (h *Handler) GetDuplicateIndexesHandler(w http.ResponseWriter, r *http.Requ
 	indexes := h.service.GetDuplicateIndexes()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(indexes)
+	_ = json.NewEncoder(w).Encode(indexes)
 }
 
 // GetFragmentedIndexesHandler returns fragmented indexes
@@ -155,7 +155,7 @@ func (h *Handler) GetFragmentedIndexesHandler(w http.ResponseWriter, r *http.Req
 	indexes := h.service.GetFragmentedIndexes(threshold)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(indexes)
+	_ = json.NewEncoder(w).Encode(indexes)
 }
 
 // GetOptimizationRecommendationsHandler returns optimization recommendations
@@ -168,7 +168,7 @@ func (h *Handler) GetOptimizationRecommendationsHandler(w http.ResponseWriter, r
 	recommendations := h.service.GetOptimizationRecommendations()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(recommendations)
+	_ = json.NewEncoder(w).Encode(recommendations)
 }
 
 // HealthHandler returns health status
@@ -179,7 +179,7 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // GetMemoryMetricsHandler returns memory metrics
@@ -199,7 +199,7 @@ func (h *Handler) GetMemoryMetricsHandler(w http.ResponseWriter, r *http.Request
 	metrics := h.service.GetMemoryMetrics(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // GetCPUMetricsHandler returns CPU metrics
@@ -219,7 +219,7 @@ func (h *Handler) GetCPUMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	metrics := h.service.GetCPUMetrics(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // GetMemoryStatsHandler returns memory statistics
@@ -232,7 +232,7 @@ func (h *Handler) GetMemoryStatsHandler(w http.ResponseWriter, r *http.Request) 
 	stats := h.service.GetMemoryStats()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // GetCPUStatsHandler returns CPU statistics
@@ -245,7 +245,7 @@ func (h *Handler) GetCPUStatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := h.service.GetCPUStats()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // GetMemoryTrendsHandler returns memory trends
@@ -258,7 +258,7 @@ func (h *Handler) GetMemoryTrendsHandler(w http.ResponseWriter, r *http.Request)
 	trends := h.service.GetMemoryTrends()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(trends)
+	_ = json.NewEncoder(w).Encode(trends)
 }
 
 // GetCPUTrendsHandler returns CPU trends
@@ -271,7 +271,7 @@ func (h *Handler) GetCPUTrendsHandler(w http.ResponseWriter, r *http.Request) {
 	trends := h.service.GetCPUTrends()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(trends)
+	_ = json.NewEncoder(w).Encode(trends)
 }
 
 // ForceGCHandler forces garbage collection
@@ -284,5 +284,5 @@ func (h *Handler) ForceGCHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.ForceGC()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "gc_triggered"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "gc_triggered"})
 }

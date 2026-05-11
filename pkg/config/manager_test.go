@@ -160,10 +160,10 @@ func TestConfigManager_RemoveChangeHandler(t *testing.T) {
 	cm := NewConfigManager("/tmp/test-config-remove-handler.json", logger)
 
 	handler := func(old, new *Config) error { return nil }
-	cm.AddChangeHandler(handler)
+	idx := cm.AddChangeHandler(handler)
 	assert.Len(t, cm.handlers, 1)
 
-	cm.RemoveChangeHandler(handler)
+	cm.RemoveChangeHandler(idx)
 	assert.Len(t, cm.handlers, 0)
 }
 

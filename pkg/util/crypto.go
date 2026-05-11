@@ -10,7 +10,7 @@ import (
 )
 
 // EncryptAES encrypts data using AES-256-GCM
-func EncryptAES(plaintext []byte, key []byte) (string, error) {
+func EncryptAES(plaintext, key []byte) (string, error) {
 	if len(key) != 32 {
 		return "", fmt.Errorf("key must be 32 bytes for AES-256")
 	}
@@ -70,7 +70,7 @@ func DecryptAES(ciphertext string, key []byte) ([]byte, error) {
 }
 
 // Encrypt is an alias for EncryptAES for compatibility
-func Encrypt(plaintext []byte, key []byte) (string, error) {
+func Encrypt(plaintext, key []byte) (string, error) {
 	return EncryptAES(plaintext, key)
 }
 

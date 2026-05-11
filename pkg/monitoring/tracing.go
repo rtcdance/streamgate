@@ -9,6 +9,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// contextKey is a typed context key for trace/span values.
+type contextKey string
+
+const (
+	traceIDKey contextKey = "trace_id"
+	spanIDKey  contextKey = "span_id"
+)
+
 // Span represents a distributed trace span
 type Span struct {
 	ID            string
@@ -87,8 +95,8 @@ func (t *Tracer) StartSpan(ctx context.Context, operationName string) (*Span, co
 		zap.String("operation", operationName))
 
 	// Create new context with span information
-	ctx = context.WithValue(ctx, "trace_id", traceID)
-	ctx = context.WithValue(ctx, "span_id", span.ID)
+	ctx = context.WithValue(ctx, traceIDKey, traceID)
+	ctx = context.WithValue(ctx, spanIDKey, span.ID)
 
 	return span, ctx
 }
@@ -201,7 +209,7 @@ func (t *Tracer) generateSpanID() string {
 
 // getTraceID gets trace ID from context
 func (t *Tracer) getTraceID(ctx context.Context) string {
-	if traceID, ok := ctx.Value("trace_id").(string); ok {
+	if traceID, ok := ctx.Value(traceIDKey).(string); ok {
 		return traceID
 	}
 	return ""
@@ -209,7 +217,7 @@ func (t *Tracer) getTraceID(ctx context.Context) string {
 
 // getSpanID gets span ID from context
 func (t *Tracer) getSpanID(ctx context.Context) string {
-	if spanID, ok := ctx.Value("span_id").(string); ok {
+	if spanID, ok := ctx.Value(spanIDKey).(string); ok {
 		return spanID
 	}
 	return ""

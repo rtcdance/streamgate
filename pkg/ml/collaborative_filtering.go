@@ -77,6 +77,14 @@ func (cf *CollaborativeFilter) GetRecommendations(userID string, count int) []*R
 		return nil
 	}
 
+	// Update similarity cache under write lock
+	cf.mu.RUnlock()
+	cf.mu.Lock()
+	cf.similarityCache[userID] = similarUsers
+	cf.lastUpdate = time.Now()
+	cf.mu.Unlock()
+	cf.mu.RLock()
+
 	// Get recommendations from similar users
 	recommendations := make(map[string]float64)
 	weights := make(map[string]float64)
@@ -200,10 +208,6 @@ func (cf *CollaborativeFilter) findSimilarUsers(userID string, limit int) []*Sim
 	if len(similarities) > limit {
 		similarities = similarities[:limit]
 	}
-
-	// Cache results
-	cf.similarityCache[userID] = similarities
-	cf.lastUpdate = time.Now()
 
 	return similarities
 }

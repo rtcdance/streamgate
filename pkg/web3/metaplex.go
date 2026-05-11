@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap"
+	"streamgate/pkg/cachetypes"
 )
 
 // MetaplexVerifier handles Solana Metaplex NFT verification
@@ -18,11 +17,11 @@ type MetaplexVerifier struct {
 	rpcClient  *rpc.Client
 	httpClient *http.Client
 	logger     *zap.Logger
-	cache      NFTCacheStorage
+	cache      cachetypes.CacheBackend
 }
 
 // NewMetaplexVerifier creates a new Metaplex verifier
-func NewMetaplexVerifier(rpcClient *rpc.Client, logger *zap.Logger, cache NFTCacheStorage) *MetaplexVerifier {
+func NewMetaplexVerifier(rpcClient *rpc.Client, logger *zap.Logger, cache cachetypes.CacheBackend) *MetaplexVerifier {
 	return &MetaplexVerifier{
 		rpcClient:  rpcClient,
 		httpClient: &http.Client{},
@@ -156,7 +155,7 @@ func (mv *MetaplexVerifier) VerifyNFTOwnership(ctx context.Context, mintAddress,
 
 	// Cache the result
 	if mv.cache != nil {
-		mv.cache.Set(cacheKey, owned)
+		_ = mv.cache.Set(cacheKey, owned)
 	}
 
 	mv.logger.Debug("Metaplex ownership verified",
@@ -215,7 +214,7 @@ func (mv *MetaplexVerifier) getLargestTokenAccount(ctx context.Context, mint sol
 		}
 
 		var amount uint64
-		fmt.Sscanf(parsed.Parsed.Info.TokenAmount.Amount, "%d", &amount)
+		_, _ = fmt.Sscanf(parsed.Parsed.Info.TokenAmount.Amount, "%d", &amount)
 
 		if largest == nil || amount > largest.Amount {
 			largest = &TokenAccountInfo{
@@ -268,7 +267,7 @@ func (mv *MetaplexVerifier) GetMetadata(ctx context.Context, mintAddress string)
 
 	// Cache the result
 	if mv.cache != nil {
-		mv.cache.Set(cacheKey, metadata)
+		_ = mv.cache.Set(cacheKey, metadata)
 	}
 
 	return metadata, nil
@@ -308,47 +307,12 @@ func (mv *MetaplexVerifier) getMetadataAccount(ctx context.Context, mint solana.
 	return &metadata, nil
 }
 
-// fetchMetadataFromURI fetches metadata from a URI
+// fetchMetadataFromURI fetches metadata from a URI with SSRF protection.
 func (mv *MetaplexVerifier) fetchMetadataFromURI(ctx context.Context, uri string) (*MetaplexMetadata, error) {
-	// Handle Arweave URIs
-	if strings.HasPrefix(uri, "ar://") {
-		uri = "https://arweave.net/" + strings.TrimPrefix(uri, "ar://")
-	}
-
-	// Handle IPFS URIs
-	if strings.HasPrefix(uri, "ipfs://") {
-		uri = "https://ipfs.io/ipfs/" + strings.TrimPrefix(uri, "ipfs://")
-	}
-
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Send request
-	resp, err := mv.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch metadata: status %d", resp.StatusCode)
-	}
-
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse metadata
 	var metadata MetaplexMetadata
-	if err := json.Unmarshal(body, &metadata); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
+	if err := safeFetchURI(ctx, uri, &metadata); err != nil {
+		return nil, err
 	}
-
 	return &metadata, nil
 }
 

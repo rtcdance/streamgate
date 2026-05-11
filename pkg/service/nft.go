@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,47 +13,44 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/web3"
+
+	"go.uber.org/zap"
 )
 
 // NFTService handles NFT operations
 type NFTService struct {
-	ethClient     *ethclient.Client
-	cache         NFTCacheStorage
+	ethClient     web3.EthCaller
+	cache         cachetypes.CacheBackend
 	rpcURL        string
 	cacheEnabled  bool
 	cacheDuration time.Duration
+	parsedABI     abi.ABI // pre-parsed at construction
+	logger        *zap.Logger
 }
 
-// NFTCacheStorage defines the interface for NFT cache storage
-type NFTCacheStorage interface {
-	Get(key string) (interface{}, error)
-	Set(key string, value interface{}) error
-	Delete(key string) error
-}
+// NFTMetadata represents NFT metadata for API responses.
+// Extends web3.NFTMetadata with a Properties field for arbitrary JSON data.
+type NFTMetadata = web3.NFTMetadata
 
-// NFTMetadata represents NFT metadata
-type NFTMetadata struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Image       string                 `json:"image"`
-	Attributes  []NFTAttribute         `json:"attributes"`
-	Properties  map[string]interface{} `json:"properties"`
-}
+// NFTAttribute is an alias for web3.NFTAttribute.
+type NFTAttribute = web3.NFTAttribute
 
-// NFTAttribute represents an NFT attribute
-type NFTAttribute struct {
-	TraitType string      `json:"trait_type"`
-	Value     interface{} `json:"value"`
-}
-
-// ERC721 ABI for ownerOf function
-const erc721ABI = `[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`
+// erc721ServiceABI contains ownerOf and tokenURI methods used by NFTService.
+const erc721ServiceABI = `[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`
 
 // NewNFTService creates a new NFT service
-func NewNFTService(rpcURL string, cache NFTCacheStorage) (*NFTService, error) {
+func NewNFTService(rpcURL string, cache cachetypes.CacheBackend) (*NFTService, error) {
 	client, err := ethclient.Dial(rpcURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Ethereum node: %w", err)
+	}
+
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(erc721ServiceABI)))
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}
 
 	return &NFTService{
@@ -61,11 +59,32 @@ func NewNFTService(rpcURL string, cache NFTCacheStorage) (*NFTService, error) {
 		rpcURL:        rpcURL,
 		cacheEnabled:  cache != nil,
 		cacheDuration: 1 * time.Hour,
+		parsedABI:     parsedABI,
+		logger:        zap.NewNop(),
+	}, nil
+}
+
+// NewNFTServiceWithCaller creates a new NFT service with a custom EthCaller.
+// This enables multi-RPC failover when used with a ChainClient wrapper.
+func NewNFTServiceWithCaller(caller web3.EthCaller, rpcURL string, cache cachetypes.CacheBackend) (*NFTService, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(erc721ServiceABI)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+	}
+
+	return &NFTService{
+		ethClient:     caller,
+		cache:         cache,
+		rpcURL:        rpcURL,
+		cacheEnabled:  cache != nil,
+		cacheDuration: 1 * time.Hour,
+		parsedABI:     parsedABI,
+		logger:        zap.NewNop(),
 	}, nil
 }
 
 // VerifyNFT verifies NFT ownership
-func (s *NFTService) VerifyNFT(address, contractAddress, tokenID string) (bool, error) {
+func (s *NFTService) VerifyNFT(ctx context.Context, address, contractAddress, tokenID string) (bool, error) {
 	// Validate inputs
 	if !common.IsHexAddress(address) {
 		return false, fmt.Errorf("invalid address: %s", address)
@@ -94,14 +113,19 @@ func (s *NFTService) VerifyNFT(address, contractAddress, tokenID string) (bool, 
 	}
 
 	// Get owner from blockchain
-	owner, err := s.getOwnerOf(contractAddr, tokenIDInt)
+	owner, err := s.getOwnerOf(ctx, contractAddr, tokenIDInt)
 	if err != nil {
 		return false, fmt.Errorf("failed to get NFT owner: %w", err)
 	}
 
-	// Cache the result
+	// Cache the result with TTL so stale ownership data doesn't persist indefinitely
+	// if the EventIndexer is down and Transfer events are missed.
 	if s.cacheEnabled {
-		s.cache.Set(cacheKey, owner.Hex())
+		if expirer, ok := s.cache.(interface{ SetWithExpiration(key string, value interface{}, ttl time.Duration) error }); ok {
+			_ = expirer.SetWithExpiration(cacheKey, owner.Hex(), s.cacheDuration)
+		} else {
+			_ = s.cache.Set(cacheKey, owner.Hex())
+		}
 	}
 
 	// Compare addresses (case-insensitive)
@@ -109,7 +133,7 @@ func (s *NFTService) VerifyNFT(address, contractAddress, tokenID string) (bool, 
 }
 
 // GetNFTMetadata gets NFT metadata
-func (s *NFTService) GetNFTMetadata(contractAddress, tokenID string) (*NFTMetadata, error) {
+func (s *NFTService) GetNFTMetadata(ctx context.Context, contractAddress, tokenID string) (*NFTMetadata, error) {
 	// Validate inputs
 	if !common.IsHexAddress(contractAddress) {
 		return nil, fmt.Errorf("invalid contract address: %s", contractAddress)
@@ -135,7 +159,7 @@ func (s *NFTService) GetNFTMetadata(contractAddress, tokenID string) (*NFTMetada
 	}
 
 	// Get token URI from blockchain
-	tokenURI, err := s.getTokenURI(contractAddr, tokenIDInt)
+	tokenURI, err := s.getTokenURI(ctx, contractAddr, tokenIDInt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token URI: %w", err)
 	}
@@ -148,33 +172,26 @@ func (s *NFTService) GetNFTMetadata(contractAddress, tokenID string) (*NFTMetada
 		Description: "NFT from contract " + contractAddress,
 		Image:       tokenURI,
 		Attributes:  []NFTAttribute{},
-		Properties:  make(map[string]interface{}),
 	}
 
 	// Cache the result
 	if s.cacheEnabled {
-		s.cache.Set(cacheKey, metadata)
+		_ = s.cache.Set(cacheKey, metadata)
 	}
 
 	return metadata, nil
 }
 
 // getOwnerOf calls the ownerOf function on an ERC-721 contract
-func (s *NFTService) getOwnerOf(contractAddress common.Address, tokenID *big.Int) (common.Address, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc721ABI))
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
+func (s *NFTService) getOwnerOf(ctx context.Context, contractAddress common.Address, tokenID *big.Int) (common.Address, error) {
 	// Pack the function call
-	data, err := parsedABI.Pack("ownerOf", tokenID)
+	data, err := s.parsedABI.Pack("ownerOf", tokenID)
 	if err != nil {
 		return common.Address{}, fmt.Errorf("failed to pack function call: %w", err)
 	}
 
-	// Call the contract
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Call the contract with caller's context (respects cancellation/timeout)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	result, err := s.ethClient.CallContract(ctx, ethereum.CallMsg{
@@ -185,9 +202,13 @@ func (s *NFTService) getOwnerOf(contractAddress common.Address, tokenID *big.Int
 		return common.Address{}, fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return common.Address{}, fmt.Errorf("ownerOf returned insufficient data (len=%d): contract may not exist or is not a valid ERC-721 contract", len(result))
+	}
+
 	// Unpack the result
 	var owner common.Address
-	err = parsedABI.UnpackIntoInterface(&owner, "ownerOf", result)
+	err = s.parsedABI.UnpackIntoInterface(&owner, "ownerOf", result)
 	if err != nil {
 		return common.Address{}, fmt.Errorf("failed to unpack result: %w", err)
 	}
@@ -196,21 +217,15 @@ func (s *NFTService) getOwnerOf(contractAddress common.Address, tokenID *big.Int
 }
 
 // getTokenURI calls the tokenURI function on an ERC-721 contract
-func (s *NFTService) getTokenURI(contractAddress common.Address, tokenID *big.Int) (string, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc721ABI))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
+func (s *NFTService) getTokenURI(ctx context.Context, contractAddress common.Address, tokenID *big.Int) (string, error) {
 	// Pack the function call
-	data, err := parsedABI.Pack("tokenURI", tokenID)
+	data, err := s.parsedABI.Pack("tokenURI", tokenID)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack function call: %w", err)
 	}
 
-	// Call the contract
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Call the contract with caller's context (respects cancellation/timeout)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	result, err := s.ethClient.CallContract(ctx, ethereum.CallMsg{
@@ -221,9 +236,13 @@ func (s *NFTService) getTokenURI(contractAddress common.Address, tokenID *big.In
 		return "", fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return "", fmt.Errorf("tokenURI returned insufficient data (len=%d): contract may not exist or is not a valid ERC-721 contract", len(result))
+	}
+
 	// Unpack the result
 	var tokenURI string
-	err = parsedABI.UnpackIntoInterface(&tokenURI, "tokenURI", result)
+	err = s.parsedABI.UnpackIntoInterface(&tokenURI, "tokenURI", result)
 	if err != nil {
 		return "", fmt.Errorf("failed to unpack result: %w", err)
 	}
@@ -232,7 +251,7 @@ func (s *NFTService) getTokenURI(contractAddress common.Address, tokenID *big.In
 }
 
 // VerifyNFTBatch verifies multiple NFTs in batch
-func (s *NFTService) VerifyNFTBatch(address string, nfts []struct {
+func (s *NFTService) VerifyNFTBatch(ctx context.Context, address string, nfts []struct {
 	ContractAddress string
 	TokenID         string
 }) (map[string]bool, error) {
@@ -240,7 +259,7 @@ func (s *NFTService) VerifyNFTBatch(address string, nfts []struct {
 
 	for _, nft := range nfts {
 		key := fmt.Sprintf("%s:%s", nft.ContractAddress, nft.TokenID)
-		verified, err := s.VerifyNFT(address, nft.ContractAddress, nft.TokenID)
+		verified, err := s.VerifyNFT(ctx, address, nft.ContractAddress, nft.TokenID)
 		if err != nil {
 			results[key] = false
 		} else {
@@ -251,10 +270,35 @@ func (s *NFTService) VerifyNFTBatch(address string, nfts []struct {
 	return results, nil
 }
 
+// InvalidateOwnershipCache removes cached NFT ownership data for a specific token.
+// This is called when a Transfer event is detected on-chain, ensuring the next
+// VerifyNFT call queries fresh chain state instead of returning stale cached data.
+func (s *NFTService) InvalidateOwnershipCache(contractAddress, tokenID string) {
+	if s.cacheEnabled && s.cache != nil {
+		key := fmt.Sprintf("nft:owner:%s:%s", contractAddress, tokenID)
+		_ = s.cache.Delete(key)
+		s.logger.Debug("Invalidated NFT ownership cache",
+			zap.String("contract", contractAddress),
+			zap.String("token_id", tokenID))
+	}
+}
+
+// RegisterEventHandler registers a Transfer event handler on the given EventListener
+// that automatically invalidates NFT ownership cache when tokens are transferred.
+func (s *NFTService) RegisterEventHandler(listener *web3.EventListener) {
+	handler := NewNFTEventHandler(s, s.logger)
+	listener.On("Transfer", handler.HandleTransfer)
+}
+
+// SetLogger sets the logger for the NFT service.
+func (s *NFTService) SetLogger(logger *zap.Logger) {
+	s.logger = logger
+}
+
 // Close closes the Ethereum client connection
 func (s *NFTService) Close() {
-	if s.ethClient != nil {
-		s.ethClient.Close()
+	if closer, ok := s.ethClient.(interface{ Close() }); ok {
+		closer.Close()
 	}
 }
 

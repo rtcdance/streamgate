@@ -20,7 +20,21 @@ func NewPostgresDB() *PostgresDB {
 	return &PostgresDB{}
 }
 
-// Connect connects to PostgreSQL
+// NewPostgresDBFromDB creates a PostgresDB wrapping an existing *sql.DB.
+// The caller is responsible for having already verified connectivity.
+func NewPostgresDBFromDB(db *sql.DB) *PostgresDB {
+	return &PostgresDB{db: db}
+}
+
+// SetMaxOpenConns sets the maximum number of open connections.
+func (pdb *PostgresDB) SetMaxOpenConns(n int) {
+	if pdb.db != nil {
+		pdb.db.SetMaxOpenConns(n)
+	}
+}
+
+// Connect connects to PostgreSQL. Uses a background context for the initial
+// connection test since the caller has not yet provided a request context.
 func (pdb *PostgresDB) Connect(dsn string) error {
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -45,14 +59,13 @@ func (pdb *PostgresDB) Connect(dsn string) error {
 	return nil
 }
 
-// Query queries PostgreSQL and returns rows
-func (pdb *PostgresDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+// Query queries PostgreSQL and returns rows.
+// Callers should pass a context with an appropriate timeout; the returned
+// *sql.Rows is lazy and requires the context to remain valid during iteration.
+func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	rows, err := pdb.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -62,25 +75,24 @@ func (pdb *PostgresDB) Query(query string, args ...interface{}) (*sql.Rows, erro
 	return rows, nil
 }
 
-// QueryRow queries PostgreSQL and returns a single row
-func (pdb *PostgresDB) QueryRow(query string, args ...interface{}) *sql.Row {
+// QueryRow queries PostgreSQL and returns a single row.
+// Callers should pass a context with an appropriate timeout; the returned
+// *sql.Row is lazy — the query is not executed until .Scan() is called.
+func (pdb *PostgresDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if pdb.db == nil {
 		return &sql.Row{}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	return pdb.db.QueryRowContext(ctx, query, args...)
 }
 
-// Exec executes a query without returning rows
-func (pdb *PostgresDB) Exec(query string, args ...interface{}) (sql.Result, error) {
+// Exec executes a query without returning rows. Derives a 10s timeout from ctx.
+func (pdb *PostgresDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	result, err := pdb.db.ExecContext(ctx, query, args...)
@@ -91,13 +103,13 @@ func (pdb *PostgresDB) Exec(query string, args ...interface{}) (sql.Result, erro
 	return result, nil
 }
 
-// Begin starts a transaction
-func (pdb *PostgresDB) Begin() (*sql.Tx, error) {
+// Begin starts a transaction. Derives a 5s timeout from ctx.
+func (pdb *PostgresDB) Begin(ctx context.Context) (*sql.Tx, error) {
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	tx, err := pdb.db.BeginTx(ctx, nil)
@@ -117,12 +129,12 @@ func (pdb *PostgresDB) Close() error {
 }
 
 // Ping checks if the database is alive
-func (pdb *PostgresDB) Ping() error {
+func (pdb *PostgresDB) Ping(ctx context.Context) error {
 	if pdb.db == nil {
 		return fmt.Errorf("database not connected")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	return pdb.db.PingContext(ctx)
@@ -134,4 +146,9 @@ func (pdb *PostgresDB) Stats() sql.DBStats {
 		return sql.DBStats{}
 	}
 	return pdb.db.Stats()
+}
+
+// DB returns the underlying *sql.DB for advanced operations. Use with caution.
+func (pdb *PostgresDB) DB() *sql.DB {
+	return pdb.db
 }

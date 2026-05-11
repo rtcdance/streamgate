@@ -20,7 +20,8 @@ func main() {
 	// 从环境变量读取 RPC URL（安全做法）
 	rpcURL := os.Getenv("ETH_RPC_URL")
 	if rpcURL == "" {
-		rpcURL = "https://sepolia.infura.io/v3/YOUR_API_KEY" // 替换为你的 API Key
+		// 使用公开可用的 Sepolia RPC，无需 API Key
+		rpcURL = "https://rpc.sepolia.org"
 	}
 
 	client, err := ethclient.Dial(rpcURL)

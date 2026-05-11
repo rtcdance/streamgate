@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -8,6 +9,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+
+	"streamgate/pkg/models"
 )
 
 // AuthService handles authentication
@@ -17,24 +20,37 @@ type AuthService struct {
 	signatureVerifier WalletSignatureVerifier
 	challengeStore    ChallengeStore
 	challengeTTL      time.Duration
+	blacklist         TokenBlacklist
+}
+
+// AuthServiceOption configures an AuthService with optional dependencies.
+type AuthServiceOption func(*AuthService)
+
+// WithSignatureVerifier sets the wallet signature verifier.
+func WithSignatureVerifier(v WalletSignatureVerifier) AuthServiceOption {
+	return func(s *AuthService) { s.signatureVerifier = v }
+}
+
+// WithChallengeStore sets the challenge store for wallet authentication.
+func WithChallengeStore(cs ChallengeStore) AuthServiceOption {
+	return func(s *AuthService) { s.challengeStore = cs }
+}
+
+// WithChallengeTTL sets the challenge time-to-live.
+func WithChallengeTTL(d time.Duration) AuthServiceOption {
+	return func(s *AuthService) { s.challengeTTL = d }
+}
+
+// WithTokenBlacklist sets the token blacklist.
+func WithTokenBlacklist(b TokenBlacklist) AuthServiceOption {
+	return func(s *AuthService) { s.blacklist = b }
 }
 
 // AuthStorage defines the interface for user storage
 type AuthStorage interface {
-	GetUser(username string) (*User, error)
-	CreateUser(user *User) error
-	UpdateUser(user *User) error
-}
-
-// User represents a user
-type User struct {
-	ID            string
-	Username      string
-	Password      string // hashed
-	Email         string
-	WalletAddress string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	GetUser(ctx context.Context, username string) (*models.User, error)
+	CreateUser(ctx context.Context, user *models.User) error
+	UpdateUser(ctx context.Context, user *models.User) error
 }
 
 // Claims represents JWT claims
@@ -49,43 +65,59 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// NewAuthService creates a new auth service
-func NewAuthService(jwtSecret string, storage AuthStorage) *AuthService {
-	return &AuthService{
+// NewAuthService creates a new auth service with the given options.
+func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
+	s := &AuthService{
 		jwtSecret:         []byte(jwtSecret),
 		storage:           storage,
 		signatureVerifier: defaultWalletSignatureVerifier(),
 		challengeStore:    NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // NewAuthServiceWithDeps creates a new auth service with explicit wallet auth dependencies.
-func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier WalletSignatureVerifier, challengeStore ChallengeStore, challengeTTL time.Duration) *AuthService {
-	service := NewAuthService(jwtSecret, storage)
+//
+// Deprecated: use NewAuthService with functional options instead:
+//
+//	NewAuthService(jwtSecret, storage,
+//	    WithSignatureVerifier(verifier),
+//	    WithChallengeStore(store),
+//	    WithChallengeTTL(ttl),
+//	    WithTokenBlacklist(blacklist),
+//	)
+func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier WalletSignatureVerifier, challengeStore ChallengeStore, challengeTTL time.Duration, blacklist TokenBlacklist) *AuthService {
+	var opts []AuthServiceOption
 	if verifier != nil {
-		service.signatureVerifier = verifier
+		opts = append(opts, WithSignatureVerifier(verifier))
 	}
 	if challengeStore != nil {
-		service.challengeStore = challengeStore
+		opts = append(opts, WithChallengeStore(challengeStore))
 	}
 	if challengeTTL > 0 {
-		service.challengeTTL = challengeTTL
+		opts = append(opts, WithChallengeTTL(challengeTTL))
 	}
-	return service
+	if blacklist != nil {
+		opts = append(opts, WithTokenBlacklist(blacklist))
+	}
+	return NewAuthService(jwtSecret, storage, opts...)
 }
 
 // Authenticate authenticates user with username and password
-func (s *AuthService) Authenticate(username, password string) (string, error) {
+func (s *AuthService) Authenticate(ctx context.Context, username, password string) (string, error) {
 	// 1. Get user from storage
-	user, err := s.storage.GetUser(username)
+	user, err := s.storage.GetUser(ctx, username)
 	if err != nil || user == nil {
-		return "", errors.New("invalid username or password")
+		return "", ErrInvalidCredential
 	}
 
 	// 2. Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		return "", errors.New("invalid username or password")
+		return "", ErrInvalidCredential
 	}
 
 	// 3. Generate JWT token
@@ -106,7 +138,7 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 
 	// Check if token is expired
 	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
-		return false, errors.New("token expired")
+		return false, ErrTokenExpired
 	}
 
 	return true, nil
@@ -129,14 +161,14 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	if !token.Valid {
-		return nil, errors.New("invalid token")
+		return nil, ErrInvalidToken
 	}
 
 	return claims, nil
 }
 
 // Register registers a new user
-func (s *AuthService) Register(username, password, email string) error {
+func (s *AuthService) Register(ctx context.Context, username, password, email string) error {
 	// 1. Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -144,7 +176,7 @@ func (s *AuthService) Register(username, password, email string) error {
 	}
 
 	// 2. Create user
-	user := &User{
+	user := &models.User{
 		ID:        generateID(),
 		Username:  username,
 		Password:  string(hashedPassword),
@@ -154,7 +186,7 @@ func (s *AuthService) Register(username, password, email string) error {
 	}
 
 	// 3. Save to storage
-	if err := s.storage.CreateUser(user); err != nil {
+	if err := s.storage.CreateUser(ctx, user); err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -162,9 +194,9 @@ func (s *AuthService) Register(username, password, email string) error {
 }
 
 // ChangePassword changes user password
-func (s *AuthService) ChangePassword(username, oldPassword, newPassword string) error {
+func (s *AuthService) ChangePassword(ctx context.Context, username, oldPassword, newPassword string) error {
 	// 1. Get user
-	user, err := s.storage.GetUser(username)
+	user, err := s.storage.GetUser(ctx, username)
 	if err != nil || user == nil {
 		return errors.New("user not found")
 	}
@@ -184,22 +216,37 @@ func (s *AuthService) ChangePassword(username, oldPassword, newPassword string) 
 	user.Password = string(hashedPassword)
 	user.UpdatedAt = time.Now()
 
-	if err := s.storage.UpdateUser(user); err != nil {
+	if err := s.storage.UpdateUser(ctx, user); err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
 	return nil
 }
 
-// RefreshToken refreshes an existing token
-func (s *AuthService) RefreshToken(tokenString string) (string, error) {
+// RefreshToken refreshes an existing token, blacklisting the old one.
+func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (string, error) {
 	// 1. Parse existing token
 	claims, err := s.ParseToken(tokenString)
 	if err != nil {
 		return "", err
 	}
 
-	// 2. Create new token with extended expiration
+	// 2. Reject tokens without JTI (invalid format)
+	if claims.JTI == "" {
+		return "", fmt.Errorf("token missing jti claim")
+	}
+
+	// 3. Blacklist the old token with its remaining TTL
+	if s.blacklist != nil && claims.ExpiresAt != nil {
+		remainingTTL := time.Until(claims.ExpiresAt.Time)
+		if remainingTTL > 0 {
+			if err := s.blacklist.Revoke(ctx, claims.JTI, claims.ExpiresAt.Time); err != nil {
+				return "", fmt.Errorf("failed to revoke old token: %w", err)
+			}
+		}
+	}
+
+	// 4. Create new token with extended expiration
 	newClaims := &Claims{
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
@@ -221,7 +268,7 @@ func (s *AuthService) RefreshToken(tokenString string) (string, error) {
 }
 
 // generateToken generates a JWT token for a user
-func (s *AuthService) generateToken(user *User) (string, error) {
+func (s *AuthService) generateToken(user *models.User) (string, error) {
 	claims := &Claims{
 		Username:      user.Username,
 		WalletAddress: user.WalletAddress,

@@ -1,36 +1,40 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/storage"
 )
 
 // ContentService handles content operations
 type ContentService struct {
-	db      *sql.DB
-	storage ContentObjectStorage
-	cache   ContentCacheStorage
-	logger  *zap.Logger
+	db       storage.DB
+	objStore ContentObjectStorage
+	cache    cachetypes.CacheBackend
+	registry ContentRegistry // optional: on-chain registration
+	logger   *zap.Logger
+}
+
+// ContentRegistry defines the interface for on-chain content registration.
+// Implemented by web3.ContentRegistryBinding; nil means on-chain registration is disabled.
+type ContentRegistry interface {
+	RegisterContent(ctx context.Context, contentHash [32]byte, metadata string) (string, error)
 }
 
 // ContentObjectStorage defines the interface for object storage
 type ContentObjectStorage interface {
-	Upload(bucket, key string, data []byte) error
-	Download(bucket, key string) ([]byte, error)
-	Delete(bucket, key string) error
-	Exists(bucket, key string) (bool, error)
-}
-
-// ContentCacheStorage defines the interface for cache storage
-type ContentCacheStorage interface {
-	Get(key string) (interface{}, error)
-	Set(key string, value interface{}) error
-	Delete(key string) error
+	Upload(ctx context.Context, bucket, key string, data []byte) error
+	Download(ctx context.Context, bucket, key string) ([]byte, error)
+	Delete(ctx context.Context, bucket, key string) error
+	Exists(ctx context.Context, bucket, key string) (bool, error)
 }
 
 // Content represents a content item
@@ -51,17 +55,31 @@ type Content struct {
 }
 
 // NewContentService creates a new content service
-func NewContentService(db *sql.DB, storage ContentObjectStorage, cache ContentCacheStorage) *ContentService {
+func NewContentService(db storage.DB, objStorage ContentObjectStorage, cache cachetypes.CacheBackend, logger ...*zap.Logger) *ContentService {
+	var l *zap.Logger
+	if len(logger) > 0 && logger[0] != nil {
+		l = logger[0]
+	} else {
+		l = zap.NewNop()
+	}
 	return &ContentService{
-		db:      db,
-		storage: storage,
-		cache:   cache,
-		logger:  zap.NewNop(),
+		db:       db,
+		objStore: objStorage,
+		cache:    cache,
+		logger:   l,
 	}
 }
 
+// SetContentRegistry sets the on-chain content registry for registration after DB insert.
+func (s *ContentService) SetContentRegistry(registry ContentRegistry) {
+	s.registry = registry
+}
+
 // GetContent gets content by ID
-func (s *ContentService) GetContent(id string) (*Content, error) {
+func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	// Try cache first
 	if s.cache != nil {
 		if cached, err := s.cache.Get("content:" + id); err == nil {
@@ -82,7 +100,7 @@ func (s *ContentService) GetContent(id string) (*Content, error) {
 	var content Content
 	var metadataJSON []byte
 
-	err := s.db.QueryRow(query, id).Scan(
+	err := s.db.QueryRow(ctx, query, id).Scan(
 		&content.ID,
 		&content.Title,
 		&content.Description,
@@ -98,7 +116,7 @@ func (s *ContentService) GetContent(id string) (*Content, error) {
 		&metadataJSON,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("content not found: %s", id)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query content: %w", err)
@@ -111,16 +129,20 @@ func (s *ContentService) GetContent(id string) (*Content, error) {
 		}
 	}
 
-	// Cache the result
+	// Cache a copy to prevent mutation of cached data
 	if s.cache != nil {
-		s.cache.Set("content:"+id, &content)
+		cp := content
+		_ = s.cache.Set("content:"+id, &cp)
 	}
 
 	return &content, nil
 }
 
 // CreateContent creates new content
-func (s *ContentService) CreateContent(content *Content) (string, error) {
+func (s *ContentService) CreateContent(ctx context.Context, content *Content) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not available")
+	}
 	// Generate ID if not provided
 	if content.ID == "" {
 		content.ID = uuid.New().String()
@@ -149,7 +171,7 @@ func (s *ContentService) CreateContent(content *Content) (string, error) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
-	_, err = s.db.Exec(query,
+	_, err = s.db.Exec(ctx, query,
 		content.ID,
 		content.Title,
 		content.Description,
@@ -173,7 +195,10 @@ func (s *ContentService) CreateContent(content *Content) (string, error) {
 }
 
 // UpdateContent updates existing content
-func (s *ContentService) UpdateContent(content *Content) error {
+func (s *ContentService) UpdateContent(ctx context.Context, content *Content) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	content.UpdatedAt = time.Now()
 
 	// Serialize metadata
@@ -189,7 +214,7 @@ func (s *ContentService) UpdateContent(content *Content) error {
 		WHERE id = $1
 	`
 
-	result, err := s.db.Exec(query,
+	result, err := s.db.Exec(ctx, query,
 		content.ID,
 		content.Title,
 		content.Description,
@@ -207,41 +232,120 @@ func (s *ContentService) UpdateContent(content *Content) error {
 		return fmt.Errorf("failed to update content: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
 	if rowsAffected == 0 {
 		return fmt.Errorf("content not found: %s", content.ID)
 	}
 
 	// Invalidate cache
 	if s.cache != nil {
-		s.cache.Delete("content:" + content.ID)
+		_ = s.cache.Delete("content:" + content.ID)
 	}
 
 	return nil
 }
 
-// DeleteContent deletes content
-func (s *ContentService) DeleteContent(id string) error {
-	// Get content first to get file URL
-	content, err := s.GetContent(id)
-	if err != nil {
-		return err
+// CreateContentWithTx inserts content and its metadata in a single database
+// transaction.  It uses the idiomatic defer-tx.Rollback pattern: if Commit
+// succeeds the Rollback is a no-op; if anything fails the deferred Rollback
+// cleans up automatically.
+func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Content) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not available")
 	}
 
-	// Delete from storage if URL exists
-	if content.URL != "" && s.storage != nil {
-		bucket := "content"
-		key := id
-		if err := s.storage.Delete(bucket, key); err != nil {
-			s.logger.Warn("Failed to delete from storage", zap.Error(err))
+	// Generate ID if not provided
+	if content.ID == "" {
+		content.ID = uuid.New().String()
+	}
+
+	now := time.Now()
+	content.CreatedAt = now
+	content.UpdatedAt = now
+
+	if content.Status == "" {
+		content.Status = "pending"
+	}
+
+	metadataJSON, err := json.Marshal(content.Metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize metadata: %w", err)
+	}
+
+	// Begin transaction
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after successful Commit
+
+	// Insert content row
+	contentQuery := `
+		INSERT INTO contents (id, title, description, type, url, thumbnail_url,
+		                      duration, size, status, owner_id, created_at, updated_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`
+	_, err = tx.ExecContext(ctx, contentQuery,
+		content.ID, content.Title, content.Description, content.Type,
+		content.URL, content.ThumbnailURL, content.Duration, content.Size,
+		content.Status, content.OwnerID, content.CreatedAt, content.UpdatedAt,
+		metadataJSON,
+	)
+	if err != nil {
+		return "", fmt.Errorf("insert content: %w", err)
+	}
+
+	// Insert metadata row (if content_metadata table exists)
+	metaQuery := `
+		INSERT INTO content_metadata (content_id, metadata, created_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (content_id) DO NOTHING
+	`
+	_, _ = tx.ExecContext(ctx, metaQuery, content.ID, metadataJSON, now)
+	// Ignore error: table may not exist in all deployments
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("commit tx: %w", err)
+	}
+
+	// Optionally register on-chain after successful DB commit
+	if s.registry != nil {
+		var contentHash [32]byte
+		copy(contentHash[:], []byte(content.ID))
+		if txHash, err := s.registry.RegisterContent(ctx, contentHash, content.Title); err != nil {
+			s.logger.Warn("On-chain registration failed (content still in DB)",
+				zap.String("id", content.ID),
+				zap.Error(err))
+		} else {
+			s.logger.Info("Content registered on-chain",
+				zap.String("id", content.ID),
+				zap.String("tx_hash", txHash))
 		}
 	}
 
-	// Delete from database
-	query := "DELETE FROM contents WHERE id = $1"
-	result, err := s.db.Exec(query, id)
+	s.logger.Info("Content created with tx", zap.String("id", content.ID))
+	return content.ID, nil
+}
+
+// DeleteContentWithTx deletes content and its metadata in a single transaction.
+func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to delete content: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Delete metadata first (foreign key constraint)
+	_, _ = tx.ExecContext(ctx, "DELETE FROM content_metadata WHERE content_id = $1", id)
+
+	// Delete content
+	result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete content: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
@@ -249,16 +353,62 @@ func (s *ContentService) DeleteContent(id string) error {
 		return fmt.Errorf("content not found: %s", id)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
 	// Invalidate cache
 	if s.cache != nil {
-		s.cache.Delete("content:" + id)
+		_ = s.cache.Delete("content:" + id)
+	}
+
+	return nil
+}
+
+// DeleteContent deletes content
+func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	// Get content first to get file URL
+	content, err := s.GetContent(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Delete from storage if URL exists
+	if content.URL != "" && s.objStore != nil {
+		bucket := "content"
+		key := id
+		if err := s.objStore.Delete(ctx, bucket, key); err != nil {
+			s.logger.Warn("Failed to delete from storage", zap.Error(err))
+		}
+	}
+
+	// Delete from database
+	result, err := s.db.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete content: %w", err)
+	}
+
+	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
+	if rowsAffected == 0 {
+		return fmt.Errorf("content not found: %s", id)
+	}
+
+	// Invalidate cache
+	if s.cache != nil {
+		_ = s.cache.Delete("content:" + id)
 	}
 
 	return nil
 }
 
 // ListContents lists contents with pagination
-func (s *ContentService) ListContents(ownerID string, limit, offset int) ([]*Content, error) {
+func (s *ContentService) ListContents(ctx context.Context, ownerID string, limit, offset int) ([]*Content, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	query := `
 		SELECT id, title, description, type, url, thumbnail_url,
 		       duration, size, status, owner_id, created_at, updated_at, metadata
@@ -268,11 +418,11 @@ func (s *ContentService) ListContents(ownerID string, limit, offset int) ([]*Con
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.Query(query, ownerID, limit, offset)
+	rows, err := s.db.Query(ctx, query, ownerID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query contents: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	contents := make([]*Content, 0)
 	for rows.Next() {
@@ -312,22 +462,38 @@ func (s *ContentService) ListContents(ownerID string, limit, offset int) ([]*Con
 	return contents, nil
 }
 
+// CountContents returns the total number of contents for an owner
+func (s *ContentService) CountContents(ctx context.Context, ownerID string) (int, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not available")
+	}
+	var count int
+	err := s.db.QueryRow(ctx, "SELECT COUNT(*) FROM contents WHERE owner_id = $1", ownerID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count contents: %w", err)
+	}
+	return count, nil
+}
+
 // UpdateContentStatus updates content status
-func (s *ContentService) UpdateContentStatus(id, status string) error {
+func (s *ContentService) UpdateContentStatus(ctx context.Context, id, status string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := "UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1"
-	result, err := s.db.Exec(query, id, status, time.Now())
+	result, err := s.db.Exec(ctx, query, id, status, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update content status: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
 	if rowsAffected == 0 {
 		return fmt.Errorf("content not found: %s", id)
 	}
 
 	// Invalidate cache
 	if s.cache != nil {
-		s.cache.Delete("content:" + id)
+		_ = s.cache.Delete("content:" + id)
 	}
 
 	return nil

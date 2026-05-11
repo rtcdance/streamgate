@@ -1,17 +1,47 @@
 package middleware
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
 
-// CORSMiddleware returns a CORS middleware
-func (s *Service) CORSMiddleware() gin.HandlerFunc {
+	"github.com/gin-gonic/gin"
+)
+
+// CORSMiddleware returns a CORS middleware.
+// If allowedOrigins is non-empty, the Origin header is echoed back when it
+// matches an entry in the list (credentials-safe). When the list is empty the
+// wildcard "*" is used (not credentials-safe per CORS spec).
+func (s *Service) CORSMiddleware(allowedOrigins ...string) gin.HandlerFunc {
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		originSet[o] = struct{}{}
+	}
+	wildcard := len(originSet) == 0
+
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		origin := c.GetHeader("Origin")
+
+		if wildcard {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if _, ok := originSet[origin]; ok {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Vary", "Origin")
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			// Origin not in allowed list — no CORS headers set.
+			// For preflight, still respond so the browser gets a clear signal.
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
+			c.Next()
+			return
+		}
+
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Authorization, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 

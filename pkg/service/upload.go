@@ -1,31 +1,40 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"streamgate/pkg/storage"
 )
+
+// DefaultMaxUploadSize is the default maximum upload size (5 GB)
+const DefaultMaxUploadSize int64 = 5 * 1024 * 1024 * 1024
 
 // UploadService handles upload operations
 type UploadService struct {
-	db      *sql.DB
-	storage UploadObjectStorage
-	bucket  string
-	logger  *zap.Logger
+	db            storage.DB
+	objStore      UploadObjectStorage
+	bucket        string
+	maxUploadSize int64
+	logger        *zap.Logger
 }
 
 // UploadObjectStorage defines the interface for object storage
 type UploadObjectStorage interface {
-	Upload(bucket, key string, data []byte) error
-	Download(bucket, key string) ([]byte, error)
-	Delete(bucket, key string) error
-	Exists(bucket, key string) (bool, error)
+	Upload(ctx context.Context, bucket, key string, data []byte) error
+	UploadStream(ctx context.Context, bucket, key string, reader io.Reader, size int64) error
+	Download(ctx context.Context, bucket, key string) ([]byte, error)
+	Delete(ctx context.Context, bucket, key string) error
+	Exists(ctx context.Context, bucket, key string) (bool, error)
 }
 
 // UploadInfo represents upload information
@@ -52,37 +61,56 @@ type ChunkInfo struct {
 }
 
 // NewUploadService creates a new upload service
-func NewUploadService(db *sql.DB, storage UploadObjectStorage, bucket string) *UploadService {
+func NewUploadService(db storage.DB, objStorage UploadObjectStorage, bucket string, logger ...*zap.Logger) *UploadService {
+	var l *zap.Logger
+	if len(logger) > 0 && logger[0] != nil {
+		l = logger[0]
+	} else {
+		l = zap.NewNop()
+	}
 	return &UploadService{
-		db:      db,
-		storage: storage,
-		bucket:  bucket,
-		logger:  zap.NewNop(),
+		db:            db,
+		objStore:      objStorage,
+		bucket:        bucket,
+		maxUploadSize: DefaultMaxUploadSize,
+		logger:        l,
 	}
 }
 
-// Upload uploads file
-func (s *UploadService) Upload(filename string, data []byte, ownerID string) (string, error) {
-	// Generate upload ID
+// SetMaxUploadSize sets the maximum allowed upload size.
+// A value of 0 means no limit.
+func (s *UploadService) SetMaxUploadSize(size int64) {
+	s.maxUploadSize = size
+}
+
+// Upload uploads file from a byte slice (legacy convenience wrapper).
+func (s *UploadService) Upload(ctx context.Context, filename string, data []byte, ownerID string) (string, error) {
+	return s.UploadStream(ctx, filename, bytesReader(data), int64(len(data)), ownerID)
+}
+
+// UploadStream uploads a file from an io.Reader without buffering the entire
+// content into memory. The caller must provide the total size for storage
+// metadata and the hash is computed on-the-fly using a TeeReader.
+func (s *UploadService) UploadStream(ctx context.Context, filename string, reader io.Reader, size int64, ownerID string) (string, error) {
 	uploadID := uuid.New().String()
 
-	// Calculate file hash
-	hash := calculateHash(data)
+	// Hash while uploading: tee the reader through SHA-256
+	h := sha256.New()
+	tee := io.TeeReader(reader, h)
 
-	// Generate storage key
 	ext := filepath.Ext(filename)
 	storageKey := fmt.Sprintf("%s/%s%s", ownerID, uploadID, ext)
 
-	// Upload to storage
-	if err := s.storage.Upload(s.bucket, storageKey, data); err != nil {
+	if err := s.objStore.UploadStream(ctx, s.bucket, storageKey, tee, size); err != nil {
 		return "", fmt.Errorf("failed to upload to storage: %w", err)
 	}
 
-	// Save upload info to database
+	hash := hex.EncodeToString(h.Sum(nil))
+
 	uploadInfo := &UploadInfo{
 		ID:          uploadID,
 		Filename:    filename,
-		Size:        int64(len(data)),
+		Size:        size,
 		ContentType: detectContentType(filename),
 		Hash:        hash,
 		Status:      "completed",
@@ -92,17 +120,39 @@ func (s *UploadService) Upload(filename string, data []byte, ownerID string) (st
 		UpdatedAt:   time.Now(),
 	}
 
-	if err := s.saveUploadInfo(uploadInfo); err != nil {
-		// Try to clean up storage
-		s.storage.Delete(s.bucket, storageKey)
+	if err := s.saveUploadInfo(ctx, uploadInfo); err != nil {
+		_ = s.objStore.Delete(ctx, s.bucket, storageKey)
 		return "", fmt.Errorf("failed to save upload info: %w", err)
 	}
 
 	return uploadID, nil
 }
 
+// bytesReader is a helper to create an io.Reader from []byte for the legacy
+// Upload method. Defined at package level to avoid allocation in hot paths.
+type bytesSliceReader struct {
+	data []byte
+	pos  int
+}
+
+func bytesReader(data []byte) *bytesSliceReader {
+	return &bytesSliceReader{data: data}
+}
+
+func (r *bytesSliceReader) Read(p []byte) (n int, err error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n = copy(p, r.data[r.pos:])
+	r.pos += n
+	return n, nil
+}
+
 // GetUploadStatus gets upload status
-func (s *UploadService) GetUploadStatus(uploadID string) (*UploadInfo, error) {
+func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*UploadInfo, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	query := `
 		SELECT id, filename, size, content_type, hash, status, url, owner_id, created_at, updated_at
 		FROM uploads
@@ -110,7 +160,7 @@ func (s *UploadService) GetUploadStatus(uploadID string) (*UploadInfo, error) {
 	`
 
 	var info UploadInfo
-	err := s.db.QueryRow(query, uploadID).Scan(
+	err := s.db.QueryRow(ctx, query, uploadID).Scan(
 		&info.ID,
 		&info.Filename,
 		&info.Size,
@@ -123,7 +173,7 @@ func (s *UploadService) GetUploadStatus(uploadID string) (*UploadInfo, error) {
 		&info.UpdatedAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("upload not found: %s", uploadID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query upload: %w", err)
@@ -133,7 +183,14 @@ func (s *UploadService) GetUploadStatus(uploadID string) (*UploadInfo, error) {
 }
 
 // InitiateChunkedUpload initiates a chunked upload
-func (s *UploadService) InitiateChunkedUpload(filename string, totalSize int64, totalChunks int, ownerID string) (string, error) {
+func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename string, totalSize int64, totalChunks int, ownerID string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not available")
+	}
+	if s.maxUploadSize > 0 && totalSize > s.maxUploadSize {
+		return "", fmt.Errorf("upload size %d exceeds maximum allowed size %d", totalSize, s.maxUploadSize)
+	}
+
 	uploadID := uuid.New().String()
 
 	uploadInfo := &UploadInfo{
@@ -147,7 +204,7 @@ func (s *UploadService) InitiateChunkedUpload(filename string, totalSize int64, 
 		UpdatedAt:   time.Now(),
 	}
 
-	if err := s.saveUploadInfo(uploadInfo); err != nil {
+	if err := s.saveUploadInfo(ctx, uploadInfo); err != nil {
 		return "", fmt.Errorf("failed to save upload info: %w", err)
 	}
 
@@ -155,17 +212,20 @@ func (s *UploadService) InitiateChunkedUpload(filename string, totalSize int64, 
 }
 
 // UploadChunk uploads a single chunk
-func (s *UploadService) UploadChunk(uploadID string, chunkIndex int, data []byte) error {
+func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	// Generate chunk storage key
 	storageKey := fmt.Sprintf("chunks/%s/%d", uploadID, chunkIndex)
 
 	// Upload chunk to storage
-	if err := s.storage.Upload(s.bucket, storageKey, data); err != nil {
+	if err := s.objStore.Upload(ctx, s.bucket, storageKey, data); err != nil {
 		return fmt.Errorf("failed to upload chunk: %w", err)
 	}
 
 	// Update upload status
-	if err := s.updateUploadStatus(uploadID, "uploading"); err != nil {
+	if err := s.updateUploadStatus(ctx, uploadID, "uploading"); err != nil {
 		return fmt.Errorf("failed to update upload status: %w", err)
 	}
 
@@ -173,40 +233,74 @@ func (s *UploadService) UploadChunk(uploadID string, chunkIndex int, data []byte
 }
 
 // CompleteChunkedUpload completes a chunked upload by merging chunks
-func (s *UploadService) CompleteChunkedUpload(uploadID string, totalChunks int) error {
+func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID string, totalChunks int) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	// Get upload info
-	uploadInfo, err := s.GetUploadStatus(uploadID)
+	uploadInfo, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
 		return err
 	}
 
-	// Download and merge all chunks
-	var mergedData []byte
-	for i := 0; i < totalChunks; i++ {
-		chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, i)
-		chunkData, err := s.storage.Download(s.bucket, chunkKey)
-		if err != nil {
-			return fmt.Errorf("failed to download chunk %d: %w", i, err)
-		}
-		mergedData = append(mergedData, chunkData...)
+	// Validate total size before loading chunks into memory
+	if s.maxUploadSize > 0 && uploadInfo.Size > s.maxUploadSize {
+		return fmt.Errorf("upload size %d exceeds maximum allowed size %d", uploadInfo.Size, s.maxUploadSize)
 	}
-
-	// Calculate hash
-	hash := calculateHash(mergedData)
 
 	// Generate final storage key
 	ext := filepath.Ext(uploadInfo.Filename)
 	storageKey := fmt.Sprintf("%s/%s%s", uploadInfo.OwnerID, uploadID, ext)
 
-	// Upload merged file
-	if err := s.storage.Upload(s.bucket, storageKey, mergedData); err != nil {
+	// Stream chunks through a pipe: writer side downloads and hashes
+	// each chunk sequentially, reader side uploads via UploadStream.
+	// This avoids materializing the entire file in memory.
+	pr, pw := io.Pipe()
+	h := sha256.New()
+	hashWriter := io.MultiWriter(pw, h)
+
+	errCh := make(chan error, 1)
+	go func() {
+		defer func() { _ = pw.Close() }()
+		for i := 0; i < totalChunks; i++ {
+			chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, i)
+			chunkData, err := s.objStore.Download(ctx, s.bucket, chunkKey)
+			if err != nil {
+				errCh <- fmt.Errorf("failed to download chunk %d: %w", i, err)
+				pw.CloseWithError(err)
+				return
+			}
+			if _, err := hashWriter.Write(chunkData); err != nil {
+				errCh <- fmt.Errorf("failed to write chunk %d: %w", i, err)
+				pw.CloseWithError(err)
+				return
+			}
+		}
+		errCh <- nil
+	}()
+
+	if err := s.objStore.UploadStream(ctx, s.bucket, storageKey, pr, uploadInfo.Size); err != nil {
+		pw.CloseWithError(err) // unblock the goroutine writing to the pipe
+		if writeErr := <-errCh; writeErr != nil {
+			return writeErr
+		}
 		return fmt.Errorf("failed to upload merged file: %w", err)
 	}
+	// Ensure goroutine completed
+	if writeErr := <-errCh; writeErr != nil {
+		return writeErr
+	}
+
+	hash := hex.EncodeToString(h.Sum(nil))
 
 	// Clean up chunks
 	for i := 0; i < totalChunks; i++ {
 		chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, i)
-		s.storage.Delete(s.bucket, chunkKey)
+		if err := s.objStore.Delete(ctx, s.bucket, chunkKey); err != nil {
+			s.logger.Debug("Failed to delete chunk after merge",
+				zap.String("chunk_key", chunkKey),
+				zap.Error(err))
+		}
 	}
 
 	// Update upload info
@@ -215,7 +309,7 @@ func (s *UploadService) CompleteChunkedUpload(uploadID string, totalChunks int) 
 		SET status = $2, hash = $3, url = $4, updated_at = $5
 		WHERE id = $1
 	`
-	_, err = s.db.Exec(query, uploadID, "completed", hash, fmt.Sprintf("/%s/%s", s.bucket, storageKey), time.Now())
+	_, err = s.db.Exec(ctx, query, uploadID, "completed", hash, fmt.Sprintf("/%s/%s", s.bucket, storageKey), time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update upload info: %w", err)
 	}
@@ -224,9 +318,12 @@ func (s *UploadService) CompleteChunkedUpload(uploadID string, totalChunks int) 
 }
 
 // DeleteUpload deletes an upload
-func (s *UploadService) DeleteUpload(uploadID string) error {
+func (s *UploadService) DeleteUpload(ctx context.Context, uploadID string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	// Get upload info
-	uploadInfo, err := s.GetUploadStatus(uploadID)
+	uploadInfo, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
 		return err
 	}
@@ -236,13 +333,12 @@ func (s *UploadService) DeleteUpload(uploadID string) error {
 	storageKey := uploadInfo.URL[len("/"+s.bucket+"/"):]
 
 	// Delete from storage
-	if err := s.storage.Delete(s.bucket, storageKey); err != nil {
+	if err := s.objStore.Delete(ctx, s.bucket, storageKey); err != nil {
 		s.logger.Warn("Failed to delete from storage", zap.Error(err))
 	}
 
 	// Delete from database
-	query := "DELETE FROM uploads WHERE id = $1"
-	_, err = s.db.Exec(query, uploadID)
+	_, err = s.db.Exec(ctx, "DELETE FROM uploads WHERE id = $1", uploadID)
 	if err != nil {
 		return fmt.Errorf("failed to delete upload: %w", err)
 	}
@@ -251,7 +347,10 @@ func (s *UploadService) DeleteUpload(uploadID string) error {
 }
 
 // ListUploads lists uploads for a user
-func (s *UploadService) ListUploads(ownerID string, limit, offset int) ([]*UploadInfo, error) {
+func (s *UploadService) ListUploads(ctx context.Context, ownerID string, limit, offset int) ([]*UploadInfo, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	query := `
 		SELECT id, filename, size, content_type, hash, status, url, owner_id, created_at, updated_at
 		FROM uploads
@@ -260,11 +359,11 @@ func (s *UploadService) ListUploads(ownerID string, limit, offset int) ([]*Uploa
 		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.Query(query, ownerID, limit, offset)
+	rows, err := s.db.Query(ctx, query, ownerID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query uploads: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	uploads := make([]*UploadInfo, 0)
 	for rows.Next() {
@@ -291,13 +390,16 @@ func (s *UploadService) ListUploads(ownerID string, limit, offset int) ([]*Uploa
 }
 
 // saveUploadInfo saves upload info to database
-func (s *UploadService) saveUploadInfo(info *UploadInfo) error {
+func (s *UploadService) saveUploadInfo(ctx context.Context, info *UploadInfo) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := `
 		INSERT INTO uploads (id, filename, size, content_type, hash, status, url, owner_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
-	_, err := s.db.Exec(query,
+	_, err := s.db.Exec(ctx, query,
 		info.ID,
 		info.Filename,
 		info.Size,
@@ -314,16 +416,13 @@ func (s *UploadService) saveUploadInfo(info *UploadInfo) error {
 }
 
 // updateUploadStatus updates upload status
-func (s *UploadService) updateUploadStatus(uploadID, status string) error {
+func (s *UploadService) updateUploadStatus(ctx context.Context, uploadID, status string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := "UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1"
-	_, err := s.db.Exec(query, uploadID, status, time.Now())
+	_, err := s.db.Exec(ctx, query, uploadID, status, time.Now())
 	return err
-}
-
-// calculateHash calculates SHA-256 hash of data
-func calculateHash(data []byte) string {
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
 }
 
 // detectContentType detects content type from filename
@@ -346,5 +445,72 @@ func detectContentType(filename string) string {
 		return "image/gif"
 	default:
 		return "application/octet-stream"
+	}
+}
+
+// CompleteUploadWithTx marks an upload as completed and creates a
+// corresponding content record in a single transaction. Uses the
+// defer-tx.Rollback() pattern for safe cleanup.
+func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+
+	// Get current upload info
+	upload, err := s.GetUploadStatus(ctx, uploadID)
+	if err != nil {
+		return fmt.Errorf("get upload status: %w", err)
+	}
+
+	if upload.Status != "completed" {
+		return fmt.Errorf("upload not completed: %s", upload.Status)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Update upload status to "processed"
+	_, err = tx.ExecContext(ctx, `
+		UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1
+	`, uploadID, "processed", time.Now())
+	if err != nil {
+		return fmt.Errorf("update upload: %w", err)
+	}
+
+	// Create content record from upload
+	contentID := uuid.New().String()
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO contents (id, title, type, size, status, owner_id, url, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, contentID, upload.Filename, contentTypeToType(upload.ContentType), upload.Size, "pending",
+		upload.OwnerID, upload.URL, time.Now(), time.Now())
+	if err != nil {
+		return fmt.Errorf("insert content: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+
+	s.logger.Info("Upload completed with content record",
+		zap.String("upload_id", uploadID),
+		zap.String("content_id", contentID))
+	return nil
+}
+
+// contentTypeToType maps a MIME content type to a content type string.
+func contentTypeToType(mime string) string {
+	switch {
+	case len(mime) >= 5 && mime[:5] == "video":
+		return "video"
+	case len(mime) >= 5 && mime[:5] == "audio":
+		return "audio"
+	case len(mime) >= 5 && mime[:5] == "image":
+		return "image"
+	default:
+		return "other"
 	}
 }

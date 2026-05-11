@@ -62,6 +62,8 @@ You can:
 - serve `h5-demo/` with a small local static server
 
 If the page is not hosted on the same origin as the backend, make sure the `Backend URL` field points to your actual StreamGate backend.
+If MetaMask reports that it is unavailable while you open `index.html` directly, enable MetaMask access to file URLs or serve `h5-demo/` over HTTP.
+If you serve the page from a local static server on `localhost:8080`, do not treat `8080` as the backend. The H5 demo backend should still point to `http://localhost:29090`.
 
 ## Recommended Acceptance Flow
 
@@ -108,6 +110,9 @@ If it fails:
 - confirm MetaMask is installed
 - confirm MetaMask is unlocked
 - confirm the page has permission to access the wallet
+- if the page is opened via `file://`, either enable MetaMask access to file URLs or serve `h5-demo/` over HTTP
+- if multiple injected wallets exist, make sure MetaMask is the active provider for this page
+- if the error lists other detected providers, switch the page back to MetaMask or temporarily disable the competing extension
 
 ### Step 3: Login
 
@@ -157,6 +162,7 @@ Expected:
 Notes:
 - manifest uses JWT + NFT verification
 - segment access should rely on playback token flow from the backend
+- the current deterministic acceptance evidence for playback-token-protected segment access comes from `scripts/run-docker-acceptance.sh` and the gateway route tests it runs
 
 If it fails:
 - confirm login succeeded and JWT exists

@@ -27,7 +27,7 @@ type SearchEngine struct {
 type InvertedIndex struct {
 	documents map[string]*Document
 	terms     map[string][]*Posting
-	mu        sync.RWMutex
+	mu        sync.RWMutex //nolint:unused
 }
 
 // Document represents a searchable document

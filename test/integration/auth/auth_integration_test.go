@@ -1,25 +1,27 @@
 package auth_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
 
 // MockAuthStorage implements service.AuthStorage for testing
 type MockAuthStorage struct {
-	users map[string]*service.User
+	users map[string]*models.User
 }
 
 func NewMockAuthStorage() *MockAuthStorage {
 	return &MockAuthStorage{
-		users: make(map[string]*service.User),
+		users: make(map[string]*models.User),
 	}
 }
 
-func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
+func (m *MockAuthStorage) GetUser(ctx context.Context, username string) (*models.User, error) {
 	user, exists := m.users[username]
 	if !exists {
 		return nil, nil
@@ -27,7 +29,7 @@ func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
 	return user, nil
 }
 
-func (m *MockAuthStorage) CreateUser(user *service.User) error {
+func (m *MockAuthStorage) CreateUser(ctx context.Context, user *models.User) error {
 	if _, exists := m.users[user.Username]; exists {
 		return errors.New("user already exists")
 	}
@@ -35,7 +37,7 @@ func (m *MockAuthStorage) CreateUser(user *service.User) error {
 	return nil
 }
 
-func (m *MockAuthStorage) UpdateUser(user *service.User) error {
+func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) error {
 	m.users[user.Username] = user
 	return nil
 }
@@ -46,17 +48,17 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Test registration
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Verify user was created
-	user, err := storage.GetUser("testuser")
+	user, err := storage.GetUser(context.Background(), "testuser")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, user)
 	helpers.AssertEqual(t, "testuser", user.Username)
 
 	// Test login
-	token, err := authService.Authenticate("testuser", "password123")
+	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, token)
 }
@@ -67,11 +69,11 @@ func TestAuthService_InvalidPassword(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register user
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Try login with wrong password
-	_, err = authService.Authenticate("testuser", "wrongpassword")
+	_, err = authService.Authenticate(context.Background(), "testuser", "wrongpassword")
 	helpers.AssertError(t, err)
 }
 
@@ -81,11 +83,11 @@ func TestAuthService_DuplicateEmail(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register first user
-	err := authService.Register("user1", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "user1", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Try register with same username (username is unique, not email)
-	err = authService.Register("user1", "password456", "test2@example.com")
+	err = authService.Register(context.Background(), "user1", "password456", "test2@example.com")
 	helpers.AssertError(t, err)
 }
 
@@ -95,10 +97,10 @@ func TestAuthService_TokenValidation(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register and login
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	token, err := authService.Authenticate("testuser", "password123")
+	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	helpers.AssertNoError(t, err)
 
 	// Validate token
@@ -119,15 +121,14 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", storage)
 
 	// Register and login
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
-	token, err := authService.Authenticate("testuser", "password123")
+	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	helpers.AssertNoError(t, err)
 
-	// Wait a bit to ensure different timestamp
 	// Refresh token
-	newToken, err := authService.RefreshToken(token)
+	newToken, err := authService.RefreshToken(context.Background(), token)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, newToken)
 

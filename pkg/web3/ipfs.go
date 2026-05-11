@@ -75,7 +75,7 @@ func (ic *IPFSClient) DownloadFile(ctx context.Context, cid string) ([]byte, err
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to download file from IPFS: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Read data
 	data, err := io.ReadAll(reader)

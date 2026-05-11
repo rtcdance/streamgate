@@ -404,7 +404,7 @@ func (tp *TracePropagation) Extract(carrier map[string]string) SpanContext {
 	var traceID, spanID string
 	var traceFlags byte
 
-	fmt.Sscanf(traceparent, "00-%s-%s-%02x", &traceID, &spanID, &traceFlags)
+	_, _ = fmt.Sscanf(traceparent, "00-%s-%s-%02x", &traceID, &spanID, &traceFlags)
 
 	return SpanContext{
 		TraceID:    TraceID(traceID),

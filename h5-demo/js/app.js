@@ -22,6 +22,7 @@ class StreamGateApp {
         this.initPlayer();
         this.bindEvents();
         this.refreshAcceptanceSummary();
+        this.inspectWalletEnvironment();
         await this.checkBackend();
         this.restoreSession();
     }
@@ -29,6 +30,42 @@ class StreamGateApp {
     initBackendConfig() {
         const backendInput = document.getElementById('backend-url');
         backendInput.value = this.api.getBaseUrl();
+    }
+
+    inspectWalletEnvironment() {
+        const diagnostics = this.wallet.getProviderDiagnostics();
+        const summary = diagnostics.discovered.length > 0
+            ? diagnostics.discovered.map((entry) => `${entry.name}${entry.isMetaMask ? ' [MetaMask]' : ''}`).join(', ')
+            : 'No injected provider detected yet';
+
+        if (diagnostics.discovered.some((entry) => entry.isMetaMask)) {
+            this.setTroubleshooting(
+                'Wallet provider detected',
+                `Detected providers: ${summary}. You can try Connect Wallet now.`
+            );
+            return;
+        }
+
+        if (diagnostics.hasWindowEthereum) {
+            this.setTroubleshooting(
+                'Injected wallet detected',
+                `Detected providers: ${summary}. If MetaMask is expected, make sure it is enabled for this site.`
+            );
+            return;
+        }
+
+        if (diagnostics.isFileProtocol) {
+            this.setTroubleshooting(
+                'Wallet provider not injected',
+                'The page is running from file://. Enable MetaMask access to file URLs or serve h5-demo over HTTP.'
+            );
+            return;
+        }
+
+        this.setTroubleshooting(
+            'Wallet provider not injected',
+            'No EIP-1193 wallet provider was detected. Check your browser profile and wallet extension state.'
+        );
     }
 
     initPlayer() {
@@ -63,13 +100,17 @@ class StreamGateApp {
 
     async checkBackend() {
         try {
-            await this.api.healthCheck();
+            const result = await this.api.ensureReachable();
+            document.getElementById('backend-url').value = this.api.getBaseUrl();
             this.updateStatus('backend', 'online', 'Online');
             this.updateStep('backend', 'done');
             this.setTroubleshooting(
                 'Backend connected',
                 'Good start. Next connect MetaMask so the page can request a real challenge from the backend.'
             );
+            if (result && result.recovered_from) {
+                this.showToast(`Backend auto-switched from ${result.recovered_from} to ${this.api.getBaseUrl()}`, 'info');
+            }
         } catch (error) {
             this.updateStatus('backend', 'offline', 'Offline');
             this.updateStep('backend', 'failed');
@@ -116,9 +157,10 @@ class StreamGateApp {
             document.getElementById('login-section').classList.remove('hidden');
             document.getElementById('nft-section').classList.remove('hidden');
         } catch (error) {
+            this.updateStatus('wallet', 'offline', 'Unavailable');
             this.setTroubleshooting(
                 'Wallet connection failed',
-                'Check whether MetaMask is installed, unlocked, and allowed to connect to this page.'
+                error.message
             );
             this.showToast(error.message, 'error');
         } finally {

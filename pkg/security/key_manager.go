@@ -23,7 +23,7 @@ type KeyMetadata struct {
 type KeyEntry struct {
 	Metadata KeyMetadata `json:"metadata"`
 	Key      []byte      `json:"-"` // Never serialize
-	KeyHex   string      `json:"key_hex"`
+	KeyHex   string      `json:"-"` // internal-only, never serialize raw key material
 }
 
 // KeyManager manages encryption keys
@@ -101,7 +101,7 @@ func (km *KeyManager) GetKey(keyID string) ([]byte, error) {
 }
 
 // GetActiveKey retrieves the currently active key
-func (km *KeyManager) GetActiveKey() (string, []byte, error) {
+func (km *KeyManager) GetActiveKey() (keyID string, key []byte, err error) {
 	km.mu.RLock()
 	defer km.mu.RUnlock()
 

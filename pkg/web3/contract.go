@@ -3,36 +3,150 @@ package web3
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
 )
 
+// erc1967ImplementationSlot is the ERC-1967 storage slot for the implementation
+// address in proxy contracts: keccak256("eip1967.proxy.implementation") - 1
+var erc1967ImplementationSlot = common.HexToHash("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+
+// proxyCacheTTL is how long a resolved proxy implementation address stays cached.
+// This allows cache refresh when a proxy is upgraded to a new implementation.
+const proxyCacheTTL = 5 * time.Minute
+
+// proxyCacheEntry holds a cached implementation address with an expiry time.
+type proxyCacheEntry struct {
+	implAddr string
+	expiry   time.Time
+}
+
 // ContractInteractor handles smart contract interactions
 type ContractInteractor struct {
-	client *ethclient.Client
-	logger *zap.Logger
+	client     EthCaller
+	logger     *zap.Logger
+	proxyMu    sync.RWMutex
+	proxyCache map[common.Address]proxyCacheEntry // proxy address → implementation address + TTL
 }
 
 // NewContractInteractor creates a new contract interactor
-func NewContractInteractor(client *ethclient.Client, logger *zap.Logger) *ContractInteractor {
+func NewContractInteractor(client EthCaller, logger *zap.Logger) *ContractInteractor {
 	return &ContractInteractor{
-		client: client,
-		logger: logger,
+		client:     client,
+		logger:     logger,
+		proxyCache: make(map[common.Address]proxyCacheEntry),
 	}
 }
 
-// CallContractFunction calls a read-only contract function
-func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contractAddress string, abiJSON string, functionName string, args ...interface{}) (interface{}, error) {
+// InvalidateProxyCache removes the cached implementation address for the given
+// proxy. Call this after detecting a proxy upgrade event so subsequent calls
+// resolve the new implementation.
+func (ci *ContractInteractor) InvalidateProxyCache(proxyAddress string) {
+	proxy := common.HexToAddress(proxyAddress)
+	ci.proxyMu.Lock()
+	delete(ci.proxyCache, proxy)
+	ci.proxyMu.Unlock()
+	ci.logger.Debug("Invalidated proxy cache", zap.String("proxy", proxyAddress))
+}
+
+// ResolveImplementation checks if the given address is an ERC-1967 proxy contract.
+// If it is, it reads the implementation address from the proxy storage slot and
+// returns it. If not a proxy (slot is zero or unreadable), it returns the original address.
+// Results are cached to avoid repeated storage reads.
+func (ci *ContractInteractor) ResolveImplementation(ctx context.Context, proxyAddress string) (string, error) {
+	proxy := common.HexToAddress(proxyAddress)
+
+	// Check cache first (with TTL)
+	ci.proxyMu.RLock()
+	if entry, ok := ci.proxyCache[proxy]; ok && time.Now().Before(entry.expiry) {
+		ci.proxyMu.RUnlock()
+		return entry.implAddr, nil
+	}
+	ci.proxyMu.RUnlock()
+
+	// Read ERC-1967 implementation slot
+	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &proxy,
+		Data: erc1967ImplementationSlot.Bytes(),
+	}, nil)
+	if err != nil {
+		// Can't read storage — assume not a proxy
+		ci.logger.Debug("Could not read ERC-1967 slot, assuming not a proxy",
+			zap.String("address", proxyAddress),
+			zap.Error(err))
+		return proxyAddress, nil
+	}
+
+	// Parse the 32-byte storage slot value as an address
+	if len(result) < 32 {
+		return proxyAddress, nil
+	}
+
+	implAddress := common.BytesToAddress(result[12:32]) // last 20 bytes
+	if implAddress == (common.Address{}) {
+		// Zero implementation — not a proxy
+		return proxyAddress, nil
+	}
+
+	implHex := implAddress.Hex()
+	ci.logger.Info("Detected ERC-1967 proxy contract",
+		zap.String("proxy", proxyAddress),
+		zap.String("implementation", implHex))
+
+	// Cache the result with TTL
+	ci.proxyMu.Lock()
+	ci.proxyCache[proxy] = proxyCacheEntry{implAddr: implHex, expiry: time.Now().Add(proxyCacheTTL)}
+	ci.proxyMu.Unlock()
+	return implHex, nil
+}
+
+// CallContractFunction calls a read-only contract function.
+// fromAddress is optional — pass "" to leave msg.From unset (zero address),
+// or pass a hex address so that contracts reading msg.sender work correctly.
+// If the call fails, it automatically checks for an ERC-1967 proxy and retries
+// against the implementation address.
+func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contractAddress, abiJSON, functionName, fromAddress string, args ...interface{}) (interface{}, error) {
 	ci.logger.Debug("Calling contract function",
 		zap.String("contract", contractAddress),
 		zap.String("function", functionName))
 
+	result, err := ci.callContractFunction(ctx, contractAddress, abiJSON, functionName, fromAddress, args...)
+	if err == nil {
+		ci.logger.Debug("Contract function called successfully", zap.String("function", functionName))
+		return result, nil
+	}
+
+	// Call failed — try resolving as a proxy and retrying against the implementation
+	implAddr, resolveErr := ci.ResolveImplementation(ctx, contractAddress)
+	if resolveErr != nil || implAddr == contractAddress {
+		// Not a proxy or resolution failed — return original error
+		return nil, err
+	}
+
+	ci.logger.Info("Retrying contract call against resolved implementation",
+		zap.String("proxy", contractAddress),
+		zap.String("implementation", implAddr),
+		zap.String("function", functionName))
+
+	retryResult, retryErr := ci.callContractFunction(ctx, implAddr, abiJSON, functionName, fromAddress, args...)
+	if retryErr != nil {
+		return nil, &DualError{Primary: err, Secondary: retryErr}
+	}
+
+	return retryResult, nil
+}
+
+// callContractFunction is the internal implementation that performs the actual contract call.
+func (ci *ContractInteractor) callContractFunction(ctx context.Context, contractAddress, abiJSON, functionName, fromAddress string, args ...interface{}) (interface{}, error) {
 	// Parse contract address
 	contract := common.HexToAddress(contractAddress)
 
@@ -57,16 +171,32 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 		To:   &contract,
 		Data: data,
 	}
+
+	// Set From address if provided (required for contracts that read msg.sender)
+	if fromAddress != "" && common.IsHexAddress(fromAddress) {
+		msg.From = common.HexToAddress(fromAddress)
+	}
+
 	result, err := ci.client.CallContract(ctx, msg, nil)
 
 	if err != nil {
+		// Try to extract and decode revert reason for better diagnostics
+		errMsg := err.Error()
+		if revertData := ExtractRevertData(errMsg); revertData != nil {
+			if revert := ParseRevertReason(revertData); revert != nil {
+				ci.logger.Error("Contract call reverted",
+					zap.String("function", functionName),
+					zap.String("reason", revert.Reason),
+					zap.Bool("is_panic", revert.IsPanic))
+				return nil, fmt.Errorf("contract call %s reverted: %w", functionName, revert)
+			}
+		}
 		ci.logger.Error("Failed to call contract function",
 			zap.String("function", functionName),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to call contract function: %w", err)
 	}
 
-	ci.logger.Debug("Contract function called successfully", zap.String("function", functionName))
 	return result, nil
 }
 
@@ -115,22 +245,128 @@ type ContractContentRegistry struct {
 	ABI     string
 }
 
-// RegisterContent registers content on-chain
-func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash string, owner string, metadata string) error {
-	// TODO: Implement content registration
-	return fmt.Errorf("content registration not yet implemented")
+// RegisterContent registers content on-chain by packing the ABI call data.
+// It returns the encoded call data; the caller is responsible for building,
+// signing, and sending the full transaction.
+func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash, owner, metadata string) ([]byte, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
+	}
+
+	// Convert hex content hash to [32]byte
+	hashBytes, err := hexToBytes32(contentHash)
+	if err != nil {
+		return nil, fmt.Errorf("invalid content hash: %w", err)
+	}
+
+	data, err := parsedABI.Pack("registerContent", hashBytes, metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack registerContent call: %w", err)
+	}
+
+	return data, nil
 }
 
-// VerifyContent verifies content on-chain
+// VerifyContent verifies content on-chain by calling verifyContent(bytes32).
 func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
-	// TODO: Implement content verification
-	return false, fmt.Errorf("content verification not yet implemented")
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	if err != nil {
+		return false, fmt.Errorf("failed to parse content registry ABI: %w", err)
+	}
+
+	hashBytes, err := hexToBytes32(contentHash)
+	if err != nil {
+		return false, fmt.Errorf("invalid content hash: %w", err)
+	}
+
+	contract := common.HexToAddress(cr.Address)
+	callData, err := parsedABI.Pack("verifyContent", hashBytes)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack verifyContent call: %w", err)
+	}
+
+	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: callData,
+	}, nil)
+	if err != nil {
+		return false, fmt.Errorf("verifyContent call failed: %w", err)
+	}
+
+	// Unpack bool result
+	out, err := parsedABI.Unpack("verifyContent", result)
+	if err != nil {
+		return false, fmt.Errorf("failed to unpack verifyContent result: %w", err)
+	}
+	if len(out) > 0 {
+		if valid, ok := out[0].(bool); ok {
+			return valid, nil
+		}
+	}
+	return false, nil
 }
 
-// GetContentInfo gets information about registered content
+// GetContentInfo gets information about registered content via getContentInfo(bytes32).
 func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
-	// TODO: Implement get content info
-	return nil, fmt.Errorf("get content info not yet implemented")
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
+	}
+
+	hashBytes, err := hexToBytes32(contentHash)
+	if err != nil {
+		return nil, fmt.Errorf("invalid content hash: %w", err)
+	}
+
+	contract := common.HexToAddress(cr.Address)
+	callData, err := parsedABI.Pack("getContentInfo", hashBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack getContentInfo call: %w", err)
+	}
+
+	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: callData,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getContentInfo call failed: %w", err)
+	}
+
+	type getContentInfoResult struct {
+		Owner     common.Address
+		Timestamp *big.Int
+		Metadata  string
+	}
+	var out getContentInfoResult
+	if err := parsedABI.UnpackIntoInterface(&out, "getContentInfo", result); err != nil {
+		return nil, fmt.Errorf("failed to unpack getContentInfo result: %w", err)
+	}
+
+	return &ContentInfo{
+		Hash:      contentHash,
+		Owner:     out.Owner.Hex(),
+		Timestamp: out.Timestamp.Int64(),
+		Metadata:  out.Metadata,
+		IsValid:   out.Owner != common.Address{},
+	}, nil
+}
+
+// hexToBytes32 converts a hex string (with or without 0x prefix) to [32]byte.
+func hexToBytes32(hexStr string) ([32]byte, error) {
+	var out [32]byte
+	if strings.HasPrefix(hexStr, "0x") || strings.HasPrefix(hexStr, "0X") {
+		hexStr = hexStr[2:]
+	}
+	if len(hexStr) != 64 {
+		return out, fmt.Errorf("expected 64 hex chars for bytes32, got %d", len(hexStr))
+	}
+	b, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return out, fmt.Errorf("invalid hex: %w", err)
+	}
+	copy(out[:], b)
+	return out, nil
 }
 
 // ContentInfo contains information about registered content
@@ -144,12 +380,12 @@ type ContentInfo struct {
 
 // ContractEventListener listens for contract events
 type ContractEventListener struct {
-	client *ethclient.Client
+	client EthCaller
 	logger *zap.Logger
 }
 
 // NewContractEventListener creates a new contract event listener
-func NewContractEventListener(client *ethclient.Client, logger *zap.Logger) *ContractEventListener {
+func NewContractEventListener(client EthCaller, logger *zap.Logger) *ContractEventListener {
 	return &ContractEventListener{
 		client: client,
 		logger: logger,
@@ -157,13 +393,14 @@ func NewContractEventListener(client *ethclient.Client, logger *zap.Logger) *Con
 }
 
 // ListenForEvents listens for contract events
-func (el *ContractEventListener) ListenForEvents(ctx context.Context, contractAddress string, eventSignature string) error {
+// Deprecated: not implemented — placeholder only.
+func (el *ContractEventListener) ListenForEvents(ctx context.Context, contractAddress, eventSignature string) error {
 	el.logger.Info("Listening for events",
 		zap.String("contract", contractAddress),
 		zap.String("event", eventSignature))
 
 	// TODO: Implement event listening
-	return fmt.Errorf("event listening not yet implemented")
+	return fmt.Errorf("ListenForEvents: stub — not implemented")
 }
 
 // ContractEvent represents a contract event
@@ -177,14 +414,15 @@ type ContractEvent struct {
 }
 
 // GetContractEvents gets events from a contract
-func (el *ContractEventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock int64, toBlock int64) ([]*ContractEvent, error) {
+// Deprecated: not implemented — placeholder only.
+func (el *ContractEventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock, toBlock int64) ([]*ContractEvent, error) {
 	el.logger.Debug("Getting contract events",
 		zap.String("contract", contractAddress),
 		zap.Int64("from_block", fromBlock),
 		zap.Int64("to_block", toBlock))
 
 	// TODO: Implement get contract events
-	return nil, fmt.Errorf("get contract events not yet implemented")
+	return nil, fmt.Errorf("GetContractEvents: stub — not implemented")
 }
 
 // TransactionBuilder builds transactions
@@ -227,7 +465,8 @@ type Transaction struct {
 
 // EstimateTransactionCost estimates the cost of a transaction
 func (tb *TransactionBuilder) EstimateTransactionCost(tx *Transaction) *big.Int {
+	//nolint:gocritic // formula comment
 	// Cost = gasLimit * gasPrice
-	cost := new(big.Int).Mul(big.NewInt(int64(tx.GasLimit)), tx.GasPrice)
+	cost := new(big.Int).Mul(new(big.Int).SetUint64(tx.GasLimit), tx.GasPrice)
 	return cost
 }

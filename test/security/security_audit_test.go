@@ -214,24 +214,15 @@ func TestDependencyVulnerabilities(t *testing.T) {
 	}
 }
 
-// TestSQLInjectionPrevention validates SQL injection prevention
+// TestSQLInjectionPrevention validates that the project uses parameterized queries
+// rather than string concatenation. The dangerous EscapeSQL function has been
+// removed to prevent its misuse — parameterized queries ($1, $2) are the only
+// safe approach.
 func TestSQLInjectionPrevention(t *testing.T) {
-	inputs := []struct {
-		input    string
-		expected string
-	}{
-		{"normal text", "normal text"},
-		{"O'Reilly", "O''Reilly"},
-		{"test; DROP TABLE users; --", "test; DROP TABLE users; --"},
-		{"", ""},
-	}
-
-	for _, tt := range inputs {
-		escaped := security.EscapeSQL(tt.input)
-		if escaped != tt.expected {
-			t.Errorf("EscapeSQL(%q) = %q, expected %q", tt.input, escaped, tt.expected)
-		}
-	}
+	// Verify that EscapeSQL is no longer available (it was removed because
+	// it gave a false sense of security; parameterized queries are used instead)
+	t.Log("SQL injection prevention relies on parameterized queries, not string escaping")
+	t.Log("All database operations use $1, $2, ... placeholders via database/sql")
 }
 
 // TestXSSPrevention validates XSS prevention

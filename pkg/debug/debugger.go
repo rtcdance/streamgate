@@ -232,7 +232,7 @@ func (d *Debugger) RecordTrace(function, message, level string) {
 }
 
 // RecordLog records a debug log
-func (d *Debugger) RecordLog(level, message string, context map[string]interface{}) {
+func (d *Debugger) RecordLog(level, message string, ctx map[string]interface{}) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -241,7 +241,7 @@ func (d *Debugger) RecordLog(level, message string, context map[string]interface
 		Timestamp: time.Now(),
 		Level:     level,
 		Message:   message,
-		Context:   context,
+		Context:   ctx,
 	}
 
 	d.logs = append(d.logs, log)

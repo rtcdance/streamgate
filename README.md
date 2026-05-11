@@ -1,33 +1,160 @@
-# StreamGate - Off-Chain Content Distribution Service
+# StreamGate - NFT-Gated 视频分发平台
 
-> Enterprise-grade Web3 content distribution platform combining traditional high-concurrency architecture with blockchain permission control
+> 结合传统高并发架构 + 区块链权限控制的 Web3 内容分发服务
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
+---
+
+## 🎯 一句话介绍
+
+**持有特定 NFT 才能观看视频的内容分发平台**
+
+```
+用户持有 NFT → 验证所有权 → 获得观看权限 → 播放视频
+```
+
+---
+
+## 📖 你要讲清楚的 4 件事
+
+### 1. Wallet Sign-In
+- 用户不需要密码，通过钱包签名登录
+- 服务端做 `EIP-191` 验签、`nonce`、过期校验和防重放
+- 这是项目里最关键的 Web3 身份入口
+
+### 2. NFT Verify
+- 服务端通过真实链上调用校验用户是否持有指定 NFT
+- 只有持有 NFT，才允许访问受保护内容
+- 这一步把链上所有权接到了业务访问控制上
+
+### 3. Protected Streaming
+- 用户通过验证后，才能获取 HLS manifest 或播放地址
+- 流媒体主线是这个项目最像企业场景的地方
+- 这里也是音视频经验和 Web3 能力结合最自然的点
+
+### 4. Transcoding Worker
+- 视频上传后通过 FFmpeg 转码为 HLS
+- Worker 负责任务排队、执行、重试和状态更新
+- 这是最能体现音视频后端经验的模块
+
+### 一条主链路
+
+```text
+钱包签名登录 -> NFT 所有权校验 -> 放行 manifest -> 播放 HLS 视频
+```
+
+---
+
+## 🏗️ 架构图
+
+### 单体模式（开发/面试用）
+
+```
+┌─────────────────────────────────────────────────┐
+│              StreamGate 单体                     │
+│                                                 │
+│  ┌─────────────────────────────────────────┐  │
+│  │           API 层（:8080）               │  │
+│  │    REST API │ 签名验证 │ NFT 验证       │  │
+│  └─────────────────────────────────────────┘  │
+│                      │                          │
+│  ┌──────────────────┼──────────────────────┐  │
+│  │                  │                       │  │
+│  ▼                  ▼                       ▼  │
+│ ┌────────┐   ┌────────────┐   ┌──────────┐  │
+│ │存储层  │   │ Web3 层    │   │ 媒体层   │  │
+│ │MinIO   │   │NFT验证    │   │FFmpeg    │  │
+│ │Redis   │   │签名验证    │   │HLS/DASH │  │
+│ └────────┘   └────────────┘   └──────────┘  │
+│                                                 │
+│  ┌─────────────────────────────────────────┐  │
+│  │        基础设施（Zap日志 │ Prometheus）   │  │
+│  └─────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+```
+
+### 微服务模式（扩展用）
+
+```
+                    ┌─────────────────┐
+                    │   Nginx/LB      │
+                    └────────┬────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+  ┌───────▼──────┐   ┌──────▼──────┐   ┌──────▼──────┐
+  │  API Gateway │   │ Auth 服务   │   │ 流媒体服务  │
+  │   :9090      │   │  :9007      │   │   :9093     │
+  │  REST + gRPC │   │ NFT 验证    │   │ 转码 + HLS  │
+  └───────┬──────┘   └──────┬──────┘   └──────┬──────┘
+          │                  │                  │
+          └──────────────────┼──────────────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+        ┌─────▼─────┐  ┌─────▼─────┐  ┌────▼─────┐
+        │   NATS   │  │   Redis   │  │  MinIO   │
+        │  消息队列 │  │   缓存    │  │  对象存储 │
+        └───────────┘  └───────────┘  └──────────┘
+```
+
+---
+
+## 🎯 面试卖点
+
+| 卖点 | 你可以怎么讲 | 为什么适合你 |
+|------|---------------|--------------|
+| **音视频 + Web3 结合** | NFT 决定用户能不能播放内容 | 不是纯 Web3 demo，而是真实媒体业务场景 |
+| **钱包登录 + NFT 鉴权** | 签名验签、nonce、防重放、链上所有权校验 | 体现你补上的 Web3 新能力 |
+| **受保护 HLS 访问** | 只有通过鉴权才返回 manifest | 直接贴合内容分发与访问控制 |
+| **转码 Worker** | FFmpeg、队列、重试、状态流转 | 体现你多年音视频工程经验 |
+| **单体优先，微服务扩展** | 先跑通主链路，再按瓶颈拆服务 | 更符合企业实践，也更适合面试讲法 |
+
+---
+
+## 🚀 快速开始
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/rtcdance/streamgate.git
+cd streamgate
+
+# 2. 启动基础设施
+docker-compose up -d redis minio nats
+
+# 3. 运行单体
+go run ./cmd/monolith/streamgate/main.go
+
+# 4. 测试 NFT 验证
+curl -X POST http://localhost:8080/api/v1/nft/verify \
+  -H "Content-Type: application/json" \
+  -d '{"wallet": "0x...", "contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f"}'
+```
+
+---
+
 ## 📖 Project Overview
 
-StreamGate is a Go-based off-chain content distribution service using microkernel plugin architecture, supporting both monolithic and microservices dual-mode deployment. The system integrates multi-chain NFT permission verification (EVM + Solana), implements HLS/DASH streaming distribution, and supports 10K+ concurrent users.
+StreamGate is a Go-based NFT-gated streaming project for learning and interview preparation. It combines a video distribution pipeline you would expect in a media backend with Web3 capabilities such as wallet sign-in, NFT ownership verification, and RPC reliability handling.
 
 ### 🎯 Project Goals
 
-- Demonstrate enterprise-grade high-concurrency service architecture capabilities
-- Demonstrate Web3 multi-chain integration capabilities
-- Demonstrate microkernel plugin-based design thinking
-- Demonstrate cloud-native deployment capabilities
-- Serve as a Web3 + Go backend job application portfolio
+- Build a believable `NFT-gated streaming gateway` instead of a generic Web3 demo
+- Reuse audio/video backend experience in transcoding, caching, and content delivery
+- Add real Web3 capabilities: wallet sign-in, NFT verification, RPC high availability
+- Practice Go service design with a monolith-first, microservice-expandable architecture
+- Turn the project into a strong interview story for Go + Web3 backend roles
 
-### ✨ Core Features
+### ✨ Current Focus
 
-- 🔌 **Microkernel Plugin Architecture** - Minimal core, extensible functionality
-- 🚀 **Dual-Mode Deployment** - Single codebase supports both monolithic and microservices
-- ⚡ **Event-Driven** - Asynchronous non-blocking, high performance
-- 🔗 **Multi-Chain Support** - EVM (Ethereum, Polygon, BSC) + Solana
-- 🎬 **Streaming Media** - HLS + DASH dual format, adaptive bitrate
-- 🔐 **Web3 Authentication** - Wallet signature verification, passwordless
-- 📊 **Enterprise Monitoring** - Prometheus + Grafana + OpenTelemetry
-- ☸️ **Cloud-Native** - Docker + Kubernetes, auto-scaling
+- 🔐 **Wallet Sign-In** - EIP-191 signature verification with nonce and replay protection
+- 🪙 **NFT Verification** - ERC-721/1155 ownership checks using real chain calls
+- 🎬 **Protected Streaming** - Use NFT ownership to gate HLS content access
+- 🎞️ **Transcoding Worker** - FFmpeg-based job pipeline with queueing and retries
+- 🧩 **Microkernel Architecture** - Keep the business flow clear in monolith mode, then split where it helps
 
 ## 🏗️ Architecture Design
 
@@ -105,9 +232,9 @@ Single binary with all plugins loaded in-memory:
 
 **Build**: `make build-monolith`
 
-#### 2. Microservices Mode (Production)
+#### 2. Microservices Mode (Production Target)
 
-9 independent services with gRPC communication:
+3 core services with gRPC communication:
 
 ```
                     ┌─────────────────────┐
@@ -120,74 +247,44 @@ Single binary with all plugins loaded in-memory:
                     │   (Port 9090)       │
                     │   - REST API        │
                     │   - gRPC Gateway    │
-                    │   - Auth            │
+                    │   - Rate Limiting   │
                     └──────────┬──────────┘
                                │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-┌───────▼────────┐    ┌────────▼────────┐    ┌──────▼──────────┐
-│ Upload Service │    │ Transcoder      │    │ Streaming       │
-│ (Port 9091)    │    │ (Port 9092)     │    │ (Port 9093)     │
-│ - File Upload  │    │ - Transcoding   │    │ - HLS/DASH      │
-│ - Chunking     │    │ - Worker Pool   │    │ - Playback      │
-│ - S3/MinIO     │    │ - Auto-scaling  │    │ - Caching       │
-└────────────────┘    └─────────────────┘    └─────────────────┘
-        │                      │                      │
-        └──────────────────────┼──────────────────────┘
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │                      │
-┌───────▼────────┐    ┌────────▼────────┐    ┌──────▼──────────┐
-│ Metadata       │    │ Cache Service   │    │ Auth Service    │
-│ (Port 9005)    │    │ (Port 9006)     │    │ (Port 9007)     │
-│ - Database     │    │ - Redis Cache   │    │ - NFT Verify    │
-│ - Indexing     │    │ - Distributed   │    │ - Signature     │
-│ - Search       │    │ - TTL Mgmt      │    │ - Multi-chain   │
-└────────────────┘    └─────────────────┘    └─────────────────┘
-        │                      │                      │
-        └──────────────────────┼──────────────────────┘
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        │                      │
-┌───────▼────────┐    ┌────────▼────────┐
-│ Worker Service │    │ Monitor Service │
-│ (Port 9008)    │    │ (Port 9009)     │
-│ - Job Queue    │    │ - Metrics       │
-│ - Async Tasks  │    │ - Health Check  │
-│ - Scheduling   │    │ - Alerting      │
-└────────────────┘    └─────────────────┘
-        │                      │
-        └──────────────────────┼──────────────────────┐
-                               │
-                    ┌──────────▼──────────┐
-                    │  Infrastructure    │
-                    │  - NATS (4222)     │
-                    │  - Consul (8500)   │
-                    │  - PostgreSQL      │
-                    │  - Redis           │
-                    │  - MinIO           │
-                    │  - Prometheus      │
-                    │  - Jaeger          │
-                    └────────────────────┘
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+┌────────▼────────┐    ┌───────▼──────────┐   ┌──────▼────────────┐
+│   Auth Service  │    │  Streaming      │   │  Infrastructure  │
+│   (Port 9007)   │    │  (Port 9093)   │   │  - NATS (4222)   │
+│                 │    │                 │   │  - Redis (6379)   │
+│ - NFT Verify    │    │ - Transcoding  │   │  - PostgreSQL     │
+│ - Signature     │    │ - HLS/DASH     │   │  - MinIO (9000)   │
+│ - Multi-chain   │    │ - Adaptive BR  │   │  - Prometheus     │
+└─────────────────┘    └─────────────────┘   └──────────────────┘
 ```
 
-**Use Cases**: Production deployment, horizontal scaling, independent service updates
+**Internal Modules** (not independently deployed):
+- Cache: LRU + Redis, called by Auth/Streaming
+- Monitor: Prometheus metrics, part of each service
+- Worker: Task queue, part of Streaming service
 
-**Build**: `make build-all` or `docker-compose up`
+**Use Cases**: Production deployment, horizontal scaling
 
-### 9 Microservices
+**Build**: `make build-services` (builds 3 core services only)
+
+### Core Services (P2 Target: 3 Microservices)
+
+For production, the project will deploy 3 core services (the rest are internal modules):
 
 | Service | Port | Responsibility | Scaling |
 |---------|------|-----------------|---------|
-| **API Gateway** | 9090 | REST API, gRPC gateway, authentication, routing | Horizontal |
-| **Upload** | 9091 | File upload, chunking, resumable uploads | Horizontal |
-| **Transcoder** | 9092 | Video transcoding, worker pool, auto-scaling | Horizontal (CPU-bound) |
-| **Streaming** | 9093 | HLS/DASH delivery, adaptive bitrate, caching | Horizontal |
-| **Metadata** | 9005 | Content metadata, database operations, indexing | Horizontal |
-| **Cache** | 9006 | Distributed caching, Redis integration | Horizontal |
+| **API Gateway** | 9090 | REST API, gRPC gateway, routing, rate limiting | Horizontal |
 | **Auth** | 9007 | NFT verification, signature verification, Web3 auth | Horizontal |
-| **Worker** | 9008 | Background jobs, task queue, scheduling | Horizontal |
-| **Monitor** | 9009 | Health monitoring, metrics, alerting | Singleton |
+| **Streaming** | 9093 | Video transcoding (FFmpeg), HLS/DASH delivery | Horizontal (CPU-bound) |
+
+**Internal Modules** (not independently deployed):
+- Cache (LRU + Redis) - Internal module
+- Monitor (Prometheus) - Internal module
+- Worker (task queue) - Internal component
 
 ### Communication Patterns
 
@@ -281,7 +378,7 @@ NATS (file.uploaded) ──> Transcoder Service
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.24
 - Docker & Docker Compose
 - PostgreSQL 15+
 - Redis 7+
@@ -474,6 +571,7 @@ make coverage                              # Generate coverage report
 
 - [Web3 Development Environment Setup](docs/web3-setup.md) - Configure Web3 development environment from scratch
 - [Learning Roadmap](docs/learning-roadmap.md) - 2-3 week learning plan
+- [Architecture Guide](docs/ARCHITECTURE_GUIDE.md) - Architecture review, 4-week sprint, dual-mode deployment ⭐
 - [Frequently Asked Questions](docs/web3-faq.md) - 23 common questions
 
 ### Development Guides
@@ -501,7 +599,7 @@ make coverage                              # Generate coverage report
 
 | Category | Technology | Purpose |
 |----------|------------|---------|
-| **Language** | Go 1.21+ | Backend development |
+| **Language** | Go 1.24 | Backend development |
 | **Architecture** | Microkernel + Microservices | Plugin-based, dual-mode deployment |
 | **Database** | PostgreSQL 15 | Persistent storage |
 | **Cache** | Redis 7 | Distributed caching |
@@ -522,37 +620,37 @@ make coverage                              # Generate coverage report
 ### Core Architecture
 - [x] Microkernel plugin architecture
 - [x] Dual-mode deployment (monolithic + microservices)
-- [x] 9 independent microservices
-- [x] Event-driven communication (NATS)
-- [x] gRPC inter-service communication
-- [x] Service discovery (Consul)
-- [x] Health checks and monitoring
+- [ ] 3 core microservices (skeleton only, P2 target)
+- [ ] Event-driven communication (NATS) - skeleton
+- [ ] gRPC inter-service communication - skeleton
+- [ ] Service discovery (Consul) - skeleton
+- [ ] Health checks and monitoring - partial
 
 ### Video Processing
-- [x] File upload (chunked, resumable)
-- [x] Video transcoding (HLS + DASH)
-- [x] Adaptive bitrate streaming
-- [x] Worker pool with auto-scaling
-- [x] High-concurrency design (10K+ users)
-- [x] Multi-level caching (LRU + Redis)
+- [x] File upload skeleton (chunked, resumable)
+- [x] FFmpeg transcoding skeleton (HLS + DASH)
+- [ ] Adaptive bitrate streaming - incomplete
+- [ ] Worker pool with auto-scaling - needs implementation
+- [ ] High-concurrency design (10K+ users) - target, not achieved
+- [ ] Multi-level caching (LRU + Redis) - partial
 
 ### Web3 Integration
-- [x] Multi-chain support (EVM + Solana)
-- [x] NFT permission verification (ERC-721, ERC-1155, Metaplex)
-- [x] Wallet signature verification (EIP-191, EIP-712, Solana)
-- [x] Passwordless authentication
-- [x] Smart contract integration (Polygon)
-- [x] IPFS integration (hybrid storage)
-- [x] Gas optimization and monitoring
+- [x] Multi-chain support (EVM + Solana) - skeleton
+- [ ] NFT permission verification (ERC-721, ERC-1155) - P0 in progress
+- [ ] Wallet signature verification (EIP-191, EIP-712) - skeleton
+- [ ] Passwordless authentication - skeleton
+- [ ] Smart contract integration - incomplete
+- [ ] IPFS integration - partial
+- [ ] Gas optimization and monitoring - skeleton
 
 ### Enterprise Features
-- [x] Service registration and discovery
-- [x] Rate limiting and circuit breaker
-- [x] Distributed tracing (OpenTelemetry)
-- [x] Prometheus monitoring
-- [x] Graceful shutdown
+- [ ] Service registration and discovery - skeleton
+- [ ] Rate limiting and circuit breaker - needs implementation
+- [ ] Distributed tracing (OpenTelemetry) - partial
+- [ ] Prometheus monitoring - partial
+- [ ] Graceful shutdown - partial
 - [x] Configuration management
-- [x] Structured logging
+- [x] Structured logging (zap)
 
 ### In Development
 - [ ] On-chain event listening
@@ -647,74 +745,57 @@ If you have questions or need help:
 
 ## 🚀 Roadmap
 
-### Phase 1: Foundation (Weeks 1-2)
-- Smart contract development
-- Event indexer service
-- REST API endpoints
-- Basic monitoring
+### Phase 1: Identity + Ownership
+- Wallet sign-in
+- Real NFT verification
+- API wiring for `/api/v1/nft/verify`
 
-### Phase 2: Decentralized Storage (Weeks 3-4)
-- IPFS integration
-- Hybrid storage logic
-- Upload workflow updates
+### Phase 2: Protected Streaming
+- Gate manifest access by NFT ownership
+- Add Redis cache to the verification path
+- Expose core metrics for auth and playback
 
-### Phase 3: Gas & Transactions (Weeks 5-6)
-- Gas price monitoring
-- Transaction queue
-- Transaction tracking
+### Phase 3: Media Pipeline
+- Worker execution pipeline
+- FFmpeg transcoding to HLS
+- Retry, timeout, and queue visibility
 
-### Phase 4: User Experience (Weeks 7-8)
-- Wallet connection
-- Transaction signing UI
-- Gas estimation
+### Phase 4: Interview Packaging
+- Architecture cleanup
+- Demo path and talking points
+- README, architecture guide, and mock interview prep
 
-### Phase 5: Production Ready (Weeks 9-10)
-- Monitoring dashboards
-- API documentation
-- Production deployment
-
-See [WEB3_ACTION_PLAN.md](WEB3_ACTION_PLAN.md) for detailed implementation plan.
+See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) for the current execution plan.
 
 ## 📈 Project Status
 
-### Completion Summary
+> Development in progress. The repository already contains architecture skeletons and several working components, but the interview-critical business flow is still being tightened into a real end-to-end path.
 
-| Component | Status | Details |
-|-----------|--------|---------|
-| **Core Architecture** | ✅ 100% | Microkernel + 9 microservices |
-| **Source Code** | ✅ 100% | 200+ files, 50,000+ lines |
-| **Unit Tests** | ✅ 100% | 30 test files, 100% coverage |
-| **Integration Tests** | ✅ 100% | 20 test files, 100% coverage |
-| **E2E Tests** | ✅ 100% | 25 test files, 100% coverage |
-| **Performance Tests** | ✅ 100% | 55 test files, all critical paths |
-| **Documentation** | ✅ 100% | 50+ files, comprehensive |
-| **Deployment** | ✅ 100% | Docker, K8s, Cloud-ready |
-| **Compilation** | ✅ 100% | 0 errors, 0 warnings |
+### Current Priorities
 
-### Key Metrics
+| Priority | Focus | Why it matters |
+|----------|-------|----------------|
+| **P0** | Wallet sign-in + NFT verification + protected HLS access | This is the core Web3 business loop |
+| **P1** | Redis cache + RPC failover + metrics | This makes the project look like enterprise practice |
+| **P1** | Worker + FFmpeg pipeline | This is where audio/video engineering experience stands out |
+| **P2** | Further microservice split and polish | Useful later, not the current proof point |
 
-- **Total Lines of Code**: 50,000+
-- **Total Test Cases**: 130
-- **Test Coverage**: 100%
-- **Documentation Files**: 50+
-- **Microservices**: 9
-- **Core Modules**: 22
-- **Compilation Errors**: 0
-- **Performance Tests**: 55
+### What Is Already Valuable
 
-### Phase Completion
+| Area | Current state |
+|------|---------------|
+| **Architecture** | Microkernel + dual deployment model are in place |
+| **Media direction** | HLS/DASH, storage, and worker-related components exist |
+| **Web3 direction** | Signature, NFT, and multichain modules exist, but some paths are still placeholders |
+| **Deployment** | Docker/K8s assets exist for later expansion |
 
-- ✅ Phase 1-5: Core functionality (100%)
-- ✅ Phase 6-8: Advanced features (100%)
-- ✅ Phase 9-11: Enterprise features (100%)
-- ✅ Phase 12-15: Web3 integration (100%)
-- ✅ Phase 16: Test completion (100%)
-- ✅ Phase 17: Performance testing (100%)
-- ✅ Phase 18: Documentation & finalization (100%)
+### What This README Assumes
 
-**Overall Project Status**: ✅ **COMPLETE** - Ready for production deployment
+- Some components are still skeletons or partially wired
+- The goal is a credible interview project, not a fully productized platform
+- The recommended path is monolith-first for the main flow, then selective service extraction
 
-See [PROJECT_FINAL_REPORT.md](PROJECT_FINAL_REPORT.md) for detailed completion report.
+See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) and [docs/web3-faq.md](docs/web3-faq.md) for the current development plan.
 
 ---
 

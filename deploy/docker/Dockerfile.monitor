@@ -1,31 +1,34 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24-alpine3.21 AS builder
 
 WORKDIR /app
 
-# Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the monitor service
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o monitor ./cmd/microservices/monitor
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.21
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates wget
 
-WORKDIR /root/
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy the binary from builder
+WORKDIR /app
+
 COPY --from=builder /app/monitor .
-
-# Copy config files
 COPY --from=builder /app/config ./config
 
-EXPOSE 8085
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
+EXPOSE 8085 9095
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8085/health || exit 1
 
 CMD ["./monitor"]

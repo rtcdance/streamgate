@@ -1,3 +1,9 @@
+// Package config is deprecated. Use streamgate/pkg/core/config instead, which
+// provides the canonical Config struct, LoadConfig(), DefaultConfig(), and
+// ConfigManager with the same hot-reload and change-handler capabilities.
+//
+// This package is kept temporarily for backward compatibility and will be
+// removed in a future release.
 package config
 
 import (
@@ -206,7 +212,7 @@ func (cm *ConfigManager) Save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(cm.configPath, data, 0644); err != nil {
+	if err := os.WriteFile(cm.configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -320,26 +326,28 @@ func (cm *ConfigManager) StopWatching() {
 	}
 }
 
-// AddChangeHandler adds a handler for configuration changes
-func (cm *ConfigManager) AddChangeHandler(handler ConfigChangeHandler) {
+// AddChangeHandler adds a handler for configuration changes and returns its index.
+func (cm *ConfigManager) AddChangeHandler(handler ConfigChangeHandler) int {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	cm.handlers = append(cm.handlers, handler)
+	index := len(cm.handlers) - 1
 	cm.logger.Info("Configuration change handler added")
+	return index
 }
 
-// RemoveChangeHandler removes a configuration change handler
-func (cm *ConfigManager) RemoveChangeHandler(handler ConfigChangeHandler) {
+// RemoveChangeHandler removes a configuration change handler by index.
+// Since Go func values are not comparable, handlers are matched by the
+// index returned from AddChangeHandler.
+func (cm *ConfigManager) RemoveChangeHandler(handlerIndex int) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	for i, h := range cm.handlers {
-		if &h == &handler {
-			cm.handlers = append(cm.handlers[:i], cm.handlers[i+1:]...)
-			break
-		}
+	if handlerIndex < 0 || handlerIndex >= len(cm.handlers) {
+		return
 	}
+	cm.handlers = append(cm.handlers[:handlerIndex], cm.handlers[handlerIndex+1:]...)
 	cm.logger.Info("Configuration change handler removed")
 }
 
@@ -553,6 +561,15 @@ func (cm *ConfigManager) Validate() error {
 	return nil
 }
 
+// envOr returns the value of the environment variable named by key,
+// or the provided fallback value if the variable is not set or empty.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
@@ -570,7 +587,7 @@ func DefaultConfig() *Config {
 			Host:            "localhost",
 			Port:            5432,
 			User:            "postgres",
-			Password:        "postgres",
+			Password:        envOr("STREAMGATE_DB_PASSWORD", "changeme"), // SECURITY: set env var in production
 			Database:        "streamgate",
 			SSLMode:         "disable",
 			MaxOpenConns:    25,
@@ -589,15 +606,15 @@ func DefaultConfig() *Config {
 		Storage: StorageConfig{
 			Type:      "minio",
 			Endpoint:  "localhost:9000",
-			AccessKey: "minioadmin",
-			SecretKey: "minioadmin",
+			AccessKey: envOr("STREAMGATE_STORAGE_ACCESS_KEY", "changeme"), // SECURITY: set env var in production
+			SecretKey: envOr("STREAMGATE_STORAGE_SECRET_KEY", "changeme"), // SECURITY: set env var in production
 			Bucket:    "streamgate",
 			Region:    "us-east-1",
 			UseSSL:    false,
 		},
 		Web3: Web3Config{
 			Ethereum: EthereumConfig{
-				RPCEndpoint: "https://mainnet.infura.io/v3/YOUR_PROJECT_ID",
+				RPCEndpoint: envOr("STREAMGATE_ETH_RPC", "https://mainnet.infura.io/v3/"+envOr("STREAMGATE_INFURA_PROJECT_ID", "")), // SECURITY: set env var in production
 				ChainID:     1,
 			},
 			Solana: SolanaConfig{
@@ -640,7 +657,7 @@ func LoadOrCreate(configPath string, logger *zap.Logger) (*ConfigManager, error)
 		cm.config = DefaultConfig()
 
 		dir := filepath.Dir(configPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("failed to create config directory: %w", err)
 		}
 

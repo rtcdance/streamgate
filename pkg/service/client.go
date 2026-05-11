@@ -2,10 +2,15 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -14,21 +19,37 @@ type ClientPool struct {
 	registry ServiceRegistry
 	logger   *zap.Logger
 	clients  map[string]*grpc.ClientConn
+	mu       sync.RWMutex
+	tlsConfig *tls.Config
 }
 
-// NewClientPool creates a new client pool
+// NewClientPool creates a new client pool with insecure (plaintext) connections
 func NewClientPool(registry ServiceRegistry, logger *zap.Logger) *ClientPool {
 	return &ClientPool{
-		registry: registry,
-		logger:   logger,
-		clients:  make(map[string]*grpc.ClientConn),
+		registry:  registry,
+		logger:    logger,
+		clients:   make(map[string]*grpc.ClientConn),
+		tlsConfig: nil,
+	}
+}
+
+// NewClientPoolWithTLS creates a new client pool with TLS/mTLS enabled
+func NewClientPoolWithTLS(registry ServiceRegistry, logger *zap.Logger, tlsCfg *tls.Config) *ClientPool {
+	return &ClientPool{
+		registry:  registry,
+		logger:    logger,
+		clients:   make(map[string]*grpc.ClientConn),
+		tlsConfig: tlsCfg,
 	}
 }
 
 // GetConnection gets or creates a gRPC connection to a service
 func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*grpc.ClientConn, error) {
 	// Check if connection already exists
-	if conn, exists := p.clients[serviceName]; exists {
+	p.mu.RLock()
+	conn, exists := p.clients[serviceName]
+	p.mu.RUnlock()
+	if exists {
 		return conn, nil
 	}
 
@@ -39,10 +60,13 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 	}
 
 	// Create new connection
-	conn, err := grpc.Dial(
-		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	opts := []grpc.DialOption{}
+	if p.tlsConfig != nil {
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(p.tlsConfig)))
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	newConn, err := grpc.Dial(address, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial service: %w", err)
 	}
@@ -51,10 +75,17 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 		zap.String("service", serviceName),
 		zap.String("address", address))
 
-	// Cache connection
-	p.clients[serviceName] = conn
+	// Cache connection (double-check under write lock)
+	p.mu.Lock()
+	if existing, ok := p.clients[serviceName]; ok {
+		p.mu.Unlock()
+		_ = newConn.Close() // close the duplicate
+		return existing, nil
+	}
+	p.clients[serviceName] = newConn
+	p.mu.Unlock()
 
-	return conn, nil
+	return newConn, nil
 }
 
 // getServiceAddress gets the address of a service
@@ -75,6 +106,9 @@ func (p *ClientPool) getServiceAddress(ctx context.Context, serviceName string) 
 
 // Close closes all connections
 func (p *ClientPool) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	for serviceName, conn := range p.clients {
 		if err := conn.Close(); err != nil {
 			p.logger.Error("Failed to close connection",
@@ -161,18 +195,24 @@ func (l *ServiceLocator) getServiceAddress(ctx context.Context, serviceName stri
 
 // CircuitBreaker implements circuit breaker pattern for service calls
 type CircuitBreaker struct {
-	maxFailures int
-	timeout     int
-	failures    int
-	state       string // "closed", "open", "half-open"
-	logger      *zap.Logger
+	maxFailures  int
+	timeout      time.Duration
+	failures     int
+	state        string // "closed", "open", "half-open"
+	halfOpenTrial atomic.Int32 // 1 = trial call in progress, 0 = no trial
+	logger       *zap.Logger
+	mu           sync.Mutex
 }
 
 // NewCircuitBreaker creates a new circuit breaker
-func NewCircuitBreaker(maxFailures int, timeout int, logger *zap.Logger) *CircuitBreaker {
+func NewCircuitBreaker(maxFailures, timeout int, logger *zap.Logger) *CircuitBreaker {
+	dur := time.Duration(timeout) * time.Second
+	if dur <= 0 {
+		dur = 30 * time.Second
+	}
 	return &CircuitBreaker{
 		maxFailures: maxFailures,
-		timeout:     timeout,
+		timeout:     dur,
 		failures:    0,
 		state:       "closed",
 		logger:      logger,
@@ -181,31 +221,77 @@ func NewCircuitBreaker(maxFailures int, timeout int, logger *zap.Logger) *Circui
 
 // Call executes a function with circuit breaker protection
 func (cb *CircuitBreaker) Call(fn func() error) error {
+	cb.mu.Lock()
 	if cb.state == "open" {
+		cb.mu.Unlock()
 		return fmt.Errorf("circuit breaker is open")
 	}
+	isHalfOpen := cb.state == "half-open"
+	if isHalfOpen {
+		// Only one caller is allowed to proceed as the trial call.
+		// All others get fast-failed while the trial is in progress.
+		if !cb.halfOpenTrial.CompareAndSwap(0, 1) {
+			cb.mu.Unlock()
+			return fmt.Errorf("circuit breaker is half-open (trial in progress)")
+		}
+	}
+	cb.mu.Unlock()
 
 	err := fn()
 	if err != nil {
-		cb.failures++
-		if cb.failures >= cb.maxFailures {
+		cb.mu.Lock()
+		if isHalfOpen {
+			// Trial call failed in half-open → back to open
 			cb.state = "open"
-			cb.logger.Warn("Circuit breaker opened", zap.Int("failures", cb.failures))
+			cb.halfOpenTrial.Store(0)
+			cb.scheduleRecovery()
+			cb.logger.Warn("Circuit breaker reopened (half-open trial failed)")
+		} else {
+			cb.failures++
+			if cb.failures >= cb.maxFailures {
+				cb.state = "open"
+				cb.scheduleRecovery()
+				cb.logger.Warn("Circuit breaker opened", zap.Int("failures", cb.failures))
+			}
 		}
+		cb.mu.Unlock()
 		return err
 	}
 
-	// Reset on success
-	if cb.failures > 0 {
+	// Success
+	cb.mu.Lock()
+	if isHalfOpen {
+		// Trial call succeeded in half-open → close
+		cb.failures = 0
+		cb.state = "closed"
+		cb.halfOpenTrial.Store(0)
+		cb.logger.Info("Circuit breaker closed (half-open trial succeeded)")
+	} else if cb.failures > 0 {
 		cb.failures = 0
 		cb.state = "closed"
 		cb.logger.Info("Circuit breaker closed")
 	}
+	cb.mu.Unlock()
 
 	return nil
 }
 
+// scheduleRecovery schedules a transition from open to half-open after timeout.
+// Must be called while holding cb.mu.
+func (cb *CircuitBreaker) scheduleRecovery() {
+	time.AfterFunc(cb.timeout, func() {
+		cb.mu.Lock()
+		if cb.state == "open" {
+			cb.state = "half-open"
+			cb.logger.Info("Circuit breaker transitioned to half-open")
+		}
+		cb.mu.Unlock()
+	})
+}
+
 // GetState returns the current state of the circuit breaker
 func (cb *CircuitBreaker) GetState() string {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	return cb.state
 }

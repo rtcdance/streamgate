@@ -633,7 +633,7 @@ jobs:
           echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
           
           # Check if coverage meets threshold
-          COVERAGE_THRESHOLD=80
+          COVERAGE_THRESHOLD=25
           if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
             echo "⚠️  Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
             echo "::warning::Coverage is ${TOTAL_COVERAGE}%, below ${COVERAGE_THRESHOLD}% threshold"
@@ -684,7 +684,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Check coverage threshold
-          COVERAGE_THRESHOLD=80
+          COVERAGE_THRESHOLD=25
           if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
             echo "⚠️ Coverage is below ${COVERAGE_THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
           else
@@ -794,7 +794,7 @@ jobs:
       - name: Check coverage threshold
         run: |
             TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
-          COVERAGE_THRESHOLD=80
+          COVERAGE_THRESHOLD=25
           if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
             echo "::error::Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
             exit 1

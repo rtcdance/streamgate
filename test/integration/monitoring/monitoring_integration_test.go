@@ -86,9 +86,13 @@ func TestMonitoring_Alerting(t *testing.T) {
 }
 
 func TestMonitoring_PrometheusMetrics(t *testing.T) {
-	pe := monitoring.NewPrometheusExporter(nil, nil, nil)
+	// Prometheus metrics are now served directly via promhttp.Handler()
+	// on the /metrics endpoint. Verify the MetricsCollector bridges to Prometheus.
+	collector := monitoring.NewMetricsCollector(nil)
+	collector.IncrementCounter("test_operation", nil)
 
-	helpers.AssertNotNil(t, pe)
+	metric := collector.GetMetric("test_operation")
+	helpers.AssertNotNil(t, metric)
 }
 
 func TestMonitoring_HealthCheck(t *testing.T) {

@@ -124,19 +124,32 @@ test:
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "✓ Tests complete (coverage: coverage.html)"
 
+# Run tests with coverage threshold check
+test-ci: COVERAGE_MIN ?= 25
+test-ci:
+	@echo "Running tests with coverage check (min: $(COVERAGE_MIN)%)..."
+	$(GO) test -race -coverprofile=coverage.out ./...
+	@COVERAGE=$($(GO) tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//'); \
+	echo "Total coverage: $COVERAGE%"; \
+	if [ "$(echo "$COVERAGE < $(COVERAGE_MIN)" | bc -l)" = "1" ]; then \
+		echo "✗ Coverage $COVERAGE% is below minimum $(COVERAGE_MIN)%"; \
+		exit 1; \
+	fi; \
+	echo "✓ Coverage $COVERAGE% meets minimum $(COVERAGE_MIN)%"
+
 # Build Docker images
 docker-build:
 	@echo "Building Docker images..."
-	docker build -f Dockerfile.monolith -t streamgate:monolith .
-	docker build -f Dockerfile.api-gateway -t streamgate:api-gateway .
-	docker build -f Dockerfile.transcoder -t streamgate:transcoder .
-	docker build -f Dockerfile.upload -t streamgate:upload .
-	docker build -f Dockerfile.streaming -t streamgate:streaming .
-	docker build -f Dockerfile.metadata -t streamgate:metadata .
-	docker build -f Dockerfile.cache -t streamgate:cache .
-	docker build -f Dockerfile.auth -t streamgate:auth .
-	docker build -f Dockerfile.worker -t streamgate:worker .
-	docker build -f Dockerfile.monitor -t streamgate:monitor .
+	docker build -f deploy/docker/Dockerfile.monolith -t streamgate:monolith .
+	docker build -f deploy/docker/Dockerfile.api-gateway -t streamgate:api-gateway .
+	docker build -f deploy/docker/Dockerfile.transcoder -t streamgate:transcoder .
+	docker build -f deploy/docker/Dockerfile.upload -t streamgate:upload .
+	docker build -f deploy/docker/Dockerfile.streaming -t streamgate:streaming .
+	docker build -f deploy/docker/Dockerfile.metadata -t streamgate:metadata .
+	docker build -f deploy/docker/Dockerfile.cache -t streamgate:cache .
+	docker build -f deploy/docker/Dockerfile.auth -t streamgate:auth .
+	docker build -f deploy/docker/Dockerfile.worker -t streamgate:worker .
+	docker build -f deploy/docker/Dockerfile.monitor -t streamgate:monitor .
 	@echo "✓ Docker images built"
 
 # Start Docker Compose services

@@ -18,7 +18,7 @@ import (
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-monolith")
-	defer log.Sync()
+	defer func() { _ = log.Sync() }()
 
 	log.Info("Starting StreamGate Monolithic Mode...")
 
@@ -30,6 +30,9 @@ func main() {
 
 	// Force monolithic mode
 	cfg.Mode = "monolith"
+	if err := cfg.ValidateProduction(log); err != nil {
+		log.Fatal("Config validation failed", zap.Error(err))
+	}
 	log.Info("Configuration loaded", zap.String("mode", cfg.Mode), zap.Int("port", cfg.Server.Port))
 
 	// Initialize microkernel

@@ -1,18 +1,28 @@
 const DEFAULT_API_BASE = 'http://localhost:29090';
+const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '19090', '28080', '29090']);
+
+function normalizeBaseUrl(url) {
+    return url.replace(/\/$/, '');
+}
 
 function inferApiBase() {
     const stored = localStorage.getItem('streamgate_api_base');
     if (stored) {
-        return stored.replace(/\/$/, '');
+        return normalizeBaseUrl(stored);
     }
 
     if (window.location.protocol === 'file:') {
         return DEFAULT_API_BASE;
     }
 
-    const origin = window.location.origin;
-    if (/:(8080|9090|18080|19090|28080|29090)$/.test(origin)) {
-        return origin;
+    try {
+        const current = new URL(window.location.href);
+        const port = current.port || (current.protocol === 'https:' ? '443' : '80');
+        if (ACCEPTANCE_BACKEND_PORTS.has(port)) {
+            return normalizeBaseUrl(current.origin);
+        }
+    } catch (error) {
+        console.warn('Failed to infer API base from current location:', error);
     }
 
     return DEFAULT_API_BASE;
@@ -22,12 +32,12 @@ const API_BASE = inferApiBase();
 
 class APIService {
     constructor(baseUrl = API_BASE) {
-        this.baseUrl = baseUrl.replace(/\/$/, '');
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         this.authToken = null;
     }
 
     setBaseUrl(baseUrl) {
-        this.baseUrl = baseUrl.replace(/\/$/, '');
+        this.baseUrl = normalizeBaseUrl(baseUrl);
         localStorage.setItem('streamgate_api_base', this.baseUrl);
     }
 
@@ -113,6 +123,29 @@ class APIService {
             return await this.get('/health');
         } catch (error) {
             return this.get('/api/v1/health');
+        }
+    }
+
+    async ensureReachable() {
+        try {
+            return await this.healthCheck();
+        } catch (error) {
+            if (this.baseUrl !== DEFAULT_API_BASE) {
+                const previousBase = this.baseUrl;
+                this.baseUrl = DEFAULT_API_BASE;
+                try {
+                    const result = await this.healthCheck();
+                    localStorage.setItem('streamgate_api_base', this.baseUrl);
+                    return {
+                        ...result,
+                        recovered_from: previousBase,
+                    };
+                } catch (fallbackError) {
+                    this.baseUrl = previousBase;
+                    throw fallbackError;
+                }
+            }
+            throw error;
         }
     }
 

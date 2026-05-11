@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -14,6 +15,12 @@ import (
 // MinIOStorage handles MinIO storage
 type MinIOStorage struct {
 	client *minio.Client
+}
+
+// Close releases MinIO resources. The minio-go client has no explicit Close,
+// but implementing io.Closer allows AppResources to manage it uniformly.
+func (ms *MinIOStorage) Close() error {
+	return nil
 }
 
 // MinIOConfig holds MinIO configuration
@@ -41,8 +48,14 @@ func NewMinIOStorage(config MinIOConfig) (*MinIOStorage, error) {
 }
 
 // Upload uploads to MinIO
-func (ms *MinIOStorage) Upload(bucket, objectName string, data []byte) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (ms *MinIOStorage) Upload(ctx context.Context, bucket, objectName string, data []byte) error {
+	return ms.UploadStream(ctx, bucket, objectName, bytes.NewReader(data), int64(len(data)))
+}
+
+// UploadStream uploads to MinIO from an io.Reader without buffering the entire
+// content in memory. The caller must provide the expected size.
+func (ms *MinIOStorage) UploadStream(ctx context.Context, bucket, objectName string, reader io.Reader, size int64) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	// Ensure bucket exists
@@ -57,12 +70,9 @@ func (ms *MinIOStorage) Upload(bucket, objectName string, data []byte) error {
 		}
 	}
 
-	// Upload object
-	reader := bytes.NewReader(data)
-	_, err = ms.client.PutObject(ctx, bucket, objectName, reader, int64(len(data)), minio.PutObjectOptions{
+	_, err = ms.client.PutObject(ctx, bucket, objectName, reader, size, minio.PutObjectOptions{
 		ContentType: "application/octet-stream",
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to upload to MinIO: %w", err)
 	}
@@ -71,8 +81,8 @@ func (ms *MinIOStorage) Upload(bucket, objectName string, data []byte) error {
 }
 
 // UploadWithContentType uploads to MinIO with specific content type
-func (ms *MinIOStorage) UploadWithContentType(bucket, objectName string, data []byte, contentType string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (ms *MinIOStorage) UploadWithContentType(ctx context.Context, bucket, objectName string, data []byte, contentType string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Ensure bucket exists
@@ -101,27 +111,31 @@ func (ms *MinIOStorage) UploadWithContentType(bucket, objectName string, data []
 }
 
 // Download downloads from MinIO
-func (ms *MinIOStorage) Download(bucket, objectName string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (ms *MinIOStorage) Download(ctx context.Context, bucket, objectName string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	object, err := ms.client.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object from MinIO: %w", err)
 	}
-	defer object.Close()
+	defer func() { _ = object.Close() }()
 
 	buf := new(bytes.Buffer)
-	if _, err := io.Copy(buf, object); err != nil {
+	n, err := io.Copy(buf, io.LimitReader(object, maxDownloadSize+1))
+	if err != nil {
 		return nil, fmt.Errorf("failed to read MinIO object: %w", err)
+	}
+	if n > maxDownloadSize {
+		return nil, errors.New("MinIO object exceeds maximum download size (1 GB)")
 	}
 
 	return buf.Bytes(), nil
 }
 
 // Delete deletes from MinIO
-func (ms *MinIOStorage) Delete(bucket, objectName string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (ms *MinIOStorage) Delete(ctx context.Context, bucket, objectName string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	err := ms.client.RemoveObject(ctx, bucket, objectName, minio.RemoveObjectOptions{})
@@ -133,8 +147,8 @@ func (ms *MinIOStorage) Delete(bucket, objectName string) error {
 }
 
 // Exists checks if an object exists in MinIO
-func (ms *MinIOStorage) Exists(bucket, objectName string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (ms *MinIOStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	_, err := ms.client.StatObject(ctx, bucket, objectName, minio.StatObjectOptions{})
@@ -151,8 +165,8 @@ func (ms *MinIOStorage) Exists(bucket, objectName string) (bool, error) {
 }
 
 // ListObjects lists objects in a bucket with a prefix
-func (ms *MinIOStorage) ListObjects(bucket, prefix string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (ms *MinIOStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	objectCh := ms.client.ListObjects(ctx, bucket, minio.ListObjectsOptions{
@@ -172,8 +186,8 @@ func (ms *MinIOStorage) ListObjects(bucket, prefix string) ([]string, error) {
 }
 
 // GetPresignedURL generates a presigned URL for downloading
-func (ms *MinIOStorage) GetPresignedURL(bucket, objectName string, expiration time.Duration) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (ms *MinIOStorage) GetPresignedURL(ctx context.Context, bucket, objectName string, expiration time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	url, err := ms.client.PresignedGetObject(ctx, bucket, objectName, expiration, nil)
@@ -185,8 +199,8 @@ func (ms *MinIOStorage) GetPresignedURL(bucket, objectName string, expiration ti
 }
 
 // CreateBucket creates a new bucket
-func (ms *MinIOStorage) CreateBucket(bucket string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	exists, err := ms.client.BucketExists(ctx, bucket)

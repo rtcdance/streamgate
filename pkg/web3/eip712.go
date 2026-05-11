@@ -187,7 +187,7 @@ func hashTypedData(typedData apitypes.TypedData) ([]byte, error) {
 }
 
 // CreatePermitTypedData creates EIP-2612 permit typed data
-func CreatePermitTypedData(domain EIP712Domain, owner, spender string, value *big.Int, nonce, deadline *big.Int) *EIP712TypedData {
+func CreatePermitTypedData(domain EIP712Domain, owner, spender string, value, nonce, deadline *big.Int) *EIP712TypedData {
 	return &EIP712TypedData{
 		Types: EIP712Types{
 			"EIP712Domain": []EIP712Type{
@@ -388,10 +388,11 @@ func hashValue(typeName string, types EIP712Types, value interface{}) ([]byte, e
 		if !ok {
 			return nil, fmt.Errorf("expected bool, got %T", value)
 		}
+		result := make([]byte, 32)
 		if b {
-			return []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, nil
+			result[31] = 1
 		}
-		return []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, nil
+		return result, nil
 
 	case "string":
 		s, ok := value.(string)

@@ -7,7 +7,7 @@ import (
 
 // Service provides dashboard functionality
 type Service struct {
-	mu        sync.RWMutex
+	mu        sync.RWMutex //nolint:unused
 	dashboard *Dashboard
 	ctx       context.Context
 	cancel    context.CancelFunc

@@ -1,32 +1,33 @@
 package service
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/storage"
+
+	"go.uber.org/zap"
 )
 
 // StreamingService handles streaming operations
 type StreamingService struct {
-	db      *sql.DB
-	storage StreamingObjectStorage
-	cache   StreamingCacheStorage
+	db       storage.DB
+	objStore StreamingObjectStorage
+	cache   cachetypes.CacheBackend
 	baseURL string
+	logger  *zap.Logger
 }
 
 // StreamingObjectStorage defines the interface for object storage
 type StreamingObjectStorage interface {
-	Download(bucket, key string) ([]byte, error)
-	Exists(bucket, key string) (bool, error)
-}
-
-// StreamingCacheStorage defines the interface for cache storage
-type StreamingCacheStorage interface {
-	Get(key string) (interface{}, error)
-	Set(key string, value interface{}) error
-	Delete(key string) error
+	Download(ctx context.Context, bucket, key string) ([]byte, error)
+	Exists(ctx context.Context, bucket, key string) (bool, error)
 }
 
 // StreamInfo represents stream information
@@ -52,17 +53,24 @@ type Quality struct {
 }
 
 // NewStreamingService creates a new streaming service
-func NewStreamingService(db *sql.DB, storage StreamingObjectStorage, cache StreamingCacheStorage, baseURL string) *StreamingService {
+func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache cachetypes.CacheBackend, baseURL string, logger ...*zap.Logger) *StreamingService {
+	var l *zap.Logger
+	if len(logger) > 0 && logger[0] != nil {
+		l = logger[0]
+	} else {
+		l = zap.NewNop()
+	}
 	return &StreamingService{
-		db:      db,
-		storage: storage,
-		cache:   cache,
-		baseURL: baseURL,
+		db:       db,
+		objStore: objStorage,
+		cache:    cache,
+		baseURL:  baseURL,
+		logger:   l,
 	}
 }
 
 // GetStream gets stream information
-func (s *StreamingService) GetStream(contentID string) (*StreamInfo, error) {
+func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*StreamInfo, error) {
 	// Check cache first
 	cacheKey := fmt.Sprintf("stream:%s", contentID)
 	if s.cache != nil {
@@ -74,6 +82,10 @@ func (s *StreamingService) GetStream(contentID string) (*StreamInfo, error) {
 	}
 
 	// Query from database
+	if s.db == nil {
+		return nil, fmt.Errorf("stream not found for content: %s", contentID)
+	}
+
 	query := `
 		SELECT id, content_id, type, url, playlist, duration, status, created_at, expires_at
 		FROM streams
@@ -83,7 +95,7 @@ func (s *StreamingService) GetStream(contentID string) (*StreamInfo, error) {
 	`
 
 	var streamInfo StreamInfo
-	err := s.db.QueryRow(query, contentID).Scan(
+	err := s.db.QueryRow(ctx, query, contentID).Scan(
 		&streamInfo.ID,
 		&streamInfo.ContentID,
 		&streamInfo.Type,
@@ -95,14 +107,14 @@ func (s *StreamingService) GetStream(contentID string) (*StreamInfo, error) {
 		&streamInfo.ExpiresAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("stream not found for content: %s", contentID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
 	}
 
 	// Get qualities
-	qualities, err := s.getStreamQualities(streamInfo.ID)
+	qualities, err := s.getStreamQualities(ctx, streamInfo.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream qualities: %w", err)
 	}
@@ -110,14 +122,17 @@ func (s *StreamingService) GetStream(contentID string) (*StreamInfo, error) {
 
 	// Cache the result
 	if s.cache != nil {
-		s.cache.Set(cacheKey, &streamInfo)
+		_ = s.cache.Set(cacheKey, &streamInfo)
 	}
 
 	return &streamInfo, nil
 }
 
 // CreateStream creates a new stream
-func (s *StreamingService) CreateStream(contentID, streamType string) (string, error) {
+func (s *StreamingService) CreateStream(ctx context.Context, contentID, streamType string) (string, error) {
+	if s.db == nil {
+		return "", fmt.Errorf("database not available")
+	}
 	// Generate stream ID
 	streamID := fmt.Sprintf("stream_%s_%d", contentID, time.Now().Unix())
 
@@ -130,7 +145,7 @@ func (s *StreamingService) CreateStream(contentID, streamType string) (string, e
 	now := time.Now()
 	expiresAt := now.Add(24 * time.Hour)
 
-	_, err := s.db.Exec(query, streamID, contentID, streamType, "pending", now, expiresAt)
+	_, err := s.db.Exec(ctx, query, streamID, contentID, streamType, "pending", now, expiresAt)
 	if err != nil {
 		return "", fmt.Errorf("failed to create stream: %w", err)
 	}
@@ -173,7 +188,7 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 
 	// Write quality representations
 	for _, quality := range qualities {
-		manifest.WriteString(fmt.Sprintf(`      <Representation bandwidth="%d" width="%s">`,
+		manifest.WriteString(fmt.Sprintf(`      <Representation bandwidth="%d" width=%q>`, //nolint:gocritic // "%s" is XML attribute syntax, not Go quoting
 			quality.Bitrate*1000, strings.Split(quality.Resolution, "x")[0]))
 		manifest.WriteString("\n")
 		manifest.WriteString(fmt.Sprintf(`        <BaseURL>%s/%s/%s.mp4</BaseURL>`,
@@ -193,9 +208,12 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 }
 
 // UpdateStreamStatus updates stream status
-func (s *StreamingService) UpdateStreamStatus(streamID, status string) error {
+func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, status string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := "UPDATE streams SET status = $2 WHERE id = $1"
-	_, err := s.db.Exec(query, streamID, status)
+	_, err := s.db.Exec(ctx, query, streamID, status)
 	if err != nil {
 		return fmt.Errorf("failed to update stream status: %w", err)
 	}
@@ -204,9 +222,14 @@ func (s *StreamingService) UpdateStreamStatus(streamID, status string) error {
 	if s.cache != nil {
 		// Get content ID first
 		var contentID string
-		s.db.QueryRow("SELECT content_id FROM streams WHERE id = $1", streamID).Scan(&contentID)
+		if err := s.db.QueryRow(ctx, "SELECT content_id FROM streams WHERE id = $1", streamID).Scan(&contentID); err != nil {
+			// Log but don't fail — the status update itself succeeded
+			s.logger.Warn("Failed to get content_id for cache invalidation",
+				zap.String("stream_id", streamID),
+				zap.Error(err))
+		}
 		if contentID != "" {
-			s.cache.Delete(fmt.Sprintf("stream:%s", contentID))
+			_ = s.cache.Delete(fmt.Sprintf("stream:%s", contentID))
 		}
 	}
 
@@ -214,10 +237,13 @@ func (s *StreamingService) UpdateStreamStatus(streamID, status string) error {
 }
 
 // UpdateStreamPlaylist updates stream playlist
-func (s *StreamingService) UpdateStreamPlaylist(streamID, playlist string) error {
+func (s *StreamingService) UpdateStreamPlaylist(ctx context.Context, streamID, playlist string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := "UPDATE streams SET playlist = $2, url = $3 WHERE id = $1"
 	url := fmt.Sprintf("%s/streams/%s/playlist.m3u8", s.baseURL, streamID)
-	_, err := s.db.Exec(query, streamID, playlist, url)
+	_, err := s.db.Exec(ctx, query, streamID, playlist, url)
 	if err != nil {
 		return fmt.Errorf("failed to update stream playlist: %w", err)
 	}
@@ -226,13 +252,16 @@ func (s *StreamingService) UpdateStreamPlaylist(streamID, playlist string) error
 }
 
 // AddStreamQuality adds a quality variant to a stream
-func (s *StreamingService) AddStreamQuality(streamID string, quality Quality) error {
+func (s *StreamingService) AddStreamQuality(ctx context.Context, streamID string, quality Quality) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	query := `
 		INSERT INTO stream_qualities (stream_id, name, resolution, bitrate, url)
 		VALUES ($1, $2, $3, $4, $5)
 	`
 
-	_, err := s.db.Exec(query, streamID, quality.Name, quality.Resolution, quality.Bitrate, quality.URL)
+	_, err := s.db.Exec(ctx, query, streamID, quality.Name, quality.Resolution, quality.Bitrate, quality.URL)
 	if err != nil {
 		return fmt.Errorf("failed to add stream quality: %w", err)
 	}
@@ -241,7 +270,10 @@ func (s *StreamingService) AddStreamQuality(streamID string, quality Quality) er
 }
 
 // getStreamQualities gets all quality variants for a stream
-func (s *StreamingService) getStreamQualities(streamID string) ([]Quality, error) {
+func (s *StreamingService) getStreamQualities(ctx context.Context, streamID string) ([]Quality, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	query := `
 		SELECT name, resolution, bitrate, url
 		FROM stream_qualities
@@ -249,11 +281,11 @@ func (s *StreamingService) getStreamQualities(streamID string) ([]Quality, error
 		ORDER BY bitrate DESC
 	`
 
-	rows, err := s.db.Query(query, streamID)
+	rows, err := s.db.Query(ctx, query, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query stream qualities: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	qualities := make([]Quality, 0)
 	for rows.Next() {
@@ -269,15 +301,18 @@ func (s *StreamingService) getStreamQualities(streamID string) ([]Quality, error
 }
 
 // DeleteStream deletes a stream
-func (s *StreamingService) DeleteStream(streamID string) error {
+func (s *StreamingService) DeleteStream(ctx context.Context, streamID string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
 	// Delete qualities first
-	_, err := s.db.Exec("DELETE FROM stream_qualities WHERE stream_id = $1", streamID)
+	_, err := s.db.Exec(ctx, "DELETE FROM stream_qualities WHERE stream_id = $1", streamID)
 	if err != nil {
 		return fmt.Errorf("failed to delete stream qualities: %w", err)
 	}
 
 	// Delete stream
-	_, err = s.db.Exec("DELETE FROM streams WHERE id = $1", streamID)
+	_, err = s.db.Exec(ctx, "DELETE FROM streams WHERE id = $1", streamID)
 	if err != nil {
 		return fmt.Errorf("failed to delete stream: %w", err)
 	}
@@ -286,7 +321,10 @@ func (s *StreamingService) DeleteStream(streamID string) error {
 }
 
 // GetStreamByID gets stream by ID
-func (s *StreamingService) GetStreamByID(streamID string) (*StreamInfo, error) {
+func (s *StreamingService) GetStreamByID(ctx context.Context, streamID string) (*StreamInfo, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
 	query := `
 		SELECT id, content_id, type, url, playlist, duration, status, created_at, expires_at
 		FROM streams
@@ -294,7 +332,7 @@ func (s *StreamingService) GetStreamByID(streamID string) (*StreamInfo, error) {
 	`
 
 	var streamInfo StreamInfo
-	err := s.db.QueryRow(query, streamID).Scan(
+	err := s.db.QueryRow(ctx, query, streamID).Scan(
 		&streamInfo.ID,
 		&streamInfo.ContentID,
 		&streamInfo.Type,
@@ -306,14 +344,14 @@ func (s *StreamingService) GetStreamByID(streamID string) (*StreamInfo, error) {
 		&streamInfo.ExpiresAt,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("stream not found: %s", streamID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
 	}
 
 	// Get qualities
-	qualities, err := s.getStreamQualities(streamInfo.ID)
+	qualities, err := s.getStreamQualities(ctx, streamInfo.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream qualities: %w", err)
 	}

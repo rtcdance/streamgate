@@ -4,16 +4,65 @@ run:
   timeout: 5m
   tests: false
 
+severity:
+  default: error
+  rules:
+    - linters:
+        - errcheck
+        - unused
+        - gocritic
+        - gocyclo
+      severity: warning
+
 linters:
   enable:
     - govet
     - ineffassign
     - misspell
-  disable:
     - errcheck
     - staticcheck
     - unused
+    - gocritic
+    - gocyclo
+  disable:
+    - revive
+  settings:
+    errcheck:
+      check-type-assertions: false
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+      disabled-checks:
+        - exitAfterDefer
+        - ifElseChain
+        - hugeParam
+        - rangeValCopy
+        - deprecatedComment
+        - unslice
+        - wrapperFunc
+        - elseif
+        - assignOp
+        - offBy1
+        - dupImport
+        - whyNoLint
+    gocyclo:
+      min-complexity: 35
+    staticcheck:
+      checks:
+        - all
+        - -SA1019
+        - -QF1003
+        - -QF1008
+        - -ST1000
+        - -ST1003
+        - -ST1005
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -SA9003
 
 issues:
-  max-issues-per-linter: 0
-  max-same-issues: 0
+  max-issues-per-linter: 50
+  max-same-issues: 5

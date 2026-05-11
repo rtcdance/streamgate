@@ -22,6 +22,7 @@ type CacheEntry struct {
 type LocalCache struct {
 	logger          *zap.Logger
 	mu              sync.RWMutex
+	wg              sync.WaitGroup // tracks cleanup goroutine
 	entries         map[string]*CacheEntry
 	maxSize         int
 	ttl             time.Duration
@@ -41,6 +42,7 @@ func NewLocalCache(maxSize int, ttl time.Duration, logger *zap.Logger) *LocalCac
 	}
 
 	// Start cleanup goroutine
+	cache.wg.Add(1)
 	go cache.cleanupLoop()
 
 	return cache
@@ -141,6 +143,7 @@ func (lc *LocalCache) evictOldest() {
 
 // cleanupLoop periodically cleans up expired entries
 func (lc *LocalCache) cleanupLoop() {
+	defer lc.wg.Done()
 	ticker := time.NewTicker(lc.cleanupInterval)
 	defer ticker.Stop()
 
@@ -174,9 +177,10 @@ func (lc *LocalCache) cleanup() {
 	}
 }
 
-// Stop stops the cache cleanup
+// Stop stops the cache cleanup and waits for the goroutine to exit.
 func (lc *LocalCache) Stop() {
 	close(lc.stopChan)
+	lc.wg.Wait()
 	lc.logger.Info("Local cache stopped")
 }
 

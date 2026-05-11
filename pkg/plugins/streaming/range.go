@@ -121,7 +121,7 @@ func (rh *RangeHandler) serveFullFile(ctx context.Context, w http.ResponseWriter
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 	w.Header().Set("Content-Type", rh.getContentType(filePath))
@@ -142,7 +142,7 @@ func (rh *RangeHandler) serveSingleRange(ctx context.Context, w http.ResponseWri
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if _, err := file.Seek(fileRange.Start, io.SeekStart); err != nil {
 		http.Error(w, "Failed to seek file", http.StatusInternalServerError)
@@ -177,7 +177,7 @@ func (rh *RangeHandler) serveMultiRange(ctx context.Context, w http.ResponseWrit
 		http.Error(w, "Failed to open file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	w.Header().Set("Content-Type", fmt.Sprintf("multipart/byteranges; boundary=%s", boundary))
 	w.WriteHeader(http.StatusPartialContent)
@@ -219,10 +219,10 @@ func (mw *multipartWriter) WriteHeader() {
 		return
 	}
 
-	fmt.Fprintf(mw.w, "--%s\r\n", mw.boundary)
-	fmt.Fprintf(mw.w, "Content-Type: application/octet-stream\r\n")
-	fmt.Fprintf(mw.w, "Content-Range: bytes %d-%d/%d\r\n", 0, 0, 0)
-	fmt.Fprintf(mw.w, "\r\n")
+	_, _ = fmt.Fprintf(mw.w, "--%s\r\n", mw.boundary)
+	_, _ = fmt.Fprintf(mw.w, "Content-Type: application/octet-stream\r\n")
+	_, _ = fmt.Fprintf(mw.w, "Content-Range: bytes %d-%d/%d\r\n", 0, 0, 0)
+	_, _ = fmt.Fprintf(mw.w, "\r\n")
 }
 
 // Write writes data to the multipart response
@@ -239,7 +239,7 @@ func (mw *multipartWriter) Close() {
 		return
 	}
 
-	fmt.Fprintf(mw.w, "\r\n--%s--\r\n", mw.boundary)
+	_, _ = fmt.Fprintf(mw.w, "\r\n--%s--\r\n", mw.boundary)
 	mw.closed = true
 }
 
@@ -370,7 +370,7 @@ func (rh *RangeHandler) ServeRange(ctx context.Context, filePath string, start, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	fileInfo, err := file.Stat()
 	if err != nil {

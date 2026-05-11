@@ -1,24 +1,26 @@
 package e2e_test
 
 import (
+	"context"
 	"testing"
 
+	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
 
 // MockAuthStorage for testing
 type MockAuthStorage struct {
-	users map[string]*service.User
+	users map[string]*models.User
 }
 
 func NewMockAuthStorage() *MockAuthStorage {
 	return &MockAuthStorage{
-		users: make(map[string]*service.User),
+		users: make(map[string]*models.User),
 	}
 }
 
-func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
+func (m *MockAuthStorage) GetUser(ctx context.Context, username string) (*models.User, error) {
 	user, exists := m.users[username]
 	if !exists {
 		return nil, nil
@@ -26,12 +28,12 @@ func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
 	return user, nil
 }
 
-func (m *MockAuthStorage) CreateUser(user *service.User) error {
+func (m *MockAuthStorage) CreateUser(ctx context.Context, user *models.User) error {
 	m.users[user.Username] = user
 	return nil
 }
 
-func (m *MockAuthStorage) UpdateUser(user *service.User) error {
+func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) error {
 	m.users[user.Username] = user
 	return nil
 }
@@ -42,17 +44,17 @@ func TestAuthFlow_UserRegistrationAndLogin(t *testing.T) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Step 1: Register user
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Step 2: Verify user was created
-	user, err := storage.GetUser("testuser")
+	user, err := storage.GetUser(context.Background(), "testuser")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, user)
 	helpers.AssertEqual(t, "testuser", user.Username)
 
 	// Step 3: Login with correct credentials
-	token, err := authService.Authenticate("testuser", "password123")
+	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEqual(t, "", token)
 
@@ -73,14 +75,14 @@ func TestAuthFlow_FailedLogin(t *testing.T) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Register user
-	authService.Register("testuser", "password123", "test@example.com")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	// Try login with wrong password
-	_, err := authService.Authenticate("testuser", "wrongpassword")
+	_, err := authService.Authenticate(context.Background(), "testuser", "wrongpassword")
 	helpers.AssertError(t, err)
 
 	// Try login with non-existent user
-	_, err = authService.Authenticate("nonexistent", "password123")
+	_, err = authService.Authenticate(context.Background(), "nonexistent", "password123")
 	helpers.AssertError(t, err)
 }
 
@@ -90,12 +92,12 @@ func TestAuthFlow_TokenRefresh(t *testing.T) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Register and login
-	authService.Register("testuser", "password123", "test@example.com")
-	token, err := authService.Authenticate("testuser", "password123")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	helpers.AssertNoError(t, err)
 
 	// Refresh token
-	newToken, err := authService.RefreshToken(token)
+	newToken, err := authService.RefreshToken(context.Background(), token)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEqual(t, token, newToken)
 
@@ -111,18 +113,18 @@ func TestAuthFlow_PasswordChange(t *testing.T) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Register user
-	authService.Register("testuser", "oldpassword", "test@example.com")
+	authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
 
 	// Change password
-	err := authService.ChangePassword("testuser", "oldpassword", "newpassword")
+	err := authService.ChangePassword(context.Background(), "testuser", "oldpassword", "newpassword")
 	helpers.AssertNoError(t, err)
 
 	// Old password should not work
-	_, err = authService.Authenticate("testuser", "oldpassword")
+	_, err = authService.Authenticate(context.Background(), "testuser", "oldpassword")
 	helpers.AssertError(t, err)
 
 	// New password should work
-	token, err := authService.Authenticate("testuser", "newpassword")
+	token, err := authService.Authenticate(context.Background(), "testuser", "newpassword")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEqual(t, "", token)
 }

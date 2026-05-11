@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestContent_Creation(t *testing.T) {
@@ -17,10 +17,10 @@ func TestContent_Creation(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	helpers.AssertEqual(t, "content123", content.ID)
-	helpers.AssertEqual(t, "Test Video", content.Title)
-	helpers.AssertEqual(t, "video", content.Type)
-	helpers.AssertEqual(t, int64(1024000), content.FileSize)
+	assert.Equal(t, "content123", content.ID)
+	assert.Equal(t, "Test Video", content.Title)
+	assert.Equal(t, "video", content.Type)
+	assert.Equal(t, int64(1024000), content.FileSize)
 }
 
 func TestContent_StatusTransition(t *testing.T) {
@@ -32,11 +32,11 @@ func TestContent_StatusTransition(t *testing.T) {
 
 	// Transition to processing
 	content.Status = "processing"
-	helpers.AssertEqual(t, "processing", content.Status)
+	assert.Equal(t, "processing", content.Status)
 
 	// Transition to ready
 	content.Status = "ready"
-	helpers.AssertEqual(t, "ready", content.Status)
+	assert.Equal(t, "ready", content.Status)
 }
 
 func TestContent_Validation(t *testing.T) {
@@ -75,7 +75,7 @@ func TestContent_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isValid := tt.content.ID != "" && tt.content.Title != "" && tt.content.Type != ""
-			helpers.AssertEqual(t, tt.isValid, isValid)
+			assert.Equal(t, tt.isValid, isValid)
 		})
 	}
 }

@@ -1,9 +1,11 @@
 package streaming_test
 
 import (
+	"context"
 	"testing"
 
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
 )
 
@@ -36,79 +38,59 @@ func (m *MockCacheStorage) Delete(key string) error {
 	return nil
 }
 
+func newStreamingService(t *testing.T, db storage.DB, cache *MockCacheStorage) *service.StreamingService {
+	t.Helper()
+	objStorage := helpers.SetupTestStorage(t)
+	return service.NewStreamingService(db, objStorage, cache, "http://localhost:8080")
+}
+
 func TestStreamingService_CreateStream(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Create stream
-	streamID, err := streamingService.CreateStream("content-123", "hls")
+	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, streamID)
 }
 
 func TestStreamingService_GetStream(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Create stream
-	streamID, err := streamingService.CreateStream("content-123", "hls")
+	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
 	helpers.AssertNoError(t, err)
 
-	// Update stream status to ready
-	err = streamingService.UpdateStreamStatus(streamID, "ready")
+	err = streamingService.UpdateStreamStatus(context.Background(), streamID, "ready")
 	helpers.AssertNoError(t, err)
 
-	// Get stream
-	stream, err := streamingService.GetStream("content-123")
+	stream, err := streamingService.GetStream(context.Background(), "content-123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, stream)
 	helpers.AssertEqual(t, "content-123", stream.ContentID)
 }
 
 func TestStreamingService_HLSFormat(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Generate HLS playlist
 	playlist, err := streamingService.GenerateHLSPlaylist("content-123", []service.Quality{
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.m3u8"},
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.m3u8"},
@@ -119,23 +101,15 @@ func TestStreamingService_HLSFormat(t *testing.T) {
 }
 
 func TestStreamingService_DASHFormat(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Generate DASH manifest
 	manifest, err := streamingService.GenerateDASHManifest("content-123", []service.Quality{
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.mpd"},
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.mpd"},
@@ -146,69 +120,49 @@ func TestStreamingService_DASHFormat(t *testing.T) {
 }
 
 func TestStreamingService_AdaptiveBitrate(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Create stream
-	streamID, err := streamingService.CreateStream("content-123", "hls")
+	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
 	helpers.AssertNoError(t, err)
 
-	// Add stream qualities
-	err = streamingService.AddStreamQuality(streamID, service.Quality{
+	err = streamingService.AddStreamQuality(context.Background(), streamID, service.Quality{
 		Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.m3u8",
 	})
 	helpers.AssertNoError(t, err)
 
-	err = streamingService.AddStreamQuality(streamID, service.Quality{
+	err = streamingService.AddStreamQuality(context.Background(), streamID, service.Quality{
 		Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.m3u8",
 	})
 	helpers.AssertNoError(t, err)
 
-	// Get stream info
-	stream, err := streamingService.GetStreamByID(streamID)
+	stream, err := streamingService.GetStreamByID(context.Background(), streamID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(stream.Qualities) > 0)
 }
 
 func TestStreamingService_DeleteStream(t *testing.T) {
-	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
 		return
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
-		return
-	}
-	defer helpers.CleanupTestStorage(t, storage)
-
 	cache := NewMockCacheStorage()
-	streamingService := service.NewStreamingService(db.GetDB(), storage, cache, "http://localhost:8080")
+	streamingService := newStreamingService(t, db, cache)
 
-	// Create stream
-	streamID, err := streamingService.CreateStream("content-123", "hls")
+	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
 	helpers.AssertNoError(t, err)
 
-	// Delete stream
-	err = streamingService.DeleteStream(streamID)
+	err = streamingService.DeleteStream(context.Background(), streamID)
 	helpers.AssertNoError(t, err)
 
-	// Verify deletion
-	_, err = streamingService.GetStreamByID(streamID)
+	_, err = streamingService.GetStreamByID(context.Background(), streamID)
 	helpers.AssertError(t, err)
 }

@@ -183,7 +183,6 @@ func (s *JobScheduler) executeJob(job *Job) {
 	// - Handle errors
 
 	job.Status = "completed"
-	// job.CompletedAt = time.Now().Unix()  // Field doesn't exist yet
 }
 
 // ScheduledJob represents a scheduled job

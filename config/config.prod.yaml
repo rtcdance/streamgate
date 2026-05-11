@@ -14,7 +14,7 @@ database:
   password: "${DB_PASSWORD}"
   dbname: "${DB_NAME}"
   sslmode: "require"
-  max_open_conns: 50
+  maxconns: 50
   max_idle_conns: 10
   conn_max_lifetime: 10m
 
@@ -23,7 +23,7 @@ redis:
   port: ${REDIS_PORT}
   password: "${REDIS_PASSWORD}"
   db: 0
-  pool_size: 20
+  poolsize: 20
   min_idle_conns: 5
 
 storage:
@@ -101,7 +101,7 @@ web3:
       name: "optimism"
       rpc_url: "${OPTIMISM_RPC_URL}"
       explorer_url: "https://optimistic.etherscan.io"
-  default_chain_id: 1
+  chain_id: 1
 
 auth:
   jwt_secret: "${JWT_SECRET}"

@@ -33,20 +33,20 @@ func (h *WorkerHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // ReadyHandler handles readiness check requests
 func (h *WorkerHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // SubmitJobHandler handles job submission
@@ -54,7 +54,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("submit_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("Failed to decode job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_job_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid job"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid job"})
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("Failed to submit job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_job_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit job"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit job"})
 		return
 	}
 
@@ -88,7 +88,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(job)
+	_ = json.NewEncoder(w).Encode(job)
 }
 
 // GetJobStatusHandler handles job status requests
@@ -96,7 +96,7 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_job_status_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 	if jobID == "" {
 		h.metricsCollector.IncrementCounter("get_job_status_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing job_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing job_id"})
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 	h.metricsCollector.IncrementCounter("get_job_status_success", map[string]string{})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(job)
+	_ = json.NewEncoder(w).Encode(job)
 }
 
 // CancelJobHandler handles job cancellation
@@ -130,7 +130,7 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cancel_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 	if jobID == "" {
 		h.metricsCollector.IncrementCounter("cancel_job_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing job_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing job_id"})
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 // ListJobsHandler handles job listing
@@ -161,7 +161,7 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("list_jobs_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -177,7 +177,7 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 	h.metricsCollector.RecordHistogram("list_jobs_count", float64(len(jobs)), map[string]string{})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(jobs)
+	_ = json.NewEncoder(w).Encode(jobs)
 }
 
 // ScheduleJobHandler handles job scheduling
@@ -185,7 +185,7 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("schedule_job_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 		h.logger.Error("Failed to decode scheduled job", zap.Error(err))
 		h.metricsCollector.IncrementCounter("schedule_job_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid scheduled job"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid scheduled job"})
 		return
 	}
 
@@ -212,12 +212,12 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(scheduled)
+	_ = json.NewEncoder(w).Encode(scheduled)
 }
 
 // NotFoundHandler handles 404 requests
 func (h *WorkerHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 }

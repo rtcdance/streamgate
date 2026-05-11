@@ -11,10 +11,10 @@ database:
   host: "localhost"
   port: 5432
   user: "streamgate"
-  password: "streamgate_password"
-  dbname: "streamgate"
+  password: ""  # Set via DATABASE_PASSWORD env var in production
+  database: "streamgate"
   sslmode: "disable"
-  max_open_conns: 25
+  maxconns: 25
   max_idle_conns: 5
   conn_max_lifetime: 5m
 
@@ -23,7 +23,7 @@ redis:
   port: 6379
   password: ""
   db: 0
-  pool_size: 10
+  poolsize: 10
   min_idle_conns: 2
 
 storage:
@@ -31,14 +31,14 @@ storage:
   s3:
     endpoint: "http://localhost:9000"
     access_key: "minioadmin"
-    secret_key: "minioadmin"
+    secret_key: "${S3_SECRET_KEY}"  # REQUIRED: Set via env var in production
     bucket: "streamgate"
     region: "us-east-1"
     use_ssl: false
   minio:
     endpoint: "http://localhost:9000"
     access_key: "minioadmin"
-    secret_key: "minioadmin"
+    secret_key: "${MINIO_SECRET_KEY}"  # REQUIRED: Set via env var in production
     bucket: "streamgate"
     use_ssl: false
 
@@ -89,10 +89,14 @@ web3:
       name: "bsc"
       rpc_url: "https://bsc-dataseed1.binance.org:8545"
       explorer_url: "https://bscscan.com"
-  default_chain_id: 1
+  chain_id: 1
+  rate_limit:
+    enabled: false
+    rate: 10
+    burst: 20
 
 auth:
-  jwt_secret: "your-secret-key-change-in-production"
+  jwt_secret: ""  # Set via AUTH_JWT_SECRET env var in production
   jwt_expiry: 24h
   refresh_token_expiry: 168h
   nonce_expiry: 5m

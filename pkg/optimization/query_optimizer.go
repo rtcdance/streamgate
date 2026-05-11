@@ -245,17 +245,18 @@ func (qo *QueryOptimizer) GetQueryStats(query string) map[string]interface{} {
 	var totalRows int64
 
 	for _, metric := range qo.metrics {
-		if metric.Query == query {
-			totalTime += metric.ExecutionTime
-			if metric.ExecutionTime < minTime {
-				minTime = metric.ExecutionTime
-			}
-			if metric.ExecutionTime > maxTime {
-				maxTime = metric.ExecutionTime
-			}
-			count++
-			totalRows += metric.RowsAffected
+		if metric.Query != query {
+			continue
 		}
+		totalTime += metric.ExecutionTime
+		if metric.ExecutionTime < minTime {
+			minTime = metric.ExecutionTime
+		}
+		if metric.ExecutionTime > maxTime {
+			maxTime = metric.ExecutionTime
+		}
+		count++
+		totalRows += metric.RowsAffected
 	}
 
 	if count > 0 {

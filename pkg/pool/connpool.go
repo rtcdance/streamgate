@@ -108,7 +108,7 @@ func (p *ConnectionPool) Get(ctx context.Context) (Connection, error) {
 			if conn.IsHealthy() {
 				return conn, nil
 			}
-			p.Close(conn)
+			_ = p.Close(conn)
 			p.mu.Lock()
 			continue
 		}
@@ -223,7 +223,7 @@ func (p *ConnectionPool) checkHealth() {
 		if conn.IsHealthy() {
 			healthy = append(healthy, conn)
 		} else {
-			conn.Close()
+			_ = conn.Close()
 			p.stats.TotalClosed++
 		}
 	}
@@ -286,7 +286,7 @@ func (p *ConnectionPool) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer p.Put(conn)
+	defer func() { _ = p.Put(conn) }()
 
 	if !conn.IsHealthy() {
 		return fmt.Errorf("connection is not healthy")

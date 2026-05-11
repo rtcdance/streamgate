@@ -8,7 +8,7 @@ import (
 
 // Service provides debugging and profiling functionality
 type Service struct {
-	mu       sync.RWMutex
+	mu       sync.RWMutex //nolint:unused
 	debugger *Debugger
 	profiler *Profiler
 	ctx      context.Context
@@ -65,8 +65,8 @@ func (s *Service) RecordTrace(function, message, level string) {
 }
 
 // RecordLog records a debug log
-func (s *Service) RecordLog(level, message string, context map[string]interface{}) {
-	s.debugger.RecordLog(level, message, context)
+func (s *Service) RecordLog(level, message string, ctx map[string]interface{}) {
+	s.debugger.RecordLog(level, message, ctx)
 }
 
 // GetTraces returns recent traces

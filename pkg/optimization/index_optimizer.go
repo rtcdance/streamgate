@@ -226,7 +226,7 @@ func (io *IndexOptimizer) GetFragmentedIndexes(threshold float64) []*IndexMetric
 // GetOptimizationRecommendations returns optimization recommendations
 func (io *IndexOptimizer) GetOptimizationRecommendations() []string {
 	io.mu.RLock()
-	defer io.mu.Unlock()
+	defer io.mu.RUnlock()
 
 	var recommendations []string
 

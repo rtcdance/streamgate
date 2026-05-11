@@ -3,7 +3,9 @@ package web3
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
 )
@@ -63,8 +65,13 @@ func (wm *WalletManager) CreateWallet() (*Wallet, error) {
 func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
 	wm.logger.Debug("Importing wallet from private key")
 
-	// Parse private key
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
+	// Normalize hex: strip optional 0x prefix and left-pad to 64 chars
+	hex := strings.TrimPrefix(privateKeyHex, "0x")
+	if len(hex) < 64 {
+		hex = strings.Repeat("0", 64-len(hex)) + hex
+	}
+
+	privateKey, err := crypto.HexToECDSA(hex)
 	if err != nil {
 		wm.logger.Error("Failed to parse private key", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse private key: %w", err)
@@ -91,24 +98,9 @@ func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
 	return wallet, nil
 }
 
-// ExportPrivateKey exports the private key as hex string
-func (wm *WalletManager) ExportPrivateKey(wallet *Wallet) string {
-	return fmt.Sprintf("0x%x", wallet.PrivateKey.D)
-}
-
 // ValidateAddress validates an Ethereum address
 func (wm *WalletManager) ValidateAddress(address string) bool {
-	if len(address) != 42 {
-		return false
-	}
-
-	if address[:2] != "0x" {
-		return false
-	}
-
-	// Try to parse as hex
-	_, err := crypto.HexToECDSA(address)
-	return err == nil
+	return common.IsHexAddress(address)
 }
 
 // WalletInfo contains wallet information
@@ -128,4 +120,43 @@ func (wm *WalletManager) GetWalletInfo(address string) *WalletInfo {
 		Address: address,
 		IsValid: wm.ValidateAddress(address),
 	}
+}
+
+// ImportFromMnemonic creates a wallet from a BIP-39 mnemonic phrase.
+// It derives the key at the standard Ethereum path m/44'/60'/0'/0/{accountIndex}.
+func (wm *WalletManager) ImportFromMnemonic(mnemonic, password string, accountIndex uint32) (*Wallet, error) {
+	wm.logger.Debug("Importing wallet from mnemonic")
+
+	hdWallet, err := NewHDWalletFromMnemonic(mnemonic, password, wm.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HD wallet from mnemonic: %w", err)
+	}
+
+	path := DefaultEthereumPath(accountIndex)
+	privKeyInt, err := hdWallet.DeriveKey(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key at path %s: %w", path, err)
+	}
+
+	privKey, err := crypto.ToECDSA(privKeyInt.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert derived key: %w", err)
+	}
+
+	publicKey := privKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast public key to ECDSA")
+	}
+
+	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	wallet := &Wallet{
+		Address:    address.Hex(),
+		PrivateKey: privKey,
+		PublicKey:  publicKeyECDSA,
+	}
+
+	wm.logger.Info("Wallet imported from mnemonic", zap.String("address", wallet.Address))
+	return wallet, nil
 }

@@ -3,10 +3,13 @@ package debug
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 )
 
-// Handler provides HTTP handlers for debugging
+// Handler provides HTTP handlers for debugging.
+// All handlers return 403 unless the DEBUG_ENABLED environment variable is set to "true".
+// This prevents accidental exposure of debug endpoints in production.
 type Handler struct {
 	service *Service
 }
@@ -18,10 +21,22 @@ func NewHandler(service *Service) *Handler {
 	}
 }
 
+// requireDebugEnabled checks if debug endpoints are enabled via environment variable.
+func requireDebugEnabled(w http.ResponseWriter) bool {
+	if os.Getenv("DEBUG_ENABLED") != "true" {
+		http.Error(w, "debug endpoints are disabled", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // SetBreakpointHandler handles breakpoint setting
 func (h *Handler) SetBreakpointHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -34,11 +49,14 @@ func (h *Handler) SetBreakpointHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	id := h.service.SetBreakpoint(req.Location, req.Condition)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": id})
+	_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
 
 // GetBreakpointsHandler returns all breakpoints
@@ -47,17 +65,23 @@ func (h *Handler) GetBreakpointsHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	breakpoints := h.service.GetBreakpoints()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(breakpoints)
+	_ = json.NewEncoder(w).Encode(breakpoints)
 }
 
 // WatchVariableHandler handles variable watching
 func (h *Handler) WatchVariableHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -70,11 +94,14 @@ func (h *Handler) WatchVariableHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	id := h.service.WatchVariable(req.Name, req.Value)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"id": id})
+	_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
 
 // GetWatchVariablesHandler returns all watched variables
@@ -83,17 +110,23 @@ func (h *Handler) GetWatchVariablesHandler(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	variables := h.service.GetWatchVariables()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(variables)
+	_ = json.NewEncoder(w).Encode(variables)
 }
 
 // GetTracesHandler returns debug traces
 func (h *Handler) GetTracesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -107,13 +140,16 @@ func (h *Handler) GetTracesHandler(w http.ResponseWriter, r *http.Request) {
 	traces := h.service.GetTraces(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(traces)
+	_ = json.NewEncoder(w).Encode(traces)
 }
 
 // GetLogsHandler returns debug logs
 func (h *Handler) GetLogsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -134,13 +170,16 @@ func (h *Handler) GetLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs)
+	_ = json.NewEncoder(w).Encode(logs)
 }
 
 // GetMemProfilesHandler returns memory profiles
 func (h *Handler) GetMemProfilesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -154,13 +193,16 @@ func (h *Handler) GetMemProfilesHandler(w http.ResponseWriter, r *http.Request) 
 	profiles := h.service.GetMemProfiles(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profiles)
+	_ = json.NewEncoder(w).Encode(profiles)
 }
 
 // GetGoroutineProfilesHandler returns goroutine profiles
 func (h *Handler) GetGoroutineProfilesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireDebugEnabled(w) {
 		return
 	}
 
@@ -174,7 +216,7 @@ func (h *Handler) GetGoroutineProfilesHandler(w http.ResponseWriter, r *http.Req
 	profiles := h.service.GetGoroutineProfiles(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(profiles)
+	_ = json.NewEncoder(w).Encode(profiles)
 }
 
 // GetOptimizationRecommendationsHandler returns optimization recommendations
@@ -183,11 +225,14 @@ func (h *Handler) GetOptimizationRecommendationsHandler(w http.ResponseWriter, r
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	recommendations := h.service.GetOptimizationRecommendations()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"recommendations": recommendations,
 		"memory_leak":     h.service.DetectMemoryLeak(),
 		"goroutine_leak":  h.service.DetectGoroutineLeak(),
@@ -200,7 +245,10 @@ func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireDebugEnabled(w) {
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }

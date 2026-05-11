@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"streamgate/pkg/web3"
 )
 
 // JobStatus represents the status of a job
@@ -329,6 +330,12 @@ func (rp *RetryPolicy) ShouldRetry(err error, retryCount int) bool {
 		return false
 	}
 
+	// Check type-based retryable classification first
+	if web3.IsRetryable(err) {
+		return true
+	}
+
+	// Fallback to string-based matching for backward compatibility
 	errMsg := err.Error()
 	for retryableErr := range rp.RetryableErrors {
 		if contains(errMsg, retryableErr) {

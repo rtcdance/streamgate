@@ -1,0 +1,36 @@
+package service
+
+import (
+	"context"
+
+	"go.uber.org/zap"
+	"streamgate/pkg/web3"
+)
+
+// MultiChainSignatureVerifier routes signature verification to the correct
+// algorithm based on chain type: EVM uses secp256k1/EIP-191, Solana uses ed25519.
+type MultiChainSignatureVerifier struct {
+	evmVerifier    *web3.SignatureVerifier
+	solanaVerifier *web3.SolanaVerifier
+}
+
+// NewMultiChainSignatureVerifier creates a new chain-aware signature verifier.
+func NewMultiChainSignatureVerifier(logger *zap.Logger, solanaVerifier *web3.SolanaVerifier) *MultiChainSignatureVerifier {
+	return &MultiChainSignatureVerifier{
+		evmVerifier:    web3.NewSignatureVerifier(logger),
+		solanaVerifier: solanaVerifier,
+	}
+}
+
+// VerifySignature verifies an EVM (secp256k1/EIP-191) signature.
+func (v *MultiChainSignatureVerifier) VerifySignature(ctx context.Context, address, message, signature string) (bool, error) {
+	return v.evmVerifier.VerifySignature(ctx, address, message, signature)
+}
+
+// VerifySolanaSignature verifies a Solana (ed25519) signature.
+func (v *MultiChainSignatureVerifier) VerifySolanaSignature(address, message, signature string) (bool, error) {
+	if v.solanaVerifier == nil {
+		return false, ErrSolanaNotConfigured
+	}
+	return v.solanaVerifier.VerifySignature(address, message, signature)
+}

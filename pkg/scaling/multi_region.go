@@ -1,7 +1,10 @@
 package scaling
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -255,14 +258,15 @@ func (mrm *MultiRegionManager) GetRegionMetrics(regionID string) (*RegionMetrics
 	return metrics, nil
 }
 
-// GetAllMetrics retrieves metrics for all regions
+// GetAllMetrics retrieves metrics for all regions (deep copy)
 func (mrm *MultiRegionManager) GetAllMetrics() map[string]*RegionMetrics {
 	mrm.mu.RLock()
 	defer mrm.mu.RUnlock()
 
 	metricsCopy := make(map[string]*RegionMetrics)
 	for regionID, metrics := range mrm.metrics {
-		metricsCopy[regionID] = metrics
+		m := *metrics // copy the struct value
+		metricsCopy[regionID] = &m
 	}
 	return metricsCopy
 }
@@ -275,19 +279,61 @@ func (mrm *MultiRegionManager) ShouldHealthCheck() bool {
 	return time.Since(mrm.lastHealthCheck) > mrm.healthCheckInterval
 }
 
-// PerformHealthCheck performs health checks on all regions
+// PerformHealthCheck performs health checks on all regions.
+// It probes each region's endpoint via HTTP, then updates status.
 func (mrm *MultiRegionManager) PerformHealthCheck() error {
+	// Phase 1: snapshot regions under read lock
+	mrm.mu.RLock()
+	type regionInfo struct {
+		id       string
+		endpoint string
+	}
+	var infos []regionInfo
+	for id, r := range mrm.regions {
+		infos = append(infos, regionInfo{id: id, endpoint: r.Endpoint})
+	}
+	mrm.mu.RUnlock()
+
+	// Phase 2: probe each region's endpoint
+	probeResults := make(map[string]bool, len(infos))
+	client := &http.Client{Timeout: 3 * time.Second}
+	for _, info := range infos {
+		if info.endpoint != "" && (strings.HasPrefix(info.endpoint, "http://") || strings.HasPrefix(info.endpoint, "https://")) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, info.endpoint+"/health", http.NoBody)
+			resp, err := client.Do(req)
+			cancel()
+			if err == nil {
+				_ = resp.Body.Close()
+				probeResults[info.id] = resp.StatusCode < 500
+			} else {
+				probeResults[info.id] = false
+			}
+		} else {
+			// No HTTP endpoint or missing scheme — skip probe, fall back to metrics
+			delete(probeResults, info.id)
+		}
+	}
+
+	// Phase 3: update status under write lock
 	mrm.mu.Lock()
 	defer mrm.mu.Unlock()
 
 	for regionID, region := range mrm.regions {
-		// Simulate health check
-		if region.Latency > 5000 { // 5 seconds
+		probeHealthy, probed := probeResults[regionID]
+
+		if probed && !probeHealthy {
 			region.Active = false
 			if metrics, exists := mrm.metrics[regionID]; exists {
 				metrics.HealthStatus = "UNHEALTHY"
 			}
-		} else if region.Latency > 2000 { // 2 seconds
+		} else if region.Latency > 5000 {
+			region.Active = false
+			if metrics, exists := mrm.metrics[regionID]; exists {
+				metrics.HealthStatus = "UNHEALTHY"
+			}
+		} else if region.Latency > 2000 {
+			region.Active = true
 			if metrics, exists := mrm.metrics[regionID]; exists {
 				metrics.HealthStatus = "DEGRADED"
 			}

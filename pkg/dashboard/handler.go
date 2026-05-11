@@ -3,10 +3,13 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 )
 
-// Handler provides HTTP handlers for dashboard
+// Handler provides HTTP handlers for the dashboard.
+// All handlers return 403 unless the DEBUG_ENABLED environment variable is set to "true".
+// This prevents accidental exposure of dashboard endpoints in production.
 type Handler struct {
 	service *Service
 }
@@ -18,8 +21,20 @@ func NewHandler(service *Service) *Handler {
 	}
 }
 
+// requireDebugEnabled checks if dashboard endpoints are enabled via environment variable.
+func requireDebugEnabled(w http.ResponseWriter) bool {
+	if os.Getenv("DEBUG_ENABLED") != "true" {
+		http.Error(w, "dashboard endpoints are disabled", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 // GetMetricsHandler returns current metrics
 func (h *Handler) GetMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -28,11 +43,14 @@ func (h *Handler) GetMetricsHandler(w http.ResponseWriter, r *http.Request) {
 	metrics := h.service.GetMetrics()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // GetAlertsHandler returns current alerts
 func (h *Handler) GetAlertsHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -41,11 +59,14 @@ func (h *Handler) GetAlertsHandler(w http.ResponseWriter, r *http.Request) {
 	alerts := h.service.GetAlerts()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(alerts)
+	_ = json.NewEncoder(w).Encode(alerts)
 }
 
 // GetMetricHistoryHandler returns metric history
 func (h *Handler) GetMetricHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -67,11 +88,14 @@ func (h *Handler) GetMetricHistoryHandler(w http.ResponseWriter, r *http.Request
 	history := h.service.GetMetricHistory(name, limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+	_ = json.NewEncoder(w).Encode(history)
 }
 
 // GetAlertHistoryHandler returns alert history
 func (h *Handler) GetAlertHistoryHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -87,11 +111,14 @@ func (h *Handler) GetAlertHistoryHandler(w http.ResponseWriter, r *http.Request)
 	history := h.service.GetAlertHistory(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+	_ = json.NewEncoder(w).Encode(history)
 }
 
 // GetReportsHandler returns performance reports
 func (h *Handler) GetReportsHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -107,11 +134,14 @@ func (h *Handler) GetReportsHandler(w http.ResponseWriter, r *http.Request) {
 	reports := h.service.GetReports(limit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(reports)
+	_ = json.NewEncoder(w).Encode(reports)
 }
 
 // GetLatestReportHandler returns the latest report
 func (h *Handler) GetLatestReportHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -120,11 +150,14 @@ func (h *Handler) GetLatestReportHandler(w http.ResponseWriter, r *http.Request)
 	report := h.service.GetLatestReport()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report)
+	_ = json.NewEncoder(w).Encode(report)
 }
 
 // GetDashboardStatusHandler returns overall dashboard status
 func (h *Handler) GetDashboardStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -133,11 +166,14 @@ func (h *Handler) GetDashboardStatusHandler(w http.ResponseWriter, r *http.Reque
 	status := h.service.GetDashboardStatus()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // RecordMetricHandler records a metric
 func (h *Handler) RecordMetricHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -157,11 +193,14 @@ func (h *Handler) RecordMetricHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.RecordMetric(req.Name, req.Value, req.Unit)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "recorded"})
 }
 
 // CreateAlertHandler creates an alert
 func (h *Handler) CreateAlertHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -181,11 +220,14 @@ func (h *Handler) CreateAlertHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.CreateAlert(req.Title, req.Message, req.Severity)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 }
 
 // ResolveAlertHandler resolves an alert
 func (h *Handler) ResolveAlertHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -200,16 +242,19 @@ func (h *Handler) ResolveAlertHandler(w http.ResponseWriter, r *http.Request) {
 	h.service.ResolveAlert(alertID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "resolved"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "resolved"})
 }
 
 // HealthHandler returns health status
 func (h *Handler) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireDebugEnabled(w) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }

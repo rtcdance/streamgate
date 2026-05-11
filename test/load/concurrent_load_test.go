@@ -1,6 +1,7 @@
 package load_test
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -22,7 +23,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create a user
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Concurrent login requests
@@ -39,7 +40,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				_, err := authService.Authenticate("testuser", "password123")
+				_, err := authService.Authenticate(context.Background(), "testuser", "password123")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -72,13 +73,13 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Setup: Create initial content
 	content := &service.Content{
@@ -89,7 +90,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 		Size:        1024000,
 		OwnerID:     uuid.New().String(),
 	}
-	id, err := contentService.CreateContent(content)
+	id, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 	content.ID = id
 
@@ -107,7 +108,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				_, err := contentService.GetContent(content.ID)
+				_, err := contentService.GetContent(context.Background(), content.ID)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -155,14 +156,14 @@ func TestLoad_ConcurrentCacheOperations(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				key := fmt.Sprintf("key_%d_%d", id, j)
-				err := cache.Set(key, "value")
+				err := cache.Set(context.Background(), key, "value")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
 					atomic.AddInt64(&errorCount, 1)
 				}
 
-				_, err = cache.Get(key)
+				_, err = cache.Get(context.Background(), key)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -213,7 +214,7 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 			for j := 0; j < numRequests; j++ {
 				username := fmt.Sprintf("user_%d_%d", id, j)
 				email := fmt.Sprintf("user%d%d@example.com", id, j)
-				err := authService.Register(username, "password", email)
+				err := authService.Register(context.Background(), username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -249,7 +250,7 @@ func TestLoad_SustainedLoad(t *testing.T) {
 	authService := service.NewAuthService("test-secret-key", db)
 
 	// Setup: Create a user
-	err := authService.Register("testuser", "password123", "test@example.com")
+	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	helpers.AssertNoError(t, err)
 
 	// Sustained load for 2 seconds
@@ -267,7 +268,7 @@ func TestLoad_SustainedLoad(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
-				_, err := authService.Authenticate("testuser", "password123")
+				_, err := authService.Authenticate(context.Background(), "testuser", "password123")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {

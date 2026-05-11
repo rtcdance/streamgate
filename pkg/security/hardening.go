@@ -76,13 +76,13 @@ func (sh *SecurityHardening) ValidatePassword(password string) error {
 	}
 
 	if sh.policy.PasswordRequireNumber {
-		if !regexp.MustCompile(`[0-9]`).MatchString(password) {
+		if !regexp.MustCompile(`\d`).MatchString(password) {
 			return fmt.Errorf("password must contain at least one number")
 		}
 	}
 
 	if sh.policy.PasswordRequireSymbol {
-		if !regexp.MustCompile(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]`).MatchString(password) {
+		if !regexp.MustCompile(`[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?]`).MatchString(password) {
 			return fmt.Errorf("password must contain at least one special character")
 		}
 	}
@@ -108,7 +108,7 @@ func (sh *SecurityHardening) ValidateInput(inputType, value string) error {
 		parts := strings.Split(value, ".")
 		for _, part := range parts {
 			num := 0
-			fmt.Sscanf(part, "%d", &num)
+			_, _ = fmt.Sscanf(part, "%d", &num)
 			if num < 0 || num > 255 {
 				return fmt.Errorf("invalid %s: %s (octet out of range 0-255)", inputType, value)
 			}
@@ -253,7 +253,7 @@ func (sh *SecurityHardening) initializeEncoders() {
 }
 
 // AddValidator adds a custom input validator
-func (sh *SecurityHardening) AddValidator(name string, pattern string) error {
+func (sh *SecurityHardening) AddValidator(name, pattern string) error {
 	regex, err := regexp.Compile(pattern)
 	if err != nil {
 		return fmt.Errorf("invalid regex pattern: %w", err)

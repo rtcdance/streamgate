@@ -12,12 +12,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// MetricsCollector collects and exposes Prometheus metrics
+// MetricsCollector collects and exposes Prometheus metrics.
+// All metrics are registered with the default Prometheus registry so they
+// appear on the same /metrics endpoint alongside pkg/monitoring metrics.
 type MetricsCollector struct {
-	registry *prometheus.Registry
-	logger   *zap.Logger
-	mu       sync.RWMutex
-	metrics  map[string]Metric
+	logger  *zap.Logger
+	mu      sync.RWMutex
+	metrics map[string]Metric
 }
 
 // Metric represents a metric
@@ -41,9 +42,8 @@ const (
 // NewMetricsCollector creates a new metrics collector
 func NewMetricsCollector(logger *zap.Logger) *MetricsCollector {
 	return &MetricsCollector{
-		registry: prometheus.NewRegistry(),
-		logger:   logger,
-		metrics:  make(map[string]Metric),
+		logger:  logger,
+		metrics: make(map[string]Metric),
 	}
 }
 
@@ -71,7 +71,7 @@ func (mc *MetricsCollector) NewCounter(name, help string, labels []string) (*Cou
 		labels,
 	)
 
-	if err := mc.registry.Register(vec); err != nil {
+	if err := prometheus.Register(vec); err != nil {
 		return nil, fmt.Errorf("failed to register counter: %w", err)
 	}
 
@@ -143,7 +143,7 @@ func (mc *MetricsCollector) NewGauge(name, help string, labels []string) (*Gauge
 		labels,
 	)
 
-	if err := mc.registry.Register(vec); err != nil {
+	if err := prometheus.Register(vec); err != nil {
 		return nil, fmt.Errorf("failed to register gauge: %w", err)
 	}
 
@@ -231,7 +231,7 @@ func (mc *MetricsCollector) NewHistogram(name, help string, labels []string, buc
 		labels,
 	)
 
-	if err := mc.registry.Register(vec); err != nil {
+	if err := prometheus.Register(vec); err != nil {
 		return nil, fmt.Errorf("failed to register histogram: %w", err)
 	}
 
@@ -305,7 +305,7 @@ func (mc *MetricsCollector) NewSummary(name, help string, labels []string, objec
 		labels,
 	)
 
-	if err := mc.registry.Register(vec); err != nil {
+	if err := prometheus.Register(vec); err != nil {
 		return nil, fmt.Errorf("failed to register summary: %w", err)
 	}
 
@@ -381,7 +381,7 @@ func (mc *MetricsCollector) StartServer(ctx context.Context, addr string) error 
 		zap.String("addr", addr))
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.HandlerFor(mc.registry, promhttp.HandlerOpts{}))
+	mux.Handle("/metrics", promhttp.Handler())
 
 	server := &http.Server{
 		Addr:    addr,

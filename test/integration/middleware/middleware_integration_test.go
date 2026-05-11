@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
 	"streamgate/test/helpers"
 )
@@ -15,22 +18,29 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
+	svc := middleware.NewService(zap.NewNop())
+	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key"}
 
 	// Apply middleware stack
-	router.Use(service.LoggingMiddleware())
-	router.Use(service.CORSMiddleware())
-	router.Use(service.RateLimitMiddleware())
-	router.Use(service.AuthMiddleware())
+	router.Use(svc.LoggingMiddleware())
+	router.Use(svc.CORSMiddleware())
+	router.Use(svc.RateLimitMiddleware())
+	router.Use(middleware.JWTAuthMiddleware(jwtConfig, zap.NewNop()))
 
 	// Add test route
 	router.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
-	// Test with valid token
+	// Test with valid JWT
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"wallet_address": "0xTest",
+		"exp":            time.Now().Add(time.Hour).Unix(),
+	})
+	tokenStr, _ := tok.SignedString([]byte("test-secret-key"))
+
 	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 
@@ -45,11 +55,12 @@ func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
+	svc := middleware.NewService(zap.NewNop())
+	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key"}
 
 	// Apply middleware stack
-	router.Use(service.LoggingMiddleware())
-	router.Use(service.AuthMiddleware())
+	router.Use(svc.LoggingMiddleware())
+	router.Use(middleware.JWTAuthMiddleware(jwtConfig, zap.NewNop()))
 
 	// Add test route
 	router.GET("/test", func(c *gin.Context) {
@@ -71,10 +82,10 @@ func TestMiddlewareStack_CORSHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
+	svc := middleware.NewService(zap.NewNop())
 
 	// Apply CORS middleware
-	router.Use(service.CORSMiddleware())
+	router.Use(svc.CORSMiddleware())
 
 	// Add test route
 	router.GET("/test", func(c *gin.Context) {

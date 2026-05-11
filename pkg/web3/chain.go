@@ -3,11 +3,8 @@ package web3
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -18,12 +15,17 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
+	"streamgate/pkg/monitoring"
 )
+
+// Pre-parsed ERC-721 ABIs for chain.go contract calls.
+var erc721OwnerOfABI = mustParseABI("ERC721-ownerOf", `[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`)
+var erc721TokenURIABI = mustParseABI("ERC721-tokenURI", `[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`)
 
 // BlockchainProvider defines the interface for blockchain interactions
 type BlockchainProvider interface {
 	VerifyNFTOwnership(ctx context.Context, req VerifyRequest) (bool, error)
-	GetNFTBalance(ctx context.Context, address, contract string) (int, error)
+	GetNFTBalance(ctx context.Context, address, contract string) (*big.Int, error)
 	GetNFTMetadata(ctx context.Context, contract, tokenID string) (*NFTMetadata, error)
 	HealthCheck(ctx context.Context) error
 }
@@ -49,14 +51,15 @@ const (
 
 // ChainClient handles blockchain interactions
 type ChainClient struct {
-	mu        sync.RWMutex
-	client    *ethclient.Client
-	rpcURL    string
-	rpcURLs   []string
-	rpcStates []rpcEndpointState
-	activeRPC int
-	chainID   int64
-	logger    *zap.Logger
+	mu          sync.RWMutex
+	client      *ethclient.Client
+	rpcURL      string
+	rpcURLs     []string
+	rpcStates   []rpcEndpointState
+	activeRPC   int
+	chainID     int64
+	logger      *zap.Logger
+	rateLimiter *RPCRateLimiter
 }
 
 type rpcEndpointState struct {
@@ -117,6 +120,50 @@ func (cc *ChainClient) GetEthClient() *ethclient.Client {
 	return cc.client
 }
 
+// CallContractAtBlock executes a contract call at the given block tag.
+// BlockTagSafe and BlockTagFinalized read from post-merge finalized blocks,
+// which protects against reorgs. Falls back to latest if the RPC doesn't
+// support the requested tag.
+func (cc *ChainClient) CallContractAtBlock(ctx context.Context, msg ethereum.CallMsg, blockTag BlockTag) ([]byte, error) {
+	var blockNum *big.Int
+	switch blockTag {
+	case BlockTagSafe:
+		blockNum = big.NewInt(-4) // go-ethereum convention for "safe"
+	case BlockTagFinalized:
+		blockNum = big.NewInt(-3) // go-ethereum convention for "finalized"
+	default:
+		blockNum = nil // latest
+	}
+
+	result, err := withChainClient(ctx, cc, "CallContractAtBlock", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, msg, blockNum)
+	})
+
+	if err != nil && blockNum != nil {
+		// Fallback to latest if the RPC doesn't support safe/finalized
+		cc.logger.Warn("Block tag not supported, falling back to latest",
+			zap.String("block_tag", string(blockTag)),
+			zap.Error(err))
+		return withChainClient(ctx, cc, "CallContractAtBlock_fallback", func(client *ethclient.Client) ([]byte, error) {
+			return client.CallContract(ctx, msg, nil)
+		})
+	}
+
+	return result, err
+}
+
+// SetRateLimiter sets the RPC rate limiter. Pass nil to disable rate limiting.
+func (cc *ChainClient) SetRateLimiter(rl *RPCRateLimiter) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.rateLimiter = rl
+	if rl != nil {
+		cc.logger.Info("RPC rate limiter configured",
+			zap.Float64("rate", rl.rate),
+			zap.Float64("burst", rl.maxTokens))
+	}
+}
+
 // GetBalance gets the balance of an address
 func (cc *ChainClient) GetBalance(ctx context.Context, address string) (*big.Int, error) {
 	cc.logger.Debug("Getting balance", zap.String("address", address))
@@ -173,6 +220,56 @@ func (cc *ChainClient) GetGasPrice(ctx context.Context) (*big.Int, error) {
 
 	cc.logger.Debug("Gas price retrieved", zap.String("gas_price", gasPrice.String()))
 	return gasPrice, nil
+}
+
+// SuggestGasTipCap returns the suggested priority fee (tip) for EIP-1559 transactions.
+func (cc *ChainClient) SuggestGasTipCap(ctx context.Context) (*big.Int, error) {
+	cc.logger.Debug("Getting gas tip cap")
+
+	tipCap, err := withChainClient(ctx, cc, "SuggestGasTipCap", func(client *ethclient.Client) (*big.Int, error) {
+		return client.SuggestGasTipCap(ctx)
+	})
+	if err != nil {
+		cc.logger.Error("Failed to get gas tip cap", zap.Error(err))
+		return nil, fmt.Errorf("failed to get gas tip cap: %w", err)
+	}
+
+	cc.logger.Debug("Gas tip cap retrieved", zap.String("tip_cap", tipCap.String()))
+	return tipCap, nil
+}
+
+// HeaderByNumber returns the block header for the given block number (nil = latest).
+func (cc *ChainClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	header, err := withChainClient(ctx, cc, "HeaderByNumber", func(client *ethclient.Client) (*types.Header, error) {
+		return client.HeaderByNumber(ctx, number)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get header: %w", err)
+	}
+	return header, nil
+}
+
+// FeeHistory returns the fee history for the given block range.
+// blockCount is the number of blocks to query (max 1024).
+// lastBlock is the newest block in the range (nil = latest).
+// rewardPercentiles is a list of percentile values (0-100) to compute suggested priority fees.
+func (cc *ChainClient) FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error) {
+	cc.logger.Debug("Getting fee history",
+		zap.Uint64("block_count", blockCount),
+		zap.Int("percentile_count", len(rewardPercentiles)))
+
+	feeHistory, err := withChainClient(ctx, cc, "FeeHistory", func(client *ethclient.Client) (*ethereum.FeeHistory, error) {
+		return client.FeeHistory(ctx, blockCount, lastBlock, rewardPercentiles)
+	})
+	if err != nil {
+		cc.logger.Error("Failed to get fee history", zap.Error(err))
+		return nil, fmt.Errorf("failed to get fee history: %w", err)
+	}
+
+	cc.logger.Debug("Fee history retrieved",
+		zap.Int("base_fee_count", len(feeHistory.BaseFee)),
+		zap.Int("gas_used_ratio_count", len(feeHistory.GasUsedRatio)))
+	return feeHistory, nil
 }
 
 // EstimateGas estimates gas for a transaction
@@ -312,7 +409,7 @@ func (cc *ChainClient) GetTransactionReceipt(ctx context.Context, txHash string)
 		GasUsed:         receipt.GasUsed,
 		Status:          receipt.Status,
 		ContractAddress: receipt.ContractAddress.Hex(),
-		Logs:            uint64(len(receipt.Logs)),
+		LogCount:        uint64(len(receipt.Logs)),
 	}
 
 	cc.logger.Debug("Transaction receipt retrieved", zap.String("tx_hash", txHash))
@@ -396,32 +493,34 @@ func (cc *ChainClient) VerifyNFTOwnership(ctx context.Context, req VerifyRequest
 
 	switch req.Mode {
 	case GatingAny:
-		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		balance, err := cc.getNFTBalanceAtBlock(ctx, wallet, contract, BlockTagSafe)
 		if err != nil {
 			return false, fmt.Errorf("failed to get NFT balance: %w", err)
 		}
-		return balance > 0, nil
+		return balance.Sign() > 0, nil
 
 	case GatingMinBalance:
-		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		balance, err := cc.getNFTBalanceAtBlock(ctx, wallet, contract, BlockTagSafe)
 		if err != nil {
 			return false, fmt.Errorf("failed to get NFT balance: %w", err)
 		}
-		return balance >= req.MinBalance, nil
+		return balance.Cmp(big.NewInt(int64(req.MinBalance))) >= 0, nil
 
 	case GatingSpecificID:
-		owner, err := cc.getNFTOwner(ctx, contract, req.TokenID)
+		// Use BlockTagSafe for specific token ID checks to protect
+		// against reorgs that could invalidate ownership.
+		owner, err := cc.getNFTOwnerAtBlock(ctx, contract, req.TokenID, BlockTagSafe)
 		if err != nil {
 			return false, fmt.Errorf("failed to get NFT owner: %w", err)
 		}
 		return owner == wallet, nil
 
 	case GatingCombination:
-		balance, err := cc.getNFTBalance(ctx, wallet, contract)
+		balance, err := cc.getNFTBalanceAtBlock(ctx, wallet, contract, BlockTagSafe)
 		if err != nil {
 			return false, fmt.Errorf("failed to get NFT balance: %w", err)
 		}
-		return balance >= req.MinBalance, nil
+		return balance.Cmp(big.NewInt(int64(req.MinBalance))) >= 0, nil
 
 	default:
 		return false, fmt.Errorf("unsupported gating mode: %d", req.Mode)
@@ -429,7 +528,7 @@ func (cc *ChainClient) VerifyNFTOwnership(ctx context.Context, req VerifyRequest
 }
 
 // GetNFTBalance gets the NFT balance for a wallet
-func (cc *ChainClient) GetNFTBalance(ctx context.Context, address, contract string) (int, error) {
+func (cc *ChainClient) GetNFTBalance(ctx context.Context, address, contract string) (*big.Int, error) {
 	cc.logger.Debug("Getting NFT balance",
 		zap.String("address", address),
 		zap.String("contract", contract))
@@ -443,26 +542,26 @@ func (cc *ChainClient) GetNFTBalance(ctx context.Context, address, contract stri
 			zap.String("address", address),
 			zap.String("contract", contract),
 			zap.Error(err))
-		return 0, fmt.Errorf("failed to get NFT balance: %w", err)
+		return nil, fmt.Errorf("failed to get NFT balance: %w", err)
 	}
 
 	cc.logger.Debug("NFT balance retrieved",
 		zap.String("address", address),
 		zap.String("contract", contract),
-		zap.Int("balance", balance))
+		zap.String("balance", balance.String()))
 	return balance, nil
 }
 
 // getNFTBalance gets the balance of NFTs for a wallet (internal helper)
-func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract common.Address) (int, error) {
+func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract common.Address) (*big.Int, error) {
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`)))
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}
 
 	data, err := parsedABI.Pack("balanceOf", wallet)
 	if err != nil {
-		return 0, fmt.Errorf("failed to pack balanceOf call: %w", err)
+		return nil, fmt.Errorf("failed to pack balanceOf call: %w", err)
 	}
 
 	result, err := withChainClient(ctx, cc, "CallContract(balanceOf)", func(client *ethclient.Client) ([]byte, error) {
@@ -472,26 +571,68 @@ func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract commo
 		}, nil)
 	})
 	if err != nil {
-		return 0, fmt.Errorf("failed to call balanceOf: %w", err)
+		return nil, fmt.Errorf("failed to call balanceOf: %w", err)
 	}
 
 	values, err := parsedABI.Unpack("balanceOf", result)
 	if err != nil {
-		return 0, fmt.Errorf("failed to unpack balanceOf result: %w", err)
+		return nil, fmt.Errorf("failed to unpack balanceOf result: %w", err)
 	}
 	if len(values) != 1 {
-		return 0, fmt.Errorf("unexpected balanceOf result length: %d", len(values))
+		return nil, fmt.Errorf("unexpected balanceOf result length: %d", len(values))
 	}
 
 	balance, ok := values[0].(*big.Int)
 	if !ok {
-		return 0, fmt.Errorf("unexpected balanceOf result type: %T", values[0])
+		return nil, fmt.Errorf("unexpected balanceOf result type: %T", values[0])
 	}
 
-	return int(balance.Int64()), nil
+	return balance, nil
+}
+
+// getNFTBalanceAtBlock calls balanceOf at a specific block tag (e.g. BlockTagSafe)
+// to protect against reorgs. Falls back to getNFTBalance (latest) on error.
+func (cc *ChainClient) getNFTBalanceAtBlock(ctx context.Context, wallet, contract common.Address, blockTag BlockTag) (*big.Int, error) {
+	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+	}
+
+	data, err := parsedABI.Pack("balanceOf", wallet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack balanceOf call: %w", err)
+	}
+
+	result, err := cc.CallContractAtBlock(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: data,
+	}, blockTag)
+	if err != nil {
+		// Fallback to latest block
+		cc.logger.Warn("balanceOf at block tag failed, falling back to latest",
+			zap.String("block_tag", string(blockTag)),
+			zap.Error(err))
+		return cc.getNFTBalance(ctx, wallet, contract)
+	}
+
+	values, err := parsedABI.Unpack("balanceOf", result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack balanceOf result: %w", err)
+	}
+	if len(values) != 1 {
+		return nil, fmt.Errorf("unexpected balanceOf result length: %d", len(values))
+	}
+
+	balance, ok := values[0].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("unexpected balanceOf result type: %T", values[0])
+	}
+
+	return balance, nil
 }
 
 // getNFTOwner gets the owner of a specific NFT (internal helper)
+//nolint:unused
 func (cc *ChainClient) getNFTOwner(ctx context.Context, contract common.Address, tokenID string) (common.Address, error) {
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`)))
 	if err != nil {
@@ -534,19 +675,53 @@ func (cc *ChainClient) getNFTOwner(ctx context.Context, contract common.Address,
 	return owner, nil
 }
 
-// getTokenURI retrieves the tokenURI from an ERC721 contract
-func (cc *ChainClient) getTokenURI(ctx context.Context, contract common.Address, tokenID string) (string, error) {
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`)))
+// getNFTOwnerAtBlock retrieves the owner of an NFT at a specific block tag.
+// Using BlockTagSafe protects against reorgs that could invalidate ownership.
+func (cc *ChainClient) getNFTOwnerAtBlock(ctx context.Context, contract common.Address, tokenID string, blockTag BlockTag) (common.Address, error) {
+	data, err := cc.packOwnerOfCall(tokenID)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
+		return common.Address{}, fmt.Errorf("failed to pack ownerOf call: %w", err)
+	}
+	result, err := cc.CallContractAtBlock(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: data,
+	}, blockTag)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to call ownerOf at %s: %w", blockTag, err)
 	}
 
+	values, err := erc721OwnerOfABI.Unpack("ownerOf", result)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to unpack ownerOf result: %w", err)
+	}
+	if len(values) != 1 {
+		return common.Address{}, fmt.Errorf("unexpected ownerOf result length: %d", len(values))
+	}
+
+	owner, ok := values[0].(common.Address)
+	if !ok {
+		return common.Address{}, fmt.Errorf("unexpected ownerOf result type: %T", values[0])
+	}
+	return owner, nil
+}
+
+// packOwnerOfCall packs the ownerOf ABI call for the given token ID.
+func (cc *ChainClient) packOwnerOfCall(tokenID string) ([]byte, error) {
+	tokenIDInt := new(big.Int)
+	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
+		return nil, fmt.Errorf("invalid token id: %s", tokenID)
+	}
+	return erc721OwnerOfABI.Pack("ownerOf", tokenIDInt)
+}
+
+// getTokenURI retrieves the tokenURI from an ERC721 contract
+func (cc *ChainClient) getTokenURI(ctx context.Context, contract common.Address, tokenID string) (string, error) {
 	tokenIDInt := new(big.Int)
 	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
 		return "", fmt.Errorf("invalid token id: %s", tokenID)
 	}
 
-	data, err := parsedABI.Pack("tokenURI", tokenIDInt)
+	data, err := erc721TokenURIABI.Pack("tokenURI", tokenIDInt)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack tokenURI call: %w", err)
 	}
@@ -561,7 +736,7 @@ func (cc *ChainClient) getTokenURI(ctx context.Context, contract common.Address,
 		return "", fmt.Errorf("failed to call tokenURI: %w", err)
 	}
 
-	values, err := parsedABI.Unpack("tokenURI", result)
+	values, err := erc721TokenURIABI.Unpack("tokenURI", result)
 	if err != nil {
 		return "", fmt.Errorf("failed to unpack tokenURI result: %w", err)
 	}
@@ -577,37 +752,12 @@ func (cc *ChainClient) getTokenURI(ctx context.Context, contract common.Address,
 	return tokenURI, nil
 }
 
-// fetchMetadataFromURI fetches metadata from a URI
+// fetchMetadataFromURI fetches metadata from a URI with SSRF protection.
 func (cc *ChainClient) fetchMetadataFromURI(ctx context.Context, uri string) (*NFTMetadata, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("metadata request failed with status: %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
 	var metadata NFTMetadata
-	if err := json.Unmarshal(body, &metadata); err != nil {
-		return nil, fmt.Errorf("failed to parse metadata: %w", err)
+	if err := safeFetchURI(ctx, uri, &metadata); err != nil {
+		return nil, err
 	}
-
 	return &metadata, nil
 }
 
@@ -634,6 +784,14 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		cc.logger.Error("Health check failed: cannot get chain ID", zap.Error(err))
 		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	// Verify chain ID matches configured value to detect misconfigured RPC
+	if cc.chainID != 0 && chainID.Int64() != cc.chainID {
+		cc.logger.Error("Health check failed: chain ID mismatch",
+			zap.Int64("configured_chain_id", cc.chainID),
+			zap.Int64("rpc_chain_id", chainID.Int64()))
+		return fmt.Errorf("chain ID mismatch: configured=%d, rpc=%d", cc.chainID, chainID.Int64())
 	}
 
 	cc.logger.Info("Health check passed",
@@ -772,9 +930,20 @@ func (cc *ChainClient) failover() error {
 func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn func(*ethclient.Client) (T, error)) (T, error) {
 	var zero T
 
+	// Apply rate limiting before any RPC call
+	cc.mu.RLock()
+	limiter := cc.rateLimiter
+	cc.mu.RUnlock()
+	if limiter != nil {
+		if err := limiter.Wait(ctx); err != nil {
+			return zero, fmt.Errorf("rpc rate limited: %w", err)
+		}
+	}
+
 	cc.mu.RLock()
 	client := cc.client
 	total := len(cc.rpcURLs)
+	fromRPC := cc.rpcURL
 	cc.mu.RUnlock()
 
 	if client == nil {
@@ -783,10 +952,15 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		}
 		cc.mu.RLock()
 		client = cc.client
+		fromRPC = cc.rpcURL
 		cc.mu.RUnlock()
 	}
 
+	// Measure latency of the initial attempt
+	start := time.Now()
 	result, err := fn(client)
+	monitoring.RPCLatencySeconds.WithLabelValues(op, fromRPC).Observe(time.Since(start).Seconds())
+
 	if err == nil || total <= 1 {
 		return result, err
 	}
@@ -805,8 +979,16 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		}
 		cc.mu.RLock()
 		client = cc.client
+		toRPC := cc.rpcURL
 		cc.mu.RUnlock()
+
+		// Record failover event
+		monitoring.RPCFailoverTotal.WithLabelValues(op, fromRPC, toRPC).Inc()
+
+		start = time.Now()
 		result, err = fn(client)
+		monitoring.RPCLatencySeconds.WithLabelValues(op, toRPC).Observe(time.Since(start).Seconds())
+
 		if err == nil {
 			return result, nil
 		}
@@ -817,7 +999,39 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 			zap.Error(err))
 	}
 
-	return zero, fmt.Errorf("%s failed after rpc failover attempts: %w", op, lastErr)
+	if isPermanentRPCError(lastErr) {
+		return zero, NewPermanentError(fmt.Sprintf("%s failed after rpc failover attempts", op), lastErr)
+	}
+	return zero, NewRetryableError(fmt.Sprintf("%s failed after rpc failover attempts", op), lastErr)
+}
+
+// isPermanentRPCError inspects an RPC error to determine if it represents a
+// permanent failure that will not succeed on retry (e.g. contract revert,
+// invalid opcode, out of gas). When uncertain, returns false so the caller
+// defaults to retryable — this is the safer choice for transient RPC issues.
+func isPermanentRPCError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	permanentPatterns := []string{
+		"execution reverted",
+		"revert",
+		"invalid opcode",
+		"out of gas",
+		"invalid jump destination",
+		"stack limit reached",
+		"contract creation code storage out of gas",
+		"nonce too low",
+		"insufficient funds",
+		"already known",
+	}
+	for _, pattern := range permanentPatterns {
+		if strings.Contains(strings.ToLower(msg), pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 func (cc *ChainClient) getActiveRPCIndex() int {
@@ -880,13 +1094,14 @@ type TransactionInfo struct {
 
 // ReceiptInfo contains transaction receipt information
 type ReceiptInfo struct {
-	TransactionHash string
-	BlockNumber     uint64
-	BlockHash       string
-	GasUsed         uint64
-	Status          uint64
-	ContractAddress string
-	Logs            uint64
+	TransactionHash string        `json:"transaction_hash"`
+	BlockNumber     uint64        `json:"block_number"`
+	BlockHash       string        `json:"block_hash"`
+	GasUsed         uint64        `json:"gas_used"`
+	Status          uint64        `json:"status"`
+	ContractAddress string        `json:"contract_address"`
+	LogCount        uint64        `json:"log_count"`
+	Events          []ParsedEvent `json:"events,omitempty"`
 }
 
 // NFTMetadata contains NFT metadata information
@@ -899,8 +1114,54 @@ type NFTMetadata struct {
 	TokenID         string         `json:"token_id,omitempty"`
 }
 
+// SendTransaction sends a signed transaction through the current RPC endpoint.
+// Unlike read operations, it does NOT failover — sending the same signed tx to
+// multiple RPCs risks duplicate submission. The caller should handle retries by
+// building a new tx with a fresh nonce.
+func (cc *ChainClient) SendTransaction(ctx context.Context, tx *types.Transaction) error {
+	cc.mu.RLock()
+	client := cc.client
+	cc.mu.RUnlock()
+
+	if client == nil {
+		if err := cc.connectAny(); err != nil {
+			return fmt.Errorf("sendtx: no rpc available: %w", err)
+		}
+		cc.mu.RLock()
+		client = cc.client
+		cc.mu.RUnlock()
+	}
+
+	if err := client.SendTransaction(ctx, tx); err != nil {
+		cc.logger.Warn("SendTransaction failed on RPC",
+			zap.String("rpc_url", cc.rpcURL),
+			zap.Error(err))
+		return fmt.Errorf("sendtx failed on %s: %w", cc.rpcURL, err)
+	}
+
+	cc.logger.Info("Transaction sent",
+		zap.String("tx_hash", tx.Hash().Hex()),
+		zap.String("rpc_url", cc.rpcURL))
+	return nil
+}
+
 // NFTAttribute represents an NFT attribute
 type NFTAttribute struct {
-	TraitType string `json:"trait_type"`
-	Value     string `json:"value"`
+	TraitType string      `json:"trait_type"`
+	Value     interface{} `json:"value"`
+}
+
+// ParseReceiptEvents populates the Events field of a ReceiptInfo by decoding
+// the raw receipt logs using the provided EventParser. It fetches the raw
+// receipt from the chain to access the full log data.
+func (cc *ChainClient) ParseReceiptEvents(ctx context.Context, receipt *ReceiptInfo, parser *EventParser) error {
+	hash := common.HexToHash(receipt.TransactionHash)
+	rawReceipt, err := withChainClient(ctx, cc, "TransactionReceipt", func(client *ethclient.Client) (*types.Receipt, error) {
+		return client.TransactionReceipt(ctx, hash)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to fetch receipt for event parsing: %w", err)
+	}
+	receipt.Events = parser.ParseLogs(rawReceipt.Logs)
+	return nil
 }
