@@ -52,7 +52,7 @@ node --version  # Should be v18+
 npm --version
 
 # Go (already installed)
-go version  # Should be 1.21+
+go version  # Should be 1.24+
 
 # Redis (for transaction queue)
 brew install redis  # macOS

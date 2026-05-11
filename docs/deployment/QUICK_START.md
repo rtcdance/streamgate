@@ -4,7 +4,7 @@
 
 ### 前置条件
 
-- Go 1.21+
+- Go 1.24
 - Docker & Docker Compose
 - Make
 

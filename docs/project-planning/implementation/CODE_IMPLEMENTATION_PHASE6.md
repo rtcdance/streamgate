@@ -371,7 +371,7 @@ go test ./test/integration/security -run TestSecurity
 ## Deployment
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24
 - Monitoring infrastructure (Prometheus, Grafana)
 - Alert handlers (email, Slack, etc.)
 

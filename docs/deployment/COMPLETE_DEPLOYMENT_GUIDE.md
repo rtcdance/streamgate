@@ -37,7 +37,7 @@ brew install go postgresql redis ffmpeg
 sudo apt-get install golang-go postgresql redis-server ffmpeg
 
 # Verify installations
-go version          # Go 1.21+
+go version          # Go 1.24
 psql --version      # PostgreSQL 15+
 redis-cli --version # Redis 7+
 ffmpeg -version     # FFmpeg 4.4+

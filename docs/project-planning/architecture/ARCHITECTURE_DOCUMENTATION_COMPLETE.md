@@ -97,7 +97,7 @@ The root README.md has been completely rewritten to include:
 #### 4. Technology Stack (Enhanced)
 
 15 technologies with categories and purposes:
-- Language: Go 1.21+
+- Language: Go 1.24
 - Architecture: Microkernel + Microservices
 - Database: PostgreSQL 15
 - Cache: Redis 7

@@ -238,7 +238,7 @@ Add these secrets to GitHub repository settings:
 ### Environment Variables
 
 Set in workflow files:
-- `GO_VERSION` - Go version (default: 1.21)
+- `GO_VERSION` - Go version (default: 1.24)
 - `GOPROXY` - Go proxy URL (default: https://goproxy.io,direct)
 - `REGISTRY` - Container registry (default: ghcr.io)
 
@@ -441,7 +441,7 @@ Run tests on multiple Go versions:
 ```yaml
 strategy:
   matrix:
-    go-version: ['1.20', '1.21', '1.22']
+    go-version: ['1.22', '1.23', '1.24']
 ```
 
 ### Conditional Steps

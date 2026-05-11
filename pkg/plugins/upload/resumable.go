@@ -52,11 +52,11 @@ const (
 func NewResumableUploadManager(storageDir string, logger *zap.Logger) (*ResumableUploadManager, error) {
 	chunksDir := filepath.Join(storageDir, "chunks")
 
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
-	if err := os.MkdirAll(chunksDir, 0755); err != nil {
+	if err := os.MkdirAll(chunksDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create chunks directory: %w", err)
 	}
 
@@ -134,7 +134,7 @@ func (rum *ResumableUploadManager) UploadChunk(ctx context.Context, sessionID st
 
 	// Save chunk to disk
 	chunkPath := rum.getChunkPath(sessionID, chunkIndex)
-	if err := os.WriteFile(chunkPath, data, 0644); err != nil {
+	if err := os.WriteFile(chunkPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to save chunk: %w", err)
 	}
 
@@ -185,7 +185,7 @@ func (rum *ResumableUploadManager) CompleteUpload(ctx context.Context, sessionID
 	// Verify checksum if provided
 	if session.Checksum != "" {
 		if err := rum.verifyChecksum(finalPath, session.Checksum); err != nil {
-			os.Remove(finalPath)
+			_ = os.Remove(finalPath)
 			return "", fmt.Errorf("checksum verification failed: %w", err)
 		}
 	}
@@ -367,7 +367,7 @@ func (rum *ResumableUploadManager) assembleChunks(sessionID, finalPath string) e
 	if err != nil {
 		return fmt.Errorf("failed to create final file: %w", err)
 	}
-	defer finalFile.Close()
+	defer func() { _ = finalFile.Close() }()
 
 	// Calculate number of chunks
 	numChunks := int((session.FileSize + session.ChunkSize - 1) / session.ChunkSize)
@@ -394,7 +394,7 @@ func (rum *ResumableUploadManager) verifyChecksum(filePath, expectedChecksum str
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, file); err != nil {
@@ -424,7 +424,7 @@ func (rum *ResumableUploadManager) cleanupChunks(sessionID string) {
 // getChunkPath returns the path for a chunk file
 func (rum *ResumableUploadManager) getChunkPath(sessionID string, chunkIndex int) string {
 	sessionDir := filepath.Join(rum.chunksDir, sessionID)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
 		rum.logger.Error("Failed to create session directory",
 			zap.String("session_id", sessionID),
 			zap.Error(err))

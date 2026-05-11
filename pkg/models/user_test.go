@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestUser_Creation(t *testing.T) {
@@ -15,9 +15,9 @@ func TestUser_Creation(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	helpers.AssertEqual(t, "user123", user.ID)
-	helpers.AssertEqual(t, "testuser", user.Username)
-	helpers.AssertEqual(t, "test@example.com", user.Email)
+	assert.Equal(t, "user123", user.ID)
+	assert.Equal(t, "testuser", user.Username)
+	assert.Equal(t, "test@example.com", user.Email)
 }
 
 func TestUser_Validation(t *testing.T) {
@@ -56,7 +56,7 @@ func TestUser_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isValid := tt.user.ID != "" && tt.user.Username != "" && tt.user.Email != ""
-			helpers.AssertEqual(t, tt.isValid, isValid)
+			assert.Equal(t, tt.isValid, isValid)
 		})
 	}
 }
@@ -70,8 +70,8 @@ func TestUser_Update(t *testing.T) {
 
 	// Update email
 	user.Email = "newemail@example.com"
-	helpers.AssertEqual(t, "newemail@example.com", user.Email)
+	assert.Equal(t, "newemail@example.com", user.Email)
 
 	// Username should remain unchanged
-	helpers.AssertEqual(t, "testuser", user.Username)
+	assert.Equal(t, "testuser", user.Username)
 }

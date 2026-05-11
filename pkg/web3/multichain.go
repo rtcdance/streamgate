@@ -119,19 +119,42 @@ var SupportedChains = map[int64]*ChainConfig{
 		Currency:  "ETH",
 		IsTestnet: true,
 	},
+
+	// Solana
+	-1: {
+		ID:        -1,
+		Name:      "Solana Mainnet",
+		RPC:       "https://api.mainnet-beta.solana.com",
+		RPCs:      []string{"https://api.mainnet-beta.solana.com"},
+		Explorer:  "https://solscan.io",
+		Currency:  "SOL",
+		IsTestnet: false,
+	},
+	-2: {
+		ID:        -2,
+		Name:      "Solana Devnet",
+		RPC:       "https://api.devnet.solana.com",
+		RPCs:      []string{"https://api.devnet.solana.com"},
+		Explorer:  "https://devnet.solscan.io",
+		Currency:  "SOL",
+		IsTestnet: true,
+	},
 }
 
 // MultiChainManager manages multiple blockchain connections
 type MultiChainManager struct {
-	clients map[int64]*ChainClient
-	logger  *zap.Logger
+	clients       map[int64]*ChainClient
+	solanaClients map[int64]*SolanaVerifier
+	rateLimiter   *RPCRateLimiter
+	logger        *zap.Logger
 }
 
 // NewMultiChainManager creates a new multi-chain manager
 func NewMultiChainManager(logger *zap.Logger) *MultiChainManager {
 	return &MultiChainManager{
-		clients: make(map[int64]*ChainClient),
-		logger:  logger,
+		clients:       make(map[int64]*ChainClient),
+		solanaClients: make(map[int64]*SolanaVerifier),
+		logger:        logger,
 	}
 }
 
@@ -148,7 +171,17 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 		return fmt.Errorf("chain not supported: %d", chainID)
 	}
 
-	// Create client
+	// Solana chains use SolanaVerifier
+	if chainID < 0 {
+		verifier := NewSolanaVerifier(mcm.logger, config.RPC)
+		mcm.solanaClients[chainID] = verifier
+		mcm.logger.Info("Solana chain added",
+			zap.Int64("chain_id", chainID),
+			zap.String("name", config.Name))
+		return nil
+	}
+
+	// Create EVM client
 	rpcURLs := config.RPCs
 	if len(rpcURLs) == 0 && config.RPC != "" {
 		rpcURLs = []string{config.RPC}
@@ -169,6 +202,11 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 	return nil
 }
 
+// AddChainWithClient adds a chain with an existing client.
+func (mcm *MultiChainManager) AddChainWithClient(chainID int64, client *ChainClient) {
+	mcm.clients[chainID] = client
+}
+
 // RemoveChain removes a blockchain connection
 func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 	mcm.logger.Info("Removing chain",
@@ -180,18 +218,45 @@ func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 		mcm.logger.Info("Chain removed",
 			zap.Int64("chain_id", chainID))
 	}
+	if _, exists := mcm.solanaClients[chainID]; exists {
+		delete(mcm.solanaClients, chainID)
+		mcm.logger.Info("Solana chain removed",
+			zap.Int64("chain_id", chainID))
+	}
 }
 
 // GetClient gets a chain client
 func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 	client, exists := mcm.clients[chainID]
 	if !exists {
-		mcm.logger.Error("Chain client not found",
+		// Check if it's a Solana chain
+		if _, solExists := mcm.solanaClients[chainID]; solExists {
+			return nil, fmt.Errorf("EVM chain client not found: %d is a Solana chain", chainID)
+		}
+		mcm.logger.Error("EVM chain client not found",
 			zap.Int64("chain_id", chainID))
-		return nil, fmt.Errorf("chain client not found: %d", chainID)
+		return nil, fmt.Errorf("EVM chain client not found: %d", chainID)
 	}
 
 	return client, nil
+}
+
+// GetSolanaClient returns the Solana verifier for the given chain ID.
+func (mcm *MultiChainManager) GetSolanaClient(chainID int64) (*SolanaVerifier, error) {
+	verifier, exists := mcm.solanaClients[chainID]
+	if !exists {
+		// Check if it's an EVM chain
+		if _, evmExists := mcm.clients[chainID]; evmExists {
+			return nil, fmt.Errorf("Solana chain client not found: %d is an EVM chain", chainID)
+		}
+		return nil, fmt.Errorf("Solana chain client not found: %d", chainID)
+	}
+	return verifier, nil
+}
+
+// SetRateLimiter sets an RPC rate limiter applied to all new EVM clients.
+func (mcm *MultiChainManager) SetRateLimiter(rl *RPCRateLimiter) {
+	mcm.rateLimiter = rl
 }
 
 // GetChainConfig gets the configuration for a chain
@@ -274,7 +339,7 @@ func NewCrossChainBridge(logger *zap.Logger) *CrossChainBridge {
 }
 
 // BridgeAsset bridges an asset between chains (placeholder)
-func (ccb *CrossChainBridge) BridgeAsset(fromChain int64, toChain int64, asset string, amount string) error {
+func (ccb *CrossChainBridge) BridgeAsset(fromChain, toChain int64, asset, amount string) error {
 	ccb.logger.Info("Bridging asset",
 		zap.Int64("from_chain", fromChain),
 		zap.Int64("to_chain", toChain),

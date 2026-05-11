@@ -12,11 +12,11 @@ func LoadFixture(t *testing.T, filename string, v interface{}) {
 	t.Helper()
 
 	// Try relative path from test directory
-	path := filepath.Join("../fixtures", filename)
+	path := filepath.Join("..", "fixtures", filename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		// Try from project root
-		path = filepath.Join("test/fixtures", filename)
+		path = filepath.Join("test", "fixtures", filename)
 		data, err = os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("Failed to load fixture %s: %v", filename, err)
@@ -33,11 +33,11 @@ func LoadTestData(t *testing.T, filename string) []byte {
 	t.Helper()
 
 	// Try relative path from test directory
-	path := filepath.Join("../testdata", filename)
+	path := filepath.Join("..", "testdata", filename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		// Try from project root
-		path = filepath.Join("test/testdata", filename)
+		path = filepath.Join("test", "testdata", filename)
 		data, err = os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("Failed to load test data %s: %v", filename, err)
@@ -56,8 +56,8 @@ func SaveFixture(t *testing.T, filename string, v interface{}) {
 		t.Fatalf("Failed to marshal fixture: %v", err)
 	}
 
-	path := filepath.Join("test/fixtures", filename)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	path := filepath.Join("test", "fixtures", filename)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("Failed to save fixture %s: %v", filename, err)
 	}
 }
@@ -72,19 +72,19 @@ func CreateTempFile(t *testing.T, content []byte) string {
 	}
 
 	if _, err := tmpfile.Write(content); err != nil {
-		tmpfile.Close()
-		os.Remove(tmpfile.Name())
+		_ = tmpfile.Close()
+		_ = os.Remove(tmpfile.Name())
 		t.Fatalf("Failed to write temp file: %v", err)
 	}
 
 	if err := tmpfile.Close(); err != nil {
-		os.Remove(tmpfile.Name())
+		_ = os.Remove(tmpfile.Name())
 		t.Fatalf("Failed to close temp file: %v", err)
 	}
 
 	// Register cleanup
 	t.Cleanup(func() {
-		os.Remove(tmpfile.Name())
+		_ = os.Remove(tmpfile.Name())
 	})
 
 	return tmpfile.Name()
@@ -101,7 +101,7 @@ func CreateTempDir(t *testing.T) string {
 
 	// Register cleanup
 	t.Cleanup(func() {
-		os.RemoveAll(tmpdir)
+		_ = os.RemoveAll(tmpdir)
 	})
 
 	return tmpdir

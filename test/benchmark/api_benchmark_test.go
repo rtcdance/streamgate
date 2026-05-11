@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
 )
 
@@ -101,17 +104,23 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	service := middleware.NewService(nil)
-	router.Use(service.AuthMiddleware())
+	jwtConfig := middleware.JWTAuthConfig{Secret: "bench-secret-key"}
+	router.Use(middleware.JWTAuthMiddleware(jwtConfig, zap.NewNop()))
 
 	router.GET("/api/protected", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "protected"})
 	})
 
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"wallet_address": "0xBench",
+		"exp":            time.Now().Add(time.Hour).Unix(),
+	})
+	tokenStr, _ := tok.SignedString([]byte("bench-secret-key"))
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		req := httptest.NewRequest("GET", "/api/protected", nil)
-		req.Header.Set("Authorization", "Bearer valid-token")
+		req.Header.Set("Authorization", "Bearer "+tokenStr)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // EventCollector collects analytics events from services
@@ -25,16 +26,18 @@ type EventCollector struct {
 	perfBuffer      []*PerformanceMetric
 	businessBuffer  []*BusinessMetric
 	subscribers     map[string][]EventHandler
+	logger          *zap.Logger
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
+	sem             chan struct{} // limits concurrent subscriber notifications
 }
 
 // EventHandler is a function that handles analytics events
 type EventHandler func(event interface{}) error
 
 // NewEventCollector creates a new event collector
-func NewEventCollector(bufferSize int, flushInterval time.Duration) *EventCollector {
+func NewEventCollector(bufferSize int, flushInterval time.Duration, logger *zap.Logger) *EventCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	ec := &EventCollector{
@@ -51,6 +54,8 @@ func NewEventCollector(bufferSize int, flushInterval time.Duration) *EventCollec
 		perfBuffer:      make([]*PerformanceMetric, 0, bufferSize),
 		businessBuffer:  make([]*BusinessMetric, 0, bufferSize),
 		subscribers:     make(map[string][]EventHandler),
+		logger:          logger,
+		sem:             make(chan struct{}, 16),
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -259,7 +264,16 @@ func (ec *EventCollector) notifySubscribers(eventType string, event interface{})
 	ec.mu.RUnlock()
 
 	for _, handler := range handlers {
+		ec.sem <- struct{}{} // acquire semaphore
+		ec.wg.Add(1)
 		go func(h EventHandler) {
+			defer func() { <-ec.sem }() // release semaphore
+			defer ec.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Recovered panic in subscriber notification: %v\n", r)
+				}
+			}()
 			if err := h(event); err != nil {
 				fmt.Printf("error notifying subscriber: %v\n", err)
 			}
@@ -283,6 +297,8 @@ func (ec *EventCollector) notifySubscribersSync(eventType string, event interfac
 // flushEvents flushes event buffer
 func (ec *EventCollector) flushEvents() {
 	if len(ec.eventBuffer) > 0 {
+		ec.logger.Warn("flushing events: data will be lost — no persistent backend configured",
+			zap.Int("dropped_events", len(ec.eventBuffer)))
 		ec.eventBuffer = ec.eventBuffer[:0]
 	}
 }
@@ -290,6 +306,8 @@ func (ec *EventCollector) flushEvents() {
 // flushMetrics flushes metrics buffer
 func (ec *EventCollector) flushMetrics() {
 	if len(ec.metricsBuffer) > 0 {
+		ec.logger.Warn("flushing metrics: data will be lost — no persistent backend configured",
+			zap.Int("dropped_metrics", len(ec.metricsBuffer)))
 		ec.metricsBuffer = ec.metricsBuffer[:0]
 	}
 }
@@ -297,6 +315,8 @@ func (ec *EventCollector) flushMetrics() {
 // flushBehaviors flushes behavior buffer
 func (ec *EventCollector) flushBehaviors() {
 	if len(ec.behaviorBuffer) > 0 {
+		ec.logger.Warn("flushing behaviors: data will be lost — no persistent backend configured",
+			zap.Int("dropped_behaviors", len(ec.behaviorBuffer)))
 		ec.behaviorBuffer = ec.behaviorBuffer[:0]
 	}
 }
@@ -304,6 +324,8 @@ func (ec *EventCollector) flushBehaviors() {
 // flushPerfMetrics flushes performance metrics buffer
 func (ec *EventCollector) flushPerfMetrics() {
 	if len(ec.perfBuffer) > 0 {
+		ec.logger.Warn("flushing performance metrics: data will be lost — no persistent backend configured",
+			zap.Int("dropped_perf_metrics", len(ec.perfBuffer)))
 		ec.perfBuffer = ec.perfBuffer[:0]
 	}
 }
@@ -311,6 +333,8 @@ func (ec *EventCollector) flushPerfMetrics() {
 // flushBusinessMetrics flushes business metrics buffer
 func (ec *EventCollector) flushBusinessMetrics() {
 	if len(ec.businessBuffer) > 0 {
+		ec.logger.Warn("flushing business metrics: data will be lost — no persistent backend configured",
+			zap.Int("dropped_business_metrics", len(ec.businessBuffer)))
 		ec.businessBuffer = ec.businessBuffer[:0]
 	}
 }

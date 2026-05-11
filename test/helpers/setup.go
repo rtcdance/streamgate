@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -51,15 +52,15 @@ func SetupTestDB(t *testing.T) *storage.Database {
 	}
 
 	// Test connection
-	if err := db.Ping(); err != nil {
-		db.Close()
+	if err := db.Ping(context.Background()); err != nil {
+		_ = db.Close()
 		t.Skipf("Skipping test: database not available: %v", err)
 		return nil
 	}
 
 	// Apply migrations
 	if err := ApplyMigrations(t, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		t.Skipf("Skipping test: failed to apply migrations: %v", err)
 		return nil
 	}
@@ -144,12 +145,11 @@ func ApplyMigrations(t *testing.T, db *storage.Database) error {
 }
 
 // SetupTestStorage creates test object storage
-func SetupTestStorage(t *testing.T) *storage.ObjectStorage {
+func SetupTestStorage(t *testing.T) storage.ObjectStorage {
 	t.Helper()
 
 	config := DefaultTestConfig()
-	objStorage, err := storage.NewObjectStorage(storage.ObjectStorageConfig{
-		Type:            config.StorageType,
+	objStorage, err := storage.NewMinIOStorage(storage.MinIOConfig{
 		Endpoint:        config.StorageEndpoint,
 		AccessKeyID:     config.StorageKey,
 		SecretAccessKey: config.StorageSecret,
@@ -161,7 +161,7 @@ func SetupTestStorage(t *testing.T) *storage.ObjectStorage {
 	}
 
 	// Verify storage is accessible by trying to list objects (will fail if MinIO is not running)
-	_, err = objStorage.ListObjects("test-bucket", "")
+	_, err = objStorage.ListObjects(context.Background(), "test-bucket", "")
 	if err != nil {
 		t.Skipf("Skipping test: storage not accessible: %v", err)
 		return nil
@@ -209,7 +209,7 @@ func CleanupTestDB(t *testing.T, db *storage.Database) {
 }
 
 // CleanupTestStorage cleans up test storage
-func CleanupTestStorage(t *testing.T, storage *storage.ObjectStorage) {
+func CleanupTestStorage(t *testing.T, s storage.ObjectStorage) {
 	t.Helper()
 	// Object storage doesn't need explicit cleanup
 }

@@ -8,7 +8,7 @@ import (
 
 // Service provides performance optimization functionality
 type Service struct {
-	mu                sync.RWMutex
+	mu                sync.RWMutex //nolint:unused
 	cache             *MultiLevelCache
 	queryOptimizer    *QueryOptimizer
 	indexOptimizer    *IndexOptimizer

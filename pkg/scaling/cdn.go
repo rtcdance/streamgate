@@ -73,7 +73,7 @@ func NewCDNManager(config CDNConfig, maxCacheSize int64) *CDNManager {
 }
 
 // CacheContent caches content in CDN
-func (cm *CDNManager) CacheContent(key, url string, ttl int64, size int64) error {
+func (cm *CDNManager) CacheContent(key, url string, ttl, size int64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 

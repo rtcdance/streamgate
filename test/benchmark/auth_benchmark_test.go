@@ -1,8 +1,10 @@
 package benchmark_test
 
 import (
+	"context"
 	"testing"
 
+	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 )
 
@@ -14,7 +16,7 @@ func BenchmarkAuthService_Register(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		username := "testuser" + string(rune(i))
 		email := "test" + string(rune(i)) + "@example.com"
-		authService.Register(username, "password123", email)
+		authService.Register(context.Background(),username, "password123", email)
 	}
 }
 
@@ -23,11 +25,11 @@ func BenchmarkAuthService_Login(b *testing.B) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create a user
-	authService.Register("testuser", "password123", "test@example.com")
+	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.Authenticate("testuser", "password123")
+		authService.Authenticate(context.Background(),"testuser", "password123")
 	}
 }
 
@@ -36,8 +38,8 @@ func BenchmarkAuthService_ValidateToken(b *testing.B) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create user and get token
-	authService.Register("testuser", "password123", "test@example.com")
-	token, _ := authService.Authenticate("testuser", "password123")
+	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate(context.Background(),"testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -50,12 +52,12 @@ func BenchmarkAuthService_RefreshToken(b *testing.B) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create user and get token
-	authService.Register("testuser", "password123", "test@example.com")
-	token, _ := authService.Authenticate("testuser", "password123")
+	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate(context.Background(),"testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.RefreshToken(token)
+		authService.RefreshToken(context.Background(), token)
 	}
 }
 
@@ -79,27 +81,27 @@ func BenchmarkAuthService_ConcurrentLogins(b *testing.B) {
 	authService := service.NewAuthService("test-secret", storage)
 
 	// Setup: Create a user
-	authService.Register("testuser", "password123", "test@example.com")
+	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			authService.Authenticate("testuser", "password123")
+			authService.Authenticate(context.Background(),"testuser", "password123")
 		}
 	})
 }
 
 // MockAuthStorage implements service.AuthStorage for testing
 type MockAuthStorage struct {
-	users map[string]*service.User
+	users map[string]*models.User
 }
 
 func NewMockAuthStorage() *MockAuthStorage {
 	return &MockAuthStorage{
-		users: make(map[string]*service.User),
+		users: make(map[string]*models.User),
 	}
 }
 
-func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
+func (m *MockAuthStorage) GetUser(ctx context.Context, username string) (*models.User, error) {
 	user, exists := m.users[username]
 	if !exists {
 		return nil, nil
@@ -107,12 +109,12 @@ func (m *MockAuthStorage) GetUser(username string) (*service.User, error) {
 	return user, nil
 }
 
-func (m *MockAuthStorage) CreateUser(user *service.User) error {
+func (m *MockAuthStorage) CreateUser(ctx context.Context, user *models.User) error {
 	m.users[user.Username] = user
 	return nil
 }
 
-func (m *MockAuthStorage) UpdateUser(user *service.User) error {
+func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) error {
 	m.users[user.Username] = user
 	return nil
 }

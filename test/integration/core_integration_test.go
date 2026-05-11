@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"streamgate/pkg/config"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/eventbus"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/optimization"

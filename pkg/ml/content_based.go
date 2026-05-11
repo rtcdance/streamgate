@@ -59,21 +59,23 @@ func (cbf *ContentBasedFilter) UpdateUserPreferences(userProfile *UserProfile) e
 	totalWeight := 0.0
 
 	for _, contentID := range userProfile.ViewedContent {
-		if features, exists := cbf.contentFeatures[contentID]; exists {
-			weight := 1.0
-			if rating, exists := userProfile.Ratings[contentID]; exists {
-				weight = rating / 5.0 // Normalize rating to 0-1
-			}
-
-			if len(preferenceVector) == 0 {
-				preferenceVector = make([]float64, len(features))
-			}
-
-			for i, feature := range features {
-				preferenceVector[i] += feature * weight
-			}
-			totalWeight += weight
+		features, exists := cbf.contentFeatures[contentID]
+		if !exists {
+			continue
 		}
+		weight := 1.0
+		if rating, exists := userProfile.Ratings[contentID]; exists {
+			weight = rating / 5.0 // Normalize rating to 0-1
+		}
+
+		if len(preferenceVector) == 0 {
+			preferenceVector = make([]float64, len(features))
+		}
+
+		for i, feature := range features {
+			preferenceVector[i] += feature * weight
+		}
+		totalWeight += weight
 	}
 
 	if totalWeight > 0 && len(preferenceVector) > 0 {

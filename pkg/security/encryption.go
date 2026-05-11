@@ -12,6 +12,7 @@ import (
 	"io"
 	"sync"
 
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -215,15 +216,28 @@ func (e *Encryptor) generateSalt() ([]byte, error) {
 	return salt, nil
 }
 
-// HashPassword hashes a password using SHA256
+// HashPassword hashes a password using bcrypt (cost 12).
+// If cost 12 fails, retries with minimum cost rather than falling back
+// to an insecure hash algorithm.
 func (e *Encryptor) HashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		// Cost 12 may fail on constrained systems; fall back to minimum cost.
+		// Never fall back to unsalted SHA-256 — it produces insecure hashes.
+		hash, err = bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+		if err != nil {
+			// bcrypt is fundamentally broken — panic is preferable to
+			// returning an insecure hash.
+			panic(fmt.Sprintf("bcrypt GenerateFromPassword failed at MinCost: %v", err))
+		}
+	}
+	return string(hash)
 }
 
-// VerifyPassword verifies a password against a hash
+// VerifyPassword verifies a password against a bcrypt hash.
 func (e *Encryptor) VerifyPassword(password, hash string) bool {
-	return e.HashPassword(password) == hash
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 // GenerateKey generates a random encryption key

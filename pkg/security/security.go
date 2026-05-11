@@ -2,10 +2,14 @@ package security
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // SecurityError represents a security-related error
@@ -116,36 +120,6 @@ func GetSecurityHeaders() SecurityHeaders {
 	return DefaultSecurityHeaders()
 }
 
-// EscapeSQL escapes SQL special characters to prevent SQL injection
-func EscapeSQL(input string) string {
-	if input == "" {
-		return ""
-	}
-
-	escaped := ""
-	for _, r := range input {
-		switch r {
-		case '\'':
-			escaped += "''"
-		case '\\':
-			escaped += "\\\\"
-		case '\x00':
-			escaped += "\\0"
-		case '\n':
-			escaped += "\\n"
-		case '\r':
-			escaped += "\\r"
-		case '\x1a':
-			escaped += "\\Z"
-		case '"':
-			escaped += "\\\""
-		default:
-			escaped += string(r)
-		}
-	}
-	return escaped
-}
-
 // EscapeHTML escapes HTML special characters to prevent XSS
 func EscapeHTML(input string) string {
 	if input == "" {
@@ -193,16 +167,17 @@ func GenerateCSRFToken() (*CSRFToken, error) {
 	}, nil
 }
 
-// VerifyCSRFToken verifies a CSRF token
-func VerifyCSRFToken(token string, expectedToken string) bool {
-	return token == expectedToken
+// VerifyCSRFToken verifies a CSRF token using constant-time comparison
+// to prevent timing attacks.
+func VerifyCSRFToken(token, expectedToken string) bool {
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expectedToken)) == 1
 }
 
 // SecureCache represents a secure cache with encryption
 type SecureCache struct {
 	encryptor *Encryptor
 	data      map[string]cacheEntry
-	mu        interface{}
+	mu        sync.RWMutex
 }
 
 type cacheEntry struct {
@@ -221,13 +196,20 @@ func NewSecureCache(encryptor *Encryptor) *SecureCache {
 
 // Get retrieves a value from the cache
 func (sc *SecureCache) Get(key string) (interface{}, error) {
+	sc.mu.RLock()
 	entry, exists := sc.data[key]
+	sc.mu.RUnlock()
 	if !exists {
 		return nil, errors.New("key not found")
 	}
 
 	if time.Now().After(entry.expiresAt) {
-		delete(sc.data, key)
+		sc.mu.Lock()
+		// Re-check after acquiring write lock
+		if e, ok := sc.data[key]; ok && time.Now().After(e.expiresAt) {
+			delete(sc.data, key)
+		}
+		sc.mu.Unlock()
 		return nil, errors.New("key expired")
 	}
 
@@ -264,39 +246,50 @@ func (sc *SecureCache) Set(key string, value interface{}) error {
 		return fmt.Errorf("failed to encrypt cache value: %w", err)
 	}
 
+	sc.mu.Lock()
 	sc.data[key] = cacheEntry{
 		value:     encrypted.Ciphertext,
 		nonce:     encrypted.Nonce,
 		expiresAt: time.Now().Add(1 * time.Hour),
 	}
+	sc.mu.Unlock()
 
 	return nil
 }
 
 // Delete removes a value from the cache
 func (sc *SecureCache) Delete(key string) error {
+	sc.mu.Lock()
 	delete(sc.data, key)
+	sc.mu.Unlock()
 	return nil
 }
 
 // AuditLogger represents an audit logger
 type AuditLogger struct {
 	enabled bool
+	logger  *zap.Logger
 }
 
 // NewAuditLogger creates a new audit logger
-func NewAuditLogger(enabled bool) *AuditLogger {
+func NewAuditLogger(enabled bool, logger *zap.Logger) *AuditLogger {
 	return &AuditLogger{
 		enabled: enabled,
+		logger:  logger,
 	}
 }
 
 // Log logs an audit event
 func (al *AuditLogger) Log(event string, details map[string]interface{}) error {
-	if !al.enabled {
+	if !al.enabled || al.logger == nil {
 		return nil
 	}
 
+	fields := []zap.Field{zap.String("event", event)}
+	for k, v := range details {
+		fields = append(fields, zap.Any(k, v))
+	}
+	al.logger.Info("audit", fields...)
 	return nil
 }
 
@@ -310,10 +303,10 @@ func (al *AuditLogger) LogAccess(userID, action, resource string) error {
 }
 
 // LogError logs an error event
-func (al *AuditLogger) LogError(userID, error string) error {
+func (al *AuditLogger) LogError(userID, errMsg string) error {
 	return al.Log("error", map[string]interface{}{
 		"user_id": userID,
-		"error":   error,
+		"error":   errMsg,
 	})
 }
 

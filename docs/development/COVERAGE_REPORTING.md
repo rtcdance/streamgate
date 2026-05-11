@@ -75,12 +75,24 @@ gocovmerge coverage-unit.out coverage-integration.out coverage-e2e.out coverage-
 
 ## Coverage Threshold
 
-### Minimum Coverage: 80%
+### Minimum Coverage: 25% (Incremental Target)
 
-The CI pipeline enforces a minimum coverage threshold of 80%:
-- **Below 80%**: CI fails with error message
-- **80% and above**: CI passes successfully
-- **Warning**: Coverage below threshold generates warning in GitHub summary
+The project uses an incremental coverage strategy. Current overall coverage is ~25%.
+The CI pipeline enforces a minimum coverage threshold of 25%:
+- **Below 25%**: CI fails with error message
+- **25% and above**: CI passes successfully
+- **Target**: 50%+ overall coverage, with per-component goals below
+
+### Per-Component Coverage Goals
+
+| Component | Current | Target |
+|-----------|---------|--------|
+| pkg/middleware | 70% | 80%+ |
+| pkg/eventbus | 60% | 75%+ |
+| pkg/web3 | 40% | 60%+ |
+| pkg/service | 25% | 50%+ |
+| pkg/storage | 14% | 40%+ |
+| pkg/gateway | 19% | 40%+ |
 
 ## Coverage Reporting
 

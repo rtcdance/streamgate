@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,11 +18,14 @@ type SolanaVerifier struct {
 }
 
 // NewSolanaVerifier creates a new Solana verifier
-func NewSolanaVerifier(logger *zap.Logger) *SolanaVerifier {
+func NewSolanaVerifier(logger *zap.Logger, rpcEndpoint ...string) *SolanaVerifier {
 	return &SolanaVerifier{
 		logger: logger,
 	}
 }
+
+// Close releases resources held by the verifier.
+func (sv *SolanaVerifier) Close() {}
 
 // VerifySignature verifies a Solana signature
 func (sv *SolanaVerifier) VerifySignature(address, message, signature string) (bool, error) {
@@ -203,7 +207,7 @@ type MetaplexFile struct {
 }
 
 // VerifyMetaplexMetadata verifies Metaplex NFT metadata signature
-func (sv *SolanaVerifier) VerifyMetaplexMetadata(metadataURI, creatorAddress, signature string) (bool, error) {
+func (sv *SolanaVerifier) VerifyMetaplexMetadata(ctx context.Context, metadataURI, creatorAddress, signature string) (bool, error) {
 	sv.logger.Debug("Verifying Metaplex metadata",
 		zap.String("creator", creatorAddress),
 		zap.String("metadata_uri", metadataURI))
@@ -214,7 +218,7 @@ func (sv *SolanaVerifier) VerifyMetaplexMetadata(metadataURI, creatorAddress, si
 	// 3. Verify signature with creator's public key
 
 	// For now, just verify the signature format
-	if len(signature) == 0 {
+	if signature == "" {
 		return false, fmt.Errorf("empty signature")
 	}
 
@@ -229,7 +233,7 @@ func (sv *SolanaVerifier) VerifyMetaplexMetadata(metadataURI, creatorAddress, si
 }
 
 // VerifyTokenAccount verifies token account ownership
-func (sv *SolanaVerifier) VerifyTokenAccount(tokenAccount, ownerAddress string) (bool, error) {
+func (sv *SolanaVerifier) VerifyTokenAccount(ctx context.Context, tokenAccount, ownerAddress string) (bool, error) {
 	sv.logger.Debug("Verifying token account",
 		zap.String("token_account", tokenAccount),
 		zap.String("owner", ownerAddress))
@@ -245,7 +249,7 @@ func (sv *SolanaVerifier) VerifyTokenAccount(tokenAccount, ownerAddress string) 
 }
 
 // VerifyMintAuthority verifies mint authority
-func (sv *SolanaVerifier) VerifyMintAuthority(mintAddress, authorityAddress string) (bool, error) {
+func (sv *SolanaVerifier) VerifyMintAuthority(ctx context.Context, mintAddress, authorityAddress string) (bool, error) {
 	sv.logger.Debug("Verifying mint authority",
 		zap.String("mint", mintAddress),
 		zap.String("authority", authorityAddress))

@@ -1,10 +1,12 @@
 package e2e_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
 )
 
@@ -19,12 +21,12 @@ func NewMockContentStorage() *MockContentStorage {
 	}
 }
 
-func (m *MockContentStorage) Upload(bucket, key string, data []byte) error {
+func (m *MockContentStorage) Upload(ctx context.Context, bucket, key string, data []byte) error {
 	m.data[key] = data
 	return nil
 }
 
-func (m *MockContentStorage) Download(bucket, key string) ([]byte, error) {
+func (m *MockContentStorage) Download(ctx context.Context, bucket, key string) ([]byte, error) {
 	data, exists := m.data[key]
 	if !exists {
 		return nil, nil
@@ -32,12 +34,12 @@ func (m *MockContentStorage) Download(bucket, key string) ([]byte, error) {
 	return data, nil
 }
 
-func (m *MockContentStorage) Delete(bucket, key string) error {
+func (m *MockContentStorage) Delete(ctx context.Context, bucket, key string) error {
 	delete(m.data, key)
 	return nil
 }
 
-func (m *MockContentStorage) Exists(bucket, key string) (bool, error) {
+func (m *MockContentStorage) Exists(ctx context.Context, bucket, key string) (bool, error) {
 	_, exists := m.data[key]
 	return exists, nil
 }
@@ -75,16 +77,17 @@ func TestContentManagement_CreateAndRetrieve(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := NewMockContentStorage()
+	objStorage := NewMockContentStorage()
 	cache := NewMockContentCache()
 
-	// Get underlying *sql.DB
 	sqlDB := db.GetDB()
 	if sqlDB == nil {
 		t.Skip("Database not available")
 	}
 
-	contentService := service.NewContentService(sqlDB, storage, cache)
+	// Wrap *sql.DB to satisfy storage.DB interface
+	sdb := storage.NewPostgresDBFromDB(sqlDB)
+	contentService := service.NewContentService(sdb, objStorage, cache)
 
 	// Create content
 	content := &service.Content{
@@ -95,12 +98,12 @@ func TestContentManagement_CreateAndRetrieve(t *testing.T) {
 		Metadata:    make(map[string]interface{}),
 	}
 
-	contentID, err := contentService.CreateContent(content)
+	contentID, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEqual(t, "", contentID)
 
 	// Retrieve content
-	retrieved, err := contentService.GetContent(contentID)
+	retrieved, err := contentService.GetContent(context.Background(), contentID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, retrieved)
 	helpers.AssertEqual(t, "Test Video", retrieved.Title)
@@ -114,7 +117,7 @@ func TestContentManagement_UpdateContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := NewMockContentStorage()
+	objStorage := NewMockContentStorage()
 	cache := NewMockContentCache()
 
 	sqlDB := db.GetDB()
@@ -122,7 +125,8 @@ func TestContentManagement_UpdateContent(t *testing.T) {
 		t.Skip("Database not available")
 	}
 
-	contentService := service.NewContentService(sqlDB, storage, cache)
+	sdb := storage.NewPostgresDBFromDB(sqlDB)
+	contentService := service.NewContentService(sdb, objStorage, cache)
 
 	// Create content
 	content := &service.Content{
@@ -133,17 +137,17 @@ func TestContentManagement_UpdateContent(t *testing.T) {
 		Metadata:    make(map[string]interface{}),
 	}
 
-	contentID, err := contentService.CreateContent(content)
+	contentID, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Update content
 	content.ID = contentID
 	content.Title = "Updated Title"
-	err = contentService.UpdateContent(content)
+	err = contentService.UpdateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Verify update
-	retrieved, err := contentService.GetContent(contentID)
+	retrieved, err := contentService.GetContent(context.Background(), contentID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertEqual(t, "Updated Title", retrieved.Title)
 }
@@ -156,7 +160,7 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := NewMockContentStorage()
+	objStorage := NewMockContentStorage()
 	cache := NewMockContentCache()
 
 	sqlDB := db.GetDB()
@@ -164,7 +168,8 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 		t.Skip("Database not available")
 	}
 
-	contentService := service.NewContentService(sqlDB, storage, cache)
+	sdb := storage.NewPostgresDBFromDB(sqlDB)
+	contentService := service.NewContentService(sdb, objStorage, cache)
 
 	// Create content
 	content := &service.Content{
@@ -175,14 +180,14 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 		Metadata:    make(map[string]interface{}),
 	}
 
-	contentID, err := contentService.CreateContent(content)
+	contentID, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Delete content
-	err = contentService.DeleteContent(contentID)
+	err = contentService.DeleteContent(context.Background(), contentID)
 	helpers.AssertNoError(t, err)
 
 	// Verify deletion
-	_, err = contentService.GetContent(contentID)
+	_, err = contentService.GetContent(context.Background(), contentID)
 	helpers.AssertError(t, err)
 }

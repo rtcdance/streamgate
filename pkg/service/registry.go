@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
@@ -177,6 +178,8 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 
 		// Use Consul's blocking queries for watching
 		var lastIndex uint64
+		backoff := time.Second
+		const maxBackoff = 30 * time.Second
 		for {
 			select {
 			case <-ctx.Done():
@@ -195,8 +198,21 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 				r.logger.Error("Error watching services",
 					zap.String("service_name", serviceName),
 					zap.Error(err))
+				// Exponential backoff with jitter on error
+				jitter := time.Duration(float64(backoff) * (0.5 + 0.5*float64(time.Now().UnixNano()%1000)/1000))
+				select {
+				case <-time.After(jitter):
+				case <-ctx.Done():
+					return
+				}
+				backoff = backoff * 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 				continue
 			}
+
+			backoff = time.Second // reset on success
 
 			lastIndex = meta.LastIndex
 

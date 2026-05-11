@@ -446,7 +446,7 @@ curl http://localhost:9090/api/v1/web3/supported-chains
 ## Deployment
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24
 - Ethereum RPC provider (Infura, Alchemy, etc.)
 - IPFS node or Pinata account
 - Smart contract deployment account with funds

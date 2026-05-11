@@ -1,6 +1,7 @@
 package content_test
 
 import (
+	"context"
 	"testing"
 
 	"streamgate/pkg/service"
@@ -15,13 +16,13 @@ func TestContentService_CreateAndRetrieve(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Create content
 	content := &service.Content{
@@ -32,13 +33,13 @@ func TestContentService_CreateAndRetrieve(t *testing.T) {
 		Size:        1024000,
 	}
 
-	id, err := contentService.CreateContent(content)
+	id, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 	content.ID = id
 	helpers.AssertNotNil(t, content.ID)
 
 	// Retrieve content
-	retrieved, err := contentService.GetContent(content.ID)
+	retrieved, err := contentService.GetContent(context.Background(), content.ID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, retrieved)
 	helpers.AssertEqual(t, content.Title, retrieved.Title)
@@ -52,13 +53,13 @@ func TestContentService_UpdateContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Create content
 	content := &service.Content{
@@ -69,7 +70,7 @@ func TestContentService_UpdateContent(t *testing.T) {
 		Size:        1024000,
 	}
 
-	id, err := contentService.CreateContent(content)
+	id, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 	content.ID = id
 
@@ -77,11 +78,11 @@ func TestContentService_UpdateContent(t *testing.T) {
 	content.Title = "Updated Title"
 	content.Description = "Updated description"
 
-	err = contentService.UpdateContent(content)
+	err = contentService.UpdateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// Verify update
-	retrieved, err := contentService.GetContent(content.ID)
+	retrieved, err := contentService.GetContent(context.Background(), content.ID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertEqual(t, "Updated Title", retrieved.Title)
 	helpers.AssertEqual(t, "Updated description", retrieved.Description)
@@ -95,13 +96,13 @@ func TestContentService_DeleteContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Create content
 	content := &service.Content{
@@ -112,16 +113,16 @@ func TestContentService_DeleteContent(t *testing.T) {
 		Size:        1024000,
 	}
 
-	id, err := contentService.CreateContent(content)
+	id, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 	content.ID = id
 
 	// Delete content
-	err = contentService.DeleteContent(content.ID)
+	err = contentService.DeleteContent(context.Background(), content.ID)
 	helpers.AssertNoError(t, err)
 
 	// Verify deletion
-	_, err = contentService.GetContent(content.ID)
+	_, err = contentService.GetContent(context.Background(), content.ID)
 	helpers.AssertError(t, err)
 }
 
@@ -133,13 +134,13 @@ func TestContentService_ListContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Create multiple contents
 	for i := 0; i < 5; i++ {
@@ -151,12 +152,12 @@ func TestContentService_ListContent(t *testing.T) {
 			Size:        1024000,
 			OwnerID:     "test-owner",
 		}
-		_, err := contentService.CreateContent(content)
+		_, err := contentService.CreateContent(context.Background(), content)
 		helpers.AssertNoError(t, err)
 	}
 
 	// List contents
-	contents, err := contentService.ListContents("test-owner", 10, 0)
+	contents, err := contentService.ListContents(context.Background(), "test-owner", 10, 0)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(contents) >= 5)
 }
@@ -169,13 +170,13 @@ func TestContentService_SearchContent(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	contentService := service.NewContentService(db.GetDB(), storage, nil)
+	contentService := service.NewContentService(db, objStorage, nil)
 
 	// Create content
 	content := &service.Content{
@@ -187,11 +188,11 @@ func TestContentService_SearchContent(t *testing.T) {
 		OwnerID:     "test-owner",
 	}
 
-	_, err := contentService.CreateContent(content)
+	_, err := contentService.CreateContent(context.Background(), content)
 	helpers.AssertNoError(t, err)
 
 	// List contents to verify creation
-	contents, err := contentService.ListContents("test-owner", 10, 0)
+	contents, err := contentService.ListContents(context.Background(), "test-owner", 10, 0)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(contents) > 0)
 }

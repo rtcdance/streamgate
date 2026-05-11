@@ -1,0 +1,3 @@
+-- Add columns to nfts table
+-- Note: metadata_url and content_id already exist in 004_add_nft_table.sql
+-- This file is kept for migration history consistency

@@ -498,7 +498,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.24'
       
       - name: Run unit tests
         run: go test -short -v ./...
@@ -514,7 +514,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.24'
       
       - name: Run integration tests
         env:

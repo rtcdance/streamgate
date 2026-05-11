@@ -172,7 +172,7 @@ func (ad *AnomalyDetector) DetectAnomalies() ([]*Anomaly, error) {
 			ad.anomalies = append(ad.anomalies, anomaly)
 
 			// Generate alert
-			ad.alerting.GenerateAlert(anomaly)
+			_ = ad.alerting.GenerateAlert(anomaly)
 		}
 	}
 

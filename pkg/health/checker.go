@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -180,12 +182,15 @@ func (hc *HealthChecker) Liveness(ctx context.Context) LivenessResponse {
 	}
 }
 
-// Readiness returns the readiness status
+// Readiness returns the readiness status.
+// A service is considered ready if it is healthy or degraded (can still
+// serve traffic, possibly with reduced functionality). Only unhealthy
+// status makes the service not ready.
 func (hc *HealthChecker) Readiness(ctx context.Context) ReadinessResponse {
 	response := hc.CheckAll(ctx)
 
 	return ReadinessResponse{
-		Ready:     response.Status == StatusHealthy,
+		Ready:     response.Status != StatusUnhealthy,
 		Timestamp: time.Now(),
 		Checks:    response.Checks,
 	}
@@ -248,7 +253,7 @@ func (hc *HealthChecker) handleLiveness(w http.ResponseWriter, r *http.Request, 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleReadiness handles readiness probe
@@ -262,7 +267,7 @@ func (hc *HealthChecker) handleReadiness(w http.ResponseWriter, r *http.Request,
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleHealth handles full health check
@@ -278,7 +283,7 @@ func (hc *HealthChecker) handleHealth(w http.ResponseWriter, r *http.Request, ct
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // CommonHealthChecks provides common health check functions
@@ -313,7 +318,7 @@ func (cc *CommonHealthChecks) ExternalServiceCheck(url string) HealthCheck {
 		if err != nil {
 			return fmt.Errorf("service unavailable: %w", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode >= 500 {
 			return fmt.Errorf("service unhealthy: status %d", resp.StatusCode)
@@ -326,6 +331,14 @@ func (cc *CommonHealthChecks) ExternalServiceCheck(url string) HealthCheck {
 // DiskSpaceCheck creates a disk space health check
 func (cc *CommonHealthChecks) DiskSpaceCheck(path string, minFreeBytes int64) HealthCheck {
 	return func(ctx context.Context) error {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(path, &stat); err != nil {
+			return fmt.Errorf("disk check failed for %s: %w", path, err)
+		}
+		freeBytes := int64(stat.Bavail) * int64(stat.Bsize)
+		if freeBytes < minFreeBytes {
+			return fmt.Errorf("disk space low on %s: %d bytes free, %d bytes required", path, freeBytes, minFreeBytes)
+		}
 		return nil
 	}
 }
@@ -333,6 +346,13 @@ func (cc *CommonHealthChecks) DiskSpaceCheck(path string, minFreeBytes int64) He
 // MemoryCheck creates a memory health check
 func (cc *CommonHealthChecks) MemoryCheck(maxUsagePercent float64) HealthCheck {
 	return func(ctx context.Context) error {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		usagePercent := float64(m.Alloc) / float64(m.Sys) * 100
+		if usagePercent > maxUsagePercent {
+			return fmt.Errorf("memory usage %.1f%% exceeds threshold %.1f%% (alloc=%d sys=%d)",
+				usagePercent, maxUsagePercent, m.Alloc, m.Sys)
+		}
 		return nil
 	}
 }
@@ -340,6 +360,10 @@ func (cc *CommonHealthChecks) MemoryCheck(maxUsagePercent float64) HealthCheck {
 // GoroutineCheck creates a goroutine count health check
 func (cc *CommonHealthChecks) GoroutineCheck(maxCount int) HealthCheck {
 	return func(ctx context.Context) error {
+		count := runtime.NumGoroutine()
+		if count > maxCount {
+			return fmt.Errorf("goroutine count %d exceeds threshold %d", count, maxCount)
+		}
 		return nil
 	}
 }

@@ -2,8 +2,11 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // Service provides analytics functionality
@@ -12,6 +15,7 @@ type Service struct {
 	collector       *EventCollector
 	aggregator      *Aggregator
 	anomalyDetector *AnomalyDetector
+	predictor       *Predictor
 	ctx             context.Context
 	cancel          context.CancelFunc
 }
@@ -20,10 +24,13 @@ type Service struct {
 func NewService() *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	logger := zap.NewNop()
+
 	service := &Service{
-		collector:       NewEventCollector(1000, 5*time.Second),
+		collector:       NewEventCollector(1000, 5*time.Second, logger),
 		aggregator:      NewAggregator(),
 		anomalyDetector: NewAnomalyDetector(2.0), // 2 standard deviations
+		predictor:       NewPredictor(),
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -40,6 +47,7 @@ func NewService() *Service {
 		if m, ok := event.(*MetricsSnapshot); ok {
 			service.aggregator.AddMetrics(m)
 			service.anomalyDetector.RecordMetric(m)
+			service.predictor.RecordMetric(m)
 		}
 		return nil
 	})
@@ -148,6 +156,7 @@ func (s *Service) DetectAnomaliesNow() {
 
 // MakePredictionsNow triggers immediate predictions
 func (s *Service) MakePredictionsNow() {
+	s.predictor.MakePredictionsNow()
 }
 
 // calculateSystemHealth calculates the overall system health
@@ -178,17 +187,19 @@ func (s *Service) calculateSystemHealth(serviceID string) string {
 func (s *Service) Close() error {
 	s.cancel()
 
+	var errs []error
 	if err := s.collector.Close(); err != nil {
-		return err
+		errs = append(errs, err)
 	}
-
 	if err := s.aggregator.Close(); err != nil {
-		return err
+		errs = append(errs, err)
 	}
-
 	if err := s.anomalyDetector.Close(); err != nil {
-		return err
+		errs = append(errs, err)
+	}
+	if err := s.predictor.Close(); err != nil {
+		errs = append(errs, err)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }

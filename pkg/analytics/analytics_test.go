@@ -3,11 +3,13 @@ package analytics
 import (
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // TestEventCollector tests the event collector
 func TestEventCollector(t *testing.T) {
-	collector := NewEventCollector(100, 1*time.Second)
+	collector := NewEventCollector(100, 1*time.Second, zap.NewNop())
 	defer collector.Close()
 
 	// Record an event

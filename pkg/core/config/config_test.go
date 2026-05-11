@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestSetDefaults(t *testing.T) {
@@ -131,4 +132,145 @@ func TestLoadConfig(t *testing.T) {
 		os.Unsetenv("DATABASE_SSLMODE")
 		os.Unsetenv("DATABASE_MAXCONNS")
 	})
+}
+
+func TestValidateProduction_MonolithMode(t *testing.T) {
+	cfg := &Config{
+		Mode:     "monolith",
+		Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
+		Storage:  StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
+		Database: DatabaseConfig{SSLMode: "disable"},
+		Web3:     Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for insecure defaults in monolith mode")
+	}
+}
+
+func TestValidateProduction_MicroserviceMode(t *testing.T) {
+	cfg := &Config{
+		Mode: "microservice",
+		Auth: AuthConfig{JWTSecret: "streamgate-dev-secret"},
+		Storage: StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
+		Database: DatabaseConfig{SSLMode: "disable"},
+		Web3: Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for insecure defaults in microservice mode")
+	}
+}
+
+func TestValidateProduction_MonolithWithInsecureJWT(t *testing.T) {
+	cfg := &Config{
+		Mode:     "monolith",
+		Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for insecure JWT secret in monolith mode")
+	}
+}
+
+func TestValidateProduction_PassesWithSecureConfig(t *testing.T) {
+	cfg := &Config{
+		Mode: "microservice",
+		Auth: AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+		Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err != nil {
+		t.Fatalf("expected no error for secure config, got: %v", err)
+	}
+}
+
+func TestValidateProduction_YAMLDefaultJWTSecret(t *testing.T) {
+	cfg := &Config{
+		Mode: "microservice",
+		Auth: AuthConfig{JWTSecret: "your-secret-key-change-in-production"},
+		Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for YAML default JWT secret")
+	}
+}
+
+func TestValidateProduction_InsecureDBPassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  bool
+	}{
+		{"streamgate_password", "streamgate_password", true},
+		{"streamgate_dev_password", "streamgate_dev_password", true},
+		{"secure password", "a-secure-production-pw", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Mode: "microservice",
+				Auth: AuthConfig{JWTSecret: "a-real-secret-32chars!!"},
+				Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+				Database: DatabaseConfig{SSLMode: "require", Password: tt.password},
+				Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+			}
+			err := cfg.ValidateProduction(zap.NewNop())
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateProduction() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateProduction_EmptyJWTSecret(t *testing.T) {
+	cfg := &Config{
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: ""},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for empty JWT secret")
+	}
+}
+
+func TestValidateProduction_CORSWildcard(t *testing.T) {
+	cfg := &Config{
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+		CORS:     CORSConfig{AllowedOrigins: []string{"*"}},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err == nil {
+		t.Fatal("expected error for CORS wildcard origin")
+	}
+}
+
+func TestValidateProduction_CORSRestrictive(t *testing.T) {
+	cfg := &Config{
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+		CORS:     CORSConfig{AllowedOrigins: []string{"https://streamgate.example.com"}},
+	}
+	err := cfg.ValidateProduction(zap.NewNop())
+	if err != nil {
+		t.Fatalf("expected no error for restrictive CORS, got: %v", err)
+	}
 }

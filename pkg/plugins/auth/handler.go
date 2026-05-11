@@ -34,20 +34,20 @@ func (h *AuthHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // ReadyHandler handles readiness check requests
 func (h *AuthHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // VerifySignatureHandler handles signature verification requests
@@ -55,7 +55,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("verify_signature_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -73,7 +73,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
@@ -82,7 +82,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 		h.logger.Error("Failed to verify signature", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid": valid,
 	})
 }
@@ -105,7 +105,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("verify_nft_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -123,7 +123,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_nft_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to verify NFT", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_nft_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *AuthHandler) VerifyNFTHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid": valid,
 	})
 }
@@ -155,7 +155,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("verify_token_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -171,7 +171,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_token_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("Failed to verify token", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_token_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
 		return
 	}
 
@@ -193,7 +193,7 @@ func (h *AuthHandler) VerifyTokenHandler(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"valid": valid,
 	})
 }
@@ -203,7 +203,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("get_challenge_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_challenge_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 		h.logger.Error("Failed to generate challenge", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_challenge_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate challenge"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate challenge"})
 		return
 	}
 
@@ -237,7 +237,7 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"challenge": challenge,
 	})
 }
@@ -246,5 +246,5 @@ func (h *AuthHandler) GetChallengeHandler(w http.ResponseWriter, r *http.Request
 func (h *AuthHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 }

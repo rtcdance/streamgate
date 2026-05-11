@@ -12,7 +12,7 @@ StreamGate is an enterprise-grade off-chain content distribution service demonst
 ## 📋 Quick Start
 
 ### Prerequisites
-- Go 1.21+
+- Go 1.24
 - Docker & Docker Compose
 - PostgreSQL 14+
 - Redis 7+

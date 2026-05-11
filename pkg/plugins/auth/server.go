@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +11,21 @@ import (
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 )
+
+// WalletSignatureVerifier verifies EVM/Solana wallet signatures.
+type WalletSignatureVerifier interface {
+	VerifySignature(ctx context.Context, address, message, signature string) (bool, error)
+}
+
+// NFTOwnershipVerifier checks NFT ownership on-chain.
+type NFTOwnershipVerifier interface {
+	VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
+}
+
+// JWTTokenVerifier validates JWT tokens.
+type JWTTokenVerifier interface {
+	VerifyToken(tokenString string) (bool, error)
+}
 
 // AuthServer handles authentication and authorization
 type AuthServer struct {
@@ -88,63 +104,75 @@ func (s *AuthServer) Health(ctx context.Context) error {
 	return nil
 }
 
-// AuthVerifier handles authentication verification
+// AuthVerifier handles authentication verification.
+// When injected verifier interfaces are set, it delegates to real implementations.
+// When absent, methods return explicit "not configured" errors.
 type AuthVerifier struct {
-	logger *zap.Logger
-	// TODO: Add Web3 RPC clients for different chains
+	logger       *zap.Logger
+	sigVerifier  WalletSignatureVerifier
+	nftVerifier  NFTOwnershipVerifier
+	jwtVerifier  JWTTokenVerifier
+	challengeAuth *ChallengeResponseAuth
 }
 
-// NewAuthVerifier creates a new auth verifier
+// NewAuthVerifier creates a new auth verifier without backend verifiers.
 func NewAuthVerifier(logger *zap.Logger) *AuthVerifier {
 	return &AuthVerifier{
-		logger: logger,
+		logger:        logger,
+		challengeAuth: NewChallengeResponseAuth(logger, nil),
 	}
 }
 
-// VerifySignature verifies a wallet signature
-func (v *AuthVerifier) VerifySignature(ctx context.Context, address string, message string, signature string) (bool, error) {
-	v.logger.Info("Verifying signature", zap.String("address", address))
-
-	// TODO: Implement signature verification
-	// - Support EIP-191 (Ethereum)
-	// - Support EIP-712 (Typed data)
-	// - Support Solana signatures
-
-	return true, nil
+// NewAuthVerifierWithVerifiers creates an AuthVerifier wired to real verification backends.
+func NewAuthVerifierWithVerifiers(
+	logger *zap.Logger,
+	sigVerifier WalletSignatureVerifier,
+	nftVerifier NFTOwnershipVerifier,
+	jwtVerifier JWTTokenVerifier,
+) *AuthVerifier {
+	return &AuthVerifier{
+		logger:        logger,
+		sigVerifier:   sigVerifier,
+		nftVerifier:   nftVerifier,
+		jwtVerifier:   jwtVerifier,
+		challengeAuth: NewChallengeResponseAuth(logger, nil),
+	}
 }
 
-// VerifyNFT verifies NFT ownership
-func (v *AuthVerifier) VerifyNFT(ctx context.Context, address string, contractAddress string, tokenID string) (bool, error) {
-	v.logger.Info("Verifying NFT", zap.String("address", address), zap.String("contract", contractAddress), zap.String("token_id", tokenID))
-
-	// TODO: Implement NFT verification
-	// - Check ERC-721 ownership
-	// - Check ERC-1155 balance
-	// - Check Metaplex NFT ownership
-
-	return true, nil
+// VerifySignature verifies a wallet signature.
+// Returns an error if no WalletSignatureVerifier is configured.
+func (v *AuthVerifier) VerifySignature(ctx context.Context, address, message, signature string) (bool, error) {
+	if v.sigVerifier == nil {
+		return false, errors.New("signature verification not configured: inject WalletSignatureVerifier via NewAuthVerifierWithVerifiers")
+	}
+	return v.sigVerifier.VerifySignature(ctx, address, message, signature)
 }
 
-// VerifyToken verifies an authentication token
+// VerifyNFT verifies NFT ownership.
+// Returns an error if no NFTOwnershipVerifier is configured.
+func (v *AuthVerifier) VerifyNFT(ctx context.Context, address, contractAddress, tokenID string) (bool, error) {
+	if v.nftVerifier == nil {
+		return false, errors.New("NFT verification not configured: inject NFTOwnershipVerifier via NewAuthVerifierWithVerifiers")
+	}
+	// Default to chain ID 1 (Ethereum mainnet) — callers should use the service layer directly for multi-chain.
+	return v.nftVerifier.VerifyNFTOwnership(ctx, 1, contractAddress, tokenID, address)
+}
+
+// VerifyToken verifies a JWT token.
+// Returns an error if no JWTTokenVerifier is configured.
 func (v *AuthVerifier) VerifyToken(ctx context.Context, token string) (bool, error) {
-	v.logger.Info("Verifying token")
-
-	// TODO: Implement token verification
-	// - Verify JWT signature
-	// - Check token expiration
-	// - Check token claims
-
-	return true, nil
+	if v.jwtVerifier == nil {
+		return false, errors.New("token verification not configured: inject JWTTokenVerifier via NewAuthVerifierWithVerifiers")
+	}
+	return v.jwtVerifier.VerifyToken(token)
 }
 
-// GetChallenge generates a challenge for signing
+// GetChallenge generates a nonce-based challenge for wallet signing.
 func (v *AuthVerifier) GetChallenge(ctx context.Context, address string) (string, error) {
-	v.logger.Info("Generating challenge", zap.String("address", address))
-
-	// TODO: Generate challenge
-	// - Create random nonce
-	// - Store nonce with expiration
-	// - Return challenge message
-
-	return "Sign this message to authenticate", nil
+	challenge, err := v.challengeAuth.GenerateChallenge(ctx, address)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate challenge: %w", err)
+	}
+	return fmt.Sprintf("Sign this message to authenticate with StreamGate.\nAddress: %s\nNonce: %s\nIssued At: %s\nExpires At: %s",
+		address, challenge.Nonce, challenge.Timestamp.Format(time.RFC3339), challenge.ExpiresAt.Format(time.RFC3339)), nil
 }

@@ -25,11 +25,11 @@ type IsolationTree struct {
 
 // IsolationNode represents a node in isolation tree
 type IsolationNode struct {
-	feature   int
-	threshold float64
-	left      *IsolationNode
-	right     *IsolationNode
-	size      int
+	feature   int          //nolint:unused
+	threshold float64      //nolint:unused
+	left      *IsolationNode //nolint:unused
+	right     *IsolationNode //nolint:unused
+	size      int          //nolint:unused
 }
 
 // Autoencoder implements autoencoder-based anomaly detection
@@ -168,14 +168,14 @@ func (ae *Autoencoder) AnomalyScore(values []float64) float64 {
 	decoded := ae.Decode(encoded)
 
 	// Calculate reconstruction error
-	error := 0.0
+	reconError := 0.0
 	for i := 0; i < ae.inputSize; i++ {
 		diff := input[i] - decoded[i]
-		error += diff * diff
+		reconError += diff * diff
 	}
 
 	// Normalize error to 0-1 range
-	anomalyScore := math.Min(error/float64(ae.inputSize), 1.0)
+	anomalyScore := math.Min(reconError/float64(ae.inputSize), 1.0)
 
 	return anomalyScore
 }
@@ -222,10 +222,10 @@ func (ae *Autoencoder) Train(trainingData [][]float64, epochs int) {
 			decoded := ae.Decode(encoded)
 
 			// Calculate error
-			error := 0.0
+			reconError := 0.0
 			for i := 0; i < ae.inputSize; i++ {
 				diff := sample[i] - decoded[i]
-				error += diff * diff
+				reconError += diff * diff
 			}
 
 			// Simplified weight update

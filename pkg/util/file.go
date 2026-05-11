@@ -20,7 +20,7 @@ func DirExists(path string) bool {
 
 // CreateDir creates directory
 func CreateDir(path string) error {
-	return os.MkdirAll(path, 0755)
+	return os.MkdirAll(path, 0o755)
 }
 
 // ReadFile reads file content
@@ -30,7 +30,7 @@ func ReadFile(path string) ([]byte, error) {
 
 // WriteFile writes content to file
 func WriteFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 // DeleteFile deletes file

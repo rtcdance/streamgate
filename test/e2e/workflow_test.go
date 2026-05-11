@@ -3,640 +3,418 @@ package e2e
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
-	"mime/multipart"
+	"math/big"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
-type E2ETestSuite struct {
-	server   *httptest.Server
-	baseURL  string
-	logger   *zap.Logger
-	testData map[string]string
-	cleanup  func()
-}
+// --- Auth + NFT + Streaming workflow (real router) ---
 
-func SetupE2ETestSuite(t *testing.T) *E2ETestSuite {
-	logger := zap.NewNop()
+func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(2)}
+	storage := newMockSegmentStorage()
+	_, verifier, server := setupE2EServer(t, checker, storage)
 
-	suite := &E2ETestSuite{
-		logger:   logger,
-		testData: make(map[string]string),
-	}
-
-	suite.setupTestServer(t)
-	suite.setupTestData(t)
-
-	return suite
-}
-
-func (s *E2ETestSuite) Teardown() {
-	if s.cleanup != nil {
-		s.cleanup()
-	}
-	if s.server != nil {
-		s.server.Close()
-	}
-}
-
-func (s *E2ETestSuite) setupTestServer(t *testing.T) {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/api/v1/upload/initiate", s.handleInitiateUpload)
-	mux.HandleFunc("/api/v1/upload/", s.handleUploadRouter)
-	mux.HandleFunc("/api/v1/transcode/submit", s.handleSubmitTranscode)
-	mux.HandleFunc("/api/v1/transcode/", s.handleTranscodeStatus)
-	mux.HandleFunc("/api/v1/streaming/", s.handleStreaming)
-	mux.HandleFunc("/api/v1/metadata", s.handleMetadata)
-	mux.HandleFunc("/api/v1/metadata/", s.handleMetadata)
-	mux.HandleFunc("/api/v1/auth/challenge", s.handleChallenge)
-	mux.HandleFunc("/api/v1/auth/verify", s.handleVerify)
-	mux.HandleFunc("/api/v1/nft/verify", s.handleNFTVerify)
-	mux.HandleFunc("/api/v1/health/live", s.handleHealth)
-	mux.HandleFunc("/api/v1/health/ready", s.handleHealth)
-	mux.HandleFunc("/api/v1/cache/warm", s.handleCacheWarm)
-	mux.HandleFunc("/api/v1/cache/stats", s.handleCacheStats)
-
-	s.server = httptest.NewServer(mux)
-	s.baseURL = s.server.URL
-}
-
-func (s *E2ETestSuite) handleUploadRouter(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	if len(path) > len("/api/v1/upload/") && strings.HasSuffix(path, "/complete") {
-		s.handleCompleteUpload(w, r)
-		return
-	}
-
-	s.handleUpload(w, r)
-}
-
-func (s *E2ETestSuite) setupTestData(t *testing.T) {
-	tmpDir := t.TempDir()
-	s.testData["tmpDir"] = tmpDir
-
-	testFile := filepath.Join(tmpDir, "test-video.mp4")
-	err := os.WriteFile(testFile, []byte("fake video content for testing"), 0644)
-	require.NoError(t, err)
-	s.testData["testFile"] = testFile
-}
-
-func TestE2EUploadTranscodeStreamWorkflow(t *testing.T) {
-	suite := SetupE2ETestSuite(t)
-	defer suite.Teardown()
-
-	t.Run("Step1_InitiateUpload", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"fileName":    "test-video.mp4",
-			"fileSize":    1024000,
-			"contentType": "video/mp4",
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/upload/initiate", reqBody)
+	t.Run("Step1_Challenge", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]interface{}{
+			"wallet":   "0x1234567890123456789012345678901234567890",
+			"chain_id": 11155111,
+		})
+		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		uploadID, ok := result["uploadId"].(string)
-		require.True(t, ok)
-		suite.testData["uploadId"] = uploadID
-		assert.NotEmpty(t, uploadID)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.NotEmpty(t, result["challenge_id"])
+		assert.NotEmpty(t, result["message"])
 	})
 
-	t.Run("Step2_UploadChunks", func(t *testing.T) {
-		uploadID := suite.testData["uploadId"]
+	t.Run("Step2_LoginWithRealSignature", func(t *testing.T) {
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		wallet := verifier.GetAddressFromPrivateKey(privateKey)
 
-		body := &bytes.Buffer{}
-		writer := multipart.NewWriter(body)
+		// Get challenge
+		challengeBody, _ := json.Marshal(map[string]interface{}{
+			"wallet":   wallet,
+			"chain_id": 11155111,
+		})
+		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
+		require.NoError(t, err)
+		var cr map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
-		part, err := writer.CreateFormFile("chunk", suite.testData["testFile"])
+		message, _ := cr["message"].(string)
+		challengeID, _ := cr["challenge_id"].(string)
+
+		// Sign with real crypto
+		signature, err := verifier.SignMessage(message, privateKey)
 		require.NoError(t, err)
 
-		testFile, err := os.Open(suite.testData["testFile"])
+		// Login
+		loginBody, _ := json.Marshal(map[string]string{
+			"wallet":       wallet,
+			"challenge_id": challengeID,
+			"signature":    signature,
+		})
+		resp3, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
 		require.NoError(t, err)
-		defer testFile.Close()
+		defer resp3.Body.Close()
+		assert.Equal(t, http.StatusOK, resp3.StatusCode)
 
-		_, err = io.Copy(part, testFile)
-		require.NoError(t, err)
-
-		writer.WriteField("chunkNumber", "1")
-		writer.WriteField("totalChunks", "1")
-		writer.Close()
-
-		req, _ := http.NewRequest("POST", suite.baseURL+"/api/v1/upload/"+uploadID+"/chunk", body)
-		req.Header.Set("Content-Type", writer.FormDataContentType())
-
-		resp, err := suite.httpClient().Do(req)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err = json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		assert.True(t, result["success"].(bool))
-	})
-
-	t.Run("Step3_CompleteUpload", func(t *testing.T) {
-		uploadID := suite.testData["uploadId"]
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/upload/"+uploadID+"/complete", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		fileID, ok := result["fileId"].(string)
-		require.True(t, ok)
-		suite.testData["fileId"] = fileID
-
-		transcodeJobID, ok := result["transcodingJobId"].(string)
-		require.True(t, ok)
-		suite.testData["transcodeJobId"] = transcodeJobID
-
-		assert.NotEmpty(t, fileID)
-		assert.NotEmpty(t, transcodeJobID)
-	})
-
-	t.Run("Step4_WaitForTranscode", func(t *testing.T) {
-		jobID := suite.testData["transcodeJobId"]
-
-		for i := 0; i < 10; i++ {
-			resp := suite.makeRequest(t, "GET", "/api/v1/transcode/"+jobID+"/status", nil)
-
-			var result map[string]interface{}
-			err := json.NewDecoder(resp.Body).Decode(&result)
-			require.NoError(t, err)
-
-			status := result["status"].(string)
-
-			if status == "completed" {
-				suite.testData["contentId"] = result["contentId"].(string)
-				return
-			}
-
-			if status == "failed" {
-				t.Fatalf("Transcoding failed: %v", result["error"])
-			}
-
-			time.Sleep(500 * time.Millisecond)
-		}
-
-		t.Fatal("Transcoding did not complete in time")
-	})
-
-	t.Run("Step5_StreamContent", func(t *testing.T) {
-		contentID := suite.testData["contentId"]
-
-		resp := suite.makeRequest(t, "GET", "/api/v1/streaming/"+contentID+"/hls", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		assert.Contains(t, string(body), "#EXTM3U")
-		assert.Contains(t, string(body), "#EXT-X-STREAM-INF")
+		var loginResult map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp3.Body).Decode(&loginResult))
+		assert.NotEmpty(t, loginResult["token"])
+		assert.Equal(t, wallet, loginResult["wallet_address"])
 	})
 }
 
-func TestE2ENFTProtectedContentWorkflow(t *testing.T) {
-	suite := SetupE2ETestSuite(t)
-	defer suite.Teardown()
+func TestE2ENFTVerifyWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(3)}
+	_, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
 
-	t.Run("Step1_GetChallenge", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/auth/challenge", reqBody)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		challenge, ok := result["challenge"].(string)
-		require.True(t, ok)
-		suite.testData["challenge"] = challenge
-
-		assert.NotEmpty(t, challenge)
-	})
-
-	t.Run("Step2_VerifySignature", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"address":   "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-			"challenge": suite.testData["challenge"],
-			"signature": "0x1234567890abcdef",
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/auth/verify", reqBody)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		token, ok := result["token"].(string)
-		require.True(t, ok)
-		suite.testData["token"] = token
-
-		assert.NotEmpty(t, token)
-	})
-
-	t.Run("Step3_VerifyNFT", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"address":         "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-			"chain":           "ethereum",
-			"contractAddress": "0x1234567890abcdef1234567890abcdef1234567890",
-			"tokenId":         "1",
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/nft/verify", reqBody)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		valid, ok := result["valid"].(bool)
-		require.True(t, ok)
-		assert.True(t, valid)
-	})
-}
-
-func TestE2EMetadataWorkflow(t *testing.T) {
-	suite := SetupE2ETestSuite(t)
-	defer suite.Teardown()
-
-	t.Run("Step1_CreateMetadata", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"title":       "Test Video",
-			"description": "This is a test video",
-			"duration":    300,
-			"format":      "mp4",
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/metadata", reqBody)
-		assert.Equal(t, http.StatusCreated, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		contentID, ok := result["contentId"].(string)
-		require.True(t, ok)
-		suite.testData["contentId"] = contentID
-
-		assert.NotEmpty(t, contentID)
-	})
-
-	t.Run("Step2_GetMetadata", func(t *testing.T) {
-		contentID := suite.testData["contentId"]
-
-		resp := suite.makeRequest(t, "GET", "/api/v1/metadata/"+contentID, nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		assert.Equal(t, "Test Video", result["title"])
-		assert.Equal(t, "This is a test video", result["description"])
-		assert.Equal(t, float64(300), result["duration"])
-	})
-
-	t.Run("Step3_UpdateMetadata", func(t *testing.T) {
-		contentID := suite.testData["contentId"]
-
-		reqBody := map[string]interface{}{
-			"title":       "Updated Test Video",
-			"description": "This is an updated test video",
-		}
-
-		resp := suite.makeRequest(t, "PUT", "/api/v1/metadata/"+contentID, reqBody)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		assert.Equal(t, "Updated Test Video", result["title"])
-	})
-
-	t.Run("Step4_SearchMetadata", func(t *testing.T) {
-		resp := suite.makeRequest(t, "GET", "/api/v1/metadata/search?q=Test&limit=10", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		results, ok := result["results"].([]interface{})
-		require.True(t, ok)
-		assert.Greater(t, len(results), 0)
-	})
-}
-
-func TestE2ECacheWorkflow(t *testing.T) {
-	suite := SetupE2ETestSuite(t)
-	defer suite.Teardown()
-
-	t.Run("Step1_WarmCache", func(t *testing.T) {
-		reqBody := map[string]interface{}{
-			"contentIds": []string{"content-1", "content-2", "content-3"},
-		}
-
-		resp := suite.makeRequest(t, "POST", "/api/v1/cache/warm", reqBody)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		jobID, ok := result["jobId"].(string)
-		require.True(t, ok)
-		suite.testData["cacheJobId"] = jobID
-
-		assert.NotEmpty(t, jobID)
-	})
-
-	t.Run("Step2_GetCacheStats", func(t *testing.T) {
-		resp := suite.makeRequest(t, "GET", "/api/v1/cache/stats", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		hitRate, ok := result["hitRate"].(float64)
-		require.True(t, ok)
-		assert.GreaterOrEqual(t, hitRate, 0.0)
-		assert.LessOrEqual(t, hitRate, 1.0)
-
-		hits, ok := result["hits"].(float64)
-		require.True(t, ok)
-		assert.GreaterOrEqual(t, hits, 0.0)
-	})
-}
-
-func TestE2EHealthCheckWorkflow(t *testing.T) {
-	suite := SetupE2ETestSuite(t)
-	defer suite.Teardown()
-
-	t.Run("LivenessProbe", func(t *testing.T) {
-		resp := suite.makeRequest(t, "GET", "/api/v1/health/live", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		status, ok := result["status"].(string)
-		require.True(t, ok)
-		assert.Equal(t, "healthy", status)
-	})
-
-	t.Run("ReadinessProbe", func(t *testing.T) {
-		resp := suite.makeRequest(t, "GET", "/api/v1/health/ready", nil)
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		err := json.NewDecoder(resp.Body).Decode(&result)
-		require.NoError(t, err)
-
-		status, ok := result["status"].(string)
-		require.True(t, ok)
-		assert.Equal(t, "healthy", status)
-
-		services, ok := result["services"].(map[string]interface{})
-		require.True(t, ok)
-		assert.NotEmpty(t, services)
-	})
-}
-
-func (s *E2ETestSuite) makeRequest(t *testing.T, method, path string, body interface{}) *http.Response {
-	var reqBody io.Reader
-
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		require.NoError(t, err)
-		reqBody = bytes.NewReader(jsonBody)
-	}
-
-	req, err := http.NewRequest(method, s.baseURL+path, reqBody)
-	require.NoError(t, err)
-
-	if body != nil {
+	t.Run("VerifyByBalance", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]interface{}{
+			"wallet":   	"0x1234567890123456789012345678901234567890",
+			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+			"chain_id": 11155111,
+		})
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/nft/verify", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
-	}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
 
-	if token, ok := s.testData["token"]; ok {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, true, result["has_nft"])
+		assert.Equal(t, float64(3), result["balance"])
+		assert.Equal(t, false, result["cache_hit"])
+	})
 
-	resp, err := s.httpClient().Do(req)
+	t.Run("VerifyByTokenOwnership", func(t *testing.T) {
+		checker2 := &mockNFTChecker{verifyResult: true}
+		_, _, server2 := setupE2EServer(t, checker2, nil)
+		jwtToken2 := testJWT(	"0x1234567890123456789012345678901234567890")
+
+		body, _ := json.Marshal(map[string]interface{}{
+			"wallet":   	"0x1234567890123456789012345678901234567890",
+			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+			"token_id": "42",
+			"chain_id": 11155111,
+		})
+		req, _ := http.NewRequest("POST", server2.URL+"/api/v1/nft/verify", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+jwtToken2)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, true, result["has_nft"])
+		assert.Equal(t, float64(1), result["balance"])
+	})
+}
+
+func TestE2EStreamingWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(1)}
+	_, verifier, server := setupE2EServer(t, checker, nil)
+
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	wallet := verifier.GetAddressFromPrivateKey(privateKey)
+
+	// Full auth flow to get a real JWT
+	challengeBody, _ := json.Marshal(map[string]interface{}{
+		"wallet":   wallet,
+		"chain_id": 11155111,
+	})
+	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
+	require.NoError(t, err)
+	var cr map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
+	resp.Body.Close()
+
+	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
 	require.NoError(t, err)
 
-	return resp
-}
+	loginBody, _ := json.Marshal(map[string]string{
+		"wallet":       wallet,
+		"challenge_id": cr["challenge_id"].(string),
+		"signature":    signature,
+	})
+	resp2, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	require.NoError(t, err)
+	var lr map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
+	resp2.Body.Close()
+	token := lr["token"].(string)
 
-func (s *E2ETestSuite) httpClient() *http.Client {
-	return &http.Client{
-		Timeout: 30 * time.Second,
-	}
-}
-
-func (s *E2ETestSuite) handleInitiateUpload(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"uploadId":    fmt.Sprintf("upload-%d", time.Now().UnixNano()),
-		"chunkSize":   5242880,
-		"totalChunks": 1,
-		"expiresAt":   time.Now().Add(1 * time.Hour),
+	t.Run("ManifestReturnsHLS", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		assert.Contains(t, string(body), "#EXTM3U")
+		assert.Contains(t, string(body), "playback_token=")
 	})
 }
 
-func (s *E2ETestSuite) handleUpload(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":       true,
-		"chunkNumber":   1,
-		"uploadedBytes": 1024000,
-	})
-}
+func TestE2ETranscodingWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(1)}
+	_, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
 
-func (s *E2ETestSuite) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"fileId":           fmt.Sprintf("file-%d", time.Now().UnixNano()),
-		"transcodingJobId": fmt.Sprintf("transcode-%d", time.Now().UnixNano()),
-		"status":           "completed",
-	})
-}
-
-func (s *E2ETestSuite) handleSubmitTranscode(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"jobId":  fmt.Sprintf("transcode-%d", time.Now().UnixNano()),
-		"status": "pending",
-	})
-}
-
-func (s *E2ETestSuite) handleTranscodeStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"jobId":       "transcode-123",
-		"status":      "completed",
-		"progress":    100,
-		"contentId":   "content-123",
-		"inputFile":   "input.mp4",
-		"outputFile":  "output.m3u8",
-		"format":      "hls",
-		"createdAt":   time.Now(),
-		"updatedAt":   time.Now(),
-		"completedAt": time.Now(),
-	})
-}
-
-func (s *E2ETestSuite) handleStreaming(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=842x480\n480p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720\n720p.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080\n1080p.m3u8"))
-}
-
-func (s *E2ETestSuite) handleMetadata(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "POST" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"contentId":   fmt.Sprintf("content-%d", time.Now().UnixNano()),
-			"title":       "Test Video",
-			"description": "This is a test video",
-			"duration":    300,
-			"fileSize":    1024000,
-			"format":      "mp4",
-			"createdAt":   time.Now(),
-			"updatedAt":   time.Now(),
+	t.Run("SubmitTask", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]interface{}{
+			"content_id": "content-42",
+			"profile":    "720p",
+			"input_url":  "https://example.com/input.mp4",
+			"priority":   1,
 		})
-	} else if r.Method == "PUT" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"contentId":   "content-123",
-			"title":       "Updated Test Video",
-			"description": "This is an updated test video",
-			"duration":    300,
-			"fileSize":    1024000,
-			"format":      "mp4",
-			"createdAt":   time.Now(),
-			"updatedAt":   time.Now(),
-		})
-	} else if r.URL.Query().Get("q") != "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"results": []interface{}{
-				map[string]interface{}{
-					"contentId":   "content-123",
-					"title":       "Test Video",
-					"description": "This is a test video",
-					"duration":    300,
-					"fileSize":    1024000,
-					"format":      "mp4",
-					"createdAt":   time.Now(),
-					"updatedAt":   time.Now(),
-				},
-			},
-			"total":   1,
-			"page":    1,
-			"perPage": 10,
-		})
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"contentId":   "content-123",
-			"title":       "Test Video",
-			"description": "This is a test video",
-			"duration":    300,
-			"fileSize":    1024000,
-			"format":      "mp4",
-			"createdAt":   time.Now(),
-			"updatedAt":   time.Now(),
-		})
-	}
-}
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/transcode/submit", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
-func (s *E2ETestSuite) handleChallenge(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"challenge": fmt.Sprintf("challenge-%d", time.Now().UnixNano()),
-		"expiresAt": time.Now().Add(5 * time.Minute),
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.NotEmpty(t, result["task_id"])
 	})
 }
 
-func (s *E2ETestSuite) handleVerify(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token":        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test",
-		"refreshToken": "refresh-token-123",
-		"expiresAt":    time.Now().Add(24 * time.Hour),
+func TestE2EUploadWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(1)}
+	_, _, server := setupE2EServer(t, checker, newMockSegmentStorage())
+	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
+
+	t.Run("UploadFile", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", bytes.NewReader([]byte("fake video")))
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		// Without multipart form, should get 400 (no file provided)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 }
 
-func (s *E2ETestSuite) handleNFTVerify(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"valid":   true,
-		"owner":   "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-		"balance": "1",
-		"cached":  false,
+func TestE2EHealthEndpoints(t *testing.T) {
+	checker := &mockNFTChecker{}
+	_, _, server := setupE2EServer(t, checker, nil)
+
+	t.Run("Health", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/health")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Contains(t, []string{"healthy", "unhealthy"}, result["status"])
+	})
+
+	t.Run("Ready", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/ready")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		// ReadinessResponse has "ready" bool, not "status" string
+		_, hasReady := result["ready"]
+		assert.True(t, hasReady, "response should have 'ready' field")
 	})
 }
 
-func (s *E2ETestSuite) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "healthy",
-		"timestamp": time.Now(),
-		"services": map[string]string{
-			"database": "healthy",
-			"redis":    "healthy",
-			"storage":  "healthy",
-			"cache":    "healthy",
-		},
+func TestE2EWeb3RPCStatus(t *testing.T) {
+	checker := &mockNFTChecker{}
+	_, _, server := setupE2EServer(t, checker, nil)
+
+	resp, err := http.Get(server.URL + "/api/v1/web3/rpc-status")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	var result map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	chains, ok := result["chains"].([]interface{})
+	require.True(t, ok)
+	assert.NotEmpty(t, chains)
+}
+
+func TestE2EContentRoutesRequireAuth(t *testing.T) {
+	checker := &mockNFTChecker{}
+	_, _, server := setupE2EServer(t, checker, nil)
+
+	t.Run("NoAuth_Returns401", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/v1/content")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("WithAuth_NoDB_Returns503", func(t *testing.T) {
+		jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, "CONTENT_UNAVAILABLE", result["code"])
 	})
 }
 
-func (s *E2ETestSuite) handleCacheWarm(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"jobId":       fmt.Sprintf("cache-job-%d", time.Now().UnixNano()),
-		"status":      "completed",
-		"warmCount":   3,
-		"completedAt": time.Now(),
+func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
+	checker := &mockNFTChecker{}
+	authService, verifier, server := setupE2EServer(t, checker, nil)
+
+	privateKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	wallet := verifier.GetAddressFromPrivateKey(privateKey)
+
+	// Full auth flow to get a real JWT (with JTI)
+	challengeBody, _ := json.Marshal(map[string]interface{}{
+		"wallet":   wallet,
+		"chain_id": 11155111,
+	})
+	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
+	require.NoError(t, err)
+	var cr map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
+	resp.Body.Close()
+
+	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
+	require.NoError(t, err)
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"wallet":       wallet,
+		"challenge_id": cr["challenge_id"].(string),
+		"signature":    signature,
+	})
+	resp2, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	require.NoError(t, err)
+	var lr map[string]interface{}
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
+	resp2.Body.Close()
+	jwtToken := lr["token"].(string)
+
+	t.Run("VerifyToken_Valid", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/verify", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, true, result["valid"])
+		assert.Equal(t, wallet, result["wallet_address"])
+	})
+
+	t.Run("Logout", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/logout", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, "logged out", result["message"])
+	})
+
+	t.Run("VerifyToken_AfterLogout_Invalid", func(t *testing.T) {
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/verify", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Contains(t, []string{"invalid token", "token revoked"}, result["error"])
+	})
+
+	t.Run("AccessProtectedRoute_AfterLogout_401", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	_ = authService // used implicitly via server
+}
+
+func TestE2ENFTGateEnriched403(t *testing.T) {
+	checker := &mockNFTChecker{balance: big.NewInt(0)} // no NFT
+	_, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+
+	t.Run("StreamingWithoutNFT_Enriched403", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", nil)
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, "NFT_REQUIRED", result["code"])
+		require.NotNil(t, result["required_nft"])
+		nftInfo, ok := result["required_nft"].(map[string]interface{})
+		require.True(t, ok)
+		assert.Equal(t, "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", nftInfo["contract"])
+		assert.NotNil(t, nftInfo["chain_name"])
+		assert.NotNil(t, nftInfo["marketplace_url"])
 	})
 }
 
-func (s *E2ETestSuite) handleCacheStats(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"hitRate":   0.85,
-		"hits":      850.0,
-		"misses":    150.0,
-		"size":      100.0,
-		"maxSize":   1000.0,
-		"evictions": 10,
+func TestE2EStructuredErrorResponses(t *testing.T) {
+	checker := &mockNFTChecker{}
+	_, _, server := setupE2EServer(t, checker, nil)
+
+	t.Run("AuthChallenge_InvalidRequest_HasCode", func(t *testing.T) {
+		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader([]byte("invalid")))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, "INVALID_REQUEST", result["code"])
+		assert.NotNil(t, result["request_id"])
+	})
+
+	t.Run("ProtectedRoute_NoAuth_HasCode", func(t *testing.T) {
+		resp, err := http.Get(server.URL + "/api/v1/content")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		var result map[string]interface{}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+		assert.Equal(t, "UNAUTHORIZED", result["code"])
 	})
 }

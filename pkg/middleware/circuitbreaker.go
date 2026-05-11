@@ -64,6 +64,7 @@ type CircuitBreaker struct {
 	failureCount    int
 	successCount    int
 	requestCount    int
+	halfOpenCount   int
 	failureWindow   []time.Time
 	lastFailureTime time.Time
 	lastStateChange time.Time
@@ -99,12 +100,27 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 		cb.setState(StateHalfOpen)
 	}
 
+	if cb.state == StateHalfOpen {
+		if cb.config.MaxRequests > 0 && cb.halfOpenCount >= cb.config.MaxRequests {
+			cb.mu.Unlock()
+			cb.logger.Warn("Circuit breaker half-open max requests exceeded",
+				zap.String("circuit", cb.name),
+				zap.Int("max_requests", cb.config.MaxRequests))
+			return fmt.Errorf("circuit breaker '%s' is half-open and max requests exceeded", cb.name)
+		}
+		cb.halfOpenCount++
+	}
+
 	cb.mu.Unlock()
 
 	err := fn()
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+
+	if cb.state == StateHalfOpen {
+		cb.halfOpenCount--
+	}
 
 	if err != nil {
 		cb.onFailure()
@@ -185,9 +201,13 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 		cb.failureCount = 0
 		cb.successCount = 0
 		cb.requestCount = 0
+		cb.halfOpenCount = 0
 		cb.failureWindow = make([]time.Time, 0)
 	} else if newState == StateHalfOpen {
 		cb.successCount = 0
+		cb.halfOpenCount = 0
+	} else if newState == StateOpen {
+		cb.halfOpenCount = 0
 	}
 
 	cb.logger.Info("Circuit breaker state changed",

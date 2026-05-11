@@ -9,6 +9,8 @@ import (
 // AlertingSystem manages alerts for detected anomalies
 type AlertingSystem struct {
 	mu              sync.RWMutex
+	wg              sync.WaitGroup
+	sem             chan struct{} // limits concurrent alert sends
 	alerts          []*Alert
 	alertRules      map[string]*MLAlertRule
 	alertChannels   map[string]AlertChannel
@@ -52,6 +54,7 @@ type AlertChannel interface {
 // NewAlertingSystem creates a new alerting system
 func NewAlertingSystem() *AlertingSystem {
 	return &AlertingSystem{
+		sem:             make(chan struct{}, 8),
 		alerts:          make([]*Alert, 0),
 		alertRules:      make(map[string]*MLAlertRule),
 		alertChannels:   make(map[string]AlertChannel),
@@ -107,9 +110,17 @@ func (as *AlertingSystem) GenerateAlert(anomaly *Anomaly) error {
 // sendAlert sends alert to configured channels
 func (as *AlertingSystem) sendAlert(alert *Alert) {
 	for _, channel := range as.alertChannels {
+		as.sem <- struct{}{} // acquire semaphore
+		as.wg.Add(1)
 		go func(ch AlertChannel) {
+			defer func() { <-as.sem }() // release semaphore
+			defer as.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Recovered panic sending alert via %s: %v\n", ch.Name(), r)
+				}
+			}()
 			if err := ch.Send(alert); err != nil {
-				// Log error but don't fail
 				fmt.Printf("Failed to send alert via %s: %v\n", ch.Name(), err)
 			}
 		}(channel)
@@ -288,6 +299,11 @@ func (as *AlertingSystem) GetAlertRules() map[string]*MLAlertRule {
 	}
 
 	return rules
+}
+
+// Close waits for in-flight alert deliveries to finish.
+func (as *AlertingSystem) Close() {
+	as.wg.Wait()
 }
 
 // SimpleAlertChannel is a simple implementation of AlertChannel

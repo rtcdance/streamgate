@@ -1,17 +1,32 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 )
 
+// Cache abstracts key-value cache operations.
+// Both *RedisCache and *CacheStorage satisfy this interface.
+//go:generate mockgen -destination=mocks/mock_cache.go -package=mocks streamgate/pkg/storage Cache
+type Cache interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string) error
+	SetWithExpiration(ctx context.Context, key, value string, expiration time.Duration) error
+	Delete(ctx context.Context, key string) error
+	Exists(ctx context.Context, key string) (bool, error)
+	Close() error
+}
+
 // CacheStorage handles cache storage with in-memory LRU cache
 type CacheStorage struct {
 	items   map[string]*cacheItem
 	mu      sync.RWMutex
+	wg      sync.WaitGroup // tracks cleanup goroutine
 	maxSize int
+	stopCh  chan struct{}
 }
 
 type cacheItem struct {
@@ -25,18 +40,29 @@ func NewCacheStorage(maxSize int) *CacheStorage {
 	cs := &CacheStorage{
 		items:   make(map[string]*cacheItem),
 		maxSize: maxSize,
+		stopCh:  make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
+	cs.wg.Add(1)
 	go cs.cleanupExpired()
 
 	return cs
 }
 
+// Close stops the cleanup goroutine, waits for it to exit, and clears the cache.
+func (cs *CacheStorage) Close() {
+	close(cs.stopCh)
+	cs.wg.Wait()
+	cs.mu.Lock()
+	cs.items = make(map[string]*cacheItem)
+	cs.mu.Unlock()
+}
+
 // Get gets value from cache
 func (cs *CacheStorage) Get(key string) (interface{}, error) {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
 	item, exists := cs.items[key]
 	if !exists {
@@ -164,6 +190,48 @@ func (cs *CacheStorage) Exists(key string) bool {
 	return true
 }
 
+// CacheAdapter wraps a CacheStorage to satisfy the Cache interface.
+// This allows CacheStorage to be used where a Cache is expected.
+type CacheAdapter struct {
+	inner *CacheStorage
+}
+
+// NewCacheAdapter creates a Cache adapter from a CacheStorage.
+func NewCacheAdapter(cs *CacheStorage) *CacheAdapter {
+	return &CacheAdapter{inner: cs}
+}
+
+// Get gets a string value from cache.
+func (a *CacheAdapter) Get(ctx context.Context, key string) (string, error) {
+	return a.inner.GetString(key)
+}
+
+// Set sets a string value in cache.
+func (a *CacheAdapter) Set(ctx context.Context, key, value string) error {
+	return a.inner.Set(key, value)
+}
+
+// SetWithExpiration sets a string value with expiration.
+func (a *CacheAdapter) SetWithExpiration(ctx context.Context, key, value string, expiration time.Duration) error {
+	return a.inner.SetWithExpiration(key, value, expiration)
+}
+
+// Delete deletes a key from cache.
+func (a *CacheAdapter) Delete(ctx context.Context, key string) error {
+	return a.inner.Delete(key)
+}
+
+// Exists checks if a key exists in cache.
+func (a *CacheAdapter) Exists(ctx context.Context, key string) (bool, error) {
+	return a.inner.Exists(key), nil
+}
+
+// Close stops the cleanup goroutine and clears the cache.
+func (a *CacheAdapter) Close() error {
+	a.inner.Close()
+	return nil
+}
+
 // Clear clears all items from cache
 func (cs *CacheStorage) Clear() error {
 	cs.mu.Lock()
@@ -200,17 +268,23 @@ func (cs *CacheStorage) evictLRU() {
 
 // cleanupExpired periodically removes expired items
 func (cs *CacheStorage) cleanupExpired() {
+	defer cs.wg.Done()
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cs.mu.Lock()
-		now := time.Now()
-		for key, item := range cs.items {
-			if !item.expiration.IsZero() && now.After(item.expiration) {
-				delete(cs.items, key)
+	for {
+		select {
+		case <-cs.stopCh:
+			return
+		case <-ticker.C:
+			cs.mu.Lock()
+			now := time.Now()
+			for key, item := range cs.items {
+				if !item.expiration.IsZero() && now.After(item.expiration) {
+					delete(cs.items, key)
+				}
 			}
+			cs.mu.Unlock()
 		}
-		cs.mu.Unlock()
 	}
 }
