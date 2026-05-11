@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -138,7 +139,7 @@ func TestChainClient_FailoverOnEthCall(t *testing.T) {
 
 	balance, err := client.GetNFTBalance(context.Background(), "0x1234567890123456789012345678901234567890", "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f")
 	require.NoError(t, err)
-	assert.Equal(t, 2, balance)
+	assert.Equal(t, big.NewInt(2), balance)
 	assert.Equal(t, second.URL, client.rpcURL)
 }
 

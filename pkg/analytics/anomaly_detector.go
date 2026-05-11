@@ -209,16 +209,16 @@ func (ad *AnomalyDetector) calculateBaseline(serviceID, metricName string, metri
 
 	mean := ad.calculateMean(values)
 	stdDev := ad.calculateStdDev(values, mean)
-	min := ad.calculateMin(values)
-	max := ad.calculateMax(values)
+	minVal := ad.calculateMin(values)
+	maxVal := ad.calculateMax(values)
 
 	return &Baseline{
 		ServiceID:   serviceID,
 		MetricName:  metricName,
 		Mean:        mean,
 		StdDev:      stdDev,
-		Min:         min,
-		Max:         max,
+		Min:         minVal,
+		Max:         maxVal,
 		LastUpdated: time.Now(),
 	}
 }
@@ -271,14 +271,14 @@ func (ad *AnomalyDetector) calculateMin(values []float64) float64 {
 		return 0
 	}
 
-	min := values[0]
+	minVal := values[0]
 	for _, v := range values {
-		if v < min {
-			min = v
+		if v < minVal {
+			minVal = v
 		}
 	}
 
-	return min
+	return minVal
 }
 
 // calculateMax calculates the maximum of values
@@ -287,14 +287,14 @@ func (ad *AnomalyDetector) calculateMax(values []float64) float64 {
 		return 0
 	}
 
-	max := values[0]
+	maxVal := values[0]
 	for _, v := range values {
-		if v > max {
-			max = v
+		if v > maxVal {
+			maxVal = v
 		}
 	}
 
-	return max
+	return maxVal
 }
 
 // GetAnomalies returns recent anomalies

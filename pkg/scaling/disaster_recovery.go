@@ -3,6 +3,7 @@ package scaling
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -121,6 +122,9 @@ func (drm *DisasterRecoveryManager) ListPlans() []*DisasterRecoveryPlan {
 }
 
 // CreateRecoveryPoint creates a new recovery point
+// recoveryPointCounter ensures unique IDs even within the same nanosecond.
+var recoveryPointCounter int64
+
 func (drm *DisasterRecoveryManager) CreateRecoveryPoint(planID string, size int64, location string) (*RecoveryPoint, error) {
 	drm.mu.Lock()
 	defer drm.mu.Unlock()
@@ -135,8 +139,9 @@ func (drm *DisasterRecoveryManager) CreateRecoveryPoint(planID string, size int6
 		drm.evictOldestRecoveryPoint()
 	}
 
+	cnt := atomic.AddInt64(&recoveryPointCounter, 1)
 	recoveryPoint := &RecoveryPoint{
-		ID:        fmt.Sprintf("rp-%d", time.Now().UnixNano()),
+		ID:        fmt.Sprintf("rp-%d-%d", time.Now().UnixNano(), cnt),
 		Timestamp: time.Now(),
 		Strategy:  plan.BackupStrategy,
 		Size:      size,

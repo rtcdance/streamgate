@@ -3,6 +3,7 @@ package transcoder
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -64,7 +65,7 @@ type QueueMetrics struct {
 	TotalFailed     int64
 	CurrentQueueLen int
 	AverageWaitTime time.Duration
-	mu              sync.RWMutex
+	mu              sync.RWMutex //nolint:unused
 }
 
 // WorkerPool manages concurrent transcoding workers
@@ -73,6 +74,7 @@ type WorkerPool struct {
 	taskQueue     *TaskQueue
 	eventBus      event.EventBus
 	logger        *zap.Logger
+	ffmpeg        *FFmpegTranscoder
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -90,7 +92,7 @@ type Worker struct {
 	FailedTasks     int64
 	TotalProcessing time.Duration
 	LastHeartbeat   time.Time
-	mu              sync.RWMutex
+	mu              sync.RWMutex //nolint:unused
 }
 
 // WorkerStatus represents the status of a worker
@@ -111,7 +113,7 @@ type WorkerMetrics struct {
 	TotalTasksProcessed int64
 	TotalTasksFailed    int64
 	AverageTaskTime     time.Duration
-	mu                  sync.RWMutex
+	mu                  sync.RWMutex //nolint:unused
 }
 
 // ScalingPolicy defines auto-scaling rules
@@ -185,12 +187,22 @@ func (tp *TranscoderPlugin) Init(ctx context.Context, kernel *core.Microkernel) 
 		metrics: &QueueMetrics{},
 	}
 
+	// Initialize FFmpeg transcoder
+	ffmpegConfig := &FFmpegConfig{
+		FFmpegPath:  "ffmpeg",
+		FFprobePath: "ffprobe",
+		TempDir:     os.TempDir(),
+		Timeout:     tp.config.TaskTimeout,
+	}
+	ffmpegTranscoder := NewFFmpegTranscoder(ffmpegConfig, tp.logger.Named("ffmpeg"))
+
 	// Initialize worker pool
 	tp.workerPool = &WorkerPool{
 		workers:       make([]*Worker, 0, tp.config.WorkerPoolSize),
 		taskQueue:     tp.taskQueue,
 		eventBus:      tp.eventBus,
 		logger:        tp.logger,
+		ffmpeg:        ffmpegTranscoder,
 		metrics:       &WorkerMetrics{},
 		scalingPolicy: tp.config.ScalingPolicy,
 	}
@@ -267,7 +279,7 @@ func (tp *TranscoderPlugin) SubmitTask(task *TranscodeTask) error {
 	}
 
 	ctx := context.Background()
-	tp.eventBus.Publish(ctx, &event.Event{
+	_ = tp.eventBus.Publish(ctx, &event.Event{
 		Type: "transcode.task.submitted",
 		Data: map[string]interface{}{"task": task},
 	})
@@ -518,7 +530,13 @@ func (wp *WorkerPool) Scale(targetCount int) error {
 		wp.metrics.ActiveWorkers = targetCount
 		wp.metrics.IdleWorkers = targetCount
 	} else if targetCount < currentCount {
-		// Scale down - mark workers for removal
+		// Scale down - mark excess workers for graceful shutdown
+		excess := wp.workers[targetCount:]
+		for _, w := range excess {
+			w.mu.Lock()
+			w.Status = WorkerStatusUnhealthy // signal shutdown
+			w.mu.Unlock()
+		}
 		wp.workers = wp.workers[:targetCount]
 		wp.metrics.TotalWorkers = targetCount
 	}
@@ -532,6 +550,14 @@ func (wp *WorkerPool) runWorker(worker *Worker) {
 	defer wp.wg.Done()
 
 	for {
+		// Check if this worker was marked for shutdown during scale-down
+		worker.mu.RLock()
+		status := worker.Status
+		worker.mu.RUnlock()
+		if status == WorkerStatusUnhealthy {
+			return
+		}
+
 		select {
 		case <-wp.ctx.Done():
 			return
@@ -558,9 +584,9 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 	now := time.Now()
 	task.StartedAt = &now
 
-	wp.taskQueue.UpdateTask(task)
+	_ = wp.taskQueue.UpdateTask(task)
 
-	wp.eventBus.Publish(context.Background(), &event.Event{
+	_ = wp.eventBus.Publish(context.Background(), &event.Event{
 		Type: "transcode.task.started",
 		Data: map[string]interface{}{"task": task},
 	})
@@ -574,11 +600,11 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 
 		if task.RetryCount < task.MaxRetries {
 			task.Status = TaskStatusPending
-			wp.taskQueue.Enqueue(task)
+			_ = wp.taskQueue.Enqueue(task)
 		}
 
 		wp.taskQueue.metrics.TotalFailed++
-		wp.eventBus.Publish(context.Background(), &event.Event{
+		_ = wp.eventBus.Publish(context.Background(), &event.Event{
 			Type: "transcode.task.failed",
 			Data: map[string]interface{}{"task": task},
 		})
@@ -588,13 +614,13 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 		task.CompletedAt = &now
 		wp.taskQueue.metrics.TotalProcessed++
 
-		wp.eventBus.Publish(context.Background(), &event.Event{
+		_ = wp.eventBus.Publish(context.Background(), &event.Event{
 			Type: "transcode.task.completed",
 			Data: map[string]interface{}{"task": task},
 		})
 	}
 
-	wp.taskQueue.UpdateTask(task)
+	_ = wp.taskQueue.UpdateTask(task)
 
 	worker.mu.Lock()
 	worker.Status = WorkerStatusIdle
@@ -607,13 +633,21 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 	wp.updateMetrics()
 }
 
-// transcode performs the actual transcoding
+// transcode performs the actual transcoding using FFmpeg
 func (wp *WorkerPool) transcode(task *TranscodeTask) error {
-	// Placeholder for actual transcoding logic
-	// In production, this would call FFmpeg or similar
-	time.Sleep(100 * time.Millisecond)
-	task.Progress = 100.0
-	return nil
+	if wp.ffmpeg == nil {
+		return fmt.Errorf("FFmpeg transcoder not initialized")
+	}
+
+	// Build output directory from task
+	outputDir := os.TempDir() + "/streamgate-transcode-" + task.ID
+
+	callback := func(p *TranscodeProgress) {
+		task.Progress = p.Progress
+		_ = wp.taskQueue.UpdateTask(task)
+	}
+
+	return wp.ffmpeg.TranscodeToHLS(wp.ctx, task.FilePath, outputDir, task.Profiles, callback)
 }
 
 // HealthCheck performs health checks on workers

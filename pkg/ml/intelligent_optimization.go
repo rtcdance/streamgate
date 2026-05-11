@@ -226,25 +226,26 @@ func (io *IntelligentOptimization) OptimizeResources() ([]*Optimization, error) 
 
 	io.resourceOptimizer.mu.RLock()
 	for resourceType, metric := range io.resourceOptimizer.resourceMetrics {
-		if metric.WastePercentage > 0.2 {
-			// Opportunity to optimize
-			optimalAllocation := metric.CurrentUsage * (1 - metric.WastePercentage)
-			improvement := metric.WastePercentage
-
-			opt := &Optimization{
-				ID:                  fmt.Sprintf("opt_res_%s_%d", resourceType, time.Now().Unix()),
-				Type:                "resource",
-				Parameter:           resourceType,
-				OldValue:            metric.CurrentUsage,
-				NewValue:            optimalAllocation,
-				ExpectedImprovement: improvement,
-				Status:              "pending",
-				Timestamp:           time.Now(),
-			}
-
-			optimizations = append(optimizations, opt)
-			io.optimizations = append(io.optimizations, opt)
+		if metric.WastePercentage <= 0.2 {
+			continue
 		}
+		// Opportunity to optimize
+		optimalAllocation := metric.CurrentUsage * (1 - metric.WastePercentage)
+		improvement := metric.WastePercentage
+
+		opt := &Optimization{
+			ID:                  fmt.Sprintf("opt_res_%s_%d", resourceType, time.Now().Unix()),
+			Type:                "resource",
+			Parameter:           resourceType,
+			OldValue:            metric.CurrentUsage,
+			NewValue:            optimalAllocation,
+			ExpectedImprovement: improvement,
+			Status:              "pending",
+			Timestamp:           time.Now(),
+		}
+
+		optimizations = append(optimizations, opt)
+		io.optimizations = append(io.optimizations, opt)
 	}
 	io.resourceOptimizer.mu.RUnlock()
 
@@ -261,25 +262,26 @@ func (io *IntelligentOptimization) OptimizePerformance() ([]*Optimization, error
 
 	io.performanceOptimizer.mu.RLock()
 	for metricName, metric := range io.performanceOptimizer.performanceMetrics {
-		if metric.CurrentValue > metric.TargetValue {
-			// Performance below target
-			gap := (metric.CurrentValue - metric.TargetValue) / metric.TargetValue
-			improvement := math.Min(gap, 1.0)
-
-			opt := &Optimization{
-				ID:                  fmt.Sprintf("opt_perf_%s_%d", metricName, time.Now().Unix()),
-				Type:                "performance",
-				Parameter:           metricName,
-				OldValue:            metric.CurrentValue,
-				NewValue:            metric.TargetValue,
-				ExpectedImprovement: improvement,
-				Status:              "pending",
-				Timestamp:           time.Now(),
-			}
-
-			optimizations = append(optimizations, opt)
-			io.optimizations = append(io.optimizations, opt)
+		if metric.CurrentValue <= metric.TargetValue {
+			continue
 		}
+		// Performance below target
+		gap := (metric.CurrentValue - metric.TargetValue) / metric.TargetValue
+		improvement := math.Min(gap, 1.0)
+
+		opt := &Optimization{
+			ID:                  fmt.Sprintf("opt_perf_%s_%d", metricName, time.Now().Unix()),
+			Type:                "performance",
+			Parameter:           metricName,
+			OldValue:            metric.CurrentValue,
+			NewValue:            metric.TargetValue,
+			ExpectedImprovement: improvement,
+			Status:              "pending",
+			Timestamp:           time.Now(),
+		}
+
+		optimizations = append(optimizations, opt)
+		io.optimizations = append(io.optimizations, opt)
 	}
 	io.performanceOptimizer.mu.RUnlock()
 
@@ -307,12 +309,11 @@ func (io *IntelligentOptimization) OptimizeCosts() ([]*Optimization, error) {
 				ExpectedImprovement: metric.SavingsPercent,
 				Status:              "pending",
 				Timestamp:           time.Now(),
-			}
-
-			optimizations = append(optimizations, opt)
-			io.optimizations = append(io.optimizations, opt)
-			io.costOptimizer.costSavings += (metric.CurrentCost - metric.OptimizedCost)
 		}
+
+		optimizations = append(optimizations, opt)
+		io.optimizations = append(io.optimizations, opt)
+	}
 	}
 	io.costOptimizer.mu.RUnlock()
 

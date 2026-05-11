@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,21 +19,23 @@ import (
 
 // FFmpegConfig holds FFmpeg configuration
 type FFmpegConfig struct {
-	FFmpegPath     string
-	FFprobePath    string
-	TempDir        string
-	MaxRetries     int
-	Timeout        time.Duration
-	EnableHardware bool
-	VideoCodec     string
-	AudioCodec     string
+	FFmpegPath      string
+	FFprobePath     string
+	TempDir         string
+	MaxRetries      int
+	Timeout         time.Duration
+	EnableHardware  bool
+	VideoCodec      string
+	AudioCodec      string
+	MaxFileSize     int64 // Maximum input file size in bytes (0 = no limit)
+	MaxDuration     float64 // Maximum input duration in seconds (0 = no limit)
 }
 
 // FFmpegTranscoder handles FFmpeg transcoding operations
 type FFmpegTranscoder struct {
 	config *FFmpegConfig
 	logger *zap.Logger
-	mu     sync.RWMutex
+	mu     sync.RWMutex //nolint:unused
 }
 
 // VideoInfo contains video file information
@@ -165,7 +168,7 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 		}
 
 		if strings.Contains(line, `"r_frame_rate"`) {
-			re := regexp.MustCompile(`"r_frame_rate":\s*"([\d]+)/(\d+)"`)
+			re := regexp.MustCompile(`"r_frame_rate":\s*"(\d+)/(\d+)"`)
 			matches := re.FindStringSubmatch(line)
 			if len(matches) > 2 {
 				if num, err := strconv.Atoi(matches[1]); err == nil {
@@ -204,6 +207,43 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 	return info, nil
 }
 
+// ValidateMediaFile validates that an input file is a playable media file
+// within configured size and duration limits. Returns VideoInfo on success.
+func (ft *FFmpegTranscoder) ValidateMediaFile(ctx context.Context, inputPath string) (*VideoInfo, error) {
+	// Check file exists and get size
+	stat, err := os.Stat(inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot stat input file: %w", err)
+	}
+
+	if ft.config.MaxFileSize > 0 && stat.Size() > ft.config.MaxFileSize {
+		return nil, fmt.Errorf("input file size %d exceeds maximum %d bytes", stat.Size(), ft.config.MaxFileSize)
+	}
+
+	// Use ffprobe to validate the file is a playable media file
+	info, err := ft.GetVideoInfo(ctx, inputPath)
+	if err != nil {
+		return nil, fmt.Errorf("input file is not a valid media file: %w", err)
+	}
+
+	if info.Duration == 0 {
+		return nil, fmt.Errorf("input file has zero duration (possibly corrupted)")
+	}
+
+	if ft.config.MaxDuration > 0 && info.Duration > ft.config.MaxDuration {
+		return nil, fmt.Errorf("input duration %.1fs exceeds maximum %.1fs", info.Duration, ft.config.MaxDuration)
+	}
+
+	ft.logger.Debug("Media file validated",
+		zap.String("path", inputPath),
+		zap.Float64("duration", info.Duration),
+		zap.Int64("size", info.FileSize),
+		zap.Int("width", info.Width),
+		zap.Int("height", info.Height))
+
+	return info, nil
+}
+
 // Transcode transcodes video to specified format
 func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath string, profile TranscodeProfile, callback ProgressCallback) error {
 	videoCodec := ft.config.VideoCodec
@@ -231,9 +271,15 @@ func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath
 	return ft.runFFmpeg(ctx, args, callback)
 }
 
-// TranscodeToHLS transcodes video to HLS format with multiple quality levels
+// TranscodeToHLS transcodes video to HLS format with multiple quality levels.
+// It validates the input file before transcoding and cleans up partial outputs on failure.
 func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback) error {
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	// Validate input before starting expensive transcoding
+	if _, err := ft.ValidateMediaFile(ctx, inputPath); err != nil {
+		return fmt.Errorf("input validation failed: %w", err)
+	}
+
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -255,13 +301,36 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 	wg.Wait()
 	close(errChan)
 
+	var firstErr error
 	for err := range errChan {
-		if err != nil {
-			return err
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 
+	if firstErr != nil {
+		// Clean up partial outputs on failure
+		ft.cleanupPartialOutput(outputDir)
+		return firstErr
+	}
+
 	return ft.generateHLSMasterPlaylist(outputDir, profiles)
+}
+
+// cleanupPartialOutput removes .ts and .m3u8 files from a failed transcode attempt
+func (ft *FFmpegTranscoder) cleanupPartialOutput(outputDir string) {
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasSuffix(name, ".ts") || strings.HasSuffix(name, ".m3u8") {
+			if err := os.Remove(filepath.Join(outputDir, name)); err != nil {
+				ft.logger.Warn("Failed to clean up partial output", zap.String("file", name), zap.Error(err))
+			}
+		}
+	}
 }
 
 // transcodeToHLSVariant transcodes a single HLS variant
@@ -315,12 +384,12 @@ func (ft *FFmpegTranscoder) generateHLSMasterPlaylist(outputDir string, profiles
 		builder.WriteString(fmt.Sprintf("%s\n", variantPath))
 	}
 
-	return os.WriteFile(masterPath, []byte(builder.String()), 0644)
+	return os.WriteFile(masterPath, []byte(builder.String()), 0o644)
 }
 
 // TranscodeToDASH transcodes video to DASH format with multiple quality levels
 func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback) error {
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
@@ -356,7 +425,7 @@ func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outp
 }
 
 // ExtractThumbnail extracts a thumbnail from video
-func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, outputPath string, timestamp string) error {
+func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, outputPath, timestamp string) error {
 	args := []string{
 		"-ss", timestamp,
 		"-i", inputPath,
@@ -385,14 +454,14 @@ func (ft *FFmpegTranscoder) ExtractAudio(ctx context.Context, inputPath, outputP
 // ConcatVideos concatenates multiple videos
 func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []string, outputPath string, callback ProgressCallback) error {
 	listFile := filepath.Join(ft.config.TempDir, fmt.Sprintf("concat_%d.txt", time.Now().UnixNano()))
-	defer os.Remove(listFile)
+	defer func() { _ = os.Remove(listFile) }()
 
 	var listContent strings.Builder
 	for _, path := range inputPaths {
 		listContent.WriteString(fmt.Sprintf("file '%s'\n", path))
 	}
 
-	if err := os.WriteFile(listFile, []byte(listContent.String()), 0644); err != nil {
+	if err := os.WriteFile(listFile, []byte(listContent.String()), 0o644); err != nil {
 		return fmt.Errorf("failed to create concat list: %w", err)
 	}
 
@@ -431,27 +500,20 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callba
 	}
 
 	if _, err := cmd.Process.Wait(); err != nil {
-		stdout.Close()
-		stderr.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
 		return fmt.Errorf("FFmpeg process failed: %w", err)
 	}
 
-	stdout.Close()
-	stderr.Close()
+	_ = stdout.Close()
+	_ = stderr.Close()
 
 	return nil
 }
 
 // monitorProgress monitors FFmpeg progress output
-func (ft *FFmpegTranscoder) monitorProgress(stderrPipe interface{}, callback ProgressCallback) {
-	var scanner *bufio.Scanner
-
-	switch p := stderrPipe.(type) {
-	case *os.File:
-		scanner = bufio.NewScanner(p)
-	default:
-		return
-	}
+func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, callback ProgressCallback) {
+	scanner := bufio.NewScanner(stderrPipe)
 
 	progressRegex := regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
 

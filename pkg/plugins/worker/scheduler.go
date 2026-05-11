@@ -44,7 +44,6 @@ type SchedulerStats struct {
 	QueuedJobs     int64
 	CancelledJobs  int64
 	AverageRuntime time.Duration
-	mu             sync.RWMutex
 }
 
 // JobEvent represents a job event
@@ -245,9 +244,9 @@ func (s *Scheduler) ScheduleJob(job *Job, scheduledAt time.Time) error {
 			select {
 			case <-time.After(duration):
 				// Submit to queue
-				job.Status = JobStatusQueued
 				s.mu.Lock()
-				s.queue.Enqueue(job)
+				job.Status = JobStatusQueued
+				_ = s.queue.Enqueue(job)
 				s.mu.Unlock()
 				s.emitEvent("job.scheduled", job)
 			case <-s.ctx.Done():
@@ -255,9 +254,9 @@ func (s *Scheduler) ScheduleJob(job *Job, scheduledAt time.Time) error {
 			}
 		} else {
 			// Submit immediately
-			job.Status = JobStatusQueued
 			s.mu.Lock()
-			s.queue.Enqueue(job)
+			job.Status = JobStatusQueued
+			_ = s.queue.Enqueue(job)
 			s.mu.Unlock()
 			s.emitEvent("job.scheduled", job)
 		}
@@ -280,8 +279,26 @@ func (s *Scheduler) GetJob(jobID string) (*Job, error) {
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
 
-	// Return a copy to avoid race conditions
+	// Return a deep copy to avoid race conditions on pointer/map fields
 	jobCopy := *job
+	if job.Metadata != nil {
+		jobCopy.Metadata = make(map[string]interface{}, len(job.Metadata))
+		for k, v := range job.Metadata {
+			jobCopy.Metadata[k] = v
+		}
+	}
+	if job.StartedAt != nil {
+		t := *job.StartedAt
+		jobCopy.StartedAt = &t
+	}
+	if job.CompletedAt != nil {
+		t := *job.CompletedAt
+		jobCopy.CompletedAt = &t
+	}
+	if job.ScheduledAt != nil {
+		t := *job.ScheduledAt
+		jobCopy.ScheduledAt = &t
+	}
 	return &jobCopy, nil
 }
 
@@ -387,9 +404,6 @@ func (s *Scheduler) GetStats() *SchedulerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	s.stats.mu.RLock()
-	defer s.stats.mu.RUnlock()
-
 	return &SchedulerStats{
 		TotalJobs:      s.stats.TotalJobs,
 		CompletedJobs:  s.stats.CompletedJobs,
@@ -434,13 +448,12 @@ func (s *Scheduler) runWorker(worker *Worker) {
 
 // executeJob executes a job
 func (s *Scheduler) executeJob(worker *Worker, job *Job) {
-	// Update job status
+	// Update job status under lock to avoid data race with GetJob
+	now := time.Now()
+	s.mu.Lock()
 	job.Status = JobStatusRunning
 	job.WorkerID = worker.ID
-	now := time.Now()
 	job.StartedAt = &now
-
-	s.mu.Lock()
 	s.stats.RunningJobs++
 	s.mu.Unlock()
 
@@ -460,8 +473,8 @@ func (s *Scheduler) executeJob(worker *Worker, job *Job) {
 	ctx, cancel := context.WithTimeout(s.ctx, job.Timeout)
 	defer cancel()
 
-	resultChan := make(chan interface{})
-	errChan := make(chan error)
+	resultChan := make(chan interface{}, 1)
+	errChan := make(chan error, 1)
 
 	go func() {
 		result, err := executor.Execute(ctx, job)
@@ -548,7 +561,7 @@ func (s *Scheduler) failJob(job *Job, err error) {
 		job.Error = ""
 		job.Progress = 0
 
-		s.queue.Enqueue(job)
+		_ = s.queue.Enqueue(job)
 		s.emitEvent("job.retried", job)
 
 		s.logger.Debug("Job failed, retrying",

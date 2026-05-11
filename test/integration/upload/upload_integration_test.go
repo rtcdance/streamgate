@@ -1,6 +1,7 @@
 package upload_test
 
 import (
+	"context"
 	"testing"
 
 	"streamgate/pkg/service"
@@ -15,25 +16,25 @@ func TestUploadService_SingleFileUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
+	uploadService := service.NewUploadService(db, objStorage, "test-bucket")
 
 	// Create test file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
 	// Upload file
-	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
+	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, uploadID)
 
 	// Get upload status
-	upload, err := uploadService.GetUploadStatus(uploadID)
+	upload, err := uploadService.GetUploadStatus(context.Background(), uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, upload)
 	helpers.AssertEqual(t, filename, upload.Filename)
@@ -48,13 +49,13 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
+	uploadService := service.NewUploadService(db, objStorage, "test-bucket")
 
 	// Create large test file
 	fileContent := make([]byte, 10*1024*1024) // 10MB
@@ -68,7 +69,7 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 	totalChunks := len(fileContent) / chunkSize
 
 	// Start chunked upload
-	uploadID, err := uploadService.InitiateChunkedUpload(filename, totalSize, totalChunks, "user-123")
+	uploadID, err := uploadService.InitiateChunkedUpload(context.Background(), filename, totalSize, totalChunks, "user-123")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotEmpty(t, uploadID)
 
@@ -80,16 +81,16 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 		}
 
 		chunk := fileContent[i:end]
-		err := uploadService.UploadChunk(uploadID, i/chunkSize, chunk)
+		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk)
 		helpers.AssertNoError(t, err)
 	}
 
 	// Complete upload
-	err = uploadService.CompleteChunkedUpload(uploadID, totalChunks)
+	err = uploadService.CompleteChunkedUpload(context.Background(), uploadID, totalChunks)
 	helpers.AssertNoError(t, err)
 
 	// Verify upload
-	upload, err := uploadService.GetUploadStatus(uploadID)
+	upload, err := uploadService.GetUploadStatus(context.Background(), uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, upload)
 	helpers.AssertEqual(t, "completed", upload.Status)
@@ -103,23 +104,23 @@ func TestUploadService_GetUploadStatus(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
+	uploadService := service.NewUploadService(db, objStorage, "test-bucket")
 
 	// Upload file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
-	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
+	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
 	helpers.AssertNoError(t, err)
 
 	// Get upload status
-	status, err := uploadService.GetUploadStatus(uploadID)
+	status, err := uploadService.GetUploadStatus(context.Background(), uploadID)
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, status)
 	helpers.AssertEqual(t, "completed", status.Status)
@@ -133,27 +134,27 @@ func TestUploadService_DeleteUpload(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
+	uploadService := service.NewUploadService(db, objStorage, "test-bucket")
 
 	// Upload file
 	fileContent := []byte("test file content")
 	filename := "test.txt"
 
-	uploadID, err := uploadService.Upload(filename, fileContent, "user-123")
+	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
 	helpers.AssertNoError(t, err)
 
 	// Delete upload
-	err = uploadService.DeleteUpload(uploadID)
+	err = uploadService.DeleteUpload(context.Background(), uploadID)
 	helpers.AssertNoError(t, err)
 
 	// Verify deletion
-	_, err = uploadService.GetUploadStatus(uploadID)
+	_, err = uploadService.GetUploadStatus(context.Background(), uploadID)
 	helpers.AssertError(t, err)
 }
 
@@ -165,24 +166,24 @@ func TestUploadService_ListUploads(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	storage := helpers.SetupTestStorage(t)
-	if storage == nil {
+	objStorage := helpers.SetupTestStorage(t)
+	if objStorage == nil {
 		return
 	}
-	defer helpers.CleanupTestStorage(t, storage)
+	defer helpers.CleanupTestStorage(t, objStorage)
 
-	uploadService := service.NewUploadService(db.GetDB(), storage, "test-bucket")
+	uploadService := service.NewUploadService(db, objStorage, "test-bucket")
 
 	// Upload multiple files
 	for i := 0; i < 3; i++ {
 		fileContent := []byte("test file content")
 		filename := "test.txt"
-		_, err := uploadService.Upload(filename, fileContent, "user-123")
+		_, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
 		helpers.AssertNoError(t, err)
 	}
 
 	// List uploads
-	uploads, err := uploadService.ListUploads("user-123", 10, 0)
+	uploads, err := uploadService.ListUploads(context.Background(), "user-123", 10, 0)
 	helpers.AssertNoError(t, err)
 	helpers.AssertTrue(t, len(uploads) >= 3)
 }

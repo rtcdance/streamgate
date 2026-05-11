@@ -1,6 +1,7 @@
 package unit_test
 
 import (
+	"context"
 	"testing"
 
 	"streamgate/test/helpers"
@@ -14,7 +15,7 @@ func TestPostgresDB_Connect(t *testing.T) {
 	defer helpers.CleanupTestPostgres(t, db)
 
 	// Test that connection is established
-	err := db.Ping()
+	err := db.Ping(context.Background())
 	helpers.AssertNoError(t, err)
 }
 
@@ -26,7 +27,7 @@ func TestPostgresDB_Query(t *testing.T) {
 	defer helpers.CleanupTestPostgres(t, db)
 
 	// Test query
-	rows, err := db.Query("SELECT 1 as num")
+	rows, err := db.Query(context.Background(), "SELECT 1 as num")
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, rows)
 	defer rows.Close()
@@ -47,7 +48,7 @@ func TestPostgresDB_QueryRow(t *testing.T) {
 	defer helpers.CleanupTestPostgres(t, db)
 
 	// Test query row
-	row := db.QueryRow("SELECT 42 as answer")
+	row := db.QueryRow(context.Background(), "SELECT 42 as answer")
 	helpers.AssertNotNil(t, row)
 
 	var answer int
@@ -64,7 +65,7 @@ func TestPostgresDB_Exec(t *testing.T) {
 	defer helpers.CleanupTestPostgres(t, db)
 
 	// Create test table
-	_, err := db.Exec(`
+	_, err := db.Exec(context.Background(), `
 		CREATE TEMP TABLE test_exec (
 			id SERIAL PRIMARY KEY,
 			name VARCHAR(255)
@@ -73,7 +74,7 @@ func TestPostgresDB_Exec(t *testing.T) {
 	helpers.AssertNoError(t, err)
 
 	// Insert data
-	result, err := db.Exec("INSERT INTO test_exec (name) VALUES ($1)", "test")
+	result, err := db.Exec(context.Background(), "INSERT INTO test_exec (name) VALUES ($1)", "test")
 	helpers.AssertNoError(t, err)
 
 	// Check rows affected
@@ -90,7 +91,7 @@ func TestPostgresDB_Transaction(t *testing.T) {
 	defer helpers.CleanupTestPostgres(t, db)
 
 	// Begin transaction
-	tx, err := db.Begin()
+	tx, err := db.Begin(context.Background())
 	helpers.AssertNoError(t, err)
 	helpers.AssertNotNil(t, tx)
 

@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -61,17 +62,17 @@ type ServiceRegistry interface {
 	HealthCheck(ctx context.Context) error
 }
 
-// ConsulRegistry implements service registry using Consul
-type ConsulRegistry struct {
+// MemoryRegistry implements ServiceRegistry using an in-memory store
+type MemoryRegistry struct {
 	services map[string][]ServiceInfo
 	mu       sync.RWMutex
 	logger   *zap.Logger
 	watchers map[string][]chan []ServiceInfo
 }
 
-// NewConsulRegistry creates a new Consul registry
-func NewConsulRegistry(logger *zap.Logger) *ConsulRegistry {
-	return &ConsulRegistry{
+// NewMemoryRegistry creates a new in-memory registry
+func NewMemoryRegistry(logger *zap.Logger) *MemoryRegistry {
+	return &MemoryRegistry{
 		services: make(map[string][]ServiceInfo),
 		logger:   logger,
 		watchers: make(map[string][]chan []ServiceInfo),
@@ -79,7 +80,7 @@ func NewConsulRegistry(logger *zap.Logger) *ConsulRegistry {
 }
 
 // Register registers a service
-func (r *ConsulRegistry) Register(ctx context.Context, service ServiceInfo) error {
+func (r *MemoryRegistry) Register(ctx context.Context, service ServiceInfo) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -103,7 +104,7 @@ func (r *ConsulRegistry) Register(ctx context.Context, service ServiceInfo) erro
 }
 
 // Deregister removes a service
-func (r *ConsulRegistry) Deregister(ctx context.Context, serviceID string) error {
+func (r *MemoryRegistry) Deregister(ctx context.Context, serviceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -123,7 +124,7 @@ func (r *ConsulRegistry) Deregister(ctx context.Context, serviceID string) error
 }
 
 // Discover returns all instances of a service
-func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]ServiceInfo, error) {
+func (r *MemoryRegistry) Discover(ctx context.Context, serviceName string) ([]ServiceInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -143,17 +144,22 @@ func (r *ConsulRegistry) Discover(ctx context.Context, serviceName string) ([]Se
 }
 
 // Watch watches for changes to a service
-func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan []ServiceInfo, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+func (r *MemoryRegistry) Watch(ctx context.Context, serviceName string) (<-chan []ServiceInfo, error) {
 	ch := make(chan []ServiceInfo, 10)
-	r.watchers[serviceName] = append(r.watchers[serviceName], ch)
 
-	services, err := r.Discover(ctx, serviceName)
-	if err == nil {
-		ch <- services
+	r.mu.Lock()
+	r.watchers[serviceName] = append(r.watchers[serviceName], ch)
+	// Send initial state if available — copy services while holding lock
+	if services, exists := r.services[serviceName]; exists {
+		healthy := make([]ServiceInfo, 0, len(services))
+		for _, svc := range services {
+			if svc.Status == StatusHealthy {
+				healthy = append(healthy, svc)
+			}
+		}
+		ch <- healthy
 	}
+	r.mu.Unlock()
 
 	go func() {
 		<-ctx.Done()
@@ -172,7 +178,7 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 }
 
 // HealthCheck checks registry health
-func (r *ConsulRegistry) HealthCheck(ctx context.Context) error {
+func (r *MemoryRegistry) HealthCheck(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -184,7 +190,7 @@ func (r *ConsulRegistry) HealthCheck(ctx context.Context) error {
 }
 
 // monitorServiceHealth monitors a service's health
-func (r *ConsulRegistry) monitorServiceHealth(ctx context.Context, service ServiceInfo) {
+func (r *MemoryRegistry) monitorServiceHealth(ctx context.Context, service ServiceInfo) {
 	if service.Health.HTTP == "" {
 		return
 	}
@@ -203,13 +209,22 @@ func (r *ConsulRegistry) monitorServiceHealth(ctx context.Context, service Servi
 	}
 }
 
-// checkServiceHealth checks if a service is healthy
-func (r *ConsulRegistry) checkServiceHealth(service ServiceInfo) bool {
-	return true
+// checkServiceHealth checks if a service is healthy by making an HTTP GET request.
+func (r *MemoryRegistry) checkServiceHealth(service ServiceInfo) bool {
+	if service.Address == "" {
+		return true
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(service.Address)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
-// updateServiceStatus updates a service's status
-func (r *ConsulRegistry) updateServiceStatus(service ServiceInfo, healthy bool) {
+// updateServiceStatus updates a service's status in the registry map.
+func (r *MemoryRegistry) updateServiceStatus(service ServiceInfo, healthy bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -218,12 +233,24 @@ func (r *ConsulRegistry) updateServiceStatus(service ServiceInfo, healthy bool) 
 		newStatus = StatusUnhealthy
 	}
 
-	if service.Status == newStatus {
-		return
+	// Find and update the service entry directly in the map
+	found := false
+	for i := range r.services[service.Name] {
+		if r.services[service.Name][i].ID != service.ID {
+			continue
+		}
+		if r.services[service.Name][i].Status == newStatus {
+			return
+		}
+		r.services[service.Name][i].Status = newStatus
+		r.services[service.Name][i].LastSeen = time.Now()
+		found = true
+		break
 	}
 
-	service.Status = newStatus
-	service.LastSeen = time.Now()
+	if !found {
+		return
+	}
 
 	r.logger.Info("Service status changed",
 		zap.String("service", service.Name),
@@ -233,16 +260,20 @@ func (r *ConsulRegistry) updateServiceStatus(service ServiceInfo, healthy bool) 
 	r.notifyWatchers(service.Name)
 }
 
-// notifyWatchers notifies all watchers of a service
-func (r *ConsulRegistry) notifyWatchers(serviceName string) {
-	services, err := r.Discover(context.Background(), serviceName)
-	if err != nil {
-		return
+// notifyWatchers notifies all watchers of a service.
+// Caller must hold r.mu.
+func (r *MemoryRegistry) notifyWatchers(serviceName string) {
+	services := r.services[serviceName]
+	healthy := make([]ServiceInfo, 0, len(services))
+	for _, svc := range services {
+		if svc.Status == StatusHealthy {
+			healthy = append(healthy, svc)
+		}
 	}
 
 	for _, ch := range r.watchers[serviceName] {
 		select {
-		case ch <- services:
+		case ch <- healthy:
 		default:
 		}
 	}
@@ -332,7 +363,7 @@ func (lb *LoadBalancerImpl) leastConn(instances []ServiceInfo) (*ServiceInfo, er
 	for i, svc := range instances {
 		conns := int64(0)
 		if connStr, ok := svc.Meta["connections"]; ok {
-			fmt.Sscanf(connStr, "%d", &conns)
+			_, _ = fmt.Sscanf(connStr, "%d", &conns)
 		}
 
 		if conns < minConns {
@@ -352,7 +383,7 @@ func (lb *LoadBalancerImpl) weightedRoundRobin(serviceName string, instances []S
 	for i, svc := range instances {
 		weight := 1
 		if w, ok := svc.Meta["weight"]; ok {
-			fmt.Sscanf(w, "%d", &weight)
+			_, _ = fmt.Sscanf(w, "%d", &weight)
 		}
 		weights[i] = weight
 		totalWeight += weight

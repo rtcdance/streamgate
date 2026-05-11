@@ -1,9 +1,13 @@
 package web3
 
 import (
+	"context"
 	"crypto/ecdsa"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -12,7 +16,8 @@ import (
 
 // SignatureVerifier handles signature verification
 type SignatureVerifier struct {
-	logger *zap.Logger
+	logger      *zap.Logger
+	eip1271     *EIP1271Checker // optional: for smart contract wallet verification
 }
 
 // NewSignatureVerifier creates a new signature verifier
@@ -22,8 +27,14 @@ func NewSignatureVerifier(logger *zap.Logger) *SignatureVerifier {
 	}
 }
 
+// SetEIP1271Checker sets the EIP-1271 checker for smart contract wallet verification.
+// When set, VerifySignature will fall back to EIP-1271 if EOA recovery fails.
+func (sv *SignatureVerifier) SetEIP1271Checker(checker *EIP1271Checker) {
+	sv.eip1271 = checker
+}
+
 // VerifySignature verifies a message signature
-func (sv *SignatureVerifier) VerifySignature(address string, message string, signature string) (bool, error) {
+func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, message, signature string) (bool, error) {
 	sv.logger.Debug("Verifying signature",
 		zap.String("address", address),
 		zap.Int("message_length", len(message)))
@@ -66,6 +77,34 @@ func (sv *SignatureVerifier) VerifySignature(address string, message string, sig
 	// Compare addresses
 	expectedAddress := common.HexToAddress(address)
 	if recoveredAddress != expectedAddress {
+		// EOA recovery failed — try EIP-1271 smart contract wallet verification
+		if sv.eip1271 != nil {
+			sv.logger.Debug("EOA recovery mismatch, trying EIP-1271",
+				zap.String("expected", expectedAddress.Hex()),
+				zap.String("recovered", recoveredAddress.Hex()))
+
+			// Compute the EIP-191 personal_sign hash for EIP-1271 verification
+			messageHash := sv.hashMessage(message)
+			var hash [32]byte
+			copy(hash[:], messageHash)
+
+			// The original 65-byte signature (with v restored to 27/28 for contract wallets)
+			sigCopy := make([]byte, len(sig))
+			copy(sigCopy, sig)
+			if sigCopy[64] < 27 {
+				sigCopy[64] += 27
+			}
+
+			valid, err := sv.eip1271.IsValidSignature(ctx, address, hash, sigCopy)
+			if err == nil && valid {
+				sv.logger.Debug("EIP-1271 signature verified", zap.String("address", address))
+				return true, nil
+			}
+			sv.logger.Debug("EIP-1271 verification failed",
+				zap.String("address", address),
+				zap.Error(err))
+		}
+
 		sv.logger.Warn("Signature verification failed",
 			zap.String("expected", expectedAddress.Hex()),
 			zap.String("recovered", recoveredAddress.Hex()))
@@ -166,11 +205,14 @@ func (cg *ChallengeGenerator) GenerateChallenge(address string) *Challenge {
 // Helper functions
 
 func getCurrentTimestamp() int64 {
-	// TODO: Use proper timestamp
-	return 0
+	return time.Now().Unix()
 }
 
 func generateChallengeID() string {
-	// TODO: Generate unique challenge ID
-	return "challenge-" + fmt.Sprintf("%d", getCurrentTimestamp())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return fmt.Sprintf("challenge-%d", getCurrentTimestamp())
+	}
+	return "challenge-" + hex.EncodeToString(b)
 }

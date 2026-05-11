@@ -1,13 +1,72 @@
 package monitoring
 
 import (
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
-// MetricsCollector collects system metrics
+// Prometheus bridge metrics — all plugin-level IncrementCounter/SetGauge/RecordHistogram
+// calls are forwarded here so promhttp.Handler() on /metrics is the single source of truth.
+var (
+	pluginOperationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_plugin_operations_total",
+			Help: "Total plugin-level operations tracked by MetricsCollector",
+		},
+		[]string{"metric"},
+	)
+	pluginGaugeValue = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "streamgate_plugin_gauge",
+			Help: "Current gauge value tracked by MetricsCollector",
+		},
+		[]string{"metric"},
+	)
+	pluginHistogramSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_plugin_duration_seconds",
+			Help:    "Histogram of plugin-level durations tracked by MetricsCollector",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"metric"},
+	)
+	serviceRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_service_requests_total",
+			Help: "Total per-service requests tracked by ServiceMetricsTracker",
+		},
+		[]string{"service", "status"},
+	)
+	serviceLatencyMs = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_service_latency_ms",
+			Help:    "Per-service request latency in milliseconds",
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
+		},
+		[]string{"service"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(
+		pluginOperationsTotal,
+		pluginGaugeValue,
+		pluginHistogramSeconds,
+		serviceRequestsTotal,
+		serviceLatencyMs,
+	)
+}
+
+// MetricsCollector collects system metrics.
+// All operations are bridged to the Prometheus default registry so that
+// promhttp.Handler() serves the authoritative metrics.
+// The in-memory map is kept for GetMetric/GetAllMetrics/GetMetricsSnapshot
+// backward compatibility.
 type MetricsCollector struct {
 	logger    *zap.Logger
 	mu        sync.RWMutex
@@ -37,7 +96,7 @@ func NewMetricsCollector(logger *zap.Logger) *MetricsCollector {
 	}
 }
 
-// IncrementCounter increments a counter metric
+// IncrementCounter increments a counter metric and bridges to Prometheus.
 func (mc *MetricsCollector) IncrementCounter(name string, tags map[string]string) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -61,9 +120,12 @@ func (mc *MetricsCollector) IncrementCounter(name string, tags map[string]string
 	metric.Value++
 	metric.Count++
 	metric.LastUpdated = time.Now()
+
+	// Bridge to Prometheus
+	pluginOperationsTotal.WithLabelValues(name).Inc()
 }
 
-// SetGauge sets a gauge metric
+// SetGauge sets a gauge metric and bridges to Prometheus.
 func (mc *MetricsCollector) SetGauge(name string, value float64, tags map[string]string) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -94,9 +156,12 @@ func (mc *MetricsCollector) SetGauge(name string, value float64, tags map[string
 	}
 
 	metric.LastUpdated = time.Now()
+
+	// Bridge to Prometheus
+	pluginGaugeValue.WithLabelValues(name).Set(value)
 }
 
-// RecordHistogram records a histogram metric
+// RecordHistogram records a histogram metric and bridges to Prometheus.
 func (mc *MetricsCollector) RecordHistogram(name string, value float64, tags map[string]string) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -129,6 +194,9 @@ func (mc *MetricsCollector) RecordHistogram(name string, value float64, tags map
 	}
 
 	metric.LastUpdated = time.Now()
+
+	// Bridge to Prometheus — value is in ms from callers, convert to seconds
+	pluginHistogramSeconds.WithLabelValues(name).Observe(value / 1000.0)
 }
 
 // RecordTimer records a timer metric
@@ -200,9 +268,18 @@ func (mc *MetricsCollector) Reset() {
 
 // getMetricKey generates a unique key for a metric
 func (mc *MetricsCollector) getMetricKey(name string, tags map[string]string) string {
+	if len(tags) == 0 {
+		return name
+	}
+	// Deterministic key generation: sort tag keys
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	key := name
-	for k, v := range tags {
-		key += ":" + k + "=" + v
+	for _, k := range keys {
+		key += fmt.Sprintf(":%s=%s", k, tags[k])
 	}
 	return key
 }
@@ -220,7 +297,8 @@ type ServiceMetrics struct {
 	LastUpdated    time.Time
 }
 
-// ServiceMetricsTracker tracks metrics for multiple services
+// ServiceMetricsTracker tracks metrics for multiple services.
+// RecordRequest is bridged to Prometheus so promhttp.Handler() is authoritative.
 type ServiceMetricsTracker struct {
 	logger   *zap.Logger
 	mu       sync.RWMutex
@@ -235,7 +313,7 @@ func NewServiceMetricsTracker(logger *zap.Logger) *ServiceMetricsTracker {
 	}
 }
 
-// RecordRequest records a service request
+// RecordRequest records a service request and bridges to Prometheus.
 func (smt *ServiceMetricsTracker) RecordRequest(serviceName string, latency int64, success bool) {
 	smt.mu.Lock()
 	defer smt.mu.Unlock()
@@ -268,6 +346,14 @@ func (smt *ServiceMetricsTracker) RecordRequest(serviceName string, latency int6
 
 	metrics.AverageLatency = float64(metrics.TotalLatency) / float64(metrics.RequestCount)
 	metrics.LastUpdated = time.Now()
+
+	// Bridge to Prometheus
+	status := "success"
+	if !success {
+		status = "error"
+	}
+	serviceRequestsTotal.WithLabelValues(serviceName, status).Inc()
+	serviceLatencyMs.WithLabelValues(serviceName).Observe(float64(latency))
 }
 
 // GetServiceMetrics gets metrics for a service

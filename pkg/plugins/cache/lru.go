@@ -216,7 +216,7 @@ func (l *LRU) SetOnEvict(onEvict func(key string, value interface{})) {
 }
 
 // GetOldest returns the oldest item in cache
-func (l *LRU) GetOldest() (string, interface{}, bool) {
+func (l *LRU) GetOldest() (key string, value interface{}, ok bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -230,7 +230,7 @@ func (l *LRU) GetOldest() (string, interface{}, bool) {
 }
 
 // GetNewest returns the newest item in cache
-func (l *LRU) GetNewest() (string, interface{}, bool) {
+func (l *LRU) GetNewest() (key string, value interface{}, ok bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 

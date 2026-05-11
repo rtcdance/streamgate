@@ -77,7 +77,7 @@ type PluginManager struct {
 	pluginInfo map[string]*PluginInfo
 	mu         sync.RWMutex
 	logger     *zap.Logger
-	configPath string
+	configPath string //nolint:unused
 	hotReload  bool
 	eventBus   EventBus
 }
@@ -643,7 +643,7 @@ func (bp *BasePlugin) GetConfigInt(key string) (int, bool) {
 }
 
 // GetConfigBool gets a bool configuration value
-func (bp *BasePlugin) GetConfigBool(key string) (bool, bool) {
+func (bp *BasePlugin) GetConfigBool(key string) (value, ok bool) {
 	if val, ok := bp.config[key]; ok {
 		if b, ok := val.(bool); ok {
 			return b, true

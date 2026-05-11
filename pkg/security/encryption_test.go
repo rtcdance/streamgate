@@ -125,8 +125,12 @@ func TestEncryptor_HashPassword(t *testing.T) {
 		t.Error("Hash is empty")
 	}
 
-	if len(hash) != 64 { // SHA256 produces 64 hex characters
-		t.Errorf("Expected hash length 64, got %d", len(hash))
+	// bcrypt produces 60-character hashes starting with $2a$
+	if len(hash) != 60 {
+		t.Errorf("Expected bcrypt hash length 60, got %d", len(hash))
+	}
+	if hash[:4] != "$2a$" {
+		t.Errorf("Expected bcrypt prefix $2a$, got %s", hash[:4])
 	}
 }
 

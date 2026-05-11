@@ -2,20 +2,11 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
-// TracingMiddleware returns a tracing middleware
+// TracingMiddleware returns a gin middleware that creates an OpenTelemetry span
+// for every request. If no OTel TracerProvider is configured, spans are no-ops.
 func (s *Service) TracingMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		traceID := c.GetHeader("X-Trace-ID")
-		if traceID == "" {
-			traceID = uuid.New().String()
-		}
-
-		c.Set("trace_id", traceID)
-		c.Header("X-Trace-ID", traceID)
-
-		c.Next()
-	}
+	return otelgin.Middleware("streamgate")
 }

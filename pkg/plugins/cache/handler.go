@@ -35,20 +35,20 @@ func (h *CacheHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // ReadyHandler handles readiness check requests
 func (h *CacheHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // GetHandler handles cache get requests
@@ -57,7 +57,7 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("cache_get_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -69,7 +69,7 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		h.metricsCollector.IncrementCounter("cache_get_missing_key", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing key"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing key"})
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to get cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_get_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get value"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to get value"})
 		return
 	}
 
@@ -87,7 +87,7 @@ func (h *CacheHandler) GetHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"key":   key,
 		"value": value,
 	})
@@ -99,7 +99,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cache_set_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -117,7 +117,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_set_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to set cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_set_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to set value"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to set value"})
 		return
 	}
 
@@ -135,7 +135,7 @@ func (h *CacheHandler) SetHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // DeleteHandler handles cache delete requests
@@ -144,7 +144,7 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		h.metricsCollector.IncrementCounter("cache_delete_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -156,7 +156,7 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 	if key == "" {
 		h.metricsCollector.IncrementCounter("cache_delete_missing_key", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing key"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing key"})
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *CacheHandler) DeleteHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to delete cache value", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_delete_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete value"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete value"})
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		h.metricsCollector.IncrementCounter("cache_clear_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to clear cache", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cache_clear_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to clear cache"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to clear cache"})
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *CacheHandler) ClearHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
 }
 
 // StatsHandler handles cache stats requests
@@ -210,7 +210,7 @@ func (h *CacheHandler) StatsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("cache_stats_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -224,12 +224,12 @@ func (h *CacheHandler) StatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // NotFoundHandler handles 404 requests
 func (h *CacheHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 }

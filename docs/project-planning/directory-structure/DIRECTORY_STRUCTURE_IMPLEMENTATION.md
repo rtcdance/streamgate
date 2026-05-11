@@ -1133,7 +1133,7 @@ database:
 
 **deploy/docker/Dockerfile.monolith**
 ```dockerfile
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go build -o streamgate ./cmd/monolith/streamgate
@@ -1145,7 +1145,7 @@ ENTRYPOINT ["/app/streamgate"]
 
 **deploy/docker/Dockerfile.api-gateway**
 ```dockerfile
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go build -o api-gateway ./cmd/microservices/api-gateway

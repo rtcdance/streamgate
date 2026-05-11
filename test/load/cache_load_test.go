@@ -1,6 +1,7 @@
 package load_test
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +19,7 @@ func TestLoad_CacheHitRate(t *testing.T) {
 
 	// Setup: Pre-populate cache
 	for i := 0; i < 100; i++ {
-		cache.Set("key_"+string(rune(i)), "value")
+		cache.Set(context.Background(), "key_"+string(rune(i)), "value")
 	}
 
 	// Test cache hit rate
@@ -36,7 +37,7 @@ func TestLoad_CacheHitRate(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				keyID := (id*numRequests + j) % 100
-				_, err := cache.Get("key_" + string(rune(keyID)))
+				_, err := cache.Get(context.Background(), "key_" + string(rune(keyID)))
 				if err == nil {
 					atomic.AddInt64(&hitCount, 1)
 				} else {
@@ -88,7 +89,7 @@ func TestLoad_CacheWritePerformance(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				writeStart := time.Now()
-				err := cache.Set("key_"+string(rune(id))+"_"+string(rune(j)), "value")
+				err := cache.Set(context.Background(), "key_"+string(rune(id))+"_"+string(rune(j)), "value")
 				writeDuration := time.Since(writeStart)
 
 				mu.Lock()
@@ -145,7 +146,7 @@ func TestLoad_CacheEviction(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				keyID := (id*numRequests + j) % maxSize
-				err := cache.Set("key_"+string(rune(keyID)), "value")
+				err := cache.Set(context.Background(), "key_"+string(rune(keyID)), "value")
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -181,7 +182,7 @@ func TestLoad_CacheConsistency(t *testing.T) {
 	// Test cache consistency under concurrent access
 	key := "consistency_test"
 	initialValue := "initial"
-	cache.Set(key, initialValue)
+	cache.Set(context.Background(), key, initialValue)
 
 	numGoroutines := 50
 	numRequests := 20
@@ -195,7 +196,7 @@ func TestLoad_CacheConsistency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
-				value, err := cache.Get(key)
+				value, err := cache.Get(context.Background(), key)
 				if err != nil || value != initialValue {
 					atomic.AddInt64(&consistencyErrors, 1)
 				}

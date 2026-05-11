@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNFT_Creation(t *testing.T) {
@@ -16,9 +16,9 @@ func TestNFT_Creation(t *testing.T) {
 		CreatedAt:       time.Now(),
 	}
 
-	helpers.AssertEqual(t, "nft123", nft.ID)
-	helpers.AssertEqual(t, "0x1234567890123456789012345678901234567890", nft.ContractAddress)
-	helpers.AssertEqual(t, "1", nft.TokenID)
+	assert.Equal(t, "nft123", nft.ID)
+	assert.Equal(t, "0x1234567890123456789012345678901234567890", nft.ContractAddress)
+	assert.Equal(t, "1", nft.TokenID)
 }
 
 func TestNFT_Validation(t *testing.T) {
@@ -60,7 +60,7 @@ func TestNFT_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isValid := tt.nft.ID != "" && tt.nft.ContractAddress != "" && tt.nft.TokenID != ""
-			helpers.AssertEqual(t, tt.isValid, isValid)
+			assert.Equal(t, tt.isValid, isValid)
 		})
 	}
 }
@@ -75,9 +75,9 @@ func TestNFT_OwnershipVerification(t *testing.T) {
 
 	// Check ownership
 	isOwner := nft.OwnerAddress == "0x0987654321098765432109876543210987654321"
-	helpers.AssertTrue(t, isOwner)
+	assert.True(t, isOwner)
 
 	// Check non-ownership
 	isNotOwner := nft.OwnerAddress == "0x1111111111111111111111111111111111111111"
-	helpers.AssertFalse(t, isNotOwner)
+	assert.False(t, isNotOwner)
 }

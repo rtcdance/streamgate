@@ -18,7 +18,7 @@ type RecommendationEngine struct {
 	contentProfiles     map[string]*ContentProfile
 	recommendations     map[string][]*Recommendation
 	metrics             *RecommendationMetrics
-	lastUpdateTime      time.Time
+	lastUpdateTime      time.Time //nolint:unused
 	updateInterval      time.Duration
 }
 
@@ -197,10 +197,8 @@ func (re *RecommendationEngine) GetRecommendations(ctx context.Context, userID s
 	// Cache recommendations
 	re.mu.Lock()
 	re.recommendations[userID] = hybridRecs
-	re.mu.Unlock()
-
-	// Update metrics
 	re.metrics.TotalRecommendations += int64(len(hybridRecs))
+	re.mu.Unlock()
 
 	return hybridRecs, nil
 }
@@ -278,27 +276,27 @@ func (re *RecommendationEngine) calculateDiversityScore() float64 {
 	count := 0
 
 	for _, recs := range re.recommendations {
-		if len(recs) > 1 {
-			// Calculate category diversity
-			categories := make(map[string]int)
-			for _, rec := range recs {
-				if profile, exists := re.contentProfiles[rec.ContentID]; exists {
-					categories[profile.Category]++
-				}
-			}
-
-			// Diversity = 1 - (max_category_count / total_count)
-			maxCount := 0
-			for _, count := range categories {
-				if count > maxCount {
-					maxCount = count
-				}
-			}
-
-			diversity := 1.0 - float64(maxCount)/float64(len(recs))
-			totalDiversity += diversity
-			count++
+		if len(recs) <= 1 {
+			continue
 		}
+		// Calculate category diversity
+		categories := make(map[string]int)
+		for _, rec := range recs {
+			if profile, exists := re.contentProfiles[rec.ContentID]; exists {
+				categories[profile.Category]++
+			}
+		}
+
+			//nolint:gocritic // formula comment
+			// Diversity = 1 - (max_category_count / total_count)
+		maxCount := 0
+		for _, count := range categories {
+			maxCount = max(maxCount, count)
+		}
+
+		diversity := 1.0 - float64(maxCount)/float64(len(recs))
+		totalDiversity += diversity
+		count++
 	}
 
 	if count == 0 {
@@ -327,26 +325,27 @@ func (re *RecommendationEngine) calculateNormalizedDCG() float64 {
 	count := 0
 
 	for _, recs := range re.recommendations {
-		if len(recs) > 0 {
-			// Calculate DCG
-			dcg := 0.0
-			for i, rec := range recs {
-				// Relevance score based on confidence
-				relevance := rec.Confidence
-				dcg += relevance / float64(i+2) // i+2 because log2(i+1) for i starting at 0
-			}
+		if len(recs) == 0 {
+			continue
+		}
+		// Calculate DCG
+		dcg := 0.0
+		for i, rec := range recs {
+			// Relevance score based on confidence
+			relevance := rec.Confidence
+			dcg += relevance / float64(i+2) // i+2 because log2(i+1) for i starting at 0
+		}
 
-			// Ideal DCG (all items with confidence 1.0)
-			idcg := 0.0
-			for i := 0; i < len(recs); i++ {
-				idcg += 1.0 / float64(i+2)
-			}
+		// Ideal DCG (all items with confidence 1.0)
+		idcg := 0.0
+		for i := 0; i < len(recs); i++ {
+			idcg += 1.0 / float64(i+2)
+		}
 
-			if idcg > 0 {
-				ndcg := dcg / idcg
-				totalNDCG += ndcg
-				count++
-			}
+		if idcg > 0 {
+			ndcg := dcg / idcg
+			totalNDCG += ndcg
+			count++
 		}
 	}
 

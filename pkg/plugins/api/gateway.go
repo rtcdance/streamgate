@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+	"streamgate/pkg/gateway"
 	"streamgate/pkg/monitoring"
 )
 
@@ -21,6 +22,7 @@ type GatewayPlugin struct {
 	config           *config.Config
 	metricsCollector *monitoring.MetricsCollector
 	alertManager     *monitoring.AlertManager
+	resources        *gateway.AppResources
 }
 
 // NewGatewayPlugin creates a new API Gateway plugin
@@ -51,10 +53,6 @@ func (p *GatewayPlugin) Init(ctx context.Context, kernel *core.Microkernel) erro
 	p.metricsCollector = monitoring.NewMetricsCollector(p.logger)
 	p.alertManager = monitoring.NewAlertManager(p.logger)
 
-	// Initialize security
-
-	// Initialize optimization
-
 	// Register alert rules
 	p.registerAlertRules()
 
@@ -64,34 +62,20 @@ func (p *GatewayPlugin) Init(ctx context.Context, kernel *core.Microkernel) erro
 	return nil
 }
 
-// Start starts the API Gateway
+// Start starts the API Gateway using the shared gateway.SetupRouter,
+// ensuring the monolith uses the same real routes as the api-gateway microservice.
 func (p *GatewayPlugin) Start(ctx context.Context) error {
 	p.logger.Info("Starting API Gateway", zap.Int("port", p.config.Server.Port))
 
-	handler := NewHandler(p.kernel, p.logger)
-	web3Handler := NewWeb3Handler(handler.web3Service, p.logger)
-
-	mux := http.NewServeMux()
-
-	// Health and readiness endpoints
-	mux.HandleFunc("/health", handler.HealthHandler)
-	mux.HandleFunc("/ready", handler.ReadyHandler)
-	mux.HandleFunc("/metrics", handler.MetricsHandler)
-
-	// API v1 endpoints
-	mux.HandleFunc("/api/v1/health", handler.HealthHandler)
-	mux.HandleFunc("/api/v1/auth/challenge", handler.AuthChallengeHandler)
-	mux.HandleFunc("/api/v1/auth/login", handler.AuthLoginHandler)
-	mux.HandleFunc("/api/v1/nft/verify", handler.VerifyNFTHandler)
-	mux.HandleFunc("/api/v1/web3/rpc-status", web3Handler.HandleGetRPCStatus)
-	mux.HandleFunc("/api/v1/streaming/", handler.StreamingAccessHandler)
-
-	// Catch-all for 404
-	mux.HandleFunc("/", handler.NotFoundHandler)
+	router, resources, err := gateway.SetupRouter(p.config, p.logger)
+	if err != nil {
+		return fmt.Errorf("failed to setup router: %w", err)
+	}
+	p.resources = resources
 
 	p.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", p.config.Server.Port),
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  time.Duration(p.config.Server.ReadTimeout) * time.Second,
 		WriteTimeout: time.Duration(p.config.Server.WriteTimeout) * time.Second,
 	}
@@ -113,11 +97,14 @@ func (p *GatewayPlugin) Stop(ctx context.Context) error {
 	if p.server != nil {
 		if err := p.server.Shutdown(ctx); err != nil {
 			p.logger.Error("Error shutting down API Gateway", zap.Error(err))
-			return err
 		}
 	}
 
-	// Stop cache cleanup
+	if p.resources != nil {
+		if err := p.resources.Close(); err != nil {
+			p.logger.Error("Error closing resources", zap.Error(err))
+		}
+	}
 
 	p.logger.Info("API Gateway stopped")
 	return nil
@@ -129,7 +116,6 @@ func (p *GatewayPlugin) Health(ctx context.Context) error {
 		return fmt.Errorf("API Gateway not started")
 	}
 
-	// Simple health check - server is running
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package load_test
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -36,7 +37,7 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 			for j := 0; j < numRequests; j++ {
 				username := fmt.Sprintf("user_%d_%d", id, j)
 				email := fmt.Sprintf("user%d%d@example.com", id, j)
-				err := authService.Register(username, "password", email)
+				err := authService.Register(context.Background(),username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -75,7 +76,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		username := fmt.Sprintf("user%d", i)
 		email := fmt.Sprintf("user%d@example.com", i)
-		authService.Register(username, "password", email)
+		authService.Register(context.Background(),username, "password", email)
 	}
 
 	// Test query performance
@@ -155,7 +156,7 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 				username := fmt.Sprintf("user_%d_%d", id, j)
 				email := fmt.Sprintf("user%d%d@example.com", id, j)
 
-				err := authService.Register(username, "password", email)
+				err := authService.Register(context.Background(),username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -206,7 +207,7 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 			for j := 0; j < bulkSize; j++ {
 				username := fmt.Sprintf("user_%d_%d", bulkID, j)
 				email := fmt.Sprintf("user%d%d@example.com", bulkID, j)
-				err := authService.Register(username, "password", email)
+				err := authService.Register(context.Background(),username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {

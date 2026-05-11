@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15-alpine
     container_name: streamgate-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: streamgate
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-streamgate}
     ports:
-      - "15432:5432"
+      - "${SG_SELFTEST_POSTGRES_PORT:-15432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -17,12 +15,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
 
   redis:
     image: redis:7-alpine
     container_name: streamgate-redis
     ports:
-      - "16379:6379"
+      - "${SG_SELFTEST_REDIS_PORT:-16379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -30,17 +36,25 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
     container_name: streamgate-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "19000:9000"
-      - "19001:9001"
+      - "${SG_SELFTEST_MINIO_API_PORT:-19000}:9000"
+      - "${SG_SELFTEST_MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -48,14 +62,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
 
   nats:
-    image: nats:latest
+    image: nats:2.10-alpine
     container_name: streamgate-nats
     command: "-js"
     ports:
-      - "14222:4222"
-      - "18222:8222"
+      - "${SG_SELFTEST_NATS_PORT:-14222}:4222"
+      - "${SG_SELFTEST_NATS_MONITOR_PORT:-18222}:8222"
     volumes:
       - nats-data:/data
     healthcheck:
@@ -64,14 +86,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
 
   consul:
-    image: hashicorp/consul:latest
+    image: hashicorp/consul:1.19
     container_name: streamgate-consul
     command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
     ports:
-      - "18500:8500"
-      - "18600:8600/udp"
+      - "${SG_SELFTEST_CONSUL_PORT:-18500}:8500"
+      - "${SG_SELFTEST_CONSUL_DNS_PORT:-18600}:8600/udp"
     volumes:
       - consul-data:/consul/data
     healthcheck:
@@ -79,66 +109,96 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     container_name: streamgate-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
     ports:
-      - "19091:9090"
+      - "${SG_SELFTEST_PROMETHEUS_PORT:-19091}:9090"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.3.0
     container_name: streamgate-grafana
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
     ports:
-      - "13000:3000"
+      - "${SG_SELFTEST_GRAFANA_PORT:-13000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
 
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: streamgate-jaeger
     ports:
-      - "16687:16686"
-      - "14269:14268"
+      - "${SG_SELFTEST_JAEGER_UI_PORT:-16687}:16686"
+      - "${SG_SELFTEST_JAEGER_COLLECTOR_PORT:-14269}:14268"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
 
-  streamgate:
+  api-gateway:
     build:
       context: .
-      dockerfile: deploy/docker/Dockerfile.monolith
-    container_name: streamgate-app
+      dockerfile: deploy/docker/Dockerfile.api-gateway
+    container_name: streamgate-api-gateway
     ports:
-      - "18080:8080"
-      - "19090:9090"
+      - "${SG_SELFTEST_GATEWAY_HTTP_PORT:-28080}:8080"
+      - "${SG_SELFTEST_GATEWAY_GRPC_PORT:-29090}:9090"
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
-      - DATABASE_USER=postgres
-      - DATABASE_PASSWORD=postgres
-      - DATABASE_NAME=streamgate
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=minioadmin
-      - STORAGE_SECRET_KEY=minioadmin
-      - STORAGE_BUCKET=streamgate
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
       - NATS_URL=nats://nats:4222
       - CONSUL_HOST=consul
       - CONSUL_PORT=8500
       - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
-      - ETHEREUM_RPC=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
-      - SOLANA_RPC=https://api.mainnet-beta.solana.com
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,7 +210,75 @@ services:
         condition: service_healthy
       consul:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  streamgate:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.monolith
+    container_name: streamgate-app
+    ports:
+      - "${SG_SELFTEST_MONOLITH_HTTP_PORT:-18080}:8080"
+      - "${SG_SELFTEST_MONOLITH_METRICS_PORT:-19090}:9090"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STORAGE_ENDPOINT=minio:9000
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - NATS_URL=nats://nats:4222
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - ETHEREUM_RPC=${ETHEREUM_RPC:-https://mainnet.infura.io/v3/YOUR_PROJECT_ID}
+      - SOLANA_RPC=${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
 
 volumes:
   postgres-data:

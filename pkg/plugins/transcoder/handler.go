@@ -68,20 +68,20 @@ func (h *TranscoderHandler) HealthHandler(w http.ResponseWriter, r *http.Request
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // ReadyHandler handles readiness check requests
 func (h *TranscoderHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // SubmitTaskHandler handles transcoding task submission
@@ -90,7 +90,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("submit_task_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 		h.logger.Error("Failed to decode task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_task_decode_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid task"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid task"})
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 		h.logger.Error("Failed to submit task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("submit_task_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit task"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to submit task"})
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"task_id": task.ID,
 		"status":  task.Status,
 	})
@@ -144,7 +144,7 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_task_status_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -154,7 +154,7 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 	if taskID == "" {
 		h.metricsCollector.IncrementCounter("get_task_status_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing task_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing task_id"})
 		return
 	}
 
@@ -163,7 +163,7 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 		h.logger.Error("Failed to get task status", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_task_status_failed", map[string]string{})
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(task)
 }
 
 // CancelTaskHandler handles task cancellation
@@ -181,7 +181,7 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("cancel_task_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -191,7 +191,7 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 	if taskID == "" {
 		h.metricsCollector.IncrementCounter("cancel_task_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing task_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing task_id"})
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 		h.logger.Error("Failed to cancel task", zap.Error(err))
 		h.metricsCollector.IncrementCounter("cancel_task_failed", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to cancel task"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to cancel task"})
 		return
 	}
 
@@ -210,7 +210,7 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 // ListTasksHandler handles task listing
@@ -219,7 +219,7 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("list_tasks_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -274,7 +274,7 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"tasks": tasks})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"tasks": tasks})
 }
 
 // GetMetricsHandler handles metrics requests
@@ -283,7 +283,7 @@ func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Req
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_metrics_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -296,7 +296,7 @@ func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // ListProfilesHandler returns supported transcoding profiles.
@@ -304,7 +304,7 @@ func (h *TranscoderHandler) ListProfilesHandler(w http.ResponseWriter, r *http.R
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("list_profiles_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -316,12 +316,12 @@ func (h *TranscoderHandler) ListProfilesHandler(w http.ResponseWriter, r *http.R
 	h.metricsCollector.IncrementCounter("list_profiles_success", map[string]string{})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{"profiles": profiles})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"profiles": profiles})
 }
 
 // NotFoundHandler handles 404 requests
 func (h *TranscoderHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 }

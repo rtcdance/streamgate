@@ -1,8 +1,11 @@
 package scaling
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -273,14 +276,15 @@ func (glb *GlobalLoadBalancer) GetBackendMetrics(backendID string) (*BackendMetr
 	return metrics, nil
 }
 
-// GetAllMetrics retrieves metrics for all backends
+// GetAllMetrics retrieves metrics for all backends (deep copy)
 func (glb *GlobalLoadBalancer) GetAllMetrics() map[string]*BackendMetrics {
 	glb.mu.RLock()
 	defer glb.mu.RUnlock()
 
 	metricsCopy := make(map[string]*BackendMetrics)
 	for backendID, metrics := range glb.metrics {
-		metricsCopy[backendID] = metrics
+		m := *metrics // copy the struct value
+		metricsCopy[backendID] = &m
 	}
 	return metricsCopy
 }
@@ -293,28 +297,75 @@ func (glb *GlobalLoadBalancer) ShouldHealthCheck() bool {
 	return time.Since(glb.lastHealthCheck) > glb.healthCheckInterval
 }
 
-// PerformHealthCheck performs health checks on all backends
+// PerformHealthCheck performs health checks on all backends.
+// It first collects backend addresses, then probes them outside the lock,
+// and finally updates status under the lock.
 func (glb *GlobalLoadBalancer) PerformHealthCheck() error {
+	// Phase 1: snapshot backends under read lock
+	glb.mu.RLock()
+	type backendInfo struct {
+		id      string
+		address string
+	}
+	var infos []backendInfo
+	for id, b := range glb.backends {
+		infos = append(infos, backendInfo{id: id, address: b.Address})
+	}
+	glb.mu.RUnlock()
+
+	// Phase 2: probe each backend outside the lock
+	probeResults := make(map[string]bool, len(infos))
+	client := &http.Client{Timeout: 3 * time.Second}
+	for _, info := range infos {
+		url := info.address
+		if url != "" && (strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/health", http.NoBody)
+			resp, err := client.Do(req)
+			cancel()
+			if err == nil {
+				_ = resp.Body.Close()
+				probeResults[info.id] = resp.StatusCode < 500
+			} else {
+				probeResults[info.id] = false
+			}
+		} else {
+			// No HTTP address or missing scheme — skip probe, fall back to metrics
+			delete(probeResults, info.id)
+		}
+	}
+
+	// Phase 3: update status under write lock, combining probe + metrics
 	glb.mu.Lock()
 	defer glb.mu.Unlock()
 
 	for backendID, backend := range glb.backends {
-		// Simulate health check
-		errorRate := float64(backend.ErrorCount) / float64(backend.RequestCount+1)
+		probeHealthy, probed := probeResults[backendID]
 
-		if errorRate > 0.1 || backend.Latency > 5000 {
+		if probed && !probeHealthy {
+			// HTTP probe failed — mark unhealthy regardless of metrics
 			backend.Active = false
 			if metrics, exists := glb.metrics[backendID]; exists {
 				metrics.HealthStatus = "UNHEALTHY"
 			}
-		} else if backend.Latency > 2000 {
-			if metrics, exists := glb.metrics[backendID]; exists {
-				metrics.HealthStatus = "DEGRADED"
-			}
 		} else {
-			backend.Active = true
-			if metrics, exists := glb.metrics[backendID]; exists {
-				metrics.HealthStatus = "HEALTHY"
+			// Probe passed or not available — fall back to error-rate metrics
+			errorRate := float64(backend.ErrorCount) / float64(backend.RequestCount+1)
+			if errorRate > 0.1 || backend.Latency > 5000 {
+				backend.Active = false
+				if metrics, exists := glb.metrics[backendID]; exists {
+					metrics.HealthStatus = "UNHEALTHY"
+				}
+			} else if backend.Latency > 2000 {
+				backend.Active = true
+				if metrics, exists := glb.metrics[backendID]; exists {
+					metrics.HealthStatus = "DEGRADED"
+				}
+			} else {
+				backend.Active = true
+				if metrics, exists := glb.metrics[backendID]; exists {
+					metrics.HealthStatus = "HEALTHY"
+				}
 			}
 		}
 

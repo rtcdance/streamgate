@@ -1,0 +1,219 @@
+package middleware
+
+import (
+	"context"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+)
+
+// mockNFTOwnershipChecker implements NFTOwnershipChecker for testing
+type mockNFTOwnershipChecker struct {
+	verifyFn  func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
+	balanceFn func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error)
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	return m.verifyFn(ctx, chainID, contractAddress, tokenID, ownerAddress)
+}
+
+func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
+	return m.balanceFn(ctx, chainID, contractAddress, ownerAddress)
+}
+
+// mockNFTAccessCache implements NFTAccessCache for testing
+type mockNFTAccessCache struct {
+	entries map[string]NFTAccessEntry
+}
+
+func (m *mockNFTAccessCache) Get(key string) (NFTAccessEntry, bool) {
+	e, ok := m.entries[key]
+	return e, ok
+}
+
+func (m *mockNFTAccessCache) Set(key string, entry NFTAccessEntry) {
+	m.entries[key] = entry
+}
+
+func setupNFTGateRouter(config NFTGateConfig) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	jwtConfig := JWTAuthConfig{Secret: "test-secret"}
+	router.Use(JWTAuthMiddleware(jwtConfig, zap.NewNop()))
+	router.Use(NFTGateMiddleware(config, zap.NewNop()))
+
+	router.GET("/stream/:id/manifest.m3u8", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"nft_verified": GetNFTVerified(c),
+			"nft_contract": GetNFTContract(c),
+		})
+	})
+
+	return router
+}
+
+func authRequestWithWallet(path, walletAddr string) *http.Request {
+	token := generateTestJWT("test-secret", walletAddr, time.Now().Add(time.Hour))
+	req := httptest.NewRequest("GET", path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	return req
+}
+
+func TestNFTGateMiddleware_Owner(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+				return big.NewInt(3), nil
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "true")
+}
+
+func TestNFTGateMiddleware_NotOwner(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+				return big.NewInt(0), nil
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xNotOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	// Request without JWT (no wallet_address in context)
+	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract=0xABC", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestNFTGateMiddleware_MissingContract(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNFTGateMiddleware_VerifierError(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+				return big.NewInt(0), context.DeadlineExceeded
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestNFTGateMiddleware_CacheHit(t *testing.T) {
+	verifierCalled := false
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+				verifierCalled = true
+				return big.NewInt(5), nil
+			},
+		},
+		Cache: &mockNFTAccessCache{
+			entries: map[string]NFTAccessEntry{
+				"1:0xOwner:0xABC:": {
+					HasNFT:  true,
+					Balance: big.NewInt(5),
+					Expires: time.Now().Add(time.Minute),
+				},
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, verifierCalled, "verifier should not be called when cache hits")
+}
+
+func TestNFTGateMiddleware_WithTokenID(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			verifyFn: func(ctx context.Context, chainID int64, contractAddress string, tokenID string, ownerAddress string) (bool, error) {
+				assert.Equal(t, "42", tokenID)
+				return true, nil
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC&token_id=42", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestNFTGateMiddleware_ContractAddressAlias(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipChecker{
+			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+				return big.NewInt(1), nil
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(config)
+
+	// Use contract_address instead of contract
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract_address=0xABC", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}

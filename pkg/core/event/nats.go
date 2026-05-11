@@ -188,7 +188,7 @@ const (
 )
 
 // PublishFileUploaded publishes a file uploaded event
-func PublishFileUploaded(ctx context.Context, bus EventBus, fileID string, fileName string, fileSize int64) error {
+func PublishFileUploaded(ctx context.Context, bus EventBus, fileID, fileName string, fileSize int64) error {
 	event := &Event{
 		Type:      EventFileUploaded,
 		Source:    "upload-service",
@@ -204,7 +204,7 @@ func PublishFileUploaded(ctx context.Context, bus EventBus, fileID string, fileN
 }
 
 // PublishTranscodingStarted publishes a transcoding started event
-func PublishTranscodingStarted(ctx context.Context, bus EventBus, jobID string, inputFile string) error {
+func PublishTranscodingStarted(ctx context.Context, bus EventBus, jobID, inputFile string) error {
 	event := &Event{
 		Type:      EventTranscodingStarted,
 		Source:    "transcoder-service",
@@ -219,7 +219,7 @@ func PublishTranscodingStarted(ctx context.Context, bus EventBus, jobID string, 
 }
 
 // PublishTranscodingCompleted publishes a transcoding completed event
-func PublishTranscodingCompleted(ctx context.Context, bus EventBus, jobID string, outputFile string) error {
+func PublishTranscodingCompleted(ctx context.Context, bus EventBus, jobID, outputFile string) error {
 	event := &Event{
 		Type:      EventTranscodingCompleted,
 		Source:    "transcoder-service",
@@ -234,7 +234,7 @@ func PublishTranscodingCompleted(ctx context.Context, bus EventBus, jobID string
 }
 
 // PublishJobSubmitted publishes a job submitted event
-func PublishJobSubmitted(ctx context.Context, bus EventBus, jobID string, jobType string) error {
+func PublishJobSubmitted(ctx context.Context, bus EventBus, jobID, jobType string) error {
 	event := &Event{
 		Type:      EventJobSubmitted,
 		Source:    "worker-service",
@@ -263,7 +263,7 @@ func PublishJobCompleted(ctx context.Context, bus EventBus, jobID string) error 
 }
 
 // PublishAlertTriggered publishes an alert triggered event
-func PublishAlertTriggered(ctx context.Context, bus EventBus, alertID string, level string, message string) error {
+func PublishAlertTriggered(ctx context.Context, bus EventBus, alertID, level, message string) error {
 	event := &Event{
 		Type:      EventAlertTriggered,
 		Source:    "monitor-service",

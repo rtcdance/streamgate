@@ -37,20 +37,20 @@ func (h *UploadHandler) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // ReadyHandler handles readiness check requests
 func (h *UploadHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // UploadHandler handles file upload requests
@@ -59,7 +59,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("upload_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -72,7 +72,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to parse multipart form", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_parse_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse form"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse form"})
 		return
 	}
 
@@ -81,10 +81,10 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to get file from form", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_get_file_error", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get file"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to get file"})
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("upload_requests", map[string]string{"filename": handler.Filename})
@@ -95,7 +95,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to read file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_read_error", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file"})
 		return
 	}
 
@@ -107,7 +107,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error("Failed to upload file", zap.Error(err))
 		h.metricsCollector.IncrementCounter("upload_failed", map[string]string{"filename": handler.Filename})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload file"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload file"})
 		return
 	}
 
@@ -119,7 +119,7 @@ func (h *UploadHandler) UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"file_id":  fileID,
 		"filename": handler.Filename,
 		"size":     len(data),
@@ -132,7 +132,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("chunk_upload_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -147,7 +147,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 	if uploadID == "" || chunkIndexStr == "" {
 		h.metricsCollector.IncrementCounter("chunk_upload_missing_params", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id or chunk_index"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id or chunk_index"})
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		h.metricsCollector.IncrementCounter("chunk_upload_invalid_index", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid chunk_index"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid chunk_index"})
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 		h.logger.Error("Failed to read chunk", zap.Error(err))
 		h.metricsCollector.IncrementCounter("chunk_upload_read_error", map[string]string{})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read chunk"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to read chunk"})
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 		h.logger.Error("Failed to upload chunk", zap.Error(err))
 		h.metricsCollector.IncrementCounter("chunk_upload_failed", map[string]string{"upload_id": uploadID})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload chunk"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to upload chunk"})
 		return
 	}
 
@@ -186,7 +186,7 @@ func (h *UploadHandler) UploadChunkHandler(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"upload_id":   uploadID,
 		"chunk_index": chunkIndex,
 		"size":        len(data),
@@ -199,7 +199,7 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 	if r.Method != http.MethodPost {
 		h.metricsCollector.IncrementCounter("complete_upload_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -212,7 +212,7 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 	if uploadID == "" {
 		h.metricsCollector.IncrementCounter("complete_upload_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id"})
 		return
 	}
 
@@ -222,7 +222,7 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 		h.logger.Error("Failed to complete upload", zap.Error(err))
 		h.metricsCollector.IncrementCounter("complete_upload_failed", map[string]string{"upload_id": uploadID})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to complete upload"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to complete upload"})
 		return
 	}
 
@@ -233,7 +233,7 @@ func (h *UploadHandler) CompleteUploadHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"upload_id": uploadID,
 		"file_id":   fileID,
 	})
@@ -245,7 +245,7 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 	if r.Method != http.MethodGet {
 		h.metricsCollector.IncrementCounter("get_upload_status_invalid_method", map[string]string{})
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
 
@@ -258,7 +258,7 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 	if uploadID == "" {
 		h.metricsCollector.IncrementCounter("get_upload_status_missing_id", map[string]string{})
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing upload_id"})
 		return
 	}
 
@@ -268,7 +268,7 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 		h.logger.Error("Failed to get upload status", zap.Error(err))
 		h.metricsCollector.IncrementCounter("get_upload_status_failed", map[string]string{"upload_id": uploadID})
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get upload status"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to get upload status"})
 		return
 	}
 
@@ -277,12 +277,12 @@ func (h *UploadHandler) GetUploadStatusHandler(w http.ResponseWriter, r *http.Re
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // NotFoundHandler handles 404 requests
 func (h *UploadHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 }

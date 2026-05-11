@@ -436,7 +436,7 @@ func (dm *DashboardManager) ExportAllDashboards() map[string]string {
 }
 
 // GenerateDashboardURL generates a Grafana dashboard URL
-func GenerateDashboardURL(grafanaURL string, dashboardName string) string {
+func GenerateDashboardURL(grafanaURL, dashboardName string) string {
 	return fmt.Sprintf("%s/d/%s/%s", grafanaURL, dashboardName, dashboardName)
 }
 

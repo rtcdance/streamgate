@@ -14,11 +14,11 @@ func (db *Database) Insert(table string, data map[string]interface{}) error {
 }
 
 // Update updates metadata
-func (db *Database) Update(table string, id string, data map[string]interface{}) error {
+func (db *Database) Update(table, id string, data map[string]interface{}) error {
 	return nil
 }
 
 // Delete deletes metadata
-func (db *Database) Delete(table string, id string) error {
+func (db *Database) Delete(table, id string) error {
 	return nil
 }

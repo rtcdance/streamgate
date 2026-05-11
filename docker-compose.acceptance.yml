@@ -1,0 +1,290 @@
+# StreamGate Acceptance Test Stack
+# Ports in 2xxxx+ range to avoid conflicts with running ChainPulse microservices stack
+# Usage: docker-compose -f docker-compose.acceptance.yml up -d
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: sg-acc-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-streamgate}
+    ports:
+      - "${SG_ACC_POSTGRES_PORT:-25432}:5432"
+    volumes:
+      - sg-acc-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+
+  redis:
+    image: redis:7-alpine
+    container_name: sg-acc-redis
+    ports:
+      - "${SG_ACC_REDIS_PORT:-26479}:6379"
+    volumes:
+      - sg-acc-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: sg-acc-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${SG_ACC_MINIO_API_PORT:-29000}:9000"
+      - "${SG_ACC_MINIO_CONSOLE_PORT:-29001}:9001"
+    volumes:
+      - sg-acc-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: sg-acc-nats
+    command: "-js"
+    ports:
+      - "${SG_ACC_NATS_PORT:-24222}:4222"
+      - "${SG_ACC_NATS_MONITOR_PORT:-28222}:8222"
+    volumes:
+      - sg-acc-nats-data:/data
+    healthcheck:
+      test: ["CMD", "nats-server", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  consul:
+    image: hashicorp/consul:1.19
+    container_name: sg-acc-consul
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    ports:
+      - "${SG_ACC_CONSUL_PORT:-28500}:8500"
+      - "${SG_ACC_CONSUL_DNS_PORT:-28600}:8600/udp"
+    volumes:
+      - sg-acc-consul-data:/consul/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: sg-acc-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "${SG_ACC_PROMETHEUS_PORT:-29091}:9090"
+    volumes:
+      - ./config/prometheus.acceptance.yml:/etc/prometheus/prometheus.yml
+      - sg-acc-prometheus-data:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: sg-acc-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${SG_ACC_GRAFANA_PORT:-23000}:3000"
+    volumes:
+      - sg-acc-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: sg-acc-jaeger
+    ports:
+      - "${SG_ACC_JAEGER_UI_PORT:-26687}:16686"
+      - "${SG_ACC_JAEGER_COLLECTOR_PORT:-24269}:14268"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  api-gateway:
+    image: streamgate-acc:api-gateway
+    container_name: sg-acc-api-gateway
+    ports:
+      - "${SG_ACC_GATEWAY_HTTP_PORT:-38080}:9090"
+      - "${SG_ACC_GATEWAY_GRPC_PORT:-39090}:9091"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STORAGE_ENDPOINT=minio:9000
+      - STORAGE_ACCESSKEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRETKEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - NATS_URL=nats://nats:4222
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  streamgate:
+    image: streamgate-acc:monolith
+    container_name: sg-acc-monolith
+    ports:
+      - "${SG_ACC_MONOLITH_HTTP_PORT:-28080}:8080"
+      - "${SG_ACC_MONOLITH_METRICS_PORT:-29090}:9090"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=${DATABASE_USER:-postgres}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STORAGE_ENDPOINT=minio:9000
+      - STORAGE_ACCESSKEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRETKEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - NATS_URL=nats://nats:4222
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - ETHEREUM_RPC=${ETHEREUM_RPC:-https://mainnet.infura.io/v3/YOUR_PROJECT_ID}
+      - SOLANA_RPC=${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      - STREAMGATE_ENV=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+volumes:
+  sg-acc-postgres-data:
+  sg-acc-redis-data:
+  sg-acc-minio-data:
+  sg-acc-nats-data:
+  sg-acc-consul-data:
+  sg-acc-prometheus-data:
+  sg-acc-grafana-data:

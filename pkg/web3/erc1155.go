@@ -9,28 +9,30 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
+	"streamgate/pkg/cachetypes"
 )
 
 // ERC1155Verifier handles ERC-1155 NFT verification
 type ERC1155Verifier struct {
-	ethClient *ethclient.Client
-	logger    *zap.Logger
-	cache     NFTCacheStorage
+	ethClient    EthCaller
+	logger       *zap.Logger
+	cache        cachetypes.CacheBackend
+	parsedERC1155ABI abi.ABI // pre-parsed at construction
 }
 
 // NewERC1155Verifier creates a new ERC-1155 verifier
-func NewERC1155Verifier(ethClient *ethclient.Client, logger *zap.Logger, cache NFTCacheStorage) *ERC1155Verifier {
+func NewERC1155Verifier(ethClient EthCaller, logger *zap.Logger, cache cachetypes.CacheBackend) *ERC1155Verifier {
 	return &ERC1155Verifier{
-		ethClient: ethClient,
-		logger:    logger,
-		cache:     cache,
+		ethClient:        ethClient,
+		logger:           logger,
+		cache:            cache,
+		parsedERC1155ABI: mustParseABI("ERC-1155", erc1155ABI),
 	}
 }
 
-// ERC1155 ABI for balanceOf and balanceOfBatch
-const erc1155ABI = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"accounts","type":"address[]"},{"name":"ids","type":"uint256[]"}],"name":"balanceOfBatch","outputs":[{"name":"","type":"uint256[]"}],"payable":false,"stateMutability":"view","type":"function"}]`
+// ERC1155 ABI for balanceOf, balanceOfBatch, isApprovedForAll, and uri
+const erc1155ABI = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"accounts","type":"address[]"},{"name":"ids","type":"uint256[]"}],"name":"balanceOfBatch","outputs":[{"name":"","type":"uint256[]"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"id","type":"uint256"}],"name":"uri","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"}]`
 
 // VerifyNFTOwnership verifies ERC-1155 NFT ownership
 func (ev *ERC1155Verifier) VerifyNFTOwnership(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
@@ -77,7 +79,7 @@ func (ev *ERC1155Verifier) VerifyNFTOwnership(ctx context.Context, contractAddre
 
 	// Cache the result
 	if ev.cache != nil {
-		ev.cache.Set(cacheKey, balance)
+		_ = ev.cache.Set(cacheKey, balance)
 	}
 
 	// Check if owner has at least 1 token
@@ -181,7 +183,7 @@ func (ev *ERC1155Verifier) VerifyTotalSupply(ctx context.Context, contractAddres
 }
 
 // VerifyURI verifies the token URI
-func (ev *ERC1155Verifier) VerifyURI(ctx context.Context, contractAddress, tokenID string, expectedURI string) (bool, error) {
+func (ev *ERC1155Verifier) VerifyURI(ctx context.Context, contractAddress, tokenID, expectedURI string) (bool, error) {
 	ev.logger.Debug("Verifying ERC-1155 token URI",
 		zap.String("contract", contractAddress),
 		zap.String("token_id", tokenID),
@@ -222,14 +224,8 @@ func (ev *ERC1155Verifier) VerifyURI(ctx context.Context, contractAddress, token
 
 // getBalance gets the balance of a token for an account
 func (ev *ERC1155Verifier) getBalance(ctx context.Context, contractAddress, account common.Address, tokenID *big.Int) (*big.Int, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc1155ABI))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
 	// Pack the function call
-	data, err := parsedABI.Pack("balanceOf", account, tokenID)
+	data, err := ev.parsedERC1155ABI.Pack("balanceOf", account, tokenID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack function call: %w", err)
 	}
@@ -243,9 +239,13 @@ func (ev *ERC1155Verifier) getBalance(ctx context.Context, contractAddress, acco
 		return nil, fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return nil, fmt.Errorf("balanceOf returned insufficient data (len=%d): contract may not exist or is not a valid ERC-1155 contract", len(result))
+	}
+
 	// Unpack the result
 	var balance *big.Int
-	err = parsedABI.UnpackIntoInterface(&balance, "balanceOf", result)
+	err = ev.parsedERC1155ABI.UnpackIntoInterface(&balance, "balanceOf", result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unpack result: %w", err)
 	}
@@ -255,14 +255,8 @@ func (ev *ERC1155Verifier) getBalance(ctx context.Context, contractAddress, acco
 
 // getBalanceBatch gets the balance of multiple tokens for an account
 func (ev *ERC1155Verifier) getBalanceBatch(ctx context.Context, contractAddress, account common.Address, tokenIDs []*big.Int) ([]*big.Int, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc1155ABI))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
 	// Pack the function call
-	data, err := parsedABI.Pack("balanceOfBatch", []common.Address{account}, tokenIDs)
+	data, err := ev.parsedERC1155ABI.Pack("balanceOfBatch", []common.Address{account}, tokenIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack function call: %w", err)
 	}
@@ -276,9 +270,13 @@ func (ev *ERC1155Verifier) getBalanceBatch(ctx context.Context, contractAddress,
 		return nil, fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return nil, fmt.Errorf("balanceOfBatch returned insufficient data (len=%d): contract may not exist or is not a valid ERC-1155 contract", len(result))
+	}
+
 	// Unpack the result
 	var balances []*big.Int
-	err = parsedABI.UnpackIntoInterface(&balances, "balanceOfBatch", result)
+	err = ev.parsedERC1155ABI.UnpackIntoInterface(&balances, "balanceOfBatch", result)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unpack result: %w", err)
 	}
@@ -286,24 +284,16 @@ func (ev *ERC1155Verifier) getBalanceBatch(ctx context.Context, contractAddress,
 	return balances, nil
 }
 
-// getTotalSupply gets the total supply of a token
+// getTotalSupply is not supported by the ERC-1155 standard.
+// Some implementations extend with totalSupply(uint256), but we cannot rely on it.
 func (ev *ERC1155Verifier) getTotalSupply(ctx context.Context, contractAddress common.Address, tokenID *big.Int) (*big.Int, error) {
-	// ERC-1155 doesn't have a totalSupply function in the standard
-	// This is implementation-specific
-	// For now, return a dummy value
-	return big.NewInt(0), nil
+	return nil, fmt.Errorf("totalSupply is not part of the ERC-1155 standard")
 }
 
 // getURI gets the URI for a token
 func (ev *ERC1155Verifier) getURI(ctx context.Context, contractAddress common.Address, tokenID *big.Int) (string, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc1155ABI))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
 	// Pack the function call
-	data, err := parsedABI.Pack("uri", tokenID)
+	data, err := ev.parsedERC1155ABI.Pack("uri", tokenID)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack function call: %w", err)
 	}
@@ -317,16 +307,20 @@ func (ev *ERC1155Verifier) getURI(ctx context.Context, contractAddress common.Ad
 		return "", fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return "", fmt.Errorf("uri returned insufficient data (len=%d): contract may not exist or is not a valid ERC-1155 contract", len(result))
+	}
+
 	// Unpack the result
 	var uri string
-	err = parsedABI.UnpackIntoInterface(&uri, "uri", result)
+	err = ev.parsedERC1155ABI.UnpackIntoInterface(&uri, "uri", result)
 	if err != nil {
 		return "", fmt.Errorf("failed to unpack result: %w", err)
 	}
 
-	// Replace {id} with actual token ID
-	uri = strings.Replace(uri, "{id}", tokenID.String(), -1)
-	uri = strings.Replace(uri, "{id}", tokenID.String(), -1)
+	// Replace {id} with hex-encoded 64-character lowercase token ID per ERC-1155 spec
+	hexID := fmt.Sprintf("%064x", tokenID)
+	uri = strings.ReplaceAll(uri, "{id}", hexID)
 
 	return uri, nil
 }
@@ -443,14 +437,8 @@ func (ev *ERC1155Verifier) VerifyOperatorApproval(ctx context.Context, contractA
 
 // isApprovedForAll checks if an operator is approved for all tokens
 func (ev *ERC1155Verifier) isApprovedForAll(ctx context.Context, contractAddress, account, operator common.Address) (bool, error) {
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(erc1155ABI))
-	if err != nil {
-		return false, fmt.Errorf("failed to parse ABI: %w", err)
-	}
-
 	// Pack the function call
-	data, err := parsedABI.Pack("isApprovedForAll", account, operator)
+	data, err := ev.parsedERC1155ABI.Pack("isApprovedForAll", account, operator)
 	if err != nil {
 		return false, fmt.Errorf("failed to pack function call: %w", err)
 	}
@@ -464,9 +452,13 @@ func (ev *ERC1155Verifier) isApprovedForAll(ctx context.Context, contractAddress
 		return false, fmt.Errorf("contract call failed: %w", err)
 	}
 
+	if len(result) < 32 {
+		return false, fmt.Errorf("isApprovedForAll returned insufficient data (len=%d): contract may not exist or is not a valid ERC-1155 contract", len(result))
+	}
+
 	// Unpack the result
 	var approved bool
-	err = parsedABI.UnpackIntoInterface(&approved, "isApprovedForAll", result)
+	err = ev.parsedERC1155ABI.UnpackIntoInterface(&approved, "isApprovedForAll", result)
 	if err != nil {
 		return false, fmt.Errorf("failed to unpack result: %w", err)
 	}

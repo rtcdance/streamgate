@@ -105,7 +105,7 @@ func AssertLen(t *testing.T, obj interface{}, length int, msgAndArgs ...interfac
 	require.Len(t, obj, length, msgAndArgs...)
 }
 
-func WaitForCondition(t *testing.T, condition func() bool, timeout time.Duration, interval time.Duration, msg string) {
+func WaitForCondition(t *testing.T, condition func() bool, timeout, interval time.Duration, msg string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -160,12 +160,12 @@ func RandomURL() string {
 	return fmt.Sprintf("https://example.com/%s", RandomString(10))
 }
 
-func RandomInt(min, max int) int {
-	return min + rand.Intn(max-min)
+func RandomInt(lo, hi int) int {
+	return lo + rand.Intn(hi-lo)
 }
 
-func RandomDuration(min, max time.Duration) time.Duration {
-	return min + time.Duration(rand.Int63n(int64(max-min)))
+func RandomDuration(lo, hi time.Duration) time.Duration {
+	return lo + time.Duration(rand.Int63n(int64(hi-lo)))
 }
 
 func MustParseTime(t *testing.T, layout, value string) time.Time {
@@ -211,7 +211,7 @@ func TempFile(t *testing.T, pattern string) string {
 	file, err := os.CreateTemp("", pattern)
 	require.NoError(t, err, "Failed to create temp file")
 	t.Cleanup(func() {
-		os.Remove(file.Name())
+		_ = os.Remove(file.Name())
 	})
 	return file.Name()
 }
@@ -224,10 +224,10 @@ func CaptureOutput(t *testing.T, fn func()) string {
 
 	fn()
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	return buf.String()
 }

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 )
+
+// ErrNotFound is returned when a cache key does not exist.
+var ErrNotFound = errors.New("cache key not found")
 
 // CacheServer handles distributed caching
 type CacheServer struct {
@@ -103,80 +107,86 @@ func (s *CacheServer) Health(ctx context.Context) error {
 	return s.store.Health(ctx)
 }
 
-// CacheStore handles cache storage operations
+// CacheStore handles cache storage operations.
+// In development mode it uses the in-process LRU cache; in production
+// it should be replaced with a Redis-backed implementation.
 type CacheStore struct {
-	config *config.Config
-	logger *zap.Logger
-	// TODO: Add Redis connection or in-memory cache
+	config  *config.Config
+	logger  *zap.Logger
+	lru     *LRU
+	maxSize int
 }
 
-// NewCacheStore creates a new cache store
+// NewCacheStore creates a new cache store.
+// When cfg.Redis is configured, a Redis backend should be used instead.
+// For local development, an in-process LRU cache is created.
 func NewCacheStore(cfg *config.Config, logger *zap.Logger) (*CacheStore, error) {
 	logger.Info("Initializing cache store", zap.String("host", cfg.Redis.Host), zap.Int("port", cfg.Redis.Port))
 
+	maxSize := 10000 // default LRU capacity
 	store := &CacheStore{
-		config: cfg,
-		logger: logger,
+		config:  cfg,
+		logger:  logger,
+		lru:     NewLRU(maxSize),
+		maxSize: maxSize,
 	}
-
-	// TODO: Initialize Redis connection or in-memory cache
 
 	return store, nil
 }
 
-// Get retrieves a value from cache
+// Get retrieves a value from cache.
+// Returns ErrNotFound if the key does not exist or has expired.
 func (s *CacheStore) Get(ctx context.Context, key string) (interface{}, error) {
 	s.logger.Debug("Getting cache value", zap.String("key", key))
 
-	// TODO: Implement cache retrieval
-	return nil, nil
+	value, ok := s.lru.Get(key)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return value, nil
 }
 
-// Set stores a value in cache
+// Set stores a value in cache with an optional TTL.
 func (s *CacheStore) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	s.logger.Debug("Setting cache value", zap.String("key", key), zap.Duration("ttl", ttl))
 
-	// TODO: Implement cache storage
+	s.lru.SetWithTTL(key, value, ttl)
 	return nil
 }
 
-// Delete removes a value from cache
+// Delete removes a value from cache.
 func (s *CacheStore) Delete(ctx context.Context, key string) error {
 	s.logger.Debug("Deleting cache value", zap.String("key", key))
 
-	// TODO: Implement cache deletion
+	s.lru.Delete(key)
 	return nil
 }
 
-// Clear clears all cache
+// Clear clears all cache entries.
 func (s *CacheStore) Clear(ctx context.Context) error {
 	s.logger.Info("Clearing all cache")
 
-	// TODO: Implement cache clearing
+	s.lru.Clear()
 	return nil
 }
 
-// Stats returns cache statistics
+// Stats returns cache statistics from the underlying LRU.
 func (s *CacheStore) Stats(ctx context.Context) *CacheStats {
-	// TODO: Implement stats retrieval
-	return &CacheStats{
-		Hits:      0,
-		Misses:    0,
-		Evictions: 0,
-		Sets:      0,
-		Gets:      0,
-		Deletes:   0,
-	}
+	return s.lru.GetStats()
 }
 
-// Health checks the health of the cache store
+// Health checks the health of the cache store.
 func (s *CacheStore) Health(ctx context.Context) error {
-	// TODO: Check Redis/cache connectivity
+	if s.lru == nil {
+		return fmt.Errorf("cache LRU not initialized")
+	}
 	return nil
 }
 
-// Close closes the cache store
+// Close closes the cache store.
 func (s *CacheStore) Close() error {
-	// TODO: Close Redis connection
+	if s.lru != nil {
+		s.lru.Clear()
+	}
 	return nil
 }

@@ -93,15 +93,14 @@ func TestE2E_HealthCheckFlow(t *testing.T) {
 
 func TestE2E_PrometheusMetricsFlow(t *testing.T) {
 	collector := monitoring.NewMetricsCollector(nil)
-	tracker := monitoring.NewServiceMetricsTracker(nil)
-	prometheus := monitoring.NewPrometheusExporter(collector, tracker, nil)
+	_ = monitoring.NewServiceMetricsTracker(nil)
 
 	collector.SetGauge("http_requests_total", 100, nil)
 	collector.SetGauge("http_requests_total", 50, nil)
 	collector.RecordTimer("http_request_duration_seconds", 500000000, nil)
 	collector.RecordTimer("http_request_duration_seconds", 300000000, nil)
 
-	snapshot := prometheus.GetMetricsSnapshot()
+	snapshot := collector.GetMetricsSnapshot()
 	helpers.AssertNotNil(t, snapshot)
 }
 

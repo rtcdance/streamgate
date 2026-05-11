@@ -47,6 +47,7 @@ type EventBus interface {
 type MemoryEventBus struct {
 	handlers map[string][]EventHandler
 	mu       sync.RWMutex
+	wg       sync.WaitGroup
 }
 
 // NewMemoryEventBus creates a new in-memory event bus
@@ -67,9 +68,15 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 	}
 
 	for _, handler := range handlers {
+		b.wg.Add(1)
 		go func(h EventHandler) {
+			defer b.wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Recovered panic in event handler: %v\n", r)
+				}
+			}()
 			if err := h(ctx, event); err != nil {
-				// Log error but don't fail
 				fmt.Printf("Error handling event: %v\n", err)
 			}
 		}(handler)
@@ -102,7 +109,8 @@ func (b *MemoryEventBus) Unsubscribe(ctx context.Context, eventType string, hand
 	return nil
 }
 
-// Close closes the event bus
+// Close waits for in-flight handlers to finish, then closes the event bus.
 func (b *MemoryEventBus) Close() error {
+	b.wg.Wait()
 	return nil
 }

@@ -3,7 +3,16 @@ package web3
 import (
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
+)
+
+// Pre-computed keccak256 event topic hashes for ContentRegistry.
+// These are computed from the Solidity event signatures at init time.
+var (
+	contentRegisteredTopic = crypto.Keccak256Hash([]byte("ContentRegistered(bytes32,address,uint256)"))
+	contentVerifiedTopic   = crypto.Keccak256Hash([]byte("ContentVerified(bytes32,bool)"))
+	contentDeletedTopic    = crypto.Keccak256Hash([]byte("ContentDeleted(bytes32,address)"))
 )
 
 // SmartContractDeployer handles smart contract deployment
@@ -31,9 +40,9 @@ func NewContentRegistry(address string) *ContentRegistry {
 		Address: address,
 		ABI:     ContentRegistryABI,
 		Events: map[string]string{
-			"ContentRegistered": "0x...", // TODO: Add event signature
-			"ContentVerified":   "0x...",
-			"ContentDeleted":    "0x...",
+			"ContentRegistered": contentRegisteredTopic.Hex(),
+			"ContentVerified":   contentVerifiedTopic.Hex(),
+			"ContentDeleted":    contentDeletedTopic.Hex(),
 		},
 	}
 }
@@ -94,14 +103,20 @@ type NFTContract struct {
 	Events  map[string]string
 }
 
+// Pre-computed keccak256 event topic hashes for ERC-721.
+var (
+	transferTopic  = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	approvalTopic  = crypto.Keccak256Hash([]byte("Approval(address,address,uint256)"))
+)
+
 // NewNFTContract creates a new NFT contract
 func NewNFTContract(address string) *NFTContract {
 	return &NFTContract{
 		Address: address,
 		ABI:     ERC721ABI,
 		Events: map[string]string{
-			"Transfer": "0x...",
-			"Approval": "0x...",
+			"Transfer": transferTopic.Hex(),
+			"Approval": approvalTopic.Hex(),
 		},
 	}
 }
@@ -169,6 +184,7 @@ type DeploymentResult struct {
 }
 
 // DeployContentRegistry deploys the ContentRegistry contract
+// Deprecated: not implemented — placeholder only.
 func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig) (*DeploymentResult, error) {
 	scd.logger.Info("Deploying ContentRegistry contract", zap.Int64("chain_id", config.ChainID))
 
@@ -181,11 +197,12 @@ func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig
 
 	return &DeploymentResult{
 		Status: "pending",
-	}, fmt.Errorf("contract deployment not yet implemented")
+	}, fmt.Errorf("DeployNFTContract: stub — not implemented")
 }
 
 // DeployNFTContract deploys an NFT contract
-func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, name string, symbol string) (*DeploymentResult, error) {
+// Deprecated: not implemented — placeholder only.
+func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, name, symbol string) (*DeploymentResult, error) {
 	scd.logger.Info("Deploying NFT contract",
 		zap.Int64("chain_id", config.ChainID),
 		zap.String("name", name),
@@ -194,11 +211,12 @@ func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, na
 	// TODO: Implement contract deployment
 	return &DeploymentResult{
 		Status: "pending",
-	}, fmt.Errorf("contract deployment not yet implemented")
+	}, fmt.Errorf("DeployNFTContract: stub — not implemented")
 }
 
 // VerifyContract verifies a contract on a block explorer
-func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress string, sourceCode string) error {
+// Deprecated: not implemented — placeholder only.
+func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress, sourceCode string) error {
 	scd.logger.Info("Verifying contract",
 		zap.Int64("chain_id", chainID),
 		zap.String("contract", contractAddress))
@@ -209,7 +227,7 @@ func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress 
 	// 3. Submit to block explorer
 	// 4. Wait for verification
 
-	return fmt.Errorf("contract verification not yet implemented")
+	return fmt.Errorf("VerifyContract: stub — not implemented")
 }
 
 // ContractDeploymentTracker tracks contract deployments

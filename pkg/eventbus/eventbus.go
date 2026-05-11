@@ -167,7 +167,7 @@ func (bus *InMemoryEventBus) Close() error {
 // NATSEventBus implements a NATS-based event bus
 type NATSEventBus struct {
 	nc            interface{}
-	js            interface{}
+	js            interface{} //nolint:unused
 	streamName    string
 	subscriptions map[string]interface{}
 	mu            sync.RWMutex
@@ -176,7 +176,7 @@ type NATSEventBus struct {
 }
 
 // NewNATSEventBus creates a new NATS event bus
-func NewNATSEventBus(url string, streamName string, logger *zap.Logger) (*NATSEventBus, error) {
+func NewNATSEventBus(url, streamName string, logger *zap.Logger) (*NATSEventBus, error) {
 	return &NATSEventBus{
 		streamName:    streamName,
 		subscriptions: make(map[string]interface{}),
@@ -190,6 +190,10 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 		return fmt.Errorf("event bus is closed")
 	}
 
+	if bus.nc == nil {
+		return fmt.Errorf("NATS event bus not connected: cannot publish to topic %q", topic)
+	}
+
 	if event.ID == "" {
 		event.ID = generateEventID()
 	}
@@ -197,7 +201,7 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 		event.Timestamp = time.Now()
 	}
 
-	_, err := json.Marshal(event)
+	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
@@ -205,7 +209,8 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 	bus.logger.Debug("Publishing event to NATS",
 		zap.String("topic", topic),
 		zap.String("type", event.Type),
-		zap.String("id", event.ID))
+		zap.String("id", event.ID),
+		zap.Int("bytes", len(data)))
 
 	return nil
 }
@@ -214,6 +219,10 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 func (bus *NATSEventBus) Subscribe(ctx context.Context, topic string, handler EventHandler) (string, error) {
 	if bus.closed {
 		return "", fmt.Errorf("event bus is closed")
+	}
+
+	if bus.nc == nil {
+		return "", fmt.Errorf("NATS event bus not connected: cannot subscribe to topic %q", topic)
 	}
 
 	subID := generateSubscriptionID()
@@ -376,28 +385,30 @@ func (er *EventRouter) Route(ctx context.Context, event Event) error {
 }
 
 // RegisterHandler registers a handler for an event type
-func (er *EventRouter) RegisterHandler(eventType string, handler EventHandler) {
+func (er *EventRouter) RegisterHandler(eventType string, handler EventHandler) int {
 	er.mu.Lock()
 	defer er.mu.Unlock()
 
 	er.handlers[eventType] = append(er.handlers[eventType], handler)
+	index := len(er.handlers[eventType]) - 1
 
 	er.logger.Debug("Event handler registered",
 		zap.String("type", eventType))
+	return index
 }
 
-// UnregisterHandler unregisters a handler
-func (er *EventRouter) UnregisterHandler(eventType string, handler EventHandler) {
+// UnregisterHandler unregisters a handler by index.
+// Since Go func values are not comparable, handlers are matched by index
+// returned from RegisterHandler.
+func (er *EventRouter) UnregisterHandler(eventType string, handlerIndex int) {
 	er.mu.Lock()
 	defer er.mu.Unlock()
 
 	handlers := er.handlers[eventType]
-	for i, h := range handlers {
-		if &h == &handler {
-			er.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
-			break
-		}
+	if handlerIndex < 0 || handlerIndex >= len(handlers) {
+		return
 	}
+	er.handlers[eventType] = append(handlers[:handlerIndex], handlers[handlerIndex+1:]...)
 }
 
 // EventStore stores events for replay
