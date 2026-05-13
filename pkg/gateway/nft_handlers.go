@@ -139,9 +139,11 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 
 // CachedNFTAccess stores a cached NFT access check result.
 type CachedNFTAccess struct {
-	HasNFT    bool
-	Balance   *big.Int
-	ExpiresAt time.Time
+	HasNFT      bool
+	Balance     *big.Int
+	BlockNumber uint64
+	BlockHash   string
+	ExpiresAt   time.Time
 }
 
 // NFTAccessCache is a thread-safe in-memory cache for NFT access checks.
@@ -244,17 +246,21 @@ func (a *NFTAccessCacheAdapter) Get(key string) (middleware.NFTAccessEntry, bool
 		return middleware.NFTAccessEntry{}, false
 	}
 	return middleware.NFTAccessEntry{
-		HasNFT:  entry.HasNFT,
-		Balance: entry.Balance,
-		Expires: entry.ExpiresAt,
+		HasNFT:      entry.HasNFT,
+		Balance:     entry.Balance,
+		BlockNumber: entry.BlockNumber,
+		BlockHash:   entry.BlockHash,
+		Expires:     entry.ExpiresAt,
 	}, true
 }
 
 // Set implements middleware.NFTAccessCache.
 func (a *NFTAccessCacheAdapter) Set(key string, entry middleware.NFTAccessEntry) {
 	a.Cache.Set(key, CachedNFTAccess{
-		HasNFT:    entry.HasNFT,
-		Balance:   entry.Balance,
-		ExpiresAt: entry.Expires,
+		HasNFT:      entry.HasNFT,
+		Balance:     entry.Balance,
+		BlockNumber: entry.BlockNumber,
+		BlockHash:   entry.BlockHash,
+		ExpiresAt:   entry.Expires,
 	})
 }
