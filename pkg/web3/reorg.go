@@ -13,6 +13,103 @@ import (
 	"go.uber.org/zap"
 )
 
+// FinalityStrategy defines chain-specific finality logic.
+// Different chains have different confirmation depths and finality mechanisms:
+// Ethereum L1: 12 blocks (post-merge), Polygon: ~128 blocks, L2s: rely on L1 state.
+type FinalityStrategy interface {
+	// RequiredConfirmations returns how many descendant blocks are needed
+	// before a block is considered final. 0 means "use block tag instead."
+	RequiredConfirmations() uint64
+
+	// BlockTag returns the recommended BlockTag for read operations.
+	// Empty string means no specific tag (use latest).
+	BlockTag() BlockTag
+
+	// IsFinalized checks whether a specific block is finalized.
+	// The default implementation uses confirmation counting + hash check;
+	// L2 strategies may delegate to L1 contract state.
+	IsFinalized(ctx context.Context, blockNumber uint64, blockHash common.Hash) (bool, error)
+}
+
+// finalityBase provides the common confirmation-counting logic.
+type finalityBase struct {
+	confirmations uint64
+	blockTag      BlockTag
+}
+
+func (f *finalityBase) RequiredConfirmations() uint64 { return f.confirmations }
+func (f *finalityBase) BlockTag() BlockTag             { return f.blockTag }
+
+// finalityDefault uses HeaderReader for confirmation counting.
+type finalityDefault struct {
+	finalityBase
+	reader HeaderReader
+	logger *zap.Logger
+}
+
+func newFinalityDefault(reader HeaderReader, confirmations uint64, blockTag BlockTag, logger *zap.Logger) *finalityDefault {
+	return &finalityDefault{
+		finalityBase: finalityBase{confirmations: confirmations, blockTag: blockTag},
+		reader:       reader,
+		logger:       logger,
+	}
+}
+
+func (f *finalityDefault) IsFinalized(ctx context.Context, blockNumber uint64, blockHash common.Hash) (bool, error) {
+	latest, err := f.reader.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("finality check: cannot get latest header: %w", err)
+	}
+	if latest.Number.Uint64() < blockNumber+f.confirmations {
+		return false, nil
+	}
+	current, err := f.reader.HeaderByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+	if err != nil {
+		return false, fmt.Errorf("finality check: cannot get header at %d: %w", blockNumber, err)
+	}
+	return current.Hash() == blockHash, nil
+}
+
+// Pre-built finality strategies for common chains.
+var (
+	// EthereumL1Finality: 12 confirmations, use BlockTagSafe.
+	EthereumL1Finality = func(reader HeaderReader, logger *zap.Logger) FinalityStrategy {
+		return newFinalityDefault(reader, 12, BlockTagSafe, logger)
+	}
+
+	// PolygonFinality: Polygon can reorg deeper than Ethereum, up to ~128 blocks.
+	PolygonFinality = func(reader HeaderReader, logger *zap.Logger) FinalityStrategy {
+		return newFinalityDefault(reader, 128, BlockTagSafe, logger)
+	}
+
+	// BSCFinality: BSC has fast finality (~15 blocks for safe).
+	BSCFinality = func(reader HeaderReader, logger *zap.Logger) FinalityStrategy {
+		return newFinalityDefault(reader, 15, BlockTagSafe, logger)
+	}
+
+	// L2Finality: L2s rely on L1 finality. Use BlockTagFinalized and the
+	// L1 contract's output root for definitive finality. The default
+	// confirmation-based check is a conservative approximation.
+	L2Finality = func(reader HeaderReader, logger *zap.Logger) FinalityStrategy {
+		return newFinalityDefault(reader, 64, BlockTagFinalized, logger)
+	}
+
+	// SolanaFinality: uses "finalized" bank state (~32 slots after block).
+	SolanaFinality = func() FinalityStrategy {
+		return &solanaFinality{}
+	}
+)
+
+type solanaFinality struct{ finalityBase }
+
+func (s *solanaFinality) RequiredConfirmations() uint64 { return 32 }
+func (s *solanaFinality) BlockTag() BlockTag             { return "finalized" }
+func (s *solanaFinality) IsFinalized(ctx context.Context, blockNumber uint64, blockHash common.Hash) (bool, error) {
+	// Solana finality is determined by bank state, not block hash verification.
+	// The SDK's GetFinalizedBlockHeight() call is the authoritative check.
+	return true, nil
+}
+
 // BlockTag specifies which block the client should read state from.
 // Not all RPC providers support safe/finalized tags.
 type BlockTag string

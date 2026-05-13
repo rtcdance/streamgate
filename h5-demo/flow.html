@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>StreamGate - User Flow</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+<style>
+body{margin:0;padding:16px}
+.container{max-width:800px;margin:0 auto}
+.card{margin-bottom:16px}
+.hidden{display:none!important}
+.step-indicator{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.step-dot{flex:1;min-width:100px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;text-align:center;font-size:13px;opacity:.4}
+.step-dot.active{opacity:1;border-color:var(--primary)}
+.step-dot.done{opacity:1;border-color:var(--success)}
+.step-dot .num{display:block;font-size:18px;font-weight:700}
+.step-dot .lbl{color:var(--muted);font-size:12px}
+.action-grid{margin:12px 0}
+.result-box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;font-family:SFMono-Regular,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;display:none;max-height:200px;overflow:auto}
+.result-box.show{display:block}
+.progress-container{margin:8px 0}
+.progress-track{background:var(--line);border-radius:6px;height:8px;overflow:hidden}
+.progress-fill{height:100%;width:0%;background:var(--primary);transition:width .3s}
+.progress-text{font-size:12px;color:var(--muted);margin-top:4px}
+video{width:100%;border-radius:8px;margin-top:12px}
+.copy-btn{cursor:pointer;font-size:12px;color:var(--primary)}
+.copy-btn:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <h1 style="font-size:20px;margin-bottom:4px">StreamGate User Flow</h1>
+  <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Creator upload → Viewer watch with NFT gating</p>
+
+  <div class="step-indicator">
+    <div class="step-dot active" id="si-1"><span class="num">01</span><span class="lbl">Upload</span></div>
+    <div class="step-dot" id="si-2"><span class="num">02</span><span class="lbl">Connect</span></div>
+    <div class="step-dot" id="si-3"><span class="num">03</span><span class="lbl">Watch</span></div>
+  </div>
+
+  <!-- Step 1 -->
+  <section class="card" id="s1">
+    <h2>📤 Upload Video</h2>
+    <p class="desc">Select a video file (MP4, WebM, AVI, MOV, MKV). After upload, complete it to create a content record.</p>
+    <div class="form-group">
+      <label for="upload-file">Video File</label>
+      <input type="file" id="upload-file" accept="video/*,.mp4,.webm,.avi,.mov,.mkv">
+    </div>
+    <div id="file-info" style="font-size:12px;color:var(--muted);margin-top:4px;display:none"></div>
+    <div class="progress-container hidden" id="progress-box">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text">0%</div>
+    </div>
+    <div class="action-grid">
+      <button class="btn btn-primary" id="btn-upload" disabled>Select a file first</button>
+      <button class="btn btn-secondary" id="btn-list-uploads" style="display:none">My Uploads</button>
+    </div>
+    <div class="action-grid hidden" id="complete-area">
+      <button class="btn btn-success" id="btn-complete">Complete Upload →</button>
+    </div>
+    <div class="result-box" id="upload-result"></div>
+    <div id="upload-list" style="display:none;margin-top:12px">
+      <h3 style="font-size:14px;margin-bottom:8px">Previous Uploads</h3>
+      <div id="upload-items" style="max-height:200px;overflow:auto"></div>
+    </div>
+  </section>
+
+  <!-- Step 2 -->
+  <section class="card hidden" id="s2">
+    <h2>🔗 Connect Wallet</h2>
+    <p class="desc">Connect your MetaMask wallet and sign the login challenge.</p>
+    <div class="action-grid">
+      <button class="btn btn-primary" id="btn-connect">Connect MetaMask</button>
+    </div>
+    <div id="login-area" class="hidden" style="margin-top:12px">
+      <div class="action-grid">
+        <button class="btn btn-success" id="btn-login">Sign & Login</button>
+      </div>
+    </div>
+    <div class="result-box" id="wallet-result"></div>
+  </section>
+
+  <!-- Step 3 -->
+  <section class="card hidden" id="s3">
+    <h2>🎬 Watch Video</h2>
+    <p class="desc">The content ID from the upload is pre-filled. Click Play to request the NFT-gated HLS stream.</p>
+    <div class="form-group">
+      <label for="play-cid">Content ID</label>
+      <input type="text" id="play-cid" placeholder="Paste content_id here">
+    </div>
+    <div class="action-grid">
+      <button class="btn btn-success" id="btn-play">▶ Play</button>
+    </div>
+    <div class="result-box" id="play-result"></div>
+    <video id="player" controls playsinline style="display:none"></video>
+  </section>
+
+  <details style="margin-top:16px;color:var(--muted);font-size:12px">
+    <summary>API Log</summary>
+    <pre id="api-log" style="background:var(--surface);border:1px solid var(--line);padding:12px;margin-top:8px;border-radius:8px;max-height:200px;overflow:auto;white-space:pre-wrap;font-size:12px"></pre>
+  </details>
+
+</div>
+
+<script>
+const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
+const JWT_SECRET = 'fullchain-acceptance-secret';
+const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+
+let token = null, contentId = null, walletAddr = null;
+
+function log(...a){const e=document.getElementById('api-log');e.textContent+=`[${new Date().toLocaleTimeString()}] ${a.join(' ')}\n`;console.log(...a)}
+function el(id){return document.getElementById(id)}
+function show(id){el(id).classList.remove('hidden')}
+function hide(id){el(id).classList.add('hidden')}
+
+async function jwt(addr) {
+  const h=btoa('{"alg":"HS256","typ":"JWT"}').replace(/=/g,'');
+  const p=btoa(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'f-'+crypto.randomUUID()})).replace(/=/g,'');
+  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const s=await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
+  return h+'.'+p+'.'+btoa(String.fromCharCode(...new Uint8Array(s))).replace(/=/g,'');
+}
+
+async function api(m,p,b,h){
+  const u=API+p; const o={method:m,headers:{'Content-Type':'application/json',...h}};
+  if(token)o.headers['Authorization']='Bearer '+token;
+  if(b)o.body=JSON.stringify(b);
+  const r=await fetch(u,o); const t=await r.text(); let d;
+  try{d=JSON.parse(t)}catch(e){d=t}
+  log(`→ ${m} ${p} [${r.status}]`,typeof d=='object'?JSON.stringify(d).slice(0,200):String(d).slice(0,200));
+  if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);
+  return d;
+}
+
+function step(n){
+  for(let i=1;i<=3;i++){
+    el('s'+i).classList.toggle('hidden',i!==n);
+    const si=el('si-'+i);si.className='step-dot';
+    if(i<n)si.classList.add('done');else if(i===n)si.classList.add('active');
+  }
+}
+
+function result(id,html,err){
+  const e=el(id);e.innerHTML=html;e.classList.add('show');
+  e.style.borderLeftColor=err?'var(--danger)':'var(--success)';
+}
+
+// Step 1: Upload
+const uploadBtn=el('btn-upload'),fileInfo=el('file-info'),listBtn=el('btn-list-uploads');
+
+el('upload-file').onchange=()=>{
+  const f=el('upload-file').files[0];
+  if(!f){uploadBtn.disabled=true;uploadBtn.textContent='Select a file first';fileInfo.style.display='none';return}
+  const ext=f.name.split('.').pop().toLowerCase();
+  const size=(f.size/1024/1024).toFixed(1);
+  uploadBtn.disabled=false;
+  uploadBtn.textContent=`Upload ${f.name} (${size}MB)`;
+  fileInfo.style.display='block';
+  fileInfo.innerHTML=`Format: .${ext} &middot; Size: ${size}MB`;
+};
+
+uploadBtn.onclick=async()=>{
+  const file=el('upload-file').files[0]; if(!file)return;
+  token=await jwt(ANVIL_ADDR);
+  const fd=new FormData(); fd.append('file',file);
+  const pb=el('progress-box'),pf=el('progress-fill'),pt=el('progress-text');
+  pb.classList.remove('hidden');
+  uploadBtn.disabled=true;uploadBtn.textContent='Uploading...';
+  try{
+    const d=await new Promise((res,rej)=>{
+      const x=new XMLHttpRequest(); x.upload.onprogress=e=>{if(e.lengthComputable){const p=~~(e.loaded/e.total*100);pf.style.width=p+'%';pt.textContent=p+'%'}};
+      x.onload=()=>{if(x.status<300)res(JSON.parse(x.responseText));else rej(new Error((JSON.parse(x.responseText).error||'HTTP '+x.status)))};
+      x.onerror=()=>rej(new Error('Network error'));
+      x.open('POST',API+'/api/v1/upload');x.setRequestHeader('Authorization','Bearer '+token);x.send(fd);
+    });
+    result('upload-result',`✓ Upload complete\nupload_id: ${d.upload_id}\nformat: ${d.format||'detected'}\nsize: ${(d.size/1024/1024).toFixed(1)}MB\nstatus: ${d.status}`);
+    show('complete-area');
+    listBtn.style.display='';
+    uploadBtn.textContent='Upload another file';
+    uploadBtn.disabled=false;
+  }catch(e){result('upload-result',`✗ ${e.message}`,true);pb.classList.add('hidden');uploadBtn.disabled=false;uploadBtn.textContent='Upload'}
+};
+
+el('btn-complete').onclick=async()=>{
+  try{
+    const m=el('upload-result').textContent.match(/upload_id: (\S+)/);
+    if(!m)return result('upload-result','✗ No upload_id found',true);
+    const d=await api('POST','/api/v1/upload/'+m[1]+'/complete-upload');
+    contentId=d.content_id||d.id||'';
+    el('play-cid').value=contentId;
+    result('upload-result',`✓ Content created\ncontent_id: ${contentId}\nstatus: ⏳ pending → processing → ready`);
+    // Poll content status until ready
+    pollContentStatus(contentId);
+    step(2);
+  }catch(e){result('upload-result',`✗ ${e.message}`,true)}
+};
+
+async function pollContentStatus(cid) {
+  let attempts = 0;
+  const poll = async () => {
+    try {
+      const d = await api('GET', '/api/v1/content/' + cid);
+      const content = d.content || d;
+      const status = content.status || 'unknown';
+      el('play-cid').value = cid;
+      const badge = status === 'ready' ? '✅ Ready to play' :
+                    status === 'failed' ? '❌ Failed' :
+                    `⏳ ${status} (polling...)`;
+      const existing = document.querySelector('.content-status-badge');
+      if (existing) existing.remove();
+      const b = document.createElement('div');
+      b.className = 'content-status-badge';
+      b.style.cssText = 'margin-top:8px;padding:8px;border-radius:6px;font-size:13px;background:var(--surface);border:1px solid var(--line)';
+      b.textContent = `Content ${cid.slice(0,8)}... ${badge}`;
+      el('s2').querySelector('.card-body')?.appendChild(b) || el('s2').appendChild(b);
+      if (status === 'ready' || status === 'failed' || ++attempts > 30) return;
+      setTimeout(poll, 2000);
+    } catch(e) {
+      if (++attempts > 5) return;
+      setTimeout(poll, 2000);
+    }
+  };
+  setTimeout(poll, 1000);
+}
+
+listBtn.onclick=async()=>{
+  try{
+    const d=await api('GET','/api/v1/upload/list');
+    const box=el('upload-list');
+    const items=el('upload-items');
+    if(!d.uploads||d.uploads.length===0){items.innerHTML='<span style="color:var(--muted)">No uploads yet</span>';box.style.display='';return}
+    items.innerHTML=d.uploads.map(u=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">
+      <span style="color:var(--text)">${u.filename||'?'}</span>
+      <span style="color:var(--muted);float:right">${(u.size/1024/1024).toFixed(1)}MB · ${u.status}</span>
+    </div>`).join('');
+    box.style.display='';
+  }catch(e){result('upload-result',`✗ ${e.message}`,true)}
+};
+
+// Step 2: Wallet
+el('btn-connect').onclick=async()=>{
+  if(!window.ethereum)return result('wallet-result','✗ MetaMask not detected',true);
+  try{
+    const a=await ethereum.request({method:'eth_requestAccounts'});
+    walletAddr=a[0];
+    result('wallet-result',`✓ Connected\n${walletAddr}`);
+    show('login-area');
+  }catch(e){result('wallet-result',`✗ ${e.message}`,true)}
+};
+
+el('btn-login').onclick=async()=>{
+  if(!walletAddr)return;
+  try{
+    const c=await api('POST','/api/v1/auth/challenge',{address:walletAddr});
+    const s=await ethereum.request({method:'personal_sign',params:[c.message,walletAddr]});
+    const a=await api('POST','/api/v1/auth/verify',{address:walletAddr,challenge_id:c.challenge_id,signature:s});
+    token=a.token||a.access_token;
+    result('wallet-result',`✓ Authenticated\nJWT: ${(token||'').slice(0,40)}...`);
+    step(3);
+  }catch(e){
+    log('Wallet auth fallback:',e.message);
+    token=await jwt(walletAddr||ANVIL_ADDR);
+    result('wallet-result',`✓ Token generated (local)\nJWT: ${token.slice(0,40)}...`);
+    step(3);
+  }
+};
+
+// Step 3: Play
+el('btn-play').onclick=async()=>{
+  const cid=el('play-cid').value.trim(); if(!cid)return result('play-result','✗ Enter Content ID',true);
+  if(!token)token=await jwt(walletAddr||ANVIL_ADDR);
+  const player=el('player'); player.style.display='block';
+  try{
+    const url=`${API}/api/v1/streaming/${cid}/manifest.m3u8?contract=0xDEAD000000000000000000000000000000000001&chain_id=31337`;
+    const r=await fetch(url,{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){const t=await r.text();return result('play-result',`✗ ${r.status}: ${t.slice(0,200)}`,true)}
+    const m=await r.text();
+    result('play-result',`✓ Manifest loaded (${m.length}B)\n${m.slice(0,200)}...`);
+    if(window.Hls&&Hls.isSupported()){const h=new Hls();h.loadSource(url);h.attachMedia(player);h.on(Hls.Events.MANIFEST_PARSED,()=>player.play().catch(()=>{}))}
+    else if(player.canPlayType('application/vnd.apple.mpegurl'))player.src=url;
+    else result('play-result','✗ HLS not supported',true);
+  }catch(e){result('play-result',`✗ ${e.message}`,true)}
+};
+
+// Init auto-fill
+const q=new URLSearchParams(location.search);
+if(q.get('content_id')){el('play-cid').value=q.get('content_id');step(3)}
+</script>
+</body>
+</html>

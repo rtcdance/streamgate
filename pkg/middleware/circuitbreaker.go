@@ -85,16 +85,12 @@ func NewCircuitBreaker(name string, config CircuitBreakerConfig, logger *zap.Log
 	}
 }
 
-// Execute runs the given function with circuit breaker protection
 func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 	cb.mu.Lock()
 
 	if cb.state == StateOpen {
 		if time.Since(cb.lastFailureTime) < cb.config.Timeout {
 			cb.mu.Unlock()
-			cb.logger.Warn("Circuit breaker is open",
-				zap.String("circuit", cb.name),
-				zap.Duration("retry_after", cb.config.Timeout-time.Since(cb.lastFailureTime)))
 			return fmt.Errorf("circuit breaker '%s' is open", cb.name)
 		}
 		cb.setState(StateHalfOpen)
@@ -103,9 +99,6 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 	if cb.state == StateHalfOpen {
 		if cb.config.MaxRequests > 0 && cb.halfOpenCount >= cb.config.MaxRequests {
 			cb.mu.Unlock()
-			cb.logger.Warn("Circuit breaker half-open max requests exceeded",
-				zap.String("circuit", cb.name),
-				zap.Int("max_requests", cb.config.MaxRequests))
 			return fmt.Errorf("circuit breaker '%s' is half-open and max requests exceeded", cb.name)
 		}
 		cb.halfOpenCount++
@@ -116,7 +109,6 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 	err := fn()
 
 	cb.mu.Lock()
-	defer cb.mu.Unlock()
 
 	if cb.state == StateHalfOpen {
 		cb.halfOpenCount--
@@ -124,10 +116,12 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 
 	if err != nil {
 		cb.onFailure()
+		cb.mu.Unlock()
 		return err
 	}
 
 	cb.onSuccess()
+	cb.mu.Unlock()
 	return nil
 }
 

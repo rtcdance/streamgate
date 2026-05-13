@@ -16,6 +16,9 @@ type ChainConfig struct {
 	Explorer  string
 	Currency  string
 	IsTestnet bool
+	// Finality is the chain-specific finality strategy.
+	// When nil, the system uses the default (EthereumL1Finality with 12 confirmations).
+	Finality FinalityStrategy
 }
 
 // SupportedChains defines supported blockchains

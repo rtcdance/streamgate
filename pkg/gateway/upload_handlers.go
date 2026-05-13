@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -14,6 +15,98 @@ import (
 	"streamgate/pkg/service"
 )
 
+// maxUploadSize limits the per-request upload size at the HTTP layer.
+// It shadows the per-wallet quota in service.DefaultMaxUploadSize and must
+// not exceed it — clients that pass this limit are rejected early without
+// consuming storage bandwidth.
+const maxUploadSize int64 = 500 * 1024 * 1024 // 500MB
+
+// allowedVideoExtensions is the whitelist of accepted file extensions.
+var allowedVideoExtensions = map[string]string{
+	".mp4": "mp4", ".webm": "webm", ".avi": "avi",
+	".mkv": "mkv", ".mov": "mov", ".mpeg": "mpeg", ".mpg": "mpeg",
+}
+
+// videoMagicBytes contains the file signatures for common video formats.
+var videoMagicBytes = []struct {
+	offset int
+	bytes  []byte
+	format string
+}{
+	{0, []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70}, "mp4"},
+	{0, []byte{0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D}, "mp4"},   // ftypisom
+	{0, []byte{0x66, 0x74, 0x79, 0x70, 0x6D, 0x70, 0x34, 0x32}, "mp4"},   // ftypmp42
+	{0, []byte{0x1A, 0x45, 0xDF, 0xA3}, "webm"},                              // WebM
+	{0, []byte{0x00, 0x00, 0x01, 0xBA}, "mpeg"},                              // MPEG
+	{0, []byte{0x00, 0x00, 0x01, 0xB3}, "mpeg"},                              // MPEG
+	{4, []byte{0x66, 0x74, 0x79, 0x70, 0x4D, 0x53, 0x4E, 0x56}, "mp4"},   // ftypMSNV (WMV)
+	{0, []byte{0x2E, 0x52, 0x4D, 0x46}, "rmvb"},                              // RMVB
+	{0, []byte{0x52, 0x49, 0x46, 0x46}, "avi"},                               // AVI (RIFF header)
+}
+
+// allowedVideoFormats are the MIME types and extensions accepted for upload.
+var allowedVideoFormats = map[string]bool{
+	"video/mp4": true, "video/webm": true, "video/x-msvideo": true,
+	"video/mpeg": true, "video/quicktime": true, "video/x-matroska": true,
+}
+
+// detectVideoFormat checks the first bytes of a reader to confirm it's a known
+// video container format. Returns the detected format name or empty string.
+// The reader is consumed; the caller must handle that.
+func detectVideoFormat(r io.Reader) string {
+	header := make([]byte, 16)
+	n, _ := io.ReadFull(r, header)
+	if n < 4 {
+		return ""
+	}
+	header = header[:n]
+	for _, m := range videoMagicBytes {
+		if m.offset+len(m.bytes) > len(header) {
+			continue
+		}
+		match := true
+		for i, b := range m.bytes {
+			if header[m.offset+i] != b {
+				match = false
+				break
+			}
+		}
+		if match {
+			return m.format
+		}
+	}
+	// MP4 fallback: check ftyp box at offset 4
+	if n >= 8 && string(header[4:8]) == "ftyp" {
+		return "mp4"
+	}
+	return ""
+}
+
+// readFileHeader is a helper used by callers that need to read magic bytes
+// before passing the remaining stream to storage. Returns the format name.
+// The returned io.Reader yields the full content (header + rest).
+func readFileHeader(r io.Reader) (format string, combined io.Reader, err error) {
+	header := make([]byte, 16)
+	n, err := io.ReadFull(r, header)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return "", nil, err
+	}
+	header = header[:n]
+	format = detectVideoFormat(bytesReader(header))
+	combined = io.MultiReader(bytesReader(header), r)
+	return format, combined, nil
+}
+
+// bytesReader is a small helper to avoid importing bytes for a single use.
+func bytesReader(b []byte) io.Reader { return &byteReader{b: b} }
+type byteReader struct{ b []byte; off int }
+func (r *byteReader) Read(p []byte) (int, error) {
+	if r.off >= len(r.b) { return 0, io.EOF }
+	n := copy(p, r.b[r.off:])
+	r.off += n
+	return n, nil
+}
+
 // sanitizeObjectKey rejects values containing path traversal sequences.
 func sanitizeObjectKey(val string) (string, bool) {
 	if strings.Contains(val, "..") || strings.ContainsAny(val, "/\\") {
@@ -22,48 +115,152 @@ func sanitizeObjectKey(val string) (string, bool) {
 	return val, true
 }
 
-const maxUploadSize int64 = 500 * 1024 * 1024 // 500MB
-
 // RegisterUploadRoutes registers file upload routes.
-func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, objStorage service.SegmentStorage) {
+// If uploadSvc is nil, all routes return 503 Service Unavailable.
+func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService) {
 	upload := router.Group("/api/v1/upload")
-	upload.POST("", func(c *gin.Context) {
+
+	upload.POST("", handleWholeFileUpload(uploadSvc, log))
+	upload.GET("/list", handleUploadList(uploadSvc, log))
+	upload.POST("/init", handleChunkedUploadInit(uploadSvc, log))
+	upload.POST("/chunk", handleChunkUpload(uploadSvc, log))
+	upload.POST("/:id/complete", handleChunkedUploadComplete(uploadSvc, log))
+	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, log))
+	upload.GET("/:id/status", handleUploadStatus(uploadSvc, log))
+	upload.GET("/:id/download-url", handleDownloadURL(uploadSvc, log))
+
+	log.Info("Upload routes registered")
+}
+
+func handleWholeFileUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
 		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
 		file, err := c.FormFile("file")
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "no file provided", err.Error())
 			return
 		}
-		// Validate file size
 		if file.Size > maxUploadSize {
-			abortWithError(c, http.StatusRequestEntityTooLarge, ErrPayloadTooLarge, fmt.Sprintf("file size %d exceeds maximum allowed size %d", file.Size, maxUploadSize))
+			abortWithError(c, http.StatusRequestEntityTooLarge, ErrPayloadTooLarge,
+				fmt.Sprintf("file size %d exceeds maximum allowed size %d", file.Size, maxUploadSize))
 			return
 		}
-		contentID := c.PostForm("content_id")
-		if contentID == "" {
-			contentID = fmt.Sprintf("upload-%d", time.Now().UnixNano())
-		}
-		if _, ok := sanitizeObjectKey(contentID); !ok {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "content_id contains invalid characters")
+
+		ext := strings.ToLower(filepath.Ext(file.Filename))
+		if _, allowed := allowedVideoExtensions[ext]; !allowed && ext != "" {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest,
+				fmt.Sprintf("file extension %s not allowed; accepted: mp4, webm, avi, mkv, mov, mpeg", ext))
 			return
 		}
+
 		src, err := file.Open()
 		if err != nil {
 			abortWithError(c, http.StatusInternalServerError, ErrUploadFailed, "failed to read file")
 			return
 		}
 		defer func() { _ = src.Close() }()
-		objectKey := fmt.Sprintf("uploads/%s/%s/original%s", wallet, contentID, filepath.Ext(file.Filename))
-		if objStorage != nil {
-			if err := objStorage.UploadStream(c.Request.Context(), "streamgate", objectKey, src, file.Size); err != nil {
-				abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "upload failed", err.Error())
+
+		format, videoSrc, err := readFileHeader(src)
+		if err != nil {
+			abortWithError(c, http.StatusInternalServerError, ErrUploadFailed, "failed to read file header")
+			return
+		}
+		if format == "" && file.Size > 0 {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "unsupported video format; accepted: mp4, webm, avi, mkv, mov, mpeg")
+			return
+		}
+
+		if ext != "" {
+			expectedFormat := allowedVideoExtensions[ext]
+			if expectedFormat != "" && format != expectedFormat {
+				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest,
+					fmt.Sprintf("file extension .%s does not match actual format %s", ext, format))
 				return
 			}
 		}
-		c.JSON(http.StatusCreated, gin.H{"content_id": contentID, "object_key": objectKey, "filename": file.Filename, "size": file.Size, "upload_url": objectKey})
-	})
-	upload.POST("/chunk", func(c *gin.Context) {
+
+		if err := uploadSvc.CheckStorageQuota(c.Request.Context(), wallet, file.Size); err != nil {
+			abortWithError(c, http.StatusInsufficientStorage, ErrUploadFailed, err.Error())
+			return
+		}
+
+		uploadID, err := uploadSvc.UploadStream(c.Request.Context(), file.Filename, videoSrc, file.Size, wallet)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "upload failed", err.Error())
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{
+			"upload_id": uploadID,
+			"filename":  file.Filename,
+			"size":      file.Size,
+			"format":    format,
+			"status":    "completed",
+		})
+	}
+}
+
+func handleChunkedUploadInit(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
 		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+		var req struct {
+			Filename    string `json:"filename" binding:"required"`
+			TotalSize   int64  `json:"total_size" binding:"required"`
+			TotalChunks int    `json:"total_chunks" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "filename, total_size, and total_chunks are required")
+			return
+		}
+		if req.TotalSize > maxUploadSize {
+			abortWithError(c, http.StatusRequestEntityTooLarge, ErrPayloadTooLarge, fmt.Sprintf("file size %d exceeds maximum allowed size %d", req.TotalSize, maxUploadSize))
+			return
+		}
+
+		uploadID, err := uploadSvc.InitiateChunkedUpload(c.Request.Context(), req.Filename, req.TotalSize, req.TotalChunks, wallet)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to initiate chunked upload", err.Error())
+			return
+		}
+		c.JSON(http.StatusCreated, gin.H{
+			"upload_id":    uploadID,
+			"status":       "uploading",
+			"total_chunks": req.TotalChunks,
+		})
+	}
+}
+
+func handleChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
 		uploadID := c.PostForm("upload_id")
 		chunkIndexStr := c.PostForm("chunk_index")
 		if uploadID == "" || chunkIndexStr == "" {
@@ -94,26 +291,197 @@ func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, objStorage servic
 			return
 		}
 		defer func() { _ = src.Close() }()
-		objectKey := fmt.Sprintf("uploads/chunks/%s/%s/%d", wallet, uploadID, chunkIndex)
-		if objStorage != nil {
-			if err := objStorage.UploadStream(c.Request.Context(), "streamgate", objectKey, src, file.Size); err != nil {
-				abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "chunk upload failed", err.Error())
-				return
-			}
+
+		if err := uploadSvc.UploadChunkStream(c.Request.Context(), uploadID, chunkIndex, src, file.Size); err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "chunk upload failed", err.Error())
+			return
 		}
-		c.JSON(http.StatusOK, gin.H{"upload_id": uploadID, "chunk_index": chunkIndex, "object_key": objectKey, "size": file.Size})
-	})
-	upload.GET("/:id/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"upload_id":   uploadID,
+			"chunk_index": chunkIndex,
+			"size":        file.Size,
+		})
+	}
+}
+
+func handleChunkedUploadComplete(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
 		wallet := middleware.GetWalletAddress(c)
-		contentID := c.Param("id")
-		if objStorage != nil {
-			prefix := fmt.Sprintf("uploads/%s/%s/", wallet, contentID)
-			if objects, err := objStorage.ListObjects(c.Request.Context(), "streamgate", prefix); err == nil && len(objects) > 0 {
-				c.JSON(http.StatusOK, gin.H{"content_id": contentID, "status": "uploaded", "objects": objects})
-				return
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
+		uploadID := c.Param("id")
+		var req struct {
+			TotalChunks int `json:"total_chunks" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "total_chunks is required")
+			return
+		}
+
+		if err := uploadSvc.CompleteChunkedUpload(c.Request.Context(), uploadID, req.TotalChunks); err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete chunked upload", err.Error())
+			return
+		}
+
+		// Get updated status
+		info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"upload_id": uploadID, "status": "completed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"upload_id": uploadID,
+			"status":    info.Status,
+			"hash":      info.Hash,
+			"size":      info.Size,
+		})
+	}
+}
+
+func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		uploadID := c.Param("id")
+		contentID, err := uploadSvc.CompleteUploadWithTx(c.Request.Context(), uploadID)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete upload", err.Error())
+			return
+		}
+
+		info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"upload_id": uploadID, "content_id": contentID, "status": "processed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"upload_id":  uploadID,
+			"content_id": contentID,
+			"status":     info.Status,
+		})
+	}
+}
+
+func handleUploadStatus(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		uploadID := c.Param("id")
+		info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"upload_id": uploadID, "status": "not_found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"upload_id":    info.ID,
+			"filename":     info.Filename,
+			"size":         info.Size,
+			"content_type": info.ContentType,
+			"hash":         info.Hash,
+			"status":       info.Status,
+			"owner_id":     info.OwnerID,
+			"created_at":   info.CreatedAt.Format(time.RFC3339),
+		})
+	}
+}
+
+func handleUploadList(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet address required")
+			return
+		}
+
+		limit := 50
+		offset := 0
+		if v := c.Query("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+				limit = n
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"content_id": contentID, "status": "not_found"})
-	})
-	log.Info("Upload routes registered")
+		if v := c.Query("offset"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				offset = n
+			}
+		}
+		uploads, err := uploadSvc.ListUploads(c.Request.Context(), wallet, limit, offset)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to list uploads", err.Error())
+			return
+		}
+		if uploads == nil {
+			uploads = []*service.UploadInfo{}
+		}
+
+		type uploadItem struct {
+			ID        string `json:"id"`
+			Filename  string `json:"filename"`
+			Size      int64  `json:"size"`
+			Status    string `json:"status"`
+			CreatedAt string `json:"created_at"`
+		}
+		items := make([]uploadItem, 0, len(uploads))
+		for _, u := range uploads {
+			items = append(items, uploadItem{
+				ID: u.ID, Filename: u.Filename, Size: u.Size,
+				Status: u.Status, CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"uploads": items, "total": len(items)})
+	}
+}
+
+func handleDownloadURL(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
+		uploadID := c.Param("id")
+		expiry := 1 * time.Hour
+		if v := c.Query("expiry_minutes"); v != "" {
+			if mins, err := strconv.Atoi(v); err == nil && mins > 0 && mins <= 60 {
+				expiry = time.Duration(mins) * time.Minute
+			}
+		}
+
+		url, err := uploadSvc.GetDownloadURL(c.Request.Context(), uploadID, expiry, wallet)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to generate download URL", err.Error())
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"upload_id":    uploadID,
+			"download_url": url,
+			"expires_in":   int(expiry.Minutes()),
+		})
+	}
 }

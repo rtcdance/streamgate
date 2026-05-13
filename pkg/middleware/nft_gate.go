@@ -9,60 +9,77 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	"streamgate/pkg/web3"
 )
 
-// NFTOwnershipChecker verifies NFT ownership for a wallet address.
+var (
+	nftVerifyTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "streamgate_nft_verify_total",
+		Help: "Total NFT ownership verification requests",
+	}, []string{"chain_id", "result"})
+
+	nftVerifyDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "streamgate_nft_verify_duration_seconds",
+		Help:    "NFT verification latency in seconds",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+	}, []string{"chain_id"})
+
+	nftVerifyReorgInvalidated = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "streamgate_nft_verify_reorg_invalidated_total",
+		Help: "Total cached NFT verifications invalidated by reorg",
+	})
+
+	nftCacheHits = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "streamgate_nft_cache_hits_total",
+		Help: "NFT cache hits by tier",
+	}, []string{"tier"})
+
+)
+
 type NFTOwnershipChecker interface {
 	VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
 	GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error)
 }
 
-// NFTAccessCache caches NFT access check results.
-type NFTAccessCache interface {
-	Get(key string) (NFTAccessEntry, bool)
-	Set(key string, entry NFTAccessEntry)
+type BlockProver interface {
+	HeaderByNumber(ctx context.Context, number *big.Int) (*BlockHeaderInfo, error)
 }
 
-// NFTAccessEntry represents a cached NFT access check.
-type NFTAccessEntry struct {
-	HasNFT  bool
-	Balance *big.Int
-	Expires time.Time
+type BlockHeaderInfo struct {
+	Number     uint64
+	Hash       string
+	ParentHash string
 }
 
-// NFTGateConfig configures the NFT gate middleware.
 type NFTGateConfig struct {
 	Verifier       NFTOwnershipChecker
+	BlockProver    BlockProver
 	Cache          NFTAccessCache
 	DefaultChainID int64
 	CacheTTL       time.Duration
-	MarketplaceURL string     // Template with {contract} and {token_id} placeholders
-	BlockTag       web3.BlockTag // optional: read from finalized/safe blocks to prevent reorg issues
+	ReorgTTL       time.Duration
+	MarketplaceURL string
+	BlockTag       web3.BlockTag
 }
 
-// NFTGateMiddleware returns a gin middleware that verifies NFT ownership
-// before allowing access to protected resources.
-//
-// Requires JWTAuthMiddleware to run first (reads wallet_address from context).
-// Reads "contract" and optional "token_id" and "chain_id" from query params.
-// On success, injects "nft_verified" and "nft_contract" into the context.
 func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc {
-	cacheTTL := config.CacheTTL
-	if cacheTTL == 0 {
-		cacheTTL = 60 * time.Second
+	if config.CacheTTL == 0 {
+		config.CacheTTL = 60 * time.Second
+	}
+	if config.ReorgTTL == 0 {
+		config.ReorgTTL = 5 * time.Second
 	}
 
 	return func(c *gin.Context) {
-		// Get wallet address from JWTAuthMiddleware
 		walletAddress := GetWalletAddress(c)
 		if walletAddress == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required", "code": "UNAUTHORIZED"})
 			return
 		}
 
-		// Get contract from query param
 		contract := c.Query("contract")
 		if contract == "" {
 			contract = c.Query("contract_address")
@@ -76,56 +93,25 @@ func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		// Get optional chain_id
 		chainID := config.DefaultChainID
 		if raw := c.Query("chain_id"); raw != "" {
 			if parsed, err := parseInt64(raw); err == nil {
 				chainID = parsed
 			}
 		}
-
 		tokenID := c.Query("token_id")
-
-		// Check cache
-		var hasNFT bool
 		cacheKey := nftCacheKey(chainID, walletAddress, contract, tokenID)
 
-		if config.Cache != nil {
-			if entry, ok := config.Cache.Get(cacheKey); ok && entry.Expires.After(time.Now()) {
-				hasNFT = entry.HasNFT
-			}
-		}
-
-		// If not cached, verify on-chain
-		if config.Cache == nil || !cacheHit(config.Cache, cacheKey) {
-			var err error
-			if tokenID != "" {
-				hasNFT, err = config.Verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, tokenID, walletAddress)
-			} else {
-				balance, balanceErr := config.Verifier.GetNFTBalance(c.Request.Context(), chainID, contract, walletAddress)
-				err = balanceErr
-				hasNFT = balance != nil && balance.Sign() > 0
-			}
-
-			if err != nil {
-				logger.Error("NFT verification failed", zap.Error(err))
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-					"error":      "verification service unavailable",
-					"code":       "NFT_VERIFY_ERROR",
-					"chain_id":   chainID,
-					"chain_name": chainName(chainID),
-				})
-				return
-			}
-
-			// Cache the result
-			if config.Cache != nil {
-				config.Cache.Set(cacheKey, NFTAccessEntry{
-					HasNFT:  hasNFT,
-					Balance: big.NewInt(1),
-					Expires: time.Now().Add(cacheTTL),
-				})
-			}
+		hasNFT, err := resolveOwnership(c.Request.Context(), config, logger, cacheKey, chainID, contract, tokenID, walletAddress)
+		if err != nil {
+			logger.Error("NFT verification failed", zap.Error(err))
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error":      "verification service unavailable",
+				"code":       "NFT_VERIFY_ERROR",
+				"chain_id":   chainID,
+				"chain_name": chainName(chainID),
+			})
+			return
 		}
 
 		if !hasNFT {
@@ -150,7 +136,6 @@ func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		// Inject verified ownership into context
 		c.Set("nft_verified", true)
 		c.Set("nft_contract", contract)
 		c.Set("nft_chain_id", chainID)
@@ -158,14 +143,85 @@ func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc
 	}
 }
 
-// GetNFTVerified checks if NFT verification passed.
+func resolveOwnership(ctx context.Context, config NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (bool, error) {
+	var hasNFT bool
+	start := time.Now()
+
+	if config.Cache != nil {
+		if entry, ok := config.Cache.Get(cacheKey); ok {
+			if entry.Expires.After(time.Now()) {
+				if entry.BlockHash != "" && config.BlockProver != nil {
+					header, err := config.BlockProver.HeaderByNumber(ctx, big.NewInt(int64(entry.BlockNumber)))
+					if err == nil && header != nil && header.Hash != entry.BlockHash {
+						nftVerifyReorgInvalidated.Inc()
+						logger.Warn("NFT cache entry invalidated by reorg",
+							zap.String("cache_key", cacheKey),
+							zap.Uint64("block", entry.BlockNumber),
+							zap.String("cached_hash", entry.BlockHash),
+							zap.String("actual_hash", header.Hash))
+						goto verifyChain
+					}
+				}
+				nftCacheHits.WithLabelValues("l1_l2").Inc()
+				return entry.HasNFT, nil
+			}
+		}
+	}
+
+verifyChain:
+	if tokenID != "" {
+		actual, err := config.Verifier.VerifyNFTOwnership(ctx, chainID, contract, tokenID, walletAddress)
+		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), boolStr(actual && err == nil)).Inc()
+		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
+		if err != nil {
+			return false, err
+		}
+		if config.Cache != nil && actual {
+			setCachedEntry(ctx, config, logger, cacheKey, actual, big.NewInt(1))
+		}
+		return actual, nil
+	}
+
+	balance, err := config.Verifier.GetNFTBalance(ctx, chainID, contract, walletAddress)
+	hasNFT = balance != nil && balance.Sign() > 0
+	nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), boolStr(hasNFT && err == nil)).Inc()
+	nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
+	if err != nil {
+		return false, err
+	}
+	if config.Cache != nil {
+		setCachedEntry(ctx, config, logger, cacheKey, hasNFT, balance)
+	}
+	return hasNFT, nil
+}
+
+func setCachedEntry(ctx context.Context, config NFTGateConfig, logger *zap.Logger, key string, hasNFT bool, balance *big.Int) {
+	var blockNumber uint64
+	var blockHash string
+	if config.BlockProver != nil {
+		header, err := config.BlockProver.HeaderByNumber(ctx, nil)
+		if err == nil && header != nil {
+			blockNumber = header.Number
+			blockHash = header.Hash
+		} else {
+			logger.Debug("Failed to fetch block header for cache entry", zap.Error(err))
+		}
+	}
+	config.Cache.Set(key, NFTAccessEntry{
+		HasNFT:      hasNFT,
+		Balance:     balance,
+		BlockNumber: blockNumber,
+		BlockHash:   blockHash,
+		Expires:     time.Now().Add(config.CacheTTL),
+	})
+}
+
 func GetNFTVerified(c *gin.Context) bool {
 	v, _ := c.Get("nft_verified")
 	verified, _ := v.(bool)
 	return verified
 }
 
-// GetNFTContract returns the verified NFT contract address.
 func GetNFTContract(c *gin.Context) string {
 	v, _ := c.Get("nft_contract")
 	contract, _ := v.(string)
@@ -182,14 +238,16 @@ func parseInt64(s string) (int64, error) {
 	return n, err
 }
 
-func cacheHit(cache NFTAccessCache, key string) bool {
-	entry, ok := cache.Get(key)
-	return ok && entry.Expires.After(time.Now())
-}
-
 func chainName(chainID int64) string {
 	if cfg, ok := web3.SupportedChains[chainID]; ok {
 		return cfg.Name
 	}
 	return fmt.Sprintf("Chain %d", chainID)
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }

@@ -21,14 +21,14 @@ type EventReader interface {
 	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
 }
 
-// EventIndexerConfig holds configuration for event indexing with filtering.
 type EventIndexerConfig struct {
-	ContractAddresses  []string        // filter to these (empty = all)
-	EventSignatures    []string        // filter to these topic0 hashes (empty = all)
-	StartBlock         uint64          // block to start indexing from (0 = latest)
-	MaxEvents          int             // max events to buffer (default 10000)
-	UpdateInterval     time.Duration   // polling interval (default 15s)
-	ConfirmationBlocks uint64          // safety buffer: only index up to latestBlock - N (default 12, 0 = index to tip)
+	ContractAddresses  []string
+	EventSignatures    []string
+	StartBlock         uint64
+	MaxEvents          int
+	UpdateInterval     time.Duration
+	ConfirmationBlocks uint64
+	Finality           FinalityStrategy
 }
 
 // EventIndexer indexes blockchain events using WebSocket subscriptions
@@ -125,9 +125,13 @@ func NewEventIndexerWithConfig(client EventReader, cfg EventIndexerConfig, logge
 	if cfg.UpdateInterval > 0 {
 		ei.updateInterval = cfg.UpdateInterval
 	}
-	ei.confirmationBlocks = cfg.ConfirmationBlocks
-	if ei.confirmationBlocks == 0 {
-		ei.confirmationBlocks = 12 // default: 12 blocks safety buffer
+	if cfg.Finality != nil {
+		ei.confirmationBlocks = cfg.Finality.RequiredConfirmations()
+	} else {
+		ei.confirmationBlocks = cfg.ConfirmationBlocks
+		if ei.confirmationBlocks == 0 {
+			ei.confirmationBlocks = 12
+		}
 	}
 
 	logger.Info("Creating event indexer",
@@ -500,7 +504,10 @@ func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 		ei.seenIDs = make(map[string]struct{})
 	}
 
-	// Deduplicate via EventStore if available
+	if _, seen := ei.seenIDs[event.ID]; seen {
+		ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
+		return
+	}
 	if ei.store != nil {
 		if exists, _ := ei.store.EventExists(event.ID); exists {
 			ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
@@ -508,30 +515,16 @@ func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 		}
 		if err := ei.store.SaveEvent(event); err != nil {
 			ei.logger.Warn("Failed to persist event", zap.String("event_id", event.ID), zap.Error(err))
-			// Continue with in-memory storage even if persistence fails
-		}
-	} else {
-		// In-memory dedup when no EventStore
-		if _, seen := ei.seenIDs[event.ID]; seen {
-			ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
-			return
 		}
 	}
 
 	ei.events = append(ei.events, event)
-	if ei.store == nil {
-		ei.seenIDs[event.ID] = struct{}{}
-	}
+	ei.seenIDs[event.ID] = struct{}{}
 
-	// Keep only recent events in memory
 	if len(ei.events) > ei.maxEvents {
-		// Evict seen-set entries for trimmed events
-		if ei.store == nil {
-			for _, ev := range ei.events[:len(ei.events)-ei.maxEvents] {
-				delete(ei.seenIDs, ev.ID)
-			}
+		for _, ev := range ei.events[:len(ei.events)-ei.maxEvents] {
+			delete(ei.seenIDs, ev.ID)
 		}
-		// Compact to a fresh slice to release old backing array
 		trimmed := make([]*IndexedEvent, ei.maxEvents)
 		copy(trimmed, ei.events[len(ei.events)-ei.maxEvents:])
 		ei.events = trimmed

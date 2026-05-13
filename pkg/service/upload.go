@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,12 +20,17 @@ import (
 // DefaultMaxUploadSize is the default maximum upload size (5 GB)
 const DefaultMaxUploadSize int64 = 5 * 1024 * 1024 * 1024
 
+// DefaultStorageQuotaPerWallet is the default storage quota per wallet (50 GB)
+const DefaultStorageQuotaPerWallet int64 = 50 * 1024 * 1024 * 1024
+
 // UploadService handles upload operations
 type UploadService struct {
 	db            storage.DB
 	objStore      UploadObjectStorage
+	presigner     PresignedURLer
 	bucket        string
 	maxUploadSize int64
+	storageQuota  int64
 	logger        *zap.Logger
 }
 
@@ -35,6 +41,11 @@ type UploadObjectStorage interface {
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
 	Delete(ctx context.Context, bucket, key string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
+}
+
+// PresignedURLer generates time-limited download URLs for stored objects.
+type PresignedURLer interface {
+	PresignedURL(ctx context.Context, bucket, key string, expiry time.Duration) (string, error)
 }
 
 // UploadInfo represents upload information
@@ -60,7 +71,9 @@ type ChunkInfo struct {
 	Uploaded    bool   `json:"uploaded"`
 }
 
-// NewUploadService creates a new upload service
+// NewUploadService creates a new upload service.
+// If a PresignedURLer is provided as the last optional logger, it is ignored;
+// call SetPresigner separately to enable download URL generation.
 func NewUploadService(db storage.DB, objStorage UploadObjectStorage, bucket string, logger ...*zap.Logger) *UploadService {
 	var l *zap.Logger
 	if len(logger) > 0 && logger[0] != nil {
@@ -73,14 +86,64 @@ func NewUploadService(db storage.DB, objStorage UploadObjectStorage, bucket stri
 		objStore:      objStorage,
 		bucket:        bucket,
 		maxUploadSize: DefaultMaxUploadSize,
+		storageQuota:  DefaultStorageQuotaPerWallet,
 		logger:        l,
 	}
+}
+
+// SetPresigner sets the presigned URL generator for download URL support.
+func (s *UploadService) SetPresigner(p PresignedURLer) {
+	s.presigner = p
+}
+
+// GetDownloadURL returns a presigned URL for downloading the uploaded file.
+// The URL is valid for the specified expiry duration.
+// If ownerID is non-empty, it checks that the upload belongs to that wallet.
+func (s *UploadService) GetDownloadURL(ctx context.Context, uploadID string, expiry time.Duration, ownerID ...string) (string, error) {
+	if s.presigner == nil {
+		return "", fmt.Errorf("presigned URL support not configured")
+	}
+	info, err := s.GetUploadStatus(ctx, uploadID)
+	if err != nil {
+		return "", err
+	}
+	if len(ownerID) > 0 && ownerID[0] != "" && info.OwnerID != ownerID[0] {
+		return "", fmt.Errorf("upload does not belong to this wallet")
+	}
+	if info.Status != "completed" && info.Status != "processed" {
+		return "", fmt.Errorf("upload not completed: %s", info.Status)
+	}
+	storageKey := strings.TrimPrefix(info.URL, "/"+s.bucket+"/")
+	return s.presigner.PresignedURL(ctx, s.bucket, storageKey, expiry)
 }
 
 // SetMaxUploadSize sets the maximum allowed upload size.
 // A value of 0 means no limit.
 func (s *UploadService) SetMaxUploadSize(size int64) {
 	s.maxUploadSize = size
+}
+
+// SetStorageQuota sets the per-wallet storage quota.
+// A value of 0 means no quota.
+func (s *UploadService) SetStorageQuota(quota int64) {
+	s.storageQuota = quota
+}
+
+// CheckStorageQuota returns an error if the wallet has exceeded its storage quota.
+func (s *UploadService) CheckStorageQuota(ctx context.Context, ownerID string, newFileSize int64) error {
+	if s.storageQuota <= 0 || s.db == nil {
+		return nil
+	}
+	var used int64
+	err := s.db.QueryRow(ctx,
+		"SELECT COALESCE(SUM(size), 0) FROM uploads WHERE owner_id = $1", ownerID).Scan(&used)
+	if err != nil {
+		return fmt.Errorf("quota check failed: %w", err)
+	}
+	if used+newFileSize > s.storageQuota {
+		return fmt.Errorf("storage quota exceeded: %d/%d used", used+newFileSize, s.storageQuota)
+	}
+	return nil
 }
 
 // Upload uploads file from a byte slice (legacy convenience wrapper).
@@ -160,15 +223,16 @@ func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*
 	`
 
 	var info UploadInfo
+	var contentType, hash, status, url, ownerID sql.NullString
 	err := s.db.QueryRow(ctx, query, uploadID).Scan(
 		&info.ID,
 		&info.Filename,
 		&info.Size,
-		&info.ContentType,
-		&info.Hash,
-		&info.Status,
-		&info.URL,
-		&info.OwnerID,
+		&contentType,
+		&hash,
+		&status,
+		&url,
+		&ownerID,
 		&info.CreatedAt,
 		&info.UpdatedAt,
 	)
@@ -178,6 +242,12 @@ func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query upload: %w", err)
 	}
+
+	info.ContentType = contentType.String
+	info.Hash = hash.String
+	info.Status = status.String
+	info.URL = url.String
+	info.OwnerID = ownerID.String
 
 	return &info, nil
 }
@@ -211,20 +281,29 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 	return uploadID, nil
 }
 
-// UploadChunk uploads a single chunk
+// UploadChunk uploads a single chunk from a byte slice (legacy).
 func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte) error {
+	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)))
+}
+
+func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	// Generate chunk storage key
 	storageKey := fmt.Sprintf("chunks/%s/%d", uploadID, chunkIndex)
 
-	// Upload chunk to storage
-	if err := s.objStore.Upload(ctx, s.bucket, storageKey, data); err != nil {
-		return fmt.Errorf("failed to upload chunk: %w", err)
+	exists, err := s.objStore.Exists(ctx, s.bucket, storageKey)
+	if err != nil {
+		s.logger.Warn("chunk existence check failed", zap.String("key", storageKey), zap.Error(err))
+	}
+	if exists {
+		return fmt.Errorf("chunk %d already uploaded for upload %s", chunkIndex, uploadID)
 	}
 
-	// Update upload status
+	if err := s.objStore.UploadStream(ctx, s.bucket, storageKey, reader, size); err != nil {
+		return fmt.Errorf("failed to upload chunk stream: %w", err)
+	}
+
 	if err := s.updateUploadStatus(ctx, uploadID, "uploading"); err != nil {
 		return fmt.Errorf("failed to update upload status: %w", err)
 	}
@@ -243,7 +322,9 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 		return err
 	}
 
-	// Validate total size before loading chunks into memory
+	if uploadInfo.Status != "uploading" {
+		return fmt.Errorf("upload not in uploading state: %s", uploadInfo.Status)
+	}
 	if s.maxUploadSize > 0 && uploadInfo.Size > s.maxUploadSize {
 		return fmt.Errorf("upload size %d exceeds maximum allowed size %d", uploadInfo.Size, s.maxUploadSize)
 	}
@@ -368,21 +449,28 @@ func (s *UploadService) ListUploads(ctx context.Context, ownerID string, limit, 
 	uploads := make([]*UploadInfo, 0)
 	for rows.Next() {
 		var info UploadInfo
+		var contentType, hash, status, url, ownerID sql.NullString
 		err := rows.Scan(
 			&info.ID,
 			&info.Filename,
 			&info.Size,
-			&info.ContentType,
-			&info.Hash,
-			&info.Status,
-			&info.URL,
-			&info.OwnerID,
+			&contentType,
+			&hash,
+			&status,
+			&url,
+			&ownerID,
 			&info.CreatedAt,
 			&info.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan upload: %w", err)
 		}
+
+		info.ContentType = contentType.String
+		info.Hash = hash.String
+		info.Status = status.String
+		info.URL = url.String
+		info.OwnerID = ownerID.String
 		uploads = append(uploads, &info)
 	}
 
@@ -451,54 +539,52 @@ func detectContentType(filename string) string {
 // CompleteUploadWithTx marks an upload as completed and creates a
 // corresponding content record in a single transaction. Uses the
 // defer-tx.Rollback() pattern for safe cleanup.
-func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID string) error {
+// Returns the content ID of the newly created content record.
+func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID string) (string, error) {
 	if s.db == nil {
-		return fmt.Errorf("database not available")
+		return "", fmt.Errorf("database not available")
 	}
 
 	// Get current upload info
 	upload, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
-		return fmt.Errorf("get upload status: %w", err)
+		return "", fmt.Errorf("get upload status: %w", err)
 	}
 
 	if upload.Status != "completed" {
-		return fmt.Errorf("upload not completed: %s", upload.Status)
+		return "", fmt.Errorf("upload not completed: %s", upload.Status)
 	}
 
-	tx, err := s.db.Begin(ctx)
+	var contentID string
+	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		// Update upload status to "processed"
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1
+		`, uploadID, "processed", time.Now()); err != nil {
+			return fmt.Errorf("update upload: %w", err)
+		}
+
+		// Create content record from upload
+		contentID = uuid.New().String()
+		thumbnailURL := fmt.Sprintf("https://via.placeholder.com/320x180?text=%s", upload.Filename)
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO contents (id, title, type, size, status, owner_id, url, thumbnail_url, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, contentID, upload.Filename, contentTypeToType(upload.ContentType), upload.Size, "pending",
+			upload.OwnerID, upload.URL, thumbnailURL, time.Now(), time.Now()); err != nil {
+			return fmt.Errorf("insert content: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Update upload status to "processed"
-	_, err = tx.ExecContext(ctx, `
-		UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1
-	`, uploadID, "processed", time.Now())
-	if err != nil {
-		return fmt.Errorf("update upload: %w", err)
-	}
-
-	// Create content record from upload
-	contentID := uuid.New().String()
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO contents (id, title, type, size, status, owner_id, url, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, contentID, upload.Filename, contentTypeToType(upload.ContentType), upload.Size, "pending",
-		upload.OwnerID, upload.URL, time.Now(), time.Now())
-	if err != nil {
-		return fmt.Errorf("insert content: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
+		return "", err
 	}
 
 	s.logger.Info("Upload completed with content record",
 		zap.String("upload_id", uploadID),
 		zap.String("content_id", contentID))
-	return nil
+	return contentID, nil
 }
 
 // contentTypeToType maps a MIME content type to a content type string.

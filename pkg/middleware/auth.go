@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,8 +13,10 @@ import (
 )
 
 // JWTAuthConfig configures the JWT authentication middleware.
+// Use Secret for HS256 or PublicKey for RS256.
 type JWTAuthConfig struct {
 	Secret    string
+	PublicKey *rsa.PublicKey
 	SkipPaths []string
 	Blacklist TokenBlacklistChecker
 }
@@ -57,9 +60,14 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		// Parse and validate JWT
 		claims := jwt.MapClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+			if config.PublicKey != nil {
+				if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+				}
+				return config.PublicKey, nil
+			}
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			}

@@ -125,7 +125,6 @@ func (ls *LogSubscriber) reconnectLoop(ctx context.Context, query ethereum.Filte
 					zap.Error(err),
 					zap.String("ws_url", ls.wsURL))
 			}
-			// Clean up old subscription
 			ls.mu.Lock()
 			if ls.sub != nil {
 				ls.sub.Unsubscribe()
@@ -133,11 +132,19 @@ func (ls *LogSubscriber) reconnectLoop(ctx context.Context, query ethereum.Filte
 			if ls.client != nil {
 				ls.client.Close()
 			}
+			shouldRun := ls.running
 			ls.mu.Unlock()
 
-			// Backoff reconnect
+			if !shouldRun {
+				return // Unsubscribe was called
+			}
+
+			// Backoff reconnect (ctx is already cancelled by Unsubscribe)
+			if err := ctx.Err(); err != nil {
+				return
+			}
 			if !ls.reconnectWithBackoff(ctx, query) {
-				return // context cancelled
+				return
 			}
 		}
 	}

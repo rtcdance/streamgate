@@ -16,8 +16,17 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gagliardetto/solana-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 	"streamgate/pkg/web3"
+)
+
+var (
+	svcPlaybackTokenIssued = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "streamgate_playback_token_issued_total",
+		Help: "Total playback tokens issued",
+	})
 )
 
 const defaultChallengeTTL = 5 * time.Minute
@@ -601,13 +610,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
-	}
-
-	return tokenString, nil
+	return s.signToken(claims)
 }
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
@@ -632,13 +635,8 @@ func (s *AuthService) GeneratePlaybackToken(walletAddress, contentID, contract, 
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign playback token: %w", err)
-	}
-
-	return tokenString, nil
+	svcPlaybackTokenIssued.Inc()
+	return s.signToken(claims)
 }
 
 // ValidatePlaybackToken validates a playback token and ensures it matches the requested content.
