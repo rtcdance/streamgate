@@ -54,6 +54,9 @@ func (m *mockDB) Begin(ctx context.Context) (*sql.Tx, error) {
 	}
 	return nil, errors.New("not implemented")
 }
+func (m *mockDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	return errors.New("not implemented")
+}
 func (m *mockDB) Ping(ctx context.Context) error {
 	if m.pingFn != nil {
 		return m.pingFn(ctx)
@@ -519,7 +522,7 @@ func TestContentTypeToType(t *testing.T) {
 
 func TestUploadService_CompleteUploadWithTx_DBNil(t *testing.T) {
 	svc := NewUploadService(nil, newMockUploadStorage(), "content-bucket")
-	err := svc.CompleteUploadWithTx(context.Background(), "upload-id")
+	_, err := svc.CompleteUploadWithTx(context.Background(), "upload-id")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not available")
 }
@@ -1465,6 +1468,9 @@ func (m *mockSegmentStorage) Download(ctx context.Context, bucket, objectName st
 	return nil, nil
 }
 func (m *mockSegmentStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockSegmentStorage) DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error) {
 	return nil, nil
 }
 func (m *mockSegmentStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {

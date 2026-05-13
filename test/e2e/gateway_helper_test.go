@@ -100,6 +100,9 @@ func (s *mockSegmentStorage) ListObjects(ctx context.Context, bucket, prefix str
 	return result, nil
 }
 
+func (s *mockSegmentStorage) DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 func (s *mockSegmentStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {
 	_, ok := s.objects[bucket+"/"+objectName]
 	return ok, nil

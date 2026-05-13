@@ -285,8 +285,8 @@ func TestAuthenticationSecurity(t *testing.T) {
 		t.Error("Expected non-empty hash")
 	}
 
-	if len(hash) != 64 {
-		t.Errorf("Expected hash length 64, got %d", len(hash))
+	if len(hash) != 60 {
+		t.Errorf("Expected bcrypt hash length 60, got %d", len(hash))
 	}
 
 	valid := encryptor.VerifyPassword(password, hash)

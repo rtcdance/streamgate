@@ -66,18 +66,27 @@ type rpcEndpointState struct {
 	Failures      int
 	LastFailureAt time.Time
 	CooldownUntil time.Time
+	Score         float64
+	LastLatency   time.Duration
 }
 
 // RPCStatus describes the current runtime status of an RPC endpoint.
 type RPCStatus struct {
-	URL           string    `json:"url"`
-	IsActive      bool      `json:"is_active"`
-	Failures      int       `json:"failures"`
-	LastFailureAt time.Time `json:"last_failure_at,omitempty"`
-	CooldownUntil time.Time `json:"cooldown_until,omitempty"`
+	URL           string        `json:"url"`
+	IsActive      bool          `json:"is_active"`
+	Failures      int           `json:"failures"`
+	LastFailureAt time.Time     `json:"last_failure_at,omitempty"`
+	CooldownUntil time.Time     `json:"cooldown_until,omitempty"`
+	Score         float64       `json:"score"`
+	LastLatencyMs int64         `json:"last_latency_ms,omitempty"`
 }
 
-const rpcFailureCooldown = 30 * time.Second
+const (
+	rpcFailureCooldown  = 30 * time.Second
+	rpcScoreInitial     = 1.0
+	rpcScoreDecay       = 0.9
+	rpcLatencyThreshold = 5.0
+)
 
 // NewChainClient creates a new chain client
 func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
@@ -97,10 +106,14 @@ func NewChainClientWithFallback(rpcURLs []string, chainID int64, logger *zap.Log
 		return nil, fmt.Errorf("no rpc urls configured for chain %d", chainID)
 	}
 
+	states := make([]rpcEndpointState, len(normalizedRPCs))
+	for i := range states {
+		states[i].Score = rpcScoreInitial
+	}
 	cc := &ChainClient{
 		rpcURL:    normalizedRPCs[0],
 		rpcURLs:   normalizedRPCs,
-		rpcStates: make([]rpcEndpointState, len(normalizedRPCs)),
+		rpcStates: states,
 		activeRPC: 0,
 		chainID:   chainID,
 		logger:    logger,
@@ -441,6 +454,8 @@ func (cc *ChainClient) GetRPCStatuses() []RPCStatus {
 			Failures:      state.Failures,
 			LastFailureAt: state.LastFailureAt,
 			CooldownUntil: state.CooldownUntil,
+			Score:         state.Score,
+			LastLatencyMs: state.LastLatency.Milliseconds(),
 		})
 	}
 	return statuses
@@ -761,6 +776,73 @@ func (cc *ChainClient) fetchMetadataFromURI(ctx context.Context, uri string) (*N
 	return &metadata, nil
 }
 
+// updateRPCScores updates the weighted score for an RPC endpoint.
+// Uses exponential moving average: recent results weigh more.
+// Success latency: measured against the threshold (5s).
+// Failure: halves the current score.
+func (cc *ChainClient) updateRPCScores(idx int, latency time.Duration, success bool) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if idx < 0 || idx >= len(cc.rpcStates) {
+		return
+	}
+	state := cc.rpcStates[idx]
+	state.LastLatency = latency
+	if success {
+		latencyScore := 1.0 - (latency.Seconds() / rpcLatencyThreshold)
+		if latencyScore < 0 {
+			latencyScore = 0
+		}
+		state.Score = state.Score*rpcScoreDecay + latencyScore*(1.0-rpcScoreDecay)
+		if state.Failures > 0 {
+			state.Failures--
+		}
+	} else {
+		state.Score *= 0.5
+	}
+	if state.Score < 0 {
+		state.Score = 0
+	}
+	cc.rpcStates[idx] = state
+}
+
+// sortedRPCScores returns endpoint indices sorted by score descending.
+func (cc *ChainClient) sortedRPCScores() []int {
+	indices := make([]int, len(cc.rpcURLs))
+	for i := range indices {
+		indices[i] = i
+	}
+	cc.mu.RLock()
+	scores := make([]float64, len(cc.rpcURLs))
+	for i, st := range cc.rpcStates {
+		scores[i] = st.Score
+	}
+	cc.mu.RUnlock()
+
+	// Insertion sort by score descending
+	for i := 1; i < len(indices); i++ {
+		key := indices[i]
+		j := i - 1
+		for j >= 0 && scores[indices[j]] < scores[key] {
+			indices[j+1] = indices[j]
+			j--
+		}
+		indices[j+1] = key
+	}
+	return indices
+}
+
+// GetRPCScores returns a map of RPC URL to score for monitoring.
+func (cc *ChainClient) GetRPCScores() map[string]float64 {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	scores := make(map[string]float64, len(cc.rpcURLs))
+	for i, url := range cc.rpcURLs {
+		scores[url] = cc.rpcStates[i].Score
+	}
+	return scores
+}
+
 // HealthCheck performs a health check on the blockchain connection
 func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 	cc.logger.Debug("Performing health check")
@@ -804,7 +886,8 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 
 func (cc *ChainClient) connectAny() error {
 	var lastErr error
-	for idx := range cc.rpcURLs {
+	// Try endpoints in score-descending order, skipping those in cooldown
+	for _, idx := range cc.sortedRPCScores() {
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
@@ -821,7 +904,8 @@ func (cc *ChainClient) connectAny() error {
 			zap.String("rpc_url", cc.rpcURL))
 		return nil
 	}
-	for idx := range cc.rpcURLs {
+	// Second pass: try all endpoints (bypassing cooldown)
+	for _, idx := range cc.sortedRPCScores() {
 		client, chainIDFromRPC, err := cc.connectAt(idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
@@ -879,19 +963,18 @@ func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetF
 	cc.activeRPC = idx
 	cc.rpcURL = cc.rpcURLs[idx]
 	if resetFailures {
-		cc.rpcStates[idx] = rpcEndpointState{}
+		cc.rpcStates[idx] = rpcEndpointState{Score: rpcScoreInitial}
 	}
 }
 
 func (cc *ChainClient) failover() error {
-	cc.mu.RLock()
-	start := cc.activeRPC
-	total := len(cc.rpcURLs)
-	cc.mu.RUnlock()
-
 	var lastErr error
-	for offset := 1; offset <= total; offset++ {
-		idx := (start + offset) % total
+	// Try endpoints in score-descending order, skipping the current active endpoint
+	active := cc.getActiveRPCIndex()
+	for _, idx := range cc.sortedRPCScores() {
+		if idx == active {
+			continue
+		}
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
@@ -902,13 +985,16 @@ func (cc *ChainClient) failover() error {
 			continue
 		}
 		cc.setActiveClient(idx, client, true)
-		cc.logger.Warn("Switched blockchain RPC endpoint",
+		cc.logger.Warn("Switched blockchain RPC endpoint (scored)",
 			zap.String("rpc_url", cc.rpcURL),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
 		return nil
 	}
-	for offset := 1; offset <= total; offset++ {
-		idx := (start + offset) % total
+	// Second pass: try all non-active endpoints bypassing cooldown
+	for _, idx := range cc.sortedRPCScores() {
+		if idx == active {
+			continue
+		}
 		client, chainIDFromRPC, err := cc.connectAt(idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
@@ -916,7 +1002,7 @@ func (cc *ChainClient) failover() error {
 			continue
 		}
 		cc.setActiveClient(idx, client, true)
-		cc.logger.Warn("Switched blockchain RPC endpoint after cooldown bypass",
+		cc.logger.Warn("Switched blockchain RPC endpoint after cooldown bypass (scored)",
 			zap.String("rpc_url", cc.rpcURL),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
 		return nil
@@ -959,7 +1045,9 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 	// Measure latency of the initial attempt
 	start := time.Now()
 	result, err := fn(client)
-	monitoring.RPCLatencySeconds.WithLabelValues(op, fromRPC).Observe(time.Since(start).Seconds())
+	latency := time.Since(start)
+	monitoring.RPCLatencySeconds.WithLabelValues(op, fromRPC).Observe(latency.Seconds())
+	cc.updateRPCScores(cc.getActiveRPCIndex(), latency, err == nil)
 
 	if err == nil || total <= 1 {
 		return result, err
@@ -987,7 +1075,9 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 
 		start = time.Now()
 		result, err = fn(client)
-		monitoring.RPCLatencySeconds.WithLabelValues(op, toRPC).Observe(time.Since(start).Seconds())
+		latency = time.Since(start)
+		monitoring.RPCLatencySeconds.WithLabelValues(op, toRPC).Observe(latency.Seconds())
+		cc.updateRPCScores(cc.getActiveRPCIndex(), latency, err == nil)
 
 		if err == nil {
 			return result, nil

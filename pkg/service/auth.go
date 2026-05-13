@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"time"
@@ -13,9 +14,78 @@ import (
 	"streamgate/pkg/models"
 )
 
+// JWTVerifier validates JWT tokens using either an HMAC secret or RSA public key.
+// Use this in streaming/gateway services that only need to verify, not issue, tokens.
+type JWTVerifier struct {
+	hmacSecret  []byte
+	publicKey   *rsa.PublicKey
+	signingType JWTSigningType
+}
+
+// JWTSigningType specifies the algorithm used for JWT signing.
+type JWTSigningType int
+
+const (
+	JWTHS256 JWTSigningType = iota
+	JWTRS256
+)
+
+// NewJWTVerifier creates a verifier-only JWT client for services that do not issue tokens.
+func NewJWTVerifier(secret string, opts ...JWTVerifierOption) *JWTVerifier {
+	v := &JWTVerifier{hmacSecret: []byte(secret)}
+	for _, o := range opts {
+		o(v)
+	}
+	return v
+}
+
+// JWTVerifierOption configures a JWTVerifier.
+type JWTVerifierOption func(*JWTVerifier)
+
+// WithRSAPublicKey sets the RSA public key for RS256 verification.
+func WithRSAPublicKey(key *rsa.PublicKey) JWTVerifierOption {
+	return func(v *JWTVerifier) {
+		v.publicKey = key
+		v.signingType = JWTRS256
+	}
+}
+
+// ParseToken parses and validates a JWT without issuing capability.
+func (v *JWTVerifier) ParseToken(tokenString string) (*Claims, error) {
+	claims := &Claims{}
+	parsed, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return v.keyFunc(token)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("token verification failed: %w", err)
+	}
+	if !parsed.Valid {
+		return nil, ErrInvalidToken
+	}
+	return claims, nil
+}
+
+func (v *JWTVerifier) keyFunc(token *jwt.Token) (interface{}, error) {
+	switch v.signingType {
+	case JWTRS256:
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return v.publicKey, nil
+	default:
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return v.hmacSecret, nil
+	}
+}
+
 // AuthService handles authentication
 type AuthService struct {
 	jwtSecret         []byte
+	privateKey        *rsa.PrivateKey
+	publicKey         *rsa.PublicKey
+	signingType       JWTSigningType
 	storage           AuthStorage
 	signatureVerifier WalletSignatureVerifier
 	challengeStore    ChallengeStore
@@ -65,7 +135,19 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// NewAuthService creates a new auth service with the given options.
+// AuthServiceOption applies RSA signing configuration.
+type AuthServiceSigningOption func(*AuthService)
+
+// WithRSASigning configures the AuthService to use RS256 instead of HS256.
+// The private key is used for signing; the public key is embedded for verification.
+func WithRSASigning(privateKey *rsa.PrivateKey) AuthServiceSigningOption {
+	return func(s *AuthService) {
+		s.privateKey = privateKey
+		s.publicKey = &privateKey.PublicKey
+		s.signingType = JWTRS256
+	}
+}
+
 func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
 	s := &AuthService{
 		jwtSecret:         []byte(jwtSecret),
@@ -144,16 +226,22 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 	return true, nil
 }
 
-// ParseToken parses and validates a JWT token
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		// Verify signing method
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		switch s.signingType {
+		case JWTRS256:
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return s.publicKey, nil
+		default:
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return s.jwtSecret, nil
 		}
-		return s.jwtSecret, nil
 	})
 
 	if err != nil {
@@ -165,6 +253,17 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+func (s *AuthService) signToken(claims *Claims) (string, error) {
+	switch s.signingType {
+	case JWTRS256:
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		return token.SignedString(s.privateKey)
+	default:
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		return token.SignedString(s.jwtSecret)
+	}
 }
 
 // Register registers a new user
@@ -258,12 +357,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
-	newTokenString, err := token.SignedString(s.jwtSecret)
+	newTokenString, err := s.signToken(newClaims)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %w", err)
 	}
-
 	return newTokenString, nil
 }
 
@@ -281,16 +378,9 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.jwtSecret)
-	if err != nil {
-		return "", fmt.Errorf("failed to sign token: %w", err)
-	}
-
-	return tokenString, nil
+	return s.signToken(claims)
 }
 
-// generateID generates a unique ID
 func generateID() string {
 	return uuid.New().String()
 }

@@ -52,26 +52,12 @@ func (ms *MinIOStorage) Upload(ctx context.Context, bucket, objectName string, d
 	return ms.UploadStream(ctx, bucket, objectName, bytes.NewReader(data), int64(len(data)))
 }
 
-// UploadStream uploads to MinIO from an io.Reader without buffering the entire
-// content in memory. The caller must provide the expected size.
 func (ms *MinIOStorage) UploadStream(ctx context.Context, bucket, objectName string, reader io.Reader, size int64) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	// Ensure bucket exists
-	exists, err := ms.client.BucketExists(ctx, bucket)
-	if err != nil {
-		return fmt.Errorf("failed to check bucket existence: %w", err)
-	}
-
-	if !exists {
-		if err := ms.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
-			return fmt.Errorf("failed to create bucket: %w", err)
-		}
-	}
-
-	_, err = ms.client.PutObject(ctx, bucket, objectName, reader, size, minio.PutObjectOptions{
-		ContentType: "application/octet-stream",
+	_, err := ms.client.PutObject(ctx, bucket, objectName, reader, size, minio.PutObjectOptions{
+		ContentType: detectContentTypeByExt(objectName),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload to MinIO: %w", err)
@@ -110,19 +96,18 @@ func (ms *MinIOStorage) UploadWithContentType(ctx context.Context, bucket, objec
 	return nil
 }
 
-// Download downloads from MinIO
+// Download downloads from MinIO and returns the entire content as a byte slice.
+// Only safe for objects smaller than maxDownloadSize (1 GB). For larger objects
+// use DownloadStream to process the data incrementally.
 func (ms *MinIOStorage) Download(ctx context.Context, bucket, objectName string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	object, err := ms.client.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
+	rc, err := ms.DownloadStream(ctx, bucket, objectName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get object from MinIO: %w", err)
+		return nil, err
 	}
-	defer func() { _ = object.Close() }()
+	defer func() { _ = rc.Close() }()
 
 	buf := new(bytes.Buffer)
-	n, err := io.Copy(buf, io.LimitReader(object, maxDownloadSize+1))
+	n, err := io.Copy(buf, io.LimitReader(rc, maxDownloadSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read MinIO object: %w", err)
 	}
@@ -131,6 +116,32 @@ func (ms *MinIOStorage) Download(ctx context.Context, bucket, objectName string)
 	}
 
 	return buf.Bytes(), nil
+}
+
+// DownloadStream returns an io.ReadCloser for streaming an object from MinIO.
+// The caller must close the reader when done.
+func (ms *MinIOStorage) DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+
+	object, err := ms.client.GetObject(ctx, bucket, objectName, minio.GetObjectOptions{})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to get object from MinIO: %w", err)
+	}
+
+	return &readCloserWithCancel{ReadCloser: object, cancel: cancel}, nil
+}
+
+// readCloserWithCancel wraps an io.ReadCloser with a context cancel func
+// so that the context timeout is released when the reader is closed.
+type readCloserWithCancel struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r *readCloserWithCancel) Close() error {
+	defer r.cancel()
+	return r.ReadCloser.Close()
 }
 
 // Delete deletes from MinIO
@@ -185,8 +196,8 @@ func (ms *MinIOStorage) ListObjects(ctx context.Context, bucket, prefix string) 
 	return keys, nil
 }
 
-// GetPresignedURL generates a presigned URL for downloading
-func (ms *MinIOStorage) GetPresignedURL(ctx context.Context, bucket, objectName string, expiration time.Duration) (string, error) {
+// PresignedURL generates a presigned URL for downloading
+func (ms *MinIOStorage) PresignedURL(ctx context.Context, bucket, objectName string, expiration time.Duration) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -209,7 +220,7 @@ func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 	}
 
 	if exists {
-		return nil // Bucket already exists
+		return nil
 	}
 
 	if err := ms.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
@@ -217,4 +228,30 @@ func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 	}
 
 	return nil
+}
+
+// detectContentTypeByExt returns a MIME type based on the object name extension.
+func detectContentTypeByExt(objectName string) string {
+	switch {
+	case len(objectName) < 4:
+		return "application/octet-stream"
+	case string(objectName[len(objectName)-4:]) == ".mp4":
+		return "video/mp4"
+	case string(objectName[len(objectName)-5:]) == ".webm":
+		return "video/webm"
+	case string(objectName[len(objectName)-4:]) == ".avi":
+		return "video/x-msvideo"
+	case string(objectName[len(objectName)-4:]) == ".mkv":
+		return "video/x-matroska"
+	case string(objectName[len(objectName)-4:]) == ".mov":
+		return "video/quicktime"
+	case string(objectName[len(objectName)-5:]) == ".mpeg" || string(objectName[len(objectName)-4:]) == ".mpg":
+		return "video/mpeg"
+	case string(objectName[len(objectName)-4:]) == ".ts":
+		return "video/mp2t"
+	case string(objectName[len(objectName)-5:]) == ".m3u8":
+		return "application/vnd.apple.mpegurl"
+	default:
+		return "application/octet-stream"
+	}
 }

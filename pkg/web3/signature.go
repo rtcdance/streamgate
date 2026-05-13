@@ -88,11 +88,15 @@ func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, messa
 			var hash [32]byte
 			copy(hash[:], messageHash)
 
-			// The original 65-byte signature (with v restored to 27/28 for contract wallets)
 			sigCopy := make([]byte, len(sig))
 			copy(sigCopy, sig)
 			if sigCopy[64] < 27 {
 				sigCopy[64] += 27
+			}
+			// EIP-155: if v is neither 27 nor 28, restore by adding 27 to the
+			// adjusted value (which was reduced by 27 at line 61).
+			if sigCopy[64] != 27 && sigCopy[64] != 28 {
+				sigCopy[64] = sig[64] + 27
 			}
 
 			valid, err := sv.eip1271.IsValidSignature(ctx, address, hash, sigCopy)

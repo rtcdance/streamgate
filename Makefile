@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming clean test docker-build docker-up docker-down lint lint-fix lint-verbose
+.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming clean test docker-build docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -37,6 +37,9 @@ help:
 	@echo "  make docker-build       - Build Docker images"
 	@echo "  make docker-up          - Start Docker Compose services"
 	@echo "  make docker-down        - Stop Docker Compose services"
+	@echo "  make fullchain-deploy   - Deploy full-chain stack (PG + Redis + MinIO + NATS + monolith + H5 Demo)"
+	@echo "  make fullchain-test     - Run full-chain acceptance test"
+	@echo "  make fullchain-teardown - Stop full-chain stack (add --volumes to wipe data)"
 	@echo "  make run-monolith       - Run monolithic service"
 	@echo "  make run-api-gateway    - Run API Gateway service"
 	@echo "  make run-transcoder     - Run Transcoder service"
@@ -166,6 +169,18 @@ docker-down:
 	@echo "Stopping Docker Compose services..."
 	docker-compose down
 	@echo "✓ Services stopped"
+
+# Run Anvil-based Web3 integration tests (requires foundry)
+test-anvil:
+	@echo "Running Anvil integration tests..."
+	$(GO) test -tags=anvil -v -count=1 -timeout 120s ./test/integration/web3/ -run TestAnvil
+	@echo "✓ Anvil integration tests complete"
+
+# Run testnet integration tests (requires SEPOLIA_RPC env)
+test-testnet:
+	@echo "Running testnet integration tests..."
+	$(GO) test -tags=testnet -v -count=1 -timeout 60s ./test/integration/web3/
+	@echo "✓ Testnet integration tests complete"
 
 # Run monolithic service
 run-monolith: build-monolith
@@ -299,3 +314,13 @@ tree:
 	@echo "    ├── transcoder/          # Transcoder service"
 	@echo "    ├── upload/              # Upload service"
 	@echo "    └── streaming/           # Streaming service"
+
+# Full-chain Docker deployment and acceptance testing
+fullchain-deploy:
+	@./scripts/docker-deploy.sh --build
+
+fullchain-test:
+	@./scripts/fullchain-acceptance.sh
+
+fullchain-teardown:
+	@./scripts/docker-teardown.sh --volumes
