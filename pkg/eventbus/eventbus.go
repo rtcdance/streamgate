@@ -7,8 +7,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
 )
+
+// natsSub wraps a NATS subscription with its subscription ID and handler.
+type natsSub struct {
+	id      string
+	sub     *nats.Subscription
+	handler EventHandler
+	unsub   func()
+}
 
 // Event represents a domain event
 type Event struct {
@@ -164,34 +173,44 @@ func (bus *InMemoryEventBus) Close() error {
 	return nil
 }
 
-// NATSEventBus implements a NATS-based event bus
+// NATSEventBus implements a NATS-based event bus.
 type NATSEventBus struct {
-	nc            interface{}
-	js            interface{} //nolint:unused
+	nc            *nats.Conn
 	streamName    string
-	subscriptions map[string]interface{}
+	subscriptions map[string]*natsSub
 	mu            sync.RWMutex
 	logger        *zap.Logger
 	closed        bool
 }
 
-// NewNATSEventBus creates a new NATS event bus
+// NewNATSEventBus creates a new NATS event bus with a real connection.
+// url is the NATS server URL (e.g. "nats://localhost:4222").
 func NewNATSEventBus(url, streamName string, logger *zap.Logger) (*NATSEventBus, error) {
+	nc, err := nats.Connect(url, nats.RetryOnFailedConnect(true),
+		nats.MaxReconnects(10),
+		nats.ReconnectWait(2*time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+
+	logger.Info("Connected to NATS", zap.String("url", url), zap.String("stream", streamName))
+
 	return &NATSEventBus{
+		nc:            nc,
 		streamName:    streamName,
-		subscriptions: make(map[string]interface{}),
+		subscriptions: make(map[string]*natsSub),
 		logger:        logger,
 	}, nil
 }
 
-// Publish publishes an event to a topic
+// Publish publishes an event to a NATS subject as JSON.
 func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event) error {
-	if bus.closed {
-		return fmt.Errorf("event bus is closed")
-	}
+	bus.mu.RLock()
+	closed := bus.closed
+	bus.mu.RUnlock()
 
-	if bus.nc == nil {
-		return fmt.Errorf("NATS event bus not connected: cannot publish to topic %q", topic)
+	if closed {
+		return fmt.Errorf("event bus is closed")
 	}
 
 	if event.ID == "" {
@@ -206,7 +225,12 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	bus.logger.Debug("Publishing event to NATS",
+	if err := bus.nc.Publish(topic, data); err != nil {
+		return fmt.Errorf("failed to publish to NATS: %w", err)
+	}
+	bus.nc.FlushWithContext(ctx)
+
+	bus.logger.Debug("Published event to NATS",
 		zap.String("topic", topic),
 		zap.String("type", event.Type),
 		zap.String("id", event.ID),
@@ -215,17 +239,46 @@ func (bus *NATSEventBus) Publish(ctx context.Context, topic string, event Event)
 	return nil
 }
 
-// Subscribe subscribes to a topic
+// Subscribe subscribes to a NATS subject and delivers events to the handler.
 func (bus *NATSEventBus) Subscribe(ctx context.Context, topic string, handler EventHandler) (string, error) {
-	if bus.closed {
+	bus.mu.RLock()
+	closed := bus.closed
+	bus.mu.RUnlock()
+
+	if closed {
 		return "", fmt.Errorf("event bus is closed")
 	}
 
-	if bus.nc == nil {
-		return "", fmt.Errorf("NATS event bus not connected: cannot subscribe to topic %q", topic)
+	subID := generateSubscriptionID()
+	rawSub, err := bus.nc.Subscribe(topic, func(msg *nats.Msg) {
+		var event Event
+		if err := json.Unmarshal(msg.Data, &event); err != nil {
+			bus.logger.Error("Failed to unmarshal NATS event",
+				zap.String("topic", topic),
+				zap.Error(err))
+			return
+		}
+		if err := handler(ctx, event); err != nil {
+			bus.logger.Error("NATS event handler error",
+				zap.String("subscription", subID),
+				zap.String("topic", topic),
+				zap.Error(err))
+		}
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to subscribe to NATS: %w", err)
 	}
 
-	subID := generateSubscriptionID()
+	entry := &natsSub{
+		id:      subID,
+		sub:     rawSub,
+		handler: handler,
+		unsub:   func() { _ = rawSub.Unsubscribe() },
+	}
+
+	bus.mu.Lock()
+	bus.subscriptions[subID] = entry
+	bus.mu.Unlock()
 
 	bus.logger.Info("NATS subscription created",
 		zap.String("subscription", subID),
@@ -234,12 +287,18 @@ func (bus *NATSEventBus) Subscribe(ctx context.Context, topic string, handler Ev
 	return subID, nil
 }
 
-// Unsubscribe removes a subscription
+// Unsubscribe removes a NATS subscription.
 func (bus *NATSEventBus) Unsubscribe(ctx context.Context, subscriptionID string) error {
 	bus.mu.Lock()
-	defer bus.mu.Unlock()
-
+	entry, ok := bus.subscriptions[subscriptionID]
 	delete(bus.subscriptions, subscriptionID)
+	bus.mu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("subscription '%s' not found", subscriptionID)
+	}
+
+	entry.unsub()
 
 	bus.logger.Info("NATS subscription removed",
 		zap.String("subscription", subscriptionID))
@@ -247,13 +306,17 @@ func (bus *NATSEventBus) Unsubscribe(ctx context.Context, subscriptionID string)
 	return nil
 }
 
-// Close closes the event bus
+// Close closes the NATS connection and all subscriptions.
 func (bus *NATSEventBus) Close() error {
 	bus.mu.Lock()
-	defer bus.mu.Unlock()
-
 	bus.closed = true
-	bus.subscriptions = make(map[string]interface{})
+	for _, entry := range bus.subscriptions {
+		entry.unsub()
+	}
+	bus.subscriptions = make(map[string]*natsSub)
+	bus.mu.Unlock()
+
+	bus.nc.Close()
 	return nil
 }
 
@@ -471,12 +534,24 @@ func (es *EventStore) Clear() {
 	es.events = make([]Event, 0)
 }
 
-// generateEventID generates a unique event ID
+var (
+	eventIDCounter uint64
+	subIDCounter   uint64
+	idMu           sync.Mutex
+)
+
 func generateEventID() string {
-	return fmt.Sprintf("evt-%d", time.Now().UnixNano())
+	idMu.Lock()
+	counter := eventIDCounter
+	eventIDCounter++
+	idMu.Unlock()
+	return fmt.Sprintf("evt-%d-%d", time.Now().UnixNano(), counter)
 }
 
-// generateSubscriptionID generates a unique subscription ID
 func generateSubscriptionID() string {
-	return fmt.Sprintf("sub-%d", time.Now().UnixNano())
+	idMu.Lock()
+	counter := subIDCounter
+	subIDCounter++
+	idMu.Unlock()
+	return fmt.Sprintf("sub-%d-%d", time.Now().UnixNano(), counter)
 }
