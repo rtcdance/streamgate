@@ -16,9 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
-// maxDownloadSize caps the amount of data read into memory during Download.
-const maxDownloadSize int64 = 1 << 30 // 1 GB
-
 // S3Storage handles S3 storage
 type S3Storage struct {
 	client   *s3.S3
@@ -72,16 +69,16 @@ func (s3s *S3Storage) Upload(ctx context.Context, bucket, key string, data []byt
 	return s3s.UploadStream(ctx, bucket, key, bytes.NewReader(data), int64(len(data)))
 }
 
-// UploadStream uploads to S3 from an io.Reader using multipart upload,
-// which supports true streaming without buffering the entire content in memory.
 func (s3s *S3Storage) UploadStream(ctx context.Context, bucket, key string, reader io.Reader, size int64) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
+	contentType := detectContentTypeByExt(key)
 	_, err := s3s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-		Body:   reader,
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        reader,
+		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload to S3: %w", err)
@@ -109,23 +106,17 @@ func (s3s *S3Storage) UploadWithMetadata(ctx context.Context, bucket, key string
 	return nil
 }
 
-// Download downloads from S3
+// Download downloads from S3 and returns the entire content as a byte slice.
+// Only safe for objects smaller than maxDownloadSize (1 GB).
 func (s3s *S3Storage) Download(ctx context.Context, bucket, key string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	result, err := s3s.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-
+	rc, err := s3s.DownloadStream(ctx, bucket, key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to download from S3: %w", err)
+		return nil, err
 	}
-	defer func() { _ = result.Body.Close() }()
+	defer func() { _ = rc.Close() }()
 
 	buf := new(bytes.Buffer)
-	n, err := io.Copy(buf, io.LimitReader(result.Body, maxDownloadSize+1))
+	n, err := io.Copy(buf, io.LimitReader(rc, maxDownloadSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read S3 object: %w", err)
 	}
@@ -134,6 +125,33 @@ func (s3s *S3Storage) Download(ctx context.Context, bucket, key string) ([]byte,
 	}
 
 	return buf.Bytes(), nil
+}
+
+// DownloadStream returns an io.ReadCloser for streaming an object from S3.
+// The caller must close the reader when done.
+func (s3s *S3Storage) DownloadStream(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+
+	result, err := s3s.client.GetObjectWithContext(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to download from S3: %w", err)
+	}
+
+	return &readCloserWithCancelS3{ReadCloser: result.Body, cancel: cancel}, nil
+}
+
+type readCloserWithCancelS3 struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (r *readCloserWithCancelS3) Close() error {
+	defer r.cancel()
+	return r.ReadCloser.Close()
 }
 
 // Delete deletes from S3
@@ -198,10 +216,10 @@ func (s3s *S3Storage) ListObjects(ctx context.Context, bucket, prefix string) ([
 	return keys, nil
 }
 
-// GetPresignedURL generates a presigned URL for downloading
-func (s3s *S3Storage) GetPresignedURL(bucket, key string, expiration time.Duration) (string, error) {
+// PresignedURL generates a presigned URL for downloading
+func (s3s *S3Storage) PresignedURL(ctx context.Context, bucket, key string, expiration time.Duration) (string, error) {
 	// Validate that the object reference is valid before generating presigned URL.
-	if _, err := s3s.client.HeadObjectWithContext(context.Background(), &s3.HeadObjectInput{
+	if _, err := s3s.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	}); err != nil {

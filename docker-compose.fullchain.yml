@@ -1,0 +1,131 @@
+# Full-chain acceptance test: creator upload → wallet login → watch video
+# Usage: docker-compose -f docker-compose.fullchain.yml up --build
+# H5 Demo: open h5-demo/index.html in browser, set Backend URL to http://localhost:18080
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: sg-fc-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: streamgate
+    ports:
+      - "15432:5432"
+    volumes:
+      - fc-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: sg-fc-redis
+    ports:
+      - "16379:6379"
+    volumes:
+      - fc-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: sg-fc-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - fc-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: sg-fc-nats
+    command: "-js"
+    ports:
+      - "14222:4222"
+    volumes:
+      - fc-nats-data:/data
+    healthcheck:
+      test: ["CMD", "nats-server", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: sg-fc-anvil
+    # Anvil: local Ethereum testnet on chain ID 31337 with pre-funded accounts
+    # --host 0.0.0.0 is required for Docker port mapping to work
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
+    ports:
+      - "18545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "rpc", "eth_chainId"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  streamgate:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.monolith
+    container_name: sg-fc-monolith
+    ports:
+      - "18080:8080"
+      - "19090:9090"
+    environment:
+      - APP_DEBUG=true
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=postgres
+      - DATABASE_NAME=streamgate
+      - DATABASE_SSLMODE=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - STORAGE_TYPE=minio
+      - STORAGE_ENDPOINT=minio:9000
+      - STORAGE_ACCESSKEY=minioadmin
+      - STORAGE_SECRETKEY=minioadmin
+      - STORAGE_BUCKET=streamgate
+      - NATS_URL=nats://nats:4222
+      - AUTH_JWT_SECRET=fullchain-acceptance-secret
+      - WEB3_ETHEREUM_RPC=http://anvil:8545
+      - WEB3_CHAIN_ID=31337
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  fc-postgres-data:
+  fc-redis-data:
+  fc-minio-data:
+  fc-nats-data:

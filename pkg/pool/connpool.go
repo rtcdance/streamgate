@@ -9,6 +9,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// wakeChan is a channel-based signal for waking blocked Get callers.
+// Allows select on ctx.Done() for context-aware waiting.
+type wakeChan chan struct{}
+
+func newWakeChan() wakeChan { return make(wakeChan, 1) }
+
+func (w wakeChan) ping() {
+	select {
+	case w <- struct{}{}:
+	default:
+	}
+}
+
 // Connection represents a connection in the pool
 type Connection interface {
 	Close() error
@@ -45,7 +58,7 @@ type ConnectionPool struct {
 	idle          []Connection
 	active        []Connection
 	mu            sync.Mutex
-	cond          *sync.Cond
+	wake          wakeChan
 	logger        *zap.Logger
 	closed        bool
 	stats         PoolStats
@@ -81,9 +94,9 @@ func NewConnectionPool(config PoolConfig, factory func() (Connection, error), lo
 		idle:    make([]Connection, 0, config.MaxIdle),
 		active:  make([]Connection, 0, config.MaxOpen),
 		logger:  logger,
+		wake:    newWakeChan(),
 		stats:   PoolStats{MaxOpen: config.MaxOpen},
 	}
-	pool.cond = sync.NewCond(&pool.mu)
 
 	pool.startHealthChecker()
 	return pool
@@ -122,13 +135,14 @@ func (p *ConnectionPool) Get(ctx context.Context) (Connection, error) {
 			return conn, nil
 		}
 
+		wake := p.wake
+		p.mu.Unlock()
 		select {
 		case <-ctx.Done():
-			p.mu.Unlock()
 			return nil, ctx.Err()
-		default:
-			p.cond.Wait()
+		case <-wake:
 		}
+		p.mu.Lock()
 	}
 }
 
@@ -149,23 +163,21 @@ func (p *ConnectionPool) Put(conn Connection) error {
 	}
 
 	if !conn.IsHealthy() {
-		return p.Close(conn)
+		return p.closeLocked(conn)
 	}
 
 	if len(p.idle) >= p.config.MaxIdle {
-		return p.Close(conn)
+		return p.closeLocked(conn)
 	}
 
 	p.idle = append(p.idle, conn)
-	p.cond.Signal()
+	p.wake.ping()
 	return nil
 }
 
-// Close closes a connection
-func (p *ConnectionPool) Close(conn Connection) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+// closeLocked removes conn from idle list and closes it.
+// Caller must hold p.mu.
+func (p *ConnectionPool) closeLocked(conn Connection) error {
 	for i, c := range p.idle {
 		if c == conn {
 			p.idle = append(p.idle[:i], p.idle[i+1:]...)
@@ -178,6 +190,13 @@ func (p *ConnectionPool) Close(conn Connection) error {
 	p.stats.IdleConnections = len(p.idle)
 	p.stats.OpenConnections = len(p.active) + len(p.idle)
 	return err
+}
+
+// Close closes a connection.
+func (p *ConnectionPool) Close(conn Connection) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.closeLocked(conn)
 }
 
 // createConnection creates a new connection
@@ -275,7 +294,7 @@ func (p *ConnectionPool) Shutdown() error {
 
 	p.idle = nil
 	p.active = nil
-	p.cond.Broadcast()
+	p.wake.ping()
 
 	return lastErr
 }

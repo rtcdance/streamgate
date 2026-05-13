@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,8 +146,25 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	taskCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
+	// Resolve input: download HTTP URLs to a local temp file so FFmpeg
+	// always has a local path to work with. Skip for non-HTTP paths.
+	inputPath := task.InputURL
+	var downloadedFile string
+	if strings.HasPrefix(inputPath, "http://") || strings.HasPrefix(inputPath, "https://") {
+		local, err := s.downloadInputFile(taskCtx, inputPath)
+		if err != nil {
+			task.Status = "failed"
+			task.Error = fmt.Sprintf("failed to download input: %v", err)
+			s.storeTask(task)
+			return
+		}
+		downloadedFile = local
+		inputPath = local
+		defer func() { _ = os.Remove(downloadedFile) }()
+	}
+
 	// Run transcode with progress tracking
-	err = s.transcoder.TranscodeToHLS(taskCtx, task.InputURL, outputDir, profile, func(progress float64) {
+	err = s.transcoder.TranscodeToHLS(taskCtx, inputPath, outputDir, profile, func(progress float64) {
 		task.Progress = int(progress)
 		s.storeTask(task)
 	})
@@ -222,6 +240,43 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 	})
 }
 
+// downloadInputFile downloads an HTTP URL to a local temp file and returns
+// the path. The caller is responsible for cleaning up the file.
+func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, inputURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download input: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download input returned status %d", resp.StatusCode)
+	}
+
+	// Create temp file with appropriate extension
+	ext := filepath.Ext(inputURL)
+	if ext == "" {
+		ext = ".mp4"
+	}
+	f, err := os.CreateTemp("", "streamgate-input-*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("write temp file: %w", err)
+	}
+
+	return f.Name(), nil
+}
+
 // TranscodingQueue defines the interface for task queue
 // VideoTranscoder defines the interface for video transcoding operations.
 // Implemented by FFmpegTranscoder in pkg/plugins/transcoder.
@@ -237,6 +292,7 @@ type SegmentStorage interface {
 	UploadStream(ctx context.Context, bucket, objectName string, reader io.Reader, size int64) error
 	UploadWithContentType(ctx context.Context, bucket, objectName string, data []byte, contentType string) error
 	Download(ctx context.Context, bucket, objectName string) ([]byte, error)
+	DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error)
 	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
 	Exists(ctx context.Context, bucket, objectName string) (bool, error)
 }
@@ -365,6 +421,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 
 	var task TranscodingTask
 	var startedAt, completedAt sql.NullTime
+	var taskErr sql.NullString
 	var metadataJSON []byte
 
 	err := s.db.QueryRow(ctx, query, taskID).Scan(
@@ -375,7 +432,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 		&task.Progress,
 		&task.InputURL,
 		&task.OutputURL,
-		&task.Error,
+		&taskErr,
 		&task.Priority,
 		&task.CreatedAt,
 		&startedAt,
@@ -388,6 +445,8 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query task: %w", err)
 	}
+
+	task.Error = taskErr.String
 
 	// Handle nullable timestamps
 	if startedAt.Valid {
@@ -470,11 +529,21 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 		})
 	}
 
+	var contentID string
+	_ = s.db.QueryRow(ctx, "SELECT content_id FROM transcoding_tasks WHERE id = $1", taskID).Scan(&contentID)
+
 	query := "UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5 WHERE id = $1"
 	_, err := s.db.Exec(ctx, query, taskID, "completed", 100, outputURL, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to complete task: %w", err)
 	}
+
+	// Update the associated content status to ready when transcode succeeds
+	if contentID != "" {
+		_, _ = s.db.Exec(ctx, "UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1",
+			contentID, "ready", time.Now())
+	}
+
 	return nil
 }
 
@@ -522,6 +591,7 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 	for rows.Next() {
 		var task TranscodingTask
 		var startedAt, completedAt sql.NullTime
+		var taskErr sql.NullString
 		var metadataJSON []byte
 
 		err := rows.Scan(
@@ -532,7 +602,7 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 			&task.Progress,
 			&task.InputURL,
 			&task.OutputURL,
-			&task.Error,
+			&taskErr,
 			&task.Priority,
 			&task.CreatedAt,
 			&startedAt,
@@ -543,6 +613,8 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
 		}
+
+		task.Error = taskErr.String
 
 		// Handle nullable timestamps
 		if startedAt.Valid {
@@ -688,6 +760,7 @@ func (s *TranscodingService) GetPendingTasks(ctx context.Context, limit int) ([]
 	for rows.Next() {
 		var task TranscodingTask
 		var startedAt, completedAt sql.NullTime
+		var taskErr sql.NullString
 		var metadataJSON []byte
 
 		err := rows.Scan(
@@ -698,7 +771,7 @@ func (s *TranscodingService) GetPendingTasks(ctx context.Context, limit int) ([]
 			&task.Progress,
 			&task.InputURL,
 			&task.OutputURL,
-			&task.Error,
+			&taskErr,
 			&task.Priority,
 			&task.CreatedAt,
 			&startedAt,
@@ -709,6 +782,8 @@ func (s *TranscodingService) GetPendingTasks(ctx context.Context, limit int) ([]
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
 		}
+
+		task.Error = taskErr.String
 
 		// Handle nullable timestamps
 		if startedAt.Valid {

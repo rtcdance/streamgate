@@ -94,6 +94,7 @@ type RouterConfig struct {
 	ChallengeStore service.ChallengeStore
 	NFTVerifier    middleware.NFTOwnershipChecker
 	ContentService *service.ContentService
+	UploadService  *service.UploadService
 }
 
 // RouterOption configures a RouterConfig.
@@ -127,6 +128,11 @@ func WithNFTVerifier(v middleware.NFTOwnershipChecker) RouterOption {
 // WithContentService injects a ContentService for content routes.
 func WithContentService(svc *service.ContentService) RouterOption {
 	return func(c *RouterConfig) { c.ContentService = svc }
+}
+
+// WithUploadService injects an UploadService for upload routes.
+func WithUploadService(svc *service.UploadService) RouterOption {
+	return func(c *RouterConfig) { c.UploadService = svc }
 }
 
 // SetupRouter initializes all services and configures the gin router with the
@@ -310,6 +316,23 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		service.WithStorage(objStorage),
 	)
 	transcodingSvc.StartWorker(&zapRouterInfoLogger{log.Named("transcode-worker")})
+
+	// Initialize upload service (wires UploadService to DB + object storage)
+	var uploadSvc *service.UploadService
+	if rc.UploadService != nil {
+		uploadSvc = rc.UploadService
+	} else if db != nil && objStorage != nil {
+		// objStorage is SegmentStorage (no Delete); MinIOStorage also implements
+		// UploadObjectStorage (with Delete) and PresignedURLer.
+		if uploadObj, ok := objStorage.(service.UploadObjectStorage); ok {
+			uploadSvc = service.NewUploadService(db, uploadObj, "streamgate", log.Named("upload"))
+			if presigner, ok := objStorage.(service.PresignedURLer); ok {
+				uploadSvc.SetPresigner(presigner)
+			}
+		} else {
+			log.Warn("Object storage does not implement UploadObjectStorage, upload service disabled")
+		}
+	}
 	// Plugin handlers use MetricsCollector which bridges to Prometheus;
 	// promhttp.Handler() on /metrics is the single source of truth.
 
@@ -397,6 +420,13 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	})
 	router.StaticFile("/docs/swagger.yaml", filepath.Join(".", "docs", "swagger.yaml"))
 
+	// H5 Demo (creator upload + wallet login + video playback)
+	// Serves from ./h5-demo/ directory when present (bundled in Docker image)
+	if _, err := os.Stat("./h5-demo"); err == nil {
+		router.Static("/demo", "./h5-demo")
+		log.Info("H5 Demo served at /demo/")
+	}
+
 	// Public routes (no JWT required)
 	jwtConfig := middleware.JWTAuthConfig{
 		Secret:    cfg.Auth.JWTSecret,
@@ -414,6 +444,13 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	RegisterAuthRoutes(router, log, authService)
 	RegisterWeb3Routes(router, log, web3Svc)
 
+	// Segment route: registered on the bare router (no JWT middleware).
+	// The handler validates playback_token from the query string — a short-lived
+	// JWT-signed token embedded in the manifest by the streaming handler.
+	// Placing this outside authGroup avoids double-auth and allows HLS players
+	// to fetch segments without an Authorization header.
+	RegisterStreamingSegmentRoute(router, log, authService, objStorage, cfg.Storage.Bucket)
+
 	// JWT-protected routes
 	authGroup := router.Group("/")
 	authGroup.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
@@ -427,7 +464,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		}))
 		RegisterNFTRoutes(nftCBGroup, log, nftVerifier, &NFTAccessCacheAdapter{Cache: nftCache}, cfg.Web3.ChainID, 60*time.Second)
 
-		RegisterUploadRoutes(authGroup, log, objStorage)
+		RegisterUploadRoutes(authGroup, log, uploadSvc)
 
 		nftGateConfig := middleware.NFTGateConfig{
 			Verifier:       nftVerifier,
@@ -438,9 +475,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, log))
-		RegisterStreamingRoutes(nftGroup, log, authService, objStorage)
-
-		RegisterStreamingSegmentRoute(authGroup, log, authService, objStorage)
+		RegisterStreamingRoutes(nftGroup, log, authService, objStorage, cfg.Storage.Bucket)
 
 		RegisterContentRoutes(authGroup, log, contentSvc)
 		RegisterTranscodingRoutes(authGroup, log, transcodingSvc)
