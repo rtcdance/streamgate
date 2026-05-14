@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StreamGate Debug Learn</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+body{margin:0;padding:16px;background:var(--bg)}
+.container{max-width:960px;margin:0 auto}
+h1{font-size:20px;margin-bottom:4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:12px}
+.steps{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.step-btn{flex:1;min-width:120px;padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;text-align:center;font-size:13px;cursor:pointer;transition:.2s}
+.step-btn:hover{border-color:var(--primary)}
+.step-btn.active{border-color:var(--primary);background:rgba(88,166,255,.1)}
+.step-btn.done{opacity:1;border-color:var(--success)}
+.step-btn .num{display:block;font-size:18px;font-weight:700}
+.step-btn .lbl{color:var(--muted);font-size:11px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:12px;display:none}
+.card.active{display:block}
+.card h2{font-size:15px;margin:0 0 8px 0}
+.card .desc{font-size:13px;color:var(--muted);margin-bottom:12px}
+.code-hint{background:var(--bg);border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;margin-bottom:10px;border-left:3px solid var(--primary)}
+.code-hint strong{color:var(--accent)}
+.breakpoint-hint{padding:6px 10px;background:rgba(210,168,255,.1);border-left:3px solid var(--accent);border-radius:4px;font-size:12px;margin-bottom:10px}
+.action-row{margin:10px 0}
+.btn{padding:8px 20px;border:none;border-radius:6px;font-size:13px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;gap:6px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-success{background:var(--success);color:#fff}
+.btn-secondary{background:#21262d;color:var(--text);border:1px solid var(--border)}
+.btn-drain{background:rgba(248,81,73,.8);color:#fff}
+.timeline{background:var(--bg);border-radius:6px;padding:10px;margin-top:8px;font-family:monospace;font-size:12px;max-height:300px;overflow:auto;display:none;white-space:pre-wrap}
+.timeline.show{display:block}
+.timeline .req{color:var(--primary)}
+.timeline .ok{color:var(--success)}
+.timeline .err{color:var(--danger)}
+.form-group{margin-bottom:8px}
+.form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:2px}
+.input{width:100%;padding:6px 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--text);font-size:13px}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;margin-left:6px;background:var(--border);color:var(--muted)}
+.tag-file{background:rgba(88,166,255,.15);color:var(--primary)}
+.tag-bp{background:rgba(210,168,255,.15);color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:180px}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔍 StreamGate Debug Learn</h1>
+  <p class="sub">Combine with a Go debugger (Delve/VS Code). Each step triggers a specific code path. Set breakpoints at the suggested locations.</p>
+
+  <div class="steps" id="step-nav">
+    <div class="step-btn active" data-step="health"><span class="num">01</span><span class="lbl">Health</span></div>
+    <div class="step-btn" data-step="auth"><span class="num">02</span><span class="lbl">Auth</span></div>
+    <div class="step-btn" data-step="nft"><span class="num">03</span><span class="lbl">NFT</span></div>
+    <div class="step-btn" data-step="upload"><span class="num">04</span><span class="lbl">Upload</span></div>
+    <div class="step-btn" data-step="transcode"><span class="num">05</span><span class="lbl">Transcode</span></div>
+    <div class="step-btn" data-step="play"><span class="num">06</span><span class="lbl">Playback</span></div>
+  </div>
+
+  <!-- Step 1: Health -->
+  <div class="card active" id="s-health">
+    <h2>🏥 Health Check <span class="tag tag-file">gateway/gateway.go</span></h2>
+    <p class="desc">The simplest code path: no auth, no DB. Starts at the Gin router, returns JSON.</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/gateway/gateway.go:420</code> (health handler), <code>pkg/gateway/errors.go:47</code> (abortWithError)</div>
+    <div class="code-hint"><strong>Code path:</strong> Gin router → <code>pkg/gateway/gateway.go</code> health handler → <code>pkg/health/checker.go:249</code> → check functions</div>
+    <div class="action-row"><button class="btn btn-primary" onclick="callAPI('GET','/health','health')">Send Health Check</button></div>
+    <div class="timeline" id="tl-health"></div>
+  </div>
+
+  <!-- Step 2: Auth -->
+  <div class="card" id="s-auth">
+    <h2>🔐 Wallet Auth Flow <span class="tag tag-file">gateway/auth_handlers.go</span></h2>
+    <p class="desc">Challenge → EIP-191 signature → JWT. Uses the Anvil test account (no MetaMask needed).</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/gateway/auth_handlers.go:70</code> (challenge), <code>pkg/web3/signature.go:37</code> (VerifySignature), <code>pkg/gateway/auth_handlers.go:120</code> (login)</div>
+    <div class="code-hint"><strong>Code path:</strong> challenge handler → <code>pkg/service/auth_wallet.go:409</code> GenerateWalletChallenge → verify handler → <code>pkg/web3/signature.go:68</code> SigToPub → <code>pkg/service/auth_wallet.go:546</code> generateWalletToken</div>
+    <div class="action-row"><button class="btn btn-primary" onclick="runAuthFlow()">Run Auth Flow</button></div>
+    <div class="timeline" id="tl-auth"></div>
+  </div>
+
+  <!-- Step 3: NFT -->
+  <div class="card" id="s-nft">
+    <h2>🪙 NFT Verification <span class="tag tag-file">web3/nft.go</span></h2>
+    <p class="desc">EVM contract call via ABI-encoded data. Demonstrates eth_call, ABI.Pack/Unpack, and error handling.</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/web3/nft.go:75</code> (VerifyNFTOwnership), <code>pkg/web3/nft.go:92-96</code> (ABI.Pack), <code>pkg/web3/nft.go:127</code> (result validation)</div>
+    <div class="code-hint"><strong>Code path:</strong> NFT handler → <code>pkg/gateway/nft_handlers.go:55</code> → <code>pkg/web3/nft.go:100</code> CallContractAtBlock → ABI decode → address comparison</div>
+    <div class="action-row"><button class="btn btn-primary" onclick="callNFT()">Verify NFT</button></div>
+    <div class="timeline" id="tl-nft"></div>
+  </div>
+
+  <!-- Step 4: Upload -->
+  <div class="card" id="s-upload">
+    <h2>📤 Upload + Format Validation <span class="tag tag-file">gateway/upload_handlers.go</span></h2>
+    <p class="desc">Two code paths: valid MP4 goes through → invalid file is rejected at magic byte check.</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/gateway/upload_handlers.go:131</code> (handleWholeFileUpload), <code>pkg/gateway/upload_handlers.go:148</code> (readFileHeader), <code>pkg/gateway/upload_handlers.go:50</code> (detectVideoFormat), <code>pkg/gateway/upload_handlers.go:153</code> (format check), <code>pkg/service/upload.go:154</code> (UploadStream)</div>
+    <div class="code-hint"><strong>Code path:</strong> upload handler → <code>readFileHeader</code> → <code>detectVideoFormat</code> (magic bytes loop) → <code>UploadStream</code> → <code>saveUploadInfo</code></div>
+    <div class="row">
+      <div><button class="btn btn-success" onclick="uploadValid()">Upload Valid MP4</button></div>
+      <div><button class="btn btn-drain" onclick="uploadInvalid()">Upload Invalid File</button></div>
+    </div>
+    <div class="timeline" id="tl-upload"></div>
+  </div>
+
+  <!-- Step 5: Transcode -->
+  <div class="card" id="s-transcode">
+    <h2>🛠️ Transcode Pipeline <span class="tag tag-file">service/transcoding.go</span></h2>
+    <p class="desc">Submits a transcode job. Follow the job creation → status poll → completion path.</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/gateway/transcode_handlers.go:36</code> (handleTranscodeSubmit), <code>pkg/service/transcoding.go:180</code> (Transcode / processTask), <code>pkg/service/transcoding.go:520</code> (CompleteTask → content.status='ready')</div>
+    <div class="code-hint"><strong>Code path:</strong> transcode handler → <code>TranscodingService.Transcode</code> → FFmpeg execution → segment upload → <code>CompleteTask</code></div>
+    <div class="row">
+      <div class="form-group"><label>Content ID</label><input type="text" id="tc-cid" class="input" placeholder="from upload step"></div>
+      <div class="form-group"><label>Input URL</label><input type="text" id="tc-url" class="input" placeholder="https://..."></div>
+    </div>
+    <div class="action-row"><button class="btn btn-primary" onclick="submitTranscode()">Submit Transcode</button></div>
+    <div class="timeline" id="tl-transcode"></div>
+  </div>
+
+  <!-- Step 6: Playback -->
+  <div class="card" id="s-play">
+    <h2>🎬 Protected Playback <span class="tag tag-file">gateway/streaming_handlers.go</span></h2>
+    <p class="desc">NFT-gated HLS manifest delivery. Requires valid JWT + NFT ownership.</p>
+    <div class="breakpoint-hint"><strong>📍 Breakpoints:</strong> <code>pkg/middleware/nft_gate.go:57</code> (NFTGateMiddleware), <code>pkg/gateway/streaming_handlers.go:17</code> (manifest handler), <code>pkg/gateway/streaming_handlers.go:59</code> (segment handler)</div>
+    <div class="code-hint"><strong>Code path:</strong> JWTAuthMiddleware → NFTGateMiddleware → manifest handler → <code>authService.GeneratePlaybackToken</code> → <code>objStorage.ListObjects</code></div>
+    <div class="row">
+      <div class="form-group"><label>Content ID</label><input type="text" id="play-cid" class="input" placeholder="content_id from upload"></div>
+    </div>
+    <div class="action-row"><button class="btn btn-success" onclick="requestManifest()">Request Manifest</button></div>
+    <div class="timeline" id="tl-play"></div>
+  </div>
+</div>
+
+<script>
+const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
+const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+const JWT_SECRET = 'fullchain-acceptance-secret';
+let TOKEN = null;
+
+// ---- helpers ----
+async function genToken(addr) {
+  const h = btoa('{"alg":"HS256","typ":"JWT"}').replace(/=/g,'');
+  const p = btoa(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'dbg-'+crypto.randomUUID()})).replace(/=/g,'');
+  const k = await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const s = await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
+  return h+'.'+p+'.'+btoa(String.fromCharCode(...new Uint8Array(s))).replace(/=/g,'');
+}
+
+function el(id){return document.getElementById(id)}
+
+function step(name){
+  document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('.step-btn').forEach(b=>b.classList.remove('active'));
+  el('s-'+name).classList.add('active');
+  document.querySelector(`.step-btn[data-step="${name}"]`).classList.add('active');
+}
+document.querySelectorAll('.step-btn').forEach(b=>b.addEventListener('click',()=>step(b.dataset.step)));
+
+function tl(name,lines){
+  let html = '';
+  lines.forEach(l => {
+    const cls = l.startsWith('→') ? 'req' : l.startsWith('✗') ? 'err' : l.startsWith('✓') ? 'ok' : '';
+    html += `<div class="${cls}">${l}</div>`;
+  });
+  const e = el('tl-'+name);
+  e.innerHTML = html + '<hr style="border-color:var(--line);margin:4px 0">' + e.innerHTML;
+  e.classList.add('show');
+}
+
+async function callAPI(method,path,name,body,extraHeaders){
+  const url = API + path;
+  const headers = {'Content-Type':'application/json',...extraHeaders};
+  if (TOKEN) headers['Authorization'] = 'Bearer '+TOKEN;
+  const start = performance.now();
+  const lines = [`→ ${method} ${path}`];
+  try {
+    const r = await fetch(url,{method,headers,body:body?JSON.stringify(body):undefined});
+    const t = await r.text();
+    const ms = Math.round(performance.now()-start);
+    if (r.ok) lines.push(`✓ ${r.status} (${ms}ms): ${t.slice(0,200)}`);
+    else lines.push(`✗ ${r.status} (${ms}ms): ${t.slice(0,200)}`);
+    tl(name,lines);
+    return r.ok ? t : null;
+  } catch(e) {
+    lines.push(`✗ ${e.message}`);
+    tl(name,lines);
+    return null;
+  }
+}
+
+// Step 1: Health
+// Already handled by onclick in HTML
+
+// Step 2: Auth flow
+async function runAuthFlow() {
+  tl('auth',['=== Auth Flow ===']);
+  // Challenge
+  const r1 = await fetch(API+'/api/v1/auth/challenge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:ANVIL_ADDR})});
+  const d1 = await r1.json();
+  if (!d1.challenge_id) return tl('auth',['✗ challenge failed']);
+  tl('auth',[`✓ challenge_id: ${d1.challenge_id}`,`  → pkg/service/auth_wallet.go:409 GenerateWalletChallenge`]);
+
+  // Generate token directly (for non-MetaMask debug mode)
+  TOKEN = await genToken(ANVIL_ADDR);
+  tl('auth',[`✓ JWT generated (HS256, wallet=${ANVIL_ADDR.slice(0,10)}...)`,`  → pkg/service/auth.go:147 signToken`]);
+
+  // Verify
+  const r2 = await fetch(API+'/api/v1/auth/verify',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({address:ANVIL_ADDR,challenge_id:d1.challenge_id,signature:'0x'+'0'.repeat(130)})});
+  tl('auth',[`✓ verify endpoint: ${r2.status} (signature may be invalid, that's OK)`,`  → pkg/web3/signature.go:37 VerifySignature`]);
+}
+
+// Step 3: NFT
+async function callNFT() {
+  TOKEN = TOKEN || await genToken(ANVIL_ADDR);
+  const r = await fetch(API+'/api/v1/nft/verify?contract=0xDEAD000000000000000000000000000000000001&chain_id=31337&wallet='+ANVIL_ADDR,{headers:{'Authorization':'Bearer '+TOKEN}});
+  const t = await r.text();
+  tl('nft',[`→ GET /api/v1/nft/verify`,`✓ ${r.status}: ${t.slice(0,200)}`,`  → pkg/web3/nft.go:75 VerifyNFTOwnership`,`  → pkg/web3/chain.go:127 CallContractAtBlock (BlockTagSafe)`]);
+}
+
+// Step 4: Upload
+async function uploadValid() {
+  TOKEN = TOKEN || await genToken(ANVIL_ADDR);
+  const mp4 = new Uint8Array([0x00,0x00,0x00,0x18,0x66,0x74,0x79,0x70,0x69,0x73,0x6F,0x6D,0x00,0x00,0x00,0x01]);
+  const fd = new FormData(); fd.append('file',new Blob([mp4],{type:'video/mp4'}),'debug.mp4');
+  tl('upload',['→ POST /api/v1/upload (valid MP4, 16 bytes)','  → pkg/gateway/upload_handlers.go:155 ext validation','  → pkg/gateway/upload_handlers.go:169 readFileHeader','  → pkg/gateway/upload_handlers.go:50 detectVideoFormat']);
+  const r = await fetch(API+'/api/v1/upload',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN},body:fd});
+  const t = await r.text();
+  tl('upload',[`✓ ${r.status}: ${t.slice(0,200)}`,`  → pkg/service/upload.go:154 UploadStream (TeeReader + SHA-256)`]);
+}
+
+async function uploadInvalid() {
+  TOKEN = TOKEN || await genToken(ANVIL_ADDR);
+  const fd = new FormData(); fd.append('file',new Blob(['hello this is text'],{type:'text/plain'}),'hack.exe');
+  tl('upload',['→ POST /api/v1/upload (invalid .exe)','  → pkg/gateway/upload_handlers.go:155 ext=.exe → REJECTED']);
+  const r = await fetch(API+'/api/v1/upload',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN},body:fd});
+  const t = await r.text();
+  tl('upload',[`✗ ${r.status}: ${t.slice(0,200)} (expected — .exe not allowed)`]);
+
+  const fd2 = new FormData(); fd2.append('file',new Blob(['plain text data'],{type:'text/plain'}),'test.mp4');
+  tl('upload',['→ POST /api/v1/upload (mp4 ext but text content)','  → pkg/gateway/upload_handlers.go:169 readFileHeader','  → pkg/gateway/upload_handlers.go:50 detectVideoFormat → ""','  → pkg/gateway/upload_handlers.go:179 format mismatch → REJECTED']);
+  const r2 = await fetch(API+'/api/v1/upload',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN},body:fd2});
+  const t2 = await r2.text();
+  tl('upload',[`✗ ${r2.status}: ${t2.slice(0,200)} (expected — text != mp4 format)`]);
+}
+
+// Step 5: Transcode
+async function submitTranscode() {
+  TOKEN = TOKEN || await genToken(ANVIL_ADDR);
+  const cid = el('tc-cid').value || 'demo-content';
+  const url = el('tc-url').value || 'https://example.com/input.mp4';
+  const r = await fetch(API+'/api/v1/transcode/submit',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({content_id:cid,profile:'720p',input_url:url})});
+  const t = await r.text();
+  tl('transcode',[`→ POST /api/v1/transcode/submit (content_id=${cid})`,`  → pkg/gateway/transcode_handlers.go:36 handleTranscodeSubmit`,`✓ ${r.status}: ${t.slice(0,200)}`]);
+  try {
+    const d = JSON.parse(t);
+    const jid = d.task_id || d.job_id || d.transcode_id || d.id;
+    if (jid) tl('transcode',[`  → pkg/service/transcoding.go:180 processTask (job_id=${jid})`]);
+  } catch(e) {}
+}
+
+// Step 6: Playback
+async function requestManifest() {
+  TOKEN = TOKEN || await genToken(ANVIL_ADDR);
+  const cid = el('play-cid').value || 'demo';
+  const r = await fetch(API+`/api/v1/streaming/${cid}/manifest.m3u8?contract=0xDEAD000000000000000000000000000000000001&chain_id=31337`,{headers:{'Authorization':'Bearer '+TOKEN}});
+  const t = await r.text();
+  tl('play',[`→ GET /api/v1/streaming/${cid}/manifest.m3u8`,`  → pkg/middleware/auth.go:31 JWTAuthMiddleware (JWT validation)`,`  → pkg/middleware/nft_gate.go:57 NFTGateMiddleware (NFT check)`,`  → pkg/gateway/streaming_handlers.go:17 manifest handler`,`✓ ${r.status}: ${t.slice(0,200)}`]);
+}
+
+// Init: pre-generate token
+(async()=>{
+  TOKEN = await genToken(ANVIL_ADDR);
+  document.querySelectorAll('.step-btn').forEach(b=>{
+    if(!b.classList.contains('active')) b.classList.add('done');
+  });
+})();
+</script>
+</body>
+</html>
