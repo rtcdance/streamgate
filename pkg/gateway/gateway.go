@@ -238,6 +238,17 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	transcodingSvc := initTranscodingService(cfg, log, db, objStorage, resources)
 	resources.TranscodingSvc = transcodingSvc
 
+	if transcodingSvc != nil {
+		transcodingSvc.RegisterPostTranscodeHook(func(ctx context.Context, contentID, profile, outputURL string) {
+			manifestCacheMu.Lock()
+			delete(manifestCache, contentID)
+			manifestCacheMu.Unlock()
+			segmentIndexCacheMu.Lock()
+			delete(segmentIndexCache, contentID)
+			segmentIndexCacheMu.Unlock()
+		})
+	}
+
 	uploadSvc := initUploadService(rc, cfg, log, db, objStorage, transcodingSvc)
 	resources.UploadService = uploadSvc
 
@@ -735,6 +746,13 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, log))
+		nftGroup.Use(func(c *gin.Context) {
+			if core.IsDraining() {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
+				return
+			}
+			c.Next()
+		})
 		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, cfg.Storage.Bucket)
 
 		RegisterContentRoutes(authGroup, log, svc.ContentService)

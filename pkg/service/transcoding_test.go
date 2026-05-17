@@ -36,6 +36,10 @@ func (q *fakeTranscodingQueue) Nak(taskID string) error {
 	return nil
 }
 
+func (q *fakeTranscodingQueue) Depth() (int, error) {
+	return 0, nil
+}
+
 func TestTranscodingService_Transcode(t *testing.T) {
 	queue := &fakeTranscodingQueue{}
 	service := NewTranscodingService(nil, queue)

@@ -56,4 +56,5 @@ type TranscodingQueue interface {
 	GetStatus(taskID string) (string, error)
 	Ack(taskID string) error
 	Nak(taskID string) error
+	Depth() (int, error)
 }

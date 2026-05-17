@@ -32,6 +32,10 @@ func (m *mockTranscodingQueue) Nak(taskID string) error {
 	return nil
 }
 
+func (m *mockTranscodingQueue) Depth() (int, error) {
+	return 0, nil
+}
+
 func TestE2E_TranscodingFlow(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)

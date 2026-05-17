@@ -14,9 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"streamgate/pkg/models"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/storage"
 
 	"github.com/google/uuid"
@@ -39,8 +41,14 @@ type TranscodingService struct {
 	cancelMu    sync.Mutex
 	httpClient          *http.Client
 	workerCount         int
-	uploadConcurrency    int
+	uploadConcurrency   int
 	transcodeHooks      []PostTranscodeHook
+
+	minWorkers      int
+	maxWorkers      int
+	currentWorkers  int32
+	extraCancels    []context.CancelFunc
+	extraMu         sync.Mutex
 }
 
 const defaultUploadConcurrency = 5
@@ -93,6 +101,25 @@ func WithWorkerCount(n int) TranscodingOption {
 	return func(s *TranscodingService) {
 		if n > 0 {
 			s.workerCount = n
+			if s.minWorkers <= 0 {
+				s.minWorkers = n
+			}
+		}
+	}
+}
+
+func WithMinWorkers(n int) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.minWorkers = n
+		}
+	}
+}
+
+func WithMaxWorkers(n int) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.maxWorkers = n
 		}
 	}
 }
@@ -122,81 +149,89 @@ func (s *TranscodingService) StartWorker(log interface {
 	s.cancel = cancel
 	s.cancelMu.Unlock()
 
-	workers := s.workerCount
-	if workers <= 0 {
-		workers = 1
+	initWorkers := s.minWorkers
+	if initWorkers <= 0 {
+		initWorkers = 1
+	}
+	if s.maxWorkers <= 0 {
+		s.maxWorkers = max(initWorkers*4, 8)
+	}
+	if s.minWorkers <= 0 {
+		s.minWorkers = initWorkers
 	}
 
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		workerID := i
-		go func() {
-			defer wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					if log != nil {
-						log.Info("TranscodingService: worker panic recovered", "worker", workerID, "panic", r)
-					}
-				}
-			}()
-			if log != nil {
-				log.Info("TranscodingService: worker started", "worker", workerID)
-			}
-			for {
-				task, err := s.queue.Dequeue(ctx)
-				if err != nil {
-					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						if log != nil {
-							log.Info("TranscodingService: worker stopped", "worker", workerID)
-						}
-						return
-					}
-					continue
-				}
-
-				if task.Metadata == nil {
-					task.Metadata = make(map[string]interface{})
-				}
-
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							if log != nil {
-								log.Info("TranscodingService: task panic recovered, continuing loop",
-									"task_id", task.ID, "panic", r)
-							}
-						}
-					}()
-					s.processTask(ctx, task, log)
-				}()
-
-				if task.Status == "failed" {
-					retryCount := getRetryCount(task)
-					if retryCount < defaultMaxRetries {
-						setRetryCount(task, retryCount+1)
-						task.Status = "pending"
-						task.Error = ""
-						if log != nil {
-							log.Info("TranscodingService: re-enqueuing task for retry",
-								"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
-						}
-						_ = s.queue.Enqueue(task)
-						_ = s.queue.Nak(task.ID)
-					} else {
-						_ = s.queue.Nak(task.ID)
-					}
-				} else {
-					_ = s.queue.Ack(task.ID)
-				}
-			}
-		}()
+	atomic.StoreInt32(&s.currentWorkers, int32(initWorkers))
+	for i := 0; i < initWorkers; i++ {
+		s.startWorkerGoroutine(ctx, i, log)
 	}
+
+	s.startAutoScaler(ctx, log)
 
 	go func() {
 		<-ctx.Done()
-		wg.Wait()
 	}()
+}
+
+func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log interface {
+	Info(msg string, fields ...interface{})
+}) {
+	defer func() {
+		if r := recover(); r != nil {
+			if log != nil {
+				log.Info("TranscodingService: worker panic recovered", "worker", workerID, "panic", r)
+			}
+		}
+	}()
+	if log != nil {
+		log.Info("TranscodingService: worker started", "worker", workerID)
+	}
+	for {
+		task, err := s.queue.Dequeue(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				if log != nil {
+					log.Info("TranscodingService: worker stopped", "worker", workerID)
+				}
+				return
+			}
+			continue
+		}
+
+		if task.Metadata == nil {
+			task.Metadata = make(map[string]interface{})
+		}
+
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if log != nil {
+						log.Info("TranscodingService: task panic recovered, continuing loop",
+							"task_id", task.ID, "panic", r)
+					}
+				}
+			}()
+			s.processTask(ctx, task, log)
+		}()
+
+		if task.Status == "failed" {
+			retryCount := getRetryCount(task)
+			if retryCount < defaultMaxRetries {
+				setRetryCount(task, retryCount+1)
+				task.Status = "pending"
+				task.Error = ""
+				if log != nil {
+					log.Info("TranscodingService: re-enqueuing task for retry",
+						"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
+				}
+				_ = s.queue.Enqueue(task)
+				_ = s.queue.Nak(task.ID)
+			} else {
+				_ = s.queue.Nak(task.ID)
+			}
+		} else {
+			_ = s.queue.Ack(task.ID)
+		}
+	}
 }
 
 // StopWorker stops the background worker
@@ -206,6 +241,90 @@ func (s *TranscodingService) StopWorker() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+}
+
+func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID int, log interface {
+	Info(msg string, fields ...interface{})
+}) {
+	go s.workerLoop(ctx, workerID, log)
+}
+
+const (
+	scaleCheckInterval  = 5 * time.Second
+	tasksPerWorker      = 2
+)
+
+func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log interface {
+	Info(msg string, fields ...interface{})
+}) {
+	go func() {
+		ticker := time.NewTicker(scaleCheckInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-parentCtx.Done():
+				return
+			case <-ticker.C:
+				s.adjustWorkerCount(parentCtx, log)
+			}
+		}
+	}()
+}
+
+func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log interface {
+	Info(msg string, fields ...interface{})
+}) {
+	depth, err := s.queue.Depth()
+	if err != nil {
+		return
+	}
+	monitoring.TranscodingQueueDepth.Set(float64(depth))
+
+	target := s.minWorkers
+	needed := (depth + tasksPerWorker - 1) / tasksPerWorker
+	if needed > target-s.minWorkers {
+		target = s.minWorkers + needed
+	}
+	if target > s.maxWorkers {
+		target = s.maxWorkers
+	}
+	if target < s.minWorkers {
+		target = s.minWorkers
+	}
+
+	current := int(atomic.LoadInt32(&s.currentWorkers))
+
+	if target > current {
+		s.extraMu.Lock()
+		for i := 0; i < target-current; i++ {
+			workerID := current + i
+			childCtx, cancel := context.WithCancel(parentCtx)
+			s.extraCancels = append(s.extraCancels, cancel)
+			s.startWorkerGoroutine(childCtx, workerID, log)
+		}
+		atomic.StoreInt32(&s.currentWorkers, int32(target))
+		s.extraMu.Unlock()
+		if log != nil {
+			log.Info("TranscodingService: scaled up workers", "from", current, "to", target, "queue_depth", depth)
+		}
+	} else if target < current {
+		s.extraMu.Lock()
+		remove := current - target
+		if remove > len(s.extraCancels) {
+			remove = len(s.extraCancels)
+		}
+		for i := 0; i < remove; i++ {
+			s.extraCancels[len(s.extraCancels)-1]()
+			s.extraCancels = s.extraCancels[:len(s.extraCancels)-1]
+		}
+		atomic.StoreInt32(&s.currentWorkers, int32(target))
+		s.extraMu.Unlock()
+		if log != nil {
+			log.Info("TranscodingService: scaled down workers", "from", current, "to", target, "queue_depth", depth)
+		}
+	}
+	monitoring.TranscodingWorkersActive.Set(float64(target))
 }
 
 // processTask executes a single transcoding task
@@ -298,6 +417,10 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	outputURL := fmt.Sprintf("streams/%s/%s", task.ContentID, task.Profile)
 	if err := s.CompleteTask(taskCtx, task.ID, outputURL); err != nil {
 		s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
+	}
+
+	for _, hook := range s.transcodeHooks {
+		hook(taskCtx, task.ContentID, task.Profile, outputURL)
 	}
 
 	if log != nil {

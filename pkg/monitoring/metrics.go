@@ -50,6 +50,44 @@ var (
 		},
 		[]string{"service"},
 	)
+	StreamingViewersActive = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "streamgate_streaming_viewers_active",
+		Help: "Current number of active streaming sessions",
+	})
+	StreamingSegmentsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_streaming_segments_total",
+			Help: "Total number of segment requests served, by quality",
+		},
+		[]string{"quality"},
+	)
+	StreamingManifestsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "streamgate_streaming_manifests_total",
+		Help: "Total number of manifest requests served",
+	})
+	StreamingCacheHitsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_streaming_cache_hits_total",
+			Help: "Total number of cache hits, by cache layer (manifest, segment_index)",
+		},
+		[]string{"cache"},
+	)
+	StreamingDownloadDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_streaming_download_seconds",
+			Help:    "Segment download duration from object storage in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"status"},
+	)
+	TranscodingQueueDepth = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "streamgate_transcoding_queue_depth",
+		Help: "Current number of pending transcoding tasks in the queue",
+	})
+	TranscodingWorkersActive = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "streamgate_transcoding_workers_active",
+		Help: "Current number of active transcoding worker goroutines",
+	})
 )
 
 func init() {
@@ -59,6 +97,13 @@ func init() {
 		pluginHistogramSeconds,
 		serviceRequestsTotal,
 		serviceLatencyMs,
+		StreamingViewersActive,
+		StreamingSegmentsTotal,
+		StreamingManifestsTotal,
+		StreamingCacheHitsTotal,
+		StreamingDownloadDuration,
+		TranscodingQueueDepth,
+		TranscodingWorkersActive,
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	} {

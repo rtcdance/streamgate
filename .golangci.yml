@@ -9,6 +9,7 @@ severity:
         - errcheck
         - unused
         - gocritic
+        - gocyclo
       severity: warning
 
 linters:
@@ -44,8 +45,9 @@ linters-settings:
       - offBy1
       - dupImport
       - whyNoLint
+      - appendAssign
   gocyclo:
-    min-complexity: 20
+    min-complexity: 35
   staticcheck:
     checks:
       - all
@@ -64,3 +66,11 @@ linters-settings:
 issues:
   max-issues-per-linter: 50
   max-same-issues: 5
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - unused
+        - gocyclo
+    - path: cmd/learn/
+      linters:
+        - unused

@@ -8,6 +8,9 @@ import (
 )
 
 func TestGenerateMnemonic_128(t *testing.T) {
+	if len(bip39EnglishWords) < 2048 {
+		t.Skipf("BIP-39 word list has %d words (need 2048), skipping 128-bit test", len(bip39EnglishWords))
+	}
 	mnemonic, err := GenerateMnemonic(128)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

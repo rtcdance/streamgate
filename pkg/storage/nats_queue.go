@@ -212,6 +212,14 @@ func (q *NATSTranscodingQueue) GetStatus(taskID string) (string, error) {
 	return entry.status, nil
 }
 
+func (q *NATSTranscodingQueue) Depth() (int, error) {
+	info, err := q.sub.ConsumerInfo()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get consumer info: %w", err)
+	}
+	return int(info.NumPending), nil
+}
+
 func (q *NATSTranscodingQueue) Close() error {
 	if q.sub != nil {
 		_ = q.sub.Unsubscribe()
