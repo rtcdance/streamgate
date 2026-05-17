@@ -94,3 +94,5 @@ func (p *UploadPlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *UploadPlugin) DependsOn() []string { return nil }

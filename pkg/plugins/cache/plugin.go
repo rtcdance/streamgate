@@ -94,3 +94,5 @@ func (p *CachePlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *CachePlugin) DependsOn() []string { return nil }

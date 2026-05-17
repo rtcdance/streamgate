@@ -266,6 +266,15 @@ func NewRedisChallengeStore(addr string, ttl time.Duration, opts ...RedisChallen
 	}, nil
 }
 
+// NewRedisChallengeStoreWithClient creates a Redis-backed challenge store
+// using an existing client. The caller manages the client lifecycle.
+func NewRedisChallengeStoreWithClient(client *redis.Client, ttl time.Duration) *RedisChallengeStore {
+	return &RedisChallengeStore{
+		client: client,
+		ttl:    ttl,
+	}
+}
+
 func (r *RedisChallengeStore) GetChallenge(ctx context.Context, id string) (*WalletChallenge, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

@@ -94,3 +94,5 @@ func (p *WorkerPlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *WorkerPlugin) DependsOn() []string { return nil }

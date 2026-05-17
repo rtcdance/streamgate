@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +32,47 @@ import (
 	"go.uber.org/zap"
 )
 
+// ChainClientNFTAdapter implements middleware.NFTOwnershipChecker using a
+// web3.MultiChainManager directly, bypassing service.Web3Service as a proxy.
+// NFTVerifier instances are cached per ChainClient for reuse across calls.
+type ChainClientNFTAdapter struct {
+	manager web3.ChainManagerInterface
+	chainID int64
+	logger  *zap.Logger
+}
+
+func (a *ChainClientNFTAdapter) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	client, err := a.manager.GetClient(chainID)
+	if err != nil {
+		return false, err
+	}
+	return client.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+}
+
+func (a *ChainClientNFTAdapter) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
+	client, err := a.manager.GetClient(chainID)
+	if err != nil {
+		return nil, err
+	}
+	return client.GetNFTBalance(ctx, contractAddress, ownerAddress)
+}
+
+func (a *ChainClientNFTAdapter) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	client, err := a.manager.GetClient(a.chainID)
+	if err != nil {
+		return false, err
+	}
+	return client.VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+}
+
+func (a *ChainClientNFTAdapter) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	client, err := a.manager.GetClient(a.chainID)
+	if err != nil {
+		return false, err
+	}
+	return client.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
+}
+
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -44,7 +86,7 @@ type AppResources struct {
 	ObjStorage        io.Closer
 	TokenBlacklist    io.Closer
 	RateLimiter       middleware.RateLimiter
-	RateLimiterRedis  io.Closer
+	SharedRedis       *redis.Client
 	OTelShutdown      func(ctx context.Context) error
 	AuthService       *service.AuthService
 	Web3Service       *service.Web3Service
@@ -54,7 +96,6 @@ type AppResources struct {
 	UploadService     *service.UploadService
 	TranscodingSvc    *service.TranscodingService
 	NFTCache          *NFTAccessCache
-	NFTRedisClient    io.Closer
 	NATSQueue         io.Closer
 	MiddlewareSvc     *middleware.Service
 }
@@ -66,12 +107,8 @@ func (r *AppResources) Close() error {
 	if r.RateLimiter != nil {
 		r.RateLimiter.Stop()
 	}
-	if r.RateLimiterRedis != nil {
-		_ = r.RateLimiterRedis.Close()
-	}
-	if r.NFTRedisClient != nil {
-		_ = r.NFTRedisClient.Close()
-	}
+	// Shared redis client closed below; individual Redis-backed components
+	// use the same client so we only close it once.
 	if r.TranscodingSvc != nil {
 		r.TranscodingSvc.StopWorker()
 	}
@@ -99,6 +136,11 @@ func (r *AppResources) Close() error {
 	if r.TokenBlacklist != nil {
 		if err := r.TokenBlacklist.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close token blacklist: %w", err))
+		}
+	}
+	if r.SharedRedis != nil {
+		if err := r.SharedRedis.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close shared redis: %w", err))
 		}
 	}
 	if r.OTelShutdown != nil {
@@ -183,24 +225,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	}
 	resources := &AppResources{}
 
-	web3Svc, err := initWeb3Service(rc, cfg, log)
-	if err != nil {
-		return nil, nil, err
-	}
-	resources.Web3Service = web3Svc
-
-	challengeTTL := parseChallengeTTL(cfg)
-	challengeStore := initChallengeStore(rc, cfg, log, challengeTTL, resources)
-
-	authService := initAuthService(rc, cfg, log, challengeStore, challengeTTL, resources)
-	resources.AuthService = authService
-
-	nftCache := NewNFTAccessCache()
-	resources.NFTCache = nftCache
-
-	nftRedisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	nftRedisClient := redis.NewClient(&redis.Options{
-		Addr:         nftRedisAddr,
+	// Create a single shared Redis client for all Redis-backed components.
+	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
+	sharedRedis := redis.NewClient(&redis.Options{
+		Addr:         redisAddr,
 		Password:     cfg.Redis.Password,
 		DB:           cfg.Redis.DB,
 		PoolSize:     cfg.Redis.PoolSize,
@@ -208,23 +236,47 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
 	})
-	nftPingCtx, nftPingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	var nftCacheBackend middleware.NFTAccessCache
-	if err := nftRedisClient.Ping(nftPingCtx).Err(); err != nil {
-		log.Warn("Redis unavailable for NFT cache, falling back to in-memory only", zap.Error(err))
-		_ = nftRedisClient.Close()
-		nftRedisClient = nil
-		nftCacheBackend = &NFTAccessCacheAdapter{Cache: nftCache}
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	redisOK := sharedRedis.Ping(pingCtx).Err() == nil
+	pingCancel()
+	if !redisOK {
+		log.Warn("Redis unavailable, components will use in-memory fallbacks", zap.String("addr", redisAddr))
+		_ = sharedRedis.Close()
+		sharedRedis = nil
 	} else {
-		log.Info("Using Redis-backed NFT access cache", zap.String("addr", nftRedisAddr))
-		nftCacheBackend = NewRedisNFTAccessCache(nftCache, nftRedisClient)
-		resources.NFTRedisClient = nftRedisClient
+		log.Info("Redis connected", zap.String("addr", redisAddr))
+		resources.SharedRedis = sharedRedis
 	}
-	nftPingCancel()
+
+	web3Svc, err := initWeb3Service(rc, cfg, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	resources.Web3Service = web3Svc
+
+	challengeTTL := parseChallengeTTL(cfg)
+	challengeStore := initChallengeStore(rc, log, challengeTTL, sharedRedis, resources)
+
+	authService := initAuthService(rc, cfg, log, challengeStore, challengeTTL, sharedRedis, resources)
+	resources.AuthService = authService
+
+	nftCache := NewNFTAccessCache()
+	resources.NFTCache = nftCache
+
+	var nftCacheBackend middleware.NFTAccessCache
+	if sharedRedis != nil {
+		nftCacheBackend = NewRedisNFTAccessCache(nftCache, sharedRedis)
+	} else {
+		nftCacheBackend = &NFTAccessCacheAdapter{Cache: nftCache}
+	}
 
 	nftVerifier := rc.NFTVerifier
 	if nftVerifier == nil {
-		nftVerifier = web3Svc
+		nftVerifier = &ChainClientNFTAdapter{
+			manager: web3Svc.GetMultiChainManager(),
+			chainID: cfg.Web3.ChainID,
+			logger:  log.Named("nft-verify"),
+		}
 	}
 	resources.NFTVerifier = nftVerifier
 
@@ -256,7 +308,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	setupMiddleware(router, cfg, log, resources)
+	setupMiddleware(router, cfg, log, sharedRedis, resources)
 
 	svc := &serviceInit{
 		Web3Service:     web3Svc,
@@ -296,53 +348,40 @@ func initWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger) (*se
 	return svc, nil
 }
 
-func initChallengeStore(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeTTL time.Duration, res *AppResources) service.ChallengeStore {
+func initChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) service.ChallengeStore {
 	if rc.ChallengeStore != nil {
 		return rc.ChallengeStore
 	}
-	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	store, err := service.NewRedisChallengeStore(redisAddr, challengeTTL,
-		service.WithRedisPassword(cfg.Redis.Password),
-		service.WithRedisDB(cfg.Redis.DB),
-		service.WithRedisPoolSize(cfg.Redis.PoolSize),
-	)
-	if err != nil {
-		log.Warn("Falling back to in-memory challenge store", zap.Error(err))
+	if redisClient == nil {
+		log.Warn("Redis unavailable, falling back to in-memory challenge store")
 		return nil
 	}
+	store := service.NewRedisChallengeStoreWithClient(redisClient, challengeTTL)
 	res.ChallengeStore = store
 	return store
 }
 
-func initTokenBlacklist(cfg *config.Config, log *zap.Logger, res *AppResources) service.TokenBlacklist {
-	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:         redisAddr,
-		Password:     cfg.Redis.Password,
-		DB:           cfg.Redis.DB,
-		PoolSize:     cfg.Redis.PoolSize,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-	})
-	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
-	if err != nil {
-		log.Warn("Redis unavailable, falling back to in-memory token blacklist", zap.Error(err))
-		_ = redisClient.Close()
+func initTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppResources) service.TokenBlacklist {
+	if redisClient == nil {
+		log.Warn("Redis unavailable, falling back to in-memory token blacklist")
 		return service.NewMemoryTokenBlacklist()
 	}
-	log.Info("Using Redis token blacklist", zap.String("addr", redisAddr))
+	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
+	if err != nil {
+		log.Warn("Redis token blacklist init failed, falling back to in-memory", zap.Error(err))
+		return service.NewMemoryTokenBlacklist()
+	}
 	res.TokenBlacklist = rbl
 	return rbl
 }
 
-func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeStore service.ChallengeStore, challengeTTL time.Duration, res *AppResources) *service.AuthService {
+func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeStore service.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
 	if rc.AuthService != nil {
 		return rc.AuthService
 	}
 	solanaVerifier := web3.NewSolanaVerifier(log.Named("solana"), cfg.Web3.SolanaRPC)
 	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaVerifier)
-	tokenBlacklist := initTokenBlacklist(cfg, log, res)
+	tokenBlacklist := initTokenBlacklist(log, redisClient, res)
 
 	jwtExpiry := 2 * time.Hour
 	if cfg.Auth.JWTExpiry != "" {
@@ -517,33 +556,17 @@ func initOTelTracing(cfg *config.Config, log *zap.Logger, res *AppResources) {
 	res.OTelShutdown = shutdown
 }
 
-func setupMiddleware(router *gin.Engine, cfg *config.Config, log *zap.Logger, res *AppResources) {
+func setupMiddleware(router *gin.Engine, cfg *config.Config, log *zap.Logger, redisClient *redis.Client, res *AppResources) {
 	router.Use(RequestIDMiddleware())
 
-	rlRedisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	rlRedisClient := redis.NewClient(&redis.Options{
-		Addr:         rlRedisAddr,
-		Password:     cfg.Redis.Password,
-		DB:           cfg.Redis.DB,
-		PoolSize:     cfg.Redis.PoolSize,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-	})
-
-	rlPingCtx, rlPingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	var middlewareSvc *middleware.Service
-	if err := rlRedisClient.Ping(rlPingCtx).Err(); err != nil {
-		log.Warn("Redis unavailable for rate limiter, falling back to in-memory", zap.Error(err))
-		_ = rlRedisClient.Close()
-		rlRedisClient = nil
-		middlewareSvc = middleware.NewService(log)
+	if redisClient != nil {
+		log.Info("Using Redis-backed rate limiter")
+		middlewareSvc = middleware.NewServiceWithRedis(log, redisClient)
 	} else {
-		log.Info("Using Redis-backed rate limiter", zap.String("addr", rlRedisAddr))
-		middlewareSvc = middleware.NewServiceWithRedis(log, rlRedisClient)
-		res.RateLimiterRedis = rlRedisClient
+		log.Warn("Redis unavailable for rate limiter, falling back to in-memory")
+		middlewareSvc = middleware.NewService(log)
 	}
-	rlPingCancel()
 
 	rl, rlHandler := middlewareSvc.RateLimitMiddlewareWithConfig(middleware.RateLimitConfig{
 		RequestsPerMinute: cfg.RateLimiting.RequestsPerMinute,

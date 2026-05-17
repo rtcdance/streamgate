@@ -94,3 +94,5 @@ func (p *MetadataPlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *MetadataPlugin) DependsOn() []string { return nil }

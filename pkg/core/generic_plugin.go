@@ -85,3 +85,7 @@ func (p *GenericPlugin) Health(ctx context.Context) error {
 	}
 	return p.server.Health(ctx)
 }
+
+func (p *GenericPlugin) DependsOn() []string {
+	return nil
+}

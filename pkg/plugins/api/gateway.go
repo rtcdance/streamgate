@@ -176,6 +176,8 @@ func (p *GatewayPlugin) Health(ctx context.Context) error {
 	return nil
 }
 
+func (p *GatewayPlugin) DependsOn() []string { return nil }
+
 // registerAlertRules registers alert rules
 func (p *GatewayPlugin) registerAlertRules() {
 	// High error rate alert

@@ -13,6 +13,51 @@ import (
 	"go.uber.org/zap"
 )
 
+// topoSort returns plugin names in dependency order (Kahn's algorithm).
+// plugins that depend on others appear after their dependencies.
+func topoSort(plugins map[string]Plugin, deps map[string][]string) ([]string, error) {
+	inDegree := make(map[string]int, len(plugins))
+	graph := make(map[string][]string, len(plugins)) // dep → dependents
+
+	for name := range plugins {
+		if _, ok := inDegree[name]; !ok {
+			inDegree[name] = 0
+		}
+		for _, dep := range deps[name] {
+			if dep == name {
+				continue // skip self-dependency
+			}
+			graph[dep] = append(graph[dep], name)
+			inDegree[name]++
+		}
+	}
+
+	queue := make([]string, 0, len(plugins))
+	for name, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	result := make([]string, 0, len(plugins))
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		result = append(result, node)
+		for _, dependent := range graph[node] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+	}
+
+	if len(result) != len(plugins) {
+		return nil, fmt.Errorf("circular dependency detected among plugins: %d of %d resolved", len(result), len(plugins))
+	}
+	return result, nil
+}
+
 // Plugin defines the interface for all plugins
 type Plugin interface {
 	Name() string
@@ -21,20 +66,26 @@ type Plugin interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Health(ctx context.Context) error
+	// DependsOn returns the names of plugins that must be initialized
+	// and started before this plugin. Returning nil or an empty slice
+	// means no dependencies. The kernel uses topological sort to
+	// determine Init and Start ordering; Stop uses the reverse order.
+	DependsOn() []string
 }
 
 // Microkernel is the core of the system
 type Microkernel struct {
-	config     *config.Config
-	logger     *zap.Logger
-	plugins    map[string]Plugin
-	eventBus   event.EventBus
-	registry   service.ServiceRegistry
-	clientPool *service.ClientPool
-	mu         sync.RWMutex
-	started    bool
-	ctx        context.Context
-	cancel     context.CancelFunc
+	config      *config.Config
+	logger      *zap.Logger
+	plugins     map[string]Plugin // name → plugin (fast lookup)
+	pluginOrder []string           // topological order for Init/Start/Stop
+	eventBus    event.EventBus
+	registry    service.ServiceRegistry
+	clientPool  *service.ClientPool
+	mu          sync.RWMutex
+	started     bool
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // NewMicrokernel creates a new microkernel instance
@@ -160,6 +211,20 @@ func (m *Microkernel) Start(ctx context.Context) error {
 
 	m.logger.Info("Starting microkernel", zap.String("mode", m.config.Mode))
 
+	// Compute topological order for plugin init/start/stop
+	m.mu.Lock()
+	deps := make(map[string][]string, len(m.plugins))
+	for name, plugin := range m.plugins {
+		deps[name] = plugin.DependsOn()
+	}
+	order, err := topoSort(m.plugins, deps)
+	if err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("plugin dependency sort failed: %w", err)
+	}
+	m.pluginOrder = order
+	m.mu.Unlock()
+
 	// Register service with Consul if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
 		serviceID := fmt.Sprintf("%s-%d", m.config.ServiceName, m.config.Server.Port)
@@ -195,15 +260,17 @@ func (m *Microkernel) Start(ctx context.Context) error {
 		m.logger.Info("Service registered with Consul", zap.String("service_id", serviceID))
 	}
 
-	// Initialize all plugins
+	// Initialize all plugins in dependency order
 	m.mu.RLock()
-	plugins := make([]Plugin, 0, len(m.plugins))
-	for _, plugin := range m.plugins {
-		plugins = append(plugins, plugin)
+	orderedPlugins := make([]Plugin, 0, len(m.pluginOrder))
+	for _, name := range m.pluginOrder {
+		if p, ok := m.plugins[name]; ok {
+			orderedPlugins = append(orderedPlugins, p)
+		}
 	}
 	m.mu.RUnlock()
 
-	for _, plugin := range plugins {
+	for _, plugin := range orderedPlugins {
 		if err := plugin.Init(ctx, m); err != nil {
 			m.logger.Error("Failed to initialize plugin",
 				zap.String("name", plugin.Name()),
@@ -213,7 +280,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	}
 
 	// Start all plugins
-	for _, plugin := range plugins {
+	for _, plugin := range orderedPlugins {
 		if err := plugin.Start(ctx); err != nil {
 			m.logger.Error("Failed to start plugin",
 				zap.String("name", plugin.Name()),
@@ -239,17 +306,18 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	m.logger.Info("Shutting down microkernel")
 
-	// Stop all plugins in reverse order
+	// Stop all plugins in reverse dependency order
 	m.mu.RLock()
-	plugins := make([]Plugin, 0, len(m.plugins))
-	for _, plugin := range m.plugins {
-		plugins = append(plugins, plugin)
+	orderedPlugins := make([]Plugin, 0, len(m.pluginOrder))
+	for _, name := range m.pluginOrder {
+		if p, ok := m.plugins[name]; ok {
+			orderedPlugins = append(orderedPlugins, p)
+		}
 	}
 	m.mu.RUnlock()
 
-	// Reverse order for shutdown
-	for i := len(plugins) - 1; i >= 0; i-- {
-		plugin := plugins[i]
+	for i := len(orderedPlugins) - 1; i >= 0; i-- {
+		plugin := orderedPlugins[i]
 		if err := plugin.Stop(ctx); err != nil {
 			m.logger.Error("Error stopping plugin",
 				zap.String("name", plugin.Name()),

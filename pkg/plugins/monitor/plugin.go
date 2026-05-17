@@ -94,3 +94,5 @@ func (p *MonitorPlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *MonitorPlugin) DependsOn() []string { return nil }
