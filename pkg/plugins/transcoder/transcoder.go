@@ -432,8 +432,8 @@ func (tq *TaskQueue) GetTask(taskID string) (*TranscodeTask, error) {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	copy := *task
-	return &copy, nil
+	copyData := *task
+	return &copyData, nil
 }
 
 // UpdateTask updates a task

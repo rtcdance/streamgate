@@ -100,5 +100,5 @@ func TestMiddlewareStack_CORSHeaders(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Should have CORS headers
-	require.True(t, len(w.Header().Get("Access-Control-Allow-Origin")) > 0)
+	require.True(t, w.Header().Get("Access-Control-Allow-Origin") != "")
 }
