@@ -8,6 +8,7 @@ import (
 
 	"streamgate/pkg/models"
 	"streamgate/pkg/web3"
+	stg "streamgate/pkg/storage"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -104,7 +105,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	auth.signatureVerifier = verifier
-	store, ok := auth.challengeStore.(*MemoryChallengeStore)
+	store, ok := auth.challengeStore.(*stg.MemoryChallengeStore)
 	require.True(t, ok)
 
 	t.Run("wallet authentication with challenge", func(t *testing.T) {
@@ -152,7 +153,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		require.NoError(t, err)
 
 		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
-		expiredChallenge := &WalletChallenge{
+		expiredChallenge := &stg.WalletChallenge{
 			ID:            "expired-challenge",
 			WalletAddress: walletAddress,
 			ChainID:       11155111,
@@ -173,8 +174,8 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 }
 
 func TestMemoryChallengeStore_ChallengeLifecycle(t *testing.T) {
-	store := NewMemoryChallengeStore()
-	challenge := &WalletChallenge{
+	store := stg.NewMemoryChallengeStore()
+	challenge := &stg.WalletChallenge{
 		ID:            "challenge-1",
 		WalletAddress: "0x1234567890123456789012345678901234567890",
 		Nonce:         "nonce",

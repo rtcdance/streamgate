@@ -107,7 +107,7 @@ func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc
 		tokenID := c.Query("token_id")
 		cacheKey := nftCacheKey(chainID, walletAddress, contract, tokenID)
 
-		hasNFT, err := resolveOwnership(c.Request.Context(), config, logger, cacheKey, chainID, contract, tokenID, walletAddress)
+		hasNFT, err := resolveOwnership(c.Request.Context(), &config, logger, cacheKey, chainID, contract, tokenID, walletAddress)
 		if err != nil {
 			logger.Error("NFT verification failed", zap.Error(err))
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -148,7 +148,7 @@ func NFTGateMiddleware(config NFTGateConfig, logger *zap.Logger) gin.HandlerFunc
 	}
 }
 
-func resolveOwnership(ctx context.Context, config NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (bool, error) {
+func resolveOwnership(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (bool, error) {
 	start := time.Now()
 
 	if config.Cache != nil {
@@ -217,7 +217,7 @@ verifyChain:
 	return hasNFT, nil
 }
 
-func setCachedEntry(ctx context.Context, config NFTGateConfig, logger *zap.Logger, key string, hasNFT bool, balance *big.Int) {
+func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, hasNFT bool, balance *big.Int) {
 	var blockNumber uint64
 	var blockHash string
 	if config.BlockProver != nil {

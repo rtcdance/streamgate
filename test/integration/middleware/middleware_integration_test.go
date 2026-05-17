@@ -39,7 +39,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	})
 	tokenStr, _ := tok.SignedString([]byte("test-secret-key"))
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
 	})
 
 	// Test without token
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -93,7 +93,7 @@ func TestMiddlewareStack_CORSHeaders(t *testing.T) {
 	})
 
 	// Test CORS headers
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 

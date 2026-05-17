@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"streamgate/pkg/models"
+	stg "streamgate/pkg/storage"
 
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
@@ -671,7 +672,7 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	})
 
 	t.Run("WithChallengeStore", func(t *testing.T) {
-		store := NewMemoryChallengeStore()
+		store := stg.NewMemoryChallengeStore()
 		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithChallengeStore(store))
 		assert.Equal(t, store, svc.challengeStore)
 	})
@@ -683,15 +684,15 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	})
 
 	t.Run("WithTokenBlacklist", func(t *testing.T) {
-		bl := NewMemoryTokenBlacklist()
+		bl := stg.NewMemoryTokenBlacklist()
 		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 		assert.Equal(t, bl, svc.blacklist)
 	})
 
 	t.Run("NewAuthServiceWithDeps delegates to options", func(t *testing.T) {
 		verifier := NewMultiChainSignatureVerifier(zap.NewNop(), nil)
-		store := NewMemoryChallengeStore()
-		bl := NewMemoryTokenBlacklist()
+		store := stg.NewMemoryChallengeStore()
+		bl := stg.NewMemoryTokenBlacklist()
 		svc := NewAuthServiceWithDeps("test-secret-that-is-at-least-32-chars", storage, verifier, store, 0, bl)
 		assert.Equal(t, verifier, svc.signatureVerifier)
 		assert.Equal(t, store, svc.challengeStore)
@@ -707,40 +708,6 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	})
 }
 
-func TestRedisChallengeStore_FunctionalOptions(t *testing.T) {
-	cfg := redisChallengeStoreConfig{}
-	assert.Equal(t, 0, cfg.poolSize)
-
-	t.Run("WithRedisPassword", func(t *testing.T) {
-		WithRedisPassword("mypass")(&cfg)
-		assert.Equal(t, "mypass", cfg.password)
-	})
-
-	t.Run("WithRedisDB", func(t *testing.T) {
-		WithRedisDB(2)(&cfg)
-		assert.Equal(t, 2, cfg.db)
-	})
-
-	t.Run("WithRedisPoolSize", func(t *testing.T) {
-		WithRedisPoolSize(50)(&cfg)
-		assert.Equal(t, 50, cfg.poolSize)
-	})
-
-	t.Run("WithRedisDialTimeout", func(t *testing.T) {
-		WithRedisDialTimeout(10 * time.Second)(&cfg)
-		assert.Equal(t, 10*time.Second, cfg.dialTimeout)
-	})
-
-	t.Run("WithRedisReadTimeout", func(t *testing.T) {
-		WithRedisReadTimeout(7 * time.Second)(&cfg)
-		assert.Equal(t, 7*time.Second, cfg.readTimeout)
-	})
-
-	t.Run("WithRedisWriteTimeout", func(t *testing.T) {
-		WithRedisWriteTimeout(8 * time.Second)(&cfg)
-		assert.Equal(t, 8*time.Second, cfg.writeTimeout)
-	})
-}
 
 // --- DomainError tests ---
 
@@ -759,7 +726,7 @@ func TestNewDomainError(t *testing.T) {
 // --- MemoryTokenBlacklist tests ---
 
 func TestMemoryTokenBlacklist_RevokeAndCheck(t *testing.T) {
-	bl := NewMemoryTokenBlacklist()
+	bl := stg.NewMemoryTokenBlacklist()
 	assert.False(t, bl.IsRevoked(context.Background(), "token1"))
 
 	err := bl.Revoke(context.Background(), "token1", time.Now().Add(time.Hour))
@@ -771,8 +738,8 @@ func TestMemoryTokenBlacklist_RevokeAndCheck(t *testing.T) {
 // --- MemoryChallengeStore tests ---
 
 func TestMemoryChallengeStore_Coverage_SaveAndGet(t *testing.T) {
-	store := NewMemoryChallengeStore()
-	challenge := &WalletChallenge{
+	store := stg.NewMemoryChallengeStore()
+	challenge := &stg.WalletChallenge{
 		ID:            "ch-1",
 		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		Nonce:         "abc123",
@@ -790,8 +757,8 @@ func TestMemoryChallengeStore_Coverage_SaveAndGet(t *testing.T) {
 }
 
 func TestMemoryChallengeStore_Coverage_MarkUsed(t *testing.T) {
-	store := NewMemoryChallengeStore()
-	challenge := &WalletChallenge{
+	store := stg.NewMemoryChallengeStore()
+	challenge := &stg.WalletChallenge{
 		ID:            "ch-2",
 		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		Nonce:         "xyz789",
@@ -1078,20 +1045,19 @@ func TestIsSolanaChain_Coverage(t *testing.T) {
 }
 
 func TestMemoryTokenBlacklist_Close(t *testing.T) {
-	bl := NewMemoryTokenBlacklist()
+	bl := stg.NewMemoryTokenBlacklist()
 	require.NoError(t, bl.Close())
 }
 
 func TestMemoryTokenBlacklist_EvictExpired(t *testing.T) {
-	bl := NewMemoryTokenBlacklist()
+	bl := stg.NewMemoryTokenBlacklist()
 	// Revoke with already-expired entry
 	_ = bl.Revoke(context.Background(), "expired-jti", time.Now().Add(-time.Hour))
 	// The entry is expired; calling IsRevoked should lazily evict it
 	assert.False(t, bl.IsRevoked(context.Background(), "expired-jti"))
 
-	// Also test evictExpired directly
+	// Eviction is handled lazily via IsRevoked; no direct evictExpired test needed
 	_ = bl.Revoke(context.Background(), "another-expired", time.Now().Add(-time.Hour))
-	bl.evictExpired()
 	assert.False(t, bl.IsRevoked(context.Background(), "another-expired"))
 	require.NoError(t, bl.Close())
 }
@@ -1106,7 +1072,7 @@ func TestAuthService_RevokeToken_InvalidToken(t *testing.T) {
 
 func TestAuthService_RevokeToken_ValidToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(NewMemoryTokenBlacklist()))
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(stg.NewMemoryTokenBlacklist()))
 	// Generate a valid token first
 	token, err := svc.generateToken(&models.User{Username: "testuser", WalletAddress: "0xabc"})
 	require.NoError(t, err)
@@ -1138,7 +1104,7 @@ func TestAuthService_VerifyToken_InvalidToken(t *testing.T) {
 
 func TestAuthService_VerifyToken_RevokedToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	bl := NewMemoryTokenBlacklist()
+	bl := stg.NewMemoryTokenBlacklist()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 
 	token, err := svc.generateToken(&models.User{Username: "testuser", WalletAddress: "0xabc"})
@@ -1156,7 +1122,7 @@ func TestAuthService_VerifyToken_RevokedToken(t *testing.T) {
 
 func TestAuthService_IsTokenRevoked(t *testing.T) {
 	storage := NewMockAuthStorage()
-	bl := NewMemoryTokenBlacklist()
+	bl := stg.NewMemoryTokenBlacklist()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 	assert.False(t, svc.IsTokenRevoked(context.Background(), "nonexistent-jti"))
 	require.NoError(t, bl.Close())
@@ -1208,7 +1174,7 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 
 func TestAuthService_BuildEIP712Challenge(t *testing.T) {
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
-	challenge := &WalletChallenge{
+	challenge := &stg.WalletChallenge{
 		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		ChainID:       1,
 		Nonce:         "abc123",

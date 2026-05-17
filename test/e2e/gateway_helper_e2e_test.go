@@ -16,6 +16,7 @@ import (
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -131,9 +132,9 @@ func e2eNewAuthService() (*service.AuthService, *web3.SignatureVerifier) {
 		"test-secret-that-is-at-least-32-chars",
 		nil,
 		verifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	), verifier
 }
 
@@ -151,15 +152,15 @@ func e2eTestJWT(walletAddress string) string {
 	return s
 }
 
-func e2eSetupServer(t *testing.T, checker middleware.NFTOwnershipChecker, storage service.SegmentStorage) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
+func e2eSetupServer(t *testing.T, checker middleware.NFTOwnershipChecker, segStorage service.SegmentStorage) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
 	t.Helper()
 	authService, verifier := e2eNewAuthService()
 	cfg := e2eTestConfig()
 
 	opts := []gateway.RouterOption{
 		gateway.WithAuthService(authService),
-		gateway.WithChallengeStore(service.NewMemoryChallengeStore()),
-		gateway.WithSegmentStorage(storage),
+		gateway.WithChallengeStore(storage.NewMemoryChallengeStore()),
+		gateway.WithSegmentStorage(segStorage),
 		gateway.WithNFTVerifier(checker),
 	}
 

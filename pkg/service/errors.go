@@ -11,9 +11,7 @@ var (
 	ErrInvalidToken      = errors.New("invalid token")
 
 	// Challenge errors
-	ErrChallengeExpired  = errors.New("challenge expired")
-	ErrChallengeUsed     = errors.New("challenge already used")
-	ErrChallengeNotFound = errors.New("challenge not found")
+	ErrChallengeExpired = errors.New("challenge expired")
 
 	// Resource errors
 	ErrNotFound      = errors.New("resource not found")

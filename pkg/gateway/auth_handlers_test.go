@@ -18,6 +18,7 @@ import (
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 )
 
 // mockAuthStorage implements service.AuthStorage for gateway tests
@@ -61,9 +62,9 @@ func setupAuthRouter() (*gin.Engine, *service.AuthService) {
 		"test-jwt-secret-key-for-testing-",
 		newMockAuthStorage(),
 		sigVerifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	)
 
 	cfg := config.DefaultConfig()
@@ -274,9 +275,9 @@ func TestAuthHandlers_Profile(t *testing.T) {
 		"test-jwt-secret-key-for-testing-",
 		newMockAuthStorage(),
 		sigVerifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	)
 
 	protected := r.Group("/")

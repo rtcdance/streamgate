@@ -161,7 +161,7 @@ type RouterConfig struct {
 	AuthService    *service.AuthService
 	Web3Service    *service.Web3Service
 	SegmentStorage service.SegmentStorage
-	ChallengeStore service.ChallengeStore
+	ChallengeStore storage.ChallengeStore
 	NFTVerifier    middleware.NFTOwnershipChecker
 	ContentService *service.ContentService
 	UploadService  *service.UploadService
@@ -186,7 +186,7 @@ func WithSegmentStorage(st service.SegmentStorage) RouterOption {
 }
 
 // WithChallengeStore injects a ChallengeStore implementation.
-func WithChallengeStore(store service.ChallengeStore) RouterOption {
+func WithChallengeStore(store storage.ChallengeStore) RouterOption {
 	return func(c *RouterConfig) { c.ChallengeStore = store }
 }
 
@@ -348,7 +348,7 @@ func initWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger) (*se
 	return svc, nil
 }
 
-func initChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) service.ChallengeStore {
+func initChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) storage.ChallengeStore {
 	if rc.ChallengeStore != nil {
 		return rc.ChallengeStore
 	}
@@ -356,26 +356,26 @@ func initChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Dur
 		log.Warn("Redis unavailable, falling back to in-memory challenge store")
 		return nil
 	}
-	store := service.NewRedisChallengeStoreWithClient(redisClient, challengeTTL)
+	store := storage.NewRedisChallengeStoreWithClient(redisClient, challengeTTL)
 	res.ChallengeStore = store
 	return store
 }
 
-func initTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppResources) service.TokenBlacklist {
+func initTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppResources) storage.TokenBlacklist {
 	if redisClient == nil {
 		log.Warn("Redis unavailable, falling back to in-memory token blacklist")
-		return service.NewMemoryTokenBlacklist()
+		return storage.NewMemoryTokenBlacklist()
 	}
 	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
 	if err != nil {
 		log.Warn("Redis token blacklist init failed, falling back to in-memory", zap.Error(err))
-		return service.NewMemoryTokenBlacklist()
+		return storage.NewMemoryTokenBlacklist()
 	}
 	res.TokenBlacklist = rbl
 	return rbl
 }
 
-func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeStore service.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
+func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
 	if rc.AuthService != nil {
 		return rc.AuthService
 	}
