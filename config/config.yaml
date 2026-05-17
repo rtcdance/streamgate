@@ -14,8 +14,8 @@ database:
   password: ""  # Set via DATABASE_PASSWORD env var in production
   database: "streamgate"
   sslmode: "disable"
-  maxconns: 25
-  max_idle_conns: 5
+  maxconns: 100
+  max_idle_conns: 25
   conn_max_lifetime: 5m
 
 redis:
@@ -23,8 +23,8 @@ redis:
   port: 6379
   password: ""
   db: 0
-  poolsize: 10
-  min_idle_conns: 2
+  poolsize: 50
+  min_idle_conns: 10
 
 storage:
   type: "s3"

@@ -99,14 +99,14 @@ func setupStreamingManifestRouter(authService *service.AuthService, storage serv
 		c.Set("nft_chain_id", int64(1))
 		c.Next()
 	})
-	RegisterStreamingRoutes(r, zap.NewNop(), authService, storage)
+	RegisterStreamingRoutes(r, zap.NewNop(), authService, storage, nil)
 	return r
 }
 
 func setupStreamingSegmentRouter(authService *service.AuthService, storage service.SegmentStorage) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, storage)
+	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, storage, nil)
 	return r
 }
 
@@ -114,8 +114,8 @@ func TestRegisterStreamingRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	authService := newStreamingTestAuthService()
-	RegisterStreamingRoutes(r, zap.NewNop(), authService, nil)
-	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authService, nil, nil)
+	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, nil, nil)
 
 	routes := r.Routes()
 	routeMap := make(map[string]string)

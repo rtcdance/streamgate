@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"streamgate/pkg/storage"
@@ -30,12 +31,17 @@ type UploadService struct {
 	db            storage.DB
 	objStore      UploadObjectStorage
 	presigner     PresignedURLer
+	uploadSigner  UploadPresignedURLer
 	bucket        string
 	maxUploadSize int64
 	storageQuota  int64
 	logger        *zap.Logger
 	onProcessed   []PostUploadHook
+
+	chunkMergeConcurrency int // parallel chunk downloads during merge
 }
+
+const defaultChunkMergeConcurrency = 5
 
 type PostUploadHook func(ctx context.Context, uploadID, contentID, ownerID string)
 
@@ -44,11 +50,14 @@ func (s *UploadService) RegisterPostUploadHook(hook PostUploadHook) {
 }
 
 type AutoTranscodeHookDeps struct {
-	TranscodingSvc *TranscodingService
-	Presigner      PresignedURLer
-	Bucket         string
-	Profiles       []string
+	TranscodingSvc    *TranscodingService
+	Presigner         PresignedURLer
+	Bucket            string
+	Profiles          []string
+	PresignedURLExpiry time.Duration // zero = default 2h
 }
+
+const defaultPresignedURLExpiry = 2 * time.Hour
 
 func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
 	if deps.TranscodingSvc == nil {
@@ -71,7 +80,11 @@ func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
 			if storageKey == "" {
 				storageKey = upload.URL
 			}
-			presignedURL, err := deps.Presigner.PresignedURL(ctx, deps.Bucket, storageKey, 60*time.Minute)
+			expiry := deps.PresignedURLExpiry
+			if expiry <= 0 {
+				expiry = defaultPresignedURLExpiry
+			}
+			presignedURL, err := deps.Presigner.PresignedURL(ctx, deps.Bucket, storageKey, expiry)
 			if err != nil {
 				s.logger.Warn("Post-upload hook: failed to generate presigned URL", zap.Error(err))
 			} else {
@@ -99,6 +112,7 @@ type UploadObjectStorage interface {
 	Upload(ctx context.Context, bucket, key string, data []byte) error
 	UploadStream(ctx context.Context, bucket, key string, reader io.Reader, size int64) error
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
+	DownloadStream(ctx context.Context, bucket, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, bucket, key string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
 	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
@@ -107,6 +121,10 @@ type UploadObjectStorage interface {
 // PresignedURLer generates time-limited download URLs for stored objects.
 type PresignedURLer interface {
 	PresignedURL(ctx context.Context, bucket, key string, expiry time.Duration) (string, error)
+}
+
+type UploadPresignedURLer interface {
+	PresignedUploadURL(ctx context.Context, bucket, key string, expiry time.Duration) (string, error)
 }
 
 // UploadInfo represents upload information
@@ -152,9 +170,12 @@ func NewUploadService(db storage.DB, objStorage UploadObjectStorage, bucket stri
 	}
 }
 
-// SetPresigner sets the presigned URL generator for download URL support.
 func (s *UploadService) SetPresigner(p PresignedURLer) {
 	s.presigner = p
+}
+
+func (s *UploadService) SetUploadPresigner(p UploadPresignedURLer) {
+	s.uploadSigner = p
 }
 
 // GetDownloadURL returns a presigned URL for downloading the uploaded file.
@@ -188,6 +209,13 @@ func (s *UploadService) SetMaxUploadSize(size int64) {
 // A value of 0 means no quota.
 func (s *UploadService) SetStorageQuota(quota int64) {
 	s.storageQuota = quota
+}
+
+// SetChunkMergeConcurrency sets the number of parallel chunk downloads during merge.
+func (s *UploadService) SetChunkMergeConcurrency(n int) {
+	if n > 0 {
+		s.chunkMergeConcurrency = n
+	}
 }
 
 // CheckStorageQuota returns an error if the wallet has exceeded its storage quota.
@@ -313,6 +341,33 @@ func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*
 	return &info, nil
 }
 
+// GetUploadProgress computes upload progress as a percentage (0-100).
+// For completed/processed uploads this is always 100.
+// For chunked uploads in "uploading" state it uses completed/total chunks.
+func (s *UploadService) GetUploadProgress(ctx context.Context, uploadID string) (int, error) {
+	info, err := s.GetUploadStatus(ctx, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	if info.Status == "completed" || info.Status == "processed" {
+		return 100, nil
+	}
+	chunks, err := s.GetChunkStatuses(ctx, uploadID)
+	if err != nil || len(chunks) == 0 {
+		return 0, nil
+	}
+	uploaded := 0
+	for _, ch := range chunks {
+		if ch.Uploaded {
+			uploaded++
+		}
+	}
+	if uploaded == 0 {
+		return 0, nil
+	}
+	return int(float64(uploaded) / float64(len(chunks)) * 100), nil
+}
+
 func (s *UploadService) GetChunkStatuses(ctx context.Context, uploadID string) ([]ChunkInfo, error) {
 	if s.objStore == nil {
 		return nil, fmt.Errorf("storage not available")
@@ -387,6 +442,55 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 	return uploadID, nil
 }
 
+const defaultPresignedUploadExpiry = 2 * time.Hour
+
+func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename string, size int64, contentType string, ownerID string) (uploadID, presignedURL, storageKey string, err error) {
+	if s.uploadSigner == nil {
+		return "", "", "", fmt.Errorf("presigned upload support not configured")
+	}
+	if s.db == nil {
+		return "", "", "", fmt.Errorf("database not available")
+	}
+	if s.maxUploadSize > 0 && size > s.maxUploadSize {
+		return "", "", "", fmt.Errorf("upload size %d exceeds maximum allowed size %d", size, s.maxUploadSize)
+	}
+	if err := s.CheckStorageQuota(ctx, ownerID, size); err != nil {
+		return "", "", "", err
+	}
+
+	uploadID = uuid.New().String()
+	ext := filepath.Ext(filename)
+	storageKey = fmt.Sprintf("%s/%s%s", ownerID, uploadID, ext)
+
+	if contentType == "" {
+		contentType = detectContentType(filename)
+	}
+
+	uploadInfo := &UploadInfo{
+		ID:          uploadID,
+		Filename:    filename,
+		Size:        size,
+		ContentType: contentType,
+		Status:      "uploading",
+		URL:         fmt.Sprintf("/%s/%s", s.bucket, storageKey),
+		OwnerID:     ownerID,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := s.saveUploadInfo(ctx, uploadInfo); err != nil {
+		return "", "", "", fmt.Errorf("failed to save upload info: %w", err)
+	}
+
+	url, err := s.uploadSigner.PresignedUploadURL(ctx, s.bucket, storageKey, defaultPresignedUploadExpiry)
+	if err != nil {
+		_ = s.DeleteUpload(ctx, uploadID)
+		return "", "", "", fmt.Errorf("failed to generate presigned upload URL: %w", err)
+	}
+
+	return uploadID, url, storageKey, nil
+}
+
 // UploadChunk uploads a single chunk from a byte slice (legacy).
 func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte, ownerID string) error {
 	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)), ownerID)
@@ -429,17 +533,23 @@ func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, 
 	return nil
 }
 
-// CompleteChunkedUpload completes a chunked upload by merging chunks
+type streamDLResult struct {
+	index  int
+	reader io.ReadCloser
+	err    error
+}
+
+// CompleteChunkedUpload completes a chunked upload by merging chunks.
+// Chunks are downloaded in parallel (chunkMergeConcurrency) and streamed
+// through a pipe to the object store in the correct order.
 func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID string, totalChunks int) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	// Get upload info
 	uploadInfo, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
 		return err
 	}
-
 	if uploadInfo.Status != "uploading" {
 		return fmt.Errorf("upload not in uploading state: %s", uploadInfo.Status)
 	}
@@ -447,13 +557,43 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 		return fmt.Errorf("upload size %d exceeds maximum allowed size %d", uploadInfo.Size, s.maxUploadSize)
 	}
 
-	// Generate final storage key
 	ext := filepath.Ext(uploadInfo.Filename)
 	storageKey := fmt.Sprintf("%s/%s%s", uploadInfo.OwnerID, uploadID, ext)
 
-	// Stream chunks through a pipe: writer side downloads and hashes
-	// each chunk sequentially, reader side uploads via UploadStream.
-	// This avoids materializing the entire file in memory.
+	// Cancel all inflight downloads on any error.
+	dlCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Parallel download: send each chunk stream to resultCh.
+	resultCh := make(chan streamDLResult, totalChunks)
+	conc := s.chunkMergeConcurrency
+	if conc <= 0 {
+		conc = defaultChunkMergeConcurrency
+	}
+	sem := make(chan struct{}, conc)
+	var dlWg sync.WaitGroup
+	for i := 0; i < totalChunks; i++ {
+		dlWg.Add(1)
+		go func(idx int) {
+			defer dlWg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-dlCtx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, idx)
+			reader, dlErr := s.objStore.DownloadStream(dlCtx, s.bucket, chunkKey)
+			resultCh <- streamDLResult{index: idx, reader: reader, err: dlErr}
+		}(i)
+	}
+	go func() {
+		dlWg.Wait()
+		close(resultCh)
+	}()
+
+	// Stream through pipe: collector reorders chunk streams and copies them in order.
 	pr, pw := io.Pipe()
 	h := sha256.New()
 	hashWriter := io.MultiWriter(pw, h)
@@ -461,31 +601,50 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 	errCh := make(chan error, 1)
 	go func() {
 		defer func() { _ = pw.Close() }()
-		for i := 0; i < totalChunks; i++ {
-			chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, i)
-			chunkData, err := s.objStore.Download(ctx, s.bucket, chunkKey)
-			if err != nil {
-				errCh <- fmt.Errorf("failed to download chunk %d: %w", i, err)
-				pw.CloseWithError(err)
+		pending := make(map[int]io.ReadCloser)
+		nextIdx := 0
+
+		for res := range resultCh {
+			if res.err != nil {
+				cancel()
+				errCh <- fmt.Errorf("failed to download chunk %d: %w", res.index, res.err)
+				pw.CloseWithError(res.err)
 				return
 			}
-			if _, err := hashWriter.Write(chunkData); err != nil {
-				errCh <- fmt.Errorf("failed to write chunk %d: %w", i, err)
-				pw.CloseWithError(err)
-				return
+			pending[res.index] = res.reader
+			// Drain contiguous chunks in order.
+			for {
+				reader, ok := pending[nextIdx]
+				if !ok {
+					break
+				}
+				if _, cErr := io.Copy(hashWriter, reader); cErr != nil {
+					reader.Close()
+					cancel()
+					errCh <- fmt.Errorf("failed to stream chunk %d: %w", nextIdx, cErr)
+					pw.CloseWithError(cErr)
+					return
+				}
+				reader.Close()
+				delete(pending, nextIdx)
+				nextIdx++
 			}
+		}
+		if nextIdx != totalChunks {
+			errCh <- fmt.Errorf("incomplete merge: wrote %d of %d chunks", nextIdx, totalChunks)
+			pw.CloseWithError(io.ErrUnexpectedEOF)
+			return
 		}
 		errCh <- nil
 	}()
 
 	if err := s.objStore.UploadStream(ctx, s.bucket, storageKey, pr, uploadInfo.Size); err != nil {
-		pw.CloseWithError(err) // unblock the goroutine writing to the pipe
+		pw.CloseWithError(err)
 		if writeErr := <-errCh; writeErr != nil {
 			return writeErr
 		}
 		return fmt.Errorf("failed to upload merged file: %w", err)
 	}
-	// Ensure goroutine completed
 	if writeErr := <-errCh; writeErr != nil {
 		return writeErr
 	}

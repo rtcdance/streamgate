@@ -63,15 +63,13 @@ func (c *MockEthClient) getOwner(tokenID uint64, blockNum *big.Int) (string, err
 	return owner, nil
 }
 
-// BUG: VerifyOwner 直接用 nil (latest) 验证，有 reorg 绕过风险
-// TODO: 先用 BlockTagSafe，不支持时回退到 latest
 func VerifyOwner(client *MockEthClient, tokenID uint64) (string, error) {
-	// BUG: 直接用 nil (latest) 做验证 — 如果区块被重组，结果不可靠
-	// TODO: 改用 big.NewInt(BlockTagSafe) 读取 finalized 状态
-	//       如果 RPC 不支持 safe tag，再回退到 nil (latest)
-	owner, err := client.getOwner(tokenID, nil)
+	owner, err := client.getOwner(tokenID, big.NewInt(BlockTagSafe))
 	if err != nil {
-		return "", fmt.Errorf("NFT 验证失败: %w", err)
+		owner, err = client.getOwner(tokenID, nil)
+		if err != nil {
+			return "", fmt.Errorf("NFT 验证失败: %w", err)
+		}
 	}
 	return owner, nil
 }

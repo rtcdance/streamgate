@@ -230,7 +230,6 @@ func (s3s *S3Storage) ListObjects(ctx context.Context, bucket, prefix string) ([
 	return keys, nil
 }
 
-// PresignedURL generates a presigned URL for downloading
 func (s3s *S3Storage) PresignedURL(ctx context.Context, bucket, key string, expiration time.Duration) (string, error) {
 	req, _ := s3s.client.GetObjectRequest(&s3.GetObjectInput{
 		Bucket: aws.String(bucket),
@@ -240,7 +239,18 @@ func (s3s *S3Storage) PresignedURL(ctx context.Context, bucket, key string, expi
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
 	}
+	return presignedURL, nil
+}
 
+func (s3s *S3Storage) PresignedUploadURL(ctx context.Context, bucket, key string, expiration time.Duration) (string, error) {
+	req, _ := s3s.client.PutObjectRequest(&s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	presignedURL, err := req.Presign(expiration)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned upload URL: %w", err)
+	}
 	return presignedURL, nil
 }
 

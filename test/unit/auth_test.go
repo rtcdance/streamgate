@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
+
+	"github.com/stretchr/testify/require"
 )
 
 // MockAuthStorage implements AuthStorage for testing
@@ -77,11 +78,10 @@ func TestAuthService_Verify(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register and authenticate
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	require.NoError(t, err)
 
-	// Verify token
 	valid, err := authService.Verify(token)
 	require.NoError(t, err)
 	require.True(t, valid)
@@ -97,11 +97,10 @@ func TestAuthService_ParseToken(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register and authenticate
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	require.NoError(t, err)
 
-	// Parse token
 	claims, err := authService.ParseToken(token)
 	require.NoError(t, err)
 	require.NotNil(t, claims)
@@ -113,11 +112,10 @@ func TestAuthService_RefreshToken(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register and authenticate
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	require.NoError(t, err)
 
-	// Refresh token
 	newToken, err := authService.RefreshToken(context.Background(), token)
 	require.NoError(t, err)
 	require.NotEqual(t, "", newToken)
@@ -134,9 +132,8 @@ func TestAuthService_ChangePassword(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
-	authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
 
-	// Change password
 	err := authService.ChangePassword(context.Background(), "testuser", "oldpassword", "newpassword")
 	require.NoError(t, err)
 

@@ -38,7 +38,7 @@ func TestRedisCache_SetGet(t *testing.T) {
 	require.Equal(t, "test_value", value)
 
 	// Cleanup
-	cache.Delete(context.Background(), "test_key")
+	_ = cache.Delete(context.Background(), "test_key")
 }
 
 func TestRedisCache_SetWithExpiration(t *testing.T) {
@@ -102,7 +102,7 @@ func TestRedisCache_Exists(t *testing.T) {
 	require.True(t, exists)
 
 	// Delete and check again
-	cache.Delete(context.Background(), "test_exists_key")
+	_ = cache.Delete(context.Background(), "test_exists_key")
 	exists, err = cache.Exists(context.Background(), "test_exists_key")
 	require.NoError(t, err)
 	require.False(t, exists)

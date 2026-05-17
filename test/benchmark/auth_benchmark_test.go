@@ -16,7 +16,7 @@ func BenchmarkAuthService_Register(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		username := "testuser" + string(rune(i))
 		email := "test" + string(rune(i)) + "@example.com"
-		authService.Register(context.Background(), username, "password123", email)
+		_ = authService.Register(context.Background(), username, "password123", email)
 	}
 }
 
@@ -25,11 +25,11 @@ func BenchmarkAuthService_Login(b *testing.B) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create a user
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.Authenticate(context.Background(), "testuser", "password123")
+		_, _ = authService.Authenticate(context.Background(), "testuser", "password123")
 	}
 }
 
@@ -38,12 +38,12 @@ func BenchmarkAuthService_ValidateToken(b *testing.B) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create user and get token
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, _ := authService.Authenticate(context.Background(), "testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.Verify(token)
+		_, _ = authService.Verify(token)
 	}
 }
 
@@ -52,12 +52,12 @@ func BenchmarkAuthService_RefreshToken(b *testing.B) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create user and get token
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, _ := authService.Authenticate(context.Background(), "testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.RefreshToken(context.Background(), token)
+		_, _ = authService.RefreshToken(context.Background(), token)
 	}
 }
 
@@ -81,11 +81,11 @@ func BenchmarkAuthService_ConcurrentLogins(b *testing.B) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create a user
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			authService.Authenticate(context.Background(), "testuser", "password123")
+			_, _ = authService.Authenticate(context.Background(), "testuser", "password123")
 		}
 	})
 }

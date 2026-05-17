@@ -77,7 +77,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		username := fmt.Sprintf("user%d", i)
 		email := fmt.Sprintf("user%d@example.com", i)
-		authService.Register(context.Background(), username, "password", email)
+		_ = authService.Register(context.Background(), username, "password", email)
 	}
 
 	// Test query performance
