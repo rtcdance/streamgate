@@ -177,7 +177,7 @@ func TestLifecycle_Stop(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "hook failed")
-		assert.Equal(t, 2, called)
+		assert.Equal(t, 3, called)
 	})
 
 	t.Run("no hooks registered", func(t *testing.T) {

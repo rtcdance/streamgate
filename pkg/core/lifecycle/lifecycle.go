@@ -1,14 +1,16 @@
 package lifecycle
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
-// Lifecycle manages component lifecycle
 type Lifecycle struct {
+	mu         sync.RWMutex
 	startHooks []func(context.Context) error
 	stopHooks  []func(context.Context) error
 }
 
-// NewLifecycle creates a new lifecycle manager
 func NewLifecycle() *Lifecycle {
 	return &Lifecycle{
 		startHooks: make([]func(context.Context) error, 0),
@@ -16,19 +18,25 @@ func NewLifecycle() *Lifecycle {
 	}
 }
 
-// OnStart registers a start hook
 func (l *Lifecycle) OnStart(hook func(context.Context) error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.startHooks = append(l.startHooks, hook)
 }
 
-// OnStop registers a stop hook
 func (l *Lifecycle) OnStop(hook func(context.Context) error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.stopHooks = append(l.stopHooks, hook)
 }
 
-// Start calls all start hooks
 func (l *Lifecycle) Start(ctx context.Context) error {
-	for _, hook := range l.startHooks {
+	l.mu.RLock()
+	hooks := make([]func(context.Context) error, len(l.startHooks))
+	copy(hooks, l.startHooks)
+	l.mu.RUnlock()
+
+	for _, hook := range hooks {
 		if err := hook(ctx); err != nil {
 			return err
 		}
@@ -36,12 +44,17 @@ func (l *Lifecycle) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop calls all stop hooks
 func (l *Lifecycle) Stop(ctx context.Context) error {
-	for _, hook := range l.stopHooks {
-		if err := hook(ctx); err != nil {
-			return err
+	l.mu.RLock()
+	hooks := make([]func(context.Context) error, len(l.stopHooks))
+	copy(hooks, l.stopHooks)
+	l.mu.RUnlock()
+
+	var firstErr error
+	for i := len(hooks) - 1; i >= 0; i-- {
+		if err := hooks[i](ctx); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	return nil
+	return firstErr
 }

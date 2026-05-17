@@ -6,13 +6,14 @@ import (
 	"testing"
 	"time"
 
+	"streamgate/pkg/models"
+	"streamgate/pkg/web3"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
-	"streamgate/pkg/models"
-	"streamgate/pkg/web3"
 )
 
 // MockAuthStorage implements AuthStorage for testing
@@ -364,7 +365,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 		err = auth.ChangePassword(context.Background(), "testuser2", "wrongpassword", "newpassword")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid old password")
+		assert.ErrorIs(t, err, ErrInvalidCredential)
 	})
 }
 

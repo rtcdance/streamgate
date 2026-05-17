@@ -81,7 +81,7 @@ func TestDatabaseConfig_GetDSN(t *testing.T) {
 				Database: "production",
 				SSLMode:  "require",
 			},
-			expected: "postgres://admin:secret@db.example.com:5433/production?sslmode=require",
+			expected: "postgres://admin:test-secret-that-is-at-least-32-chars@db.example.com:5433/production?sslmode=require",
 		},
 	}
 
