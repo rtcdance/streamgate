@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"streamgate/pkg/monitoring"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
-	"streamgate/pkg/monitoring"
 )
 
 // Pre-parsed ERC-721 ABIs for chain.go contract calls.
@@ -72,13 +73,13 @@ type rpcEndpointState struct {
 
 // RPCStatus describes the current runtime status of an RPC endpoint.
 type RPCStatus struct {
-	URL           string        `json:"url"`
-	IsActive      bool          `json:"is_active"`
-	Failures      int           `json:"failures"`
-	LastFailureAt time.Time     `json:"last_failure_at,omitempty"`
-	CooldownUntil time.Time     `json:"cooldown_until,omitempty"`
-	Score         float64       `json:"score"`
-	LastLatencyMs int64         `json:"last_latency_ms,omitempty"`
+	URL           string    `json:"url"`
+	IsActive      bool      `json:"is_active"`
+	Failures      int       `json:"failures"`
+	LastFailureAt time.Time `json:"last_failure_at,omitempty"`
+	CooldownUntil time.Time `json:"cooldown_until,omitempty"`
+	Score         float64   `json:"score"`
+	LastLatencyMs int64     `json:"last_latency_ms,omitempty"`
 }
 
 const (
@@ -647,6 +648,7 @@ func (cc *ChainClient) getNFTBalanceAtBlock(ctx context.Context, wallet, contrac
 }
 
 // getNFTOwner gets the owner of a specific NFT (internal helper)
+//
 //nolint:unused
 func (cc *ChainClient) getNFTOwner(ctx context.Context, contract common.Address, tokenID string) (common.Address, error) {
 	parsedABI, err := abi.JSON(bytes.NewReader([]byte(`[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`)))
@@ -955,15 +957,20 @@ func (cc *ChainClient) connectAt(idx int) (*ethclient.Client, *big.Int, error) {
 
 func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetFailures bool) {
 	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	if cc.client != nil {
-		cc.client.Close()
-	}
+	oldClient := cc.client
 	cc.client = client
 	cc.activeRPC = idx
 	cc.rpcURL = cc.rpcURLs[idx]
 	if resetFailures {
 		cc.rpcStates[idx] = rpcEndpointState{Score: rpcScoreInitial}
+	}
+	cc.mu.Unlock()
+
+	if oldClient != nil {
+		go func() {
+			time.Sleep(30 * time.Second)
+			oldClient.Close()
+		}()
 	}
 }
 

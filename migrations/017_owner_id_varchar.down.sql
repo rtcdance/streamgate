@@ -1,0 +1,11 @@
+-- Revert: change owner_id from VARCHAR back to UUID
+-- This is a data-loss operation if the column contains non-UUID values.
+-- Verify before running: SELECT owner_id FROM contents WHERE owner_id !~ '^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$'
+
+-- We keep the VARCHAR column and add back a UUID column for compatibility
+-- The actual rollback strategy depends on whether non-UUID values exist.
+-- If all values are valid UUIDs:
+--   ALTER TABLE contents ALTER COLUMN owner_id TYPE UUID USING owner_id::uuid;
+-- If non-UUID values exist, create a new column and migrate:
+--   ALTER TABLE contents ADD COLUMN owner_id_uuid UUID;
+--   UPDATE contents SET owner_id_uuid = owner_id::uuid WHERE owner_id ~ '...';

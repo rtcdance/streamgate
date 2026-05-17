@@ -34,3 +34,11 @@ func (v *MultiChainSignatureVerifier) VerifySolanaSignature(address, message, si
 	}
 	return v.solanaVerifier.VerifySignature(address, message, signature)
 }
+
+// VerifyOffchainMessage verifies a Solana off-chain message with standard prefix.
+func (v *MultiChainSignatureVerifier) VerifyOffchainMessage(address, message, signature string) (bool, error) {
+	if v.solanaVerifier == nil {
+		return false, ErrSolanaNotConfigured
+	}
+	return v.solanaVerifier.VerifyOffchainMessage(address, message, signature)
+}

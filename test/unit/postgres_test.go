@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/test/helpers"
 )
 
@@ -16,7 +17,7 @@ func TestPostgresDB_Connect(t *testing.T) {
 
 	// Test that connection is established
 	err := db.Ping(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestPostgresDB_Query(t *testing.T) {
@@ -28,16 +29,16 @@ func TestPostgresDB_Query(t *testing.T) {
 
 	// Test query
 	rows, err := db.Query(context.Background(), "SELECT 1 as num")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, rows)
+	require.NoError(t, err)
+	require.NotNil(t, rows)
 	defer rows.Close()
 
 	// Verify result
-	helpers.AssertTrue(t, rows.Next())
+	require.True(t, rows.Next())
 	var num int
 	err = rows.Scan(&num)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, 1, num)
+	require.NoError(t, err)
+	require.Equal(t, 1, num)
 }
 
 func TestPostgresDB_QueryRow(t *testing.T) {
@@ -49,12 +50,12 @@ func TestPostgresDB_QueryRow(t *testing.T) {
 
 	// Test query row
 	row := db.QueryRow(context.Background(), "SELECT 42 as answer")
-	helpers.AssertNotNil(t, row)
+	require.NotNil(t, row)
 
 	var answer int
 	err := row.Scan(&answer)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, 42, answer)
+	require.NoError(t, err)
+	require.Equal(t, 42, answer)
 }
 
 func TestPostgresDB_Exec(t *testing.T) {
@@ -71,16 +72,16 @@ func TestPostgresDB_Exec(t *testing.T) {
 			name VARCHAR(255)
 		)
 	`)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Insert data
 	result, err := db.Exec(context.Background(), "INSERT INTO test_exec (name) VALUES ($1)", "test")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Check rows affected
 	rowsAffected, err := result.RowsAffected()
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, int64(1), rowsAffected)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rowsAffected)
 }
 
 func TestPostgresDB_Transaction(t *testing.T) {
@@ -92,12 +93,12 @@ func TestPostgresDB_Transaction(t *testing.T) {
 
 	// Begin transaction
 	tx, err := db.Begin(context.Background())
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, tx)
+	require.NoError(t, err)
+	require.NotNil(t, tx)
 
 	// Rollback
 	err = tx.Rollback()
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestPostgresDB_Stats(t *testing.T) {
@@ -109,5 +110,5 @@ func TestPostgresDB_Stats(t *testing.T) {
 
 	// Get stats
 	stats := db.Stats()
-	helpers.AssertTrue(t, stats.OpenConnections >= 0)
+	require.True(t, stats.OpenConnections >= 0)
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/test/helpers"
 )
 
@@ -37,7 +38,7 @@ func TestLoad_CacheHitRate(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				keyID := (id*numRequests + j) % 100
-				_, err := cache.Get(context.Background(), "key_" + string(rune(keyID)))
+				_, err := cache.Get(context.Background(), "key_"+string(rune(keyID)))
 				if err == nil {
 					atomic.AddInt64(&hitCount, 1)
 				} else {
@@ -62,7 +63,7 @@ func TestLoad_CacheHitRate(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, hitRate > 80)
+	require.True(t, hitRate > 80)
 }
 
 func TestLoad_CacheWritePerformance(t *testing.T) {
@@ -120,7 +121,7 @@ func TestLoad_CacheWritePerformance(t *testing.T) {
 	t.Logf("  Total Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f writes/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_CacheEviction(t *testing.T) {
@@ -169,7 +170,7 @@ func TestLoad_CacheEviction(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f ops/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_CacheConsistency(t *testing.T) {
@@ -216,7 +217,7 @@ func TestLoad_CacheConsistency(t *testing.T) {
 	t.Logf("  Consistency Rate: %.2f%%", consistencyRate)
 	t.Logf("  Duration: %v", elapsed)
 
-	helpers.AssertTrue(t, consistencyRate > 99)
+	require.True(t, consistencyRate > 99)
 }
 
 func TestLoad_CacheMemoryUsage(t *testing.T) {

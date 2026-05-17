@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
+
+func init() {
+	core.RegisterPluginFactory("upload", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewUploadPlugin(cfg, logger)
+	})
+}
 
 // UploadPlugin is the upload service plugin
 type UploadPlugin struct {

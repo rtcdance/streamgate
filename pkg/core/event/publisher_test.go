@@ -131,7 +131,7 @@ func TestPublisher_Publish(t *testing.T) {
 
 		event := Event{Type: "test"}
 
-		publisher.Publish(context.Background(), event)
+		_ = publisher.Publish(context.Background(), event)
 		time.Sleep(50 * time.Millisecond)
 
 		assert.True(t, testReceived)

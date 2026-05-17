@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/gagliardetto/solana-go"
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/gagliardetto/solana-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
@@ -50,6 +50,7 @@ func isSolanaChain(chainID int64) bool {
 }
 
 // TokenBlacklist stores revoked JWT IDs.
+//
 //go:generate mockgen -destination=mocks/mock_token_blacklist.go -package=mocks streamgate/pkg/service TokenBlacklist
 type TokenBlacklist interface {
 	Revoke(ctx context.Context, jti string, expiresAt time.Time) error
@@ -118,30 +119,36 @@ func (b *MemoryTokenBlacklist) Revoke(ctx context.Context, jti string, expiresAt
 	return nil
 }
 
-// IsRevoked checks if a JTI is blacklisted. Lazily evicts expired entries.
+// IsRevoked checks if a JTI is blacklisted.
 func (b *MemoryTokenBlacklist) IsRevoked(ctx context.Context, jti string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if expiresAt, ok := b.entries[jti]; ok {
-		if time.Now().After(expiresAt) {
-			delete(b.entries, jti)
-			return false
-		}
-		return true
+	b.mu.RLock()
+	expiresAt, ok := b.entries[jti]
+	b.mu.RUnlock()
+	if !ok {
+		return false
 	}
-	return false
+	if time.Now().After(expiresAt) {
+		b.mu.Lock()
+		if stored, stillExists := b.entries[jti]; stillExists && time.Now().After(stored) {
+			delete(b.entries, jti)
+		}
+		b.mu.Unlock()
+		return false
+	}
+	return true
 }
 
 // TokenVerifyResult contains the result of a token verification.
 type TokenVerifyResult struct {
-	Valid        bool
-	ExpiresAt    string
+	Valid         bool
+	ExpiresAt     string
 	WalletAddress string
 }
 
 // WalletSignatureVerifier verifies wallet signatures.
 // Implementations must handle chain-specific verification:
 // EVM chains use secp256k1/EIP-191, Solana uses ed25519.
+//
 //go:generate mockgen -destination=mocks/mock_wallet_sig_verifier.go -package=mocks streamgate/pkg/service WalletSignatureVerifier
 type WalletSignatureVerifier interface {
 	VerifySignature(ctx context.Context, address, message, signature string) (bool, error)
@@ -153,6 +160,7 @@ type WalletSignatureVerifier interface {
 type ChainAwareSignatureVerifier interface {
 	WalletSignatureVerifier
 	VerifySolanaSignature(address, message, signature string) (bool, error)
+	VerifyOffchainMessage(address, message, signature string) (bool, error)
 }
 
 // WalletChallenge represents a one-time wallet login challenge.
@@ -169,6 +177,7 @@ type WalletChallenge struct {
 }
 
 // ChallengeStore stores wallet login challenges.
+//
 //go:generate mockgen -destination=mocks/mock_challenge_store.go -package=mocks streamgate/pkg/service ChallengeStore
 type ChallengeStore interface {
 	SaveChallenge(ctx context.Context, challenge *WalletChallenge) error
@@ -257,17 +266,93 @@ func NewRedisChallengeStore(addr string, ttl time.Duration, opts ...RedisChallen
 	}, nil
 }
 
+func (r *RedisChallengeStore) GetChallenge(ctx context.Context, id string) (*WalletChallenge, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	data, err := r.client.Get(ctx, id).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, fmt.Errorf("challenge not found: %s", id)
+		}
+		return nil, fmt.Errorf("failed to get challenge: %w", err)
+	}
+
+	var challenge WalletChallenge
+	if err := json.Unmarshal(data, &challenge); err != nil {
+		return nil, fmt.Errorf("failed to decode challenge: %w", err)
+	}
+	return &challenge, nil
+}
+
+func (r *RedisChallengeStore) SaveChallenge(ctx context.Context, challenge *WalletChallenge) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	data, err := json.Marshal(challenge)
+	if err != nil {
+		return fmt.Errorf("failed to encode challenge: %w", err)
+	}
+
+	if err := r.client.Set(ctx, challenge.ID, data, r.ttl).Err(); err != nil {
+		return fmt.Errorf("failed to save challenge: %w", err)
+	}
+	return nil
+}
+
 // MemoryChallengeStore stores challenges in-memory for local development and tests.
 type MemoryChallengeStore struct {
 	mu         sync.RWMutex
 	challenges map[string]*WalletChallenge
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
 }
 
 // NewMemoryChallengeStore creates a new in-memory challenge store.
 func NewMemoryChallengeStore() *MemoryChallengeStore {
-	return &MemoryChallengeStore{
+	m := &MemoryChallengeStore{
 		challenges: make(map[string]*WalletChallenge),
+		stopCh:     make(chan struct{}),
 	}
+	m.wg.Add(1)
+	go m.cleanupLoop()
+	return m
+}
+
+// Close stops the background cleanup goroutine.
+func (m *MemoryChallengeStore) Close() error {
+	select {
+	case <-m.stopCh:
+	default:
+		close(m.stopCh)
+	}
+	m.wg.Wait()
+	return nil
+}
+
+func (m *MemoryChallengeStore) cleanupLoop() {
+	defer m.wg.Done()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.evictExpired()
+		}
+	}
+}
+
+func (m *MemoryChallengeStore) evictExpired() {
+	now := time.Now()
+	m.mu.Lock()
+	for id, ch := range m.challenges {
+		if now.After(ch.ExpiresAt) {
+			delete(m.challenges, id)
+		}
+	}
+	m.mu.Unlock()
 }
 
 // SaveChallenge stores a challenge.
@@ -287,65 +372,26 @@ func (m *MemoryChallengeStore) GetChallenge(ctx context.Context, id string) (*Wa
 
 	challenge, ok := m.challenges[id]
 	if !ok {
-		return nil, errors.New("challenge not found")
+		return nil, ErrChallengeNotFound
 	}
-
-	challengeCopy := *challenge
-	return &challengeCopy, nil
+	copy := *challenge
+	return &copy, nil
 }
 
-// MarkChallengeUsed atomically checks that the challenge has not been used and
-// marks it as consumed in a single write-lock scope to prevent TOCTOU replay.
-// Returns an error if the challenge is not found or has already been used.
+// MarkChallengeUsed marks a challenge as used in the memory store.
 func (m *MemoryChallengeStore) MarkChallengeUsed(ctx context.Context, id string, usedAt time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	challenge, ok := m.challenges[id]
 	if !ok {
-		return errors.New("challenge not found")
+		return ErrChallengeNotFound
 	}
-
-	// Fast-fail: skip expensive signature verification for already-used challenges.
-	// The atomic MarkChallengeUsed below provides the definitive TOCTOU-safe check.
 	if !challenge.UsedAt.IsZero() {
-		return errors.New("challenge already used")
+		return ErrChallengeUsed
 	}
-
 	challenge.UsedAt = usedAt
 	return nil
-}
-
-// SaveChallenge stores a challenge in Redis.
-func (r *RedisChallengeStore) SaveChallenge(ctx context.Context, challenge *WalletChallenge) error {
-	data, err := json.Marshal(challenge)
-	if err != nil {
-		return fmt.Errorf("failed to marshal challenge: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	return r.client.Set(ctx, challenge.ID, string(data), r.ttl).Err()
-}
-
-// GetChallenge retrieves a challenge from Redis.
-func (r *RedisChallengeStore) GetChallenge(ctx context.Context, id string) (*WalletChallenge, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	raw, err := r.client.Get(ctx, id).Result()
-	if err == redis.Nil {
-		return nil, errors.New("challenge not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to load challenge: %w", err)
-	}
-
-	var challenge WalletChallenge
-	if err := json.Unmarshal([]byte(raw), &challenge); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal challenge: %w", err)
-	}
-
-	return &challenge, nil
 }
 
 // markChallengeUsedLua is a Redis Lua script that atomically checks if a
@@ -391,12 +437,11 @@ func (r *RedisChallengeStore) MarkChallengeUsed(ctx context.Context, id string, 
 	case "OK":
 		return nil
 	case "ALREADY_USED":
-		return errors.New("challenge already used")
+		return ErrChallengeUsed
 	case "NOT_FOUND":
-		return errors.New("challenge not found")
-	default:
-		return fmt.Errorf("unexpected Lua script result: %s", str)
+		return ErrChallengeNotFound
 	}
+	return nil
 }
 
 // Close closes the Redis connection.
@@ -409,6 +454,10 @@ func (r *RedisChallengeStore) Close() error {
 
 func defaultWalletSignatureVerifier() WalletSignatureVerifier {
 	return web3.NewSignatureVerifier(zap.NewNop())
+}
+
+func defaultEIP712Verifier() *web3.EIP712Verifier {
+	return web3.NewEIP712Verifier(zap.NewNop())
 }
 
 // GenerateWalletChallenge creates and stores a one-time wallet login challenge.
@@ -483,10 +532,10 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 // Supports both EVM (secp256k1/EIP-191) and Solana (ed25519) signature verification.
 func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string) (string, error) {
 	if challengeID == "" {
-		return "", errors.New("challenge id is required")
+		return "", ErrInvalidRequest
 	}
 	if signature == "" {
-		return "", errors.New("signature is required")
+		return "", ErrInvalidRequest
 	}
 
 	challenge, err := s.challengeStore.GetChallenge(ctx, challengeID)
@@ -526,14 +575,13 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 	if isSolanaChain(challenge.ChainID) {
 		verifier, ok := s.signatureVerifier.(ChainAwareSignatureVerifier)
 		if !ok {
-			return "", errors.New("solana signature verification not supported")
+			return "", ErrNotSupported
 		}
-		valid, err = verifier.VerifySolanaSignature(normalizedAddress, challenge.Message, signature)
+		valid, err = verifier.VerifyOffchainMessage(normalizedAddress, challenge.Message, signature)
 	} else if challenge.SigningType == "eip712" {
 		// EIP-712 typed data verification: reconstruct the typed data from the challenge
-		eip712Verifier := web3.NewEIP712Verifier(zap.NewNop())
 		typedData := s.buildEIP712Challenge(challenge)
-		valid, err = eip712Verifier.VerifyTypedData(normalizedAddress, typedData, signature)
+		valid, err = s.eip712Verifier.VerifyTypedData(normalizedAddress, typedData, signature)
 	} else {
 		// Default: EIP-191 personal_sign
 		valid, err = s.signatureVerifier.VerifySignature(ctx, normalizedAddress, challenge.Message, signature)
@@ -603,7 +651,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 		WalletAddress: walletAddress,
 		JTI:           generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Subject:   walletAddress,

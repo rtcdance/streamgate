@@ -70,7 +70,7 @@ func TestSafeFetchURI_BlocksPrivateIPs(t *testing.T) {
 	// Start a local server on 127.0.0.1 which is private
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"name": "leaked"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"name": "leaked"})
 	}))
 	defer server.Close()
 

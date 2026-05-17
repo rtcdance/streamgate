@@ -19,10 +19,29 @@ import (
 // It uses a mnemonic seed phrase (BIP-39) to generate a master key, from which
 // child keys are derived via standard derivation paths.
 type HDWallet struct {
-	mnemonic   string
-	seed       []byte
-	masterKey  *extendedKey
-	logger     *zap.Logger
+	mnemonic  string
+	seed      []byte
+	masterKey *extendedKey
+	logger    *zap.Logger
+}
+
+func (hw *HDWallet) Destroy() {
+	if hw.mnemonic != "" {
+		hw.mnemonic = strings.Repeat("x", len(hw.mnemonic))
+	}
+	for i := range hw.seed {
+		hw.seed[i] = 0
+	}
+	hw.seed = nil
+	if hw.masterKey != nil {
+		for i := range hw.masterKey.key {
+			hw.masterKey.key[i] = 0
+		}
+		for i := range hw.masterKey.chainCode {
+			hw.masterKey.chainCode[i] = 0
+		}
+		hw.masterKey = nil
+	}
 }
 
 // extendedKey represents a BIP-32 extended key with chain code.
@@ -128,10 +147,10 @@ func NewHDWalletFromMnemonic(mnemonic, password string, logger *zap.Logger) (*HD
 	}
 
 	return &HDWallet{
-		mnemonic:   mnemonic,
-		seed:       seed,
-		masterKey:  masterKey,
-		logger:     logger,
+		mnemonic:  mnemonic,
+		seed:      seed,
+		masterKey: masterKey,
+		logger:    logger,
 	}, nil
 }
 

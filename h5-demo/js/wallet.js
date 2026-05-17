@@ -1,5 +1,3 @@
-const ETH_SIGN_PREFIX = '\x19Ethereum Signed Message:\n';
-
 class WalletService {
     constructor() {
         this.provider = null;
@@ -280,19 +278,10 @@ class WalletService {
         }
     }
 
-    async signTypedData(domain, challenge) {
+    async signTypedData(typedData) {
         if (!this.account) {
             throw new Error('Wallet not connected');
         }
-
-        const domainSeparator = this.encodeDomainSeparator(domain);
-        const challengeHash = this.hashChallenge(challenge);
-        const messageHash = this.hashMessage(
-            ETH_SIGN_PREFIX + challenge.message
-        );
-
-        const encodedData = this.encodeData(domainSeparator, challengeHash, messageHash);
-        const hash = this.hashTypedData(encodedData);
 
         try {
             const provider = await this.ensureProvider();
@@ -300,62 +289,17 @@ class WalletService {
                 throw this.buildProviderError();
             }
 
+            // eth_signTypedData_v4 expects the typed data as a JSON string
+            // The typedData object should have: domain, types, primaryType, message
             const signature = await provider.request({
                 method: 'eth_signTypedData_v4',
-                params: [this.account, JSON.stringify({
-                    domain: domain,
-                    message: challenge.message,
-                    primaryType: 'Challenge',
-                    types: {
-                        Challenge: [
-                            { name: 'wallet', type: 'address' },
-                            { name: 'nonce', type: 'string' },
-                            { name: 'issued_at', type: 'string' },
-                            { name: 'expires_at', type: 'string' },
-                        ],
-                        EIP712Domain: [
-                            { name: 'name', type: 'string' },
-                            { name: 'version', type: 'string' },
-                            { name: 'chainId', type: 'uint256' },
-                        ],
-                    },
-                })],
+                params: [this.account, JSON.stringify(typedData)],
             });
             return signature;
         } catch (error) {
             console.error('Sign typed data error:', error);
             throw error;
         }
-    }
-
-    encodeDomainSeparator(domain) {
-        return this.keccak256(JSON.stringify(domain));
-    }
-
-    hashChallenge(challenge) {
-        return this.keccak256(challenge.nonce + challenge.issued_at);
-    }
-
-    hashMessage(message) {
-        return this.keccak256(message);
-    }
-
-    hashTypedData(encodedData) {
-        return this.keccak256(encodedData);
-    }
-
-    keccak256(data) {
-        if (this.provider) {
-            return this.provider.request({
-                method: 'web3_sha3',
-                params: [data],
-            }).then(hash => hash);
-        }
-        return Promise.resolve(data);
-    }
-
-    encodeData(domainSep, challengeHash, messageHash) {
-        return '0x1901' + domainSep.slice(2) + challengeHash.slice(2) + messageHash.slice(2);
     }
 
     disconnect() {

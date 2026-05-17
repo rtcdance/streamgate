@@ -4,12 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"streamgate/pkg/core/config"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/event"
-	"streamgate/pkg/service"
 )
 
 type mockPlugin struct {
@@ -43,51 +42,6 @@ func (m *mockPlugin) Stop(ctx context.Context) error {
 }
 
 func (m *mockPlugin) Health(ctx context.Context) error {
-	return nil
-}
-
-type mockEventBus struct {
-	published []event.Event
-}
-
-func (m *mockEventBus) Publish(ctx context.Context, e event.Event) error {
-	m.published = append(m.published, e)
-	return nil
-}
-
-func (m *mockEventBus) Subscribe(ctx context.Context, topic string, handler event.EventHandler) error {
-	return nil
-}
-
-func (m *mockEventBus) Unsubscribe(ctx context.Context, topic string, handler event.EventHandler) error {
-	return nil
-}
-
-type mockRegistry struct{}
-
-func (m *mockRegistry) Register(ctx context.Context, info *service.ServiceInfo) error {
-	return nil
-}
-
-func (m *mockRegistry) Deregister(ctx context.Context, serviceID string) error {
-	return nil
-}
-
-func (m *mockRegistry) Discover(ctx context.Context, serviceName string) ([]*service.ServiceInfo, error) {
-	return nil, nil
-}
-
-func (m *mockRegistry) Health(ctx context.Context, serviceID string) error {
-	return nil
-}
-
-type mockClientPool struct{}
-
-func (m *mockClientPool) GetClient(serviceName string) (interface{}, error) {
-	return nil, nil
-}
-
-func (m *mockClientPool) Close() error {
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -24,7 +25,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 
 	// Setup: Create a user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Concurrent login requests
 	numGoroutines := 10
@@ -63,7 +64,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_ConcurrentContentOperations(t *testing.T) {
@@ -91,7 +92,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 		OwnerID:     uuid.New().String(),
 	}
 	id, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	content.ID = id
 
 	// Concurrent read operations
@@ -131,7 +132,7 @@ func TestLoad_ConcurrentContentOperations(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_ConcurrentCacheOperations(t *testing.T) {
@@ -186,7 +187,7 @@ func TestLoad_ConcurrentCacheOperations(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
@@ -237,7 +238,7 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_SustainedLoad(t *testing.T) {
@@ -251,7 +252,7 @@ func TestLoad_SustainedLoad(t *testing.T) {
 
 	// Setup: Create a user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Sustained load for 2 seconds
 	duration := 2 * time.Second
@@ -291,5 +292,5 @@ func TestLoad_SustainedLoad(t *testing.T) {
 	t.Logf("  Errors: %d", errorCount)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }

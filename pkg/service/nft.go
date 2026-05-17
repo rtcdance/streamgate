@@ -121,11 +121,7 @@ func (s *NFTService) VerifyNFT(ctx context.Context, address, contractAddress, to
 	// Cache the result with TTL so stale ownership data doesn't persist indefinitely
 	// if the EventIndexer is down and Transfer events are missed.
 	if s.cacheEnabled {
-		if expirer, ok := s.cache.(interface{ SetWithExpiration(key string, value interface{}, ttl time.Duration) error }); ok {
-			_ = expirer.SetWithExpiration(cacheKey, owner.Hex(), s.cacheDuration)
-		} else {
-			_ = s.cache.Set(cacheKey, owner.Hex())
-		}
+		_ = s.cache.SetWithExpiration(cacheKey, owner.Hex(), s.cacheDuration)
 	}
 
 	// Compare addresses (case-insensitive)
@@ -176,7 +172,7 @@ func (s *NFTService) GetNFTMetadata(ctx context.Context, contractAddress, tokenI
 
 	// Cache the result
 	if s.cacheEnabled {
-		_ = s.cache.Set(cacheKey, metadata)
+		_ = s.cache.SetWithExpiration(cacheKey, metadata, s.cacheDuration)
 	}
 
 	return metadata, nil
@@ -276,7 +272,13 @@ func (s *NFTService) VerifyNFTBatch(ctx context.Context, address string, nfts []
 func (s *NFTService) InvalidateOwnershipCache(contractAddress, tokenID string) {
 	if s.cacheEnabled && s.cache != nil {
 		key := fmt.Sprintf("nft:owner:%s:%s", contractAddress, tokenID)
-		_ = s.cache.Delete(key)
+		if err := s.cache.Delete(key); err != nil {
+			s.logger.Error("Failed to invalidate NFT ownership cache — stale data may be served",
+				zap.String("contract", contractAddress),
+				zap.String("token_id", tokenID),
+				zap.Error(err))
+			return
+		}
 		s.logger.Debug("Invalidated NFT ownership cache",
 			zap.String("contract", contractAddress),
 			zap.String("token_id", tokenID))

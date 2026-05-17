@@ -27,10 +27,10 @@ func (s *Service) CORSMiddleware(allowedOrigins ...string) gin.HandlerFunc {
 			c.Writer.Header().Set("Vary", "Origin")
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		} else {
-			// Origin not in allowed list — no CORS headers set.
-			// For preflight, still respond so the browser gets a clear signal.
 			if c.Request.Method == http.MethodOptions {
-				c.AbortWithStatus(http.StatusForbidden)
+				c.Writer.Header().Set("Access-Control-Allow-Origin", "")
+				c.Writer.Header().Set("Vary", "Origin")
+				c.AbortWithStatus(http.StatusNoContent)
 				return
 			}
 			c.Next()

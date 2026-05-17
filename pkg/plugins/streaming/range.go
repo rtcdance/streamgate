@@ -219,10 +219,22 @@ func (mw *multipartWriter) WriteHeader() {
 		return
 	}
 
-	_, _ = fmt.Fprintf(mw.w, "--%s\r\n", mw.boundary)
-	_, _ = fmt.Fprintf(mw.w, "Content-Type: application/octet-stream\r\n")
-	_, _ = fmt.Fprintf(mw.w, "Content-Range: bytes %d-%d/%d\r\n", 0, 0, 0)
-	_, _ = fmt.Fprintf(mw.w, "\r\n")
+	if _, err := fmt.Fprintf(mw.w, "--%s\r\n", mw.boundary); err != nil {
+		mw.closed = true
+		return
+	}
+	if _, err := fmt.Fprintf(mw.w, "Content-Type: application/octet-stream\r\n"); err != nil {
+		mw.closed = true
+		return
+	}
+	if _, err := fmt.Fprintf(mw.w, "Content-Range: bytes %d-%d/%d\r\n", 0, 0, 0); err != nil {
+		mw.closed = true
+		return
+	}
+	if _, err := fmt.Fprintf(mw.w, "\r\n"); err != nil {
+		mw.closed = true
+		return
+	}
 }
 
 // Write writes data to the multipart response

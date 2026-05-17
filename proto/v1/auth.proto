@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package auth.v1;
 
-option go_package = "streamgate/proto/gen/go/auth/v1;authv1";
+option go_package = "streamgate/pkg/api/v1/auth;authv1";
 
 import "proto/v1/common.proto";
 

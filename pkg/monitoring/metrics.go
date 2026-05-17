@@ -53,13 +53,21 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(
+	for _, c := range []prometheus.Collector{
 		pluginOperationsTotal,
 		pluginGaugeValue,
 		pluginHistogramSeconds,
 		serviceRequestsTotal,
 		serviceLatencyMs,
-	)
+		prometheus.NewGoCollector(),
+		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+	} {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
 }
 
 // MetricsCollector collects system metrics.

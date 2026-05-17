@@ -3,7 +3,9 @@ package streaming_test
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
@@ -33,6 +35,11 @@ func (m *MockCacheStorage) Set(key string, value interface{}) error {
 	return nil
 }
 
+func (m *MockCacheStorage) SetWithExpiration(key string, value interface{}, ttl time.Duration) error {
+	m.cache[key] = value
+	return nil
+}
+
 func (m *MockCacheStorage) Delete(key string) error {
 	delete(m.cache, key)
 	return nil
@@ -55,8 +62,8 @@ func TestStreamingService_CreateStream(t *testing.T) {
 	streamingService := newStreamingService(t, db, cache)
 
 	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, streamID)
+	require.NoError(t, err)
+	require.NotEmpty(t, streamID)
 }
 
 func TestStreamingService_GetStream(t *testing.T) {
@@ -70,15 +77,15 @@ func TestStreamingService_GetStream(t *testing.T) {
 	streamingService := newStreamingService(t, db, cache)
 
 	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = streamingService.UpdateStreamStatus(context.Background(), streamID, "ready")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	stream, err := streamingService.GetStream(context.Background(), "content-123")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, stream)
-	helpers.AssertEqual(t, "content-123", stream.ContentID)
+	require.NoError(t, err)
+	require.NotNil(t, stream)
+	require.Equal(t, "content-123", stream.ContentID)
 }
 
 func TestStreamingService_HLSFormat(t *testing.T) {
@@ -95,9 +102,9 @@ func TestStreamingService_HLSFormat(t *testing.T) {
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.m3u8"},
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.m3u8"},
 	})
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, playlist)
-	helpers.AssertContains(t, playlist, ".m3u8")
+	require.NoError(t, err)
+	require.NotEmpty(t, playlist)
+	require.Contains(t, playlist, ".m3u8")
 }
 
 func TestStreamingService_DASHFormat(t *testing.T) {
@@ -114,9 +121,9 @@ func TestStreamingService_DASHFormat(t *testing.T) {
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.mpd"},
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.mpd"},
 	})
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, manifest)
-	helpers.AssertContains(t, manifest, ".mpd")
+	require.NoError(t, err)
+	require.NotEmpty(t, manifest)
+	require.Contains(t, manifest, ".mpd")
 }
 
 func TestStreamingService_AdaptiveBitrate(t *testing.T) {
@@ -130,21 +137,21 @@ func TestStreamingService_AdaptiveBitrate(t *testing.T) {
 	streamingService := newStreamingService(t, db, cache)
 
 	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = streamingService.AddStreamQuality(context.Background(), streamID, service.Quality{
 		Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.m3u8",
 	})
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = streamingService.AddStreamQuality(context.Background(), streamID, service.Quality{
 		Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.m3u8",
 	})
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	stream, err := streamingService.GetStreamByID(context.Background(), streamID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, len(stream.Qualities) > 0)
+	require.NoError(t, err)
+	require.True(t, len(stream.Qualities) > 0)
 }
 
 func TestStreamingService_DeleteStream(t *testing.T) {
@@ -158,11 +165,11 @@ func TestStreamingService_DeleteStream(t *testing.T) {
 	streamingService := newStreamingService(t, db, cache)
 
 	streamID, err := streamingService.CreateStream(context.Background(), "content-123", "hls")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = streamingService.DeleteStream(context.Background(), streamID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	_, err = streamingService.GetStreamByID(context.Background(), streamID)
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }

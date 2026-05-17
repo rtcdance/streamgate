@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func generateTestJWT(secret string, walletAddress string, expiresAt time.Time) string {
+func generateTestJWT(secret, walletAddress string, expiresAt time.Time) string {
 	claims := jwt.MapClaims{
 		"wallet_address": walletAddress,
 		"username":       walletAddress,
@@ -39,7 +39,7 @@ func TestJWTAuthMiddleware_ValidToken(t *testing.T) {
 
 	token := generateTestJWT("test-secret-key", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", time.Now().Add(time.Hour))
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -58,7 +58,7 @@ func TestJWTAuthMiddleware_MissingHeader(t *testing.T) {
 		c.JSON(http.StatusOK, nil)
 	})
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -75,7 +75,7 @@ func TestJWTAuthMiddleware_InvalidFormat(t *testing.T) {
 		c.JSON(http.StatusOK, nil)
 	})
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	req.Header.Set("Authorization", "Basic abc123")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -95,7 +95,7 @@ func TestJWTAuthMiddleware_ExpiredToken(t *testing.T) {
 
 	token := generateTestJWT("test-secret-key", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", time.Now().Add(-time.Hour))
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -115,7 +115,7 @@ func TestJWTAuthMiddleware_WrongSecret(t *testing.T) {
 
 	token := generateTestJWT("wrong-secret", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", time.Now().Add(time.Hour))
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -141,7 +141,7 @@ func TestJWTAuthMiddleware_MissingWalletAddress(t *testing.T) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte("test-secret-key"))
 
-	req := httptest.NewRequest("GET", "/protected", nil)
+	req := httptest.NewRequest("GET", "/protected", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -166,13 +166,13 @@ func TestJWTAuthMiddleware_SkipPath(t *testing.T) {
 	})
 
 	// Skip path should work without token
-	req := httptest.NewRequest("GET", "/api/v1/auth/login", nil)
+	req := httptest.NewRequest("GET", "/api/v1/auth/login", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Protected path should require token
-	req2 := httptest.NewRequest("GET", "/protected", nil)
+	req2 := httptest.NewRequest("GET", "/protected", http.NoBody)
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)
 	assert.Equal(t, http.StatusUnauthorized, w2.Code)

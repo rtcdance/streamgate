@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 // MockServiceStorage for testing
@@ -41,31 +41,31 @@ func (m *MockServiceStorage) UpdateUser(ctx context.Context, user *models.User) 
 func TestServiceIntegration_AuthenticationFlow(t *testing.T) {
 	// Setup
 	storage := NewMockServiceStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Authenticate
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify token
 	valid, err := authService.Verify(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, valid)
+	require.NoError(t, err)
+	require.True(t, valid)
 
 	// Parse token
 	claims, err := authService.ParseToken(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "testuser", claims.Username)
+	require.NoError(t, err)
+	require.Equal(t, "testuser", claims.Username)
 }
 
 func TestServiceIntegration_MultipleUsers(t *testing.T) {
 	// Setup
 	storage := NewMockServiceStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register multiple users
 	users := []struct {
@@ -80,40 +80,40 @@ func TestServiceIntegration_MultipleUsers(t *testing.T) {
 
 	for _, u := range users {
 		err := authService.Register(context.Background(), u.username, u.password, u.email)
-		helpers.AssertNoError(t, err)
+		require.NoError(t, err)
 	}
 
 	// Authenticate each user
 	for _, u := range users {
 		token, err := authService.Authenticate(context.Background(), u.username, u.password)
-		helpers.AssertNoError(t, err)
-		helpers.AssertNotEqual(t, "", token)
+		require.NoError(t, err)
+		require.NotEqual(t, "", token)
 
 		// Verify token
 		valid, err := authService.Verify(token)
-		helpers.AssertNoError(t, err)
-		helpers.AssertTrue(t, valid)
+		require.NoError(t, err)
+		require.True(t, valid)
 	}
 }
 
 func TestServiceIntegration_PasswordManagement(t *testing.T) {
 	// Setup
 	storage := NewMockServiceStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
 	authService.Register(context.Background(), "testuser", "oldpass", "test@example.com")
 
 	// Change password
 	err := authService.ChangePassword(context.Background(), "testuser", "oldpass", "newpass")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Old password should fail
 	_, err = authService.Authenticate(context.Background(), "testuser", "oldpass")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 
 	// New password should work
 	token, err := authService.Authenticate(context.Background(), "testuser", "newpass")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, "", token)
+	require.NoError(t, err)
+	require.NotEqual(t, "", token)
 }

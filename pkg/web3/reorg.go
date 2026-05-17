@@ -38,7 +38,7 @@ type finalityBase struct {
 }
 
 func (f *finalityBase) RequiredConfirmations() uint64 { return f.confirmations }
-func (f *finalityBase) BlockTag() BlockTag             { return f.blockTag }
+func (f *finalityBase) BlockTag() BlockTag            { return f.blockTag }
 
 // finalityDefault uses HeaderReader for confirmation counting.
 type finalityDefault struct {
@@ -100,10 +100,10 @@ var (
 	}
 )
 
-type solanaFinality struct{ finalityBase }
+type solanaFinality struct{}
 
 func (s *solanaFinality) RequiredConfirmations() uint64 { return 32 }
-func (s *solanaFinality) BlockTag() BlockTag             { return "finalized" }
+func (s *solanaFinality) BlockTag() BlockTag            { return "finalized" }
 func (s *solanaFinality) IsFinalized(ctx context.Context, blockNumber uint64, blockHash common.Hash) (bool, error) {
 	// Solana finality is determined by bank state, not block hash verification.
 	// The SDK's GetFinalizedBlockHeight() call is the authoritative check.
@@ -141,6 +141,7 @@ type ReorgDetector struct {
 
 // HeaderReader abstracts the block header reading interface.
 // *ethclient.Client satisfies this interface implicitly.
+//
 //go:generate mockgen -destination=mocks/mock_header_reader.go -package=mocks streamgate/pkg/web3 HeaderReader
 type HeaderReader interface {
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)

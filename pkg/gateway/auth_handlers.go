@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/service"
 	"streamgate/pkg/util"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // authRateLimiter provides strict per-IP rate limiting for auth endpoints.
@@ -21,33 +23,37 @@ var authRateLimiter = middleware.NewRateLimiter(middleware.RateLimitConfig{
 	RequestsPerMinute: 10,
 	WindowSize:        time.Minute,
 	CleanupInterval:   5 * time.Minute,
-})
+}, nil)
 
-// getAuthRateLimiter returns the current auth rate limiter in a thread-safe manner.
-func getAuthRateLimiter() *middleware.RateLimiter {
+func getAuthRateLimiter() middleware.RateLimiter {
 	authRateLimiterMu.RLock()
 	defer authRateLimiterMu.RUnlock()
 	return authRateLimiter
 }
 
-// resetAuthRateLimiter resets the auth rate limiter (for testing only).
-//nolint:unused
 func resetAuthRateLimiter() {
 	authRateLimiterMu.Lock()
 	defer authRateLimiterMu.Unlock()
+	if authRateLimiter != nil {
+		authRateLimiter.Stop()
+	}
 	authRateLimiter = middleware.NewRateLimiter(middleware.RateLimitConfig{
 		RequestsPerMinute: 10,
 		WindowSize:        time.Minute,
 		CleanupInterval:   5 * time.Minute,
-	})
+	}, nil)
 }
 
 // RegisterAuthRoutes registers public authentication routes (no JWT required).
-func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, authService *service.AuthService) {
+func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config, authService *service.AuthService) {
 	auth := router.Group("/api/v1/auth")
 	// Apply strict rate limiting to all auth endpoints
 	auth.Use(func(c *gin.Context) {
-		if !getAuthRateLimiter().Allow(c.ClientIP()) {
+		key := c.ClientIP()
+		if wallet := c.GetHeader("X-Wallet-Address"); wallet != "" {
+			key = key + ":" + wallet
+		}
+		if !getAuthRateLimiter().Allow(key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",
@@ -57,7 +63,7 @@ func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, authService *servic
 		}
 		c.Next()
 	})
-	auth.POST("/challenge", handleAuthChallenge(authService))
+	auth.POST("/challenge", handleAuthChallenge(cfg, authService))
 	auth.POST("/login", handleAuthLogin(authService))
 	auth.POST("/register", handleAuthRegister(authService, log))
 	auth.POST("/refresh", handleAuthRefresh(authService))
@@ -66,7 +72,7 @@ func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, authService *servic
 	log.Info("Auth routes registered")
 }
 
-func handleAuthChallenge(authService *service.AuthService) gin.HandlerFunc {
+func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Address  string `json:"address"`
@@ -89,17 +95,19 @@ func handleAuthChallenge(authService *service.AuthService) gin.HandlerFunc {
 		}
 		chainID := req.ChainID
 		if chainID == 0 {
-			chainID = 11155111
+			chainID = cfg.Web3.ChainID
 		}
 		challenge, err := authService.GenerateWalletChallenge(c.Request.Context(), wallet, chainID, req.SignType)
 		if err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "failed to generate wallet challenge")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
+		respondOK(c, gin.H{
 			"challenge_id": challenge.ID, "message": challenge.Message,
+			"nonce":      challenge.Nonce,
+			"issued_at":  challenge.IssuedAt.Format(time.RFC3339),
 			"expires_at": challenge.ExpiresAt.Format(time.RFC3339),
-			"wallet": challenge.WalletAddress, "chain_id": challenge.ChainID,
+			"wallet":     challenge.WalletAddress, "chain_id": challenge.ChainID,
 			"signing_type": challenge.SigningType,
 		})
 	}
@@ -123,7 +131,7 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		}
 		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature)
 		if err != nil {
-			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, err.Error())
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed")
 			return
 		}
 		// Parse token to extract expires_at
@@ -131,7 +139,9 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		if claims, err := authService.ParseToken(token); err == nil && claims.ExpiresAt != nil {
 			expiresAt = claims.ExpiresAt.Format(time.RFC3339)
 		}
-		c.JSON(http.StatusOK, gin.H{"token": token, "wallet_address": wallet, "expires_at": expiresAt})
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		respondOK(c, gin.H{"token": token, "wallet_address": wallet, "expires_at": expiresAt})
 	}
 }
 
@@ -164,7 +174,7 @@ func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.H
 			abortWithError(c, http.StatusConflict, ErrInvalidRequest, "username or email already exists")
 			return
 		}
-		c.JSON(http.StatusCreated, gin.H{"message": "user registered", "username": req.Username})
+		respondCreated(c, gin.H{"message": "user registered", "username": req.Username})
 	}
 }
 
@@ -190,14 +200,16 @@ func handleAuthRefresh(authService *service.AuthService) gin.HandlerFunc {
 		}
 		newToken, err := authService.RefreshToken(c.Request.Context(), req.Token)
 		if err != nil {
-			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, err.Error())
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "token refresh failed")
 			return
 		}
 		var expiresAt string
 		if claims, err := authService.ParseToken(newToken); err == nil && claims.ExpiresAt != nil {
 			expiresAt = claims.ExpiresAt.Format(time.RFC3339)
 		}
-		c.JSON(http.StatusOK, gin.H{"token": newToken, "expires_at": expiresAt})
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
+		respondOK(c, gin.H{"token": newToken, "expires_at": expiresAt})
 	}
 }
 
@@ -213,7 +225,7 @@ func handleAuthLogout(authService *service.AuthService, log *zap.Logger) gin.Han
 			// The token will expire naturally; revocation is a best-effort optimization.
 			middleware.GetLogger(c, log).Warn("failed to revoke token on logout", zap.Error(err))
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+		respondOK(c, gin.H{"message": "logged out"})
 	}
 }
 
@@ -233,7 +245,7 @@ func handleAuthVerify(authService *service.AuthService) gin.HandlerFunc {
 			abortWithError(c, http.StatusUnauthorized, code, "invalid token")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"valid": true, "expires_at": result.ExpiresAt, "wallet_address": result.WalletAddress})
+		respondOK(c, gin.H{"valid": true, "expires_at": result.ExpiresAt, "wallet_address": result.WalletAddress})
 	}
 }
 
@@ -241,7 +253,7 @@ func handleAuthVerify(authService *service.AuthService) gin.HandlerFunc {
 func RegisterAuthProtectedRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService) {
 	router.GET("/api/v1/auth/profile", func(c *gin.Context) {
 		wallet := middleware.GetWalletAddress(c)
-		c.JSON(http.StatusOK, gin.H{"wallet_address": wallet})
+		respondOK(c, gin.H{"wallet_address": wallet})
 	})
 	router.POST("/api/v1/auth/change-password", func(c *gin.Context) {
 		var req struct {
@@ -263,10 +275,10 @@ func RegisterAuthProtectedRoutes(router gin.IRouter, log *zap.Logger, authServic
 			return
 		}
 		if err := authService.ChangePassword(c.Request.Context(), username, req.OldPassword, req.NewPassword); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "password change failed")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "password changed"})
+		respondOK(c, gin.H{"message": "password changed"})
 	})
 }
 
@@ -279,5 +291,5 @@ func extractBearerToken(c *gin.Context) string {
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	}
-	return strings.TrimSpace(authHeader)
+	return ""
 }

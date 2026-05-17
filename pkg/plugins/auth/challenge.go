@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -123,7 +125,7 @@ func (cra *ChallengeResponseAuth) VerifyResponse(ctx context.Context, challengeI
 		return false, fmt.Errorf("failed to compute expected response: %w", err)
 	}
 
-	if response != expectedResponse {
+	if subtle.ConstantTimeCompare([]byte(response), []byte(expectedResponse)) != 1 {
 		cra.logger.Warn("Invalid response",
 			zap.String("challenge_id", challengeID),
 			zap.Int("attempt", challenge.Attempts))
@@ -242,8 +244,9 @@ func NewSHA256Verifier(secret string) *SHA256Verifier {
 
 // ComputeResponse computes the expected response
 func (sv *SHA256Verifier) ComputeResponse(nonce string) (string, error) {
-	hash := sha256.Sum256([]byte(sv.secret + nonce))
-	return hex.EncodeToString(hash[:]), nil
+	mac := hmac.New(sha256.New, []byte(sv.secret))
+	mac.Write([]byte(nonce))
+	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
 // HMACVerifier verifies HMAC-based responses
@@ -260,8 +263,9 @@ func NewHMACVerifier(secret string) *HMACVerifier {
 
 // ComputeResponse computes the expected response
 func (hv *HMACVerifier) ComputeResponse(nonce string) (string, error) {
-	hash := sha256.Sum256([]byte(hv.secret + nonce))
-	return base64.StdEncoding.EncodeToString(hash[:]), nil
+	mac := hmac.New(sha256.New, []byte(hv.secret))
+	mac.Write([]byte(nonce))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 // generateNonce generates a random nonce
@@ -275,7 +279,11 @@ func generateNonce() (string, error) {
 
 // generateChallengeID generates a unique challenge ID
 func generateChallengeID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }
 
 // Session represents an authenticated session
@@ -294,6 +302,7 @@ type SessionManager struct {
 	mu       sync.RWMutex
 	logger   *zap.Logger
 	config   *SessionConfig
+	cancel   context.CancelFunc
 }
 
 // SessionConfig represents session configuration
@@ -317,7 +326,10 @@ func NewSessionManager(logger *zap.Logger, config *SessionConfig) *SessionManage
 		config:   config,
 	}
 
-	go sm.startCleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	sm.cancel = cancel
+
+	go sm.startCleanup(ctx)
 
 	return sm
 }
@@ -419,12 +431,23 @@ func (sm *SessionManager) RevokeSession(ctx context.Context, sessionID string) e
 }
 
 // startCleanup starts the cleanup goroutine
-func (sm *SessionManager) startCleanup() {
+func (sm *SessionManager) startCleanup(ctx context.Context) {
 	ticker := time.NewTicker(sm.config.CleanupInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		sm.cleanupExpiredSessions()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sm.cleanupExpiredSessions()
+		}
+	}
+}
+
+func (sm *SessionManager) Close() {
+	if sm.cancel != nil {
+		sm.cancel()
 	}
 }
 
@@ -445,7 +468,11 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 
 // generateSessionID generates a unique session ID
 func generateSessionID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }
 
 // AuthMiddleware provides authentication middleware

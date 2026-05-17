@@ -19,9 +19,9 @@ import (
 type StreamingService struct {
 	db       storage.DB
 	objStore StreamingObjectStorage
-	cache   cachetypes.CacheBackend
-	baseURL string
-	logger  *zap.Logger
+	cache    cachetypes.CacheBackend
+	baseURL  string
+	logger   *zap.Logger
 }
 
 // StreamingObjectStorage defines the interface for object storage
@@ -95,22 +95,33 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 	`
 
 	var streamInfo StreamInfo
+	var url, playlist, status sql.NullString
+	var duration sql.NullInt64
+	var expiresAt sql.NullTime
 	err := s.db.QueryRow(ctx, query, contentID).Scan(
 		&streamInfo.ID,
 		&streamInfo.ContentID,
 		&streamInfo.Type,
-		&streamInfo.URL,
-		&streamInfo.Playlist,
-		&streamInfo.Duration,
-		&streamInfo.Status,
+		&url,
+		&playlist,
+		&duration,
+		&status,
 		&streamInfo.CreatedAt,
-		&streamInfo.ExpiresAt,
+		&expiresAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("stream not found for content: %s", contentID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
+	}
+
+	streamInfo.URL = url.String
+	streamInfo.Playlist = playlist.String
+	streamInfo.Duration = int(duration.Int64)
+	streamInfo.Status = status.String
+	if expiresAt.Valid {
+		streamInfo.ExpiresAt = expiresAt.Time
 	}
 
 	// Get qualities
@@ -122,7 +133,9 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 
 	// Cache the result
 	if s.cache != nil {
-		_ = s.cache.Set(cacheKey, &streamInfo)
+		if err := s.cache.SetWithExpiration(cacheKey, &streamInfo, 10*time.Minute); err != nil {
+			s.logger.Warn("Failed to cache stream info", zap.String("content_id", contentID), zap.Error(err))
+		}
 	}
 
 	return &streamInfo, nil
@@ -208,14 +221,52 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 }
 
 // UpdateStreamStatus updates stream status
+var validStreamTransitions = map[string][]string{
+	"pending": {"ready", "error"},
+	"ready":   {"live", "error", "expired"},
+	"live":    {"ended", "error"},
+	"ended":   {"expired"},
+	"expired": {},
+	"error":   {"pending"},
+}
+
+func isValidStreamTransition(from, to string) bool {
+	if from == to {
+		return true
+	}
+	allowed, ok := validStreamTransitions[from]
+	if !ok {
+		return false
+	}
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, status string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	query := "UPDATE streams SET status = $2 WHERE id = $1"
-	_, err := s.db.Exec(ctx, query, streamID, status)
+
+	var currentStatus string
+	if err := s.db.QueryRow(ctx, "SELECT status FROM streams WHERE id = $1", streamID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("stream not found: %s", streamID)
+	}
+	if !isValidStreamTransition(currentStatus, status) {
+		return fmt.Errorf("invalid stream status transition: %s -> %s", currentStatus, status)
+	}
+
+	query := "UPDATE streams SET status = $2 WHERE id = $1 AND status = $3"
+	result, err := s.db.Exec(ctx, query, streamID, status, currentStatus)
 	if err != nil {
 		return fmt.Errorf("failed to update stream status: %w", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("stream status changed concurrently, please retry")
 	}
 
 	// Invalidate cache
@@ -229,7 +280,9 @@ func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, sta
 				zap.Error(err))
 		}
 		if contentID != "" {
-			_ = s.cache.Delete(fmt.Sprintf("stream:%s", contentID))
+			if err := s.cache.Delete(fmt.Sprintf("stream:%s", contentID)); err != nil {
+				s.logger.Warn("Failed to invalidate stream cache on status update", zap.String("content_id", contentID), zap.Error(err))
+			}
 		}
 	}
 
@@ -248,6 +301,15 @@ func (s *StreamingService) UpdateStreamPlaylist(ctx context.Context, streamID, p
 		return fmt.Errorf("failed to update stream playlist: %w", err)
 	}
 
+	if s.cache != nil {
+		var contentID string
+		if err := s.db.QueryRow(ctx, "SELECT content_id FROM streams WHERE id = $1", streamID).Scan(&contentID); err == nil && contentID != "" {
+			if delErr := s.cache.Delete(fmt.Sprintf("stream:%s", contentID)); delErr != nil {
+				s.logger.Warn("Failed to invalidate stream cache on playlist update", zap.String("content_id", contentID), zap.Error(delErr))
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -264,6 +326,15 @@ func (s *StreamingService) AddStreamQuality(ctx context.Context, streamID string
 	_, err := s.db.Exec(ctx, query, streamID, quality.Name, quality.Resolution, quality.Bitrate, quality.URL)
 	if err != nil {
 		return fmt.Errorf("failed to add stream quality: %w", err)
+	}
+
+	if s.cache != nil {
+		var contentID string
+		if err := s.db.QueryRow(ctx, "SELECT content_id FROM streams WHERE id = $1", streamID).Scan(&contentID); err == nil && contentID != "" {
+			if delErr := s.cache.Delete(fmt.Sprintf("stream:%s", contentID)); delErr != nil {
+				s.logger.Warn("Failed to invalidate stream cache on quality add", zap.String("content_id", contentID), zap.Error(delErr))
+			}
+		}
 	}
 
 	return nil
@@ -305,19 +376,16 @@ func (s *StreamingService) DeleteStream(ctx context.Context, streamID string) er
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	// Delete qualities first
-	_, err := s.db.Exec(ctx, "DELETE FROM stream_qualities WHERE stream_id = $1", streamID)
-	if err != nil {
-		return fmt.Errorf("failed to delete stream qualities: %w", err)
-	}
 
-	// Delete stream
-	_, err = s.db.Exec(ctx, "DELETE FROM streams WHERE id = $1", streamID)
-	if err != nil {
-		return fmt.Errorf("failed to delete stream: %w", err)
-	}
-
-	return nil
+	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM stream_qualities WHERE stream_id = $1", streamID); err != nil {
+			return fmt.Errorf("failed to delete stream qualities: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM streams WHERE id = $1", streamID); err != nil {
+			return fmt.Errorf("failed to delete stream: %w", err)
+		}
+		return nil
+	})
 }
 
 // GetStreamByID gets stream by ID
@@ -332,22 +400,33 @@ func (s *StreamingService) GetStreamByID(ctx context.Context, streamID string) (
 	`
 
 	var streamInfo StreamInfo
+	var url, playlist, status sql.NullString
+	var duration sql.NullInt64
+	var expiresAt sql.NullTime
 	err := s.db.QueryRow(ctx, query, streamID).Scan(
 		&streamInfo.ID,
 		&streamInfo.ContentID,
 		&streamInfo.Type,
-		&streamInfo.URL,
-		&streamInfo.Playlist,
-		&streamInfo.Duration,
-		&streamInfo.Status,
+		&url,
+		&playlist,
+		&duration,
+		&status,
 		&streamInfo.CreatedAt,
-		&streamInfo.ExpiresAt,
+		&expiresAt,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("stream not found: %s", streamID)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
+	}
+
+	streamInfo.URL = url.String
+	streamInfo.Playlist = playlist.String
+	streamInfo.Duration = int(duration.Int64)
+	streamInfo.Status = status.String
+	if expiresAt.Valid {
+		streamInfo.ExpiresAt = expiresAt.Time
 	}
 
 	// Get qualities

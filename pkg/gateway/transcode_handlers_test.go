@@ -42,7 +42,7 @@ func TestTranscodeHandlers_SubmitAndStatus(t *testing.T) {
 	t.Run("owner can check status", func(t *testing.T) {
 		r := setupTranscodeRouterWithService(ownerWallet, svc)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
@@ -51,12 +51,12 @@ func TestTranscodeHandlers_SubmitAndStatus(t *testing.T) {
 		r2 := setupTranscodeRouterWithService("0xAttacker1234567890abcdef1234567890ab", svc)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, http.NoBody)
 		r2.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusForbidden, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "FORBIDDEN", resp["code"])
 	})
 }
@@ -72,12 +72,12 @@ func TestTranscodeHandlers_CancelOwnership(t *testing.T) {
 		r2 := setupTranscodeRouterWithService("0xAttacker1234567890abcdef1234567890ab", svc)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/transcode/cancel/"+taskID, nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/transcode/cancel/"+taskID, http.NoBody)
 		r2.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusForbidden, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "FORBIDDEN", resp["code"])
 	})
 }
@@ -93,14 +93,14 @@ func TestTranscodeHandlers_NilService(t *testing.T) {
 
 	t.Run("status with nil service returns 503", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/some-id", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/status/some-id", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
 
 	t.Run("tasks with nil service returns 503", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/tasks", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/tasks", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})

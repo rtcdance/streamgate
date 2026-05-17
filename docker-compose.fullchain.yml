@@ -81,7 +81,10 @@ services:
   streamgate:
     build:
       context: .
-      dockerfile: deploy/docker/Dockerfile.monolith
+      dockerfile: Dockerfile
+      args:
+        PKG: ./cmd/monolith/streamgate
+        EXTRA_PKGS: ffmpeg
     container_name: sg-fc-monolith
     ports:
       - "18080:8080"

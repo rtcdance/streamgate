@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCORSMiddleware_AllowsOrigin(t *testing.T) {
@@ -20,13 +20,13 @@ func TestCORSMiddleware_AllowsOrigin(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	helpers.AssertTrue(t, len(w.Header().Get("Access-Control-Allow-Origin")) > 0)
+	require.NotEqual(t, "", w.Header().Get("Access-Control-Allow-Origin"))
 }
 
 func TestCORSMiddleware_HandlesPreflight(t *testing.T) {
@@ -40,14 +40,14 @@ func TestCORSMiddleware_HandlesPreflight(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("OPTIONS", "/test", nil)
+	req := httptest.NewRequest("OPTIONS", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	helpers.AssertTrue(t, w.Code == http.StatusOK || w.Code == http.StatusNoContent)
+	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusNoContent)
 }
 
 func TestCORSMiddleware_AllowedOrigins_EchoesOrigin(t *testing.T) {
@@ -61,14 +61,14 @@ func TestCORSMiddleware_AllowedOrigins_EchoesOrigin(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://localhost:3000")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	helpers.AssertEqual(t, "http://localhost:3000", w.Header().Get("Access-Control-Allow-Origin"))
-	helpers.AssertEqual(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
+	require.Equal(t, "http://localhost:3000", w.Header().Get("Access-Control-Allow-Origin"))
+	require.Equal(t, "true", w.Header().Get("Access-Control-Allow-Credentials"))
 }
 
 func TestCORSMiddleware_AllowedOrigins_RejectsUnknownOrigin(t *testing.T) {
@@ -82,13 +82,13 @@ func TestCORSMiddleware_AllowedOrigins_RejectsUnknownOrigin(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"message": "success"})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://evil.example.com")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	helpers.AssertEqual(t, "", w.Header().Get("Access-Control-Allow-Origin"))
+	require.Equal(t, "", w.Header().Get("Access-Control-Allow-Origin"))
 }
 
 func TestCORSMiddleware_AllowedOrigins_PreflightRejectsUnknownOrigin(t *testing.T) {
@@ -102,11 +102,11 @@ func TestCORSMiddleware_AllowedOrigins_PreflightRejectsUnknownOrigin(t *testing.
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("OPTIONS", "/test", nil)
+	req := httptest.NewRequest("OPTIONS", "/test", http.NoBody)
 	req.Header.Set("Origin", "http://evil.example.com")
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
-	helpers.AssertEqual(t, http.StatusForbidden, w.Code)
+	require.Equal(t, http.StatusNoContent, w.Code)
 }

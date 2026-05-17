@@ -2,15 +2,7 @@ openapi: 3.0.3
 info:
   title: StreamGate API
   description: |
-    StreamGate is an enterprise-grade off-chain content distribution service that provides video transcoding, streaming, and Web3 permission control.
-
-    ## Features
-    - Video upload with chunked and resumable support
-    - Multi-quality video transcoding (HLS/DASH)
-    - Multi-chain NFT permission verification (EVM + Solana)
-    - Distributed caching with Redis
-    - High-concurrency processing
-    - Real-time metrics and monitoring
+    NFT-gated streaming platform API. Core flow: wallet sign-in → NFT verification → protected HLS streaming.
 
     ## Authentication
     Most endpoints require JWT authentication. Include the token in the Authorization header:
@@ -19,666 +11,762 @@ info:
     ```
 
     ## NFT Permission Control
-    Content can be protected by NFT ownership. Users must hold the specified NFT to access protected content.
+    Content is protected by NFT ownership. Users must hold the specified NFT to access protected streaming content.
   version: 1.0.0
   contact:
     name: StreamGate Team
-    email: support@streamgate.io
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
 
 servers:
+  - url: /api/v1
+    description: Relative path (behind proxy)
   - url: http://localhost:8080/api/v1
-    description: Local development server
-  - url: https://api.streamgate.io/api/v1
-    description: Production server
+    description: Local development
 
 tags:
   - name: Health
-    description: Health check endpoints
-  - name: Upload
-    description: File upload management
-  - name: Transcoding
-    description: Video transcoding operations
-  - name: Streaming
-    description: Content streaming
-  - name: Metadata
-    description: Content metadata management
+    description: Service health and readiness
   - name: Auth
-    description: Authentication and authorization
+    description: Wallet-based authentication (EIP-191/EIP-712/SIWE)
   - name: NFT
-    description: NFT verification
-  - name: Cache
-    description: Cache management
+    description: NFT ownership verification
+  - name: Content
+    description: Content management (CRUD)
+  - name: Streaming
+    description: HLS manifest and segment delivery
+  - name: Upload
+    description: File upload (single and chunked)
+  - name: Transcoding
+    description: Transcoding job management
+  - name: Web3
+    description: Blockchain RPC status
 
 paths:
-  /health/live:
+  /health:
     get:
-      tags:
-        - Health
-      summary: Liveness probe
-      description: Checks if the service is alive
-      operationId: getLiveness
+      tags: [Health]
+      summary: Health check
+      description: Checks service health including DB, Redis, and MinIO connectivity
+      operationId: getHealth
       responses:
-        '200':
-          description: Service is alive
+        "200":
+          description: Service is healthy
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HealthResponse'
-        '503':
-          description: Service is not alive
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Service is unhealthy
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
-  /health/ready:
+  /ready:
     get:
-      tags:
-        - Health
-      summary: Readiness probe
-      description: Checks if the service is ready to accept traffic
-      operationId: getReadiness
+      tags: [Health]
+      summary: Readiness check
+      operationId: getReady
       responses:
-        '200':
+        "200":
           description: Service is ready
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthResponse'
-        '503':
-          description: Service is not ready
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        "503":
+          description: Service not ready
 
-  /upload/initiate:
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      description: Returns Prometheus metrics in text format
+      operationId: getMetrics
+      responses:
+        "200":
+          description: Metrics retrieved
+          content:
+            text/plain: {}
+
+  /auth/challenge:
     post:
-      tags:
-        - Upload
-      summary: Initiate file upload
-      description: Initiates a new file upload session
-      operationId: initiateUpload
+      tags: [Auth]
+      summary: Request a sign-in challenge
+      description: Returns a nonce for the wallet to sign (EIP-191/EIP-712/SIWE)
+      operationId: postAuthChallenge
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/InitiateUploadRequest'
+              $ref: "#/components/schemas/ChallengeRequest"
       responses:
-        '200':
-          description: Upload initiated successfully
+        "200":
+          description: Challenge created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InitiateUploadResponse'
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ChallengeResponse"
 
-  /upload/{uploadId}/chunk:
+  /auth/login:
     post:
-      tags:
-        - Upload
-      summary: Upload file chunk
-      description: Uploads a chunk of the file
-      operationId: uploadChunk
+      tags: [Auth]
+      summary: Wallet login
+      description: Verifies wallet signature and returns JWT
+      operationId: postAuthLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid signature
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register new user
+      description: Registers a new user with username and password
+      operationId: postAuthRegister
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registration successful
+        "409":
+          description: User already exists
+
+  /auth/verify:
+    post:
+      tags: [Auth]
+      summary: Verify JWT token
+      description: Validates a JWT token and returns its claims
+      operationId: postAuthVerify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyTokenRequest"
+      responses:
+        "200":
+          description: Token is valid
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh JWT token
+      operationId: postAuthRefresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      description: Revokes the current JWT token
+      operationId: postAuthLogout
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: Get user profile
+      description: Returns the authenticated user's profile including wallet address
+      operationId: getAuthProfile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+        "401":
+          description: Unauthorized
+
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change password
+      description: Changes password for username-password users (not available for wallet users)
+      operationId: postChangePassword
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed
+        "400":
+          description: Wallet users cannot change password
+
+  /nft:
+    get:
+      tags: [NFT]
+      summary: Query NFT balance
+      description: Queries wallet NFT balance for a given contract
+      operationId: listNFTs
+      security:
+        - bearerAuth: []
       parameters:
-        - name: uploadId
+        - name: contract
+          in: query
+          required: true
+          schema:
+            type: string
+          description: NFT contract address
+        - name: chain_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Chain ID (e.g., 1 for Ethereum, 11155111 for Sepolia)
+        - name: owner
+          in: query
+          schema:
+            type: string
+          description: Owner address (defaults to authenticated wallet)
+      responses:
+        "200":
+          description: NFT balance info
+
+  /nft/{id}:
+    get:
+      tags: [NFT]
+      summary: Verify NFT token ownership
+      description: Verifies ownership of a specific NFT token ID
+      operationId: getNFT
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
           in: path
           required: true
           schema:
             type: string
-          description: Upload session ID
+          description: Token ID
+        - name: contract
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: chain_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: NFT ownership info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NFTInfo"
+        "404":
+          description: NFT not found
+
+  /nft/verify:
+    post:
+      tags: [NFT]
+      summary: Verify NFT ownership
+      description: Comprehensive NFT ownership verification with caching support
+      operationId: verifyNFT
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NFTVerifyRequest"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NFTVerifyResponse"
+
+  /content:
+    get:
+      tags: [Content]
+      summary: List content items
+      description: Lists content owned by the authenticated user
+      operationId: listContent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Content list
+
+    post:
+      tags: [Content]
+      summary: Create content
+      description: Creates a new content item
+      operationId: createContent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentCreate"
+      responses:
+        "201":
+          description: Content created
+
+  /content/{id}:
+    get:
+      tags: [Content]
+      summary: Get content by ID
+      operationId: getContent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Content details
+        "404":
+          description: Not found
+
+    put:
+      tags: [Content]
+      summary: Update content
+      operationId: updateContent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentUpdate"
+      responses:
+        "200":
+          description: Content updated
+
+    delete:
+      tags: [Content]
+      summary: Delete content
+      operationId: deleteContent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Content deleted
+
+  /streaming/{id}/manifest.m3u8:
+    get:
+      tags: [Streaming]
+      summary: Get HLS master manifest
+      description: Returns HLS manifest with playback tokens embedded in segment URLs. Requires NFT ownership verification.
+      operationId: getHLSManifest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Content ID
+        - name: token_id
+          in: query
+          schema:
+            type: string
+          description: NFT token ID for ownership verification
+      responses:
+        "200":
+          description: HLS manifest
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+        "403":
+          description: NFT ownership required
+        "404":
+          description: Stream not found or transcode still processing
+
+  /streaming/{id}/segment/{num}:
+    get:
+      tags: [Streaming]
+      summary: Get HLS segment
+      description: Downloads a video segment. Requires valid playback_token from manifest.
+      operationId: getHLSSegment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Content ID
+        - name: num
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Segment filename (e.g., seg_0000.ts)
+        - name: playback_token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Playback token from manifest response
+      responses:
+        "200":
+          description: HLS segment
+          content:
+            video/mp2t: {}
+        "401":
+          description: Missing or invalid playback token
+        "404":
+          description: Segment not found
+
+  /upload:
+    post:
+      tags: [Upload]
+      summary: Upload a whole file
+      description: Uploads a complete file in a single request
+      operationId: uploadFile
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema:
               type: object
+              required: [file]
               properties:
-                chunk:
+                file:
                   type: string
                   format: binary
-                chunkNumber:
-                  type: integer
-                totalChunks:
-                  type: integer
-              required:
-                - chunk
-                - chunkNumber
-                - totalChunks
       responses:
-        '200':
-          description: Chunk uploaded successfully
+        "201":
+          description: File uploaded
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadChunkResponse'
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Upload session not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/UploadResponse"
 
-  /upload/{uploadId}/complete:
-    post:
-      tags:
-        - Upload
-      summary: Complete file upload
-      description: Completes the file upload and triggers transcoding
-      operationId: completeUpload
-      parameters:
-        - name: uploadId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Upload session ID
-      responses:
-        '200':
-          description: Upload completed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CompleteUploadResponse'
-        '404':
-          description: Upload session not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /upload/{uploadId}/status:
+  /upload/list:
     get:
-      tags:
-        - Upload
-      summary: Get upload status
-      description: Retrieves the current status of an upload
-      operationId: getUploadStatus
+      tags: [Upload]
+      summary: List uploads
+      description: Lists upload records for the authenticated user
+      operationId: listUploads
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Upload list
+
+  /upload/init:
+    post:
+      tags: [Upload]
+      summary: Initialize chunked upload
+      description: Starts a chunked upload session
+      operationId: initChunkedUpload
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitiateUploadRequest"
+      responses:
+        "200":
+          description: Upload session initialized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InitiateUploadResponse"
+
+  /upload/chunk:
+    post:
+      tags: [Upload]
+      summary: Upload a file chunk
+      description: Uploads a single chunk in a chunked upload session
+      operationId: uploadChunk
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, upload_id, chunk_index]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                upload_id:
+                  type: string
+                chunk_index:
+                  type: integer
+      responses:
+        "200":
+          description: Chunk received
+
+  /upload/{id}/complete:
+    post:
+      tags: [Upload]
+      summary: Complete chunked upload
+      description: Finalizes a chunked upload session and triggers transcoding
+      operationId: completeChunkedUpload
+      security:
+        - bearerAuth: []
       parameters:
-        - name: uploadId
+        - name: id
           in: path
           required: true
           schema:
             type: string
           description: Upload session ID
       responses:
-        '200':
-          description: Upload status retrieved
+        "200":
+          description: Upload completed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadStatus'
-        '404':
+                $ref: "#/components/schemas/CompleteUploadResponse"
+
+  /upload/{id}/complete-upload:
+    post:
+      tags: [Upload]
+      summary: Complete upload (alternative)
+      description: Alternative endpoint to finalize an upload
+      operationId: completeUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upload completed
+
+  /upload/{id}/status:
+    get:
+      tags: [Upload]
+      summary: Get upload status
+      operationId: getUploadStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upload status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadStatus"
+        "404":
           description: Upload session not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+
+  /upload/{id}/download-url:
+    get:
+      tags: [Upload]
+      summary: Get download URL
+      description: Returns a presigned download URL for the uploaded file
+      operationId: getDownloadURL
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Download URL
 
   /transcode/submit:
     post:
-      tags:
-        - Transcoding
+      tags: [Transcoding]
       summary: Submit transcoding job
       description: Submits a new video transcoding job
-      operationId: submitTranscodeJob
+      operationId: submitTranscode
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubmitTranscodeRequest'
+              $ref: "#/components/schemas/SubmitTranscodeRequest"
       responses:
-        '200':
-          description: Job submitted successfully
+        "201":
+          description: Job submitted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubmitTranscodeResponse'
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/SubmitTranscodeResponse"
 
-  /transcode/{jobId}/status:
+  /transcode/status/{id}:
     get:
-      tags:
-        - Transcoding
+      tags: [Transcoding]
       summary: Get transcoding job status
-      description: Retrieves the current status of a transcoding job
       operationId: getTranscodeStatus
+      security:
+        - bearerAuth: []
       parameters:
-        - name: jobId
+        - name: id
           in: path
           required: true
           schema:
             type: string
           description: Transcoding job ID
       responses:
-        '200':
-          description: Job status retrieved
+        "200":
+          description: Job status
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TranscodeJobStatus'
-        '404':
+                $ref: "#/components/schemas/TranscodeJobStatus"
+        "404":
           description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
-  /transcode/{jobId}/cancel:
+  /transcode/cancel/{id}:
     post:
-      tags:
-        - Transcoding
+      tags: [Transcoding]
       summary: Cancel transcoding job
-      description: Cancels a running transcoding job
-      operationId: cancelTranscodeJob
+      operationId: cancelTranscode
+      security:
+        - bearerAuth: []
       parameters:
-        - name: jobId
+        - name: id
           in: path
           required: true
           schema:
             type: string
-          description: Transcoding job ID
       responses:
-        '200':
-          description: Job cancelled successfully
-        '404':
-          description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '400':
+        "200":
+          description: Job cancelled
+        "400":
           description: Job cannot be cancelled
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 
-  /streaming/{contentId}/hls:
+  /transcode/tasks:
     get:
-      tags:
-        - Streaming
-      summary: Get HLS playlist
-      description: Retrieves the HLS master playlist for a content
-      operationId: getHLSPlaylist
-      parameters:
-        - name: contentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Content ID
+      tags: [Transcoding]
+      summary: List transcoding tasks
+      description: Lists all transcoding tasks for the authenticated user
+      operationId: listTranscodeTasks
+      security:
+        - bearerAuth: []
       responses:
-        '200':
-          description: HLS playlist retrieved
-          content:
-            application/vnd.apple.mpegurl:
-            text/plain:
-        '404':
-          description: Content not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Access denied (NFT verification failed)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        "200":
+          description: Task list
 
-  /streaming/{contentId}/dash:
+  /transcode/profiles:
     get:
-      tags:
-        - Streaming
-      summary: Get DASH manifest
-      description: Retrieves the DASH manifest for a content
-      operationId: getDASHManifest
-      parameters:
-        - name: contentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Content ID
+      tags: [Transcoding]
+      summary: List transcoding profiles
+      description: Returns available transcoding quality profiles
+      operationId: listTranscodeProfiles
+      security:
+        - bearerAuth: []
       responses:
-        '200':
-          description: DASH manifest retrieved
-          content:
-            application/dash+xml:
-        '404':
-          description: Content not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Access denied (NFT verification failed)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+        "200":
+          description: Profile list
 
-  /streaming/{contentId}/segment/{segmentId}:
+  /web3/rpc-status:
     get:
-      tags:
-        - Streaming
-      summary: Get video segment
-      description: Retrieves a specific video segment
-      operationId: getSegment
-      parameters:
-        - name: contentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Content ID
-        - name: segmentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Segment ID
+      tags: [Web3]
+      summary: Get RPC endpoint statuses
+      description: Returns health status of all configured blockchain RPC endpoints
+      operationId: getRPCStatus
       responses:
-        '200':
-          description: Segment retrieved
-          content:
-            video/mp2t:
-            video/mp4:
-        '404':
-          description: Segment not found
+        "200":
+          description: RPC status for all chains
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '403':
-          description: Access denied (NFT verification failed)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '206':
-          description: Partial content (Range request)
-          content:
-            video/mp2t:
-            video/mp4:
-          headers:
-            Content-Range:
-              schema:
-                type: string
-            Accept-Ranges:
-              schema:
-                type: string
-
-  /metadata/{contentId}:
-    get:
-      tags:
-        - Metadata
-      summary: Get content metadata
-      description: Retrieves metadata for a specific content
-      operationId: getMetadata
-      parameters:
-        - name: contentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Content ID
-      responses:
-        '200':
-          description: Metadata retrieved
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContentMetadata'
-        '404':
-          description: Content not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /metadata:
-    post:
-      tags:
-        - Metadata
-      summary: Create content metadata
-      description: Creates new content metadata
-      operationId: createMetadata
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateMetadataRequest'
-      responses:
-        '201':
-          description: Metadata created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContentMetadata'
-        '400':
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /metadata/{contentId}:
-    put:
-      tags:
-        - Metadata
-      summary: Update content metadata
-      description: Updates existing content metadata
-      operationId: updateMetadata
-      parameters:
-        - name: contentId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Content ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateMetadataRequest'
-      responses:
-        '200':
-          description: Metadata updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ContentMetadata'
-        '404':
-          description: Content not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /metadata/search:
-    get:
-      tags:
-        - Metadata
-      summary: Search content metadata
-      description: Searches for content based on query parameters
-      operationId: searchMetadata
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Search query
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-          description: Maximum number of results
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
-          description: Offset for pagination
-      responses:
-        '200':
-          description: Search results
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SearchMetadataResponse'
-
-  /auth/challenge:
-    post:
-      tags:
-        - Auth
-      summary: Get authentication challenge
-      description: Generates a challenge for wallet signature verification
-      operationId: getChallenge
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChallengeRequest'
-      responses:
-        '200':
-          description: Challenge generated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChallengeResponse'
-
-  /auth/verify:
-    post:
-      tags:
-        - Auth
-      summary: Verify signature and get token
-      description: Verifies wallet signature and returns JWT token
-      operationId: verifySignature
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VerifySignatureRequest'
-      responses:
-        '200':
-          description: Signature verified, token returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TokenResponse'
-        '401':
-          description: Invalid signature
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /nft/verify:
-    post:
-      tags:
-        - NFT
-      summary: Verify NFT ownership
-      description: Verifies if a wallet address owns a specific NFT
-      operationId: verifyNFT
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NFTVerifyRequest'
-      responses:
-        '200':
-          description: NFT verification result
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NFTVerifyResponse'
-
-  /cache/warm:
-    post:
-      tags:
-        - Cache
-      summary: Warm cache for content
-      description: Initiates cache warming for specified content
-      operationId: warmCache
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CacheWarmRequest'
-      responses:
-        '200':
-          description: Cache warming initiated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CacheWarmResponse'
-
-  /cache/stats:
-    get:
-      tags:
-        - Cache
-      summary: Get cache statistics
-      description: Retrieves cache hit rate and statistics
-      operationId: getCacheStats
-      responses:
-        '200':
-          description: Cache statistics
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CacheStats'
-
-  /metrics:
-    get:
-      tags:
-        - Health
-      summary: Get Prometheus metrics
-      description: Returns Prometheus metrics in text format
-      operationId: getMetrics
-      responses:
-        '200':
-          description: Metrics retrieved
-          content:
-            text/plain:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RPCStatus"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthResponse:
       type: object
@@ -709,76 +797,226 @@ components:
         - error
         - code
 
+    ChallengeRequest:
+      type: object
+      required: [wallet_address]
+      properties:
+        wallet_address:
+          type: string
+          description: Wallet address to generate challenge for
+          example: "0x1234567890123456789012345678901234567890"
+
+    ChallengeResponse:
+      type: object
+      properties:
+        nonce:
+          type: string
+          description: Challenge nonce to sign
+          example: "abc123def456"
+        message:
+          type: string
+          description: Full message to sign (EIP-191/EIP-712/SIWE)
+          example: "Sign this message to authenticate: abc123def456"
+        expires_at:
+          type: string
+          format: date-time
+
+    LoginRequest:
+      type: object
+      required: [wallet_address, signature]
+      properties:
+        wallet_address:
+          type: string
+        signature:
+          type: string
+          description: EIP-191 signed message
+
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+
+    VerifyTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: JWT token to verify
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT access token
+        refresh_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    ProfileResponse:
+      type: object
+      properties:
+        wallet_address:
+          type: string
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ChangePasswordRequest:
+      type: object
+      required: [old_password, new_password]
+      properties:
+        old_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+
+    NFTInfo:
+      type: object
+      properties:
+        contract_address:
+          type: string
+        token_id:
+          type: string
+        owner:
+          type: string
+        name:
+          type: string
+        symbol:
+          type: string
+        uri:
+          type: string
+
+    NFTVerifyRequest:
+      type: object
+      required: [chain_id, contract_address, token_id, owner_address]
+      properties:
+        chain_id:
+          type: integer
+          format: int64
+          example: 11155111
+        contract_address:
+          type: string
+          description: NFT contract address
+        token_id:
+          type: string
+          description: NFT token ID
+        owner_address:
+          type: string
+          description: Wallet address to verify ownership
+
+    NFTVerifyResponse:
+      type: object
+      properties:
+        verified:
+          type: boolean
+          description: Whether the wallet owns the NFT
+        balance:
+          type: integer
+          format: int64
+          description: Token balance (for ERC-1155)
+        cached:
+          type: boolean
+          description: Whether result was from cache
+
+    ContentCreate:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        content_type:
+          type: string
+          enum: [video, audio, image, document, livestream]
+          default: video
+        nft_contract_address:
+          type: string
+          description: NFT contract required for access
+
+    ContentUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+
     InitiateUploadRequest:
       type: object
-      required:
-        - fileName
-        - fileSize
-        - contentType
+      required: [filename, file_size, chunk_size]
       properties:
-        fileName:
+        filename:
           type: string
           description: Name of the file
-        fileSize:
+        file_size:
           type: integer
           format: int64
           description: Size of the file in bytes
-        contentType:
-          type: string
-          description: MIME type of the file
-        chunkSize:
+        chunk_size:
           type: integer
+          description: Size of each chunk in bytes
           default: 5242880
-          description: Size of each chunk in bytes (default: 5MB)
 
     InitiateUploadResponse:
       type: object
       properties:
-        uploadId:
+        upload_id:
           type: string
           description: Unique upload session ID
-        chunkSize:
+        chunk_size:
           type: integer
-          description: Size of each chunk in bytes
-        totalChunks:
+        total_chunks:
           type: integer
-          description: Total number of chunks
-        expiresAt:
+        expires_at:
           type: string
           format: date-time
-          description: Upload session expiration time
 
-    UploadChunkResponse:
+    UploadResponse:
       type: object
       properties:
-        success:
-          type: boolean
-        chunkNumber:
-          type: integer
-        uploadedBytes:
-          type: integer
-          format: int64
+        id:
+          type: string
+        url:
+          type: string
 
     CompleteUploadResponse:
       type: object
       properties:
-        fileId:
+        file_id:
           type: string
-          description: Unique file ID
-        uploadId:
+        upload_id:
           type: string
-          description: Upload session ID
-        fileSize:
+        file_size:
           type: integer
           format: int64
-        transcodingJobId:
+        transcoding_job_id:
           type: string
-          description: ID of the transcoding job
 
     UploadStatus:
       type: object
       properties:
-        uploadId:
+        upload_id:
           type: string
         status:
           type: string
@@ -787,58 +1025,38 @@ components:
           type: integer
           minimum: 0
           maximum: 100
-        uploadedBytes:
+        uploaded_bytes:
           type: integer
           format: int64
-        totalBytes:
+        total_bytes:
           type: integer
           format: int64
-        uploadedChunks:
+        uploaded_chunks:
           type: integer
-        totalChunks:
+        total_chunks:
           type: integer
 
     SubmitTranscodeRequest:
       type: object
-      required:
-        - inputFile
-        - outputFile
+      required: [input_url, profile]
       properties:
-        inputFile:
+        input_url:
           type: string
-          description: Path to input file
-        outputFile:
+          description: URL or path to input file
+        profile:
           type: string
-          description: Path to output file
-        format:
+          description: Transcoding profile name
+          example: "1080p-hls"
+        output_format:
           type: string
           enum: [hls, dash]
           default: hls
-        profiles:
-          type: array
-          items:
-            $ref: '#/components/schemas/TranscodeProfile'
-          description: Quality profiles to generate
-
-    TranscodeProfile:
-      type: object
-      properties:
-        resolution:
-          type: string
-          enum: [1080p, 720p, 480p, 360p]
-        bitrate:
-          type: string
-          description: Video bitrate (e.g., "5000k")
-        codec:
-          type: string
-          default: h264
 
     SubmitTranscodeResponse:
       type: object
       properties:
-        jobId:
+        job_id:
           type: string
-          description: Unique transcoding job ID
         status:
           type: string
           enum: [pending, processing, completed, failed]
@@ -846,7 +1064,7 @@ components:
     TranscodeJobStatus:
       type: object
       properties:
-        jobId:
+        job_id:
           type: string
         status:
           type: string
@@ -855,260 +1073,32 @@ components:
           type: integer
           minimum: 0
           maximum: 100
-        inputFile:
+        output_url:
           type: string
-        outputFile:
-          type: string
-        format:
-          type: string
-        profiles:
-          type: array
-          items:
-            $ref: '#/components/schemas/TranscodeProfile'
-        createdAt:
+        created_at:
           type: string
           format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        completedAt:
+        updated_at:
           type: string
           format: date-time
         error:
           type: string
 
-    ContentMetadata:
+    RPCStatus:
       type: object
       properties:
-        contentId:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        duration:
-          type: integer
-          description: Duration in seconds
-        fileSize:
+        chain_id:
           type: integer
           format: int64
-        format:
+        url:
           type: string
-          enum: [mp4, mov, avi, mkv]
-        accessPolicy:
-          type: string
-          enum: [public, nft_required]
-        nftRequirements:
-          type: array
-          items:
-            $ref: '#/components/schemas/NFTRequirement'
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    NFTRequirement:
-      type: object
-      properties:
-        chain:
-          type: string
-          enum: [ethereum, polygon, bsc, solana]
-        contractAddress:
-          type: string
-        tokenId:
-          type: string
-
-    CreateMetadataRequest:
-      type: object
-      required:
-        - title
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        duration:
-          type: integer
-        format:
-          type: string
-        accessPolicy:
-          type: string
-          enum: [public, nft_required]
-          default: public
-        nftRequirements:
-          type: array
-          items:
-            $ref: '#/components/schemas/NFTRequirement'
-
-    UpdateMetadataRequest:
-      type: object
-      properties:
-        title:
-          type: string
-        description:
-          type: string
-        accessPolicy:
-          type: string
-          enum: [public, nft_required]
-        nftRequirements:
-          type: array
-          items:
-            $ref: '#/components/schemas/NFTRequirement'
-
-    SearchMetadataResponse:
-      type: object
-      properties:
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/ContentMetadata'
-        total:
-          type: integer
-        limit:
-          type: integer
-        offset:
-          type: integer
-
-    ChallengeRequest:
-      type: object
-      required:
-        - address
-      properties:
-        address:
-          type: string
-          description: Wallet address
-
-    ChallengeResponse:
-      type: object
-      properties:
-        challenge:
-          type: string
-          description: Challenge string to sign
-        expiresAt:
-          type: string
-          format: date-time
-
-    VerifySignatureRequest:
-      type: object
-      required:
-        - address
-        - challenge
-        - signature
-      properties:
-        address:
-          type: string
-          description: Wallet address
-        challenge:
-          type: string
-          description: Challenge string that was signed
-        signature:
-          type: string
-          description: Wallet signature
-
-    TokenResponse:
-      type: object
-      properties:
-        token:
-          type: string
-          description: JWT access token
-        refreshToken:
-          type: string
-          description: JWT refresh token
-        expiresAt:
-          type: string
-          format: date-time
-
-    NFTVerifyRequest:
-      type: object
-      required:
-        - address
-        - chain
-        - contractAddress
-        - tokenId
-      properties:
-        address:
-          type: string
-          description: Wallet address to verify
-        chain:
-          type: string
-          enum: [ethereum, polygon, bsc, solana]
-        contractAddress:
-          type: string
-          description: NFT contract address
-        tokenId:
-          type: string
-          description: NFT token ID
-
-    NFTVerifyResponse:
-      type: object
-      properties:
-        valid:
+        active:
           type: boolean
-          description: Whether the wallet owns the NFT
-        owner:
+        failures:
+          type: integer
+        cooldown_until:
           type: string
-          description: Current owner of the NFT
-        balance:
-          type: string
-          description: Token balance (for ERC-1155)
-        cached:
-          type: boolean
-          description: Whether result was from cache
-
-    CacheWarmRequest:
-      type: object
-      required:
-        - contentIds
-      properties:
-        contentIds:
-          type: array
-          items:
-            type: string
-          description: List of content IDs to warm cache for
-
-    CacheWarmResponse:
-      type: object
-      properties:
-        jobId:
-          type: string
-          description: Cache warming job ID
-        status:
-          type: string
-          enum: [pending, processing, completed]
-        contentCount:
-          type: integer
-          description: Number of contents to warm
-
-    CacheStats:
-      type: object
-      properties:
-        hitRate:
-          type: number
-          format: float
-          description: Cache hit rate (0.0 - 1.0)
-        hits:
-          type: integer
-          description: Number of cache hits
-        misses:
-          type: integer
-          description: Number of cache misses
-        totalRequests:
-          type: integer
-          description: Total number of cache requests
-        memoryUsage:
-          type: integer
-          description: Memory usage in bytes
-        keyCount:
-          type: integer
-          description: Number of keys in cache
-
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+          format: date-time
 
 security:
-  - BearerAuth: []
+  - bearerAuth: []

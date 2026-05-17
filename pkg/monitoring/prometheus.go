@@ -48,5 +48,18 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(HTTPRequestsTotal, ServiceRequestDuration, HealthCheckTotal, RPCFailoverTotal, RPCLatencySeconds)
+	register := func(c prometheus.Collector) {
+		err := prometheus.Register(c)
+		if err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				return
+			}
+			panic(err)
+		}
+	}
+	register(HTTPRequestsTotal)
+	register(ServiceRequestDuration)
+	register(HealthCheckTotal)
+	register(RPCFailoverTotal)
+	register(RPCLatencySeconds)
 }

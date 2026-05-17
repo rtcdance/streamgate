@@ -127,7 +127,7 @@ func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*Con
 			// Fallback to legacy
 			gasPrice, err2 := cw.client.GetGasPrice(ctx)
 			if err2 != nil {
-				return fmt.Errorf("contract_writer: get gas price: %w (tipcap err: %v)", err2, err)
+				return fmt.Errorf("contract_writer: get gas price: %w (tipcap err: %w)", err2, err)
 			}
 
 			legacyTx := types.NewTransaction(nonce, contractAddr, opts.Value, gasLimit, gasPrice, callData)

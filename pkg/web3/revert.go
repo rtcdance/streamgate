@@ -11,9 +11,9 @@ import (
 
 // RevertError represents a decoded contract revert reason.
 type RevertError struct {
-	Reason  string // decoded human-readable reason
-	RawData []byte // raw ABI-encoded revert data
-	IsPanic bool   // true for Panic(uint256), false for Error(string)
+	Reason    string // decoded human-readable reason
+	RawData   []byte // raw ABI-encoded revert data
+	IsPanic   bool   // true for Panic(uint256), false for Error(string)
 	PanicCode uint64 // panic code if IsPanic
 }
 
@@ -102,9 +102,12 @@ func DecodeCustomError(data []byte, abis ...abi.ABI) (name string, args map[stri
 
 // ExtractRevertData extracts the revert data from an error message.
 // go-ethereum wraps revert data in errors like:
-//   "execution reverted: 0x..."
+//
+//	"execution reverted: 0x..."
+//
 // or
-//   "0x08c379a000000000000000000000000000000000000000000000000000000000000000200..."
+//
+//	"0x08c379a000000000000000000000000000000000000000000000000000000000000000200..."
 func ExtractRevertData(errMsg string) []byte {
 	// Try to find hex data in the error message
 	for _, prefix := range []string{"0x", "0X"} {

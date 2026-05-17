@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
+
+	"github.com/google/uuid"
 )
 
 type mockTranscodingQueue struct{}
@@ -21,6 +22,14 @@ func (m *mockTranscodingQueue) Dequeue() (*service.TranscodingTask, error) {
 
 func (m *mockTranscodingQueue) GetStatus(taskID string) (string, error) {
 	return "pending", nil
+}
+
+func (m *mockTranscodingQueue) Ack(taskID string) error {
+	return nil
+}
+
+func (m *mockTranscodingQueue) Nak(taskID string) error {
+	return nil
 }
 
 func TestE2E_TranscodingFlow(t *testing.T) {

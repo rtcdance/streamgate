@@ -86,9 +86,9 @@ func TestMemoryEventBus_Publish(t *testing.T) {
 		}
 
 		wg.Add(3)
-		bus.Subscribe(context.Background(), "test", handler)
-		bus.Subscribe(context.Background(), "test", handler)
-		bus.Subscribe(context.Background(), "test", handler)
+		_ = bus.Subscribe(context.Background(), "test", handler)
+		_ = bus.Subscribe(context.Background(), "test", handler)
+		_ = bus.Subscribe(context.Background(), "test", handler)
 
 		event := &Event{
 			Type:      "test",
@@ -155,9 +155,9 @@ func TestMemoryEventBus_Subscribe(t *testing.T) {
 		handler2 := func(ctx context.Context, event *Event) error { return nil }
 		handler3 := func(ctx context.Context, event *Event) error { return nil }
 
-		bus.Subscribe(context.Background(), "test", handler1)
-		bus.Subscribe(context.Background(), "test", handler2)
-		bus.Subscribe(context.Background(), "test", handler3)
+		_ = bus.Subscribe(context.Background(), "test", handler1)
+		_ = bus.Subscribe(context.Background(), "test", handler2)
+		_ = bus.Subscribe(context.Background(), "test", handler3)
 
 		bus.mu.RLock()
 		handlers := bus.handlers["test"]
@@ -172,9 +172,9 @@ func TestMemoryEventBus_Subscribe(t *testing.T) {
 
 		handler := func(ctx context.Context, event *Event) error { return nil }
 
-		bus.Subscribe(context.Background(), "type1", handler)
-		bus.Subscribe(context.Background(), "type2", handler)
-		bus.Subscribe(context.Background(), "type3", handler)
+		_ = bus.Subscribe(context.Background(), "type1", handler)
+		_ = bus.Subscribe(context.Background(), "type2", handler)
+		_ = bus.Subscribe(context.Background(), "type3", handler)
 
 		bus.mu.RLock()
 		assert.Len(t, bus.handlers["type1"], 1)

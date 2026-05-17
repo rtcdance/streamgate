@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,7 +39,7 @@ func RegisterWeb3Routes(router *gin.Engine, log *zap.Logger, web3Svc Web3StatusP
 			}
 			response = append(response, gin.H{"chain_id": chainID, "name": nameByChain[chainID], "rpcs": rpcs})
 		}
-		c.JSON(http.StatusOK, gin.H{"chains": response})
+		respondOK(c, gin.H{"chains": response})
 	})
 	log.Info("Web3 routes registered")
 }

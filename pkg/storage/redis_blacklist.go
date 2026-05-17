@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -31,9 +30,9 @@ func (e *revocationEntry) isExpired() bool {
 // recently revoked JTIs are cached in-process so that a Redis outage
 // does not silently allow revoked tokens through.
 type RedisTokenBlacklist struct {
-	client *redis.Client
-	local  *lru.Cache
-	mu     sync.Mutex //nolint:unused // protects local cache writes during lazy init
+	client    *redis.Client
+	local     *lru.Cache
+	FailClosed bool
 }
 
 // NewRedisTokenBlacklist creates a new Redis-backed token blacklist.
@@ -94,13 +93,15 @@ func (b *RedisTokenBlacklist) IsRevoked(ctx context.Context, jti string) bool {
 	key := blacklistKeyPrefix + jti
 	val, err := b.client.Exists(ctx, key).Result()
 	if err != nil {
-		// Redis unreachable — check local LRU fallback
 		if entry, ok := b.local.Get(jti); ok {
 			e := entry.(*revocationEntry)
 			if !e.isExpired() {
 				return true
 			}
-			b.local.Remove(jti) // expired entry, clean up
+			b.local.Remove(jti)
+		}
+		if b.FailClosed {
+			return true
 		}
 		return false
 	}

@@ -95,7 +95,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		assert.Equal(t, StateClosed, cb.State())
 
 		for i := 0; i < 3; i++ {
-			cb.Execute(context.Background(), func() error {
+			_ = cb.Execute(context.Background(), func() error {
 				return errors.New("error")
 			})
 		}
@@ -112,7 +112,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -120,7 +120,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 
 		time.Sleep(150 * time.Millisecond)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
@@ -136,19 +136,19 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
 		time.Sleep(150 * time.Millisecond)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
 		assert.Equal(t, StateHalfOpen, cb.State())
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
@@ -164,19 +164,19 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
 		time.Sleep(150 * time.Millisecond)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
 		assert.Equal(t, StateHalfOpen, cb.State())
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -190,10 +190,10 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 		config := DefaultCircuitBreakerConfig()
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -216,13 +216,13 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
 		time.Sleep(150 * time.Millisecond)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
@@ -248,7 +248,7 @@ func TestCircuitBreaker_StateChecks(t *testing.T) {
 
 		assert.False(t, cb.IsOpen())
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -272,13 +272,13 @@ func TestCircuitBreaker_StateChecks(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
 		time.Sleep(150 * time.Millisecond)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return nil
 		})
 
@@ -295,7 +295,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 		}
 		cb := NewCircuitBreaker("test", config, logger)
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -326,7 +326,7 @@ func TestCircuitBreaker_SetStateChangeCallback(t *testing.T) {
 			assert.Equal(t, StateOpen, to)
 		})
 
-		cb.Execute(context.Background(), func() error {
+		_ = cb.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 
@@ -441,10 +441,10 @@ func TestCircuitBreakerManager_ResetAll(t *testing.T) {
 		cb1 := manager.GetOrCreate("test1", config)
 		cb2 := manager.GetOrCreate("test2", config)
 
-		cb1.Execute(context.Background(), func() error {
+		_ = cb1.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
-		cb2.Execute(context.Background(), func() error {
+		_ = cb2.Execute(context.Background(), func() error {
 			return errors.New("error")
 		})
 

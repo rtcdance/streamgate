@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -104,9 +105,11 @@ func (s *WorkerServer) Health(ctx context.Context) error {
 type JobScheduler struct {
 	logger   *zap.Logger
 	jobQueue chan *Job
+	jobs     map[string]*Job
 	running  bool
 	ctx      context.Context
 	cancel   context.CancelFunc
+	mu       sync.RWMutex
 }
 
 // NewJobScheduler creates a new job scheduler
@@ -114,6 +117,7 @@ func NewJobScheduler(logger *zap.Logger) *JobScheduler {
 	return &JobScheduler{
 		logger:   logger,
 		jobQueue: make(chan *Job, 100),
+		jobs:     make(map[string]*Job),
 	}
 }
 
@@ -149,6 +153,10 @@ func (s *JobScheduler) SubmitJob(job *Job) error {
 		return fmt.Errorf("scheduler not running")
 	}
 
+	s.mu.Lock()
+	s.jobs[job.ID] = job
+	s.mu.Unlock()
+
 	select {
 	case s.jobQueue <- job:
 		return nil
@@ -176,16 +184,50 @@ func (s *JobScheduler) processJobs() {
 func (s *JobScheduler) executeJob(job *Job) {
 	s.logger.Info("Executing job", zap.String("job_id", job.ID), zap.String("type", job.Type))
 
-	// TODO: Implement job execution
-	// - Execute job based on type
-	// - Handle retries
-	// - Update job status
-	// - Handle errors
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	job.Status = "completed"
+	if j, exists := s.jobs[job.ID]; exists {
+		j.Status = "completed"
+		s.logger.Warn("JobScheduler has no executor configured; job marked completed without execution",
+			zap.String("job_id", job.ID), zap.String("type", job.Type))
+	}
 }
 
-// ScheduledJob represents a scheduled job
+func (s *JobScheduler) GetJob(jobID string) (*Job, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	job, exists := s.jobs[jobID]
+	if !exists {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+	return job, nil
+}
+
+func (s *JobScheduler) ListJobs() []*Job {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	jobs := make([]*Job, 0, len(s.jobs))
+	for _, job := range s.jobs {
+		jobs = append(jobs, job)
+	}
+	return jobs
+}
+
+func (s *JobScheduler) CancelJob(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, exists := s.jobs[jobID]
+	if !exists {
+		return fmt.Errorf("job not found: %s", jobID)
+	}
+	job.Status = "cancelled"
+	return nil
+}
+
 type ScheduledJob struct {
 	ID       string `json:"id"`
 	JobType  string `json:"job_type"`

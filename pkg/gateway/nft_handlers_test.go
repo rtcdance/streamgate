@@ -22,7 +22,10 @@ type mockNFTOwnershipChecker struct {
 }
 
 func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	return false, nil
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
 }
 
 func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
@@ -30,6 +33,20 @@ func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int
 		return nil, m.err
 	}
 	return m.balance, nil
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	if m.err != nil {
+		return false, m.err
+	}
+	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
 }
 
 // mockNFTAccessCache implements middleware.NFTAccessCache
@@ -60,23 +77,23 @@ func TestNFTHandlers_MissingContract(t *testing.T) {
 
 	t.Run("GET /nft without contract returns 400", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "MISSING_CONTRACT", resp["code"])
 	})
 
 	t.Run("GET /nft/:id without contract returns 400", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft/1", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft/1", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "MISSING_CONTRACT", resp["code"])
 	})
 }
@@ -98,12 +115,12 @@ func TestNFTHandlers_InvalidContractAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract="+tt.contract, nil)
+			req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract="+tt.contract, http.NoBody)
 			r.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 
 			var resp map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
 			assert.Equal(t, "MISSING_CONTRACT", resp["code"])
 		})
 	}
@@ -114,12 +131,12 @@ func TestNFTHandlers_ValidContractPassesValidation(t *testing.T) {
 
 	t.Run("valid contract address returns 200", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract=0xdAC17F958D2ee523a2206206994597C13D831ec7", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract=0xdAC17F958D2ee523a2206206994597C13D831ec7", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "1", resp["balance"])
 		assert.Equal(t, true, resp["has_nft"])
 	})

@@ -1,0 +1,43 @@
+# StreamGate CODEOWNERS
+# Each line is a file pattern followed by one or more owners.
+# Order matters: last matching pattern takes precedence.
+
+# Default owners
+* @backend-team
+
+# Core architecture — requires senior review
+/pkg/core/                    @senior-engineer
+cmd/monolith/                 @senior-engineer
+
+# Web3 domain — security-critical
+/pkg/web3/                    @web3-lead @security-team
+/pkg/middleware/nft_gate.go   @web3-lead @security-team
+
+# Service business logic
+/pkg/service/                 @backend-team
+
+# Gateway / API
+/pkg/gateway/                 @backend-team
+/pkg/middleware/              @backend-team
+
+# Storage / Infrastructure
+/pkg/storage/                 @infra-team
+/deploy/                      @infra-team
+/config/                      @infra-team
+
+# CI/CD pipelines (rename with caution)
+/.github/workflows/           @devops-team
+/.github/dependabot.yml       @devops-team
+Makefile                      @backend-team
+
+# Docker
+Dockerfile                    @devops-team
+docker-compose*.yml           @devops-team
+
+# Security-sensitive configs
+/.github/CODEOWNERS           @senior-engineer
+SECURITY.md                   @security-team
+
+# Documentation
+/docs/                        @backend-team
+CHANGELOG.md                  @senior-engineer

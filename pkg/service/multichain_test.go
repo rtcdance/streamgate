@@ -113,7 +113,7 @@ func TestMemoryTokenBlacklist(t *testing.T) {
 }
 
 func TestSolanaWalletChallenge(t *testing.T) {
-	auth := NewAuthService("test-secret", NewMockAuthStorage())
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 	solanaVerifier := web3.NewSolanaVerifier(zap.NewNop(), "")
 	sigVerifier := NewMultiChainSignatureVerifier(zap.NewNop(), solanaVerifier)
 	auth.signatureVerifier = sigVerifier

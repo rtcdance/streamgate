@@ -4,6 +4,7 @@ class HLSPlayer {
         this.hls = null;
         this.currentVideoId = null;
         this.manifestUrl = null;
+        this.authToken = null;
     }
 
     init() {
@@ -12,6 +13,14 @@ class HLSPlayer {
                 enableWorker: true,
                 lowLatencyMode: true,
                 backBufferLength: 90,
+                xhrSetup: (xhr, url) => {
+                    // Attach JWT to requests that don't already carry playback_token.
+                    // Segment URLs from the manifest include playback_token; the
+                    // Authorization header is a fallback for other HLS sub-requests.
+                    if (this.authToken && !url.includes('playback_token=')) {
+                        xhr.setRequestHeader('Authorization', `Bearer ${this.authToken}`);
+                    }
+                },
             });
             this.hls.on(Hls.Events.ERROR, (event, data) => this.handleError(event, data));
             return true;
@@ -26,6 +35,7 @@ class HLSPlayer {
 
     async loadVideo(videoId, options = {}) {
         this.currentVideoId = videoId;
+        this.authToken = options.token || null;
         const baseUrl = (options.baseUrl || window.location.origin || 'http://localhost:9090').replace(/\/$/, '');
         const token = options.token || null;
         const contract = options.contract || '';

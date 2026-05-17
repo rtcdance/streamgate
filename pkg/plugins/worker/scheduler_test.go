@@ -74,10 +74,10 @@ func TestScheduler_SubmitJobCompletes(t *testing.T) {
 
 func TestScheduler_RetryThenComplete(t *testing.T) {
 	scheduler := NewScheduler(&SchedulerConfig{
-		MaxWorkers:   1,
-		QueueSize:    8,
-		JobTimeout:   time.Second,
-		MaxRetries:   2,
+		MaxWorkers:      1,
+		QueueSize:       8,
+		JobTimeout:      time.Second,
+		MaxRetries:      2,
 		CleanupInterval: 0,
 	}, zap.NewNop())
 	t.Cleanup(func() {
@@ -113,10 +113,10 @@ func TestScheduler_RetryThenComplete(t *testing.T) {
 
 func TestScheduler_CancelQueuedJob(t *testing.T) {
 	scheduler := NewScheduler(&SchedulerConfig{
-		MaxWorkers:   1,
-		QueueSize:    8,
-		JobTimeout:   time.Second,
-		MaxRetries:   1,
+		MaxWorkers:      1,
+		QueueSize:       8,
+		JobTimeout:      time.Second,
+		MaxRetries:      1,
 		CleanupInterval: 0,
 	}, zap.NewNop())
 	t.Cleanup(func() {

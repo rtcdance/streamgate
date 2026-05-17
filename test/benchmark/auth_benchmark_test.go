@@ -10,36 +10,36 @@ import (
 
 func BenchmarkAuthService_Register(b *testing.B) {
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		username := "testuser" + string(rune(i))
 		email := "test" + string(rune(i)) + "@example.com"
-		authService.Register(context.Background(),username, "password123", email)
+		authService.Register(context.Background(), username, "password123", email)
 	}
 }
 
 func BenchmarkAuthService_Login(b *testing.B) {
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create a user
-	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		authService.Authenticate(context.Background(),"testuser", "password123")
+		authService.Authenticate(context.Background(), "testuser", "password123")
 	}
 }
 
 func BenchmarkAuthService_ValidateToken(b *testing.B) {
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create user and get token
-	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
-	token, _ := authService.Authenticate(context.Background(),"testuser", "password123")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate(context.Background(), "testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -49,11 +49,11 @@ func BenchmarkAuthService_ValidateToken(b *testing.B) {
 
 func BenchmarkAuthService_RefreshToken(b *testing.B) {
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create user and get token
-	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
-	token, _ := authService.Authenticate(context.Background(),"testuser", "password123")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	token, _ := authService.Authenticate(context.Background(), "testuser", "password123")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -78,14 +78,14 @@ func hashPassword(password string) string {
 
 func BenchmarkAuthService_ConcurrentLogins(b *testing.B) {
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Setup: Create a user
-	authService.Register(context.Background(),"testuser", "password123", "test@example.com")
+	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			authService.Authenticate(context.Background(),"testuser", "password123")
+			authService.Authenticate(context.Background(), "testuser", "password123")
 		}
 	})
 }

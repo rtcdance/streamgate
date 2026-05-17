@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package nft.v1;
 
-option go_package = "streamgate/proto/gen/go/nft/v1;nftv1";
+option go_package = "streamgate/pkg/api/v1/nft;nftv1";
 
 import "proto/v1/common.proto";
 

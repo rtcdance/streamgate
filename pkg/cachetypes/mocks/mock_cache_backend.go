@@ -11,6 +11,7 @@ package mocks
 
 import (
 	reflect "reflect"
+	time "time"
 
 	gomock "go.uber.org/mock/gomock"
 )
@@ -80,4 +81,18 @@ func (m *MockCacheBackend) Set(key string, value any) error {
 func (mr *MockCacheBackendMockRecorder) Set(key, value any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockCacheBackend)(nil).Set), key, value)
+}
+
+// SetWithExpiration mocks base method.
+func (m *MockCacheBackend) SetWithExpiration(key string, value any, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetWithExpiration", key, value, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetWithExpiration indicates an expected call of SetWithExpiration.
+func (mr *MockCacheBackendMockRecorder) SetWithExpiration(key, value, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWithExpiration", reflect.TypeOf((*MockCacheBackend)(nil).SetWithExpiration), key, value, ttl)
 }

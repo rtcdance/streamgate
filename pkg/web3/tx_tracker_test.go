@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"context"
 	"math/big"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ func TestPendingTx_EIP1559Fields(t *testing.T) {
 	pending := &PendingTx{
 		Hash:         "0xdef",
 		Nonce:        10,
-		GasTipCap:    big.NewInt(2_000_000_000), // 2 Gwei
+		GasTipCap:    big.NewInt(2_000_000_000),  // 2 Gwei
 		MaxFeePerGas: big.NewInt(10_000_000_000), // 10 Gwei
 		IsEIP1559:    true,
 		To:           "0x1234567890123456789012345678901234567890",
@@ -146,15 +147,15 @@ func TestBumpPercentValidation(t *testing.T) {
 	tt := &TxTracker{}
 
 	// BumpGas should reject bump percent < 10 (EIP-1559 minimum)
-	_, err := tt.BumpGas(nil, nil, pending, 5)
+	_, err := tt.BumpGas(context.TODO(), nil, pending, 5)
 	if err == nil {
 		t.Error("expected error for bump percent 5 (below minimum 10)")
 	}
-	_, err = tt.BumpGas(nil, nil, pending, 0)
+	_, err = tt.BumpGas(context.TODO(), nil, pending, 0)
 	if err == nil {
 		t.Error("expected error for bump percent 0")
 	}
-	_, err = tt.BumpGas(nil, nil, pending, -5)
+	_, err = tt.BumpGas(context.TODO(), nil, pending, -5)
 	if err == nil {
 		t.Error("expected error for negative bump percent")
 	}
@@ -190,8 +191,8 @@ func TestBumpGasLimitCalculation(t *testing.T) {
 	// Test that bumpLegacy uses pending.GasLimit when set
 	gasLimit := uint64(350000)
 	pending := &PendingTx{
-		GasPrice:  big.NewInt(1_000_000_000),
-		GasLimit:  gasLimit,
+		GasPrice: big.NewInt(1_000_000_000),
+		GasLimit: gasLimit,
 	}
 
 	// The gas limit used in the bumped tx should be pending.GasLimit

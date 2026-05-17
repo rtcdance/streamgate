@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -107,7 +108,8 @@ func (s *MetadataServer) Health(ctx context.Context) error {
 type MetadataDB struct {
 	config *config.Config
 	logger *zap.Logger
-	// TODO: Add database connection (PostgreSQL, etc.)
+	mu     sync.RWMutex
+	data   map[string]*ContentMetadata
 }
 
 // NewMetadataDB creates a new metadata database
@@ -117,69 +119,72 @@ func NewMetadataDB(cfg *config.Config, logger *zap.Logger) (*MetadataDB, error) 
 	db := &MetadataDB{
 		config: cfg,
 		logger: logger,
+		data:   make(map[string]*ContentMetadata),
 	}
-
-	// TODO: Initialize database connection
-	// - Connect to PostgreSQL
-	// - Run migrations
-	// - Verify connection
 
 	return db, nil
 }
 
-// GetMetadata retrieves metadata for a content item
 func (db *MetadataDB) GetMetadata(ctx context.Context, contentID string) (*ContentMetadata, error) {
 	db.logger.Info("Getting metadata", zap.String("content_id", contentID))
 
-	// TODO: Query database for metadata
-	return &ContentMetadata{
-		ContentID: contentID,
-		Title:     "",
-		Duration:  0,
-	}, nil
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if metadata, exists := db.data[contentID]; exists {
+		return metadata, nil
+	}
+	return &ContentMetadata{ContentID: contentID}, nil
 }
 
-// CreateMetadata creates new metadata
 func (db *MetadataDB) CreateMetadata(ctx context.Context, metadata *ContentMetadata) error {
 	db.logger.Info("Creating metadata", zap.String("content_id", metadata.ContentID))
 
-	// TODO: Insert metadata into database
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.data[metadata.ContentID] = metadata
 	return nil
 }
 
-// UpdateMetadata updates existing metadata
 func (db *MetadataDB) UpdateMetadata(ctx context.Context, metadata *ContentMetadata) error {
 	db.logger.Info("Updating metadata", zap.String("content_id", metadata.ContentID))
 
-	// TODO: Update metadata in database
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if _, exists := db.data[metadata.ContentID]; !exists {
+		return fmt.Errorf("metadata not found: %s", metadata.ContentID)
+	}
+	db.data[metadata.ContentID] = metadata
 	return nil
 }
 
-// DeleteMetadata deletes metadata
 func (db *MetadataDB) DeleteMetadata(ctx context.Context, contentID string) error {
 	db.logger.Info("Deleting metadata", zap.String("content_id", contentID))
 
-	// TODO: Delete metadata from database
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	delete(db.data, contentID)
 	return nil
 }
 
-// SearchMetadata searches for metadata
 func (db *MetadataDB) SearchMetadata(ctx context.Context, query string) ([]*ContentMetadata, error) {
 	db.logger.Info("Searching metadata", zap.String("query", query))
 
-	// TODO: Search database for metadata
-	return []*ContentMetadata{}, nil
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	results := make([]*ContentMetadata, 0, len(db.data))
+	for _, metadata := range db.data {
+		results = append(results, metadata)
+	}
+	return results, nil
 }
 
-// Health checks the health of the database
 func (db *MetadataDB) Health(ctx context.Context) error {
-	// TODO: Check database connectivity
 	return nil
 }
 
-// Close closes the database connection
 func (db *MetadataDB) Close() error {
-	// TODO: Close database connection
 	return nil
 }
 

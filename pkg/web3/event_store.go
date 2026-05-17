@@ -8,6 +8,7 @@ import (
 
 // EventStore abstracts persistence for indexed events and checkpoints.
 // Production implementations may use PostgreSQL, SQLite, or LevelDB.
+//
 //go:generate mockgen -destination=mocks/mock_event_store.go -package=mocks streamgate/pkg/web3 EventStore
 type EventStore interface {
 	// SaveEvent persists an indexed event. Returns error if event already exists.

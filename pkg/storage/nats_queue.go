@@ -6,31 +6,45 @@ import (
 	"sync"
 	"time"
 
+	"streamgate/pkg/models"
+
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
-	"streamgate/pkg/models"
 )
 
 const (
 	jsStreamName    = "TRANSCODING"
 	jsStreamSubject = "streamgate.transcoding.tasks"
 	jsConsumerName  = "transcoding-worker"
+
+	msgStaleTimeout   = 30 * time.Minute
+	statusStaleTimeout = 2 * time.Hour
+	cleanupInterval    = 5 * time.Minute
 )
 
-// NATSTranscodingQueue implements models.TranscodingQueue backed by NATS JetStream.
-// Tasks are published to a durable stream so they survive server restarts.
-// Task status is tracked locally since JetStream does not store application-level state.
 type NATSTranscodingQueue struct {
-	conn     *nats.Conn
-	js       nats.JetStreamContext
-	sub      *nats.Subscription
-	logger   *zap.Logger
-	statusMu sync.RWMutex
-	statuses map[string]string // taskID → status
+	conn      *nats.Conn
+	js        nats.JetStreamContext
+	sub       *nats.Subscription
+	logger    *zap.Logger
+	statusMu  sync.RWMutex
+	statuses  map[string]statusEntry
+	msgMu     sync.RWMutex
+	messages  map[string]msgEntry
+	cleanupMu sync.Mutex
+	lastClean time.Time
 }
 
-// NewNATSTranscodingQueue creates a NATS JetStream-backed transcoding queue.
-// It ensures the stream and pull consumer exist, then returns a ready queue.
+type statusEntry struct {
+	status    string
+	updatedAt time.Time
+}
+
+type msgEntry struct {
+	msg      *nats.Msg
+	dequeued time.Time
+}
+
 func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQueue, error) {
 	nc, err := nats.Connect(url,
 		nats.RetryOnFailedConnect(true),
@@ -57,7 +71,8 @@ func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQu
 		conn:     nc,
 		js:       js,
 		logger:   logger,
-		statuses: make(map[string]string),
+		statuses: make(map[string]statusEntry),
+		messages: make(map[string]msgEntry),
 	}
 
 	if err := q.ensureStream(); err != nil {
@@ -65,7 +80,6 @@ func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQu
 		return nil, err
 	}
 
-	// Create pull subscription (also creates the durable consumer)
 	q.sub, err = js.PullSubscribe(jsStreamSubject, jsConsumerName)
 	if err != nil {
 		nc.Close()
@@ -79,7 +93,7 @@ func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQu
 func (q *NATSTranscodingQueue) ensureStream() error {
 	_, err := q.js.StreamInfo(jsStreamName)
 	if err == nil {
-		return nil // stream already exists
+		return nil
 	}
 
 	_, err = q.js.AddStream(&nats.StreamConfig{
@@ -96,7 +110,6 @@ func (q *NATSTranscodingQueue) ensureStream() error {
 	return nil
 }
 
-// Enqueue publishes a task to the NATS JetStream stream.
 func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	data, err := json.Marshal(task)
 	if err != nil {
@@ -109,15 +122,15 @@ func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	}
 
 	q.statusMu.Lock()
-	q.statuses[task.ID] = task.Status
+	q.statuses[task.ID] = statusEntry{status: task.Status, updatedAt: time.Now()}
 	q.statusMu.Unlock()
+
+	q.maybeCleanup()
 
 	q.logger.Debug("Task enqueued", zap.String("task_id", task.ID))
 	return nil
 }
 
-// Dequeue pulls the next task from the JetStream consumer.
-// Returns an error resembling "queue empty" when no messages are available.
 func (q *NATSTranscodingQueue) Dequeue() (*models.TranscodingTask, error) {
 	msgs, err := q.sub.Fetch(1, nats.MaxWait(2*time.Second))
 	if err != nil {
@@ -128,30 +141,72 @@ func (q *NATSTranscodingQueue) Dequeue() (*models.TranscodingTask, error) {
 	}
 
 	msg := msgs[0]
-	_ = msg.Ack()
 
 	var task models.TranscodingTask
 	if err := json.Unmarshal(msg.Data, &task); err != nil {
+		_ = msg.Nak()
 		return nil, fmt.Errorf("failed to unmarshal task: %w", err)
 	}
+
+	q.msgMu.Lock()
+	q.messages[task.ID] = msgEntry{msg: msg, dequeued: time.Now()}
+	q.msgMu.Unlock()
 
 	q.logger.Debug("Task dequeued", zap.String("task_id", task.ID))
 	return &task, nil
 }
 
-// GetStatus returns the locally-tracked status of a task.
+func (q *NATSTranscodingQueue) Ack(taskID string) error {
+	q.msgMu.Lock()
+	entry, ok := q.messages[taskID]
+	delete(q.messages, taskID)
+	q.msgMu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("message not found for task %s", taskID)
+	}
+
+	if err := entry.msg.Ack(); err != nil {
+		return fmt.Errorf("failed to ack task %s: %w", taskID, err)
+	}
+
+	q.statusMu.Lock()
+	q.statuses[taskID] = statusEntry{status: "completed", updatedAt: time.Now()}
+	q.statusMu.Unlock()
+
+	q.logger.Debug("Task acked", zap.String("task_id", taskID))
+	return nil
+}
+
+func (q *NATSTranscodingQueue) Nak(taskID string) error {
+	q.msgMu.Lock()
+	entry, ok := q.messages[taskID]
+	delete(q.messages, taskID)
+	q.msgMu.Unlock()
+
+	if !ok {
+		return fmt.Errorf("message not found for task %s", taskID)
+	}
+
+	if err := entry.msg.Nak(); err != nil {
+		return fmt.Errorf("failed to nak task %s: %w", taskID, err)
+	}
+
+	q.logger.Debug("Task nacked for retry", zap.String("task_id", taskID))
+	return nil
+}
+
 func (q *NATSTranscodingQueue) GetStatus(taskID string) (string, error) {
 	q.statusMu.RLock()
 	defer q.statusMu.RUnlock()
 
-	status, ok := q.statuses[taskID]
+	entry, ok := q.statuses[taskID]
 	if !ok {
 		return "", fmt.Errorf("task not found: %s", taskID)
 	}
-	return status, nil
+	return entry.status, nil
 }
 
-// Close closes the NATS connection.
 func (q *NATSTranscodingQueue) Close() error {
 	if q.sub != nil {
 		_ = q.sub.Unsubscribe()
@@ -160,4 +215,32 @@ func (q *NATSTranscodingQueue) Close() error {
 		q.conn.Close()
 	}
 	return nil
+}
+
+func (q *NATSTranscodingQueue) maybeCleanup() {
+	q.cleanupMu.Lock()
+	if time.Since(q.lastClean) < cleanupInterval {
+		q.cleanupMu.Unlock()
+		return
+	}
+	q.lastClean = time.Now()
+	q.cleanupMu.Unlock()
+
+	now := time.Now()
+
+	q.msgMu.Lock()
+	for id, entry := range q.messages {
+		if now.Sub(entry.dequeued) > msgStaleTimeout {
+			delete(q.messages, id)
+		}
+	}
+	q.msgMu.Unlock()
+
+	q.statusMu.Lock()
+	for id, entry := range q.statuses {
+		if now.Sub(entry.updatedAt) > statusStaleTimeout {
+			delete(q.statuses, id)
+		}
+	}
+	q.statusMu.Unlock()
 }

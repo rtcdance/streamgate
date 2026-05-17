@@ -13,6 +13,13 @@ spec:
       labels:
         app: cache
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: cache
         image: streamgate:cache
@@ -22,6 +29,9 @@ spec:
           name: http
         - containerPort: 9095
           name: metrics
+        env:
+        - name: SERVER_PORT
+          value: "8085"
         envFrom:
         - configMapRef:
             name: streamgate-config
@@ -44,6 +54,12 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "250m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 ---
 apiVersion: v1
 kind: Service

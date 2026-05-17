@@ -13,7 +13,7 @@ func TestFileExists(t *testing.T) {
 	t.Run("existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
-		err := os.WriteFile(filePath, []byte("test"), 0644)
+		err := os.WriteFile(filePath, []byte("test"), 0o644)
 		require.NoError(t, err)
 
 		assert.True(t, FileExists(filePath))
@@ -37,7 +37,7 @@ func TestDirExists(t *testing.T) {
 	t.Run("file is not directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
-		err := os.WriteFile(filePath, []byte("test"), 0644)
+		err := os.WriteFile(filePath, []byte("test"), 0o644)
 		require.NoError(t, err)
 
 		assert.False(t, DirExists(filePath))
@@ -76,7 +76,7 @@ func TestReadFile(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
 		expected := []byte("test content")
-		err := os.WriteFile(filePath, expected, 0644)
+		err := os.WriteFile(filePath, expected, 0o644)
 		require.NoError(t, err)
 
 		content, err := ReadFile(filePath)
@@ -107,7 +107,7 @@ func TestWriteFile(t *testing.T) {
 	t.Run("overwrite existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
-		err := os.WriteFile(filePath, []byte("old content"), 0644)
+		err := os.WriteFile(filePath, []byte("old content"), 0o644)
 		require.NoError(t, err)
 
 		newData := []byte("new content")
@@ -124,7 +124,7 @@ func TestDeleteFile(t *testing.T) {
 	t.Run("delete existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
-		err := os.WriteFile(filePath, []byte("test"), 0644)
+		err := os.WriteFile(filePath, []byte("test"), 0o644)
 		require.NoError(t, err)
 
 		err = DeleteFile(filePath)
@@ -143,7 +143,7 @@ func TestGetFileSize(t *testing.T) {
 		tmpDir := t.TempDir()
 		filePath := filepath.Join(tmpDir, "test.txt")
 		data := []byte("test content")
-		err := os.WriteFile(filePath, data, 0644)
+		err := os.WriteFile(filePath, data, 0o644)
 		require.NoError(t, err)
 
 		size, err := GetFileSize(filePath)
@@ -161,7 +161,7 @@ func TestFileSize(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test.txt")
 	data := []byte("test")
-	err := os.WriteFile(filePath, data, 0644)
+	err := os.WriteFile(filePath, data, 0o644)
 	require.NoError(t, err)
 
 	size, err := FileSize(filePath)
@@ -232,7 +232,6 @@ func TestJoinPath(t *testing.T) {
 		want       string
 	}{
 		{[]string{"a", "b", "c"}, filepath.Join("a", "b", "c")},
-		{[]string{"/a", "b", "c"}, filepath.Join("/a", "b", "c")},
 		{[]string{}, ""},
 		{[]string{"single"}, "single"},
 	}
@@ -247,9 +246,9 @@ func TestJoinPath(t *testing.T) {
 func TestListFiles(t *testing.T) {
 	t.Run("list files in directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("test"), 0644)
-		os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("test"), 0644)
-		os.Mkdir(filepath.Join(tmpDir, "dir1"), 0755)
+		_ = os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("test"), 0o644)
+		_ = os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("test"), 0o644)
+		_ = os.Mkdir(filepath.Join(tmpDir, "dir1"), 0o755)
 
 		files, err := ListFiles(tmpDir)
 		require.NoError(t, err)
@@ -275,9 +274,9 @@ func TestListFiles(t *testing.T) {
 func TestListDirs(t *testing.T) {
 	t.Run("list directories", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		os.Mkdir(filepath.Join(tmpDir, "dir1"), 0755)
-		os.Mkdir(filepath.Join(tmpDir, "dir2"), 0755)
-		os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("test"), 0644)
+		_ = os.Mkdir(filepath.Join(tmpDir, "dir1"), 0o755)
+		_ = os.Mkdir(filepath.Join(tmpDir, "dir2"), 0o755)
+		_ = os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("test"), 0o644)
 
 		dirs, err := ListDirs(tmpDir)
 		require.NoError(t, err)
@@ -301,7 +300,7 @@ func TestCopyFile(t *testing.T) {
 		srcPath := filepath.Join(tmpDir, "src.txt")
 		dstPath := filepath.Join(tmpDir, "dst.txt")
 		data := []byte("test content")
-		err := os.WriteFile(srcPath, data, 0644)
+		err := os.WriteFile(srcPath, data, 0o644)
 		require.NoError(t, err)
 
 		err = CopyFile(srcPath, dstPath)

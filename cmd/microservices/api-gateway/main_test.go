@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/monitoring"
@@ -34,11 +35,11 @@ type mockNFTAccessVerifier struct {
 
 type mockWeb3StatusProvider struct{}
 
-func (m *mockNFTAccessVerifier) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress string, tokenID string, ownerAddress string) (bool, error) {
+func (m *mockNFTAccessVerifier) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
 	return m.verifyResult, m.verifyErr
 }
 
-func (m *mockNFTAccessVerifier) GetNFTBalance(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
+func (m *mockNFTAccessVerifier) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
 	return m.balance, m.balanceErr
 }
 
@@ -100,12 +101,12 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 	router.GET("/metrics", func(c *gin.Context) {
 		promhttp.Handler().ServeHTTP(c.Writer, c.Request)
 	})
-	gateway.RegisterAuthRoutes(router, zap.NewNop(), authService)
+	gateway.RegisterAuthRoutes(router, zap.NewNop(), config.DefaultConfig(), authService)
 	gateway.RegisterWeb3Routes(router, zap.NewNop(), &mockWeb3StatusProvider{})
 
 	// Auth-required routes
 	jwtConfig := middleware.JWTAuthConfig{
-		Secret: "test-secret",
+		Secret: "test-secret-that-is-at-least-32-chars",
 		SkipPaths: []string{
 			"/api/v1/auth/challenge",
 			"/api/v1/auth/login",
@@ -126,10 +127,8 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 			CacheTTL:       60 * time.Second,
 		}
 		nftGroup := authGroup.Group("/")
-		nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, zap.NewNop()))
-		{
-			gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil)
-		}
+	nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, zap.NewNop()))
+	gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil)
 
 		// Segment route uses playback token, not NFT gate
 		authGroup.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {
@@ -157,7 +156,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	return service.NewAuthServiceWithDeps(
-		"test-secret",
+		"test-secret-that-is-at-least-32-chars",
 		nil,
 		verifier,
 		service.NewMemoryChallengeStore(),
@@ -176,7 +175,7 @@ func testJWT(walletAddress string) string {
 		"iat":            time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	s, _ := token.SignedString([]byte("test-secret"))
+	s, _ := token.SignedString([]byte("test-secret-that-is-at-least-32-chars"))
 	return s
 }
 
@@ -250,14 +249,14 @@ func TestRegisterAuthRoutes_LoginRejectsReplay(t *testing.T) {
 	router.ServeHTTP(secondRec, secondReq)
 
 	assert.Equal(t, http.StatusUnauthorized, secondRec.Code)
-	assert.Contains(t, secondRec.Body.String(), "challenge")
+	assert.Contains(t, secondRec.Body.String(), "authentication failed")
 }
 
 func TestRegisterStreamingRoutes_SegmentRequiresPlaybackToken(t *testing.T) {
 	authService, _ := newTestAuthService()
 	router := newTestRouter(authService, &mockNFTAccessVerifier{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/demo/segment/0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/demo/segment/0", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -279,7 +278,7 @@ func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/demo/segment/0?playback_token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/demo/segment/0?playback_token="+token, http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -308,7 +307,7 @@ func TestRegisterStreamingRoutes_ManifestSuccess(t *testing.T) {
 	req := httptest.NewRequest(
 		http.MethodGet,
 		"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
-		nil,
+		http.NoBody,
 	)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -403,13 +402,13 @@ func TestContentRoutes_RequireAuth(t *testing.T) {
 	router := newTestRouter(authService, &mockNFTAccessVerifier{})
 
 	// Without auth
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 
 	// With auth
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/content", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/content", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -441,7 +440,7 @@ func TestRegisterTranscodingRoutes_SubmitAndStatus(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.TaskID)
 
-	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+resp.TaskID, nil)
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+resp.TaskID, http.NoBody)
 	statusReq.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
 	statusRec := httptest.NewRecorder()
 	router.ServeHTTP(statusRec, statusReq)
@@ -468,7 +467,7 @@ func TestRegisterTranscodingRoutes_ListTasks(t *testing.T) {
 	router.ServeHTTP(submitRec, submitReq)
 	require.Equal(t, http.StatusAccepted, submitRec.Code)
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=content-list", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=content-list", http.NoBody)
 	listReq.Header.Set("Authorization", "Bearer "+jwtToken)
 	listRec := httptest.NewRecorder()
 	router.ServeHTTP(listRec, listReq)
@@ -510,7 +509,7 @@ func TestRegisterTranscodingRoutes_ListTasksPagination(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, rec.Code)
 	}
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=content-a&limit=1&offset=1", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=content-a&limit=1&offset=1", http.NoBody)
 	listReq.Header.Set("Authorization", "Bearer "+jwtToken)
 	listRec := httptest.NewRecorder()
 	router.ServeHTTP(listRec, listReq)
@@ -525,7 +524,7 @@ func TestRegisterWeb3Routes_RPCStatus(t *testing.T) {
 	authService, _ := newTestAuthService()
 	router := newTestRouter(authService, &mockNFTAccessVerifier{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", http.NoBody)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -540,12 +539,12 @@ func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
 	authService, _ := newTestAuthService()
 	router := newTestRouter(authService, &mockNFTAccessVerifier{})
 
-	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	healthRec := httptest.NewRecorder()
 	router.ServeHTTP(healthRec, healthReq)
 	require.Equal(t, http.StatusOK, healthRec.Code)
 
-	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	metricsRec := httptest.NewRecorder()
 	router.ServeHTTP(metricsRec, metricsReq)
 

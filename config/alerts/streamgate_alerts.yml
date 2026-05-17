@@ -1,0 +1,85 @@
+groups:
+  - name: streamgate_http
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(streamgate_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(streamgate_http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: >-
+            The HTTP 5xx error rate is {{ $value | printf "%.2f" | humanizePercentage }}
+            over the last 5 minutes, exceeding the 5% threshold.
+            Current 5xx rate: {{ printf "%.2f" (sum(rate(streamgate_http_requests_total{status=~"5.."}[5m]))) }} req/s.
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le, service)
+          ) > 2000
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High P99 service latency"
+          description: >-
+            Service {{ $labels.service }} P99 latency is {{ $value | printf "%.0f" }}ms
+            over the last 5 minutes, exceeding the 2000ms threshold.
+
+  - name: streamgate_web3
+    rules:
+      - alert: RPCFailover
+        expr: |
+          sum(increase(streamgate_rpc_failover_total[5m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: web3
+        annotations:
+          summary: "High RPC failover rate"
+          description: >-
+            RPC failover count increased by {{ $value | printf "%.0f" }} in the last 5 minutes,
+            exceeding the threshold of 10. Operation: {{ $labels.operation }},
+            from_rpc: {{ $labels.from_rpc }}, to_rpc: {{ $labels.to_rpc }}.
+
+      - alert: HighRPCLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(streamgate_rpc_latency_seconds_bucket[5m])) by (le, operation, rpc_url)
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: web3
+        annotations:
+          summary: "High RPC P99 latency"
+          description: >-
+            RPC P99 latency for operation {{ $labels.operation }} on {{ $labels.rpc_url }}
+            is {{ $value | printf "%.2f" }}s over the last 5 minutes,
+            exceeding the 3s threshold.
+
+  - name: streamgate_health
+    rules:
+      - alert: ServiceUnhealthy
+        expr: |
+          sum(rate(streamgate_http_requests_total{route="/health",status="503"}[2m]))
+          /
+          sum(rate(streamgate_http_requests_total{route="/health"}[2m]))
+          > 0
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Service health check failing"
+          description: >-
+            Health check endpoint is returning 503 (Service Unavailable) for more than 2 minutes.
+            Failure rate: {{ $value | printf "%.2f" | humanizePercentage }}.
+            This indicates a critical dependency (database, storage, etc.) may be down.

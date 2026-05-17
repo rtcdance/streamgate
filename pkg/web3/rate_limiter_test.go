@@ -112,7 +112,7 @@ func TestNewRateLimiterFromConfig_Enabled(t *testing.T) {
 
 func TestChainClient_SetRateLimiter(t *testing.T) {
 	server := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x1"} },
 	})
 	defer server.Close()

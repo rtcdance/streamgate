@@ -1,21 +1,22 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 )
 
-// RateLimitConfig controls the behaviour of the rate limiter.
 type RateLimitConfig struct {
-	RequestsPerMinute int           // max requests per window per IP (default 100)
-	WindowSize        time.Duration // sliding window length (default 1 minute)
-	CleanupInterval   time.Duration // how often stale entries are evicted (default 5 minutes)
+	RequestsPerMinute int
+	WindowSize        time.Duration
+	CleanupInterval   time.Duration
 }
 
-// DefaultRateLimitConfig returns sensible defaults.
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
 		RequestsPerMinute: 100,
@@ -24,22 +25,16 @@ func DefaultRateLimitConfig() RateLimitConfig {
 	}
 }
 
-// RateLimiter manages per-IP rate tracking and exposes Stop for graceful shutdown.
-type RateLimiter struct {
-	clients map[string]*clientEntry
-	mu      sync.RWMutex
-	wg      sync.WaitGroup // tracks cleanup goroutine
-	config  RateLimitConfig
-	done    chan struct{}
+type RateLimiter interface {
+	Allow(key string) bool
+	Stop()
 }
 
-type clientEntry struct {
-	count     int
-	resetTime time.Time
+type RedisClient interface {
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 }
 
-// NewRateLimiter creates a RateLimiter and starts the background cleanup goroutine.
-func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
+func NewRateLimiter(cfg RateLimitConfig, redisClient RedisClient) RateLimiter {
 	if cfg.RequestsPerMinute <= 0 {
 		cfg.RequestsPerMinute = 100
 	}
@@ -49,7 +44,28 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 	if cfg.CleanupInterval <= 0 {
 		cfg.CleanupInterval = 5 * time.Minute
 	}
-	rl := &RateLimiter{
+	if redisClient != nil {
+		fallback := newMemoryRateLimiter(cfg)
+		return newRedisRateLimiter(cfg, redisClient, fallback)
+	}
+	return newMemoryRateLimiter(cfg)
+}
+
+type memoryRateLimiter struct {
+	clients map[string]*clientEntry
+	mu      sync.RWMutex
+	wg      sync.WaitGroup
+	config  RateLimitConfig
+	done    chan struct{}
+}
+
+type clientEntry struct {
+	count     int
+	resetTime time.Time
+}
+
+func newMemoryRateLimiter(cfg RateLimitConfig) *memoryRateLimiter {
+	rl := &memoryRateLimiter{
 		clients: make(map[string]*clientEntry),
 		config:  cfg,
 		done:    make(chan struct{}),
@@ -59,16 +75,15 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 	return rl
 }
 
-// Allow checks whether clientIP is still within the rate limit.
-func (rl *RateLimiter) Allow(clientIP string) bool {
+func (rl *memoryRateLimiter) Allow(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	now := time.Now()
-	entry, exists := rl.clients[clientIP]
+	entry, exists := rl.clients[key]
 
 	if !exists || now.After(entry.resetTime) {
-		rl.clients[clientIP] = &clientEntry{
+		rl.clients[key] = &clientEntry{
 			count:     1,
 			resetTime: now.Add(rl.config.WindowSize),
 		}
@@ -83,18 +98,16 @@ func (rl *RateLimiter) Allow(clientIP string) bool {
 	return false
 }
 
-// Stop terminates the background cleanup goroutine and waits for it to exit.
-func (rl *RateLimiter) Stop() {
+func (rl *memoryRateLimiter) Stop() {
 	select {
 	case <-rl.done:
-		// already stopped
 	default:
 		close(rl.done)
 	}
 	rl.wg.Wait()
 }
 
-func (rl *RateLimiter) cleanup() {
+func (rl *memoryRateLimiter) cleanup() {
 	defer rl.wg.Done()
 	ticker := time.NewTicker(rl.config.CleanupInterval)
 	defer ticker.Stop()
@@ -103,9 +116,9 @@ func (rl *RateLimiter) cleanup() {
 		case <-ticker.C:
 			rl.mu.Lock()
 			now := time.Now()
-			for ip, entry := range rl.clients {
+			for key, entry := range rl.clients {
 				if now.After(entry.resetTime) {
-					delete(rl.clients, ip)
+					delete(rl.clients, key)
 				}
 			}
 			rl.mu.Unlock()
@@ -115,13 +128,88 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// RateLimitMiddleware returns a rate limit middleware with default config.
-// For production use with proper cleanup, use RateLimitMiddlewareWithConfig instead.
+const slidingWindowScript = `
+local key_prefix = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window_ms = tonumber(ARGV[2])
+local now_ms = tonumber(ARGV[3])
+
+local current_window = math.floor(now_ms / window_ms) * window_ms
+local previous_window = current_window - window_ms
+
+local current_key = key_prefix .. ":" .. current_window
+local previous_key = key_prefix .. ":" .. previous_window
+
+local elapsed = now_ms - current_window
+local weight = (window_ms - elapsed) / window_ms
+
+local previous_count = tonumber(redis.call('GET', previous_key) or '0')
+local current_count = tonumber(redis.call('GET', current_key) or '0')
+
+local weighted_count = math.floor(previous_count * weight + current_count)
+
+if weighted_count < limit then
+    current_count = redis.call('INCR', current_key)
+    if current_count == 1 then
+        redis.call('PEXPIRE', current_key, window_ms * 2)
+    end
+    return 1
+end
+
+return 0
+`
+
+type redisRateLimiter struct {
+	client   RedisClient
+	config   RateLimitConfig
+	script   string
+	fallback RateLimiter
+}
+
+func newRedisRateLimiter(cfg RateLimitConfig, client RedisClient, fallback RateLimiter) *redisRateLimiter {
+	return &redisRateLimiter{
+		client:   client,
+		config:   cfg,
+		script:   slidingWindowScript,
+		fallback: fallback,
+	}
+}
+
+func (rl *redisRateLimiter) Allow(key string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	redisKey := fmt.Sprintf("ratelimit:%s", key)
+	nowMs := time.Now().UnixMilli()
+
+	result, err := rl.client.Eval(ctx, rl.script, []string{redisKey},
+		rl.config.RequestsPerMinute,
+		rl.config.WindowSize.Milliseconds(),
+		nowMs,
+	).Result()
+
+	if err != nil {
+		return rl.fallback.Allow(key)
+	}
+
+	allowed, ok := result.(int64)
+	if !ok {
+		return rl.fallback.Allow(key)
+	}
+
+	return allowed == 1
+}
+
+func (rl *redisRateLimiter) Stop() {}
+
 func (s *Service) RateLimitMiddleware() gin.HandlerFunc {
-	limiter := NewRateLimiter(DefaultRateLimitConfig())
+	limiter := s.rateLimiter
 	return func(c *gin.Context) {
-		clientIP := c.ClientIP()
-		if !limiter.Allow(clientIP) {
+		key := c.ClientIP() + ":" + c.Request.URL.Path
+		if wallet := GetWalletAddress(c); wallet != "" {
+			key = key + ":" + wallet
+		}
+		if !limiter.Allow(key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",
@@ -133,13 +221,14 @@ func (s *Service) RateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RateLimitMiddlewareWithConfig returns a rate limit middleware with the given config.
-// The returned RateLimiter must be stopped via Stop() when the server shuts down.
-func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (*RateLimiter, gin.HandlerFunc) {
-	rl := NewRateLimiter(cfg)
+func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimiter, gin.HandlerFunc) {
+	rl := NewRateLimiter(cfg, s.redisClient)
 	handler := func(c *gin.Context) {
-		clientIP := c.ClientIP()
-		if !rl.Allow(clientIP) {
+		key := c.ClientIP() + ":" + c.Request.URL.Path
+		if wallet := GetWalletAddress(c); wallet != "" {
+			key = key + ":" + wallet
+		}
+		if !rl.Allow(key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",

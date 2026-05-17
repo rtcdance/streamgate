@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -30,15 +31,15 @@ func TestUploadService_SingleFileUpload(t *testing.T) {
 
 	// Upload file
 	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, uploadID)
+	require.NoError(t, err)
+	require.NotEmpty(t, uploadID)
 
 	// Get upload status
 	upload, err := uploadService.GetUploadStatus(context.Background(), uploadID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, upload)
-	helpers.AssertEqual(t, filename, upload.Filename)
-	helpers.AssertEqual(t, "completed", upload.Status)
+	require.NoError(t, err)
+	require.NotNil(t, upload)
+	require.Equal(t, filename, upload.Filename)
+	require.Equal(t, "completed", upload.Status)
 }
 
 func TestUploadService_ChunkedUpload(t *testing.T) {
@@ -70,8 +71,8 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 
 	// Start chunked upload
 	uploadID, err := uploadService.InitiateChunkedUpload(context.Background(), filename, totalSize, totalChunks, "user-123")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, uploadID)
+	require.NoError(t, err)
+	require.NotEmpty(t, uploadID)
 
 	// Upload chunks
 	for i := 0; i < len(fileContent); i += chunkSize {
@@ -82,18 +83,18 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 
 		chunk := fileContent[i:end]
 		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk)
-		helpers.AssertNoError(t, err)
+		require.NoError(t, err)
 	}
 
 	// Complete upload
 	err = uploadService.CompleteChunkedUpload(context.Background(), uploadID, totalChunks)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify upload
 	upload, err := uploadService.GetUploadStatus(context.Background(), uploadID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, upload)
-	helpers.AssertEqual(t, "completed", upload.Status)
+	require.NoError(t, err)
+	require.NotNil(t, upload)
+	require.Equal(t, "completed", upload.Status)
 }
 
 func TestUploadService_GetUploadStatus(t *testing.T) {
@@ -117,13 +118,13 @@ func TestUploadService_GetUploadStatus(t *testing.T) {
 	filename := "test.txt"
 
 	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Get upload status
 	status, err := uploadService.GetUploadStatus(context.Background(), uploadID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, status)
-	helpers.AssertEqual(t, "completed", status.Status)
+	require.NoError(t, err)
+	require.NotNil(t, status)
+	require.Equal(t, "completed", status.Status)
 }
 
 func TestUploadService_DeleteUpload(t *testing.T) {
@@ -147,15 +148,15 @@ func TestUploadService_DeleteUpload(t *testing.T) {
 	filename := "test.txt"
 
 	uploadID, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Delete upload
 	err = uploadService.DeleteUpload(context.Background(), uploadID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify deletion
 	_, err = uploadService.GetUploadStatus(context.Background(), uploadID)
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestUploadService_ListUploads(t *testing.T) {
@@ -179,11 +180,11 @@ func TestUploadService_ListUploads(t *testing.T) {
 		fileContent := []byte("test file content")
 		filename := "test.txt"
 		_, err := uploadService.Upload(context.Background(), filename, fileContent, "user-123")
-		helpers.AssertNoError(t, err)
+		require.NoError(t, err)
 	}
 
 	// List uploads
 	uploads, err := uploadService.ListUploads(context.Background(), "user-123", 10, 0)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, len(uploads) >= 3)
+	require.NoError(t, err)
+	require.True(t, len(uploads) >= 3)
 }

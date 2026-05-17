@@ -3,7 +3,7 @@ package util
 import (
 	"testing"
 
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidation_IsValidEmail(t *testing.T) {
@@ -23,7 +23,7 @@ func TestValidation_IsValidEmail(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsValidEmail(tt.email)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -44,7 +44,7 @@ func TestValidation_IsValidAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsValidAddress(tt.address)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -64,7 +64,7 @@ func TestValidation_IsValidHash(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsValidHash(tt.hash)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -86,7 +86,7 @@ func TestValidation_IsValidURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsValidURL(tt.url)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -108,7 +108,7 @@ func TestValidation_IsValidJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := IsValidJSON(tt.json)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -128,7 +128,7 @@ func TestValidation_SanitizeInput(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := SanitizeInput(tt.input)
-			helpers.AssertNotNil(t, result)
+			require.NotNil(t, result)
 		})
 	}
 }
