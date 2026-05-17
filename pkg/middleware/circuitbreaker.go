@@ -96,7 +96,8 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 		cb.setState(StateHalfOpen)
 	}
 
-	if cb.state == StateHalfOpen {
+	wasHalfOpen := cb.state == StateHalfOpen
+	if wasHalfOpen {
 		if cb.config.MaxRequests > 0 && cb.halfOpenCount >= cb.config.MaxRequests {
 			cb.mu.Unlock()
 			return fmt.Errorf("circuit breaker '%s' is half-open and max requests exceeded", cb.name)
@@ -110,7 +111,7 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 
 	cb.mu.Lock()
 
-	if cb.state == StateHalfOpen {
+	if wasHalfOpen {
 		cb.halfOpenCount--
 	}
 

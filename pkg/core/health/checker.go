@@ -1,26 +1,31 @@
 package health
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
-// Checker performs health checks
 type Checker struct {
+	mu     sync.RWMutex
 	checks map[string]func(context.Context) error
 }
 
-// NewChecker creates a new health checker
 func NewChecker() *Checker {
 	return &Checker{
 		checks: make(map[string]func(context.Context) error),
 	}
 }
 
-// Register registers a health check
 func (c *Checker) Register(name string, check func(context.Context) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.checks[name] = check
 }
 
-// Check performs all registered health checks
 func (c *Checker) Check(ctx context.Context) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	for _, check := range c.checks {
 		if err := check(ctx); err != nil {
 			return err

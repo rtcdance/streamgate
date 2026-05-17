@@ -2,6 +2,7 @@ package web3
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"go.uber.org/zap"
@@ -232,6 +233,7 @@ func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress,
 
 // ContractDeploymentTracker tracks contract deployments
 type ContractDeploymentTracker struct {
+	mu          sync.RWMutex
 	deployments map[string]*DeploymentResult
 	logger      *zap.Logger
 }
@@ -246,24 +248,33 @@ func NewContractDeploymentTracker(logger *zap.Logger) *ContractDeploymentTracker
 
 // TrackDeployment tracks a contract deployment
 func (cdt *ContractDeploymentTracker) TrackDeployment(contractName string, result *DeploymentResult) {
+	cdt.mu.Lock()
+	defer cdt.mu.Unlock()
 	cdt.logger.Info("Tracking deployment",
 		zap.String("contract", contractName),
 		zap.String("address", result.ContractAddress))
 	cdt.deployments[contractName] = result
 }
 
-// GetDeployment gets a tracked deployment
 func (cdt *ContractDeploymentTracker) GetDeployment(contractName string) *DeploymentResult {
+	cdt.mu.RLock()
+	defer cdt.mu.RUnlock()
 	return cdt.deployments[contractName]
 }
 
-// GetAllDeployments gets all tracked deployments
 func (cdt *ContractDeploymentTracker) GetAllDeployments() map[string]*DeploymentResult {
-	return cdt.deployments
+	cdt.mu.RLock()
+	defer cdt.mu.RUnlock()
+	out := make(map[string]*DeploymentResult, len(cdt.deployments))
+	for k, v := range cdt.deployments {
+		out[k] = v
+	}
+	return out
 }
 
 // SmartContractRegistry maintains a registry of deployed contracts
 type SmartContractRegistry struct {
+	mu        sync.RWMutex
 	contracts map[string]*SmartContractInfo
 	logger    *zap.Logger
 }
@@ -290,6 +301,8 @@ func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
 
 // RegisterContract registers a contract
 func (scr *SmartContractRegistry) RegisterContract(info *SmartContractInfo) {
+	scr.mu.Lock()
+	defer scr.mu.Unlock()
 	scr.logger.Info("Registering contract",
 		zap.String("name", info.Name),
 		zap.String("address", info.Address),
@@ -297,13 +310,15 @@ func (scr *SmartContractRegistry) RegisterContract(info *SmartContractInfo) {
 	scr.contracts[info.Name] = info
 }
 
-// GetContract gets a contract by name
 func (scr *SmartContractRegistry) GetContract(name string) *SmartContractInfo {
+	scr.mu.RLock()
+	defer scr.mu.RUnlock()
 	return scr.contracts[name]
 }
 
-// GetContractByAddress gets a contract by address
 func (scr *SmartContractRegistry) GetContractByAddress(address string) *SmartContractInfo {
+	scr.mu.RLock()
+	defer scr.mu.RUnlock()
 	for _, contract := range scr.contracts {
 		if contract.Address == address {
 			return contract
@@ -312,9 +327,14 @@ func (scr *SmartContractRegistry) GetContractByAddress(address string) *SmartCon
 	return nil
 }
 
-// GetAllContracts gets all registered contracts
 func (scr *SmartContractRegistry) GetAllContracts() map[string]*SmartContractInfo {
-	return scr.contracts
+	scr.mu.RLock()
+	defer scr.mu.RUnlock()
+	out := make(map[string]*SmartContractInfo, len(scr.contracts))
+	for k, v := range scr.contracts {
+		out[k] = v
+	}
+	return out
 }
 
 // GetContractsByChain gets contracts on a specific chain

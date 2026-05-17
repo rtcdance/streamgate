@@ -3,6 +3,7 @@ package web3
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/subtle"
 	"fmt"
 	"strings"
 
@@ -73,7 +74,7 @@ func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, messa
 
 	// Compare addresses
 	expectedAddress := common.HexToAddress(address)
-	if recoveredAddress != expectedAddress {
+	if subtle.ConstantTimeCompare(recoveredAddress.Bytes(), expectedAddress.Bytes()) != 1 {
 		// EOA recovery failed — try EIP-1271 smart contract wallet verification
 		if sv.eip1271 != nil {
 			sv.logger.Debug("EOA recovery mismatch, trying EIP-1271",

@@ -2,6 +2,7 @@ package web3
 
 import (
 	"crypto/ecdsa"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -100,7 +101,7 @@ func (ev *EIP712Verifier) VerifyTypedData(address string, typedData *EIP712Typed
 
 	// Compare addresses
 	expectedAddress := common.HexToAddress(address)
-	if recoveredAddress != expectedAddress {
+	if subtle.ConstantTimeCompare(recoveredAddress.Bytes(), expectedAddress.Bytes()) != 1 {
 		ev.logger.Warn("EIP-712 signature verification failed",
 			zap.String("expected", expectedAddress.Hex()),
 			zap.String("recovered", recoveredAddress.Hex()))

@@ -3,6 +3,7 @@ package web3
 import (
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -179,12 +180,11 @@ func (b *bigIntFromBytes) SetBytes(data []byte) {
 }
 
 func (b *bigIntFromBytes) Uint64() uint64 {
-	// Trim leading zeros and convert
-	var result uint64
-	for _, byt := range b.value {
-		result = result<<8 | uint64(byt)
+	v := new(big.Int).SetBytes(b.value)
+	if !v.IsUint64() {
+		return 0
 	}
-	return result
+	return v.Uint64()
 }
 
 // panicCodeName returns a human-readable name for Solidity panic codes.

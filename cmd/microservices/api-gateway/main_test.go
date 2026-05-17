@@ -43,6 +43,14 @@ func (m *mockNFTAccessVerifier) GetNFTBalance(ctx context.Context, chainID int64
 	return m.balance, m.balanceErr
 }
 
+func (m *mockNFTAccessVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	return m.verifyResult, m.verifyErr
+}
+
+func (m *mockNFTAccessVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	return m.verifyResult, m.verifyErr
+}
+
 func (m *mockWeb3StatusProvider) GetRPCStatuses() map[int64][]web3.RPCStatus {
 	return map[int64][]web3.RPCStatus{
 		11155111: {
