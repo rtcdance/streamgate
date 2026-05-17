@@ -161,7 +161,7 @@ func (b *NATSEventBus) Close() error {
 		}
 	}
 
-	if b.conn != nil && b.conn.IsConnected() {
+	if b.conn != nil {
 		b.conn.Close()
 	}
 

@@ -3,17 +3,28 @@ package event
 import (
 	"context"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 type Publisher struct {
 	mu          sync.RWMutex
 	subscribers map[string][]func(Event)
 	wg          sync.WaitGroup
+	log         *zap.Logger
 }
 
 func NewPublisher() *Publisher {
 	return &Publisher{
 		subscribers: make(map[string][]func(Event)),
+		log:         zap.NewNop(),
+	}
+}
+
+func NewPublisherWithLogger(log *zap.Logger) *Publisher {
+	return &Publisher{
+		subscribers: make(map[string][]func(Event)),
+		log:         log,
 	}
 }
 
@@ -33,7 +44,11 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 		go func(h func(Event)) {
 			defer p.wg.Done()
 			defer func() {
-				_ = recover()
+				if r := recover(); r != nil {
+					p.log.Error("Recovered panic in event publisher handler",
+						zap.Any("panic", r),
+						zap.String("event_type", event.Type))
+				}
 			}()
 			h(event)
 		}(handler)

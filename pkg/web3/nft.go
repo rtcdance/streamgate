@@ -450,12 +450,8 @@ func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, token
 		return info, nil
 	}
 
-	result, err := nv.client.CallContract(ctx, ethereum.CallMsg{
-		To:   &contract,
-		Data: data,
-	}, nil)
+	result, err := nv.callContract(ctx, contract, data)
 	if err != nil {
-		// Some contracts revert on getApproved for non-existent tokens
 		nv.logger.Debug("getApproved call failed (contract may not support it)", zap.Error(err))
 		return info, nil
 	}
@@ -483,12 +479,8 @@ func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, token
 		if err != nil {
 			continue
 		}
-		opResult, err := nv.client.CallContract(ctx, ethereum.CallMsg{
-			To:   &contract,
-			Data: opData,
-		}, nil)
+		opResult, err := nv.callContract(ctx, contract, opData)
 		if err != nil {
-			// Contract may not support isApprovedForAll — skip
 			continue
 		}
 		if len(opResult) >= 32 {

@@ -928,8 +928,8 @@ func (cm *ConfigManager) Load() error {
 
 // Save saves the current configuration to the JSON file at configPath
 func (cm *ConfigManager) Save() error {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	if cm.config == nil {
 		return fmt.Errorf("no configuration to save")
@@ -940,7 +940,7 @@ func (cm *ConfigManager) Save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(cm.configPath, data, 0o644); err != nil {
+	if err := os.WriteFile(cm.configPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

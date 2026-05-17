@@ -2,6 +2,8 @@ package monitoring
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -199,12 +201,19 @@ func (t *Tracer) ExportTrace(traceID string) map[string]interface{} {
 
 // generateTraceID generates a unique trace ID
 func (t *Tracer) generateTraceID() string {
-	return fmt.Sprintf("trace_%d_%d", time.Now().UnixNano(), time.Now().Nanosecond())
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("trace_%d", time.Now().UnixNano())
+	}
+	return "trace_" + hex.EncodeToString(buf[:])
 }
 
-// generateSpanID generates a unique span ID
 func (t *Tracer) generateSpanID() string {
-	return fmt.Sprintf("span_%d_%d", time.Now().UnixNano(), time.Now().Nanosecond())
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("span_%d", time.Now().UnixNano())
+	}
+	return "span_" + hex.EncodeToString(buf[:])
 }
 
 // getTraceID gets trace ID from context

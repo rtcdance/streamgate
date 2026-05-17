@@ -6,10 +6,11 @@ import (
 	"os"
 	"sync"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
 	"streamgate/pkg/service"
+
+	"go.uber.org/zap"
 )
 
 // Plugin defines the interface for all plugins
@@ -53,7 +54,7 @@ func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error
 	var eventBus event.EventBus
 	var err error
 
-	if cfg.Mode == "monolithic" {
+	if cfg.Mode == "monolith" || cfg.Mode == "monolithic" {
 		eventBus, err = event.NewMemoryEventBus()
 	} else {
 		eventBus, err = event.NewNATSEventBus(cfg.NATS.URL, logger)

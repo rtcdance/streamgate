@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"go.uber.org/zap"
@@ -110,8 +111,17 @@ func (b *MemoryEventBus) Unsubscribe(ctx context.Context, eventType string, hand
 		return nil
 	}
 
-	// Remove handler (simplified - doesn't actually remove, just for demo)
-	_ = handlers
+	for i, h := range handlers {
+		if fmt.Sprintf("%p", h) == fmt.Sprintf("%p", handler) {
+			b.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
+			break
+		}
+	}
+
+	if len(b.handlers[eventType]) == 0 {
+		delete(b.handlers, eventType)
+	}
+
 	return nil
 }
 

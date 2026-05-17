@@ -150,8 +150,20 @@ func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*Con
 			return nil
 		}
 
-		// EIP-1559: maxFee = 2 * tipCap + baseFee (baseFee ~ tipCap for simplicity)
-		maxFee := new(big.Int).Mul(tipCap, big.NewInt(2))
+		// EIP-1559: maxFee = 2 * baseFee + tipCap
+		head, err := cw.client.HeaderByNumber(ctx, nil)
+		var maxFee *big.Int
+		if err == nil && head.BaseFee != nil {
+			maxFee = new(big.Int).Add(
+				new(big.Int).Mul(head.BaseFee, big.NewInt(2)),
+				tipCap,
+			)
+		} else {
+			maxFee = new(big.Int).Add(
+				new(big.Int).Mul(tipCap, big.NewInt(3)),
+				tipCap,
+			)
+		}
 
 		dynamicTx := types.NewTx(&types.DynamicFeeTx{
 			ChainID:   cw.chainID,
