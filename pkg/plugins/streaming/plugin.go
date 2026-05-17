@@ -94,3 +94,5 @@ func (p *StreamingPlugin) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *StreamingPlugin) DependsOn() []string { return nil }

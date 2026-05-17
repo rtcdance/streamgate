@@ -45,7 +45,7 @@ func BenchmarkAPI_RoutingWithMiddleware(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/test", nil)
+		req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 	}
@@ -140,7 +140,7 @@ func BenchmarkAPI_RateLimiting(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "/api/limited", nil)
+			req := httptest.NewRequest("GET", "/api/limited", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 		}

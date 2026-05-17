@@ -45,6 +45,8 @@ func (m *mockPlugin) Health(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockPlugin) DependsOn() []string { return nil }
+
 func TestNewMicrokernel(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := &config.Config{

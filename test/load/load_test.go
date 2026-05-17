@@ -109,6 +109,7 @@ func TestLoad_HealthEndpoint(t *testing.T) {
 }
 
 func TestLoad_ReadyEndpoint(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	target := vegeta.Target{

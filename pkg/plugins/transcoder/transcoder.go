@@ -404,9 +404,10 @@ func (tq *TaskQueue) Enqueue(task *TranscodeTask) error {
 
 	task.Status = TaskStatusPending
 	task.CreatedAt = time.Now()
-	copy := *task
-	tq.tasks[copy.ID] = &copy
-	tq.queue <- &copy
+	mapCopy := *task
+	queueCopy := *task
+	tq.tasks[mapCopy.ID] = &mapCopy
+	tq.queue <- &queueCopy
 	tq.metrics.TotalEnqueued++
 
 	return nil

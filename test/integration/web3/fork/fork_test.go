@@ -99,7 +99,7 @@ func TestERC721Ownership_ForkedMainnet(t *testing.T) {
 		Mode:          web3.GatingSpecificID,
 	}
 
-	owned, err := chainClient.VerifyNFTOwnership(ctx, req)
+	owned, err := chainClient.VerifyNFTOwnershipByRequest(ctx, req)
 	if err != nil {
 		t.Logf("VerifyNFTOwnership error (acceptable on fork): %v", err)
 		return

@@ -42,6 +42,8 @@ func (m *mockPlugin) Health(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockPlugin) DependsOn() []string { return nil }
+
 func TestE2E_MicrokernelInitialization(t *testing.T) {
 	cfg := &config.Config{
 		AppName: "test-kernel",

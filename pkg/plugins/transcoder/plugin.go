@@ -94,3 +94,5 @@ func (p *TranscoderPluginWrapper) Health(ctx context.Context) error {
 
 	return p.server.Health(ctx)
 }
+
+func (p *TranscoderPluginWrapper) DependsOn() []string { return nil }
