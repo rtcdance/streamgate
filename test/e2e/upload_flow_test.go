@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 )
 
 // uploadMockDB implements storage.DB with in-memory upload records.
@@ -120,7 +121,7 @@ func setupUploadE2EServer(t *testing.T, store service.SegmentStorage) *httptest.
 
 	opts := []gateway.RouterOption{
 		gateway.WithAuthService(authService),
-		gateway.WithChallengeStore(service.NewMemoryChallengeStore()),
+		gateway.WithChallengeStore(storage.NewMemoryChallengeStore()),
 		gateway.WithSegmentStorage(store),
 		gateway.WithNFTVerifier(checker),
 		gateway.WithUploadService(uploadSvc),
@@ -143,7 +144,7 @@ func TestUploadRoutes_Return503WhenNoService(t *testing.T) {
 
 	opts := []gateway.RouterOption{
 		gateway.WithAuthService(authService),
-		gateway.WithChallengeStore(service.NewMemoryChallengeStore()),
+		gateway.WithChallengeStore(storage.NewMemoryChallengeStore()),
 		gateway.WithNFTVerifier(checker),
 		// No WithUploadService → uploadSvc will be nil
 	}

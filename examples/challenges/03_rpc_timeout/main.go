@@ -30,10 +30,8 @@ type MockRPCClient struct {
 
 func (m *MockRPCClient) BalanceAt(ctx context.Context, address string) (*string, error) {
 	if m.shouldHang {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+		<-ctx.Done()
+		return nil, ctx.Err()
 	}
 
 	select {
@@ -47,10 +45,8 @@ func (m *MockRPCClient) BalanceAt(ctx context.Context, address string) (*string,
 
 func (m *MockRPCClient) BlockNumber(ctx context.Context) (uint64, error) {
 	if m.shouldHang {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		}
+		<-ctx.Done()
+		return 0, ctx.Err()
 	}
 
 	select {

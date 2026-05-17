@@ -16,6 +16,7 @@ import (
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -150,9 +151,9 @@ func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
 		"test-secret-that-is-at-least-32-chars",
 		nil,
 		verifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	), verifier
 }
 
@@ -173,15 +174,15 @@ func testJWT(walletAddress string) string {
 
 // setupE2EServer creates an httptest.Server backed by gateway.SetupRouter
 // with mock dependencies injected.
-func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, storage service.SegmentStorage) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
+func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, segStorage service.SegmentStorage) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
 	t.Helper()
 	authService, verifier := newTestAuthService()
 	cfg := testConfig()
 
 	opts := []gateway.RouterOption{
 		gateway.WithAuthService(authService),
-		gateway.WithChallengeStore(service.NewMemoryChallengeStore()),
-		gateway.WithSegmentStorage(storage),
+		gateway.WithChallengeStore(storage.NewMemoryChallengeStore()),
+		gateway.WithSegmentStorage(segStorage),
 		gateway.WithNFTVerifier(checker),
 	}
 

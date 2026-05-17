@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 )
 
 type mockSegmentStorage struct {
@@ -84,9 +85,9 @@ func newStreamingTestAuthService() *service.AuthService {
 		"test-jwt-secret-key-for-streaming-tests",
 		newMockAuthStorage(),
 		sigVerifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	)
 }
 

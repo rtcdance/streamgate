@@ -61,8 +61,6 @@ type ChainClient struct {
 	chainID     int64
 	logger      *zap.Logger
 	rateLimiter *RPCRateLimiter
-	nftVerifier *NFTVerifier // lazy cached NFT verifier
-	nftOnce     sync.Once
 }
 
 type rpcEndpointState struct {
@@ -136,32 +134,35 @@ func (cc *ChainClient) GetEthClient() *ethclient.Client {
 	return cc.client
 }
 
-// getNFTVerifier returns a lazily-cached NFTVerifier for this chain client.
-func (cc *ChainClient) getNFTVerifier() *NFTVerifier {
-	cc.nftOnce.Do(func() {
-		cc.nftVerifier = NewNFTVerifier(cc.client, cc.logger)
-	})
-	return cc.nftVerifier
-}
-
-// VerifyNFTOwnership verifies NFT ownership for a specific token on this chain.
 func (cc *ChainClient) VerifyNFTOwnership(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	return cc.getNFTVerifier().VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTOwnership", func(client *ethclient.Client) (bool, error) {
+		v := NewNFTVerifier(client, cc.logger)
+		return v.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+	})
 }
 
 // GetNFTBalance returns the NFT balance for an owner on this chain.
 func (cc *ChainClient) GetNFTBalance(ctx context.Context, contractAddress, ownerAddress string) (*big.Int, error) {
-	return cc.getNFTVerifier().GetNFTBalance(ctx, contractAddress, ownerAddress)
+	return withChainClient(ctx, cc, "GetNFTBalance", func(client *ethclient.Client) (*big.Int, error) {
+		v := NewNFTVerifier(client, cc.logger)
+		return v.GetNFTBalance(ctx, contractAddress, ownerAddress)
+	})
 }
 
 // VerifyNFTOwnershipAutoDetect detects the token standard and verifies ownership.
 func (cc *ChainClient) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	return cc.getNFTVerifier().VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTOwnershipAutoDetect", func(client *ethclient.Client) (bool, error) {
+		v := NewNFTVerifier(client, cc.logger)
+		return v.VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+	})
 }
 
 // VerifyNFTCollectionAutoDetect detects the token standard and verifies collection ownership.
 func (cc *ChainClient) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
-	return cc.getNFTVerifier().VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTCollectionAutoDetect", func(client *ethclient.Client) (bool, error) {
+		v := NewNFTVerifier(client, cc.logger)
+		return v.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
+	})
 }
 
 // CallContractAtBlock executes a contract call at the given block tag.

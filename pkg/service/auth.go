@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"streamgate/pkg/models"
+	stg "streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -88,9 +89,9 @@ type AuthService struct {
 	signingType       JWTSigningType
 	storage           AuthStorage
 	signatureVerifier WalletSignatureVerifier
-	challengeStore    ChallengeStore
+	challengeStore    stg.ChallengeStore
 	challengeTTL      time.Duration
-	blacklist         TokenBlacklist
+	blacklist         stg.TokenBlacklist
 	jwtExpiry         time.Duration
 	eip712Verifier    interface {
 		VerifyTypedData(address string, typedData *web3.EIP712TypedData, signature string) (bool, error)
@@ -106,7 +107,7 @@ func WithSignatureVerifier(v WalletSignatureVerifier) AuthServiceOption {
 }
 
 // WithChallengeStore sets the challenge store for wallet authentication.
-func WithChallengeStore(cs ChallengeStore) AuthServiceOption {
+func WithChallengeStore(cs stg.ChallengeStore) AuthServiceOption {
 	return func(s *AuthService) { s.challengeStore = cs }
 }
 
@@ -116,7 +117,7 @@ func WithChallengeTTL(d time.Duration) AuthServiceOption {
 }
 
 // WithTokenBlacklist sets the token blacklist.
-func WithTokenBlacklist(b TokenBlacklist) AuthServiceOption {
+func WithTokenBlacklist(b stg.TokenBlacklist) AuthServiceOption {
 	return func(s *AuthService) { s.blacklist = b }
 }
 
@@ -166,7 +167,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		storage:           storage,
 		signatureVerifier: defaultWalletSignatureVerifier(),
 		eip712Verifier:    defaultEIP712Verifier(),
-		challengeStore:    NewMemoryChallengeStore(),
+		challengeStore:    stg.NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
 	}
@@ -186,7 +187,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 //	    WithChallengeTTL(ttl),
 //	    WithTokenBlacklist(blacklist),
 //	)
-func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier WalletSignatureVerifier, challengeStore ChallengeStore, challengeTTL time.Duration, blacklist TokenBlacklist) *AuthService {
+func NewAuthServiceWithDeps(jwtSecret string, as AuthStorage, verifier WalletSignatureVerifier, challengeStore stg.ChallengeStore, challengeTTL time.Duration, blacklist stg.TokenBlacklist) *AuthService {
 	var opts []AuthServiceOption
 	if verifier != nil {
 		opts = append(opts, WithSignatureVerifier(verifier))
@@ -200,7 +201,7 @@ func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier Wall
 	if blacklist != nil {
 		opts = append(opts, WithTokenBlacklist(blacklist))
 	}
-	return NewAuthService(jwtSecret, storage, opts...)
+	return NewAuthService(jwtSecret, as, opts...)
 }
 
 // Authenticate authenticates user with username and password

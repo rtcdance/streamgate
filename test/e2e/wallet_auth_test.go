@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -24,14 +25,14 @@ func newTestAuthService() (*service.AuthService, *ecdsa.PrivateKey, string) {
 	}
 	address := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
-	storage := NewMockAuthStorage()
+	mockStorage := NewMockAuthStorage()
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
-	challengeStore := service.NewMemoryChallengeStore()
-	blacklist := service.NewMemoryTokenBlacklist()
+	challengeStore := storage.NewMemoryChallengeStore()
+	blacklist := storage.NewMemoryTokenBlacklist()
 
 	authSvc := service.NewAuthServiceWithDeps(
 		"test-jwt-secret-key-at-least-32-bytes!",
-		storage,
+		mockStorage,
 		verifier,
 		challengeStore,
 		5*time.Minute,
@@ -125,15 +126,14 @@ func TestWalletAuth_ChallengeReuse_Rejected(t *testing.T) {
 }
 
 func TestWalletAuth_ExpiredChallenge_Rejected(t *testing.T) {
-	storage := NewMockAuthStorage()
+	mockStorage := NewMockAuthStorage()
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
-	challengeStore := service.NewMemoryChallengeStore()
-	blacklist := service.NewMemoryTokenBlacklist()
+	challengeStore := storage.NewMemoryChallengeStore()
+	blacklist := storage.NewMemoryTokenBlacklist()
 
-	// Create service with very short TTL
 	authSvc := service.NewAuthServiceWithDeps(
 		"test-jwt-secret-key-at-least-32-bytes!",
-		storage,
+		mockStorage,
 		verifier,
 		challengeStore,
 		1*time.Nanosecond, // immediate expiry
@@ -292,14 +292,14 @@ func BenchmarkWalletAuth_FullFlow(b *testing.B) {
 	privateKey, _ := crypto.GenerateKey()
 	address := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
-	storage := NewMockAuthStorage()
+	mockStorage := NewMockAuthStorage()
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
-	challengeStore := service.NewMemoryChallengeStore()
-	blacklist := service.NewMemoryTokenBlacklist()
+	challengeStore := storage.NewMemoryChallengeStore()
+	blacklist := storage.NewMemoryTokenBlacklist()
 
 	authSvc := service.NewAuthServiceWithDeps(
 		"bench-jwt-secret-key-32bytes!",
-		storage,
+		mockStorage,
 		verifier,
 		challengeStore,
 		5*time.Minute,
@@ -325,15 +325,15 @@ func Example_fullWalletAuth() {
 	address := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
 
 	// 2. Server-side: create AuthService and generate challenge
-	storage := NewMockAuthStorage()
+	mockStorage := NewMockAuthStorage()
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	authSvc := service.NewAuthServiceWithDeps(
 		"jwt-secret-must-be-at-least-32-chars!",
-		storage,
+		mockStorage,
 		verifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
-		service.NewMemoryTokenBlacklist(),
+		storage.NewMemoryTokenBlacklist(),
 	)
 
 	challenge, _ := authSvc.GenerateWalletChallenge(context.Background(), address, 1)

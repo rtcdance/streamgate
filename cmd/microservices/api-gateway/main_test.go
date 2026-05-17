@@ -25,6 +25,7 @@ import (
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -209,7 +210,7 @@ func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
 		"test-secret-that-is-at-least-32-chars",
 		nil,
 		verifier,
-		service.NewMemoryChallengeStore(),
+		storage.NewMemoryChallengeStore(),
 		5*time.Minute,
 		nil,
 	), verifier
