@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"streamgate/pkg/models"
 )
@@ -13,6 +14,7 @@ type MemoryTranscodingQueue struct {
 	cond     *sync.Cond
 	queue    []*models.TranscodingTask
 	tasks    map[string]*models.TranscodingTask
+	depth    int64
 }
 
 func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
@@ -32,6 +34,7 @@ func (q *MemoryTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	}
 	q.tasks[task.ID] = &taskCopy
 	q.queue = append(q.queue, &taskCopy)
+	q.depth = int64(len(q.queue))
 	q.mu.Unlock()
 	q.cond.Signal()
 	return nil
@@ -59,6 +62,7 @@ func (q *MemoryTranscodingQueue) Dequeue(ctx context.Context) (*models.Transcodi
 
 	task := q.queue[0]
 	q.queue = q.queue[1:]
+	q.depth = int64(len(q.queue))
 	taskCopy := *task
 	return &taskCopy, nil
 }
@@ -81,4 +85,8 @@ func (q *MemoryTranscodingQueue) GetStatus(taskID string) (string, error) {
 	}
 
 	return task.Status, nil
+}
+
+func (q *MemoryTranscodingQueue) Depth() (int, error) {
+	return int(atomic.LoadInt64(&q.depth)), nil
 }

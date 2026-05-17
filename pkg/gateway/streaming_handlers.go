@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"streamgate/pkg/middleware"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
 
 	"github.com/gin-gonic/gin"
@@ -84,8 +85,13 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 		if limiter != nil {
-			defer limiter.release()
+			defer func() {
+				limiter.release()
+				monitoring.StreamingViewersActive.Set(float64(len(limiter.sem)))
+			}()
+			monitoring.StreamingViewersActive.Set(float64(len(limiter.sem)))
 		}
+		monitoring.StreamingManifestsTotal.Inc()
 
 		playbackToken, err := authService.GeneratePlaybackToken(wallet, contentID, contract, tokenID, chainIDInt, 2*time.Minute)
 		if err != nil {
@@ -96,6 +102,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		manifestCacheMu.RLock()
 		if entry, ok := manifestCache[contentID]; ok && time.Now().Before(entry.expiresAt) {
 			manifestCacheMu.RUnlock()
+			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(entry.manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
 			c.String(http.StatusOK, rendered)
@@ -109,6 +116,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 
 		var qualitySegments map[string][]string
 		if idxHit && time.Now().Before(cachedIdx.expiresAt) {
+			monitoring.StreamingCacheHitsTotal.WithLabelValues("segment_index").Inc()
 			qualitySegments = cachedIdx.qualities
 		} else {
 			qualitySegments = make(map[string][]string)
@@ -207,6 +215,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		if limiter != nil {
 			defer limiter.release()
 		}
+		quality := c.Query("quality")
 		segName := c.Param("num")
 		if strings.Contains(segName, "..") || strings.Contains(segName, "/") || strings.Contains(segName, "\\") {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
@@ -221,19 +230,45 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				key  string
 				prio int
 			}
-			quality := c.Query("quality")
 			candidates := []segTry{
-				{key: fmt.Sprintf("streams/%s/720p/%s", contentID, segName), prio: 1},
 				{key: fmt.Sprintf("%s/%s", contentID, segName), prio: 0},
 			}
-			if quality != "" {
-				candidates = append([]segTry{
-					{key: fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName), prio: 2},
-				}, candidates...)
+			// Use segment index cache to find available quality levels,
+			// avoiding wasted MinIO requests to non-existent profiles.
+			var qlist map[string][]string
+			segmentIndexCacheMu.RLock()
+			if cachedIdx, ok := segmentIndexCache[contentID]; ok && time.Now().Before(cachedIdx.expiresAt) {
+				qlist = cachedIdx.qualities
+			}
+			segmentIndexCacheMu.RUnlock()
+			if len(qlist) > 0 {
+				for q := range qlist {
+					prio := 1
+					if q == quality {
+						prio = 2
+					}
+					candidates = append(candidates, segTry{
+						key:  fmt.Sprintf("streams/%s/%s/%s", contentID, q, segName),
+						prio: prio,
+					})
+				}
+			} else {
+				if quality != "" {
+					candidates = append(candidates, segTry{
+						key:  fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName),
+						prio: 2,
+					})
+				}
+				candidates = append(candidates, segTry{
+					key:  fmt.Sprintf("streams/%s/720p/%s", contentID, segName),
+					prio: 1,
+				})
 			}
 
 			ctx, cancel := context.WithCancel(c.Request.Context())
 			defer cancel()
+
+			start := time.Now()
 
 			type dlResult struct {
 				rc   io.ReadCloser
@@ -266,6 +301,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			cancel()
 
 			if best.rc == nil {
+				monitoring.StreamingDownloadDuration.WithLabelValues("fail").Observe(time.Since(start).Seconds())
 				middleware.GetLogger(c, log).Warn("Segment download failed",
 					zap.String("content_id", contentID),
 					zap.String("segment", segName))
@@ -280,6 +316,10 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			if _, err := io.Copy(c.Writer, best.rc); err != nil {
 				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
 			}
+			monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
+			quality := c.Query("quality")
+			if quality == "" { quality = "default" }
+			monitoring.StreamingSegmentsTotal.WithLabelValues(quality).Inc()
 			return
 		}
 		_ = claims
