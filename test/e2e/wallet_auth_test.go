@@ -30,7 +30,7 @@ func newTestAuthService() (*service.AuthService, *ecdsa.PrivateKey, string) {
 	blacklist := service.NewMemoryTokenBlacklist()
 
 	authSvc := service.NewAuthServiceWithDeps(
-		"test-jwt-secret-key-32bytes!",
+		"test-jwt-secret-key-at-least-32-bytes!",
 		storage,
 		verifier,
 		challengeStore,
@@ -132,7 +132,7 @@ func TestWalletAuth_ExpiredChallenge_Rejected(t *testing.T) {
 
 	// Create service with very short TTL
 	authSvc := service.NewAuthServiceWithDeps(
-		"test-jwt-secret-key-32bytes!",
+		"test-jwt-secret-key-at-least-32-bytes!",
 		storage,
 		verifier,
 		challengeStore,
@@ -328,7 +328,7 @@ func Example_fullWalletAuth() {
 	storage := NewMockAuthStorage()
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	authSvc := service.NewAuthServiceWithDeps(
-		"jwt-secret",
+		"jwt-secret-must-be-at-least-32-chars!",
 		storage,
 		verifier,
 		service.NewMemoryChallengeStore(),

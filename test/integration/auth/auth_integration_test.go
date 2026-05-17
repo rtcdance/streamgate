@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
+
+	"github.com/stretchr/testify/require"
 )
 
 // MockAuthStorage implements service.AuthStorage for testing
@@ -45,7 +46,7 @@ func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) err
 func TestAuthService_RegisterAndLogin(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret-key", storage)
+	authService := service.NewAuthService("test-secret-key-at-least-32-chars!!", storage)
 
 	// Test registration
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
@@ -66,7 +67,7 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 func TestAuthService_InvalidPassword(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret-key", storage)
+	authService := service.NewAuthService("test-secret-key-at-least-32-chars!!", storage)
 
 	// Register user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
@@ -80,7 +81,7 @@ func TestAuthService_InvalidPassword(t *testing.T) {
 func TestAuthService_DuplicateEmail(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret-key", storage)
+	authService := service.NewAuthService("test-secret-key-at-least-32-chars!!", storage)
 
 	// Register first user
 	err := authService.Register(context.Background(), "user1", "password123", "test@example.com")
@@ -94,7 +95,7 @@ func TestAuthService_DuplicateEmail(t *testing.T) {
 func TestAuthService_TokenValidation(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret-key", storage)
+	authService := service.NewAuthService("test-secret-key-at-least-32-chars!!", storage)
 
 	// Register and login
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
@@ -116,9 +117,8 @@ func TestAuthService_TokenValidation(t *testing.T) {
 }
 
 func TestAuthService_RefreshToken(t *testing.T) {
-	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret-key", storage)
+	authService := service.NewAuthService("test-secret-key-at-least-32-chars!!", storage)
 
 	// Register and login
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
