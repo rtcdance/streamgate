@@ -651,15 +651,21 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 
 	hash := hex.EncodeToString(h.Sum(nil))
 
-	// Clean up chunks
+	// Clean up chunks in parallel so large (>1000 chunk) uploads finish quickly.
+	var cleanWg sync.WaitGroup
 	for i := 0; i < totalChunks; i++ {
-		chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, i)
-		if err := s.objStore.Delete(ctx, s.bucket, chunkKey); err != nil {
-			s.logger.Debug("Failed to delete chunk after merge",
-				zap.String("chunk_key", chunkKey),
-				zap.Error(err))
-		}
+		cleanWg.Add(1)
+		go func(idx int) {
+			defer cleanWg.Done()
+			chunkKey := fmt.Sprintf("chunks/%s/%d", uploadID, idx)
+			if err := s.objStore.Delete(ctx, s.bucket, chunkKey); err != nil {
+				s.logger.Debug("Failed to delete chunk after merge",
+					zap.String("chunk_key", chunkKey),
+					zap.Error(err))
+			}
+		}(i)
 	}
+	cleanWg.Wait()
 
 	// Update upload info
 	query := `

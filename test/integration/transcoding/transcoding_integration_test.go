@@ -52,6 +52,16 @@ func (m *MockQueue) Nak(taskID string) error {
 	return nil
 }
 
+func (m *MockQueue) Depth() (int, error) {
+	count := 0
+	for _, task := range m.tasks {
+		if task.Status == "pending" {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func newTranscodingService(t *testing.T, db storage.DB) *service.TranscodingService {
 	t.Helper()
 	queue := NewMockQueue()

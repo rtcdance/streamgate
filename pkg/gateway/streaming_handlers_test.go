@@ -134,6 +134,9 @@ func TestHandleGetManifest(t *testing.T) {
 	manifestCacheMu.Lock()
 	manifestCache = make(map[string]manifestCacheEntry)
 	manifestCacheMu.Unlock()
+	segmentIndexCacheMu.Lock()
+	segmentIndexCache = make(map[string]segmentIndexEntry)
+	segmentIndexCacheMu.Unlock()
 
 	t.Run("returns HLS manifest with playback tokens", func(t *testing.T) {
 		storage := newMockSegmentStorage()
@@ -164,6 +167,9 @@ func TestHandleGetManifest(t *testing.T) {
 		manifestCacheMu.Lock()
 		delete(manifestCache, "content-1")
 		manifestCacheMu.Unlock()
+		segmentIndexCacheMu.Lock()
+		delete(segmentIndexCache, "content-1")
+		segmentIndexCacheMu.Unlock()
 		storage := newMockSegmentStorage()
 		storage.listResult = []string{}
 		r := setupStreamingManifestRouter(authService, storage)
@@ -182,6 +188,9 @@ func TestHandleGetManifest(t *testing.T) {
 		manifestCacheMu.Lock()
 		delete(manifestCache, "content-1")
 		manifestCacheMu.Unlock()
+		segmentIndexCacheMu.Lock()
+		delete(segmentIndexCache, "content-1")
+		segmentIndexCacheMu.Unlock()
 		r := setupStreamingManifestRouter(authService, nil)
 
 		w := httptest.NewRecorder()
@@ -195,6 +204,9 @@ func TestHandleGetManifest(t *testing.T) {
 		manifestCacheMu.Lock()
 		delete(manifestCache, "content-1")
 		manifestCacheMu.Unlock()
+		segmentIndexCacheMu.Lock()
+		delete(segmentIndexCache, "content-1")
+		segmentIndexCacheMu.Unlock()
 		storage := newMockSegmentStorage()
 		storage.listResult = []string{
 			"streams/content-1/720p/seg001.ts",
@@ -218,6 +230,9 @@ func TestHandleGetManifest(t *testing.T) {
 
 func TestHandleGetSegment(t *testing.T) {
 	authService := newStreamingTestAuthService()
+	segmentIndexCacheMu.Lock()
+	segmentIndexCache = make(map[string]segmentIndexEntry)
+	segmentIndexCacheMu.Unlock()
 
 	t.Run("returns segment data with valid token", func(t *testing.T) {
 		storage := newMockSegmentStorage()
@@ -236,7 +251,7 @@ func TestHandleGetSegment(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "video/mp2t", w.Header().Get("Content-Type"))
-		assert.Equal(t, "private, max-age=3600", w.Header().Get("Cache-Control"))
+		assert.Equal(t, "public, max-age=86400, s-maxage=3600", w.Header().Get("Cache-Control"))
 		assert.Equal(t, "fake-ts-data", w.Body.String())
 	})
 
