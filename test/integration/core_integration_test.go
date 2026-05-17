@@ -20,7 +20,7 @@ func TestEventBusIntegration(t *testing.T) {
 	t.Run("MemoryEventBus", func(t *testing.T) {
 		bus, err := event.NewMemoryEventBus()
 		require.NoError(t, err)
-		defer bus.Close()
+		defer func() { _ = bus.Close() }()
 
 		received := make(chan *event.Event, 1)
 		handler := func(ctx context.Context, e *event.Event) error {

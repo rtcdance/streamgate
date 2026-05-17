@@ -16,7 +16,7 @@ func TestE2E_APIGatewayHealthRouting(t *testing.T) {
 
 	resp, err := http.Get(server.URL + "/health")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Health may be 200 (healthy) or 503 (unhealthy if DB/storage connected but failing)
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
@@ -32,7 +32,7 @@ func TestE2E_APIGatewayContentRequiresAuth(t *testing.T) {
 	// Without auth
 	resp, err := http.Get(server.URL + "/api/v1/content")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// With auth
@@ -41,7 +41,7 @@ func TestE2E_APIGatewayContentRequiresAuth(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	// With auth — returns 503 because no ContentService/DB is configured
 	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
 }
@@ -54,7 +54,7 @@ func TestE2E_APIGatewayCORS(t *testing.T) {
 	req.Header.Set("Origin", "http://example.com")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 	// CORS headers should be present on cross-origin requests
@@ -69,7 +69,7 @@ func TestE2E_APIGatewayAuthentication(t *testing.T) {
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// With valid JWT → 200
@@ -78,7 +78,7 @@ func TestE2E_APIGatewayAuthentication(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	// With valid JWT → 503 (ContentService/DB not available in test)
 	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
 }

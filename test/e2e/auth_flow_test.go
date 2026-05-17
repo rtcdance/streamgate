@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
+
+	"github.com/stretchr/testify/require"
 )
 
 // MockAuthStorage for testing
@@ -75,9 +76,8 @@ func TestAuthFlow_FailedLogin(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
-	// Try login with wrong password
 	_, err := authService.Authenticate(context.Background(), "testuser", "wrongpassword")
 	require.Error(t, err)
 
@@ -92,7 +92,7 @@ func TestAuthFlow_TokenRefresh(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register and login
-	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
 	require.NoError(t, err)
 
@@ -113,7 +113,7 @@ func TestAuthFlow_PasswordChange(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
-	authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
 
 	// Change password
 	err := authService.ChangePassword(context.Background(), "testuser", "oldpassword", "newpassword")

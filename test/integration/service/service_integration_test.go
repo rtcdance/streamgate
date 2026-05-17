@@ -102,7 +102,7 @@ func TestServiceIntegration_PasswordManagement(t *testing.T) {
 	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
-	authService.Register(context.Background(), "testuser", "oldpass", "test@example.com")
+	_ = authService.Register(context.Background(), "testuser", "oldpass", "test@example.com")
 
 	// Change password
 	err := authService.ChangePassword(context.Background(), "testuser", "oldpass", "newpass")

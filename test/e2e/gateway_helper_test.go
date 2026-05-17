@@ -189,7 +189,7 @@ func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, storag
 	if err != nil {
 		t.Fatalf("SetupRouter failed: %v", err)
 	}
-	t.Cleanup(func() { resources.Close() })
+	t.Cleanup(func() { _ = resources.Close() })
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 

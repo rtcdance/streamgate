@@ -321,8 +321,8 @@ func TestUploadChunk(t *testing.T) {
 	_ = writer.WriteField("upload_id", uploadID)
 	_ = writer.WriteField("chunk_index", "0")
 	part, _ := writer.CreateFormFile("chunk", "chunk-0")
-	part.Write([]byte("fake chunk data"))
-	writer.Close()
+	_, _ = part.Write([]byte("fake chunk data"))
+	_ = writer.Close()
 
 	req, _ = http.NewRequest("POST", server.URL+"/api/v1/upload/chunk", &buf)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -358,7 +358,7 @@ func TestUploadNoFileProvided(t *testing.T) {
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	writer.Close()
+	_ = writer.Close()
 
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", &buf)
 	req.Header.Set("Authorization", "Bearer "+token)

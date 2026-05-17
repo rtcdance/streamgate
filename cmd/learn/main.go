@@ -98,7 +98,9 @@ func main() {
 		fmt.Print("请输入编号: ")
 
 		var input string
-		fmt.Scanln(&input)
+		if _, err := fmt.Scanln(&input); err != nil {
+			continue
+		}
 		input = strings.TrimSpace(input)
 
 		switch input {
@@ -111,7 +113,9 @@ func main() {
 				fmt.Printf("  %d. %s — %s\n", m.num, m.title, m.desc)
 			}
 			fmt.Print(faint + "按 Enter 继续..." + reset)
-			fmt.Scanln()
+			if _, err := fmt.Scanln(); err != nil {
+				continue
+			}
 			continue
 		}
 
@@ -127,7 +131,9 @@ func main() {
 		if !found {
 			fmt.Printf("\n  %s无效输入: %s%s\n", yellow, input, reset)
 			fmt.Print(faint + "按 Enter 继续..." + reset)
-			fmt.Scanln()
+			if _, err := fmt.Scanln(); err != nil {
+				return
+			}
 		}
 	}
 }
