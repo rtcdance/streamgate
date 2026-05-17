@@ -37,10 +37,7 @@ func NewUploadServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microk
 		return nil, fmt.Errorf("failed to create object storage: %w", err)
 	}
 
-	uploadObj, ok := objStore.(service.UploadObjectStorage)
-	if !ok {
-		return nil, fmt.Errorf("object storage does not implement UploadObjectStorage")
-	}
+	uploadObj := objStore
 
 	segStore, ok := objStore.(service.SegmentStorage)
 	if !ok {

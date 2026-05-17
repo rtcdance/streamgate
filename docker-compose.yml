@@ -588,7 +588,7 @@ services:
           memory: 512M
           cpus: '0.25'
 
-monitor:
+  monitor:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile.monitor

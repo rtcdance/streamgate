@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_DatabaseConnectionPool(t *testing.T) {
@@ -97,7 +98,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numRequests; j++ {
 				queryStart := time.Now()
-				_, err := db.GetDB().Query("SELECT * FROM users LIMIT 10")
+				_, err := db.GetDB().Exec("SELECT * FROM users LIMIT 10")
 				queryDuration := time.Since(queryStart)
 
 				mu.Lock()

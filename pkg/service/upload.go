@@ -444,7 +444,7 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 
 const defaultPresignedUploadExpiry = 2 * time.Hour
 
-func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename string, size int64, contentType string, ownerID string) (uploadID, presignedURL, storageKey string, err error) {
+func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename string, size int64, contentType, ownerID string) (uploadID, presignedURL, storageKey string, err error) {
 	if s.uploadSigner == nil {
 		return "", "", "", fmt.Errorf("presigned upload support not configured")
 	}

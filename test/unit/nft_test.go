@@ -87,5 +87,5 @@ func TestNFT_FormatAddress(t *testing.T) {
 	address := "0x1234567890123456789012345678901234567890"
 
 	require.NotNil(t, address)
-	require.True(t, len(address) > 0)
+	require.True(t, address != "")
 }

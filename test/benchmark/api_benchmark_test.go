@@ -25,7 +25,7 @@ func BenchmarkAPI_RoutingSimple(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/test", nil)
+		req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 	}
@@ -120,7 +120,7 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/protected", nil)
+		req := httptest.NewRequest("GET", "/api/protected", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+tokenStr)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -160,7 +160,7 @@ func BenchmarkAPI_ErrorHandling(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/api/error", nil)
+		req := httptest.NewRequest("GET", "/api/error", http.NoBody)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 	}
@@ -176,7 +176,7 @@ func BenchmarkAPI_ConcurrentRequests(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			req := httptest.NewRequest("GET", "/api/test", nil)
+			req := httptest.NewRequest("GET", "/api/test", http.NoBody)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
 		}

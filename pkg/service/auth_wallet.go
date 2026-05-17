@@ -374,8 +374,8 @@ func (m *MemoryChallengeStore) GetChallenge(ctx context.Context, id string) (*Wa
 	if !ok {
 		return nil, ErrChallengeNotFound
 	}
-	copy := *challenge
-	return &copy, nil
+	copyData := *challenge
+	return &copyData, nil
 }
 
 // MarkChallengeUsed marks a challenge as used in the memory store.

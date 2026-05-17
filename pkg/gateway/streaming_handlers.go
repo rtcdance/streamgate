@@ -44,11 +44,11 @@ type streamLimiter struct {
 	sem chan struct{}
 }
 
-func newStreamLimiter(max int) *streamLimiter {
-	if max <= 0 {
-		max = 1000
+func newStreamLimiter(maxVal int) *streamLimiter {
+	if maxVal <= 0 {
+		maxVal = 1000
 	}
-	return &streamLimiter{sem: make(chan struct{}, max)}
+	return &streamLimiter{sem: make(chan struct{}, maxVal)}
 }
 
 func (l *streamLimiter) tryAcquire() bool {
