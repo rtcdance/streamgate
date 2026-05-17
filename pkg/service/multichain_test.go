@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	stg "streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
 
@@ -86,7 +87,7 @@ func TestMultiChainSignatureVerifier_SolanaWithVerifier(t *testing.T) {
 }
 
 func TestMemoryTokenBlacklist(t *testing.T) {
-	blacklist := NewMemoryTokenBlacklist()
+	blacklist := stg.NewMemoryTokenBlacklist()
 
 	t.Run("not revoked initially", func(t *testing.T) {
 		assert.False(t, blacklist.IsRevoked(context.Background(), "jti-1"))

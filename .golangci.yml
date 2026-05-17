@@ -1,76 +1,86 @@
+version: "2"
 run:
-  timeout: 5m
   tests: true
-
-severity:
-  default-severity: error
-  rules:
-    - linters:
-        - errcheck
-        - unused
-        - gocritic
-        - gocyclo
-      severity: warning
-
 linters:
   enable:
-    - govet
-    - ineffassign
-    - misspell
-    - errcheck
-    - staticcheck
-    - unused
     - gocritic
     - gocyclo
+    - misspell
   disable:
     - revive
-
-linters-settings:
-  errcheck:
-    check-type-assertions: false
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-    disabled-checks:
-      - exitAfterDefer
-      - ifElseChain
-      - hugeParam
-      - rangeValCopy
-      - deprecatedComment
-      - unslice
-      - wrapperFunc
-      - elseif
-      - assignOp
-      - offBy1
-      - dupImport
-      - whyNoLint
-      - appendAssign
-  gocyclo:
-    min-complexity: 35
-  staticcheck:
-    checks:
-      - all
-      - -SA1019
-      - -QF1003
-      - -QF1008
-      - -ST1000
-      - -ST1003
-      - -ST1005
-      - -ST1016
-      - -ST1020
-      - -ST1021
-      - -ST1022
-      - -SA9003
-
+  settings:
+    errcheck:
+      check-type-assertions: false
+    gocritic:
+      disabled-checks:
+        - exitAfterDefer
+        - ifElseChain
+        - hugeParam
+        - rangeValCopy
+        - deprecatedComment
+        - unslice
+        - wrapperFunc
+        - elseif
+        - assignOp
+        - offBy1
+        - dupImport
+        - whyNoLint
+        - appendAssign
+        - importShadow
+      enabled-tags:
+        - diagnostic
+        - style
+    gocyclo:
+      min-complexity: 35
+    staticcheck:
+      checks:
+        - all
+        - -QF1003
+        - -QF1008
+        - -SA1019
+        - -SA9003
+        - -ST1000
+        - -ST1003
+        - -ST1005
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - gocyclo
+          - unused
+        path: _test\.go
+      - linters:
+          - unused
+        path: cmd/learn/
+    paths:
+      - third_party$
+      - builtin$
+      - examples
 issues:
   max-issues-per-linter: 50
   max-same-issues: 5
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - unused
+severity:
+  default: error
+  rules:
+    - linters:
+        - errcheck
+        - gocritic
         - gocyclo
-    - path: cmd/learn/
-      linters:
         - unused
+      severity: warning
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

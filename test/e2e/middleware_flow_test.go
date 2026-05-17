@@ -23,7 +23,7 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 
 	// Protected route with valid JWT → 503 (no ContentService/DB)
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -36,7 +36,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	_, _, server := e2eSetupServer(t, checker, nil)
 
 	// Request without token → 401
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -44,7 +44,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 
 	// Request with valid JWT → 503 (no ContentService/DB in test)
 	jwtToken := e2eTestJWT("0x1234567890123456789012345678901234567890")
-	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req2.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
 
 	// Request with invalid token format → 401
-	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req3.Header.Set("Authorization", "InvalidFormat")
 	resp3, err := http.DefaultClient.Do(req3)
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestE2E_CORSFlow(t *testing.T) {
 	_, _, server := e2eSetupServer(t, checker, nil)
 
 	// CORS preflight on public route
-	req, _ := http.NewRequest("OPTIONS", server.URL+"/health", nil)
+	req, _ := http.NewRequest("OPTIONS", server.URL+"/health", http.NoBody)
 	req.Header.Set("Origin", "http://example.com")
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	resp, err := http.DefaultClient.Do(req)
@@ -106,7 +106,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	_, _, server := e2eSetupServer(t, checker, nil)
 
 	// 1. CORS
-	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req.Header.Set("Origin", "http://example.com")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	assert.NotEmpty(t, resp.Header.Get("Access-Control-Allow-Origin"))
 
 	// 2. JWT rejection without token
-	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
 	_ = resp2.Body.Close()
@@ -123,7 +123,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 
 	// 3. JWT acceptance with valid token → 503 (no ContentService/DB)
 	jwtToken := e2eTestJWT("0x1234567890123456789012345678901234567890")
-	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
+	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req3.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp3, err := http.DefaultClient.Do(req3)
 	require.NoError(t, err)
