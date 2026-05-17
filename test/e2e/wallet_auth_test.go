@@ -348,6 +348,6 @@ func Example_fullWalletAuth() {
 		fmt.Println("auth failed:", err)
 		return
 	}
-	fmt.Println("token issued:", len(token) > 0)
+	fmt.Println("token issued:", token != "")
 	// Output: token issued: true
 }
