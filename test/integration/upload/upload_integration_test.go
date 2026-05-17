@@ -82,7 +82,7 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 		}
 
 		chunk := fileContent[i:end]
-		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk)
+		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk, "0xOwner")
 		require.NoError(t, err)
 	}
 

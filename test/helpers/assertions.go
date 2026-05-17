@@ -27,3 +27,17 @@ func AssertEqual(t *testing.T, expected, actual interface{}) {
 		t.Fatalf("expected %v, got %v", expected, actual)
 	}
 }
+
+func AssertTrue(t *testing.T, condition bool) {
+	t.Helper()
+	if !condition {
+		t.Fatal("expected condition to be true, got false")
+	}
+}
+
+func AssertError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

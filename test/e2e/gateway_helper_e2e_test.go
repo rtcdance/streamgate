@@ -94,6 +94,12 @@ func (s *mockSegmentStorage) ListObjects(ctx context.Context, bucket, prefix str
 	return result, nil
 }
 
+func (s *mockSegmentStorage) UploadStreamWithContentType(ctx context.Context, bucket, objectName string, reader io.Reader, size int64, contentType string) error {
+	data, _ := io.ReadAll(reader)
+	s.objects[bucket+"/"+objectName] = data
+	return nil
+}
+
 func (s *mockSegmentStorage) DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error) {
 	return nil, fmt.Errorf("not implemented")
 }
