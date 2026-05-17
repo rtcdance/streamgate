@@ -131,6 +131,42 @@ func (agg *Aggregator) AggregateNow() {
 }
 
 // aggregateServiceMetrics aggregates metrics for a service in a period
+func (agg *Aggregator) collectFallbackMetrics(serviceID string, eventCount, errorCount, successCount *int64, latencies *[]float64) {
+	for _, event := range agg.events {
+		if event.ServiceID == serviceID {
+			*eventCount++
+			if eventType, ok := event.Metadata["error"]; ok && eventType.(bool) {
+				*errorCount++
+			} else {
+				*successCount++
+			}
+		}
+	}
+
+	for _, perfMetric := range agg.perfMetrics {
+		if perfMetric.ServiceID == serviceID {
+			*latencies = append(*latencies, perfMetric.Duration)
+			if perfMetric.Success {
+				*successCount++
+			} else {
+				*errorCount++
+			}
+		}
+	}
+
+	for _, metric := range agg.metrics {
+		if metric.ServiceID == serviceID {
+			*latencies = append(*latencies, metric.Latency)
+			*eventCount++
+			if metric.ErrorRate > 0 {
+				*errorCount++
+			} else {
+				*successCount++
+			}
+		}
+	}
+}
+
 func (agg *Aggregator) aggregateServiceMetrics(serviceID, period string, now time.Time) {
 	cutoff := agg.getCutoffTime(now, period)
 
@@ -139,19 +175,21 @@ func (agg *Aggregator) aggregateServiceMetrics(serviceID, period string, now tim
 	var latencies []float64
 	var successCount int64
 
-	// Filter events for this service and period
 	for _, event := range agg.events {
 		if event.ServiceID == serviceID && event.Timestamp.After(cutoff) {
 			eventCount++
-			if eventType, ok := event.Metadata["error"]; ok && eventType.(bool) {
-				errorCount++
+			if eventType, ok := event.Metadata["error"]; ok {
+				if isErr, typeOk := eventType.(bool); typeOk && isErr {
+					errorCount++
+				} else {
+					successCount++
+				}
 			} else {
 				successCount++
 			}
 		}
 	}
 
-	// Filter performance metrics for this service and period
 	for _, perfMetric := range agg.perfMetrics {
 		if perfMetric.ServiceID == serviceID && perfMetric.Timestamp.After(cutoff) {
 			latencies = append(latencies, perfMetric.Duration)
@@ -163,41 +201,8 @@ func (agg *Aggregator) aggregateServiceMetrics(serviceID, period string, now tim
 		}
 	}
 
-	// If no events in time window, try to use all available events for testing
 	if eventCount == 0 && len(latencies) == 0 {
-		for _, event := range agg.events {
-			if event.ServiceID == serviceID {
-				eventCount++
-				if eventType, ok := event.Metadata["error"]; ok && eventType.(bool) {
-					errorCount++
-				} else {
-					successCount++
-				}
-			}
-		}
-
-		for _, perfMetric := range agg.perfMetrics {
-			if perfMetric.ServiceID == serviceID {
-				latencies = append(latencies, perfMetric.Duration)
-				if perfMetric.Success {
-					successCount++
-				} else {
-					errorCount++
-				}
-			}
-		}
-
-		for _, metric := range agg.metrics {
-			if metric.ServiceID == serviceID {
-				latencies = append(latencies, metric.Latency)
-				eventCount++
-				if metric.ErrorRate > 0 {
-					errorCount++
-				} else {
-					successCount++
-				}
-			}
-		}
+		agg.collectFallbackMetrics(serviceID, &eventCount, &errorCount, &successCount, &latencies)
 	}
 
 	if eventCount == 0 && len(latencies) == 0 {

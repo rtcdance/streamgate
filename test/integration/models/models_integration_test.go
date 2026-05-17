@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/test/helpers"
 )
@@ -26,13 +27,13 @@ func TestModels_UserPersistence(t *testing.T) {
 
 	// Save user using direct SQL
 	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve user
 	var retrieved models.User
 	err = db.QueryRow(context.Background(), "SELECT id, username, email, created_at, updated_at FROM users WHERE username = $1", user.Username).Scan(&retrieved.ID, &retrieved.Username, &retrieved.Email, &retrieved.CreatedAt, &retrieved.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, user.Email, retrieved.Email)
+	require.NoError(t, err)
+	require.Equal(t, user.Email, retrieved.Email)
 }
 
 func TestModels_ContentPersistence(t *testing.T) {
@@ -54,13 +55,13 @@ func TestModels_ContentPersistence(t *testing.T) {
 
 	// Save content using direct SQL
 	_, err := db.Exec(context.Background(), "INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve content
 	var retrieved models.Content
 	err = db.QueryRow(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, content.Title, retrieved.Title)
+	require.NoError(t, err)
+	require.Equal(t, content.Title, retrieved.Title)
 }
 
 func TestModels_NFTPersistence(t *testing.T) {
@@ -80,13 +81,13 @@ func TestModels_NFTPersistence(t *testing.T) {
 
 	// Save NFT using direct SQL
 	_, err := db.Exec(context.Background(), "INSERT INTO nfts (contract_address, token_id, owner_address) VALUES ($1, $2, $3)", nft.ContractAddress, nft.TokenID, nft.OwnerAddress)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve NFT
 	var retrieved models.NFT
 	err = db.QueryRow(context.Background(), "SELECT id, contract_address, token_id, owner_address, created_at, updated_at FROM nfts WHERE contract_address = $1", nft.ContractAddress).Scan(&retrieved.ID, &retrieved.ContractAddress, &retrieved.TokenID, &retrieved.OwnerAddress, &retrieved.CreatedAt, &retrieved.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, nft.ContractAddress, retrieved.ContractAddress)
+	require.NoError(t, err)
+	require.Equal(t, nft.ContractAddress, retrieved.ContractAddress)
 }
 
 func TestModels_TransactionPersistence(t *testing.T) {
@@ -106,13 +107,13 @@ func TestModels_TransactionPersistence(t *testing.T) {
 
 	// Save transaction using direct SQL
 	_, err := db.Exec(context.Background(), "INSERT INTO transactions (tx_hash, from_address, to_address) VALUES ($1, $2, $3)", transaction.TxHash, transaction.FromAddress, transaction.ToAddress)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve transaction
 	var retrieved models.Transaction
 	err = db.QueryRow(context.Background(), "SELECT id, tx_hash, from_address, to_address, created_at, updated_at FROM transactions WHERE tx_hash = $1", transaction.TxHash).Scan(&retrieved.ID, &retrieved.TxHash, &retrieved.FromAddress, &retrieved.ToAddress, &retrieved.CreatedAt, &retrieved.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, transaction.TxHash, retrieved.TxHash)
+	require.NoError(t, err)
+	require.Equal(t, transaction.TxHash, retrieved.TxHash)
 }
 
 func TestModels_TaskPersistence(t *testing.T) {
@@ -142,13 +143,13 @@ func TestModels_TaskPersistence(t *testing.T) {
 
 	// Save task using direct SQL
 	_, err = db.Exec(context.Background(), "INSERT INTO tasks (type, status, priority, payload) VALUES ($1, $2, $3, $4)", task.Type, task.Status, task.Priority, payloadJSON)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve task
 	var retrieved models.Task
 	err = db.QueryRow(context.Background(), "SELECT id, type, status, priority, payload, created_at, started_at, completed_at FROM tasks WHERE type = $1", task.Type).Scan(&retrieved.ID, &retrieved.Type, &retrieved.Status, &retrieved.Priority, &retrieved.Payload, &retrieved.CreatedAt, &retrieved.StartedAt, &retrieved.CompletedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, task.Type, retrieved.Type)
+	require.NoError(t, err)
+	require.Equal(t, task.Type, retrieved.Type)
 }
 
 func TestModels_Timestamps(t *testing.T) {
@@ -172,13 +173,13 @@ func TestModels_Timestamps(t *testing.T) {
 	_, err := db.Exec(context.Background(), "INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
 	afterSave := time.Now()
 
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve and check timestamp
 	var retrieved models.Content
 	err = db.QueryRow(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, retrieved.CreatedAt.After(beforeSave) && retrieved.CreatedAt.Before(afterSave))
+	require.NoError(t, err)
+	require.True(t, retrieved.CreatedAt.After(beforeSave) && retrieved.CreatedAt.Before(afterSave))
 }
 
 func TestModels_UpdateTimestamp(t *testing.T) {
@@ -199,25 +200,25 @@ func TestModels_UpdateTimestamp(t *testing.T) {
 	}
 
 	_, err := db.Exec(context.Background(), "INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, "00000000-0000-0000-0000-000000000000")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve to get original timestamp
 	var originalContent models.Content
 	err = db.QueryRow(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&originalContent.ID, &originalContent.Title, &originalContent.Description, &originalContent.Type, &originalContent.Duration, &originalContent.FileSize, &originalContent.CreatedAt, &originalContent.UpdatedAt)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	originalUpdatedAt := originalContent.UpdatedAt
 
 	// Wait a bit and update
 	time.Sleep(100 * time.Millisecond)
 	_, err = db.Exec(context.Background(), "UPDATE contents SET title = $1 WHERE id = $2", "Updated Title", originalContent.ID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve and verify UpdatedAt changed
 	var updatedContent models.Content
 	err = db.QueryRow(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE id = $1", originalContent.ID).Scan(&updatedContent.ID, &updatedContent.Title, &updatedContent.Description, &updatedContent.Type, &updatedContent.Duration, &updatedContent.FileSize, &updatedContent.CreatedAt, &updatedContent.UpdatedAt)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, updatedContent.UpdatedAt.After(originalUpdatedAt))
+	require.NoError(t, err)
+	require.True(t, updatedContent.UpdatedAt.After(originalUpdatedAt))
 }
 
 func TestModels_Relationships(t *testing.T) {
@@ -235,12 +236,12 @@ func TestModels_Relationships(t *testing.T) {
 	}
 
 	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Get user ID
 	var userID string
 	err = db.QueryRow(context.Background(), "SELECT id FROM users WHERE username = $1", user.Username).Scan(&userID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Create content for user
 	content := &models.Content{
@@ -252,19 +253,19 @@ func TestModels_Relationships(t *testing.T) {
 	}
 
 	_, err = db.Exec(context.Background(), "INSERT INTO contents (title, description, type, duration, size, owner_id) VALUES ($1, $2, $3, $4, $5, $6)", content.Title, content.Description, content.Type, content.Duration, content.FileSize, userID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Retrieve content
 	rows, err := db.Query(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer rows.Close()
 
 	var userContent []models.Content
 	for rows.Next() {
 		var c models.Content
 		err = rows.Scan(&c.ID, &c.Title, &c.Description, &c.Type, &c.Duration, &c.FileSize, &c.CreatedAt, &c.UpdatedAt)
-		helpers.AssertNoError(t, err)
+		require.NoError(t, err)
 		userContent = append(userContent, c)
 	}
-	helpers.AssertTrue(t, len(userContent) > 0)
+	require.True(t, len(userContent) > 0)
 }

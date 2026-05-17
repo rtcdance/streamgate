@@ -23,12 +23,14 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          SSH_DIR=$(mktemp -d)
+          trap 'rm -rf "$SSH_DIR"' EXIT
+          echo "$DEPLOY_KEY" > "$SSH_DIR/deploy_key"
+          chmod 600 "$SSH_DIR/deploy_key"
           mkdir -p ~/.ssh
-          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           
-          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          ssh -i "$SSH_DIR/deploy_key" -o StrictHostKeyChecking=no "$DEPLOY_USER@$DEPLOY_HOST" << 'EOF'
             cd /opt/streamgate
             git pull origin main
             docker-compose pull
@@ -51,18 +53,21 @@ jobs:
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
+          KUBE_DIR=$(mktemp -d)
+          trap 'rm -rf "$KUBE_DIR"' EXIT
+          echo "$KUBE_CONFIG" | base64 -d > "$KUBE_DIR/config"
+          chmod 600 "$KUBE_DIR/config"
           mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
+          cp "$KUBE_DIR/config" ~/.kube/config
       
       - name: Deploy with Helm
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
         run: |
-          helm repo add streamgate https://charts.example.com
-          helm repo update
-          helm upgrade --install streamgate streamgate/streamgate \
+          helm upgrade --install streamgate ./deploy/helm \
             --namespace production \
             --values deploy/helm/values.yaml \
-            --set image.tag=${{ github.ref_name }}
+            --set image.tag="$IMAGE_TAG"
       
       - name: Wait for rollout
         run: |
@@ -127,13 +132,13 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           if [ -n "$DISCORD_WEBHOOK" ]; then
-            echo "Sending Discord notification..."
-            echo "Discord webhook: $DISCORD_WEBHOOK"
-            echo "Repository: $REPOSITORY"
-            echo "Status: $JOB_STATUS"
-            echo "Docker: $DOCKER_RESULT"
-            echo "Kubernetes: $KUBERNETES_RESULT"
-            echo "Author: $ACTOR"
+            STATUS_EMOJI="✅"
+            [ "$JOB_STATUS" = "failure" ] && STATUS_EMOJI="❌"
+            curl -s -X POST "$DISCORD_WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"content\": \"${STATUS_EMOJI} **StreamGate Deployment**\\nVersion: ${REF_NAME}\\nStatus: ${JOB_STATUS}\\nDocker: ${DOCKER_RESULT}\\nKubernetes: ${KUBERNETES_RESULT}\\nAuthor: ${ACTOR}\"
+              }" || echo "Failed to send Discord notification"
           else
             echo "Discord webhook not configured, skipping Discord notification"
           fi
@@ -150,16 +155,12 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           if [ -n "$TELEGRAM_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-            echo "Sending Telegram notification..."
-            echo "🚀 StreamGate Deployment"
-            echo ""
-            echo "Version: $REF_NAME"
-            echo "Status: $JOB_STATUS"
-            echo "Docker: $DOCKER_RESULT"
-            echo "Kubernetes: $KUBERNETES_RESULT"
-            echo ""
-            echo "Author: $ACTOR"
-            echo "Commit: $SHA"
+            STATUS_EMOJI="✅"
+            [ "$JOB_STATUS" = "failure" ] && STATUS_EMOJI="❌"
+            MESSAGE="${STATUS_EMOJI} StreamGate Deployment%0AVersion: ${REF_NAME}%0AStatus: ${JOB_STATUS}%0ADocker: ${DOCKER_RESULT}%0AKubernetes: ${KUBERNETES_RESULT}%0AAuthor: ${ACTOR}%0ACommit: ${SHA}"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MESSAGE}" || echo "Failed to send Telegram notification"
           else
             echo "Telegram credentials not configured, skipping Telegram notification"
           fi

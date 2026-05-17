@@ -93,7 +93,7 @@ func TestChecker_Check(t *testing.T) {
 
 		checker.Register("test", func(ctx context.Context) error { return nil })
 
-		err := checker.Check(nil)
+		err := checker.Check(context.TODO())
 
 		assert.NoError(t, err)
 	})

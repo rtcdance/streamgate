@@ -34,7 +34,7 @@ func newRPCServer(t *testing.T, handlers map[string]func(req rpcRequest) rpcResp
 	t.Helper()
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 		var req rpcRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 
@@ -150,7 +150,7 @@ func TestChainClient_StartupFallbackSkipsDeadEndpoint(t *testing.T) {
 	require.NoError(t, deadListener.Close())
 
 	healthy := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x1"} },
 	})
 	defer healthy.Close()
@@ -217,7 +217,7 @@ func TestChainClient_FailedEndpointEntersCooldown(t *testing.T) {
 	defer first.Close()
 
 	second := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x10"} },
 	})
 	defer second.Close()
@@ -255,7 +255,7 @@ func TestChainClient_RPCStatusesReflectFailover(t *testing.T) {
 	defer first.Close()
 
 	second := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x20"} },
 	})
 	defer second.Close()

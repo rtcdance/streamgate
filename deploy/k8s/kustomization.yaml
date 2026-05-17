@@ -4,22 +4,23 @@ kind: Kustomization
 namespace: streamgate
 
 resources:
-  - namespace.yaml
-  - configmap.yaml
-  - secret.yaml
-  - postgres.yaml
-  - redis.yaml
-  - minio.yaml
-  - api-gateway.yaml
-  - transcoder.yaml
-  - upload.yaml
-  - streaming.yaml
-  - metadata.yaml
-  - cache.yaml
-  - auth.yaml
-  - worker.yaml
-  - prometheus.yaml
-  - grafana.yaml
+  - config/namespace.yaml
+  - config/configmap.yaml
+  - config/secret.yaml
+  - infrastructure/postgres.yaml
+  - infrastructure/redis.yaml
+  - infrastructure/minio.yaml
+  - infrastructure/prometheus.yaml
+  - infrastructure/grafana.yaml
+  - services/api-gateway.yaml
+  - services/transcoder.yaml
+  - services/upload.yaml
+  - services/streaming.yaml
+  - services/metadata.yaml
+  - services/cache.yaml
+  - services/auth.yaml
+  - services/worker.yaml
+  - rbac.yaml
 
 commonLabels:
   app.kubernetes.io/name: streamgate

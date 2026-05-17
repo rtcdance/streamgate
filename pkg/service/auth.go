@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rsa"
-	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"streamgate/pkg/models"
+	"streamgate/pkg/web3"
 )
 
 // JWTVerifier validates JWT tokens using either an HMAC secret or RSA public key.
@@ -91,6 +91,10 @@ type AuthService struct {
 	challengeStore    ChallengeStore
 	challengeTTL      time.Duration
 	blacklist         TokenBlacklist
+	jwtExpiry         time.Duration
+	eip712Verifier    interface {
+		VerifyTypedData(address string, typedData *web3.EIP712TypedData, signature string) (bool, error)
+	}
 }
 
 // AuthServiceOption configures an AuthService with optional dependencies.
@@ -114,6 +118,11 @@ func WithChallengeTTL(d time.Duration) AuthServiceOption {
 // WithTokenBlacklist sets the token blacklist.
 func WithTokenBlacklist(b TokenBlacklist) AuthServiceOption {
 	return func(s *AuthService) { s.blacklist = b }
+}
+
+// WithJWTExpiry sets the JWT token expiry duration.
+func WithJWTExpiry(d time.Duration) AuthServiceOption {
+	return func(s *AuthService) { s.jwtExpiry = d }
 }
 
 // AuthStorage defines the interface for user storage
@@ -149,12 +158,17 @@ func WithRSASigning(privateKey *rsa.PrivateKey) AuthServiceSigningOption {
 }
 
 func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
+	if len(jwtSecret) < 32 {
+		panic("jwtSecret must be at least 32 characters for HS256 security")
+	}
 	s := &AuthService{
 		jwtSecret:         []byte(jwtSecret),
 		storage:           storage,
 		signatureVerifier: defaultWalletSignatureVerifier(),
+		eip712Verifier:    defaultEIP712Verifier(),
 		challengeStore:    NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
+		jwtExpiry:         2 * time.Hour,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -191,7 +205,9 @@ func NewAuthServiceWithDeps(jwtSecret string, storage AuthStorage, verifier Wall
 
 // Authenticate authenticates user with username and password
 func (s *AuthService) Authenticate(ctx context.Context, username, password string) (string, error) {
-	// 1. Get user from storage
+	if s.storage == nil {
+		return "", ErrInvalidCredential
+	}
 	user, err := s.storage.GetUser(ctx, username)
 	if err != nil || user == nil {
 		return "", ErrInvalidCredential
@@ -268,7 +284,9 @@ func (s *AuthService) signToken(claims *Claims) (string, error) {
 
 // Register registers a new user
 func (s *AuthService) Register(ctx context.Context, username, password, email string) error {
-	// 1. Hash password
+	if s.storage == nil {
+		return fmt.Errorf("user storage not available")
+	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
@@ -294,15 +312,20 @@ func (s *AuthService) Register(ctx context.Context, username, password, email st
 
 // ChangePassword changes user password
 func (s *AuthService) ChangePassword(ctx context.Context, username, oldPassword, newPassword string) error {
-	// 1. Get user
+	if s.storage == nil {
+		return ErrInvalidCredential
+	}
 	user, err := s.storage.GetUser(ctx, username)
-	if err != nil || user == nil {
-		return errors.New("user not found")
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	if user == nil {
+		return ErrNotFound
 	}
 
-	// 2. Verify old password
+	// Verify old password using bcrypt
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
-		return errors.New("invalid old password")
+		return ErrInvalidCredential
 	}
 
 	// 3. Hash new password
@@ -322,35 +345,44 @@ func (s *AuthService) ChangePassword(ctx context.Context, username, oldPassword,
 	return nil
 }
 
+const refreshGracePeriod = 5 * time.Minute
+
 // RefreshToken refreshes an existing token, blacklisting the old one.
+// Allows refresh within a grace period after token expiry to improve UX.
+// Checks JTI blacklist before refreshing to prevent concurrent refresh attacks.
 func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (string, error) {
-	// 1. Parse existing token
-	claims, err := s.ParseToken(tokenString)
+	claims, err := s.parseTokenAllowExpired(tokenString, refreshGracePeriod)
 	if err != nil {
 		return "", err
 	}
 
-	// 2. Reject tokens without JTI (invalid format)
 	if claims.JTI == "" {
 		return "", fmt.Errorf("token missing jti claim")
 	}
 
-	// 3. Blacklist the old token with its remaining TTL
+	if s.blacklist != nil && s.blacklist.IsRevoked(ctx, claims.JTI) {
+		return "", ErrTokenRevoked
+	}
+
 	if s.blacklist != nil && claims.ExpiresAt != nil {
 		remainingTTL := time.Until(claims.ExpiresAt.Time)
 		if remainingTTL > 0 {
 			if err := s.blacklist.Revoke(ctx, claims.JTI, claims.ExpiresAt.Time); err != nil {
 				return "", fmt.Errorf("failed to revoke old token: %w", err)
 			}
+		} else {
+			expiresAt := claims.ExpiresAt.Time
+			if err := s.blacklist.Revoke(ctx, claims.JTI, expiresAt); err != nil {
+				return "", fmt.Errorf("failed to revoke old token: %w", err)
+			}
 		}
 	}
 
-	// 4. Create new token with extended expiration
 	newClaims := &Claims{
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Subject:   claims.Subject,
@@ -364,6 +396,39 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 	return newTokenString, nil
 }
 
+// parseTokenAllowExpired parses a JWT token, allowing tokens that expired
+// within the given grace period. This enables token refresh after expiry.
+func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod time.Duration) (*Claims, error) {
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		switch s.signingType {
+		case JWTRS256:
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return s.publicKey, nil
+		default:
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return s.jwtSecret, nil
+		}
+	})
+	if err != nil {
+		if !token.Valid {
+			if claims.ExpiresAt != nil {
+				expiredDuration := time.Since(claims.ExpiresAt.Time)
+				if expiredDuration > 0 && expiredDuration <= gracePeriod {
+					return claims, nil
+				}
+			}
+			return nil, fmt.Errorf("failed to parse token: %w", err)
+		}
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+	return claims, nil
+}
+
 // generateToken generates a JWT token for a user
 func (s *AuthService) generateToken(user *models.User) (string, error) {
 	claims := &Claims{
@@ -371,7 +436,7 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 		WalletAddress: user.WalletAddress,
 		JTI:           generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Subject:   user.ID,

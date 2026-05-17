@@ -2,8 +2,11 @@ package ml
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // AlertingSystem manages alerts for detected anomalies
@@ -16,6 +19,7 @@ type AlertingSystem struct {
 	alertChannels   map[string]AlertChannel
 	alertHistory    map[string][]*Alert
 	suppressedUntil map[string]time.Time
+	log             *zap.Logger
 }
 
 // Alert represents an alert
@@ -70,12 +74,11 @@ func (as *AlertingSystem) GenerateAlert(anomaly *Anomaly) error {
 	}
 
 	as.mu.Lock()
-	defer as.mu.Unlock()
 
-	// Check if alert is suppressed
 	if suppressedUntil, exists := as.suppressedUntil[anomaly.Type]; exists {
 		if time.Now().Before(suppressedUntil) {
-			return nil // Alert suppressed
+			as.mu.Unlock()
+			return nil
 		}
 	}
 
@@ -90,19 +93,18 @@ func (as *AlertingSystem) GenerateAlert(anomaly *Anomaly) error {
 
 	as.alerts = append(as.alerts, alert)
 
-	// Add to history
 	if _, exists := as.alertHistory[anomaly.Type]; !exists {
 		as.alertHistory[anomaly.Type] = make([]*Alert, 0)
 	}
 	as.alertHistory[anomaly.Type] = append(as.alertHistory[anomaly.Type], alert)
 
-	// Send to channels
-	as.sendAlert(alert)
-
-	// Set suppression
 	if rule, exists := as.alertRules[anomaly.Type]; exists {
 		as.suppressedUntil[anomaly.Type] = time.Now().Add(rule.SuppressDuration)
 	}
+
+	as.mu.Unlock()
+
+	as.sendAlert(alert)
 
 	return nil
 }
@@ -117,11 +119,15 @@ func (as *AlertingSystem) sendAlert(alert *Alert) {
 			defer as.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("Recovered panic sending alert via %s: %v\n", ch.Name(), r)
+					if as.log != nil {
+						as.log.Error("Recovered panic sending alert", zap.String("channel", ch.Name()), zap.Any("panic", r))
+					}
 				}
 			}()
 			if err := ch.Send(alert); err != nil {
-				fmt.Printf("Failed to send alert via %s: %v\n", ch.Name(), err)
+				if as.log != nil {
+					as.log.Error("Failed to send alert", zap.String("channel", ch.Name()), zap.Error(err))
+				}
 			}
 		}(channel)
 	}
@@ -323,7 +329,7 @@ func (sac *SimpleAlertChannel) Send(alert *Alert) error {
 	}
 
 	// In real implementation, would send to external service
-	fmt.Printf("[%s] Alert: %s - %s (Severity: %s)\n", sac.name, alert.Title, alert.Description, alert.Severity)
+	log.Printf("[%s] Alert: %s - %s (Severity: %s)", sac.name, alert.Title, alert.Description, alert.Severity)
 	return nil
 }
 

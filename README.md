@@ -8,6 +8,10 @@
 
 ---
 
+> 🚀 **一分钟体验**: `make demo` — 自动启动基础设施、构建、运行，直接可测 API
+
+---
+
 ## 🎯 一句话介绍
 
 **持有特定 NFT 才能观看视频的内容分发平台**
@@ -44,94 +48,6 @@
 
 ```text
 钱包签名登录 -> NFT 所有权校验 -> 放行 manifest -> 播放 HLS 视频
-```
-
----
-
-## 🏗️ 架构图
-
-### 单体模式（开发/面试用）
-
-```
-┌─────────────────────────────────────────────────┐
-│              StreamGate 单体                     │
-│                                                 │
-│  ┌─────────────────────────────────────────┐  │
-│  │           API 层（:8080）               │  │
-│  │    REST API │ 签名验证 │ NFT 验证       │  │
-│  └─────────────────────────────────────────┘  │
-│                      │                          │
-│  ┌──────────────────┼──────────────────────┐  │
-│  │                  │                       │  │
-│  ▼                  ▼                       ▼  │
-│ ┌────────┐   ┌────────────┐   ┌──────────┐  │
-│ │存储层  │   │ Web3 层    │   │ 媒体层   │  │
-│ │MinIO   │   │NFT验证    │   │FFmpeg    │  │
-│ │Redis   │   │签名验证    │   │HLS/DASH │  │
-│ └────────┘   └────────────┘   └──────────┘  │
-│                                                 │
-│  ┌─────────────────────────────────────────┐  │
-│  │        基础设施（Zap日志 │ Prometheus）   │  │
-│  └─────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────┘
-```
-
-### 微服务模式（扩展用）
-
-```
-                    ┌─────────────────┐
-                    │   Nginx/LB      │
-                    └────────┬────────┘
-                             │
-          ┌──────────────────┼──────────────────┐
-          │                  │                  │
-  ┌───────▼──────┐   ┌──────▼──────┐   ┌──────▼──────┐
-  │  API Gateway │   │ Auth 服务   │   │ 流媒体服务  │
-  │   :9090      │   │  :9007      │   │   :9093     │
-  │  REST + gRPC │   │ NFT 验证    │   │ 转码 + HLS  │
-  └───────┬──────┘   └──────┬──────┘   └──────┬──────┘
-          │                  │                  │
-          └──────────────────┼──────────────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-        ┌─────▼─────┐  ┌─────▼─────┐  ┌────▼─────┐
-        │   NATS   │  │   Redis   │  │  MinIO   │
-        │  消息队列 │  │   缓存    │  │  对象存储 │
-        └───────────┘  └───────────┘  └──────────┘
-```
-
----
-
-## 🎯 面试卖点
-
-| 卖点 | 你可以怎么讲 | 为什么适合你 |
-|------|---------------|--------------|
-| **音视频 + Web3 结合** | NFT 决定用户能不能播放内容 | 不是纯 Web3 demo，而是真实媒体业务场景 |
-| **钱包登录 + NFT 鉴权** | 签名验签、nonce、防重放、链上所有权校验 | 体现你补上的 Web3 新能力 |
-| **受保护 HLS 访问** | 只有通过鉴权才返回 manifest | 直接贴合内容分发与访问控制 |
-| **转码 Worker** | FFmpeg、队列、重试、状态流转 | 体现你多年音视频工程经验 |
-| **单体优先，微服务扩展** | 先跑通主链路，再按瓶颈拆服务 | 更符合企业实践，也更适合面试讲法 |
-
----
-
-## 🚀 快速开始
-
-```bash
-# 1. 克隆项目
-git clone https://github.com/rtcdance/streamgate.git
-cd streamgate
-
-# 2. 启动基础设施
-docker-compose up -d redis minio nats
-
-# 3. 运行单体
-go run ./cmd/monolith/streamgate/main.go
-
-# 4. 测试 NFT 验证
-curl -X POST http://localhost:8080/api/v1/nft/verify \
-  -H "Content-Type: application/json" \
-  -d '{"wallet": "0x...", "contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f"}'
 ```
 
 ---
@@ -376,40 +292,33 @@ NATS (file.uploaded) ──> Transcoder Service
 
 ## 🚀 Quick Start
 
+**One command** (requires Docker + Go 1.24):
+
+```bash
+make demo
+```
+
+This starts postgres/redis/minio → builds the monolith → runs on `:8080`.
+
 ### Prerequisites
 
 - Go 1.24
 - Docker & Docker Compose
-- PostgreSQL 15+
-- Redis 7+
-- MinIO / S3
 
 ### Option 1: Local Development (Monolithic Mode)
 
 ```bash
-# 1. Clone project
-git clone https://github.com/rtcdance/streamgate.git
-cd streamgate
+# 1. Start infrastructure
+docker-compose up -d postgres redis minio
 
-# 2. Install dependencies
-go mod download
-
-# 3. Start infrastructure
-docker-compose up -d
-
-# 4. Configure environment variables
+# 2. Configure environment
 cp .env.example .env
-# Edit .env file with your configuration
 
-# 5. Build monolithic binary
-make build-monolith
+# 3. Build and run
+make run-monolith
 
-# 6. Run service
-./bin/streamgate
-
-# 7. Access
-# API: http://localhost:8080
-# Metrics: http://localhost:8080/metrics
+# 4. In another terminal:
+curl http://localhost:8080/health
 ```
 
 ### Option 2: Docker Compose (Microservices Mode)

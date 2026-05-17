@@ -17,7 +17,7 @@ func TestCheck(t *testing.T) {
 	})
 
 	t.Run("works with nil context", func(t *testing.T) {
-		result := Check(nil)
+		result := Check(context.TODO())
 
 		assert.NotNil(t, result)
 		assert.Equal(t, "healthy", result.Status)

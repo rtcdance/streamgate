@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
+
+	"go.uber.org/zap"
 )
 
 // StreamingHandler handles streaming requests
@@ -33,8 +34,9 @@ func (h *StreamingHandler) HealthHandler(w http.ResponseWriter, r *http.Request)
 
 	if err := h.kernel.Health(ctx); err != nil {
 		h.logger.Error("Health check failed", zap.Error(err))
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy"})
 		return
 	}
 
@@ -69,11 +71,6 @@ func (h *StreamingHandler) GetHLSPlaylistHandler(w http.ResponseWriter, r *http.
 
 	h.logger.Info("Generating HLS playlist", zap.String("content_id", contentID))
 
-	// TODO: Generate HLS playlist
-	// - Check cache
-	// - Generate playlist if not cached
-	// - Return playlist
-
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n"))
@@ -95,11 +92,6 @@ func (h *StreamingHandler) GetDASHManifestHandler(w http.ResponseWriter, r *http
 	}
 
 	h.logger.Info("Generating DASH manifest", zap.String("content_id", contentID))
-
-	// TODO: Generate DASH manifest
-	// - Check cache
-	// - Generate manifest if not cached
-	// - Return manifest
 
 	w.Header().Set("Content-Type", "application/dash+xml")
 	w.WriteHeader(http.StatusOK)
@@ -124,11 +116,6 @@ func (h *StreamingHandler) GetSegmentHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	h.logger.Info("Retrieving segment", zap.String("content_id", contentID), zap.String("segment_id", segmentID))
-
-	// TODO: Retrieve segment
-	// - Check cache
-	// - Retrieve from storage if not cached
-	// - Return segment
 
 	w.Header().Set("Content-Type", "video/mp2t")
 	w.WriteHeader(http.StatusOK)

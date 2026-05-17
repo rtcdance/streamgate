@@ -77,7 +77,7 @@ func TestDatabaseConfig_GetDSN(t *testing.T) {
 				Host:     "db.example.com",
 				Port:     5433,
 				User:     "admin",
-				Password: "secret",
+				Password: "test-secret-that-is-at-least-32-chars",
 				Database: "production",
 				SSLMode:  "require",
 			},
@@ -105,13 +105,13 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("load config with environment variables", func(t *testing.T) {
-		os.Setenv("DATABASE_HOST", "custom-host")
-		os.Setenv("DATABASE_PORT", "5433")
-		os.Setenv("DATABASE_USER", "custom-user")
-		os.Setenv("DATABASE_PASSWORD", "custom-pass")
-		os.Setenv("DATABASE_NAME", "custom-db")
-		os.Setenv("DATABASE_SSLMODE", "require")
-		os.Setenv("DATABASE_MAXCONNS", "50")
+		_ = os.Setenv("DATABASE_HOST", "custom-host")
+		_ = os.Setenv("DATABASE_PORT", "5433")
+		_ = os.Setenv("DATABASE_USER", "custom-user")
+		_ = os.Setenv("DATABASE_PASSWORD", "custom-pass")
+		_ = os.Setenv("DATABASE_NAME", "custom-db")
+		_ = os.Setenv("DATABASE_SSLMODE", "require")
+		_ = os.Setenv("DATABASE_MAXCONNS", "50")
 
 		cfg, err := LoadConfig()
 		require.NoError(t, err)
@@ -124,13 +124,13 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, "require", cfg.Database.SSLMode)
 		assert.Equal(t, 50, cfg.Database.MaxConns)
 
-		os.Unsetenv("DATABASE_HOST")
-		os.Unsetenv("DATABASE_PORT")
-		os.Unsetenv("DATABASE_USER")
-		os.Unsetenv("DATABASE_PASSWORD")
-		os.Unsetenv("DATABASE_NAME")
-		os.Unsetenv("DATABASE_SSLMODE")
-		os.Unsetenv("DATABASE_MAXCONNS")
+		_ = os.Unsetenv("DATABASE_HOST")
+		_ = os.Unsetenv("DATABASE_PORT")
+		_ = os.Unsetenv("DATABASE_USER")
+		_ = os.Unsetenv("DATABASE_PASSWORD")
+		_ = os.Unsetenv("DATABASE_NAME")
+		_ = os.Unsetenv("DATABASE_SSLMODE")
+		_ = os.Unsetenv("DATABASE_MAXCONNS")
 	})
 }
 
@@ -150,11 +150,11 @@ func TestValidateProduction_MonolithMode(t *testing.T) {
 
 func TestValidateProduction_MicroserviceMode(t *testing.T) {
 	cfg := &Config{
-		Mode: "microservice",
-		Auth: AuthConfig{JWTSecret: "streamgate-dev-secret"},
-		Storage: StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
+		Storage:  StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
 		Database: DatabaseConfig{SSLMode: "disable"},
-		Web3: Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
+		Web3:     Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
 	}
 	err := cfg.ValidateProduction(zap.NewNop())
 	if err == nil {
@@ -178,11 +178,11 @@ func TestValidateProduction_MonolithWithInsecureJWT(t *testing.T) {
 
 func TestValidateProduction_PassesWithSecureConfig(t *testing.T) {
 	cfg := &Config{
-		Mode: "microservice",
-		Auth: AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-		Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-		Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 	}
 	err := cfg.ValidateProduction(zap.NewNop())
 	if err != nil {
@@ -192,11 +192,11 @@ func TestValidateProduction_PassesWithSecureConfig(t *testing.T) {
 
 func TestValidateProduction_YAMLDefaultJWTSecret(t *testing.T) {
 	cfg := &Config{
-		Mode: "microservice",
-		Auth: AuthConfig{JWTSecret: "your-secret-key-change-in-production"},
-		Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Mode:     "microservice",
+		Auth:     AuthConfig{JWTSecret: "your-secret-key-change-in-production"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
 		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-		Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 	}
 	err := cfg.ValidateProduction(zap.NewNop())
 	if err == nil {
@@ -217,11 +217,11 @@ func TestValidateProduction_InsecureDBPassword(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
-				Mode: "microservice",
-				Auth: AuthConfig{JWTSecret: "a-real-secret-32chars!!"},
-				Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+				Mode:     "microservice",
+				Auth:     AuthConfig{JWTSecret: "a-real-secret-32chars!!"},
+				Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 				Database: DatabaseConfig{SSLMode: "require", Password: tt.password},
-				Web3: Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+				Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 			}
 			err := cfg.ValidateProduction(zap.NewNop())
 			if (err != nil) != tt.wantErr {
@@ -264,7 +264,7 @@ func TestValidateProduction_CORSRestrictive(t *testing.T) {
 	cfg := &Config{
 		Mode:     "microservice",
 		Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
+		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
 		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 		CORS:     CORSConfig{AllowedOrigins: []string{"https://streamgate.example.com"}},

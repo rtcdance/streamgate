@@ -2,18 +2,35 @@ package transcoder
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
+
+	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
+
+func generateTaskID() string {
+	return "task_" + uuid.New().String()
+}
+
+func sanitizeFilePath(raw string) string {
+	cleaned := filepath.Clean(raw)
+	if strings.Contains(cleaned, "..") {
+		return ""
+	}
+	if !filepath.IsAbs(cleaned) {
+		return ""
+	}
+	return cleaned
+}
 
 // TranscoderHandler handles transcoding requests
 type TranscoderHandler struct {
@@ -94,8 +111,6 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Check rate limit
-
 	var req submitTranscodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode task", zap.Error(err))
@@ -107,13 +122,13 @@ func (h *TranscoderHandler) SubmitTaskHandler(w http.ResponseWriter, r *http.Req
 
 	// Generate task ID
 	task := TranscodeTask{
-		ID:        fmt.Sprintf("task_%d_%d", time.Now().Unix(), len(req.FileID)),
-		FileID:    strings.TrimSpace(req.FileID),
-		FilePath:  strings.TrimSpace(req.FilePath),
-		Status:    TaskStatusPending,
-		Priority:  req.Priority,
-		CreatedAt: time.Now(),
-		Profiles:  req.Profiles,
+		ID:         generateTaskID(),
+		FileID:     strings.TrimSpace(req.FileID),
+		FilePath:   sanitizeFilePath(strings.TrimSpace(req.FilePath)),
+		Status:     TaskStatusPending,
+		Priority:   req.Priority,
+		CreatedAt:  time.Now(),
+		Profiles:   req.Profiles,
 		MaxRetries: 3,
 	}
 
@@ -148,7 +163,6 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Check rate limit
 
 	taskID := resolveTaskID(r, "/api/v1/transcode/status/")
 	if taskID == "" {
@@ -185,7 +199,6 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Check rate limit
 
 	taskID := resolveTaskID(r, "/api/v1/transcode/cancel/")
 	if taskID == "" {
@@ -223,7 +236,6 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check rate limit
 
 	h.logger.Info("Listing transcoding tasks")
 
@@ -287,7 +299,6 @@ func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Check rate limit
 
 	metrics := h.plugin.GetMetrics()
 

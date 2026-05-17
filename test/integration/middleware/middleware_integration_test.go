@@ -8,9 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
-	"streamgate/test/helpers"
 )
 
 func TestMiddlewareStack_Integration(t *testing.T) {
@@ -47,7 +47,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Should pass through all middleware
-	helpers.AssertTrue(t, w.Code == http.StatusOK || w.Code == http.StatusTooManyRequests)
+	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusTooManyRequests)
 }
 
 func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
@@ -74,7 +74,7 @@ func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Should be rejected by auth middleware
-	helpers.AssertEqual(t, http.StatusUnauthorized, w.Code)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestMiddlewareStack_CORSHeaders(t *testing.T) {
@@ -100,5 +100,5 @@ func TestMiddlewareStack_CORSHeaders(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	// Should have CORS headers
-	helpers.AssertTrue(t, len(w.Header().Get("Access-Control-Allow-Origin")) > 0)
+	require.True(t, len(w.Header().Get("Access-Control-Allow-Origin")) > 0)
 }

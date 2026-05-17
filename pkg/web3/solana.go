@@ -9,18 +9,31 @@ import (
 	"strings"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap"
 )
 
 // SolanaVerifier handles Solana signature verification
 type SolanaVerifier struct {
-	logger *zap.Logger
+	logger    *zap.Logger
+	rpcURL    string
+	rpcClient *rpc.Client
 }
 
 // NewSolanaVerifier creates a new Solana verifier
 func NewSolanaVerifier(logger *zap.Logger, rpcEndpoint ...string) *SolanaVerifier {
+	var rpcURL string
+	if len(rpcEndpoint) > 0 {
+		rpcURL = rpcEndpoint[0]
+	}
+	var client *rpc.Client
+	if rpcURL != "" {
+		client = rpc.New(rpcURL)
+	}
 	return &SolanaVerifier{
-		logger: logger,
+		logger:    logger,
+		rpcURL:    rpcURL,
+		rpcClient: client,
 	}
 }
 
@@ -232,36 +245,81 @@ func (sv *SolanaVerifier) VerifyMetaplexMetadata(ctx context.Context, metadataUR
 	return true, nil
 }
 
-// VerifyTokenAccount verifies token account ownership
+// VerifyTokenAccount verifies token account ownership by querying the Solana RPC.
 func (sv *SolanaVerifier) VerifyTokenAccount(ctx context.Context, tokenAccount, ownerAddress string) (bool, error) {
 	sv.logger.Debug("Verifying token account",
 		zap.String("token_account", tokenAccount),
 		zap.String("owner", ownerAddress))
 
-	// In production, you would:
-	// 1. Query the token account from Solana RPC
-	// 2. Extract the owner field
-	// 3. Verify it matches the provided owner address
+	if sv.rpcURL == "" {
+		return false, fmt.Errorf("Solana RPC client not configured")
+	}
 
-	// TODO: Implement token account verification
-	sv.logger.Debug("Token account verification not fully implemented")
-	return true, nil
+	if sv.rpcClient == nil {
+		return false, fmt.Errorf("Solana RPC client not initialized")
+	}
+
+	accountInfo, err := sv.rpcClient.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(tokenAccount))
+	if err != nil {
+		return false, fmt.Errorf("failed to get token account info: %w", err)
+	}
+	if accountInfo == nil || accountInfo.Value == nil {
+		return false, nil
+	}
+
+	data := accountInfo.Value.Data.GetBinary()
+	if len(data) < 64 {
+		return false, fmt.Errorf("token account data too short")
+	}
+
+	actualOwner := solana.PublicKeyFromBytes(data[32:64])
+	expectedOwner, err := solana.PublicKeyFromBase58(ownerAddress)
+	if err != nil {
+		return false, fmt.Errorf("invalid owner address: %w", err)
+	}
+
+	return actualOwner.Equals(expectedOwner), nil
 }
 
-// VerifyMintAuthority verifies mint authority
+// VerifyMintAuthority verifies mint authority by querying the Solana RPC.
 func (sv *SolanaVerifier) VerifyMintAuthority(ctx context.Context, mintAddress, authorityAddress string) (bool, error) {
 	sv.logger.Debug("Verifying mint authority",
 		zap.String("mint", mintAddress),
 		zap.String("authority", authorityAddress))
 
-	// In production, you would:
-	// 1. Query the mint account from Solana RPC
-	// 2. Extract the mint authority field
-	// 3. Verify it matches the provided authority address
+	if sv.rpcURL == "" {
+		return false, fmt.Errorf("Solana RPC client not configured")
+	}
 
-	// TODO: Implement mint authority verification
-	sv.logger.Debug("Mint authority verification not fully implemented")
-	return true, nil
+	if sv.rpcClient == nil {
+		return false, fmt.Errorf("Solana RPC client not initialized")
+	}
+
+	accountInfo, err := sv.rpcClient.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(mintAddress))
+	if err != nil {
+		return false, fmt.Errorf("failed to get mint account info: %w", err)
+	}
+	if accountInfo == nil || accountInfo.Value == nil {
+		return false, nil
+	}
+
+	data := accountInfo.Value.Data.GetBinary()
+	if len(data) < 36 {
+		return false, fmt.Errorf("mint account data too short")
+	}
+
+	mintAuthorityOpt := data[0:36]
+	if mintAuthorityOpt[0] == 0 {
+		return false, nil
+	}
+
+	mintAuthority := solana.PublicKeyFromBytes(mintAuthorityOpt[4:36])
+	expectedAuthority, err := solana.PublicKeyFromBase58(authorityAddress)
+	if err != nil {
+		return false, fmt.Errorf("invalid authority address: %w", err)
+	}
+
+	return mintAuthority.Equals(expectedAuthority), nil
 }
 
 // ParseSolanaAddress parses and validates a Solana address

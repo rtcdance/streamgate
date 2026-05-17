@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"streamgate/pkg/core/config"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 )
@@ -57,7 +58,7 @@ func setupAuthRouter() (*gin.Engine, *service.AuthService) {
 
 	sigVerifier := service.NewMultiChainSignatureVerifier(zap.NewNop(), nil)
 	authService := service.NewAuthServiceWithDeps(
-		"test-jwt-secret-key-for-testing",
+		"test-jwt-secret-key-for-testing-",
 		newMockAuthStorage(),
 		sigVerifier,
 		service.NewMemoryChallengeStore(),
@@ -65,7 +66,8 @@ func setupAuthRouter() (*gin.Engine, *service.AuthService) {
 		service.NewMemoryTokenBlacklist(),
 	)
 
-	RegisterAuthRoutes(r, zap.NewNop(), authService)
+	cfg := config.DefaultConfig()
+	RegisterAuthRoutes(r, zap.NewNop(), cfg, authService)
 	return r, authService
 }
 
@@ -74,7 +76,7 @@ func TestAuthHandlers_Challenge(t *testing.T) {
 
 	t.Run("missing body", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/challenge", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/challenge", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -95,7 +97,7 @@ func TestAuthHandlers_Challenge(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NotEmpty(t, resp["challenge_id"])
 		assert.Equal(t, address, resp["wallet"])
 		assert.Equal(t, float64(11155111), resp["chain_id"])
@@ -113,7 +115,7 @@ func TestAuthHandlers_Challenge(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", resp["wallet"])
 		assert.Equal(t, float64(-1), resp["chain_id"])
 	})
@@ -180,18 +182,18 @@ func TestAuthHandlers_Logout(t *testing.T) {
 
 	t.Run("missing token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/logout", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("with valid token", func(t *testing.T) {
-		authService.Register(context.Background(),"logoutuser", "pass123", "logout@test.com")
-		token, err := authService.Authenticate(context.Background(),"logoutuser", "pass123")
+		_ = authService.Register(context.Background(), "logoutuser", "pass123", "logout@test.com")
+		token, err := authService.Authenticate(context.Background(), "logoutuser", "pass123")
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/logout", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+token)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -203,24 +205,24 @@ func TestAuthHandlers_Verify(t *testing.T) {
 
 	t.Run("missing token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/verify", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/verify", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("valid token", func(t *testing.T) {
-		authService.Register(context.Background(),"verifyuser", "pass123", "verify@test.com")
-		token, err := authService.Authenticate(context.Background(),"verifyuser", "pass123")
+		_ = authService.Register(context.Background(), "verifyuser", "pass123", "verify@test.com")
+		token, err := authService.Authenticate(context.Background(), "verifyuser", "pass123")
 		require.NoError(t, err)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/verify", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/verify", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+token)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, true, resp["valid"])
 	})
 }
@@ -230,7 +232,7 @@ func TestAuthHandlers_Refresh(t *testing.T) {
 
 	t.Run("missing body", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/refresh", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -245,8 +247,8 @@ func TestAuthHandlers_Refresh(t *testing.T) {
 	})
 
 	t.Run("valid token refresh", func(t *testing.T) {
-		authService.Register(context.Background(),"refreshuser", "pass123", "refresh@test.com")
-		token, err := authService.Authenticate(context.Background(),"refreshuser", "pass123")
+		_ = authService.Register(context.Background(), "refreshuser", "pass123", "refresh@test.com")
+		token, err := authService.Authenticate(context.Background(), "refreshuser", "pass123")
 		require.NoError(t, err)
 
 		body, _ := json.Marshal(map[string]string{"token": token})
@@ -257,7 +259,7 @@ func TestAuthHandlers_Refresh(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.NotEmpty(t, resp["token"])
 		assert.NotEqual(t, token, resp["token"])
 	})
@@ -269,7 +271,7 @@ func TestAuthHandlers_Profile(t *testing.T) {
 
 	sigVerifier := service.NewMultiChainSignatureVerifier(zap.NewNop(), nil)
 	authService := service.NewAuthServiceWithDeps(
-		"test-jwt-secret-key-for-testing",
+		"test-jwt-secret-key-for-testing-",
 		newMockAuthStorage(),
 		sigVerifier,
 		service.NewMemoryChallengeStore(),
@@ -286,12 +288,12 @@ func TestAuthHandlers_Profile(t *testing.T) {
 
 	t.Run("profile returns wallet address", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/auth/profile", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/auth/profile", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		assert.Equal(t, "0xTestWallet", resp["wallet_address"])
 	})
 }

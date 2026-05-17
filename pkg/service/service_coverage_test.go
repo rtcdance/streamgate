@@ -11,11 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"streamgate/pkg/models"
+
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/models"
 )
 
 // --- Mock implementations ---
@@ -99,6 +100,10 @@ func (m *mockCache) Set(key string, value interface{}) error {
 func (m *mockCache) Delete(key string) error {
 	delete(m.data, key)
 	return nil
+}
+
+func (m *mockCache) SetWithExpiration(key string, value interface{}, ttl time.Duration) error {
+	return m.Set(key, value)
 }
 
 // mockContentStorage implements ContentObjectStorage
@@ -199,6 +204,17 @@ func (m *mockUploadStorage) Delete(ctx context.Context, bucket, key string) erro
 func (m *mockUploadStorage) Exists(ctx context.Context, bucket, key string) (bool, error) {
 	_, ok := m.data[bucket+"/"+key]
 	return ok, nil
+}
+
+func (m *mockUploadStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	var keys []string
+	fullPrefix := bucket + "/" + prefix
+	for k := range m.data {
+		if strings.HasPrefix(k, fullPrefix) {
+			keys = append(keys, strings.TrimPrefix(k, bucket+"/"))
+		}
+	}
+	return keys, nil
 }
 
 // --- ContentService Tests ---
@@ -475,7 +491,7 @@ func TestUploadService_InitiateChunkedUpload_DBNil(t *testing.T) {
 
 func TestUploadService_UploadChunk_DBNil(t *testing.T) {
 	svc := NewUploadService(nil, newMockUploadStorage(), "content-bucket")
-	err := svc.UploadChunk(context.Background(), "upload-id", 1, []byte("chunk"))
+	err := svc.UploadChunk(context.Background(), "upload-id", 1, []byte("chunk"), "owner-1")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not available")
 }
@@ -637,7 +653,7 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	storage := NewMockAuthStorage()
 
 	t.Run("NewAuthService with defaults", func(t *testing.T) {
-		svc := NewAuthService("secret", storage)
+		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 		assert.NotNil(t, svc.signatureVerifier)
 		assert.NotNil(t, svc.challengeStore)
 		assert.Equal(t, defaultChallengeTTL, svc.challengeTTL)
@@ -646,25 +662,25 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 
 	t.Run("WithSignatureVerifier", func(t *testing.T) {
 		verifier := NewMultiChainSignatureVerifier(zap.NewNop(), nil)
-		svc := NewAuthService("secret", storage, WithSignatureVerifier(verifier))
+		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithSignatureVerifier(verifier))
 		assert.Equal(t, verifier, svc.signatureVerifier)
 	})
 
 	t.Run("WithChallengeStore", func(t *testing.T) {
 		store := NewMemoryChallengeStore()
-		svc := NewAuthService("secret", storage, WithChallengeStore(store))
+		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithChallengeStore(store))
 		assert.Equal(t, store, svc.challengeStore)
 	})
 
 	t.Run("WithChallengeTTL", func(t *testing.T) {
 		ttl := 10 * time.Minute
-		svc := NewAuthService("secret", storage, WithChallengeTTL(ttl))
+		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithChallengeTTL(ttl))
 		assert.Equal(t, ttl, svc.challengeTTL)
 	})
 
 	t.Run("WithTokenBlacklist", func(t *testing.T) {
 		bl := NewMemoryTokenBlacklist()
-		svc := NewAuthService("secret", storage, WithTokenBlacklist(bl))
+		svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 		assert.Equal(t, bl, svc.blacklist)
 	})
 
@@ -672,14 +688,14 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 		verifier := NewMultiChainSignatureVerifier(zap.NewNop(), nil)
 		store := NewMemoryChallengeStore()
 		bl := NewMemoryTokenBlacklist()
-		svc := NewAuthServiceWithDeps("secret", storage, verifier, store, 0, bl)
+		svc := NewAuthServiceWithDeps("test-secret-that-is-at-least-32-chars", storage, verifier, store, 0, bl)
 		assert.Equal(t, verifier, svc.signatureVerifier)
 		assert.Equal(t, store, svc.challengeStore)
 		assert.Equal(t, bl, svc.blacklist)
 	})
 
 	t.Run("NewAuthServiceWithDeps nil options use defaults", func(t *testing.T) {
-		svc := NewAuthServiceWithDeps("secret", storage, nil, nil, 0, nil)
+		svc := NewAuthServiceWithDeps("test-secret-that-is-at-least-32-chars", storage, nil, nil, 0, nil)
 		assert.NotNil(t, svc.signatureVerifier) // default
 		assert.NotNil(t, svc.challengeStore)    // default
 		assert.Equal(t, defaultChallengeTTL, svc.challengeTTL)
@@ -1065,12 +1081,12 @@ func TestMemoryTokenBlacklist_Close(t *testing.T) {
 func TestMemoryTokenBlacklist_EvictExpired(t *testing.T) {
 	bl := NewMemoryTokenBlacklist()
 	// Revoke with already-expired entry
-	bl.Revoke(context.Background(), "expired-jti", time.Now().Add(-time.Hour))
+	_ = bl.Revoke(context.Background(), "expired-jti", time.Now().Add(-time.Hour))
 	// The entry is expired; calling IsRevoked should lazily evict it
 	assert.False(t, bl.IsRevoked(context.Background(), "expired-jti"))
 
 	// Also test evictExpired directly
-	bl.Revoke(context.Background(), "another-expired", time.Now().Add(-time.Hour))
+	_ = bl.Revoke(context.Background(), "another-expired", time.Now().Add(-time.Hour))
 	bl.evictExpired()
 	assert.False(t, bl.IsRevoked(context.Background(), "another-expired"))
 	require.NoError(t, bl.Close())
@@ -1078,7 +1094,7 @@ func TestMemoryTokenBlacklist_EvictExpired(t *testing.T) {
 
 func TestAuthService_RevokeToken_InvalidToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 	// Invalid token should be silently accepted
 	err := svc.RevokeToken(context.Background(), "invalid-token")
 	assert.NoError(t, err)
@@ -1086,7 +1102,7 @@ func TestAuthService_RevokeToken_InvalidToken(t *testing.T) {
 
 func TestAuthService_RevokeToken_ValidToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage, WithTokenBlacklist(NewMemoryTokenBlacklist()))
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(NewMemoryTokenBlacklist()))
 	// Generate a valid token first
 	token, err := svc.generateToken(&models.User{Username: "testuser", WalletAddress: "0xabc"})
 	require.NoError(t, err)
@@ -1097,7 +1113,7 @@ func TestAuthService_RevokeToken_ValidToken(t *testing.T) {
 
 func TestAuthService_VerifyToken_ValidToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 	token, err := svc.generateToken(&models.User{Username: "testuser", WalletAddress: "0xabc"})
 	require.NoError(t, err)
 
@@ -1109,7 +1125,7 @@ func TestAuthService_VerifyToken_ValidToken(t *testing.T) {
 
 func TestAuthService_VerifyToken_InvalidToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	result, err := svc.VerifyToken(context.Background(), "invalid-token")
 	assert.Error(t, err)
@@ -1119,7 +1135,7 @@ func TestAuthService_VerifyToken_InvalidToken(t *testing.T) {
 func TestAuthService_VerifyToken_RevokedToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	bl := NewMemoryTokenBlacklist()
-	svc := NewAuthService("test-secret", storage, WithTokenBlacklist(bl))
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 
 	token, err := svc.generateToken(&models.User{Username: "testuser", WalletAddress: "0xabc"})
 	require.NoError(t, err)
@@ -1137,14 +1153,14 @@ func TestAuthService_VerifyToken_RevokedToken(t *testing.T) {
 func TestAuthService_IsTokenRevoked(t *testing.T) {
 	storage := NewMockAuthStorage()
 	bl := NewMemoryTokenBlacklist()
-	svc := NewAuthService("test-secret", storage, WithTokenBlacklist(bl))
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage, WithTokenBlacklist(bl))
 	assert.False(t, svc.IsTokenRevoked(context.Background(), "nonexistent-jti"))
 	require.NoError(t, bl.Close())
 }
 
 func TestAuthService_GeneratePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
@@ -1153,7 +1169,7 @@ func TestAuthService_GeneratePlaybackToken(t *testing.T) {
 
 func TestAuthService_GeneratePlaybackToken_DefaultTTL(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Zero TTL should default to 2 minutes
 	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 0)
@@ -1163,7 +1179,7 @@ func TestAuthService_GeneratePlaybackToken_DefaultTTL(t *testing.T) {
 
 func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
@@ -1176,7 +1192,7 @@ func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 
 func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret", storage)
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
@@ -1187,7 +1203,7 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 }
 
 func TestAuthService_BuildEIP712Challenge(t *testing.T) {
-	svc := NewAuthService("test-secret", NewMockAuthStorage())
+	svc := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 	challenge := &WalletChallenge{
 		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		ChainID:       1,
@@ -1475,4 +1491,10 @@ func (m *mockSegmentStorage) DownloadStream(ctx context.Context, bucket, objectN
 }
 func (m *mockSegmentStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {
 	return false, nil
+}
+func (m *mockSegmentStorage) UploadStreamWithContentType(ctx context.Context, bucket, objectName string, reader io.Reader, size int64, contentType string) error {
+	return nil
+}
+func (m *mockSegmentStorage) Delete(ctx context.Context, bucket, objectName string) error {
+	return nil
 }

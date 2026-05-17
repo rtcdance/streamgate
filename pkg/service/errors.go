@@ -11,8 +11,8 @@ var (
 	ErrInvalidToken      = errors.New("invalid token")
 
 	// Challenge errors
-	ErrChallengeExpired = errors.New("challenge expired")
-	ErrChallengeUsed    = errors.New("challenge already used")
+	ErrChallengeExpired  = errors.New("challenge expired")
+	ErrChallengeUsed     = errors.New("challenge already used")
 	ErrChallengeNotFound = errors.New("challenge not found")
 
 	// Resource errors
@@ -28,7 +28,8 @@ var (
 	ErrSolanaNotConfigured = errors.New("solana verifier not configured")
 
 	// Operation errors
-	ErrNotSupported = errors.New("operation not supported")
+	ErrNotSupported  = errors.New("operation not supported")
+	ErrInvalidRequest = errors.New("invalid request")
 )
 
 // DomainError wraps an error with a machine-readable code for HTTP response mapping.

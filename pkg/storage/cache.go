@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
 
 // Cache abstracts key-value cache operations.
 // Both *RedisCache and *CacheStorage satisfy this interface.
+//
 //go:generate mockgen -destination=mocks/mock_cache.go -package=mocks streamgate/pkg/storage Cache
 type Cache interface {
 	Get(ctx context.Context, key string) (string, error)
@@ -24,9 +26,11 @@ type Cache interface {
 type CacheStorage struct {
 	items   map[string]*cacheItem
 	mu      sync.RWMutex
-	wg      sync.WaitGroup // tracks cleanup goroutine
+	wg      sync.WaitGroup
 	maxSize int
 	stopCh  chan struct{}
+	closed  bool
+	closeOnce sync.Once
 }
 
 type cacheItem struct {
@@ -52,29 +56,30 @@ func NewCacheStorage(maxSize int) *CacheStorage {
 
 // Close stops the cleanup goroutine, waits for it to exit, and clears the cache.
 func (cs *CacheStorage) Close() {
-	close(cs.stopCh)
-	cs.wg.Wait()
-	cs.mu.Lock()
-	cs.items = make(map[string]*cacheItem)
-	cs.mu.Unlock()
+	cs.closeOnce.Do(func() {
+		close(cs.stopCh)
+		cs.wg.Wait()
+		cs.mu.Lock()
+		cs.items = make(map[string]*cacheItem)
+		cs.closed = true
+		cs.mu.Unlock()
+	})
 }
 
 // Get gets value from cache
 func (cs *CacheStorage) Get(key string) (interface{}, error) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
+	cs.mu.RLock()
 	item, exists := cs.items[key]
+	cs.mu.RUnlock()
+
 	if !exists {
 		return nil, fmt.Errorf("key not found: %s", key)
 	}
 
-	// Check if expired
 	if !item.expiration.IsZero() && time.Now().After(item.expiration) {
 		return nil, fmt.Errorf("key expired: %s", key)
 	}
 
-	// Update last access time
 	item.lastAccess = time.Now()
 
 	return item.value, nil
@@ -251,18 +256,25 @@ func (cs *CacheStorage) Size() int {
 
 // evictLRU evicts the least recently used item
 func (cs *CacheStorage) evictLRU() {
-	var oldestKey string
-	var oldestTime time.Time
-
-	for key, item := range cs.items {
-		if oldestKey == "" || item.lastAccess.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = item.lastAccess
-		}
+	evictCount := cs.maxSize / 10
+	if evictCount < 1 {
+		evictCount = 1
 	}
 
-	if oldestKey != "" {
-		delete(cs.items, oldestKey)
+	type kv struct {
+		key       string
+		lastAccess time.Time
+	}
+	candidates := make([]kv, 0, len(cs.items))
+	for key, item := range cs.items {
+		candidates = append(candidates, kv{key: key, lastAccess: item.lastAccess})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].lastAccess.Before(candidates[j].lastAccess)
+	})
+
+	for i := 0; i < evictCount && i < len(candidates); i++ {
+		delete(cs.items, candidates[i].key)
 	}
 }
 

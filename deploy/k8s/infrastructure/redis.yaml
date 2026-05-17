@@ -13,14 +13,40 @@ spec:
       labels:
         app: redis
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: redis
         image: redis:7-alpine
+        args:
+          - "redis-server"
+          - "--appendonly"
+          - "yes"
+          - "--appendfsync"
+          - "everysec"
+          - "--save"
+          - "900"
+          - "1"
+          - "--save"
+          - "300"
+          - "10"
         ports:
         - containerPort: 6379
         volumeMounts:
         - name: redis-storage
           mountPath: /data
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 500m
         livenessProbe:
           exec:
             command:
@@ -35,6 +61,12 @@ spec:
             - ping
           initialDelaySeconds: 5
           periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
       volumes:
       - name: redis-storage
         persistentVolumeClaim:

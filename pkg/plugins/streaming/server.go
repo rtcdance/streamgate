@@ -2,10 +2,13 @@ package streaming
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
@@ -33,22 +36,64 @@ func NewStreamingServer(cfg *config.Config, logger *zap.Logger, kernel *core.Mic
 }
 
 // Start starts the streaming server
+func (s *StreamingServer) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authorization required"})
+			return
+		}
+
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		tokenStr = strings.TrimSpace(tokenStr)
+		if tokenStr == "" || tokenStr == authHeader {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid authorization format"})
+			return
+		}
+
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method")
+			}
+			return []byte(s.config.Auth.JWTSecret), nil
+		})
+		if err != nil || !token.Valid {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"})
+			return
+		}
+
+		wallet, _ := claims["wallet_address"].(string)
+		if wallet == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "wallet address required"})
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 func (s *StreamingServer) Start(ctx context.Context) error {
 	handler := NewStreamingHandler(s.cache, s.logger, s.kernel)
 
 	mux := http.NewServeMux()
 
-	// Health endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
-	// Streaming endpoints
-	mux.HandleFunc("/api/v1/stream/hls", handler.GetHLSPlaylistHandler)
-	mux.HandleFunc("/api/v1/stream/dash", handler.GetDASHManifestHandler)
-	mux.HandleFunc("/api/v1/stream/segment", handler.GetSegmentHandler)
-	mux.HandleFunc("/api/v1/stream/info", handler.GetStreamInfoHandler)
+	mux.HandleFunc("/api/v1/stream/hls", s.requireAuth(handler.GetHLSPlaylistHandler))
+	mux.HandleFunc("/api/v1/stream/dash", s.requireAuth(handler.GetDASHManifestHandler))
+	mux.HandleFunc("/api/v1/stream/segment", s.requireAuth(handler.GetSegmentHandler))
+	mux.HandleFunc("/api/v1/stream/info", s.requireAuth(handler.GetStreamInfoHandler))
 
-	// Catch-all for 404
 	mux.HandleFunc("/", handler.NotFoundHandler)
 
 	s.server = &http.Server{

@@ -1,0 +1,106 @@
+# SLO Recording Rules
+# These precompute SLO metrics for fast querying in dashboards and burn-rate alerts.
+# Reference: https://sre.google/workbook/dashboard-design/
+
+groups:
+  - name: slo_recording_rules
+    interval: 30s
+    rules:
+      # ────────────────────────────────────────────
+      # API Availability SLO (target: 99.9%)
+      # ────────────────────────────────────────────
+      - record: slo:api:errors_total:rate1m
+        expr: |
+          sum(rate(streamgate_http_requests_total{status=~"5.."}[1m]))
+          or vector(0)
+
+      - record: slo:api:requests_total:rate1m
+        expr: |
+          sum(rate(streamgate_http_requests_total[1m]))
+          or vector(0)
+
+      - record: slo:api:errors_total:rate5m
+        expr: |
+          sum(rate(streamgate_http_requests_total{status=~"5.."}[5m]))
+          or vector(0)
+
+      - record: slo:api:requests_total:rate5m
+        expr: |
+          sum(rate(streamgate_http_requests_total[5m]))
+          or vector(0)
+
+      - record: slo:api:errors_total:rate30m
+        expr: |
+          sum(rate(streamgate_http_requests_total{status=~"5.."}[30m]))
+          or vector(0)
+
+      - record: slo:api:requests_total:rate30m
+        expr: |
+          sum(rate(streamgate_http_requests_total[30m]))
+          or vector(0)
+
+      # SLO compliance (sliding 30d)
+      - record: slo:api:compliance_30d
+        expr: |
+          (
+            1 - (
+              sum(increase(streamgate_http_requests_total{status=~"5.."}[30d]))
+              / sum(increase(streamgate_http_requests_total[30d]))
+            )
+          ) * 100
+
+      # Error budget remaining (API availability: 99.9%)
+      - record: slo:api:error_budget_remaining
+        expr: |
+          (
+            0.001
+            - (
+              sum(increase(streamgate_http_requests_total{status=~"5.."}[30d]))
+              / sum(increase(streamgate_http_requests_total[30d]))
+            )
+          ) * 100
+
+      # ────────────────────────────────────────────
+      # API Latency SLO (P99 target: < 2s, P95 target: < 500ms)
+      # ────────────────────────────────────────────
+      - record: slo:api:latency_p99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le)
+          )
+
+      - record: slo:api:latency_p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le)
+          )
+
+      # ────────────────────────────────────────────
+      # NFT Verification SLO (target: 99.5%)
+      # ────────────────────────────────────────────
+      - record: slo:nft:errors_total:rate5m
+        expr: |
+          sum(rate(streamgate_http_requests_total{route="/api/v1/nft/verify",status=~"4..|5.."}[5m]))
+          or vector(0)
+
+      - record: slo:nft:requests_total:rate5m
+        expr: |
+          sum(rate(streamgate_http_requests_total{route="/api/v1/nft/verify"}[5m]))
+          or vector(0)
+
+      - record: slo:nft:compliance_30d
+        expr: |
+          (
+            1 - (
+              sum(increase(streamgate_http_requests_total{route="/api/v1/nft/verify",status=~"4..|5.."}[30d]))
+              / sum(increase(streamgate_http_requests_total{route="/api/v1/nft/verify"}[30d]))
+            )
+          ) * 100
+
+      # ────────────────────────────────────────────
+      # RPC Provider Availability (target: 99.5%)
+      # ────────────────────────────────────────────
+      - record: slo:rpc:failover_rate:rate5m
+        expr: |
+          sum(rate(streamgate_rpc_failover_total[5m]))
+          or vector(0)

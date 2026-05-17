@@ -3,15 +3,24 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/monitoring"
+
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
 )
+
+func init() {
+	core.RegisterPluginFactory("api-gateway", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewGatewayPlugin(cfg, logger)
+	})
+}
 
 // GatewayPlugin is the API Gateway plugin
 type GatewayPlugin struct {
@@ -19,6 +28,8 @@ type GatewayPlugin struct {
 	kernel           *core.Microkernel
 	logger           *zap.Logger
 	server           *http.Server
+	grpcServer       *grpc.Server
+	grpcListener     net.Listener
 	config           *config.Config
 	metricsCollector *monitoring.MetricsCollector
 	alertManager     *monitoring.AlertManager
@@ -87,12 +98,55 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 	}()
 
 	p.logger.Info("API Gateway started successfully", zap.Int("port", p.config.Server.Port))
+
+	grpcPort := p.config.GRPC.Port
+	if grpcPort <= 0 {
+		grpcPort = 9090
+	}
+	p.grpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", grpcPort))
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC listener: %w", err)
+	}
+
+	grpcServices := &gateway.GRPCServices{
+		AuthService:    resources.AuthService,
+		Web3Service:    resources.Web3Service,
+		NFTVerifier:    resources.NFTVerifier,
+		ContentService: resources.ContentService,
+		SegmentStorage: resources.SegmentStorage,
+		UploadService:  resources.UploadService,
+		TranscodingSvc: resources.TranscodingSvc,
+	}
+	p.grpcServer = gateway.SetupGRPCServer(p.config, p.logger, grpcServices)
+
+	go func() {
+		p.logger.Info("Starting gRPC server", zap.Int("port", grpcPort))
+		if err := p.grpcServer.Serve(p.grpcListener); err != nil {
+			p.logger.Error("gRPC server error", zap.Error(err))
+		}
+	}()
+
+	p.logger.Info("gRPC server started", zap.Int("port", grpcPort))
 	return nil
 }
 
 // Stop stops the API Gateway
 func (p *GatewayPlugin) Stop(ctx context.Context) error {
 	p.logger.Info("Stopping API Gateway")
+
+	if p.grpcServer != nil {
+		done := make(chan struct{})
+		go func() {
+			p.grpcServer.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			p.grpcServer.Stop()
+		}
+		p.logger.Info("gRPC server stopped")
+	}
 
 	if p.server != nil {
 		if err := p.server.Shutdown(ctx); err != nil {

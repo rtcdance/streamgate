@@ -1,43 +1,36 @@
-# Build stage
 FROM golang:1.24-alpine3.21 AS builder
 
 WORKDIR /app
 
-# Copy go mod files
+RUN apk add --no-cache git make
+
+ENV GOPROXY=https://goproxy.cn,direct
+
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the monolith service
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o streamgate ./cmd/monolith/streamgate
+RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -installsuffix cgo -o streamgate ./cmd/monolith/streamgate
 
-# Final stage
 FROM alpine:3.21
 
 RUN apk --no-cache add ca-certificates ffmpeg wget
 
-# Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-# Copy the binary from builder
 COPY --from=builder /app/streamgate .
+COPY --from=builder /app/h5-demo ./h5-demo
 
-# Copy config files
-COPY --from=builder /app/config ./config
-
-# Set ownership
 RUN chown -R appuser:appgroup /app
 
-# Switch to non-root user
 USER appuser
 
 EXPOSE 8080 9090
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
 
-CMD ["./streamgate"]
+ENTRYPOINT ["./streamgate"]

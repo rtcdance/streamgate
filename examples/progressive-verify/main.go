@@ -126,9 +126,9 @@ func stage2(ctx context.Context, client *ethclient.Client, contractAddr, tokenID
 
 // ——— 阶段三：生产级（和项目 pkg/web3/nft.go 一致） ———
 // 特点:
-//   1. BlockTagSafe — 读 finalized 数据，防 reorg
-//   2. 泛型 withRetry — 自动 failover
-//   3. 可选缓存 — NFTVerifier 的 NFTAccessEntry 绑定了 BlockNumber+BlockHash
+//  1. BlockTagSafe — 读 finalized 数据，防 reorg
+//  2. 泛型 withRetry — 自动 failover
+//  3. 可选缓存 — NFTVerifier 的 NFTAccessEntry 绑定了 BlockNumber+BlockHash
 func stage3(ctx context.Context, client *ethclient.Client, contractAddr, tokenID, ownerAddr string) {
 	contract := common.HexToAddress(contractAddr)
 	owner := common.HexToAddress(ownerAddr)

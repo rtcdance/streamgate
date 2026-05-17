@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/util"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // RegisterNFTRoutes registers NFT verification and ownership routes.
-func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, defaultChainID int64, cacheTTL time.Duration) {
+func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, defaultChainID int64, cacheTTL time.Duration, blockProver ...middleware.BlockProver) {
 	nft := router.Group("/api/v1/nft")
 	nft.GET("", func(c *gin.Context) {
 		wallet := middleware.GetWalletAddress(c)
@@ -35,7 +36,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrNFTVerifyError, internalErrMsg(err), err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"wallet": wallet, "contract": contract, "chain_id": chainID, "balance": balance.String(), "has_nft": balance.Sign() > 0})
+		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "chain_id": chainID, "balance": balance.String(), "has_nft": balance.Sign() > 0})
 	})
 	nft.GET("/:id", func(c *gin.Context) {
 		tokenID := c.Param("id")
@@ -56,7 +57,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrNFTVerifyError, internalErrMsg(err), err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"wallet": wallet, "contract": contract, "token_id": tokenID, "chain_id": chainID, "has_nft": hasNFT})
+		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "token_id": tokenID, "chain_id": chainID, "has_nft": hasNFT})
 	})
 	nft.POST("/verify", func(c *gin.Context) {
 		var req struct {
@@ -128,9 +129,16 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			return
 		}
 		if cache != nil && !cacheHit {
-			cache.Set(cacheKey, middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)})
+			entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
+			if len(blockProver) > 0 && blockProver[0] != nil {
+				if header, err := blockProver[0].HeaderByNumber(c.Request.Context(), nil); err == nil && header != nil {
+					entry.BlockNumber = header.Number
+					entry.BlockHash = header.Hash
+				}
+			}
+			cache.Set(cacheKey, entry)
 		}
-		c.JSON(http.StatusOK, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
+		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
 	})
 	log.Info("NFT routes registered")
 }
@@ -220,6 +228,7 @@ func (c *NFTAccessCache) Get(key string) (CachedNFTAccess, bool) {
 }
 
 // Set stores a cached entry. Evicts expired entries if the cache exceeds maxSize.
+// When still over capacity after expired eviction, removes the oldest 10% of entries.
 func (c *NFTAccessCache) Set(key string, entry CachedNFTAccess) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -229,6 +238,30 @@ func (c *NFTAccessCache) Set(key string, entry CachedNFTAccess) {
 		for k, v := range c.entries {
 			if now.After(v.ExpiresAt) {
 				delete(c.entries, k)
+			}
+		}
+		if len(c.entries) > c.maxSize {
+			type kv struct {
+				k string
+				t time.Time
+			}
+			sorted := make([]kv, 0, len(c.entries))
+			for k, v := range c.entries {
+				sorted = append(sorted, kv{k, v.ExpiresAt})
+			}
+			evictCount := len(c.entries) - c.maxSize + c.maxSize/10
+			if evictCount < 1 {
+				evictCount = 1
+			}
+			for i := 0; i < evictCount && i < len(sorted); i++ {
+				oldestIdx := i
+				for j := i + 1; j < len(sorted); j++ {
+					if sorted[j].t.Before(sorted[oldestIdx].t) {
+						oldestIdx = j
+					}
+				}
+				sorted[i], sorted[oldestIdx] = sorted[oldestIdx], sorted[i]
+				delete(c.entries, sorted[i].k)
 			}
 		}
 	}

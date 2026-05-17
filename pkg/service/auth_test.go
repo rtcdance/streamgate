@@ -53,7 +53,7 @@ func (m *MockAuthStorage) UpdateUser(_ context.Context, user *models.User) error
 
 func TestNewAuthService(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	assert.NotNil(t, auth)
 	assert.NotNil(t, auth.jwtSecret)
@@ -62,7 +62,7 @@ func TestNewAuthService(t *testing.T) {
 
 func TestAuthService_Authenticate(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("successful authentication", func(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -79,20 +79,20 @@ func TestAuthService_Authenticate(t *testing.T) {
 		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
+		token, err := auth.Authenticate(context.Background(), "testuser", "password123")
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 	})
 
 	t.Run("invalid username", func(t *testing.T) {
-		_, err := auth.Authenticate(context.Background(),"nonexistent", "password")
+		_, err := auth.Authenticate(context.Background(), "nonexistent", "password")
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidCredential)
 		assert.NotContains(t, err.Error(), "username")
 	})
 
 	t.Run("invalid password", func(t *testing.T) {
-		auth.Register(context.Background(), "testuser2", "password123", "test2@example.com")
+		_ = auth.Register(context.Background(), "testuser2", "password123", "test2@example.com")
 		_, err := auth.Authenticate(context.Background(), "testuser2", "wrongpassword")
 		assert.ErrorIs(t, err, ErrInvalidCredential)
 	})
@@ -100,7 +100,7 @@ func TestAuthService_Authenticate(t *testing.T) {
 
 func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	auth.signatureVerifier = verifier
 	store, ok := auth.challengeStore.(*MemoryChallengeStore)
@@ -198,7 +198,7 @@ func TestMemoryChallengeStore_ChallengeLifecycle(t *testing.T) {
 }
 
 func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
-	auth := NewAuthService("test-secret", NewMockAuthStorage())
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
 	token, err := auth.GeneratePlaybackToken(
 		"0x1234567890123456789012345678901234567890",
@@ -223,7 +223,7 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 
 func TestAuthService_Verify(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("verify valid token", func(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -240,7 +240,7 @@ func TestAuthService_Verify(t *testing.T) {
 		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
+		token, err := auth.Authenticate(context.Background(), "testuser", "password123")
 		require.NoError(t, err)
 
 		valid, err := auth.Verify(token)
@@ -257,7 +257,7 @@ func TestAuthService_Verify(t *testing.T) {
 
 func TestAuthService_ParseToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("parse valid token", func(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -274,7 +274,7 @@ func TestAuthService_ParseToken(t *testing.T) {
 		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		token, err := auth.Authenticate(context.Background(),"testuser", "password123")
+		token, err := auth.Authenticate(context.Background(), "testuser", "password123")
 		require.NoError(t, err)
 
 		claims, err := auth.ParseToken(token)
@@ -291,7 +291,7 @@ func TestAuthService_ParseToken(t *testing.T) {
 
 func TestAuthService_Register(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("successful registration", func(t *testing.T) {
 		err := auth.Register(context.Background(), "newuser", "password123", "new@example.com")
@@ -316,7 +316,7 @@ func TestAuthService_Register(t *testing.T) {
 
 func TestAuthService_ChangePassword(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("successful password change", func(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -370,7 +370,7 @@ func TestAuthService_ChangePassword(t *testing.T) {
 
 func TestAuthService_RefreshToken(t *testing.T) {
 	storage := NewMockAuthStorage()
-	auth := NewAuthService("test-secret", storage)
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	t.Run("successful token refresh", func(t *testing.T) {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
@@ -387,7 +387,7 @@ func TestAuthService_RefreshToken(t *testing.T) {
 		err = storage.CreateUser(context.Background(), user)
 		require.NoError(t, err)
 
-		oldToken, err := auth.Authenticate(context.Background(),"testuser", "password123")
+		oldToken, err := auth.Authenticate(context.Background(), "testuser", "password123")
 		require.NoError(t, err)
 
 		newToken, err := auth.RefreshToken(context.Background(), oldToken)

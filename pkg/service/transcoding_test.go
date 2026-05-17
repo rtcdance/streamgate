@@ -28,6 +28,14 @@ func (q *fakeTranscodingQueue) GetStatus(taskID string) (string, error) {
 	return "", assert.AnError
 }
 
+func (q *fakeTranscodingQueue) Ack(taskID string) error {
+	return nil
+}
+
+func (q *fakeTranscodingQueue) Nak(taskID string) error {
+	return nil
+}
+
 func TestTranscodingService_Transcode(t *testing.T) {
 	queue := &fakeTranscodingQueue{}
 	service := NewTranscodingService(nil, queue)

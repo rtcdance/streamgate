@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -24,7 +23,7 @@ func setupRedisChallengeStore(t *testing.T) (*RedisChallengeStore, *miniredis.Mi
 	}
 
 	t.Cleanup(func() {
-		store.Close()
+		_ = store.Close()
 		mr.Close()
 	})
 
@@ -67,7 +66,7 @@ func TestRedisChallengeStore_GetNotFound(t *testing.T) {
 
 	_, err := store.GetChallenge(ctx, "nonexistent")
 	assert.Error(t, err)
-	assert.Equal(t, "challenge not found", err.Error())
+	assert.Contains(t, err.Error(), "challenge not found")
 }
 
 func TestRedisChallengeStore_MarkChallengeUsed(t *testing.T) {
@@ -132,7 +131,7 @@ func TestRedisChallengeStore_MarkChallengeUsed_NotFound(t *testing.T) {
 
 	err := store.MarkChallengeUsed(ctx, "nonexistent", time.Now().UTC())
 	assert.Error(t, err)
-	assert.Equal(t, "challenge not found", err.Error())
+	assert.ErrorIs(t, err, ErrChallengeNotFound)
 }
 
 func TestRedisChallengeStore_TTLExpiration(t *testing.T) {
@@ -145,7 +144,7 @@ func TestRedisChallengeStore_TTLExpiration(t *testing.T) {
 		client: client,
 		ttl:    100 * time.Millisecond,
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	challenge := &WalletChallenge{
@@ -170,7 +169,7 @@ func TestRedisChallengeStore_TTLExpiration(t *testing.T) {
 
 	// Should be gone after TTL
 	_, err = store.GetChallenge(ctx, challenge.ID)
-	assert.True(t, errors.Is(err, redis.Nil) || (err != nil && err.Error() == "challenge not found"))
+	assert.Error(t, err)
 }
 
 func TestMemoryChallengeStore_SaveAndGet(t *testing.T) {

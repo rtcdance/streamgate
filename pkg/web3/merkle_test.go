@@ -164,11 +164,11 @@ func TestMerkleTree_FromHashes(t *testing.T) {
 func TestMerkleTree_RootHex(t *testing.T) {
 	items := [][]byte{[]byte("alice")}
 	tree, _ := NewMerkleTree(items)
-	hex := tree.RootHex()
-	if len(hex) != 66 { // "0x" + 64 hex chars
-		t.Errorf("root hex should be 66 chars, got %d", len(hex))
+	rootHex := tree.RootHex()
+	if len(rootHex) != 66 { // "0x" + 64 hex chars
+		t.Errorf("root hex should be 66 chars, got %d", len(rootHex))
 	}
-	if hex[:2] != "0x" {
+	if rootHex[:2] != "0x" {
 		t.Error("root hex should be 0x-prefixed")
 	}
 }
@@ -204,7 +204,7 @@ func TestMerkleTree_LargeTree(t *testing.T) {
 func TestEstimateProofGas(t *testing.T) {
 	tests := []struct {
 		proofLen int
-		wantMin uint64
+		wantMin  uint64
 	}{
 		{0, 600},
 		{1, 1300},

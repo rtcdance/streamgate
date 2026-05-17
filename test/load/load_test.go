@@ -1,7 +1,8 @@
 // Package load provides HTTP load testing for StreamGate using vegeta.
 //
 // Usage:
-//   go test ./test/load/ -v -run TestLoad -count=1
+//
+//	go test ./test/load/ -v -run TestLoad -count=1
 //
 // Prerequisites:
 //   - StreamGate running on the target URL (default: http://localhost:8080)
@@ -30,15 +31,15 @@ func getTargetURL() string {
 
 // LoadTestResult holds summarized load test results
 type LoadTestResult struct {
-	Endpoint     string  `json:"endpoint"`
-	Rate         float64 `json:"rate_rps"`
-	Duration     string  `json:"duration"`
-	SuccessRatio float64 `json:"success_ratio"`
+	Endpoint     string        `json:"endpoint"`
+	Rate         float64       `json:"rate_rps"`
+	Duration     string        `json:"duration"`
+	SuccessRatio float64       `json:"success_ratio"`
 	LatencyP50   time.Duration `json:"latency_p50"`
 	LatencyP95   time.Duration `json:"latency_p95"`
 	LatencyP99   time.Duration `json:"latency_p99"`
-	Throughput   float64 `json:"throughput_bytes_sec"`
-	Errors       int     `json:"errors"`
+	Throughput   float64       `json:"throughput_bytes_sec"`
+	Errors       int           `json:"errors"`
 }
 
 func runLoadTest(t *testing.T, name string, target vegeta.Target, rate vegeta.Rate, duration time.Duration) LoadTestResult {

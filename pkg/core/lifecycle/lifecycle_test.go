@@ -128,7 +128,7 @@ func TestLifecycle_Start(t *testing.T) {
 
 		lc.OnStart(func(ctx context.Context) error { return nil })
 
-		err := lc.Start(nil)
+		err := lc.Start(context.TODO())
 
 		assert.NoError(t, err)
 	})
@@ -194,7 +194,7 @@ func TestLifecycle_Stop(t *testing.T) {
 
 		lc.OnStop(func(ctx context.Context) error { return nil })
 
-		err := lc.Stop(nil)
+		err := lc.Stop(context.TODO())
 
 		assert.NoError(t, err)
 	})

@@ -103,8 +103,8 @@ func (rl *RPCRateLimiter) Tokens() float64 {
 // RateLimiterConfig holds configuration for RPC rate limiting.
 type RateLimiterConfig struct {
 	Enabled bool    `json:"enabled" yaml:"enabled"`
-	Rate    float64 `json:"rate" yaml:"rate"`    // requests per second
-	Burst   float64 `json:"burst" yaml:"burst"`  // max burst size
+	Rate    float64 `json:"rate" yaml:"rate"`   // requests per second
+	Burst   float64 `json:"burst" yaml:"burst"` // max burst size
 }
 
 // DefaultRateLimiterConfig returns the default rate limiter configuration.

@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/optimization"
 	"streamgate/pkg/plugins/api"
 )
 
@@ -50,40 +49,6 @@ func TestMetricsCollection(t *testing.T) {
 	}
 
 	t.Logf("Metrics collection: 3000 operations in %v (%.2f ops/ms)", duration, float64(3000)/duration.Seconds()/1000)
-}
-
-// TestCachePerformance validates cache performance
-func TestCachePerformance(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	cache := optimization.NewLocalCache(1000, 5*time.Minute, logger)
-
-	// Warm up cache
-	for i := 0; i < 1000; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i))
-	}
-
-	// Measure read performance
-	start := time.Now()
-	hits := 0
-	for i := 0; i < 10000; i++ {
-		if _, ok := cache.Get(fmt.Sprintf("key-%d", i%1000)); ok {
-			hits++
-		}
-	}
-	duration := time.Since(start)
-
-	hitRate := float64(hits) / 10000 * 100
-	throughput := float64(10000) / duration.Seconds()
-
-	if hitRate < 95 {
-		t.Errorf("Cache hit rate too low: %.2f%% (expected > 95%%)", hitRate)
-	}
-
-	if duration > 10*time.Millisecond {
-		t.Errorf("Cache read too slow: %v (expected < 10ms for 10k reads)", duration)
-	}
-
-	t.Logf("Cache performance: %.2f%% hit rate, %.0f ops/sec", hitRate, throughput)
 }
 
 // TestRateLimitingPerformance validates rate limiting performance
@@ -188,27 +153,6 @@ func TestConcurrentRequests(t *testing.T) {
 		metrics.P95Latency, metrics.P99Latency, metrics.MaxLatency)
 }
 
-// TestMemoryUsage validates memory efficiency
-func TestMemoryUsage(t *testing.T) {
-	logger, _ := zap.NewDevelopment()
-	cache := optimization.NewLocalCache(10000, 5*time.Minute, logger)
-
-	// Fill cache with 10k entries
-	for i := 0; i < 10000; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i), fmt.Sprintf("value-%d", i))
-	}
-
-	// Estimate memory usage (rough calculation)
-	// Each entry: key (20 bytes) + value (20 bytes) + overhead (100 bytes) = ~140 bytes
-	estimatedMemory := 10000 * 140 / 1024 / 1024 // MB
-
-	if estimatedMemory > 5 {
-		t.Logf("Warning: Cache memory usage high: ~%d MB for 10k entries", estimatedMemory)
-	}
-
-	t.Logf("Cache memory usage: ~%d MB for 10k entries", estimatedMemory)
-}
-
 // TestPrometheusExportPerformance validates Prometheus metrics performance
 func TestPrometheusExportPerformance(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
@@ -311,26 +255,6 @@ func BenchmarkMetricsCollection(b *testing.B) {
 }
 
 // BenchmarkCacheGet benchmarks cache get operations
-func BenchmarkCacheGet(b *testing.B) {
-	cache := optimization.NewLocalCache(1000, 5*time.Minute, nil)
-	cache.Set("key", "value")
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cache.Get("key")
-	}
-}
-
-// BenchmarkCacheSet benchmarks cache set operations
-func BenchmarkCacheSet(b *testing.B) {
-	cache := optimization.NewLocalCache(10000, 5*time.Minute, nil)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cache.Set(fmt.Sprintf("key-%d", i%1000), fmt.Sprintf("value-%d", i))
-	}
-}
-
 // BenchmarkRateLimiting benchmarks rate limiting
 func BenchmarkRateLimiting(b *testing.B) {
 	limiter := api.NewRateLimiter(10000)

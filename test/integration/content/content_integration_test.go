@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -34,15 +35,15 @@ func TestContentService_CreateAndRetrieve(t *testing.T) {
 	}
 
 	id, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	content.ID = id
-	helpers.AssertNotNil(t, content.ID)
+	require.NotNil(t, content.ID)
 
 	// Retrieve content
 	retrieved, err := contentService.GetContent(context.Background(), content.ID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, retrieved)
-	helpers.AssertEqual(t, content.Title, retrieved.Title)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Equal(t, content.Title, retrieved.Title)
 }
 
 func TestContentService_UpdateContent(t *testing.T) {
@@ -71,7 +72,7 @@ func TestContentService_UpdateContent(t *testing.T) {
 	}
 
 	id, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	content.ID = id
 
 	// Update content
@@ -79,13 +80,13 @@ func TestContentService_UpdateContent(t *testing.T) {
 	content.Description = "Updated description"
 
 	err = contentService.UpdateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify update
 	retrieved, err := contentService.GetContent(context.Background(), content.ID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "Updated Title", retrieved.Title)
-	helpers.AssertEqual(t, "Updated description", retrieved.Description)
+	require.NoError(t, err)
+	require.Equal(t, "Updated Title", retrieved.Title)
+	require.Equal(t, "Updated description", retrieved.Description)
 }
 
 func TestContentService_DeleteContent(t *testing.T) {
@@ -114,16 +115,16 @@ func TestContentService_DeleteContent(t *testing.T) {
 	}
 
 	id, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	content.ID = id
 
 	// Delete content
 	err = contentService.DeleteContent(context.Background(), content.ID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify deletion
 	_, err = contentService.GetContent(context.Background(), content.ID)
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestContentService_ListContent(t *testing.T) {
@@ -153,13 +154,13 @@ func TestContentService_ListContent(t *testing.T) {
 			OwnerID:     "test-owner",
 		}
 		_, err := contentService.CreateContent(context.Background(), content)
-		helpers.AssertNoError(t, err)
+		require.NoError(t, err)
 	}
 
 	// List contents
 	contents, err := contentService.ListContents(context.Background(), "test-owner", 10, 0)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, len(contents) >= 5)
+	require.NoError(t, err)
+	require.True(t, len(contents) >= 5)
 }
 
 func TestContentService_SearchContent(t *testing.T) {
@@ -189,10 +190,10 @@ func TestContentService_SearchContent(t *testing.T) {
 	}
 
 	_, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// List contents to verify creation
 	contents, err := contentService.ListContents(context.Background(), "test-owner", 10, 0)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, len(contents) > 0)
+	require.NoError(t, err)
+	require.True(t, len(contents) > 0)
 }

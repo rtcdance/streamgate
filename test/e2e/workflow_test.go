@@ -81,11 +81,11 @@ func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
 func TestE2ENFTVerifyWorkflow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(3)}
 	_, _, server := setupE2EServer(t, checker, nil)
-	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	t.Run("VerifyByBalance", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
-			"wallet":   	"0x1234567890123456789012345678901234567890",
+			"wallet":   "0x1234567890123456789012345678901234567890",
 			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
 			"chain_id": 11155111,
 		})
@@ -107,10 +107,10 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 	t.Run("VerifyByTokenOwnership", func(t *testing.T) {
 		checker2 := &mockNFTChecker{verifyResult: true}
 		_, _, server2 := setupE2EServer(t, checker2, nil)
-		jwtToken2 := testJWT(	"0x1234567890123456789012345678901234567890")
+		jwtToken2 := testJWT("0x1234567890123456789012345678901234567890")
 
 		body, _ := json.Marshal(map[string]interface{}{
-			"wallet":   	"0x1234567890123456789012345678901234567890",
+			"wallet":   "0x1234567890123456789012345678901234567890",
 			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
 			"token_id": "42",
 			"chain_id": 11155111,
@@ -180,7 +180,7 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 func TestE2ETranscodingWorkflow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
 	_, _, server := setupE2EServer(t, checker, nil)
-	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	t.Run("SubmitTask", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
@@ -206,7 +206,7 @@ func TestE2ETranscodingWorkflow(t *testing.T) {
 func TestE2EUploadWorkflow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
 	_, _, server := setupE2EServer(t, checker, newMockSegmentStorage())
-	jwtToken := testJWT(	"0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	t.Run("UploadFile", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", bytes.NewReader([]byte("fake video")))

@@ -15,18 +15,18 @@ import (
 
 // PendingTx tracks a sent transaction for stuck-tx detection and replacement.
 type PendingTx struct {
-	Hash        string
-	Nonce       uint64
-	GasPrice    *big.Int // legacy gas price (nil for EIP-1559)
-	GasTipCap   *big.Int // EIP-1559 max priority fee per gas
+	Hash         string
+	Nonce        uint64
+	GasPrice     *big.Int // legacy gas price (nil for EIP-1559)
+	GasTipCap    *big.Int // EIP-1559 max priority fee per gas
 	MaxFeePerGas *big.Int // EIP-1559 max fee per gas
-	IsEIP1559   bool
-	To          string
-	Value       *big.Int
-	Data        []byte
-	GasLimit    uint64   // original gas limit (0 = use default)
-	SentAt      time.Time
-	ChainID     int64
+	IsEIP1559    bool
+	To           string
+	Value        *big.Int
+	Data         []byte
+	GasLimit     uint64 // original gas limit (0 = use default)
+	SentAt       time.Time
+	ChainID      int64
 }
 
 // TxTracker manages pending transactions and provides gas-bump / cancel operations.

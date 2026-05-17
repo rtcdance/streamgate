@@ -296,13 +296,13 @@ func TestGasEstimate_EIP1559Fields(t *testing.T) {
 
 func TestGasPrice_EIP1559Fields(t *testing.T) {
 	gp := GasPrice{
-		Level:                 "standard",
-		GasPrice:              big.NewInt(4_000_000_000),
-		Gwei:                  4.0,
-		EstimatedTime:         "15-30 seconds",
-		BaseFee:               big.NewInt(1_500_000_000),
-		MaxPriorityFeePerGas:  big.NewInt(1_000_000_000),
-		MaxFeePerGas:          big.NewInt(4_000_000_000),
+		Level:                "standard",
+		GasPrice:             big.NewInt(4_000_000_000),
+		Gwei:                 4.0,
+		EstimatedTime:        "15-30 seconds",
+		BaseFee:              big.NewInt(1_500_000_000),
+		MaxPriorityFeePerGas: big.NewInt(1_000_000_000),
+		MaxFeePerGas:         big.NewInt(4_000_000_000),
 	}
 
 	assert.Equal(t, "standard", gp.Level)

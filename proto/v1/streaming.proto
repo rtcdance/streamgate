@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package streaming.v1;
 
-option go_package = "streamgate/proto/gen/go/streaming/v1;streamingv1";
+option go_package = "streamgate/pkg/api/v1/streaming;streamingv1";
 
 import "proto/v1/common.proto";
 

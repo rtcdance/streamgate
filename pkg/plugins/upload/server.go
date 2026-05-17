@@ -4,54 +4,133 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+	"streamgate/pkg/plugins/transcoder"
+	"streamgate/pkg/service"
+	"streamgate/pkg/storage"
 )
 
-// UploadServer handles file uploads
 type UploadServer struct {
-	config *config.Config
-	logger *zap.Logger
-	kernel *core.Microkernel
-	server *http.Server
-	store  *FileStore
+	config        *config.Config
+	logger        *zap.Logger
+	kernel        *core.Microkernel
+	server        *http.Server
+	svc           *service.UploadService
+	transcodingSvc *service.TranscodingService
 }
 
-// NewUploadServer creates a new upload server
 func NewUploadServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microkernel) (*UploadServer, error) {
-	store, err := NewFileStore(cfg, logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file store: %w", err)
+	pg := storage.NewPostgresDB()
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database, cfg.Database.SSLMode)
+	if err := pg.Connect(dsn); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	objStore, err := createObjectStorage(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create object storage: %w", err)
+	}
+
+	uploadObj, ok := objStore.(service.UploadObjectStorage)
+	if !ok {
+		return nil, fmt.Errorf("object storage does not implement UploadObjectStorage")
+	}
+
+	segStore, ok := objStore.(service.SegmentStorage)
+	if !ok {
+		logger.Warn("Object storage does not implement SegmentStorage, transcoding disabled")
+	}
+
+	svc := service.NewUploadService(pg, uploadObj, cfg.Storage.Bucket, logger)
+	if presigner, ok := objStore.(service.PresignedURLer); ok {
+		svc.SetPresigner(presigner)
+	}
+	if cfg.Upload.MaxSize > 0 {
+		svc.SetMaxUploadSize(cfg.Upload.MaxSize)
+	}
+	if cfg.Upload.StorageQuota > 0 {
+		svc.SetStorageQuota(cfg.Upload.StorageQuota)
+	}
+
+	var transcodingSvc *service.TranscodingService
+	var presigner service.PresignedURLer
+	if ps, ok := objStore.(service.PresignedURLer); ok {
+		presigner = ps
+	}
+	if segStore != nil {
+		transcodingSvc = initTranscodingService(cfg, logger, pg, segStore)
+	}
+	svc.RegisterAutoTranscodeHook(service.AutoTranscodeHookDeps{
+		TranscodingSvc: transcodingSvc,
+		Presigner:      presigner,
+		Bucket:         cfg.Storage.Bucket,
+		Profiles:       cfg.Transcode.Profiles,
+	})
+
 	return &UploadServer{
-		config: cfg,
-		logger: logger,
-		kernel: kernel,
-		store:  store,
+		config:         cfg,
+		logger:         logger,
+		kernel:         kernel,
+		svc:            svc,
+		transcodingSvc: transcodingSvc,
 	}, nil
 }
 
-// Start starts the upload server
+func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage) *service.TranscodingService {
+	ffmpegCfg := &transcoder.FFmpegConfig{
+		FFmpegPath:  "ffmpeg",
+		FFprobePath: "ffprobe",
+		TempDir:     os.TempDir(),
+		Timeout:     30 * time.Minute,
+	}
+	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
+	videoTranscoder := &ffmpegAdapter{ft: ft, log: log.Named("ffmpeg")}
+
+	var transcodingQueue service.TranscodingQueue
+	nq, natsErr := storage.NewNATSTranscodingQueue(cfg.NATS.URL, log.Named("nats-queue"))
+	if natsErr != nil {
+		log.Warn("NATS unavailable, falling back to in-memory transcoding queue", zap.Error(natsErr))
+		transcodingQueue = service.NewMemoryTranscodingQueue()
+	} else {
+		log.Info("Using NATS JetStream transcoding queue", zap.String("url", cfg.NATS.URL))
+		_ = nq
+	}
+
+	svc := service.NewTranscodingService(db, transcodingQueue,
+		service.WithTranscoder(videoTranscoder),
+		service.WithStorage(objStorage),
+		service.WithLogger(log),
+	)
+	svc.StartWorker(&zapInfoLogger{log.Named("transcode-worker")})
+	return svc
+}
+
+func (s *UploadServer) GetService() *service.UploadService {
+	return s.svc
+}
+
 func (s *UploadServer) Start(ctx context.Context) error {
-	handler := NewUploadHandler(s.store, s.logger, s.kernel)
+	handler := NewUploadHandler(s.svc, s.logger, s.kernel)
 
 	mux := http.NewServeMux()
-
-	// Health endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
-
-	// Upload endpoints
 	mux.HandleFunc("/api/v1/upload", handler.UploadHandler)
+	mux.HandleFunc("/api/v1/upload/list", handler.ListUploadsHandler)
+	mux.HandleFunc("/api/v1/upload/init", handler.InitChunkedUploadHandler)
 	mux.HandleFunc("/api/v1/upload/chunk", handler.UploadChunkHandler)
 	mux.HandleFunc("/api/v1/upload/complete", handler.CompleteUploadHandler)
+	mux.HandleFunc("/api/v1/upload/complete-upload", handler.CompleteUploadWithContentHandler)
 	mux.HandleFunc("/api/v1/upload/status", handler.GetUploadStatusHandler)
-
-	// Catch-all for 404
+	mux.HandleFunc("/api/v1/upload/chunks", handler.ChunkStatusesHandler)
+	mux.HandleFunc("/api/v1/upload/download-url", handler.DownloadURLHandler)
+	mux.HandleFunc("/api/v1/upload/delete", handler.DeleteUploadHandler)
 	mux.HandleFunc("/", handler.NotFoundHandler)
 
 	s.server = &http.Server{
@@ -70,34 +149,46 @@ func (s *UploadServer) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the upload server
 func (s *UploadServer) Stop(ctx context.Context) error {
+	if s.transcodingSvc != nil {
+		s.transcodingSvc.StopWorker()
+	}
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {
 			s.logger.Error("Error shutting down upload server", zap.Error(err))
 			return err
 		}
 	}
-
-	if s.store != nil {
-		if err := s.store.Close(); err != nil {
-			s.logger.Error("Error closing file store", zap.Error(err))
-			return err
-		}
-	}
-
 	return nil
 }
 
-// Health checks the health of the upload server
 func (s *UploadServer) Health(ctx context.Context) error {
 	if s.server == nil {
 		return fmt.Errorf("upload server not started")
 	}
-
-	if s.store == nil {
-		return fmt.Errorf("file store not initialized")
+	if s.svc == nil {
+		return fmt.Errorf("upload service not initialized")
 	}
+	return nil
+}
 
-	return s.store.Health(ctx)
+func createObjectStorage(cfg *config.Config, logger *zap.Logger) (service.UploadObjectStorage, error) {
+	switch cfg.Storage.Type {
+	case "s3":
+		s3Cfg := storage.S3Config{
+			Region:          cfg.Storage.Region,
+			AccessKeyID:     cfg.Storage.AccessKey,
+			SecretAccessKey: cfg.Storage.SecretKey,
+			Endpoint:        cfg.Storage.Endpoint,
+		}
+		return storage.NewS3Storage(s3Cfg)
+	default:
+		minioCfg := storage.MinIOConfig{
+			Endpoint:        cfg.Storage.Endpoint,
+			AccessKeyID:     cfg.Storage.AccessKey,
+			SecretAccessKey: cfg.Storage.SecretKey,
+			UseSSL:          cfg.Storage.UseSSL,
+		}
+		return storage.NewMinIOStorage(minioCfg)
+	}
 }

@@ -13,6 +13,13 @@ spec:
       labels:
         app: prometheus
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: prometheus
         image: prom/prometheus:latest
@@ -40,6 +47,12 @@ spec:
             port: 9090
           initialDelaySeconds: 5
           periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
       volumes:
       - name: prometheus-config
         configMap:

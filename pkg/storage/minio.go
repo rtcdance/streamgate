@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -93,6 +94,29 @@ func (ms *MinIOStorage) UploadWithContentType(ctx context.Context, bucket, objec
 		return fmt.Errorf("failed to upload to MinIO: %w", err)
 	}
 
+	return nil
+}
+
+func (ms *MinIOStorage) UploadStreamWithContentType(ctx context.Context, bucket, objectName string, reader io.Reader, size int64, contentType string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	exists, err := ms.client.BucketExists(ctx, bucket)
+	if err != nil {
+		return fmt.Errorf("failed to check bucket existence: %w", err)
+	}
+	if !exists {
+		if err := ms.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+			return fmt.Errorf("failed to create bucket: %w", err)
+		}
+	}
+
+	_, err = ms.client.PutObject(ctx, bucket, objectName, reader, size, minio.PutObjectOptions{
+		ContentType: contentType,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload stream to MinIO: %w", err)
+	}
 	return nil
 }
 
@@ -232,21 +256,12 @@ func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 
 // detectContentTypeByExt returns a MIME type based on the object name extension.
 func detectContentTypeByExt(objectName string) string {
+	if mt := mime.TypeByExtension(objectName); mt != "" {
+		return mt
+	}
 	switch {
 	case len(objectName) < 4:
 		return "application/octet-stream"
-	case string(objectName[len(objectName)-4:]) == ".mp4":
-		return "video/mp4"
-	case string(objectName[len(objectName)-5:]) == ".webm":
-		return "video/webm"
-	case string(objectName[len(objectName)-4:]) == ".avi":
-		return "video/x-msvideo"
-	case string(objectName[len(objectName)-4:]) == ".mkv":
-		return "video/x-matroska"
-	case string(objectName[len(objectName)-4:]) == ".mov":
-		return "video/quicktime"
-	case string(objectName[len(objectName)-5:]) == ".mpeg" || string(objectName[len(objectName)-4:]) == ".mpg":
-		return "video/mpeg"
 	case string(objectName[len(objectName)-4:]) == ".ts":
 		return "video/mp2t"
 	case string(objectName[len(objectName)-5:]) == ".m3u8":

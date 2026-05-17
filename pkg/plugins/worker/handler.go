@@ -58,7 +58,6 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check rate limit
 
 	var job Job
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
@@ -100,7 +99,6 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check rate limit
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
@@ -112,10 +110,9 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 
 	h.logger.Info("Getting job status", zap.String("job_id", jobID))
 
-	// TODO: Retrieve job status from storage
-	job := &Job{
-		ID:     jobID,
-		Status: "processing",
+	job, err := h.scheduler.GetJob(jobID)
+	if err != nil {
+		job = &Job{ID: jobID, Status: "unknown"}
 	}
 
 	// Record metrics
@@ -134,7 +131,6 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check rate limit
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
@@ -146,7 +142,12 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 
 	h.logger.Info("Cancelling job", zap.String("job_id", jobID))
 
-	// TODO: Cancel job in scheduler
+	if err := h.scheduler.CancelJob(jobID); err != nil {
+		h.logger.Error("Failed to cancel job", zap.Error(err))
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "job not found"})
+		return
+	}
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("cancel_job_success", map[string]string{})
@@ -165,12 +166,10 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Check rate limit
 
 	h.logger.Info("Listing jobs")
 
-	// TODO: Retrieve jobs from storage
-	jobs := []*Job{}
+	jobs := h.scheduler.ListJobs()
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("list_jobs_success", map[string]string{})
@@ -189,7 +188,6 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check rate limit
 
 	var scheduled ScheduledJob
 	if err := json.NewDecoder(r.Body).Decode(&scheduled); err != nil {
@@ -202,10 +200,17 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 
 	h.logger.Info("Scheduling job", zap.String("job_type", scheduled.JobType), zap.String("schedule", scheduled.Schedule))
 
-	// TODO: Store scheduled job
-	// - Validate cron expression
-	// - Store in database
-	// - Start scheduler
+	job := &Job{
+		ID:     scheduled.ID,
+		Type:   scheduled.JobType,
+		Status: "pending",
+	}
+	if err := h.scheduler.SubmitJob(job); err != nil {
+		h.logger.Error("Failed to schedule job", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "scheduler not running"})
+		return
+	}
 
 	// Record metrics
 	h.metricsCollector.IncrementCounter("schedule_job_success", map[string]string{})

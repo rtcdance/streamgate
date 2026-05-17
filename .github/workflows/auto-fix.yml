@@ -1,0 +1,282 @@
+name: AI Auto-Fix
+
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "Docker Build & Push"
+      - "Comprehensive Test Suite"
+      - "Deploy to Production"
+    types:
+      - completed
+
+concurrency:
+  group: auto-fix-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: read
+
+env:
+  MAX_FIX_ATTEMPTS: 3
+  FIX_BRANCH_PREFIX: fix/ci-auto
+
+jobs:
+  check-eligibility:
+    name: Check Fix Eligibility
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    outputs:
+      should_fix: ${{ steps.check.outputs.should_fix }}
+      run_id: ${{ github.event.workflow_run.id }}
+      run_name: ${{ github.event.workflow_run.name }}
+      head_branch: ${{ github.event.workflow_run.head_branch }}
+      head_sha: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check if auto-fix should run
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ "$HEAD_BRANCH" = "master" ] || [ "$HEAD_BRANCH" = "main" ]; then
+            echo "Skipping auto-fix for default branch failures - requires manual intervention"
+            echo "should_fix=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          EXISTING_PRS=$(gh pr list \
+            --repo ${{ github.repository }} \
+            --head "${FIX_BRANCH_PREFIX}-${RUN_ID}" \
+            --state open \
+            --json number 2>/dev/null || echo "[]")
+
+          if [ "$EXISTING_PRS" != "[]" ] && [ "$EXISTING_PRS" != "" ]; then
+            echo "Auto-fix PR already exists for this run, skipping"
+            echo "should_fix=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "should_fix=true" >> $GITHUB_OUTPUT
+
+  analyze-failure:
+    name: Analyze Failure
+    runs-on: ubuntu-latest
+    needs: check-eligibility
+    if: ${{ needs.check-eligibility.outputs.should_fix == 'true' }}
+    outputs:
+      failure_summary: ${{ steps.analyze.outputs.summary }}
+      fix_required: ${{ steps.analyze.outputs.fix_required }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-eligibility.outputs.head_sha }}
+          token: ${{ secrets.AI_BOT_PAT }}
+
+      - name: Fetch failed run details
+        env:
+          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
+        run: |
+          gh run view "$RUN_ID" --repo ${{ github.repository }} --json jobs > /tmp/run-jobs.json
+          jq -r '.jobs[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-jobs.txt
+          jq -r '.jobs[] | select(.conclusion=="failure") | .steps[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-steps.txt
+
+          echo "=== Failed Jobs ==="
+          cat /tmp/failed-jobs.txt
+          echo "=== Failed Steps ==="
+          cat /tmp/failed-steps.txt
+
+      - name: Fetch failed logs
+        env:
+          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
+        run: |
+          gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+          echo "Log size: $(wc -c < /tmp/failed-logs.txt) bytes"
+
+      - name: Analyze failure type
+        id: analyze
+        run: |
+          SUMMARY=""
+          FIX_REQUIRED="false"
+
+          if grep -q "go.mod or go.sum is not tidy" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}go.mod/go.sum not tidy. "
+            FIX_REQUIRED="true"
+          fi
+
+          if grep -q "coverage.*is below" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}Coverage below threshold. "
+            FIX_REQUIRED="true"
+          fi
+
+          if grep -qi "docker.*build.*failed\|Dockerfile.*error" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}Docker build failure. "
+            FIX_REQUIRED="true"
+          fi
+
+          if grep -qi "golangci-lint\|lint.*error\|SA\d\{4\}" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}Lint errors detected. "
+            FIX_REQUIRED="true"
+          fi
+
+          if grep -qi "undefined\|cannot find package\|missing go.sum" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}Go compilation error. "
+            FIX_REQUIRED="true"
+          fi
+
+          if grep -qi "test.*FAIL\|panic" /tmp/failed-logs.txt 2>/dev/null; then
+            SUMMARY="${SUMMARY}Test failure. "
+            FIX_REQUIRED="true"
+          fi
+
+          if [ -z "$SUMMARY" ]; then
+            SUMMARY="Unknown CI failure type. Manual investigation required."
+          fi
+
+          echo "summary=${SUMMARY}" >> $GITHUB_OUTPUT
+          echo "fix_required=${FIX_REQUIRED}" >> $GITHUB_OUTPUT
+
+          echo "=== Analysis Result ==="
+          echo "Summary: ${SUMMARY}"
+          echo "Fix required: ${FIX_REQUIRED}"
+
+  generate-fix:
+    name: Generate Fix
+    runs-on: ubuntu-latest
+    needs: [check-eligibility, analyze-failure]
+    if: ${{ needs.analyze-failure.outputs.fix_required == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-eligibility.outputs.head_sha }}
+          token: ${{ secrets.AI_BOT_PAT }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Fetch failed logs
+        env:
+          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
+        run: |
+          gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+
+      - name: Attempt go mod tidy fix
+        if: contains(needs.analyze-failure.outputs.failure_summary, 'go.mod/go.sum not tidy')
+        run: |
+          go mod tidy
+          if git diff --quiet go.mod go.sum; then
+            echo "go.mod/go.sum already tidy, no fix needed"
+          else
+            echo "Fixed go.mod/go.sum"
+            git add go.mod go.sum
+          fi
+
+      - name: Attempt lint fix
+        if: contains(needs.analyze-failure.outputs.failure_summary, 'Lint errors')
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          golangci-lint run --fix --timeout=5m ./... 2>/dev/null || true
+          if git diff --quiet; then
+            echo "No lint fixes applied"
+          else
+            echo "Applied lint fixes"
+            git add -A
+          fi
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --cached --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create fix branch and PR
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
+          RUN_NAME: ${{ needs.check-eligibility.outputs.run_name }}
+          FAILURE_SUMMARY: ${{ needs.analyze-failure.outputs.failure_summary }}
+          HEAD_BRANCH: ${{ needs.check-eligibility.outputs.head_branch }}
+        run: |
+          BRANCH_NAME="${FIX_BRANCH_PREFIX}-${RUN_ID}"
+          git config user.name "streamgate-bot"
+          git config user.email "bot@streamgate.dev"
+          git checkout -b "$BRANCH_NAME"
+          git commit -m "fix(ci): auto-fix for ${RUN_NAME} failure
+
+          Automated fix for CI failure in run ${RUN_ID}.
+
+          Failure summary: ${FAILURE_SUMMARY}
+
+          Auto-generated by AI Self-Healing workflow"
+          git push origin "$BRANCH_NAME"
+
+          gh pr create \
+            --repo ${{ github.repository }} \
+            --base "$HEAD_BRANCH" \
+            --head "$BRANCH_NAME" \
+            --title "fix(ci): auto-fix for ${RUN_NAME} failure (#${RUN_ID})" \
+            --body "## 🤖 AI Auto-Fix
+
+          This PR was automatically generated to fix a CI failure.
+
+          **Failed Workflow:** ${RUN_NAME}
+          **Run ID:** ${RUN_ID}
+          **Failure Summary:** ${FAILURE_SUMMARY}
+
+          ### Changed Files
+          $(git diff --name-only HEAD~1)
+
+          ### ⚠️ Review Required
+          This automated fix should be reviewed before merging. The AI bot only modifies:
+          - CI/CD configuration files
+          - go.mod / go.sum
+          - Auto-fixable lint issues
+
+          It will **NOT** modify business logic or security-sensitive code." \
+            --label "automated" \
+            --label "ci-fix" || true
+
+  notify-failure:
+    name: Notify Unfixable Failure
+    runs-on: ubuntu-latest
+    needs: [check-eligibility, analyze-failure]
+    if: ${{ needs.check-eligibility.outputs.should_fix == 'true' && needs.analyze-failure.outputs.fix_required == 'false' }}
+    steps:
+      - name: Create issue for manual investigation
+        uses: actions/github-script@v7
+        env:
+          RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
+          RUN_NAME: ${{ needs.check-eligibility.outputs.run_name }}
+          FAILURE_SUMMARY: ${{ needs.analyze-failure.outputs.failure_summary }}
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `CI Failure Requires Manual Fix: ${process.env.RUN_NAME} (#${process.env.RUN_ID})`,
+              body: `## CI Failure - Manual Investigation Required
+
+              **Failed Workflow:** ${process.env.RUN_NAME}
+              **Run ID:** ${process.env.RUN_ID}
+              **Analysis:** ${process.env.FAILURE_SUMMARY}
+
+              The AI auto-fix workflow could not automatically resolve this failure.
+              Please investigate the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.RUN_ID}) manually.
+
+              ${process.env.RUN_ID}`,
+              labels: ['ci-failure', 'needs-investigation']
+            })

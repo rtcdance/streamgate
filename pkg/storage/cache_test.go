@@ -281,25 +281,25 @@ func TestCacheStorage_Size(t *testing.T) {
 
 	assert.Equal(t, 0, cs.Size())
 
-	cs.Set("key1", "value1")
+	_ = cs.Set("key1", "value1")
 	assert.Equal(t, 1, cs.Size())
 
-	cs.Set("key2", "value2")
+	_ = cs.Set("key2", "value2")
 	assert.Equal(t, 2, cs.Size())
 
-	cs.Delete("key1")
+	_ = cs.Delete("key1")
 	assert.Equal(t, 1, cs.Size())
 }
 
 func TestCacheStorage_LRUEviction(t *testing.T) {
 	cs := NewCacheStorage(3)
 
-	cs.Set("key1", "value1")
-	cs.Set("key2", "value2")
-	cs.Set("key3", "value3")
+	_ = cs.Set("key1", "value1")
+	_ = cs.Set("key2", "value2")
+	_ = cs.Set("key3", "value3")
 	assert.Equal(t, 3, cs.Size())
 
-	cs.Set("key4", "value4")
+	_ = cs.Set("key4", "value4")
 	assert.Equal(t, 3, cs.Size())
 
 	_, err := cs.Get("key1")
@@ -313,19 +313,19 @@ func TestCacheStorage_LRUEviction(t *testing.T) {
 func TestCacheStorage_UpdateLastAccess(t *testing.T) {
 	cs := NewCacheStorage(100)
 
-	cs.Set("key", "value")
+	_ = cs.Set("key", "value")
 	time.Sleep(10 * time.Millisecond)
 
 	val, err := cs.Get("key")
 	require.NoError(t, err)
 	assert.Equal(t, "value", val)
 
-	cs.Set("key2", "value2")
+	_ = cs.Set("key2", "value2")
 	time.Sleep(10 * time.Millisecond)
 
-	cs.Set("key3", "value3")
+	_ = cs.Set("key3", "value3")
 
-	cs.SetWithExpiration("key", "newvalue", 100*time.Millisecond)
+	_ = cs.SetWithExpiration("key", "newvalue", 100*time.Millisecond)
 	val, err = cs.Get("key")
 	require.NoError(t, err)
 	assert.Equal(t, "newvalue", val)

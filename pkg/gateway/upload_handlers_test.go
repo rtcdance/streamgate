@@ -93,13 +93,13 @@ func TestReadFileHeader_TextFileNoFormatDetected(t *testing.T) {
 
 func TestUploadFlow_ValidMP4RoundTrip(t *testing.T) {
 	mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x00, 0x01}
-	body := append(mp4Header, []byte("fake payload...")...)
-	format, combined, err := readFileHeader(bytes.NewReader(body))
+	mp4Header = append(mp4Header, []byte("fake payload...")...)
+	format, combined, err := readFileHeader(bytes.NewReader(mp4Header))
 	require.NoError(t, err)
 	assert.Equal(t, "mp4", format)
 	all, err := io.ReadAll(combined)
 	require.NoError(t, err)
-	assert.Equal(t, body, all)
+	assert.Equal(t, mp4Header, all)
 }
 
 func TestUploadFlow_TextFileRejected(t *testing.T) {

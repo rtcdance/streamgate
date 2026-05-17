@@ -7,11 +7,12 @@ import (
 	"syscall"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/plugins/auth"
+
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -30,7 +31,6 @@ func main() {
 	// Force microservice mode
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "auth"
-	cfg.Server.Port = 9007
 	log.Info("Configuration loaded",
 		zap.String("mode", cfg.Mode),
 		zap.String("service", cfg.ServiceName),

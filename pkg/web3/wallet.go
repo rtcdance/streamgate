@@ -17,6 +17,16 @@ type Wallet struct {
 	PublicKey  *ecdsa.PublicKey
 }
 
+func (w *Wallet) Destroy() {
+	if w.PrivateKey != nil {
+		w.PrivateKey.D.SetBytes(make([]byte, 32))
+		w.PrivateKey = nil
+	}
+	if w.PublicKey != nil {
+		w.PublicKey = nil
+	}
+}
+
 // WalletManager manages wallet operations
 type WalletManager struct {
 	logger *zap.Logger

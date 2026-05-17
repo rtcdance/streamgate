@@ -3,8 +3,8 @@ package unit_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/util"
-	"streamgate/test/helpers"
 )
 
 func TestNFT_ValidateAddress(t *testing.T) {
@@ -22,7 +22,7 @@ func TestNFT_ValidateAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := util.IsValidAddress(tt.address)
-			helpers.AssertEqual(t, tt.isValid, result)
+			require.Equal(t, tt.isValid, result)
 		})
 	}
 }
@@ -32,11 +32,11 @@ func TestNFT_ValidateContractAddress(t *testing.T) {
 
 	// Valid contract address
 	isValid := util.IsValidAddress(contractAddress)
-	helpers.AssertTrue(t, isValid)
+	require.True(t, isValid)
 
 	// Invalid contract address
 	isValid = util.IsValidAddress("invalid")
-	helpers.AssertFalse(t, isValid)
+	require.False(t, isValid)
 }
 
 func TestNFT_ValidateTokenID(t *testing.T) {
@@ -62,7 +62,7 @@ func TestNFT_ValidateTokenID(t *testing.T) {
 				}
 				isValid = true
 			}
-			helpers.AssertEqual(t, tt.isValid, isValid)
+			require.Equal(t, tt.isValid, isValid)
 		})
 	}
 }
@@ -70,8 +70,8 @@ func TestNFT_ValidateTokenID(t *testing.T) {
 func TestNFT_ParseContractAddress(t *testing.T) {
 	address := "0x1234567890123456789012345678901234567890"
 
-	helpers.AssertNotNil(t, address)
-	helpers.AssertEqual(t, address, address)
+	require.NotNil(t, address)
+	require.Equal(t, address, address)
 }
 
 func TestNFT_CompareAddresses(t *testing.T) {
@@ -79,13 +79,13 @@ func TestNFT_CompareAddresses(t *testing.T) {
 	addr2 := "0x1234567890123456789012345678901234567890"
 	addr3 := "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"
 
-	helpers.AssertTrue(t, addr1 == addr2)
-	helpers.AssertFalse(t, addr1 == addr3)
+	require.True(t, addr1 == addr2)
+	require.False(t, addr1 == addr3)
 }
 
 func TestNFT_FormatAddress(t *testing.T) {
 	address := "0x1234567890123456789012345678901234567890"
 
-	helpers.AssertNotNil(t, address)
-	helpers.AssertTrue(t, len(address) > 0)
+	require.NotNil(t, address)
+	require.True(t, len(address) > 0)
 }

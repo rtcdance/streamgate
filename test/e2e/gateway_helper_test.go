@@ -35,6 +35,17 @@ func (m *mockNFTChecker) GetNFTBalance(ctx context.Context, chainID int64, contr
 	return m.balance, m.balanceErr
 }
 
+func (m *mockNFTChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contract, tokenID, owner string) (bool, error) {
+	return m.verifyResult, m.verifyErr
+}
+
+func (m *mockNFTChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contract, owner string) (bool, error) {
+	if m.balanceErr != nil {
+		return false, m.balanceErr
+	}
+	return m.balance != nil && m.balance.Sign() > 0, nil
+}
+
 // mockWeb3StatusProvider implements gateway.Web3StatusProvider for E2E tests.
 type mockWeb3StatusProvider struct{}
 
@@ -115,7 +126,7 @@ func (s *mockSegmentStorage) CreateBucket(ctx context.Context, bucket string) er
 // testConfig returns a config suitable for E2E tests (no external deps).
 func testConfig() *config.Config {
 	cfg := &config.Config{}
-	cfg.Auth.JWTSecret = "test-secret"
+	cfg.Auth.JWTSecret = "test-secret-that-is-at-least-32-chars"
 	cfg.Web3.ChainID = 11155111
 	cfg.Server.Port = 0
 	cfg.Database.Host = "localhost"
@@ -130,7 +141,7 @@ func testConfig() *config.Config {
 func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
 	verifier := web3.NewSignatureVerifier(zap.NewNop())
 	return service.NewAuthServiceWithDeps(
-		"test-secret",
+		"test-secret-that-is-at-least-32-chars",
 		nil,
 		verifier,
 		service.NewMemoryChallengeStore(),
@@ -150,7 +161,7 @@ func testJWT(walletAddress string) string {
 		"iat":            time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	s, _ := token.SignedString([]byte("test-secret"))
+	s, _ := token.SignedString([]byte("test-secret-that-is-at-least-32-chars"))
 	return s
 }
 

@@ -14,6 +14,7 @@ import (
 
 // EthCaller abstracts the Ethereum contract call interface.
 // *ethclient.Client satisfies this interface implicitly.
+//
 //go:generate mockgen -destination=mocks/mock_eth_caller.go -package=mocks streamgate/pkg/web3 EthCaller
 type EthCaller interface {
 	CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
@@ -24,8 +25,9 @@ type EthCaller interface {
 type NFTVerifier struct {
 	client         EthCaller
 	logger         *zap.Logger
-	erc721ABI      abi.ABI // pre-parsed at construction
-	erc721MetaABI  abi.ABI // pre-parsed: name, symbol, tokenURI, ownerOf
+	erc721ABI      abi.ABI  // pre-parsed at construction
+	erc721MetaABI  abi.ABI  // pre-parsed: name, symbol, tokenURI, ownerOf
+	erc1155ABI     abi.ABI  // pre-parsed: balanceOf(address,uint256)
 	KnownOperators []string // known marketplace/operator contracts to check isApprovedForAll
 	blockTag       BlockTag // block tag for reading state (default: BlockTagLatest)
 }
@@ -53,6 +55,8 @@ const erc721ABIJSON = `[{"constant":true,"inputs":[{"name":"owner","type":"addre
 // erc721MetaABIJSON contains ERC-721 metadata methods for GetNFTInfo.
 const erc721MetaABIJSON = `[{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`
 
+const erc1155ABIJSON = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
+
 // NewNFTVerifier creates a new NFT verifier
 func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
 	return &NFTVerifier{
@@ -60,6 +64,7 @@ func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
 		logger:        logger,
 		erc721ABI:     mustParseABI("ERC-721", erc721ABIJSON),
 		erc721MetaABI: mustParseABI("ERC-721-meta", erc721MetaABIJSON),
+		erc1155ABI:    mustParseABI("ERC-1155", erc1155ABIJSON),
 	}
 }
 
@@ -95,30 +100,7 @@ func (nv *NFTVerifier) VerifyNFTOwnership(ctx context.Context, contractAddress, 
 		return false, fmt.Errorf("failed to pack ownerOf call: %w", err)
 	}
 
-	// Execute call — use blockTag for reorg protection if configured
-	var result []byte
-	if nv.blockTag != "" && nv.blockTag != BlockTagLatest {
-		if btc, ok := nv.client.(BlockTagCaller); ok {
-			result, err = btc.CallContractAtBlock(ctx, ethereum.CallMsg{
-				To:   &contract,
-				Data: data,
-			}, nv.blockTag)
-		} else {
-			// Client doesn't support block tags, fall back to latest
-			nv.logger.Warn("Client doesn't support block tags, falling back to latest",
-				zap.String("block_tag", string(nv.blockTag)))
-			result, err = nv.client.CallContract(ctx, ethereum.CallMsg{
-				To:   &contract,
-				Data: data,
-			}, nil)
-		}
-	} else {
-		result, err = nv.client.CallContract(ctx, ethereum.CallMsg{
-			To:   &contract,
-			Data: data,
-		}, nil)
-	}
-
+	result, err := nv.callContract(ctx, contract, data)
 	if err != nil {
 		nv.logger.Error("Failed to call ownerOf", zap.Error(err))
 		return false, fmt.Errorf("failed to call ownerOf: %w", err)
@@ -163,12 +145,7 @@ func (nv *NFTVerifier) GetNFTBalance(ctx context.Context, contractAddress, owner
 		return nil, fmt.Errorf("failed to pack balanceOf call: %w", err)
 	}
 
-	// Execute call
-	result, err := nv.client.CallContract(ctx, ethereum.CallMsg{
-		To:   &contract,
-		Data: data,
-	}, nil)
-
+	result, err := nv.callContract(ctx, contract, data)
 	if err != nil {
 		nv.logger.Error("Failed to call balanceOf", zap.Error(err))
 		return nil, fmt.Errorf("failed to call balanceOf: %w", err)
@@ -201,6 +178,7 @@ type NFTInfo struct {
 	Name            string
 	Symbol          string
 	URI             string
+	Warnings        []string
 }
 
 // GetNFTInfo gets information about an NFT including name, symbol, and tokenURI.
@@ -222,51 +200,55 @@ func (nv *NFTVerifier) GetNFTInfo(ctx context.Context, contractAddress, tokenID 
 		TokenID:         tokenID,
 	}
 
-	// Best-effort: name
 	if data, err := nv.erc721MetaABI.Pack("name"); err == nil {
-		if result, err := nv.client.CallContract(ctx, ethereum.CallMsg{To: &contract, Data: data}, nil); err == nil {
+		if result, err := nv.callContract(ctx, contract, data); err == nil {
 			if len(result) >= 32 {
 				var name string
 				if err := nv.erc721MetaABI.UnpackIntoInterface(&name, "name", result); err == nil {
 					nftInfo.Name = name
 				}
 			}
+		} else {
+			nftInfo.Warnings = append(nftInfo.Warnings, fmt.Sprintf("name: %s", err.Error()))
 		}
 	}
 
-	// Best-effort: symbol
 	if data, err := nv.erc721MetaABI.Pack("symbol"); err == nil {
-		if result, err := nv.client.CallContract(ctx, ethereum.CallMsg{To: &contract, Data: data}, nil); err == nil {
+		if result, err := nv.callContract(ctx, contract, data); err == nil {
 			if len(result) >= 32 {
 				var symbol string
 				if err := nv.erc721MetaABI.UnpackIntoInterface(&symbol, "symbol", result); err == nil {
 					nftInfo.Symbol = symbol
 				}
 			}
+		} else {
+			nftInfo.Warnings = append(nftInfo.Warnings, fmt.Sprintf("symbol: %s", err.Error()))
 		}
 	}
 
-	// Best-effort: tokenURI
 	if data, err := nv.erc721MetaABI.Pack("tokenURI", tokenIDInt); err == nil {
-		if result, err := nv.client.CallContract(ctx, ethereum.CallMsg{To: &contract, Data: data}, nil); err == nil {
+		if result, err := nv.callContract(ctx, contract, data); err == nil {
 			if len(result) >= 32 {
 				var tokenURI string
 				if err := nv.erc721MetaABI.UnpackIntoInterface(&tokenURI, "tokenURI", result); err == nil {
 					nftInfo.URI = tokenURI
 				}
 			}
+		} else {
+			nftInfo.Warnings = append(nftInfo.Warnings, fmt.Sprintf("tokenURI: %s", err.Error()))
 		}
 	}
 
-	// Best-effort: ownerOf
 	if data, err := nv.erc721MetaABI.Pack("ownerOf", tokenIDInt); err == nil {
-		if result, err := nv.client.CallContract(ctx, ethereum.CallMsg{To: &contract, Data: data}, nil); err == nil {
+		if result, err := nv.callContract(ctx, contract, data); err == nil {
 			if len(result) >= 32 {
 				var owner common.Address
 				if err := nv.erc721MetaABI.UnpackIntoInterface(&owner, "ownerOf", result); err == nil {
 					nftInfo.Owner = owner.Hex()
 				}
 			}
+		} else {
+			nftInfo.Warnings = append(nftInfo.Warnings, fmt.Sprintf("ownerOf: %s", err.Error()))
 		}
 	}
 
@@ -284,13 +266,11 @@ func (nv *NFTVerifier) VerifyNFTCollection(ctx context.Context, contractAddress,
 		zap.String("contract", contractAddress),
 		zap.String("owner", ownerAddress))
 
-	// Get balance
 	balance, err := nv.GetNFTBalance(ctx, contractAddress, ownerAddress)
 	if err != nil {
 		return false, err
 	}
 
-	// Check if balance > 0
 	hasNFT := balance.Cmp(big.NewInt(0)) > 0
 	nv.logger.Debug("NFT collection ownership verified",
 		zap.String("contract", contractAddress),
@@ -298,6 +278,139 @@ func (nv *NFTVerifier) VerifyNFTCollection(ctx context.Context, contractAddress,
 		zap.Bool("has_nft", hasNFT))
 
 	return hasNFT, nil
+}
+
+// VerifyERC1155Ownership verifies ERC-1155 token ownership via balanceOf(address,uint256).
+// Returns true if the account holds a non-zero balance of the given token ID.
+func (nv *NFTVerifier) VerifyERC1155Ownership(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	nv.logger.Debug("Verifying ERC-1155 ownership",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID),
+		zap.String("owner", ownerAddress))
+
+	contract := common.HexToAddress(contractAddress)
+	owner := common.HexToAddress(ownerAddress)
+	tokenIDInt := new(big.Int)
+	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
+		return false, fmt.Errorf("invalid token ID: %s", tokenID)
+	}
+
+	data, err := nv.erc1155ABI.Pack("balanceOf", owner, tokenIDInt)
+	if err != nil {
+		nv.logger.Error("Failed to pack ERC-1155 balanceOf call", zap.Error(err))
+		return false, fmt.Errorf("failed to pack ERC-1155 balanceOf call: %w", err)
+	}
+
+	result, err := nv.callContract(ctx, contract, data)
+	if err != nil {
+		nv.logger.Error("Failed to call ERC-1155 balanceOf", zap.Error(err))
+		return false, fmt.Errorf("failed to call ERC-1155 balanceOf: %w", err)
+	}
+
+	if len(result) < 32 {
+		return false, fmt.Errorf("ERC-1155 balanceOf returned insufficient data (len=%d)", len(result))
+	}
+
+	var balance *big.Int
+	if err := nv.erc1155ABI.UnpackIntoInterface(&balance, "balanceOf", result); err != nil {
+		nv.logger.Error("Failed to unpack ERC-1155 balanceOf result", zap.Error(err))
+		return false, fmt.Errorf("failed to unpack ERC-1155 balanceOf result: %w", err)
+	}
+
+	hasNFT := balance.Cmp(big.NewInt(0)) > 0
+	nv.logger.Debug("ERC-1155 ownership verified",
+		zap.String("contract", contractAddress),
+		zap.String("token_id", tokenID),
+		zap.Bool("has_nft", hasNFT))
+	return hasNFT, nil
+}
+
+// GetERC1155Balance gets the ERC-1155 token balance for an address and token ID.
+func (nv *NFTVerifier) GetERC1155Balance(ctx context.Context, contractAddress, ownerAddress, tokenID string) (*big.Int, error) {
+	nv.logger.Debug("Getting ERC-1155 balance",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress),
+		zap.String("token_id", tokenID))
+
+	contract := common.HexToAddress(contractAddress)
+	owner := common.HexToAddress(ownerAddress)
+	tokenIDInt := new(big.Int)
+	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
+		return nil, fmt.Errorf("invalid token ID: %s", tokenID)
+	}
+
+	data, err := nv.erc1155ABI.Pack("balanceOf", owner, tokenIDInt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack ERC-1155 balanceOf call: %w", err)
+	}
+
+	result, err := nv.callContract(ctx, contract, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call ERC-1155 balanceOf: %w", err)
+	}
+
+	if len(result) < 32 {
+		return nil, fmt.Errorf("ERC-1155 balanceOf returned insufficient data (len=%d)", len(result))
+	}
+
+	var balance *big.Int
+	if err := nv.erc1155ABI.UnpackIntoInterface(&balance, "balanceOf", result); err != nil {
+		return nil, fmt.Errorf("failed to unpack ERC-1155 balanceOf result: %w", err)
+	}
+
+	nv.logger.Debug("ERC-1155 balance retrieved",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress),
+		zap.String("balance", balance.String()))
+	return balance, nil
+}
+
+// VerifyNFTOwnershipAutoDetect detects the token standard and routes to the
+// correct verification method. For ERC-721 it uses ownerOf; for ERC-1155 it
+// uses balanceOf(address,uint256). Falls back to ERC-721 on detection failure.
+func (nv *NFTVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	switch standard {
+	case TokenStandardERC1155:
+		return nv.VerifyERC1155Ownership(ctx, contractAddress, tokenID, ownerAddress)
+	default:
+		return nv.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+	}
+}
+
+// VerifyNFTCollectionAutoDetect detects the token standard and routes to the
+// correct collection-level verification. For ERC-721 it uses balanceOf(address);
+// for ERC-1155 it uses balanceOf(address,0) as a heuristic (token ID 0 balance).
+func (nv *NFTVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	switch standard {
+	case TokenStandardERC1155:
+		balance, err := nv.GetERC1155Balance(ctx, contractAddress, ownerAddress, "0")
+		if err != nil {
+			return false, err
+		}
+		return balance.Cmp(big.NewInt(0)) > 0, nil
+	default:
+		return nv.VerifyNFTCollection(ctx, contractAddress, ownerAddress)
+	}
+}
+
+// callContract executes a contract call with blockTag support for reorg protection.
+func (nv *NFTVerifier) callContract(ctx context.Context, contract common.Address, data []byte) ([]byte, error) {
+	if nv.blockTag != "" && nv.blockTag != BlockTagLatest {
+		if btc, ok := nv.client.(BlockTagCaller); ok {
+			return btc.CallContractAtBlock(ctx, ethereum.CallMsg{
+				To:   &contract,
+				Data: data,
+			}, nv.blockTag)
+		}
+		nv.logger.Warn("Client doesn't support block tags, falling back to latest",
+			zap.String("block_tag", string(nv.blockTag)))
+	}
+	return nv.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: data,
+	}, nil)
 }
 
 // ApprovalInfo contains information about NFT approvals for a token.
@@ -421,6 +534,17 @@ var (
 // erc165ABI is the minimal ABI for supportsInterface
 const erc165ABI = `[{"constant":true,"inputs":[{"name":"interfaceID","type":"bytes4"}],"name":"supportsInterface","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"view","type":"function"}]`
 
+// erc165ParsedABI is the pre-parsed ERC-165 ABI, initialized once at package load.
+var erc165ParsedABI abi.ABI
+
+func init() {
+	var err error
+	erc165ParsedABI, err = abi.JSON(strings.NewReader(erc165ABI))
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse ERC-165 ABI: %v", err))
+	}
+}
+
 // DetectTokenStandard detects whether a contract is ERC-721 or ERC-1155.
 // It first checks ERC-165 supportsInterface, then falls back to probing
 // balanceOf selectors if ERC-165 is not supported.
@@ -431,20 +555,11 @@ func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress 
 
 	contract := common.HexToAddress(contractAddress)
 
-	// Try ERC-165 supportsInterface
-	parsedABI, err := abi.JSON(strings.NewReader(erc165ABI))
-	if err != nil {
-		logger.Debug("Failed to parse ERC-165 ABI, defaulting to ERC-721", zap.Error(err))
-		return TokenStandardERC721
-	}
-
-	// Check if contract supports ERC-165 itself
-	if supports165, err := callSupportsInterface(ctx, caller, parsedABI, contract, erc165InterfaceID); err == nil && supports165 {
-		// Now check specific interfaces
-		if supports1155, err := callSupportsInterface(ctx, caller, parsedABI, contract, erc1155InterfaceID); err == nil && supports1155 {
+	if supports165, err := callSupportsInterface(ctx, caller, erc165ParsedABI, contract, erc165InterfaceID); err == nil && supports165 {
+		if supports1155, err := callSupportsInterface(ctx, caller, erc165ParsedABI, contract, erc1155InterfaceID); err == nil && supports1155 {
 			return TokenStandardERC1155
 		}
-		if supports721, err := callSupportsInterface(ctx, caller, parsedABI, contract, erc721InterfaceID); err == nil && supports721 {
+		if supports721, err := callSupportsInterface(ctx, caller, erc165ParsedABI, contract, erc721InterfaceID); err == nil && supports721 {
 			return TokenStandardERC721
 		}
 	}

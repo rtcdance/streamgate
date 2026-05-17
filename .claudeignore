@@ -1,0 +1,36 @@
+# Token optimization: exclude directories Claude Code doesn't need to explore
+
+# 137 files / 43K lines of design docs — patterns already captured in CLAUDE.md
+docs/
+
+# Standalone demos, not part of the Go codebase
+examples/
+h5-demo/
+
+# Build outputs — not source
+bin/
+dist/
+
+# Project internal (AI tooling, CI config, deploy scripts)
+.comate/
+.deploy/
+scripts/
+.github/
+
+# IDE / OS artifacts
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# protobuf-generated gRPC stubs (13 files) — patterns captured in CLAUDE.md interface map
+pkg/api/
+
+# 766 lines of pure checksums — zero information value
+go.sum
+
+# Lint rules (68 lines) — summarized in CLAUDE.md as "govet + staticcheck + errcheck + gocritic + misspell + gocyclo(max 35)"
+.golangci.yml
+
+# Environment template (45 lines) — only needed when setting up, not for code reasoning
+.env.example

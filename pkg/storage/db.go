@@ -10,12 +10,14 @@ import (
 
 // DB abstracts SQL database operations.
 // Both *PostgresDB and *Database satisfy this interface.
+//
 //go:generate mockgen -destination=mocks/mock_db.go -package=mocks streamgate/pkg/storage DB
 type DB interface {
 	Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 	QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row
 	Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Begin(ctx context.Context) (*sql.Tx, error)
+	InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -71,6 +73,13 @@ func (db *Database) Begin(ctx context.Context) (*sql.Tx, error) {
 	return db.impl.Begin(ctx)
 }
 
+// InTransaction executes fn inside a database transaction.
+// It begins a transaction, calls fn, and commits if fn returns nil.
+// On error or panic, the transaction is rolled back.
+func (db *Database) InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	return db.impl.InTransaction(ctx, fn)
+}
+
 // Close closes the database connection
 func (db *Database) Close() error {
 	return db.impl.Close()
@@ -103,12 +112,16 @@ func (db *Database) GetDB() *sql.DB {
 // GetUser retrieves a user by username
 func (db *Database) GetUser(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
+	var password, email, walletAddr sql.NullString
 	err := db.impl.QueryRow(ctx, "SELECT id, username, password, email, wallet_address, created_at, updated_at FROM users WHERE username = $1", username).Scan(
-		&user.ID, &user.Username, &user.Password, &user.Email, &user.WalletAddress, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Username, &password, &email, &walletAddr, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	user.Password = password.String
+	user.Email = email.String
+	user.WalletAddress = walletAddr.String
 	return &user, nil
 }
 

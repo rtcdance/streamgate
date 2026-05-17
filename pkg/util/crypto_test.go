@@ -3,7 +3,7 @@ package util
 import (
 	"testing"
 
-	"streamgate/test/helpers"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCrypto_HashPassword(t *testing.T) {
@@ -11,9 +11,9 @@ func TestCrypto_HashPassword(t *testing.T) {
 
 	// Hash password
 	hash, err := HashPassword(password)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, "", hash)
-	helpers.AssertNotEqual(t, password, hash)
+	require.NoError(t, err)
+	require.NotEqual(t, "", hash)
+	require.NotEqual(t, password, hash)
 }
 
 func TestCrypto_VerifyPassword(t *testing.T) {
@@ -21,29 +21,29 @@ func TestCrypto_VerifyPassword(t *testing.T) {
 
 	// Hash password
 	hash, err := HashPassword(password)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify correct password
 	valid := VerifyPassword(password, hash)
-	helpers.AssertTrue(t, valid)
+	require.True(t, valid)
 
 	// Verify wrong password
 	valid = VerifyPassword("wrongpassword", hash)
-	helpers.AssertFalse(t, valid)
+	require.False(t, valid)
 }
 
 func TestCrypto_GenerateRandomString(t *testing.T) {
 	// Generate random strings
 	str1, err := GenerateRandomString(32)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, 32, len(str1))
+	require.NoError(t, err)
+	require.Equal(t, 32, len(str1))
 
 	str2, err := GenerateRandomString(32)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, 32, len(str2))
+	require.NoError(t, err)
+	require.Equal(t, 32, len(str2))
 
 	// Should be different
-	helpers.AssertNotEqual(t, str1, str2)
+	require.NotEqual(t, str1, str2)
 }
 
 func TestCrypto_SHA256Hash(t *testing.T) {
@@ -51,16 +51,16 @@ func TestCrypto_SHA256Hash(t *testing.T) {
 
 	// Hash data
 	hash := SHA256Hash(data)
-	helpers.AssertNotEqual(t, "", hash)
-	helpers.AssertEqual(t, 64, len(hash)) // SHA256 hex is 64 chars
+	require.NotEqual(t, "", hash)
+	require.Equal(t, 64, len(hash)) // SHA256 hex is 64 chars
 
 	// Same data should produce same hash
 	hash2 := SHA256Hash(data)
-	helpers.AssertEqual(t, hash, hash2)
+	require.Equal(t, hash, hash2)
 
 	// Different data should produce different hash
 	hash3 := SHA256Hash([]byte("different data"))
-	helpers.AssertNotEqual(t, hash, hash3)
+	require.NotEqual(t, hash, hash3)
 }
 
 func TestCrypto_EncryptDecrypt(t *testing.T) {
@@ -69,13 +69,13 @@ func TestCrypto_EncryptDecrypt(t *testing.T) {
 
 	// Encrypt
 	ciphertext, err := Encrypt([]byte(plaintext), []byte(key))
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, plaintext, ciphertext)
+	require.NoError(t, err)
+	require.NotEqual(t, plaintext, ciphertext)
 
 	// Decrypt
 	decrypted, err := Decrypt(ciphertext, []byte(key))
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, plaintext, string(decrypted))
+	require.NoError(t, err)
+	require.Equal(t, plaintext, string(decrypted))
 }
 
 func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
@@ -85,9 +85,9 @@ func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
 
 	// Encrypt with key1
 	ciphertext, err := Encrypt([]byte(plaintext), []byte(key1))
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Try to decrypt with key2
 	_, err = Decrypt(ciphertext, []byte(key2))
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }

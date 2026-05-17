@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 // MockAuthStorage implements service.AuthStorage for testing
@@ -49,18 +49,18 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 
 	// Test registration
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify user was created
 	user, err := storage.GetUser(context.Background(), "testuser")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, user)
-	helpers.AssertEqual(t, "testuser", user.Username)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	require.Equal(t, "testuser", user.Username)
 
 	// Test login
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, token)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
 }
 
 func TestAuthService_InvalidPassword(t *testing.T) {
@@ -70,11 +70,11 @@ func TestAuthService_InvalidPassword(t *testing.T) {
 
 	// Register user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Try login with wrong password
 	_, err = authService.Authenticate(context.Background(), "testuser", "wrongpassword")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestAuthService_DuplicateEmail(t *testing.T) {
@@ -84,11 +84,11 @@ func TestAuthService_DuplicateEmail(t *testing.T) {
 
 	// Register first user
 	err := authService.Register(context.Background(), "user1", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Try register with same username (username is unique, not email)
 	err = authService.Register(context.Background(), "user1", "password456", "test2@example.com")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestAuthService_TokenValidation(t *testing.T) {
@@ -98,21 +98,21 @@ func TestAuthService_TokenValidation(t *testing.T) {
 
 	// Register and login
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Validate token
 	valid, err := authService.Verify(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, valid)
+	require.NoError(t, err)
+	require.True(t, valid)
 
 	// Parse token
 	claims, err := authService.ParseToken(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, claims)
-	helpers.AssertEqual(t, "testuser", claims.Username)
+	require.NoError(t, err)
+	require.NotNil(t, claims)
+	require.Equal(t, "testuser", claims.Username)
 }
 
 func TestAuthService_RefreshToken(t *testing.T) {
@@ -122,18 +122,18 @@ func TestAuthService_RefreshToken(t *testing.T) {
 
 	// Register and login
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Refresh token
 	newToken, err := authService.RefreshToken(context.Background(), token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEmpty(t, newToken)
+	require.NoError(t, err)
+	require.NotEmpty(t, newToken)
 
 	// Verify the new token is valid
 	valid, err := authService.Verify(newToken)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, valid)
+	require.NoError(t, err)
+	require.True(t, valid)
 }

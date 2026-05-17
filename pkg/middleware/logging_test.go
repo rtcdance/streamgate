@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/test/helpers"
 )
 
 func TestLoggingMiddleware_LogsRequest(t *testing.T) {
@@ -27,13 +27,13 @@ func TestLoggingMiddleware_LogsRequest(t *testing.T) {
 	})
 
 	// Test request logging
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
 	// Should complete successfully
-	helpers.AssertEqual(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestLoggingMiddleware_LogsErrors(t *testing.T) {
@@ -53,11 +53,11 @@ func TestLoggingMiddleware_LogsErrors(t *testing.T) {
 	})
 
 	// Test error logging
-	req := httptest.NewRequest("GET", "/error", nil)
+	req := httptest.NewRequest("GET", "/error", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
 
 	// Should log error
-	helpers.AssertEqual(t, http.StatusInternalServerError, w.Code)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }

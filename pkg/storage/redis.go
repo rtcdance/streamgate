@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"time"
@@ -14,24 +15,41 @@ type RedisCache struct {
 	client *redis.Client
 }
 
+// RedisConfig holds Redis connection configuration
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+	TLSEnabled bool
+}
+
 // NewRedisCache creates a new Redis cache instance
 func NewRedisCache() *RedisCache {
 	return &RedisCache{}
 }
 
-// Connect connects to Redis. Uses a background context for the initial
-// connection test since the caller has not yet provided a request context.
-func (rc *RedisCache) Connect(addr string) error {
-	rc.client = redis.NewClient(&redis.Options{
-		Addr:         addr,
-		Password:     "", // no password set
-		DB:           0,  // use default DB
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-		PoolSize:     10,
-		MinIdleConns: 5,
-	})
+// Connect connects to Redis using a RedisConfig for full configuration support.
+func (rc *RedisCache) Connect(cfg RedisConfig) error {
+	opts := &redis.Options{
+		Addr:               cfg.Addr,
+		Password:           cfg.Password,
+		DB:                 cfg.DB,
+		DialTimeout:        5 * time.Second,
+		ReadTimeout:        3 * time.Second,
+		WriteTimeout:       3 * time.Second,
+		PoolSize:           10,
+		MinIdleConns:       5,
+		PoolTimeout:        4 * time.Second,
+		IdleTimeout:        5 * time.Minute,
+		IdleCheckFrequency: 1 * time.Minute,
+		MaxRetries:         3,
+	}
+	if cfg.TLSEnabled {
+		opts.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	rc.client = redis.NewClient(opts)
 
 	// Test connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

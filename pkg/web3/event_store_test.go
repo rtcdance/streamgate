@@ -11,7 +11,7 @@ import (
 
 func TestMemoryEventStore_SaveAndLoadEvent(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	event := &IndexedEvent{
 		ID:              "0xabc-0",
@@ -38,7 +38,7 @@ func TestMemoryEventStore_SaveAndLoadEvent(t *testing.T) {
 
 func TestMemoryEventStore_Dedup(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	event := &IndexedEvent{
 		ID:          "0xabc-0",
@@ -58,7 +58,7 @@ func TestMemoryEventStore_Dedup(t *testing.T) {
 
 func TestMemoryEventStore_Checkpoint(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// No checkpoint yet
 	block, err := store.LoadCheckpoint("0x1234")
@@ -84,7 +84,7 @@ func TestMemoryEventStore_Checkpoint(t *testing.T) {
 
 func TestMemoryEventStore_GetEventsByBlockRange(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	for i := uint64(100); i <= 104; i++ {
 		err := store.SaveEvent(&IndexedEvent{
@@ -101,11 +101,11 @@ func TestMemoryEventStore_GetEventsByBlockRange(t *testing.T) {
 
 func TestMemoryEventStore_MarkEventsReorged(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
-	store.SaveEvent(&IndexedEvent{ID: "e1", BlockHash: "0xaaa", BlockNumber: 100, Decoded: make(map[string]interface{})})
-	store.SaveEvent(&IndexedEvent{ID: "e2", BlockHash: "0xbbb", BlockNumber: 101, Decoded: make(map[string]interface{})})
-	store.SaveEvent(&IndexedEvent{ID: "e3", BlockHash: "0xaaa", BlockNumber: 100, Decoded: make(map[string]interface{})})
+	_ = store.SaveEvent(&IndexedEvent{ID: "e1", BlockHash: "0xaaa", BlockNumber: 100, Decoded: make(map[string]interface{})})
+	_ = store.SaveEvent(&IndexedEvent{ID: "e2", BlockHash: "0xbbb", BlockNumber: 101, Decoded: make(map[string]interface{})})
+	_ = store.SaveEvent(&IndexedEvent{ID: "e3", BlockHash: "0xaaa", BlockNumber: 100, Decoded: make(map[string]interface{})})
 
 	count, err := store.MarkEventsReorged([]string{"0xaaa"})
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestMemoryEventStore_MarkEventsReorged(t *testing.T) {
 
 func TestEventIndexer_WithEventStore(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Verify the store can be set on the indexer
 	indexer := &EventIndexer{
@@ -148,7 +148,7 @@ func TestEventIndexer_WithEventStore(t *testing.T) {
 
 func TestEventIndexer_WithReorgDetector(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	indexer := &EventIndexer{
 		store: store,
@@ -163,14 +163,14 @@ func TestEventIndexer_WithReorgDetector(t *testing.T) {
 
 func TestEventIndexer_ResumeFromCheckpoint(t *testing.T) {
 	store := NewMemoryEventStore()
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Pre-save a checkpoint
-	store.SaveCheckpoint("0x0000000000000000000000000000000000000000", 500)
+	_ = store.SaveCheckpoint("0x0000000000000000000000000000000000000000", 500)
 
 	indexer := &EventIndexer{
-		store:      store,
-		events:     make([]*IndexedEvent, 0, 1000),
+		store:           store,
+		events:          make([]*IndexedEvent, 0, 1000),
 		contractAddress: common.HexToAddress("0x0000000000000000000000000000000000000000"),
 	}
 	indexer.logger = zap.NewNop()

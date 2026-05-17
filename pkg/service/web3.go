@@ -11,22 +11,24 @@ import (
 	"sync"
 	"time"
 
+	"streamgate/pkg/core/config"
+	"streamgate/pkg/web3"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/web3"
 )
+
 // ErrNotSupported is defined in errors.go
 
 // Web3Deps holds the injectable dependencies for Web3Service.
 type Web3Deps struct {
-	ChainManager  web3.ChainManagerInterface
-	SigVerifier   web3.SignatureVerifierInterface
-	SolanaVerif   web3.SolanaVerifierInterface
+	ChainManager web3.ChainManagerInterface
+	SigVerifier  web3.SignatureVerifierInterface
+	SolanaVerif  web3.SolanaVerifierInterface
 }
 
 // DefaultWeb3Deps creates default real dependencies for production use.
@@ -214,6 +216,10 @@ func (ws *Web3Service) GetMultiChainManager() web3.ChainManagerInterface {
 	return ws.multiChainManager
 }
 
+func (ws *Web3Service) GetEventIndexer() *web3.EventIndexer {
+	return ws.eventIndexer
+}
+
 // GetSignatureVerifier returns the signature verifier
 func (ws *Web3Service) GetSignatureVerifier() web3.SignatureVerifierInterface {
 	return ws.signatureVerifier
@@ -371,6 +377,31 @@ func (ws *Web3Service) GetNFTBalance(ctx context.Context, chainID int64, contrac
 		}
 		return balance, nil
 	}
+}
+
+// VerifyNFTOwnershipAutoDetect detects the token standard and routes to the
+// correct verification method. For EVM chains it uses NFTVerifier.AutoDetect;
+// for Solana chains it falls back to VerifyNFTOwnership.
+func (ws *Web3Service) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	client, err := ws.multiChainManager.GetClient(1)
+	if err != nil {
+		return false, err
+	}
+	ethCaller := client.GetEthClient()
+	verifier := web3.NewNFTVerifier(ethCaller, ws.logger)
+	return verifier.VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+}
+
+// VerifyNFTCollectionAutoDetect detects the token standard and routes to the
+// correct collection-level verification.
+func (ws *Web3Service) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	client, err := ws.multiChainManager.GetClient(1)
+	if err != nil {
+		return false, err
+	}
+	ethCaller := client.GetEthClient()
+	verifier := web3.NewNFTVerifier(ethCaller, ws.logger)
+	return verifier.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
 }
 
 // GetGasPrice gets the current gas price
@@ -609,14 +640,14 @@ func (ws *Web3Service) SendTransaction(ctx context.Context, chainID int64, to st
 			}
 
 			unsignedTx := types.NewTx(&types.DynamicFeeTx{
-				ChainID:    chainIDBig,
-				Nonce:      nonce,
-				To:         &toAddr,
-				Value:      value,
-				Gas:        gasLimit,
-				GasFeeCap:  maxFeePerGas,
-				GasTipCap:  tipCap,
-				Data:       data,
+				ChainID:   chainIDBig,
+				Nonce:     nonce,
+				To:        &toAddr,
+				Value:     value,
+				Gas:       gasLimit,
+				GasFeeCap: maxFeePerGas,
+				GasTipCap: tipCap,
+				Data:      data,
 			})
 			signedTx, err = types.SignTx(unsignedTx, types.LatestSignerForChainID(chainIDBig), privateKey)
 			if err != nil {

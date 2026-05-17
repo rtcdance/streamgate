@@ -9,6 +9,43 @@ import (
 
 const defaultMaxBodySize int64 = 10 << 20 // 10MB for non-upload routes
 
+// ContentTypeMiddleware validates request Content-Type for API routes.
+// JSON routes must use application/json. Upload routes are exempted.
+func (s *Service) ContentTypeMiddleware() gin.HandlerFunc {
+	jsonContentTypes := map[string]bool{
+		"application/json":                  true,
+		"application/json; charset=utf-8":   true,
+		"application/json;charset=utf-8":    true,
+	}
+
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead ||
+			c.Request.Method == http.MethodDelete || c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+
+		if strings.HasPrefix(path, "/api/v1/upload") {
+			c.Next()
+			return
+		}
+
+		if strings.HasPrefix(path, "/api/") && c.Request.ContentLength > 0 {
+			if !jsonContentTypes[c.GetHeader("Content-Type")] {
+				c.JSON(http.StatusUnsupportedMediaType, gin.H{
+					"error": "Content-Type must be application/json",
+					"code":  "UNSUPPORTED_MEDIA_TYPE",
+				})
+				c.Abort()
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
 // RequestSizeLimitMiddleware rejects requests with bodies exceeding maxBodySize.
 // Upload routes (prefixed with /api/v1/upload) are exempted since they have
 // their own size limit.
@@ -40,9 +77,9 @@ func (s *Service) SecurityHeadersMiddleware() gin.HandlerFunc {
 	headers := map[string]string{
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",
-		"X-XSS-Protection":        "1; mode=block",
 		"Referrer-Policy":         "strict-origin-when-cross-origin",
 		"Content-Security-Policy": "default-src 'self'",
+		"Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
 	}
 	return func(c *gin.Context) {
 		for k, v := range headers {

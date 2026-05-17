@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/test/helpers"
 )
 
@@ -17,7 +18,7 @@ func TestRedisCache_Connect(t *testing.T) {
 
 	// Test that connection is established
 	err := cache.Ping(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestRedisCache_SetGet(t *testing.T) {
@@ -29,12 +30,12 @@ func TestRedisCache_SetGet(t *testing.T) {
 
 	// Set value
 	err := cache.Set(context.Background(), "test_key", "test_value")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Get value
 	value, err := cache.Get(context.Background(), "test_key")
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "test_value", value)
+	require.NoError(t, err)
+	require.Equal(t, "test_value", value)
 
 	// Cleanup
 	cache.Delete(context.Background(), "test_key")
@@ -49,19 +50,19 @@ func TestRedisCache_SetWithExpiration(t *testing.T) {
 
 	// Set value with expiration
 	err := cache.SetWithExpiration(context.Background(), "test_exp_key", "test_value", 1*time.Second)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Get value immediately
 	value, err := cache.Get(context.Background(), "test_exp_key")
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "test_value", value)
+	require.NoError(t, err)
+	require.Equal(t, "test_value", value)
 
 	// Wait for expiration
 	time.Sleep(2 * time.Second)
 
 	// Value should be expired
 	_, err = cache.Get(context.Background(), "test_exp_key")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestRedisCache_Delete(t *testing.T) {
@@ -73,15 +74,15 @@ func TestRedisCache_Delete(t *testing.T) {
 
 	// Set value
 	err := cache.Set(context.Background(), "test_del_key", "test_value")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Delete value
 	err = cache.Delete(context.Background(), "test_del_key")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Value should not exist
 	_, err = cache.Get(context.Background(), "test_del_key")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestRedisCache_Exists(t *testing.T) {
@@ -93,18 +94,18 @@ func TestRedisCache_Exists(t *testing.T) {
 
 	// Set value
 	err := cache.Set(context.Background(), "test_exists_key", "test_value")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Check exists
 	exists, err := cache.Exists(context.Background(), "test_exists_key")
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, exists)
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	// Delete and check again
 	cache.Delete(context.Background(), "test_exists_key")
 	exists, err = cache.Exists(context.Background(), "test_exists_key")
-	helpers.AssertNoError(t, err)
-	helpers.AssertFalse(t, exists)
+	require.NoError(t, err)
+	require.False(t, exists)
 }
 
 func TestRedisCache_Expire(t *testing.T) {
@@ -116,21 +117,21 @@ func TestRedisCache_Expire(t *testing.T) {
 
 	// Set value without expiration
 	err := cache.Set(context.Background(), "test_expire_key", "test_value")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Set expiration
 	err = cache.Expire(context.Background(), "test_expire_key", 1*time.Second)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Value should exist immediately
 	value, err := cache.Get(context.Background(), "test_expire_key")
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "test_value", value)
+	require.NoError(t, err)
+	require.Equal(t, "test_value", value)
 
 	// Wait for expiration
 	time.Sleep(2 * time.Second)
 
 	// Value should be expired
 	_, err = cache.Get(context.Background(), "test_expire_key")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }

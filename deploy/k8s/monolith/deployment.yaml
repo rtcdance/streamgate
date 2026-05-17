@@ -30,6 +30,13 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: streamgate
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: streamgate
         image: streamgate/monolith:latest
@@ -168,6 +175,12 @@ spec:
           readOnly: true
         - name: tmp
           mountPath: /tmp
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
       volumes:
       - name: config
         configMap:

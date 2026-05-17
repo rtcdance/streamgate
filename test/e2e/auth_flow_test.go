@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 // MockAuthStorage for testing
@@ -41,90 +41,90 @@ func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) err
 func TestAuthFlow_UserRegistrationAndLogin(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Step 1: Register user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Step 2: Verify user was created
 	user, err := storage.GetUser(context.Background(), "testuser")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, user)
-	helpers.AssertEqual(t, "testuser", user.Username)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	require.Equal(t, "testuser", user.Username)
 
 	// Step 3: Login with correct credentials
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, "", token)
+	require.NoError(t, err)
+	require.NotEqual(t, "", token)
 
 	// Step 4: Verify token
 	valid, err := authService.Verify(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, valid)
+	require.NoError(t, err)
+	require.True(t, valid)
 
 	// Step 5: Parse token to get claims
 	claims, err := authService.ParseToken(token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "testuser", claims.Username)
+	require.NoError(t, err)
+	require.Equal(t, "testuser", claims.Username)
 }
 
 func TestAuthFlow_FailedLogin(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
 	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 
 	// Try login with wrong password
 	_, err := authService.Authenticate(context.Background(), "testuser", "wrongpassword")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 
 	// Try login with non-existent user
 	_, err = authService.Authenticate(context.Background(), "nonexistent", "password123")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }
 
 func TestAuthFlow_TokenRefresh(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register and login
 	authService.Register(context.Background(), "testuser", "password123", "test@example.com")
 	token, err := authService.Authenticate(context.Background(), "testuser", "password123")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Refresh token
 	newToken, err := authService.RefreshToken(context.Background(), token)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, token, newToken)
+	require.NoError(t, err)
+	require.NotEqual(t, token, newToken)
 
 	// Verify new token
 	valid, err := authService.Verify(newToken)
-	helpers.AssertNoError(t, err)
-	helpers.AssertTrue(t, valid)
+	require.NoError(t, err)
+	require.True(t, valid)
 }
 
 func TestAuthFlow_PasswordChange(t *testing.T) {
 	// Setup
 	storage := NewMockAuthStorage()
-	authService := service.NewAuthService("test-secret", storage)
+	authService := service.NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
 	// Register user
 	authService.Register(context.Background(), "testuser", "oldpassword", "test@example.com")
 
 	// Change password
 	err := authService.ChangePassword(context.Background(), "testuser", "oldpassword", "newpassword")
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Old password should not work
 	_, err = authService.Authenticate(context.Background(), "testuser", "oldpassword")
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 
 	// New password should work
 	token, err := authService.Authenticate(context.Background(), "testuser", "newpassword")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, "", token)
+	require.NoError(t, err)
+	require.NotEqual(t, "", token)
 }

@@ -1,0 +1,41 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-type: go
+          package-name: streamgate
+          changelog-types: >
+            [{"type":"feat","section":"Features","hidden":false},
+             {"type":"fix","section":"Bug Fixes","hidden":false},
+             {"type":"docs","section":"Documentation","hidden":false},
+             {"type":"chore","section":"Miscellaneous","hidden":true},
+             {"type":"test","section":"Testing","hidden":false},
+             {"type":"refactor","section":"Code Refactoring","hidden":false}]
+
+      - name: Update VERSION on release
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          NEW_VERSION: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name }}
+        run: |
+          echo "$NEW_VERSION" > VERSION
+          git config user.name "streamgate-bot"
+          git config user.email "bot@streamgate.dev"
+          git add VERSION
+          git commit -m "chore: bump VERSION to $TAG_NAME"
+          git push

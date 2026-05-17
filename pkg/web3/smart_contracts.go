@@ -105,8 +105,8 @@ type NFTContract struct {
 
 // Pre-computed keccak256 event topic hashes for ERC-721.
 var (
-	transferTopic  = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
-	approvalTopic  = crypto.Keccak256Hash([]byte("Approval(address,address,uint256)"))
+	transferTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
+	approvalTopic = crypto.Keccak256Hash([]byte("Approval(address,address,uint256)"))
 )
 
 // NewNFTContract creates a new NFT contract

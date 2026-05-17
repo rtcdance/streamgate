@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -197,19 +197,33 @@ func (s3s *S3Storage) ListObjects(ctx context.Context, bucket, prefix string) ([
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	result, err := s3s.client.ListObjectsV2WithContext(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(prefix),
-	})
+	var keys []string
+	var continuationToken *string
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to list objects: %w", err)
-	}
+	for {
+		input := &s3.ListObjectsV2Input{
+			Bucket:            aws.String(bucket),
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		}
 
-	keys := make([]string, 0, len(result.Contents))
-	for _, obj := range result.Contents {
-		if obj.Key != nil {
-			keys = append(keys, *obj.Key)
+		result, err := s3s.client.ListObjectsV2WithContext(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		for _, obj := range result.Contents {
+			if obj.Key != nil {
+				keys = append(keys, *obj.Key)
+			}
+		}
+
+		if result.IsTruncated == nil || !*result.IsTruncated {
+			break
+		}
+		continuationToken = result.NextContinuationToken
+		if continuationToken == nil {
+			break
 		}
 	}
 
@@ -218,24 +232,16 @@ func (s3s *S3Storage) ListObjects(ctx context.Context, bucket, prefix string) ([
 
 // PresignedURL generates a presigned URL for downloading
 func (s3s *S3Storage) PresignedURL(ctx context.Context, bucket, key string, expiration time.Duration) (string, error) {
-	// Validate that the object reference is valid before generating presigned URL.
-	if _, err := s3s.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}); err != nil {
-		return "", fmt.Errorf("object not found: %w", err)
-	}
-
 	req, _ := s3s.client.GetObjectRequest(&s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
-	url, err := req.Presign(expiration)
+	presignedURL, err := req.Presign(expiration)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
 	}
 
-	return url, nil
+	return presignedURL, nil
 }
 
 // UploadWithContentType stores data with a specific content type
@@ -254,6 +260,21 @@ func (s3s *S3Storage) UploadWithContentType(ctx context.Context, bucket, key str
 	return nil
 }
 
+func (s3s *S3Storage) UploadStreamWithContentType(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	_, err := s3s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        reader,
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload stream to S3: %w", err)
+	}
+	return nil
+}
+
 // CreateBucket creates an S3 bucket if it does not exist
 func (s3s *S3Storage) CreateBucket(ctx context.Context, bucket string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -262,9 +283,12 @@ func (s3s *S3Storage) CreateBucket(ctx context.Context, bucket string) error {
 		Bucket: aws.String(bucket),
 	})
 	if err != nil {
-		// Ignore bucket already owned by you error
-		if strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") || strings.Contains(err.Error(), "BucketAlreadyExists") {
-			return nil
+		var aerr awserr.Error
+		if errors.As(err, &aerr) {
+			switch aerr.Code() {
+			case "BucketAlreadyOwnedByYou", "BucketAlreadyExists":
+				return nil
+			}
 		}
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}

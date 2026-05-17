@@ -13,6 +13,13 @@ spec:
       labels:
         app: worker
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: worker
         image: streamgate:worker
@@ -22,6 +29,9 @@ spec:
           name: http
         - containerPort: 9097
           name: metrics
+        env:
+        - name: SERVER_PORT
+          value: "8087"
         envFrom:
         - configMapRef:
             name: streamgate-config
@@ -46,6 +56,12 @@ spec:
           limits:
             memory: "1Gi"
             cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
 ---
 apiVersion: v1
 kind: Service

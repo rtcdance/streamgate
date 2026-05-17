@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package upload.v1;
 
-option go_package = "streamgate/proto/gen/go/upload/v1;uploadv1";
+option go_package = "streamgate/pkg/api/v1/upload;uploadv1";
 
 import "proto/v1/common.proto";
 

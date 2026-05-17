@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"context"
 	"math/big"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestNewMulticallCaller(t *testing.T) {
 
 func TestMulticallCaller_Aggregate3_Empty(t *testing.T) {
 	mc, _ := NewMulticallCaller(nil, 1, zap.NewNop())
-	results, err := mc.Aggregate3(nil, nil)
+	results, err := mc.Aggregate3(context.TODO(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

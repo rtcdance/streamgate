@@ -13,6 +13,13 @@ spec:
       labels:
         app: minio
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: minio
         image: minio/minio:latest
@@ -50,6 +57,12 @@ spec:
             port: 9000
           initialDelaySeconds: 5
           periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
       volumes:
       - name: minio-storage
         persistentVolumeClaim:

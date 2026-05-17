@@ -3,7 +3,10 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"regexp"
+	"strings"
 )
 
 // ValidateEmail validates email format
@@ -38,8 +41,32 @@ func ValidateURL(url string) error {
 }
 
 // IsValidURL checks if URL is valid (returns bool)
-func IsValidURL(url string) bool {
-	return ValidateURL(url) == nil
+func IsValidURL(rawURL string) bool {
+	return ValidateURL(rawURL) == nil
+}
+
+// IsSafeURL checks that a URL is valid and does not target internal/private
+// networks (RFC 1918, link-local, loopback). This prevents SSRF attacks on
+// endpoints that fetch remote resources (e.g. transcoding input URLs).
+func IsSafeURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL missing host")
+	}
+	if strings.ToLower(host) == "localhost" {
+		return fmt.Errorf("localhost URLs are not allowed")
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("private/internal IP addresses are not allowed")
+		}
+	}
+	return nil
 }
 
 // ValidateUUID validates UUID format

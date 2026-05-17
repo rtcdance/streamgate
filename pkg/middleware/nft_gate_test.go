@@ -15,8 +15,10 @@ import (
 
 // mockNFTOwnershipChecker implements NFTOwnershipChecker for testing
 type mockNFTOwnershipChecker struct {
-	verifyFn  func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
-	balanceFn func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error)
+	verifyFn         func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
+	balanceFn        func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error)
+	autoDetectFn     func(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error)
+	collectionAutoFn func(ctx context.Context, contractAddress, ownerAddress string) (bool, error)
 }
 
 func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
@@ -25,6 +27,24 @@ func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainI
 
 func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
 	return m.balanceFn(ctx, chainID, contractAddress, ownerAddress)
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	if m.autoDetectFn != nil {
+		return m.autoDetectFn(ctx, contractAddress, tokenID, ownerAddress)
+	}
+	return m.verifyFn(ctx, 1, contractAddress, tokenID, ownerAddress)
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+	if m.collectionAutoFn != nil {
+		return m.collectionAutoFn(ctx, contractAddress, ownerAddress)
+	}
+	bal, err := m.balanceFn(ctx, 1, contractAddress, ownerAddress)
+	if err != nil {
+		return false, err
+	}
+	return bal != nil && bal.Sign() > 0, nil
 }
 
 // mockNFTAccessCache implements NFTAccessCache for testing
@@ -45,7 +65,7 @@ func setupNFTGateRouter(config NFTGateConfig) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	jwtConfig := JWTAuthConfig{Secret: "test-secret"}
+	jwtConfig := JWTAuthConfig{Secret: "test-secret-that-is-at-least-32-chars"}
 	router.Use(JWTAuthMiddleware(jwtConfig, zap.NewNop()))
 	router.Use(NFTGateMiddleware(config, zap.NewNop()))
 
@@ -60,8 +80,8 @@ func setupNFTGateRouter(config NFTGateConfig) *gin.Engine {
 }
 
 func authRequestWithWallet(path, walletAddr string) *http.Request {
-	token := generateTestJWT("test-secret", walletAddr, time.Now().Add(time.Hour))
-	req := httptest.NewRequest("GET", path, nil)
+	token := generateTestJWT("test-secret-that-is-at-least-32-chars", walletAddr, time.Now().Add(time.Hour))
+	req := httptest.NewRequest("GET", path, http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return req
 }
@@ -105,13 +125,13 @@ func TestNFTGateMiddleware_NotOwner(t *testing.T) {
 
 func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 	config := NFTGateConfig{
-		Verifier: &mockNFTOwnershipChecker{},
+		Verifier:       &mockNFTOwnershipChecker{},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(config)
 
 	// Request without JWT (no wallet_address in context)
-	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract=0xABC", nil)
+	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract=0xABC", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -120,7 +140,7 @@ func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 
 func TestNFTGateMiddleware_MissingContract(t *testing.T) {
 	config := NFTGateConfig{
-		Verifier: &mockNFTOwnershipChecker{},
+		Verifier:       &mockNFTOwnershipChecker{},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(config)
@@ -161,7 +181,7 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		},
 		Cache: &mockNFTAccessCache{
 			entries: map[string]NFTAccessEntry{
-				"1:0xOwner:0xABC:": {
+				"1:0xOwner:0xABC:__collection__": {
 					HasNFT:  true,
 					Balance: big.NewInt(5),
 					Expires: time.Now().Add(time.Minute),

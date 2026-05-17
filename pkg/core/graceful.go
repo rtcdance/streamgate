@@ -23,6 +23,13 @@ func IsDraining() bool {
 	return drainState.Load()
 }
 
+// SetDraining marks the server as draining, which causes DrainMiddleware to
+// reject new requests with 503. In-flight requests are allowed to complete.
+// Call this before initiating server shutdown.
+func SetDraining() {
+	drainState.Store(true)
+}
+
 // DrainMiddleware returns a Gin middleware that rejects new requests
 // with 503 Service Unavailable once the server starts draining.
 // In-flight requests (already past the middleware) are allowed to complete.

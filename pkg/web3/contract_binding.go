@@ -57,11 +57,11 @@ func NewContentRegistryBinding(address string, reader *ContractInteractor, write
 	}
 
 	return &ContentRegistryBinding{
-		address:               common.HexToAddress(address),
-		abi:                   parsedABI,
-		reader:                reader,
-		writer:                writer,
-		logger:                logger,
+		address:                common.HexToAddress(address),
+		abi:                    parsedABI,
+		reader:                 reader,
+		writer:                 writer,
+		logger:                 logger,
 		contentRegisteredTopic: topic,
 	}
 }

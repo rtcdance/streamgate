@@ -2,6 +2,7 @@ package util
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -24,7 +25,8 @@ func HashSHA256(data []byte) string {
 
 // VerifySHA256 verifies SHA256 hash
 func VerifySHA256(data []byte, expectedHash string) bool {
-	return SHA256Hash(data) == expectedHash
+	computed := SHA256Hash(data)
+	return subtle.ConstantTimeCompare([]byte(computed), []byte(expectedHash)) == 1
 }
 
 // HashString computes SHA256 hash of string

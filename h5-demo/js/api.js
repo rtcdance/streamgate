@@ -47,19 +47,19 @@ class APIService {
 
     setAuthToken(token) {
         this.authToken = token;
-        localStorage.setItem('streamgate_token', token);
+        sessionStorage.setItem('streamgate_token', token);
     }
 
     getAuthToken() {
         if (!this.authToken) {
-            this.authToken = localStorage.getItem('streamgate_token');
+            this.authToken = sessionStorage.getItem('streamgate_token');
         }
         return this.authToken;
     }
 
     clearAuthToken() {
         this.authToken = null;
-        localStorage.removeItem('streamgate_token');
+        sessionStorage.removeItem('streamgate_token');
     }
 
     async request(endpoint, options = {}) {
@@ -149,10 +149,11 @@ class APIService {
         }
     }
 
-    async getChallenge(walletAddress, chainId = 11155111) {
+    async getChallenge(walletAddress, chainId = 11155111, signType = 'eip712') {
         return this.post('/api/v1/auth/challenge', {
             wallet: walletAddress,
             chain_id: chainId,
+            sign_type: signType,
         });
     }
 
@@ -199,6 +200,108 @@ class APIService {
 
     async getTranscodeProfiles() {
         return this.get('/api/v1/transcode/profiles');
+    }
+
+    // --- Upload API ---
+
+    async uploadWholeFile(file, onProgress) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const url = `${this.baseUrl}/api/v1/upload`;
+        const headers = {};
+        const token = this.getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url);
+
+            Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+
+            if (onProgress) {
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        onProgress(e.loaded, e.total);
+                    }
+                });
+            }
+
+            xhr.addEventListener('load', () => {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(data);
+                    } else {
+                        reject(new Error(data?.error || data?.message || `HTTP ${xhr.status}`));
+                    }
+                } catch {
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            });
+
+            xhr.addEventListener('error', () => reject(new Error('Network error')));
+            xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+            xhr.send(formData);
+        });
+    }
+
+    async initChunkedUpload(filename, totalSize, totalChunks) {
+        return this.post('/api/v1/upload/init', {
+            filename,
+            total_size: totalSize,
+            total_chunks: totalChunks,
+        });
+    }
+
+    async uploadChunk(uploadId, chunkIndex, chunkData) {
+        const formData = new FormData();
+        formData.append('upload_id', uploadId);
+        formData.append('chunk_index', String(chunkIndex));
+        formData.append('chunk', chunkData);
+
+        const url = `${this.baseUrl}/api/v1/upload/chunk`;
+        const headers = {};
+        const token = this.getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+        }
+        return data;
+    }
+
+    async completeChunkedUpload(uploadId, totalChunks) {
+        return this.post(`/api/v1/upload/${uploadId}/complete`, {
+            total_chunks: totalChunks,
+        });
+    }
+
+    async getUploadStatus(uploadId) {
+        return this.get(`/api/v1/upload/${uploadId}/status`);
+    }
+
+    async completeUpload(uploadId) {
+        return this.post(`/api/v1/upload/${uploadId}/complete-upload`);
+    }
+
+    async getDownloadURL(uploadId, expiryMinutes) {
+        const params = {};
+        if (expiryMinutes) {
+            params.expiry_minutes = expiryMinutes;
+        }
+        return this.get(`/api/v1/upload/${uploadId}/download-url`, params);
     }
 }
 

@@ -16,10 +16,10 @@ import (
 
 // ClientPool manages gRPC client connections
 type ClientPool struct {
-	registry ServiceRegistry
-	logger   *zap.Logger
-	clients  map[string]*grpc.ClientConn
-	mu       sync.RWMutex
+	registry  ServiceRegistry
+	logger    *zap.Logger
+	clients   map[string]*grpc.ClientConn
+	mu        sync.RWMutex
 	tlsConfig *tls.Config
 }
 
@@ -195,13 +195,13 @@ func (l *ServiceLocator) getServiceAddress(ctx context.Context, serviceName stri
 
 // CircuitBreaker implements circuit breaker pattern for service calls
 type CircuitBreaker struct {
-	maxFailures  int
-	timeout      time.Duration
-	failures     int
-	state        string // "closed", "open", "half-open"
+	maxFailures   int
+	timeout       time.Duration
+	failures      int
+	state         string       // "closed", "open", "half-open"
 	halfOpenTrial atomic.Int32 // 1 = trial call in progress, 0 = no trial
-	logger       *zap.Logger
-	mu           sync.Mutex
+	logger        *zap.Logger
+	mu            sync.Mutex
 }
 
 // NewCircuitBreaker creates a new circuit breaker

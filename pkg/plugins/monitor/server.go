@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -104,10 +107,16 @@ func (s *MonitorServer) Health(ctx context.Context) error {
 
 // MetricsCollector collects system and application metrics
 type MetricsCollector struct {
-	logger  *zap.Logger
-	running bool
-	ctx     context.Context
-	cancel  context.CancelFunc
+	logger       *zap.Logger
+	running      bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	requestCount int64
+	errorCount   int64
+	totalLatency int64
+	reqSamples   int64
+	metrics      SystemMetrics
+	mu           sync.RWMutex
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -152,34 +161,65 @@ func (c *MetricsCollector) collectMetrics() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
-			// TODO: Collect metrics
-			// - CPU usage
-			// - Memory usage
-			// - Request count
-			// - Error count
-			// - Response time
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+
+			c.mu.Lock()
+			c.metrics = SystemMetrics{
+				Timestamp:    time.Now().Unix(),
+				MemoryUsage:  float64(m.Alloc) / 1024 / 1024,
+				RequestCount: atomic.LoadInt64(&c.requestCount),
+				ErrorCount:   atomic.LoadInt64(&c.errorCount),
+				AvgLatency:   c.avgLatencyLocked(),
+			}
+			c.mu.Unlock()
 		}
 	}
 }
 
-// GetMetrics returns current metrics
+func (c *MetricsCollector) avgLatencyLocked() float64 {
+	if c.reqSamples == 0 {
+		return 0
+	}
+	return float64(atomic.LoadInt64(&c.totalLatency)) / float64(c.reqSamples) / float64(time.Millisecond)
+}
+
 func (c *MetricsCollector) GetMetrics() *SystemMetrics {
-	// TODO: Implement metrics retrieval
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return &SystemMetrics{
-		Timestamp:    time.Now().Unix(),
-		CPUUsage:     0,
-		MemoryUsage:  0,
-		RequestCount: 0,
-		ErrorCount:   0,
+		Timestamp:    c.metrics.Timestamp,
+		CPUUsage:     float64(runtime.NumGoroutine()),
+		MemoryUsage:  c.metrics.MemoryUsage,
+		RequestCount: atomic.LoadInt64(&c.requestCount),
+		ErrorCount:   atomic.LoadInt64(&c.errorCount),
+		AvgLatency:   c.metrics.AvgLatency,
 	}
 }
 
-// GetHealth returns system health status
 func (c *MetricsCollector) GetHealth() *HealthStatus {
-	// TODO: Implement health check
-	return &HealthStatus{
-		Status: "healthy",
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	gcPause := m.PauseNs[(m.NumGC+255)%256]
+	status := "healthy"
+	if gcPause > uint64(100*time.Millisecond) {
+		status = "degraded"
 	}
+
+	return &HealthStatus{
+		Status: status,
+	}
+}
+
+func (c *MetricsCollector) RecordRequest(latency time.Duration) {
+	atomic.AddInt64(&c.requestCount, 1)
+	atomic.AddInt64(&c.totalLatency, int64(latency))
+	atomic.AddInt64(&c.reqSamples, 1)
+}
+
+func (c *MetricsCollector) RecordError() {
+	atomic.AddInt64(&c.errorCount, 1)
 }
 
 // SystemMetrics represents system metrics

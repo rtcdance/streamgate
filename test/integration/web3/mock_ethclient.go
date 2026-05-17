@@ -12,10 +12,10 @@ import (
 
 // mockEthCaller implements web3.EthCaller for testing
 type mockEthCaller struct {
-	mu       sync.Mutex
-	calls    map[string][][]byte // method selector → list of responses
-	callErr  map[string]error    // method selector → error to return
-	callIdx  map[string]int      // method selector → call counter
+	mu      sync.Mutex
+	calls   map[string][][]byte // method selector → list of responses
+	callErr map[string]error    // method selector → error to return
+	callIdx map[string]int      // method selector → call counter
 }
 
 func newMockEthCaller() *mockEthCaller {

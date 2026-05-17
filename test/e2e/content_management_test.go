@@ -3,8 +3,10 @@ package e2e_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
@@ -69,6 +71,11 @@ func (m *MockContentCache) Delete(key string) error {
 	return nil
 }
 
+func (m *MockContentCache) SetWithExpiration(key string, value interface{}, ttl time.Duration) error {
+	m.data[key] = value
+	return nil
+}
+
 func TestContentManagement_CreateAndRetrieve(t *testing.T) {
 	// Setup
 	db := helpers.SetupTestDB(t)
@@ -99,14 +106,14 @@ func TestContentManagement_CreateAndRetrieve(t *testing.T) {
 	}
 
 	contentID, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotEqual(t, "", contentID)
+	require.NoError(t, err)
+	require.NotEqual(t, "", contentID)
 
 	// Retrieve content
 	retrieved, err := contentService.GetContent(context.Background(), contentID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, retrieved)
-	helpers.AssertEqual(t, "Test Video", retrieved.Title)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Equal(t, "Test Video", retrieved.Title)
 }
 
 func TestContentManagement_UpdateContent(t *testing.T) {
@@ -138,18 +145,18 @@ func TestContentManagement_UpdateContent(t *testing.T) {
 	}
 
 	contentID, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Update content
 	content.ID = contentID
 	content.Title = "Updated Title"
 	err = contentService.UpdateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify update
 	retrieved, err := contentService.GetContent(context.Background(), contentID)
-	helpers.AssertNoError(t, err)
-	helpers.AssertEqual(t, "Updated Title", retrieved.Title)
+	require.NoError(t, err)
+	require.Equal(t, "Updated Title", retrieved.Title)
 }
 
 func TestContentManagement_DeleteContent(t *testing.T) {
@@ -181,13 +188,13 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 	}
 
 	contentID, err := contentService.CreateContent(context.Background(), content)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Delete content
 	err = contentService.DeleteContent(context.Background(), contentID)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	// Verify deletion
 	_, err = contentService.GetContent(context.Background(), contentID)
-	helpers.AssertError(t, err)
+	require.Error(t, err)
 }

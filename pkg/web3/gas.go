@@ -12,12 +12,14 @@ import (
 )
 
 // GasPricer abstracts gas price queries. *ChainClient satisfies this interface.
+//
 //go:generate mockgen -destination=mocks/mock_gas_pricer.go -package=mocks streamgate/pkg/web3 GasPricer
 type GasPricer interface {
 	GetGasPrice(ctx context.Context) (*big.Int, error)
 }
 
 // FeeHistoryProvider abstracts eth_feeHistory queries. *ChainClient satisfies this interface.
+//
 //go:generate mockgen -destination=mocks/mock_fee_history_provider.go -package=mocks streamgate/pkg/web3 FeeHistoryProvider
 type FeeHistoryProvider interface {
 	FeeHistory(ctx context.Context, blockCount uint64, lastBlock *big.Int, rewardPercentiles []float64) (*ethereum.FeeHistory, error)
@@ -134,7 +136,7 @@ func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPric
 
 	return []*GasPrice{
 		{
-			Level:                 "safe",
+			Level:                "safe",
 			GasPrice:             safeMaxFee,
 			Gwei:                 toGwei(safeMaxFee),
 			EstimatedTime:        estimatedTimes[0],
@@ -143,7 +145,7 @@ func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPric
 			MaxFeePerGas:         safeMaxFee,
 		},
 		{
-			Level:                 "standard",
+			Level:                "standard",
 			GasPrice:             standardMaxFee,
 			Gwei:                 toGwei(standardMaxFee),
 			EstimatedTime:        estimatedTimes[1],
@@ -152,7 +154,7 @@ func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPric
 			MaxFeePerGas:         standardMaxFee,
 		},
 		{
-			Level:                 "fast",
+			Level:                "fast",
 			GasPrice:             fastMaxFee,
 			Gwei:                 toGwei(fastMaxFee),
 			EstimatedTime:        estimatedTimes[2],
@@ -367,13 +369,13 @@ func (gm *GasMonitor) EstimateGasCostInEther(gasAmount uint64) float64 {
 
 // GasPrice represents a gas price level
 type GasPrice struct {
-	Level                 string
-	GasPrice              *big.Int
-	Gwei                  float64
-	EstimatedTime         string
-	BaseFee               *big.Int
-	MaxPriorityFeePerGas  *big.Int
-	MaxFeePerGas          *big.Int
+	Level                string
+	GasPrice             *big.Int
+	Gwei                 float64
+	EstimatedTime        string
+	BaseFee              *big.Int
+	MaxPriorityFeePerGas *big.Int
+	MaxFeePerGas         *big.Int
 }
 
 // GetGasPriceLevels gets gas price levels.

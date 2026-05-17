@@ -3,11 +3,8 @@ package web3
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -16,8 +13,8 @@ import (
 
 // SignatureVerifier handles signature verification
 type SignatureVerifier struct {
-	logger      *zap.Logger
-	eip1271     *EIP1271Checker // optional: for smart contract wallet verification
+	logger  *zap.Logger
+	eip1271 *EIP1271Checker // optional: for smart contract wallet verification
 }
 
 // NewSignatureVerifier creates a new signature verifier
@@ -164,59 +161,4 @@ func (sv *SignatureVerifier) GetAddressFromPrivateKey(privateKey *ecdsa.PrivateK
 
 	address := crypto.PubkeyToAddress(*publicKeyECDSA)
 	return address.Hex()
-}
-
-// Challenge represents a signing challenge
-type Challenge struct {
-	ID        string
-	Address   string
-	Message   string
-	ExpiresAt int64
-}
-
-// ChallengeGenerator generates signing challenges
-type ChallengeGenerator struct {
-	logger *zap.Logger
-}
-
-// NewChallengeGenerator creates a new challenge generator
-func NewChallengeGenerator(logger *zap.Logger) *ChallengeGenerator {
-	return &ChallengeGenerator{
-		logger: logger,
-	}
-}
-
-// GenerateChallenge generates a new signing challenge
-func (cg *ChallengeGenerator) GenerateChallenge(address string) *Challenge {
-	cg.logger.Debug("Generating challenge", zap.String("address", address))
-
-	// Create challenge message
-	message := fmt.Sprintf("Sign this message to verify your wallet ownership.\nAddress: %s\nTimestamp: %d", address, getCurrentTimestamp())
-
-	challenge := &Challenge{
-		ID:        generateChallengeID(),
-		Address:   address,
-		Message:   message,
-		ExpiresAt: getCurrentTimestamp() + 3600, // 1 hour expiry
-	}
-
-	cg.logger.Debug("Challenge generated",
-		zap.String("challenge_id", challenge.ID),
-		zap.String("address", address))
-	return challenge
-}
-
-// Helper functions
-
-func getCurrentTimestamp() int64 {
-	return time.Now().Unix()
-}
-
-func generateChallengeID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails
-		return fmt.Sprintf("challenge-%d", getCurrentTimestamp())
-	}
-	return "challenge-" + hex.EncodeToString(b)
 }

@@ -6,6 +6,7 @@ class StreamGateApp {
         this.player = null;
         this.isPlaying = false;
         this.lastTranscodeTaskId = null;
+        this.lastUploadId = null;
         this.stepStates = {
             backend: 'pending',
             wallet: 'pending',
@@ -14,6 +15,7 @@ class StreamGateApp {
             playback: 'pending',
             rpc: 'pending',
             transcode: 'pending',
+            upload: 'pending',
         };
     }
 
@@ -85,6 +87,10 @@ class StreamGateApp {
         document.getElementById('load-transcode-status').addEventListener('click', () => this.loadTranscodeStatus());
         document.getElementById('load-transcode-tasks').addEventListener('click', () => this.loadTranscodeTasks());
         document.getElementById('load-transcode-profiles').addEventListener('click', () => this.loadTranscodeProfiles());
+        document.getElementById('upload-whole-btn').addEventListener('click', () => this.uploadWholeFile());
+        document.getElementById('upload-chunked-btn').addEventListener('click', () => this.uploadChunked());
+        document.getElementById('check-upload-status-btn').addEventListener('click', () => this.checkUploadStatus());
+        document.getElementById('get-download-url-btn').addEventListener('click', () => this.getDownloadURL());
         document.getElementById('test-health').addEventListener('click', () => this.testHealth());
         document.getElementById('test-challenge').addEventListener('click', () => this.testChallenge());
         document.querySelectorAll('.demo-item').forEach((item) => {
@@ -172,8 +178,14 @@ class StreamGateApp {
         const formatted = this.wallet.formatAddress(address);
         document.getElementById('address-value').textContent = formatted;
         document.getElementById('wallet-address').classList.remove('hidden');
-        document.getElementById('wallet-status').innerHTML = 
-            '<span class="status-dot online"></span><span>Connected</span>';
+        const walletStatus = document.getElementById('wallet-status');
+        walletStatus.textContent = '';
+        const dot = document.createElement('span');
+        dot.className = 'status-dot online';
+        walletStatus.appendChild(dot);
+        const label = document.createElement('span');
+        label.textContent = 'Connected';
+        walletStatus.appendChild(label);
     }
 
     async doLogin() {
@@ -183,8 +195,12 @@ class StreamGateApp {
             const result = await this.auth.login();
             
             document.getElementById('login-result').classList.remove('hidden');
-            document.getElementById('login-result').innerHTML = 
-                `<span class="success">✓ Login successful! Token: ${result.token?.slice(0, 20)}...</span>`;
+            const loginEl = document.getElementById('login-result');
+            loginEl.textContent = '';
+            const span = document.createElement('span');
+            span.className = 'success';
+            span.textContent = `✓ Login successful! Token: ${result.token?.slice(0, 20)}...`;
+            loginEl.appendChild(span);
             this.updateStatus('auth', 'online', 'Authenticated');
             this.updateStep('auth', 'done');
             this.setTroubleshooting(
@@ -194,8 +210,12 @@ class StreamGateApp {
             this.showToast('Login successful', 'success');
         } catch (error) {
             document.getElementById('login-result').classList.remove('hidden');
-            document.getElementById('login-result').innerHTML = 
-                `<span class="error">✗ ${error.message}</span>`;
+            const errEl = document.getElementById('login-result');
+            errEl.textContent = '';
+            const errSpan = document.createElement('span');
+            errSpan.className = 'error';
+            errSpan.textContent = `✗ ${error.message}`;
+            errEl.appendChild(errSpan);
             this.updateStep('auth', 'failed');
             this.setTroubleshooting(
                 'Login failed',
@@ -242,11 +262,17 @@ class StreamGateApp {
                 );
             }
 
-            document.getElementById('nft-details').innerHTML = `
-                <p>Balance: ${result.balance}</p>
-                <p>Chain ID: ${result.chain_id}</p>
-                <p>Cache: ${result.cache_hit ? 'Yes' : 'No'}</p>
-            `;
+            const nftDetails = document.getElementById('nft-details');
+            nftDetails.textContent = '';
+            const p1 = document.createElement('p');
+            p1.textContent = `Balance: ${result.balance}`;
+            nftDetails.appendChild(p1);
+            const p2 = document.createElement('p');
+            p2.textContent = `Chain ID: ${result.chain_id}`;
+            nftDetails.appendChild(p2);
+            const p3 = document.createElement('p');
+            p3.textContent = `Cache: ${result.cache_hit ? 'Yes' : 'No'}`;
+            nftDetails.appendChild(p3);
             
             this.showToast(result.has_nft ? 'NFT verified!' : 'No NFT found', 
                 result.has_nft ? 'success' : 'warning');
@@ -297,6 +323,184 @@ class StreamGateApp {
             this.showToast('Failed to load video: ' + error.message, 'error');
         } finally {
             this.showLoading(false);
+        }
+    }
+
+    // --- Upload methods ---
+
+    async uploadWholeFile() {
+        const fileInput = document.getElementById('upload-file');
+        if (!fileInput.files.length) {
+            this.showToast('Please select a file first', 'error');
+            return;
+        }
+        const file = fileInput.files[0];
+
+        try {
+            this.showLoading(true);
+            const progressContainer = document.getElementById('upload-progress-container');
+            const progressBar = document.getElementById('upload-progress-bar');
+            const progressText = document.getElementById('upload-progress-text');
+            progressContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = '0%';
+
+            const result = await this.api.uploadWholeFile(file, (loaded, total) => {
+                const pct = Math.round((loaded / total) * 100);
+                progressBar.style.width = `${pct}%`;
+                progressText.textContent = `${pct}%`;
+            });
+
+            this.lastUploadId = result.upload_id;
+            document.getElementById('upload-id-display').value = result.upload_id;
+            document.getElementById('check-upload-status-btn').disabled = false;
+            document.getElementById('get-download-url-btn').disabled = false;
+            this.updateStatus('upload', 'online', 'Uploaded');
+            this.updateStep('upload', 'done');
+
+            // Auto-bridge: complete upload → create content record → fill transcode form
+            await this.bridgeUploadToTranscode(result.upload_id);
+
+            this.setTroubleshooting(
+                'Upload completed',
+                'Content record created. Transcode form auto-filled — click Submit Task to transcode.'
+            );
+            this.showOutput('upload-output', 'Upload Result', JSON.stringify(result, null, 2));
+            this.showToast('Upload successful', 'success');
+        } catch (error) {
+            this.updateStatus('upload', 'offline', 'Failed');
+            this.updateStep('upload', 'failed');
+            this.setTroubleshooting('Upload failed', error.message);
+            this.showOutput('upload-output', 'Upload Failed', error.message);
+            this.showToast('Upload failed: ' + error.message, 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async uploadChunked() {
+        const fileInput = document.getElementById('upload-file');
+        if (!fileInput.files.length) {
+            this.showToast('Please select a file first', 'error');
+            return;
+        }
+        const file = fileInput.files[0];
+        const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per chunk
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        try {
+            this.showLoading(true);
+            const progressContainer = document.getElementById('upload-progress-container');
+            const progressBar = document.getElementById('upload-progress-bar');
+            const progressText = document.getElementById('upload-progress-text');
+            progressContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Initiating...';
+
+            // Step 1: Init
+            const initResult = await this.api.initChunkedUpload(file.name, file.size, totalChunks);
+            const uploadId = initResult.upload_id;
+            document.getElementById('upload-id-display').value = uploadId;
+            this.lastUploadId = uploadId;
+
+            // Step 2: Upload chunks
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunkBlob = file.slice(start, end);
+
+                progressText.textContent = `Chunk ${i + 1}/${totalChunks}`;
+                await this.api.uploadChunk(uploadId, i, chunkBlob);
+
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
+                progressBar.style.width = `${pct}%`;
+            }
+
+            // Step 3: Complete
+            progressText.textContent = 'Merging chunks...';
+            const completeResult = await this.api.completeChunkedUpload(uploadId, totalChunks);
+
+            document.getElementById('check-upload-status-btn').disabled = false;
+            document.getElementById('get-download-url-btn').disabled = false;
+            this.updateStatus('upload', 'online', 'Uploaded');
+            this.updateStep('upload', 'done');
+
+            // Auto-bridge: complete upload → create content record → fill transcode form
+            await this.bridgeUploadToTranscode(uploadId);
+
+            this.setTroubleshooting(
+                'Chunked upload completed',
+                'Content record created. Transcode form auto-filled — click Submit Task to transcode.'
+            );
+            this.showOutput('upload-output', 'Chunked Upload Result', JSON.stringify(completeResult, null, 2));
+            this.showToast('Chunked upload successful', 'success');
+        } catch (error) {
+            this.updateStatus('upload', 'offline', 'Failed');
+            this.updateStep('upload', 'failed');
+            this.setTroubleshooting('Chunked upload failed', error.message);
+            this.showOutput('upload-output', 'Chunked Upload Failed', error.message);
+            this.showToast('Upload failed: ' + error.message, 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    // Bridge upload → transcode: create content record, fetch download URL, fill form
+    async bridgeUploadToTranscode(uploadId) {
+        try {
+            // 1. Complete upload to create content record (upload_id = content_id)
+            const completeResult = await this.api.completeUpload(uploadId);
+            const contentId = completeResult.content_id || uploadId;
+
+            // 2. Auto-fill transcode content ID
+            document.getElementById('transcode-content-id').value = contentId;
+
+            // 3. Fetch download URL for transcode input_url
+            try {
+                const dlResult = await this.api.getDownloadURL(uploadId, 60);
+                if (dlResult.download_url) {
+                    document.getElementById('transcode-input-url').value = dlResult.download_url;
+                }
+            } catch (dlErr) {
+                // Download URL may fail if presigner not configured — not fatal
+                console.warn('Could not fetch download URL:', dlErr.message);
+            }
+
+            this.showToast('Transcode form auto-filled', 'info');
+        } catch (err) {
+            // completeUpload may fail if DB not available — not fatal for the upload itself
+            console.warn('Could not complete upload to content:', err.message);
+            // Still fill content_id with upload_id as fallback
+            document.getElementById('transcode-content-id').value = uploadId;
+        }
+    }
+
+    async checkUploadStatus() {
+        const uploadId = document.getElementById('upload-id-display').value.trim() || this.lastUploadId;
+        if (!uploadId) {
+            this.showToast('No upload ID available', 'error');
+            return;
+        }
+        try {
+            const result = await this.api.getUploadStatus(uploadId);
+            this.showOutput('upload-output', 'Upload Status', JSON.stringify(result, null, 2));
+        } catch (error) {
+            this.showOutput('upload-output', 'Status Check Failed', error.message);
+        }
+    }
+
+    async getDownloadURL() {
+        const uploadId = document.getElementById('upload-id-display').value.trim() || this.lastUploadId;
+        if (!uploadId) {
+            this.showToast('No upload ID available', 'error');
+            return;
+        }
+        try {
+            const result = await this.api.getDownloadURL(uploadId, 60);
+            this.showOutput('upload-output', 'Download URL', JSON.stringify(result, null, 2));
+            this.showToast('Download URL generated', 'success');
+        } catch (error) {
+            this.showOutput('upload-output', 'Download URL Failed', error.message);
         }
     }
 
@@ -355,6 +559,11 @@ class StreamGateApp {
             document.getElementById('transcode-task-id').value = result.task_id || '';
             this.updateStatus('transcode', 'online', 'Task Submitted');
             this.updateStep('transcode', 'done');
+
+            // Auto-bridge: fill video ID for playback
+            document.getElementById('video-id').value = contentId;
+            document.getElementById('player-section').classList.remove('hidden');
+
             this.setTroubleshooting(
                 'Transcode task submitted',
                 'Next, load task status and task list to confirm the control plane path is working.'
@@ -433,6 +642,7 @@ class StreamGateApp {
             playback: 'step-playback',
             rpc: 'step-rpc',
             transcode: 'step-transcode',
+            upload: 'step-upload',
         };
         const el = document.getElementById(mapping[step] || step);
         if (!el) {
@@ -455,6 +665,7 @@ class StreamGateApp {
             ['playback', 'Load protected playback', 'Open manifest with JWT and validate playback'],
             ['rpc', 'Inspect RPC failover status', 'Load RPC status and confirm active endpoint'],
             ['transcode', 'Exercise transcoding flow', 'Run submit / status / tasks / profiles'],
+            ['upload', 'Upload creator video', 'Upload a file and verify status + download URL'],
         ];
         const doneCount = Object.values(this.stepStates).filter((value) => value === 'done').length;
         const failedEntry = orderedSteps.find(([step]) => this.stepStates[step] === 'failed');

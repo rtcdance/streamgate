@@ -2,18 +2,38 @@ package gateway
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
+
+var (
+	errLogger   *zap.Logger
+	errLoggerMu sync.RWMutex
+)
+
+// SetErrorLogger sets the package-level error logger.
+func SetErrorLogger(log *zap.Logger) {
+	errLoggerMu.Lock()
+	defer errLoggerMu.Unlock()
+	errLogger = log
+}
+
+func getErrorLogger() *zap.Logger {
+	errLoggerMu.RLock()
+	defer errLoggerMu.RUnlock()
+	return errLogger
+}
 
 // APIError is the standard error response format for all StreamGate endpoints.
 type APIError struct {
 	Error     string `json:"error"`                // Human-readable message
 	Code      string `json:"code"`                 // Machine-readable error code
 	RequestID string `json:"request_id,omitempty"` // Request correlation ID
-	Detail    string `json:"detail,omitempty"`      // Additional context
+	Detail    string `json:"detail,omitempty"`     // Additional context
 }
 
 // Error code constants
@@ -63,7 +83,13 @@ func abortWithErrorDetail(c *gin.Context, status int, code, msg, detail string) 
 	// For server errors, log the real detail but don't send it to the client
 	if status >= 500 {
 		if detail != "" {
-			fmt.Printf("[ERROR] request_id=%s code=%s internal_detail=%s\n", reqIDStr, code, detail)
+			if log := getErrorLogger(); log != nil {
+				log.Error("request error",
+					zap.String("request_id", reqIDStr),
+					zap.String("code", code),
+					zap.String("internal_detail", detail),
+				)
+			}
 		}
 		detail = "" // Never expose internal details for 5xx
 	}
@@ -79,10 +105,7 @@ func abortWithErrorDetail(c *gin.Context, status int, code, msg, detail string) 
 // for each request and stores it in the context and response headers.
 func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := c.GetHeader("X-Request-ID")
-		if requestID == "" {
-			requestID = fmt.Sprintf("req-%s-%d", uuid.New().String()[:8], time.Now().UnixNano())
-		}
+		requestID := fmt.Sprintf("req-%s-%d", uuid.New().String()[:8], time.Now().UnixNano())
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()

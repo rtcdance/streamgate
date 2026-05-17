@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"streamgate/pkg/middleware"
+	"streamgate/pkg/service"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/service"
 )
 
 // RegisterContentRoutes registers content CRUD routes.
@@ -52,7 +54,7 @@ func handleListContents(contentSvc *service.ContentService, log *zap.Logger) gin
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to count contents", err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "total_count": totalCount, "limit": limit, "offset": offset})
+		respondOK(c, gin.H{"items": items, "total_count": totalCount, "limit": limit, "offset": offset})
 	}
 }
 
@@ -72,7 +74,7 @@ func handleGetContent(contentSvc *service.ContentService, log *zap.Logger) gin.H
 			abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not found")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"content": content})
+		respondOK(c, gin.H{"content": content})
 	}
 }
 
@@ -100,8 +102,16 @@ func handleCreateContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "title is required")
 			return
 		}
+		if len(req.Title) > 255 {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "title must be at most 255 characters")
+			return
+		}
 		validTypes := map[string]bool{"video": true, "audio": true, "image": true, "document": true, "livestream": true}
-		if req.Type != "" && !validTypes[req.Type] {
+		if req.Type == "" {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "type is required")
+			return
+		}
+		if !validTypes[req.Type] {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content type")
 			return
 		}
@@ -133,7 +143,7 @@ func handleCreateContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to create content", err.Error())
 			return
 		}
-		c.JSON(http.StatusCreated, gin.H{"id": id, "content": content})
+		respondCreated(c, gin.H{"id": id, "content": content})
 	}
 }
 
@@ -195,7 +205,7 @@ func handleUpdateContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to update content", err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"content": existing})
+		respondOK(c, gin.H{"content": existing})
 	}
 }
 
@@ -214,7 +224,7 @@ func handleDeleteContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not found")
 			return
 		}
-		c.Status(http.StatusNoContent)
+		respondNoContent(c)
 	}
 }
 
@@ -227,7 +237,7 @@ func requireContentOwner(c *gin.Context, contentSvc *service.ContentService) (*s
 		return nil, false
 	}
 	wallet := middleware.GetWalletAddress(c)
-	if content.OwnerID != wallet {
+	if !strings.EqualFold(content.OwnerID, wallet) {
 		abortWithError(c, http.StatusForbidden, ErrContentForbidden, "not authorized to access this content")
 		return nil, false
 	}

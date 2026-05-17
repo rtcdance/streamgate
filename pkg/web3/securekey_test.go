@@ -75,7 +75,7 @@ func TestZeroizeKey(t *testing.T) {
 }
 
 func TestZeroizeKey_Nil(t *testing.T) {
-	ZeroizeKey(nil) // should not panic
+	ZeroizeKey(nil)                 // should not panic
 	ZeroizeKey(&ecdsa.PrivateKey{}) // D is nil, should not panic
 }
 

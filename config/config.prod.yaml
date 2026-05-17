@@ -12,7 +12,7 @@ database:
   port: ${DB_PORT}
   user: "${DB_USER}"
   password: "${DB_PASSWORD}"
-  dbname: "${DB_NAME}"
+  database: "${DB_NAME}"
   sslmode: "require"
   maxconns: 50
   max_idle_conns: 10

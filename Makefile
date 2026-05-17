@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming clean test docker-build docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown
+.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming build-learn clean test docker-build docker-bake docker-bake-load docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown demo challenge run-learn
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -14,7 +14,8 @@ BINARY_MONITOR := monitor
 
 GO := go
 GOFLAGS := -v
-LDFLAGS := -ldflags "-X main.Version=1.0.0 -X main.BuildTime=$(shell date -u '+%Y-%m-%d_%H:%M:%S')"
+VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
+LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(shell date -u '+%Y-%m-%d_%H:%M:%S')"
 
 # Default target
 help:
@@ -34,12 +35,15 @@ help:
 	@echo "  make build-monitor      - Build Monitor Service binary"
 	@echo "  make clean              - Remove all built binaries"
 	@echo "  make test               - Run tests"
-	@echo "  make docker-build       - Build Docker images"
+	@echo "  make docker-build       - Build Docker images (legacy, per-service Dockerfiles)"
+	@echo "  make docker-bake        - Build all Docker images via Bake (recommended)"
+	@echo "  make docker-bake-load   - Build & load monolith image via Bake"
 	@echo "  make docker-up          - Start Docker Compose services"
 	@echo "  make docker-down        - Stop Docker Compose services"
 	@echo "  make fullchain-deploy   - Deploy full-chain stack (PG + Redis + MinIO + NATS + monolith + H5 Demo)"
 	@echo "  make fullchain-test     - Run full-chain acceptance test"
 	@echo "  make fullchain-teardown - Stop full-chain stack (add --volumes to wipe data)"
+	@echo "  make demo               - 🚀 One-command demo: infra up → build → run → curl instructions"
 	@echo "  make run-monolith       - Run monolithic service"
 	@echo "  make run-api-gateway    - Run API Gateway service"
 	@echo "  make run-transcoder     - Run Transcoder service"
@@ -128,7 +132,7 @@ test:
 	@echo "✓ Tests complete (coverage: coverage.html)"
 
 # Run tests with coverage threshold check
-test-ci: COVERAGE_MIN ?= 25
+test-ci: COVERAGE_MIN ?= 40
 test-ci:
 	@echo "Running tests with coverage check (min: $(COVERAGE_MIN)%)..."
 	$(GO) test -race -coverprofile=coverage.out ./...
@@ -140,9 +144,10 @@ test-ci:
 	fi; \
 	echo "✓ Coverage $COVERAGE% meets minimum $(COVERAGE_MIN)%"
 
-# Build Docker images
+# Build Docker images (legacy — uses per-service Dockerfiles in deploy/docker/)
+# Prefer `make docker-bake` which uses a single parameterized Dockerfile via BuildKit.
 docker-build:
-	@echo "Building Docker images..."
+	@echo "Building Docker images (legacy)..."
 	docker build -f deploy/docker/Dockerfile.monolith -t streamgate:monolith .
 	docker build -f deploy/docker/Dockerfile.api-gateway -t streamgate:api-gateway .
 	docker build -f deploy/docker/Dockerfile.transcoder -t streamgate:transcoder .
@@ -153,7 +158,20 @@ docker-build:
 	docker build -f deploy/docker/Dockerfile.auth -t streamgate:auth .
 	docker build -f deploy/docker/Dockerfile.worker -t streamgate:worker .
 	docker build -f deploy/docker/Dockerfile.monitor -t streamgate:monitor .
-	@echo "✓ Docker images built"
+	@echo "✓ Docker images built (legacy)"
+
+# Build all images via Docker Bake (recommended)
+#   Uses root Dockerfile parameterized by ARG — single source of truth.
+docker-bake:
+	@echo "Building all images with Docker Bake..."
+	docker buildx bake --load
+	@echo "✓ All images built via Bake"
+
+# Build and load monolith only (fastest for local dev)
+docker-bake-load:
+	@echo "Building monolith with Docker Bake..."
+	docker buildx bake monolith --load
+	@echo "✓ Monolith image built"
 
 # Start Docker Compose services
 docker-up:
@@ -181,6 +199,60 @@ test-testnet:
 	@echo "Running testnet integration tests..."
 	$(GO) test -tags=testnet -v -count=1 -timeout 60s ./test/integration/web3/
 	@echo "✓ Testnet integration tests complete"
+
+# One-command demo: infra → build → run
+demo:
+	@echo "🚀 StreamGate Demo"
+	@echo ""
+	@echo "[1/4] Starting infrastructure (postgres + redis + minio)..."
+	@docker-compose up -d postgres redis minio 2>/dev/null || true
+	@echo "      Waiting for services to be healthy..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		healthy=true; \
+		for svc in postgres redis minio; do \
+			status=$$(docker inspect --format='{{.State.Health.Status}}' streamgate-$$svc 2>/dev/null); \
+			if [ "$$status" != "healthy" ]; then healthy=false; fi; \
+		done; \
+		$$healthy && break; \
+		sleep 2; \
+	done; \
+	if $$healthy; then echo "      ✅ All services healthy"; else echo "      ⚠️  Timeout waiting — continuing anyway"; fi
+	@echo ""
+	@echo "[2/4] Ensuring .env..."
+	@if [ ! -f .env ]; then cp .env.example .env; echo "      Created .env from .env.example"; else echo "      .env exists"; fi
+	@echo ""
+	@echo "[3/4] Building monolith..."
+	@$(MAKE) build-monolith
+	@echo ""
+	@echo "[4/4] Starting StreamGate on http://localhost:8080"
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "  Demo commands (in another terminal):"
+	@echo ""
+	@echo "  Health check:"
+	@echo "    curl http://localhost:8080/health"
+	@echo ""
+	@echo "  Wallet sign-in:"
+	@echo '    curl -X POST http://localhost:8080/api/v1/auth/login \'
+	@echo '      -H "Content-Type: application/json" \'
+	@echo '      -d '"'"'{"wallet":"0x..."}'
+	@echo ""
+	@echo "  NFT verification:"
+	@echo '    curl -X POST http://localhost:8080/api/v1/nft/verify \'
+	@echo '      -H "Content-Type: application/json" \'
+	@echo '      -d '"'"'{"wallet":"0x...","contract":"0x..."}'
+	@echo ""
+	@echo "  Stop: Ctrl+C"
+	@echo "  Cleanup: make demo-down"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@./bin/$(BINARY_MONOLITH)
+
+demo-down:
+	@echo "Stopping demo..."
+	@-kill $$(pgrep -f bin/streamgate) 2>/dev/null || true
+	@docker-compose down
+	@echo "Done."
 
 # Run monolithic service
 run-monolith: build-monolith
@@ -268,7 +340,7 @@ docker-push: docker-build
 # Deploy to Kubernetes
 k8s-deploy:
 	@echo "Deploying to Kubernetes..."
-	kubectl apply -f k8s/
+	kubectl apply -k deploy/k8s/
 	@echo "✓ Deployment complete"
 
 # Check Kubernetes status
@@ -324,3 +396,71 @@ fullchain-test:
 
 fullchain-teardown:
 	@./scripts/docker-teardown.sh --volumes
+
+# Smart contract targets
+contracts-install:
+	@echo "Installing Foundry..."
+	curl -L https://foundry.paradigm.xyz | bash
+	foundryup
+
+contracts-build:
+	@cd contracts && forge build
+
+contracts-test:
+	@cd contracts && forge test -vvv
+
+contracts-coverage:
+	@cd contracts && forge coverage --report lcov
+
+contracts-deploy-anvil:
+	@cd contracts && forge script script/Deploy.s.sol --rpc-url anvil --broadcast
+
+contracts-deploy-sepolia:
+	@cd contracts && forge script script/Deploy.s.sol --rpc-url sepolia --broadcast --verify
+
+contracts-gas-report:
+	@cd contracts && forge test --gas-report
+
+# Proto generation
+proto-gen:
+	@./scripts/generate-proto.sh
+
+# Build CLI learning tool
+build-learn:
+	@echo "Building learn tool..."
+	$(GO) build $(GOFLAGS) -o bin/learn ./cmd/learn
+	@echo "OK learn tool built"
+
+# Run CLI learning tool (interactive)
+run-learn: build-learn
+	@echo "Starting Web3+Go Learning Tool..."
+	./bin/learn
+
+# Challenge exercises (fix intentional bugs)
+challenge:
+	@echo "Running challenge exercises..."
+	@for d in examples/challenges/*/; do \
+		echo "  Testing $$(basename $$d)..."; \
+		(cd "$$d" && $(GO) test -v -count=1 ./... 2>&1 | head -5); \
+		echo ""; \
+	done
+	@echo "Done."
+
+# Database migrations
+migrate-up:
+	@echo "Applying pending migrations..."
+	$(GO) run ./cmd/migrate up
+	@echo "Done."
+
+migrate-down:
+	@echo "Rolling back last migration..."
+	$(GO) run ./cmd/migrate down
+	@echo "Done."
+
+migrate-down-all:
+	@echo "Rolling back all migrations..."
+	$(GO) run ./cmd/migrate down 999
+	@echo "Done."
+
+migrate-reset: migrate-down-all migrate-up
+	@echo "Schema reset complete."

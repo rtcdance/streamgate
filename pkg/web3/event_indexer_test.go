@@ -15,11 +15,11 @@ import (
 
 // mockEventReader implements EventReader for testing.
 type mockEventReader struct {
-	mu         sync.Mutex
-	blockNum   uint64
-	logs       []types.Log
-	blockErr   error
-	filterErr  error
+	mu        sync.Mutex
+	blockNum  uint64
+	logs      []types.Log
+	blockErr  error
+	filterErr error
 }
 
 func (m *mockEventReader) BlockNumber(ctx context.Context) (uint64, error) {
@@ -32,12 +32,6 @@ func (m *mockEventReader) FilterLogs(ctx context.Context, q ethereum.FilterQuery
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.logs, m.filterErr
-}
-
-func (m *mockEventReader) setBlockNum(n uint64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.blockNum = n
 }
 
 func (m *mockEventReader) setLogs(logs []types.Log) {

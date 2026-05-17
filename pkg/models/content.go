@@ -34,11 +34,37 @@ const (
 type ContentStatus string
 
 const (
-	StatusDraft      ContentStatus = "draft"
-	StatusProcessing ContentStatus = "processing"
-	StatusPublished  ContentStatus = "published"
-	StatusArchived   ContentStatus = "archived"
+	StatusDraft         ContentStatus = "draft"
+	StatusProcessing    ContentStatus = "processing"
+	StatusPublished     ContentStatus = "published"
+	StatusArchived      ContentStatus = "archived"
+	StatusReady         ContentStatus = "ready"
+	ContentStatusFailed ContentStatus = "failed"
 )
+
+var validContentTransitions = map[ContentStatus][]ContentStatus{
+	StatusDraft:      {StatusProcessing, StatusArchived},
+	StatusProcessing: {StatusReady, StatusPublished, ContentStatusFailed, StatusArchived},
+	StatusReady:      {StatusPublished, StatusArchived},
+	StatusPublished:  {StatusArchived, StatusDraft},
+	StatusArchived:   {StatusDraft},
+}
+
+func IsValidContentTransition(from, to ContentStatus) bool {
+	if from == to {
+		return true
+	}
+	allowed, ok := validContentTransitions[from]
+	if !ok {
+		return false
+	}
+	for _, s := range allowed {
+		if s == to {
+			return true
+		}
+	}
+	return false
+}
 
 // ContentMetadata represents content metadata
 type ContentMetadata struct {

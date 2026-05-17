@@ -3,6 +3,7 @@ package transcoder
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,23 +20,22 @@ import (
 
 // FFmpegConfig holds FFmpeg configuration
 type FFmpegConfig struct {
-	FFmpegPath      string
-	FFprobePath     string
-	TempDir         string
-	MaxRetries      int
-	Timeout         time.Duration
-	EnableHardware  bool
-	VideoCodec      string
-	AudioCodec      string
-	MaxFileSize     int64 // Maximum input file size in bytes (0 = no limit)
-	MaxDuration     float64 // Maximum input duration in seconds (0 = no limit)
+	FFmpegPath     string
+	FFprobePath    string
+	TempDir        string
+	MaxRetries     int
+	Timeout        time.Duration
+	EnableHardware bool
+	VideoCodec     string
+	AudioCodec     string
+	MaxFileSize    int64   // Maximum input file size in bytes (0 = no limit)
+	MaxDuration    float64 // Maximum input duration in seconds (0 = no limit)
 }
 
 // FFmpegTranscoder handles FFmpeg transcoding operations
 type FFmpegTranscoder struct {
 	config *FFmpegConfig
 	logger *zap.Logger
-	mu     sync.RWMutex //nolint:unused
 }
 
 // VideoInfo contains video file information
@@ -85,6 +85,27 @@ func NewFFmpegTranscoder(config *FFmpegConfig, logger *zap.Logger) *FFmpegTransc
 	}
 }
 
+type ffprobeFormat struct {
+	Duration string `json:"duration"`
+	Size     string `json:"size"`
+	BitRate  string `json:"bit_rate"`
+}
+
+type ffprobeStream struct {
+	CodecName string `json:"codec_name"`
+	CodecType string `json:"codec_type"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	RFrameRate string `json:"r_frame_rate"`
+	NBFrames  string `json:"nb_frames"`
+	BitRate   string `json:"bit_rate"`
+}
+
+type ffprobeOutput struct {
+	Format  ffprobeFormat  `json:"format"`
+	Streams []ffprobeStream `json:"streams"`
+}
+
 // GetVideoInfo retrieves video file information using ffprobe
 func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) (*VideoInfo, error) {
 	args := []string{
@@ -101,100 +122,59 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 		return nil, fmt.Errorf("ffprobe failed: %w, output: %s", err, string(output))
 	}
 
+	var probe ffprobeOutput
+	if err := json.Unmarshal(output, &probe); err != nil {
+		return nil, fmt.Errorf("failed to parse ffprobe output: %w", err)
+	}
+
 	info := &VideoInfo{}
 
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		if strings.Contains(line, `"duration"`) {
-			re := regexp.MustCompile(`"duration":\s*"([\d.]+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if d, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					info.Duration = d
-				}
-			}
+	if probe.Format.Duration != "" {
+		if d, err := strconv.ParseFloat(probe.Format.Duration, 64); err == nil {
+			info.Duration = d
 		}
-
-		if strings.Contains(line, `"width"`) {
-			re := regexp.MustCompile(`"width":\s*(\d+)`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if w, err := strconv.Atoi(matches[1]); err == nil {
-					info.Width = w
-				}
-			}
+	}
+	if probe.Format.Size != "" {
+		if size, err := strconv.ParseInt(probe.Format.Size, 10, 64); err == nil {
+			info.FileSize = size
 		}
+	}
 
-		if strings.Contains(line, `"height"`) {
-			re := regexp.MustCompile(`"height":\s*(\d+)`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if h, err := strconv.Atoi(matches[1]); err == nil {
-					info.Height = h
-				}
-			}
-		}
-
-		if strings.Contains(line, `"codec_name"`) && strings.Contains(line, `"codec_type":\s*"video"`) {
-			re := regexp.MustCompile(`"codec_name":\s*"([^"]+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				info.VideoCodec = matches[1]
-			}
-		}
-
-		if strings.Contains(line, `"codec_name"`) && strings.Contains(line, `"codec_type":\s*"audio"`) {
-			re := regexp.MustCompile(`"codec_name":\s*"([^"]+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				info.AudioCodec = matches[1]
-			}
-		}
-
-		if strings.Contains(line, `"bit_rate"`) {
-			re := regexp.MustCompile(`"bit_rate":\s*"(\d+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if br, err := strconv.Atoi(matches[1]); err == nil {
-					if info.VideoBitrate == 0 {
+	for _, stream := range probe.Streams {
+		switch stream.CodecType {
+		case "video":
+			if info.VideoCodec == "" {
+				info.VideoCodec = stream.CodecName
+				info.Width = stream.Width
+				info.Height = stream.Height
+				if stream.BitRate != "" {
+					if br, err := strconv.Atoi(stream.BitRate); err == nil {
 						info.VideoBitrate = br
-					} else {
+					}
+				}
+				if stream.RFrameRate != "" {
+					parts := strings.Split(stream.RFrameRate, "/")
+					if len(parts) == 2 {
+						if num, err := strconv.Atoi(parts[0]); err == nil {
+							if den, err := strconv.Atoi(parts[1]); err == nil && den > 0 {
+								info.FrameRate = float64(num) / float64(den)
+							}
+						}
+					}
+				}
+				if stream.NBFrames != "" {
+					if frames, err := strconv.ParseInt(stream.NBFrames, 10, 64); err == nil {
+						info.TotalFrames = frames
+					}
+				}
+			}
+		case "audio":
+			if info.AudioCodec == "" {
+				info.AudioCodec = stream.CodecName
+				if stream.BitRate != "" {
+					if br, err := strconv.Atoi(stream.BitRate); err == nil {
 						info.AudioBitrate = br
 					}
-				}
-			}
-		}
-
-		if strings.Contains(line, `"r_frame_rate"`) {
-			re := regexp.MustCompile(`"r_frame_rate":\s*"(\d+)/(\d+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 2 {
-				if num, err := strconv.Atoi(matches[1]); err == nil {
-					if den, err := strconv.Atoi(matches[2]); err == nil && den > 0 {
-						info.FrameRate = float64(num) / float64(den)
-					}
-				}
-			}
-		}
-
-		if strings.Contains(line, `"nb_frames"`) {
-			re := regexp.MustCompile(`"nb_frames":\s*"(\d+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if frames, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
-					info.TotalFrames = frames
-				}
-			}
-		}
-
-		if strings.Contains(line, `"size"`) {
-			re := regexp.MustCompile(`"size":\s*"(\d+)"`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				if size, err := strconv.ParseInt(matches[1], 10, 64); err == nil {
-					info.FileSize = size
 				}
 			}
 		}
@@ -209,15 +189,19 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 
 // ValidateMediaFile validates that an input file is a playable media file
 // within configured size and duration limits. Returns VideoInfo on success.
+// For HTTP/HTTPS URLs, the os.Stat check is skipped and ffprobe is used
+// directly — FFmpeg natively supports remote input.
 func (ft *FFmpegTranscoder) ValidateMediaFile(ctx context.Context, inputPath string) (*VideoInfo, error) {
-	// Check file exists and get size
-	stat, err := os.Stat(inputPath)
-	if err != nil {
-		return nil, fmt.Errorf("cannot stat input file: %w", err)
-	}
+	// Skip os.Stat for HTTP URLs — FFmpeg can access them directly.
+	if !strings.HasPrefix(inputPath, "http://") && !strings.HasPrefix(inputPath, "https://") {
+		stat, err := os.Stat(inputPath)
+		if err != nil {
+			return nil, fmt.Errorf("cannot stat input file: %w", err)
+		}
 
-	if ft.config.MaxFileSize > 0 && stat.Size() > ft.config.MaxFileSize {
-		return nil, fmt.Errorf("input file size %d exceeds maximum %d bytes", stat.Size(), ft.config.MaxFileSize)
+		if ft.config.MaxFileSize > 0 && stat.Size() > ft.config.MaxFileSize {
+			return nil, fmt.Errorf("input file size %d exceeds maximum %d bytes", stat.Size(), ft.config.MaxFileSize)
+		}
 	}
 
 	// Use ffprobe to validate the file is a playable media file
@@ -458,7 +442,8 @@ func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []strin
 
 	var listContent strings.Builder
 	for _, path := range inputPaths {
-		listContent.WriteString(fmt.Sprintf("file '%s'\n", path))
+		escaped := strings.ReplaceAll(path, `'`, `'\''`)
+		listContent.WriteString(fmt.Sprintf("file '%s'\n", escaped))
 	}
 
 	if err := os.WriteFile(listFile, []byte(listContent.String()), 0o644); err != nil {
@@ -511,11 +496,11 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callba
 	return nil
 }
 
+var progressRegex = regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
+
 // monitorProgress monitors FFmpeg progress output
 func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, callback ProgressCallback) {
 	scanner := bufio.NewScanner(stderrPipe)
-
-	progressRegex := regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -563,20 +548,31 @@ func parseTime(timeStr string) time.Duration {
 
 // parseBitrate parses bitrate string (e.g., "5000k" -> 5000)
 func parseBitrate(bitrate string) int {
-	bitrate = strings.ToLower(bitrate)
-	bitrate = strings.TrimSuffix(bitrate, "k")
-	bitrate = strings.TrimSuffix(bitrate, "kbps")
-	bitrate = strings.TrimSuffix(bitrate, "m")
+	bitrate = strings.ToLower(strings.TrimSpace(bitrate))
+	if strings.HasSuffix(bitrate, "kbps") {
+		bitrate = strings.TrimSuffix(bitrate, "kbps")
+	} else if strings.HasSuffix(bitrate, "k") {
+		bitrate = strings.TrimSuffix(bitrate, "k")
+	} else if strings.HasSuffix(bitrate, "mbps") {
+		bitrate = strings.TrimSuffix(bitrate, "mbps")
+		val, err := strconv.Atoi(bitrate)
+		if err != nil {
+			return 0
+		}
+		return val * 1000
+	} else if strings.HasSuffix(bitrate, "m") {
+		bitrate = strings.TrimSuffix(bitrate, "m")
+		val, err := strconv.Atoi(bitrate)
+		if err != nil {
+			return 0
+		}
+		return val * 1000
+	}
 
 	val, err := strconv.Atoi(bitrate)
 	if err != nil {
 		return 0
 	}
-
-	if strings.Contains(bitrate, "m") {
-		return val * 1000
-	}
-
 	return val
 }
 

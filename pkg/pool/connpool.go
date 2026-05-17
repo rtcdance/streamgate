@@ -61,6 +61,7 @@ type ConnectionPool struct {
 	wake          wakeChan
 	logger        *zap.Logger
 	closed        bool
+	done          chan struct{}
 	stats         PoolStats
 	healthChecker *time.Ticker
 }
@@ -223,10 +224,17 @@ func (p *ConnectionPool) startHealthChecker() {
 	}
 
 	p.healthChecker = time.NewTicker(p.config.HealthCheck)
+	p.done = make(chan struct{})
 
 	go func() {
-		for range p.healthChecker.C {
-			p.checkHealth()
+		defer p.healthChecker.Stop()
+		for {
+			select {
+			case <-p.done:
+				return
+			case <-p.healthChecker.C:
+				p.checkHealth()
+			}
 		}
 	}()
 }
@@ -275,6 +283,7 @@ func (p *ConnectionPool) Shutdown() error {
 	p.closed = true
 
 	if p.healthChecker != nil {
+		close(p.done)
 		p.healthChecker.Stop()
 	}
 
