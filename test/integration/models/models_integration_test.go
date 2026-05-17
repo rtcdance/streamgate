@@ -258,7 +258,7 @@ func TestModels_Relationships(t *testing.T) {
 	// Retrieve content
 	rows, err := db.Query(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var userContent []models.Content
 	for rows.Next() {

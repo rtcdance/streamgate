@@ -114,7 +114,7 @@ func (r *Runner) Up() error {
 		}
 
 		if _, err := tx.Exec(string(sqlBytes)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("apply %s: %w", m.FileName, err)
 		}
 
@@ -123,7 +123,7 @@ func (r *Runner) Up() error {
 			 VALUES ($1, $2, $3, NOW())`,
 			m.Version, m.Name, m.FileName,
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("record %s: %w", m.FileName, err)
 		}
 
@@ -187,14 +187,14 @@ func (r *Runner) Down(steps int) error {
 		}
 
 		if _, err := tx.Exec(string(sqlBytes)); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("apply rollback %s: %w", version, err)
 		}
 
 		if _, err := tx.Exec(
 			`DELETE FROM schema_migrations WHERE version = $1`, version,
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("remove tracking %s: %w", version, err)
 		}
 
@@ -219,7 +219,7 @@ func (r *Runner) applied() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var versions []string
 	for rows.Next() {

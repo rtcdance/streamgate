@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // TranscodingTask represents a transcoding task.
 // Defined in the models package to avoid storage→service layer inversion.
@@ -49,7 +52,7 @@ func IsValidTaskTransition(from, to string) bool {
 // Implemented by NATSTranscodingQueue (storage) and MemoryTranscodingQueue (service).
 type TranscodingQueue interface {
 	Enqueue(task *TranscodingTask) error
-	Dequeue() (*TranscodingTask, error)
+	Dequeue(ctx context.Context) (*TranscodingTask, error)
 	GetStatus(taskID string) (string, error)
 	Ack(taskID string) error
 	Nak(taskID string) error

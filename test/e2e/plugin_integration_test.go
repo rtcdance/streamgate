@@ -57,7 +57,7 @@ func TestE2E_PluginExecution(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	plugin := &testPlugin{
 		name: "test-plugin",

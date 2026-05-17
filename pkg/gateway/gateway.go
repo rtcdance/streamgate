@@ -54,6 +54,7 @@ type AppResources struct {
 	UploadService     *service.UploadService
 	TranscodingSvc    *service.TranscodingService
 	NFTCache          *NFTAccessCache
+	NFTRedisClient    io.Closer
 	NATSQueue         io.Closer
 	MiddlewareSvc     *middleware.Service
 }
@@ -67,6 +68,9 @@ func (r *AppResources) Close() error {
 	}
 	if r.RateLimiterRedis != nil {
 		_ = r.RateLimiterRedis.Close()
+	}
+	if r.NFTRedisClient != nil {
+		_ = r.NFTRedisClient.Close()
 	}
 	if r.TranscodingSvc != nil {
 		r.TranscodingSvc.StopWorker()
@@ -164,6 +168,7 @@ type serviceInit struct {
 	AuthService    *service.AuthService
 	NFTVerifier    middleware.NFTOwnershipChecker
 	NFTCache       *NFTAccessCache
+	NFTCacheBackend middleware.NFTAccessCache
 	DB             storage.DB
 	ContentService *service.ContentService
 	SegmentStorage service.SegmentStorage
@@ -193,6 +198,30 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	nftCache := NewNFTAccessCache()
 	resources.NFTCache = nftCache
 
+	nftRedisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
+	nftRedisClient := redis.NewClient(&redis.Options{
+		Addr:         nftRedisAddr,
+		Password:     cfg.Redis.Password,
+		DB:           cfg.Redis.DB,
+		PoolSize:     cfg.Redis.PoolSize,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+	})
+	nftPingCtx, nftPingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	var nftCacheBackend middleware.NFTAccessCache
+	if err := nftRedisClient.Ping(nftPingCtx).Err(); err != nil {
+		log.Warn("Redis unavailable for NFT cache, falling back to in-memory only", zap.Error(err))
+		_ = nftRedisClient.Close()
+		nftRedisClient = nil
+		nftCacheBackend = &NFTAccessCacheAdapter{Cache: nftCache}
+	} else {
+		log.Info("Using Redis-backed NFT access cache", zap.String("addr", nftRedisAddr))
+		nftCacheBackend = NewRedisNFTAccessCache(nftCache, nftRedisClient)
+		resources.NFTRedisClient = nftRedisClient
+	}
+	nftPingCancel()
+
 	nftVerifier := rc.NFTVerifier
 	if nftVerifier == nil {
 		nftVerifier = web3Svc
@@ -219,15 +248,16 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	setupMiddleware(router, cfg, log, resources)
 
 	svc := &serviceInit{
-		Web3Service:    web3Svc,
-		AuthService:    authService,
-		NFTVerifier:    nftVerifier,
-		NFTCache:       nftCache,
-		DB:             db,
-		ContentService: contentSvc,
-		SegmentStorage: objStorage,
-		TranscodingSvc: transcodingSvc,
-		UploadService:  uploadSvc,
+		Web3Service:     web3Svc,
+		AuthService:     authService,
+		NFTVerifier:     nftVerifier,
+		NFTCache:        nftCache,
+		NFTCacheBackend: nftCacheBackend,
+		DB:              db,
+		ContentService:  contentSvc,
+		SegmentStorage:  objStorage,
+		TranscodingSvc:  transcodingSvc,
+		UploadService:   uploadSvc,
 	}
 	registerRoutes(router, cfg, log, svc, resources)
 
@@ -452,6 +482,9 @@ func initUploadService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, db
 		presigner = ps
 		svc.SetPresigner(ps)
 	}
+	if ups, ok := objStorage.(service.UploadPresignedURLer); ok {
+		svc.SetUploadPresigner(ups)
+	}
 	svc.RegisterAutoTranscodeHook(service.AutoTranscodeHookDeps{
 		TranscodingSvc: transcodingSvc,
 		Presigner:      presigner,
@@ -542,9 +575,11 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 
 	RegisterAuthRoutes(router, log, cfg, svc.AuthService)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
-	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, cfg.Storage.Bucket)
 
-	registerProtectedRoutes(router, cfg, log, svc)
+	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)
+	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, cfg.Storage.Bucket)
+
+	registerProtectedRoutes(router, cfg, log, svc, streamLim)
 }
 
 func buildCircuitBreakerConfig(cfg *config.Config) middleware.CircuitBreakerConfig {
@@ -663,7 +698,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	}
 }
 
-func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit) {
+func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter) {
 	jwtConfig := middleware.JWTAuthConfig{
 		Secret:    cfg.Auth.JWTSecret,
 		Blacklist: svc.AuthService,
@@ -687,20 +722,20 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		nftCBGroup.Use(cbSvc.CircuitBreakerMiddleware("nft-verify", middleware.CircuitBreakerConfig{
 			FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
 		}))
-		RegisterNFTRoutes(nftCBGroup, log, svc.NFTVerifier, &NFTAccessCacheAdapter{Cache: svc.NFTCache}, cfg.Web3.ChainID, 60*time.Second)
+		RegisterNFTRoutes(nftCBGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
 
 		RegisterUploadRoutes(authGroup, log, svc.UploadService)
 
 		nftGateConfig := middleware.NFTGateConfig{
 			Verifier:       svc.NFTVerifier,
-			Cache:          &NFTAccessCacheAdapter{Cache: svc.NFTCache},
+			Cache:          svc.NFTCacheBackend,
 			DefaultChainID: cfg.Web3.ChainID,
 			CacheTTL:       60 * time.Second,
 			MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, log))
-		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.SegmentStorage, cfg.Storage.Bucket)
+		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, cfg.Storage.Bucket)
 
 		RegisterContentRoutes(authGroup, log, svc.ContentService)
 		RegisterTranscodingRoutes(authGroup, log, svc.TranscodingSvc)

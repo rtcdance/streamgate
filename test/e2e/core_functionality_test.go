@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockPlugin struct {
@@ -52,7 +53,7 @@ func TestE2E_MicrokernelInitialization(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, kernel)
 
-	kernel.Shutdown(context.Background())
+	_ = kernel.Shutdown(context.Background())
 }
 
 func TestE2E_PluginRegistration(t *testing.T) {
@@ -64,7 +65,7 @@ func TestE2E_PluginRegistration(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	plugin := &mockPlugin{
 		name:    "test-plugin",
@@ -88,12 +89,12 @@ func TestE2E_EventPublishing(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	var eventReceived bool
 	var mu sync.Mutex
 	eventBus := kernel.GetEventBus()
-	eventBus.Subscribe(context.Background(), "test-event", func(ctx context.Context, e *event.Event) error {
+	_ = eventBus.Subscribe(context.Background(), "test-event", func(ctx context.Context, e *event.Event) error {
 		mu.Lock()
 		eventReceived = true
 		mu.Unlock()
@@ -125,7 +126,7 @@ func TestE2E_HealthCheck(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	err = kernel.Health(context.Background())
 	require.NoError(t, err)
@@ -157,7 +158,7 @@ func TestE2E_ConfigurationManagement(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	retrievedConfig := kernel.GetConfig()
 	require.NotNil(t, retrievedConfig)
@@ -173,7 +174,7 @@ func TestE2E_Logging(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	logger := kernel.GetLogger()
 	if logger != nil {
@@ -193,7 +194,7 @@ func TestE2E_MetricsCollection(t *testing.T) {
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
 	require.NoError(t, err)
-	defer kernel.Shutdown(context.Background())
+	defer func() { _ = kernel.Shutdown(context.Background()) }()
 
 	require.True(t, true)
 }

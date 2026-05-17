@@ -30,8 +30,10 @@ type MockRPCClient struct {
 
 func (m *MockRPCClient) BalanceAt(ctx context.Context, address string) (*string, error) {
 	if m.shouldHang {
-		// 模拟 RPC 挂起
-		select {}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 
 	select {
@@ -45,7 +47,10 @@ func (m *MockRPCClient) BalanceAt(ctx context.Context, address string) (*string,
 
 func (m *MockRPCClient) BlockNumber(ctx context.Context) (uint64, error) {
 	if m.shouldHang {
-		select {}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 	}
 
 	select {
@@ -56,16 +61,15 @@ func (m *MockRPCClient) BlockNumber(ctx context.Context) (uint64, error) {
 	}
 }
 
-// BUG: queryBalance 没有设置超时 context，如果 RPC 挂死会永久阻塞
 func queryBalance(client *MockRPCClient, address string) (*string, error) {
-	// 用 context.Background() — 没有超时!
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
 	return client.BalanceAt(ctx, address)
 }
 
-// BUG: queryBlockNumber 同样没有超时
 func queryBlockNumber(client *MockRPCClient) (uint64, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
 	return client.BlockNumber(ctx)
 }
 

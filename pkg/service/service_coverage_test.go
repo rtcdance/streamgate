@@ -196,6 +196,10 @@ func (m *mockUploadStorage) Download(ctx context.Context, bucket, key string) ([
 	return nil, errors.New("not found")
 }
 
+func (m *mockUploadStorage) DownloadStream(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	return nil, errors.New("not found")
+}
+
 func (m *mockUploadStorage) Delete(ctx context.Context, bucket, key string) error {
 	delete(m.data, bucket+"/"+key)
 	return nil

@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
+
+	"github.com/stretchr/testify/require"
 )
 
 // MockQueue implements models.TranscodingQueue for testing
@@ -27,7 +28,7 @@ func (m *MockQueue) Enqueue(task *models.TranscodingTask) error {
 	return nil
 }
 
-func (m *MockQueue) Dequeue() (*models.TranscodingTask, error) {
+func (m *MockQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, error) {
 	for _, task := range m.tasks {
 		if task.Status == "pending" {
 			return task, nil

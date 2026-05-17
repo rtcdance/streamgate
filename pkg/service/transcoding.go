@@ -23,6 +23,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// PostTranscodeHook is called after a transcoding task completes.
+type PostTranscodeHook func(ctx context.Context, contentID, profile, outputURL string)
+
 // TranscodingService handles transcoding operations
 type TranscodingService struct {
 	db          storage.DB
@@ -34,9 +37,13 @@ type TranscodingService struct {
 	tasks       map[string]*TranscodingTask
 	cancel      context.CancelFunc
 	cancelMu    sync.Mutex
-	httpClient  *http.Client
-	workerCount int
+	httpClient          *http.Client
+	workerCount         int
+	uploadConcurrency    int
+	transcodeHooks      []PostTranscodeHook
 }
+
+const defaultUploadConcurrency = 5
 
 // NewTranscodingService creates a new transcoding service
 func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...TranscodingOption) *TranscodingService {
@@ -44,7 +51,7 @@ func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...Transc
 		db:         db,
 		queue:      queue,
 		tasks:      make(map[string]*TranscodingTask),
-		httpClient: &http.Client{Timeout: 10 * time.Minute, Transport: &http.Transport{MaxIdleConns: 10, IdleConnTimeout: 90 * time.Second}},
+		httpClient: &http.Client{Timeout: 10 * time.Minute, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 20, IdleConnTimeout: 90 * time.Second}},
 	}
 	for _, opt := range opts {
 		opt(svc)
@@ -67,6 +74,19 @@ func WithStorage(st SegmentStorage) TranscodingOption {
 
 func WithLogger(l *zap.Logger) TranscodingOption {
 	return func(s *TranscodingService) { s.log = l }
+}
+
+// RegisterPostTranscodeHook adds a hook that fires after a transcode completes.
+func (s *TranscodingService) RegisterPostTranscodeHook(hook PostTranscodeHook) {
+	s.transcodeHooks = append(s.transcodeHooks, hook)
+}
+
+func WithUploadConcurrency(n int) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.uploadConcurrency = n
+		}
+	}
 }
 
 func WithWorkerCount(n int) TranscodingOption {
@@ -124,18 +144,14 @@ func (s *TranscodingService) StartWorker(log interface {
 				log.Info("TranscodingService: worker started", "worker", workerID)
 			}
 			for {
-				select {
-				case <-ctx.Done():
-					if log != nil {
-						log.Info("TranscodingService: worker stopped", "worker", workerID)
+				task, err := s.queue.Dequeue(ctx)
+				if err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						if log != nil {
+							log.Info("TranscodingService: worker stopped", "worker", workerID)
+						}
+						return
 					}
-					return
-				default:
-				}
-
-				task, err := s.queue.Dequeue()
-				if err != nil || task == nil {
-					time.Sleep(2 * time.Second)
 					continue
 				}
 
@@ -327,7 +343,11 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 		return err
 	}
 
-	sem := make(chan struct{}, 5)
+	conc := s.uploadConcurrency
+	if conc <= 0 {
+		conc = defaultUploadConcurrency
+	}
+	sem := make(chan struct{}, conc)
 	var uploadErr error
 	var uploadMu sync.Mutex
 	var uploadWg sync.WaitGroup

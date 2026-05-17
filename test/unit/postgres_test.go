@@ -31,7 +31,7 @@ func TestPostgresDB_Query(t *testing.T) {
 	rows, err := db.Query(context.Background(), "SELECT 1 as num")
 	require.NoError(t, err)
 	require.NotNil(t, rows)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// Verify result
 	require.True(t, rows.Next())

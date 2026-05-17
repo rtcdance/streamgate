@@ -58,7 +58,9 @@ func separator() {
 
 func promptExit() {
 	fmt.Print(faint + "  按 Enter 返回菜单..." + reset)
-	fmt.Scanln()
+	if _, err := fmt.Scanln(); err != nil {
+		return
+	}
 }
 
 func section(title string) {

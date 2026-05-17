@@ -121,6 +121,10 @@ func sanitizeObjectKey(val string) (string, bool) {
 // If uploadSvc is nil, all routes return 503 Service Unavailable.
 func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService) {
 	upload := router.Group("/api/v1/upload")
+	upload.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+		c.Next()
+	})
 
 	upload.POST("", handleWholeFileUpload(uploadSvc, log))
 	upload.GET("/list", handleUploadList(uploadSvc, log))
@@ -130,7 +134,10 @@ func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *servic
 	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, log))
 	upload.GET("/:id/status", handleUploadStatus(uploadSvc, log))
 	upload.GET("/:id/download-url", handleDownloadURL(uploadSvc, log))
+	upload.POST("/:id/batch-chunks", handleBatchChunkUpload(uploadSvc, log))
 	upload.GET("/:id/chunks", handleChunkStatuses(uploadSvc, log))
+	upload.POST("/presigned-init", handlePresignedUploadInit(uploadSvc, log))
+	upload.POST("/:id/complete-presigned", handleCompletePresignedUpload(uploadSvc, log))
 	upload.DELETE("/:id", handleDeleteUpload(uploadSvc, log))
 
 	log.Info("Upload routes registered")
@@ -413,6 +420,71 @@ func handleChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.Ha
 	}
 }
 
+func handleBatchChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
+		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
+
+		form, err := c.MultipartForm()
+		if err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "multipart form required")
+			return
+		}
+
+		type chunkResult struct {
+			Index  int    `json:"index"`
+			Status string `json:"status"`
+			Error  string `json:"error,omitempty"`
+		}
+
+		results := make([]chunkResult, 0, len(form.File))
+		var hasErr bool
+		for fieldName, headers := range form.File {
+			idx, parseErr := strconv.Atoi(fieldName)
+			if parseErr != nil || idx < 0 || len(headers) == 0 {
+				continue
+			}
+			f, openErr := headers[0].Open()
+			if openErr != nil {
+				results = append(results, chunkResult{Index: idx, Status: "failed", Error: openErr.Error()})
+				hasErr = true
+				continue
+			}
+			uploadErr := uploadSvc.UploadChunkStream(c.Request.Context(), uploadID, idx, f, headers[0].Size, wallet)
+			_ = f.Close()
+			if uploadErr != nil {
+				results = append(results, chunkResult{Index: idx, Status: "failed", Error: uploadErr.Error()})
+				hasErr = true
+			} else {
+				results = append(results, chunkResult{Index: idx, Status: "uploaded"})
+			}
+		}
+
+		status := http.StatusOK
+		if hasErr {
+			status = http.StatusMultiStatus
+		}
+		respond(c, status, gin.H{
+			"upload_id": uploadID,
+			"results":   results,
+		})
+	}
+}
+
 func handleChunkedUploadComplete(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if uploadSvc == nil {
@@ -461,6 +533,95 @@ func handleChunkedUploadComplete(uploadSvc *service.UploadService, log *zap.Logg
 			"status":    info.Status,
 			"hash":      info.Hash,
 			"size":      info.Size,
+		})
+	}
+}
+
+func handlePresignedUploadInit(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
+		var req struct {
+			Filename    string `json:"filename" binding:"required"`
+			TotalSize   int64  `json:"total_size" binding:"required"`
+			ContentType string `json:"content_type"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "filename and total_size are required")
+			return
+		}
+		if req.TotalSize <= 0 {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "total_size must be positive")
+			return
+		}
+		if req.TotalSize > maxUploadSize {
+			abortWithError(c, http.StatusRequestEntityTooLarge, ErrPayloadTooLarge,
+				fmt.Sprintf("file size %d exceeds maximum allowed size %d", req.TotalSize, maxUploadSize))
+			return
+		}
+
+		ext := filepath.Ext(req.Filename)
+		if _, allowed := allowedVideoExtensions[ext]; !allowed && ext != "" {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest,
+				fmt.Sprintf("file extension %s not allowed; accepted: mp4, webm, avi, mkv, mov, mpeg", ext))
+			return
+		}
+
+		uploadID, presignedURL, storageKey, err := uploadSvc.InitiatePresignedUpload(
+			c.Request.Context(), req.Filename, req.TotalSize, req.ContentType, wallet)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to initiate presigned upload", err.Error())
+			return
+		}
+
+		respondCreated(c, gin.H{
+			"upload_id":     uploadID,
+			"presigned_url": presignedURL,
+			"storage_key":   storageKey,
+			"expires_in":    int((2 * time.Hour).Seconds()),
+			"status":        "url_generated",
+		})
+	}
+}
+
+func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if uploadSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet authentication required")
+			return
+		}
+
+		uploadID := c.Param("id")
+		contentID, err := uploadSvc.CompleteUploadWithTx(c.Request.Context(), uploadID)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete presigned upload", err.Error())
+			return
+		}
+
+		info, _ := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
+		status := "completed"
+		if info != nil {
+			status = info.Status
+		}
+		respondOK(c, gin.H{
+			"upload_id":  uploadID,
+			"content_id": contentID,
+			"status":     status,
 		})
 	}
 }
@@ -532,6 +693,7 @@ func handleUploadStatus(uploadSvc *service.UploadService, log *zap.Logger) gin.H
 			abortWithError(c, http.StatusForbidden, ErrForbidden, "not authorized to view this upload")
 			return
 		}
+		progress, _ := uploadSvc.GetUploadProgress(c.Request.Context(), uploadID)
 		respondOK(c, gin.H{
 			"upload_id":    info.ID,
 			"filename":     info.Filename,
@@ -539,6 +701,7 @@ func handleUploadStatus(uploadSvc *service.UploadService, log *zap.Logger) gin.H
 			"content_type": info.ContentType,
 			"hash":         info.Hash,
 			"status":       info.Status,
+			"progress":     progress,
 			"owner_id":     info.OwnerID,
 			"created_at":   info.CreatedAt.Format(time.RFC3339),
 		})

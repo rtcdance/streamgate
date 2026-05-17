@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/test/helpers"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_CacheHitRate(t *testing.T) {
@@ -20,7 +21,7 @@ func TestLoad_CacheHitRate(t *testing.T) {
 
 	// Setup: Pre-populate cache
 	for i := 0; i < 100; i++ {
-		cache.Set(context.Background(), "key_"+string(rune(i)), "value")
+		_ = cache.Set(context.Background(), "key_"+string(rune(i)), "value")
 	}
 
 	// Test cache hit rate
@@ -183,7 +184,7 @@ func TestLoad_CacheConsistency(t *testing.T) {
 	// Test cache consistency under concurrent access
 	key := "consistency_test"
 	initialValue := "initial"
-	cache.Set(context.Background(), key, initialValue)
+	_ = cache.Set(context.Background(), key, initialValue)
 
 	numGoroutines := 50
 	numRequests := 20

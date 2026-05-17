@@ -19,7 +19,7 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 	// Public route (no JWT required) — health may be 200 or 503 depending on DB availability
 	resp, err := http.Get(server.URL + "/health")
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 
 	// Protected route with valid JWT → 503 (no ContentService/DB)
@@ -27,7 +27,7 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
 }
 
@@ -39,7 +39,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// Request with valid JWT → 503 (no ContentService/DB in test)
@@ -48,7 +48,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp2.StatusCode)
 
 	// Request with invalid token format → 401
@@ -56,7 +56,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	req3.Header.Set("Authorization", "InvalidFormat")
 	resp3, err := http.DefaultClient.Do(req3)
 	require.NoError(t, err)
-	resp3.Body.Close()
+	_ = resp3.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp3.StatusCode)
 }
 
@@ -70,7 +70,7 @@ func TestE2E_CORSFlow(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.True(t, resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent)
 }
 
@@ -81,7 +81,7 @@ func TestE2E_LoggingFlow(t *testing.T) {
 	// Make request — logging middleware is part of the stack
 	resp, err := http.Get(server.URL + "/health")
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 }
 
@@ -92,7 +92,7 @@ func TestE2E_ErrorRecoveryFlow(t *testing.T) {
 	// Request to a non-existent route — recovery middleware handles it
 	resp, err := http.Get(server.URL + "/api/v1/nonexistent")
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
@@ -110,7 +110,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	req.Header.Set("Origin", "http://example.com")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	assert.NotEmpty(t, resp.Header.Get("Access-Control-Allow-Origin"))
 
@@ -118,7 +118,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", nil)
 	resp2, err := http.DefaultClient.Do(req2)
 	require.NoError(t, err)
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 
 	// 3. JWT acceptance with valid token → 503 (no ContentService/DB)
@@ -127,6 +127,6 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	req3.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp3, err := http.DefaultClient.Do(req3)
 	require.NoError(t, err)
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 	assert.Equal(t, http.StatusServiceUnavailable, resp3.StatusCode)
 }

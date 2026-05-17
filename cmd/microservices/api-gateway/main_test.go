@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +27,46 @@ import (
 	"streamgate/pkg/service"
 	"streamgate/pkg/web3"
 )
+
+type mockSegmentStorage struct {
+	objects []string
+}
+
+func (m *mockSegmentStorage) Upload(ctx context.Context, bucket, objectName string, data []byte) error {
+	return nil
+}
+
+func (m *mockSegmentStorage) UploadStream(ctx context.Context, bucket, objectName string, reader io.Reader, size int64) error {
+	return nil
+}
+
+func (m *mockSegmentStorage) UploadWithContentType(ctx context.Context, bucket, objectName string, data []byte, contentType string) error {
+	return nil
+}
+
+func (m *mockSegmentStorage) UploadStreamWithContentType(ctx context.Context, bucket, objectName string, reader io.Reader, size int64, contentType string) error {
+	return nil
+}
+
+func (m *mockSegmentStorage) Download(ctx context.Context, bucket, objectName string) ([]byte, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockSegmentStorage) DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockSegmentStorage) Delete(ctx context.Context, bucket, objectName string) error {
+	return nil
+}
+
+func (m *mockSegmentStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	return m.objects, nil
+}
+
+func (m *mockSegmentStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {
+	return false, nil
+}
 
 type mockNFTAccessVerifier struct {
 	verifyResult bool
@@ -74,7 +116,7 @@ func (m *mockWeb3StatusProvider) GetSupportedChains() []*web3.ChainConfig {
 	}
 }
 
-func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwnershipChecker) *gin.Engine {
+func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwnershipChecker, segStorage service.SegmentStorage) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	cache := gateway.NewNFTAccessCache()
@@ -136,7 +178,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		}
 		nftGroup := authGroup.Group("/")
 	nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, zap.NewNop()))
-	gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil)
+	gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, segStorage, nil)
 
 		// Segment route uses playback token, not NFT gate
 		authGroup.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {
@@ -189,7 +231,7 @@ func testJWT(walletAddress string) string {
 
 func TestRegisterAuthRoutes_ChallengeAndLogin(t *testing.T) {
 	authService, verifier := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -229,7 +271,7 @@ func TestRegisterAuthRoutes_ChallengeAndLogin(t *testing.T) {
 
 func TestRegisterAuthRoutes_LoginRejectsReplay(t *testing.T) {
 	authService, verifier := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -262,7 +304,7 @@ func TestRegisterAuthRoutes_LoginRejectsReplay(t *testing.T) {
 
 func TestRegisterStreamingRoutes_SegmentRequiresPlaybackToken(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/demo/segment/0", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
@@ -274,7 +316,7 @@ func TestRegisterStreamingRoutes_SegmentRequiresPlaybackToken(t *testing.T) {
 
 func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	token, err := authService.GeneratePlaybackToken(
 		"0x1234567890123456789012345678901234567890",
@@ -297,7 +339,13 @@ func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 
 func TestRegisterStreamingRoutes_ManifestSuccess(t *testing.T) {
 	authService, verifier := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(1)})
+	segStorage := &mockSegmentStorage{
+		objects: []string{
+			"streams/demo/720p/seg0000.ts",
+			"streams/demo/720p/seg0001.ts",
+		},
+	}
+	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(1)}, segStorage)
 
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -328,7 +376,7 @@ func TestRegisterStreamingRoutes_ManifestSuccess(t *testing.T) {
 
 func TestRegisterNFTRoutes_VerifyByBalance(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(2)})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(2)}, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"wallet":   "0x1234567890123456789012345678901234567890",
@@ -348,7 +396,7 @@ func TestRegisterNFTRoutes_VerifyByBalance(t *testing.T) {
 
 func TestRegisterNFTRoutes_VerifyByTokenOwnership(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{verifyResult: true})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{verifyResult: true}, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"wallet":   "0x1234567890123456789012345678901234567890",
@@ -368,7 +416,7 @@ func TestRegisterNFTRoutes_VerifyByTokenOwnership(t *testing.T) {
 
 func TestRegisterNFTRoutes_VerifyReturnsCacheHitOnSecondRequest(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(2)})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(2)}, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"wallet":   "0x1234567890123456789012345678901234567890",
@@ -407,7 +455,7 @@ func TestNFTAccessCache_ExpiresEntry(t *testing.T) {
 
 func TestContentRoutes_RequireAuth(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	// Without auth
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", http.NoBody)
@@ -426,7 +474,7 @@ func TestContentRoutes_RequireAuth(t *testing.T) {
 
 func TestRegisterTranscodingRoutes_SubmitAndStatus(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	body, _ := json.Marshal(map[string]interface{}{
 		"content_id": "content-42",
@@ -460,7 +508,7 @@ func TestRegisterTranscodingRoutes_SubmitAndStatus(t *testing.T) {
 
 func TestRegisterTranscodingRoutes_ListTasks(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	body, _ := json.Marshal(map[string]interface{}{
@@ -487,7 +535,7 @@ func TestRegisterTranscodingRoutes_ListTasks(t *testing.T) {
 
 func TestRegisterTranscodingRoutes_ListTasksPagination(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	body1, _ := json.Marshal(map[string]interface{}{
@@ -530,7 +578,7 @@ func TestRegisterTranscodingRoutes_ListTasksPagination(t *testing.T) {
 
 func TestRegisterWeb3Routes_RPCStatus(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -545,7 +593,7 @@ func TestRegisterWeb3Routes_RPCStatus(t *testing.T) {
 
 func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
 	authService, _ := newTestAuthService()
-	router := newTestRouter(authService, &mockNFTAccessVerifier{})
+	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	healthReq := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	healthRec := httptest.NewRecorder()

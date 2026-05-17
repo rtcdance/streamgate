@@ -53,6 +53,7 @@ const (
 	ErrNotFound           = "NOT_FOUND"
 	ErrRateLimited        = "RATE_LIMITED"
 	ErrPayloadTooLarge    = "PAYLOAD_TOO_LARGE"
+	ErrStreamLimitReached = "STREAM_LIMIT_REACHED"
 	ErrHealthCheckFailed  = "HEALTH_CHECK_FAILED"
 	ErrInternalError      = "INTERNAL_ERROR"
 )

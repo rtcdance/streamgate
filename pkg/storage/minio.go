@@ -233,6 +233,18 @@ func (ms *MinIOStorage) PresignedURL(ctx context.Context, bucket, objectName str
 	return url.String(), nil
 }
 
+func (ms *MinIOStorage) PresignedUploadURL(ctx context.Context, bucket, objectName string, expiration time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	url, err := ms.client.PresignedPutObject(ctx, bucket, objectName, expiration)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate presigned upload URL: %w", err)
+	}
+
+	return url.String(), nil
+}
+
 // CreateBucket creates a new bucket
 func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

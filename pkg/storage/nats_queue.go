@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -131,10 +133,13 @@ func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	return nil
 }
 
-func (q *NATSTranscodingQueue) Dequeue() (*models.TranscodingTask, error) {
-	msgs, err := q.sub.Fetch(1, nats.MaxWait(2*time.Second))
+func (q *NATSTranscodingQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, error) {
+	msgs, err := q.sub.Fetch(1, nats.Context(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("queue empty: %w", err)
+		if errors.Is(err, nats.ErrTimeout) {
+			return nil, fmt.Errorf("queue empty: %w", err)
+		}
+		return nil, fmt.Errorf("dequeue failed: %w", err)
 	}
 	if len(msgs) == 0 {
 		return nil, fmt.Errorf("queue empty")

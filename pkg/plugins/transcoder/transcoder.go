@@ -68,7 +68,9 @@ type QueueMetrics struct {
 	mu              sync.RWMutex //nolint:unused
 }
 
-// WorkerPool manages concurrent transcoding workers
+// WorkerPool manages concurrent transcoding workers for standalone microservice mode.
+// Deprecated: Prefer service.TranscodingService which provides equivalent scheduling via
+// StartWorker/StopWorker with configurable worker count and integrated retry logic.
 type WorkerPool struct {
 	workers       []*Worker
 	taskQueue     *TaskQueue
@@ -126,7 +128,10 @@ type ScalingPolicy struct {
 	CheckInterval      time.Duration
 }
 
-// TranscoderPlugin implements the transcoder plugin
+// TranscoderPlugin implements the transcoder plugin for standalone microservice mode.
+// Deprecated: Prefer service.TranscodingService for new development. This implementation
+// duplicates scheduling logic (worker pool, queue, auto-scaling) from pkg/service/transcoding.go
+// and exists only for the standalone cmd/microservices/transcoder entry point.
 type TranscoderPlugin struct {
 	name         string
 	version      string
@@ -399,8 +404,9 @@ func (tq *TaskQueue) Enqueue(task *TranscodeTask) error {
 
 	task.Status = TaskStatusPending
 	task.CreatedAt = time.Now()
-	tq.tasks[task.ID] = task
-	tq.queue <- task
+	copy := *task
+	tq.tasks[copy.ID] = &copy
+	tq.queue <- &copy
 	tq.metrics.TotalEnqueued++
 
 	return nil
@@ -426,7 +432,8 @@ func (tq *TaskQueue) GetTask(taskID string) (*TranscodeTask, error) {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	return task, nil
+	copy := *task
+	return &copy, nil
 }
 
 // UpdateTask updates a task
@@ -435,6 +442,18 @@ func (tq *TaskQueue) UpdateTask(task *TranscodeTask) error {
 	defer tq.mu.Unlock()
 
 	tq.tasks[task.ID] = task
+	return nil
+}
+
+func (tq *TaskQueue) TransitionStatus(taskID string, fn func(*TranscodeTask)) error {
+	tq.mu.Lock()
+	defer tq.mu.Unlock()
+
+	task, exists := tq.tasks[taskID]
+	if !exists {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+	fn(task)
 	return nil
 }
 
@@ -579,29 +598,29 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 	worker.CurrentTask = task
 	worker.mu.Unlock()
 
-	task.Status = TaskStatusProcessing
-	task.WorkerID = worker.ID
 	now := time.Now()
-	task.StartedAt = &now
-
-	_ = wp.taskQueue.UpdateTask(task)
+	_ = wp.taskQueue.TransitionStatus(task.ID, func(t *TranscodeTask) {
+		t.Status = TaskStatusProcessing
+		t.WorkerID = worker.ID
+		t.StartedAt = &now
+	})
 
 	_ = wp.eventBus.Publish(context.Background(), &event.Event{
 		Type: "transcode.task.started",
 		Data: map[string]interface{}{"task": task},
 	})
 
-	// Simulate transcoding work
 	startTime := time.Now()
 	if err := wp.transcode(task); err != nil {
-		task.Status = TaskStatusFailed
-		task.Error = err.Error()
-		task.RetryCount++
-
-		if task.RetryCount < task.MaxRetries {
-			task.Status = TaskStatusPending
-			_ = wp.taskQueue.Enqueue(task)
-		}
+		errMsg := err.Error()
+		_ = wp.taskQueue.TransitionStatus(task.ID, func(t *TranscodeTask) {
+			t.Status = TaskStatusFailed
+			t.Error = errMsg
+			t.RetryCount++
+			if t.RetryCount < t.MaxRetries {
+				t.Status = TaskStatusPending
+			}
+		})
 
 		wp.taskQueue.metrics.TotalFailed++
 		_ = wp.eventBus.Publish(context.Background(), &event.Event{
@@ -609,9 +628,11 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 			Data: map[string]interface{}{"task": task},
 		})
 	} else {
-		task.Status = TaskStatusCompleted
-		now := time.Now()
-		task.CompletedAt = &now
+		completedAt := time.Now()
+		_ = wp.taskQueue.TransitionStatus(task.ID, func(t *TranscodeTask) {
+			t.Status = TaskStatusCompleted
+			t.CompletedAt = &completedAt
+		})
 		wp.taskQueue.metrics.TotalProcessed++
 
 		_ = wp.eventBus.Publish(context.Background(), &event.Event{
@@ -619,8 +640,6 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 			Data: map[string]interface{}{"task": task},
 		})
 	}
-
-	_ = wp.taskQueue.UpdateTask(task)
 
 	worker.mu.Lock()
 	worker.Status = WorkerStatusIdle

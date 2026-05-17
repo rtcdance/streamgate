@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,15 +22,48 @@ type manifestCacheEntry struct {
 	expiresAt time.Time
 }
 
+type segmentIndexEntry struct {
+	qualities map[string][]string
+	expiresAt time.Time
+}
+
 var (
-	manifestCache   = make(map[string]manifestCacheEntry)
-	manifestCacheMu sync.RWMutex
+	manifestCache       = make(map[string]manifestCacheEntry)
+	manifestCacheMu     sync.RWMutex
+	segmentIndexCache   = make(map[string]segmentIndexEntry)
+	segmentIndexCacheMu sync.RWMutex
 )
 
-const manifestCacheTTL = 30 * time.Second
+const (
+	manifestCacheTTL      = 30 * time.Second
+	segmentIndexCacheTTL  = 2 * time.Minute
+)
 
-// RegisterStreamingRoutes registers the HLS manifest delivery route (NFT-gated).
-func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, bucket ...string) {
+type streamLimiter struct {
+	sem chan struct{}
+}
+
+func newStreamLimiter(max int) *streamLimiter {
+	if max <= 0 {
+		max = 1000
+	}
+	return &streamLimiter{sem: make(chan struct{}, max)}
+}
+
+func (l *streamLimiter) tryAcquire() bool {
+	select {
+	case l.sem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (l *streamLimiter) release() {
+	<-l.sem
+}
+
+func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, bucket ...string) {
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -44,6 +78,15 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		if v, ok := chainID.(int64); ok {
 			chainIDInt = v
 		}
+		if limiter != nil && !limiter.tryAcquire() {
+			c.Header("Retry-After", "1")
+			abortWithError(c, http.StatusServiceUnavailable, ErrStreamLimitReached, "too many concurrent streams; try again shortly")
+			return
+		}
+		if limiter != nil {
+			defer limiter.release()
+		}
+
 		playbackToken, err := authService.GeneratePlaybackToken(wallet, contentID, contract, tokenID, chainIDInt, 2*time.Minute)
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
@@ -60,24 +103,38 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		manifestCacheMu.RUnlock()
 
-		segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
-		qualitySegments := make(map[string][]string)
-		if objStorage != nil {
-			if objs, err := objStorage.ListObjects(c.Request.Context(), segBucket, segmentPrefix); err == nil {
-				for _, key := range objs {
-					if !strings.HasSuffix(key, ".ts") {
-						continue
+		segmentIndexCacheMu.RLock()
+		cachedIdx, idxHit := segmentIndexCache[contentID]
+		segmentIndexCacheMu.RUnlock()
+
+		var qualitySegments map[string][]string
+		if idxHit && time.Now().Before(cachedIdx.expiresAt) {
+			qualitySegments = cachedIdx.qualities
+		} else {
+			qualitySegments = make(map[string][]string)
+			segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
+			if objStorage != nil {
+				if objs, err := objStorage.ListObjects(c.Request.Context(), segBucket, segmentPrefix); err == nil {
+					for _, key := range objs {
+						if !strings.HasSuffix(key, ".ts") {
+							continue
+						}
+						rel := strings.TrimPrefix(key, segmentPrefix)
+						parts := strings.SplitN(rel, "/", 2)
+						quality := "default"
+						segName := rel
+						if len(parts) == 2 {
+							quality = parts[0]
+							segName = parts[1]
+						}
+						qualitySegments[quality] = append(qualitySegments[quality], segName)
 					}
-					rel := strings.TrimPrefix(key, segmentPrefix)
-					parts := strings.SplitN(rel, "/", 2)
-					quality := "default"
-					segName := rel
-					if len(parts) == 2 {
-						quality = parts[0]
-						segName = parts[1]
-					}
-					qualitySegments[quality] = append(qualitySegments[quality], segName)
 				}
+			}
+			if len(qualitySegments) > 0 {
+				segmentIndexCacheMu.Lock()
+				segmentIndexCache[contentID] = segmentIndexEntry{qualities: qualitySegments, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
+				segmentIndexCacheMu.Unlock()
 			}
 		}
 		if len(qualitySegments) == 0 {
@@ -102,12 +159,16 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 
 		manifestCacheMu.Lock()
-		manifestCache[contentID] = manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)}
-		if len(manifestCache) > 10000 {
-			now := time.Now()
-			for k, v := range manifestCache {
-				if now.After(v.expiresAt) {
-					delete(manifestCache, k)
+		if entry, ok := manifestCache[contentID]; ok && time.Now().Before(entry.expiresAt) {
+			manifest = entry.manifest
+		} else {
+			manifestCache[contentID] = manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)}
+			if len(manifestCache) > 10000 {
+				now := time.Now()
+				for k, v := range manifestCache {
+					if now.After(v.expiresAt) {
+						delete(manifestCache, k)
+					}
 				}
 			}
 		}
@@ -115,13 +176,13 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
+		c.Header("Cache-Control", "private, max-age=30") // per-user token in body; browser-only cache
 		c.String(http.StatusOK, rendered)
 	})
 	log.Info("Streaming routes registered")
 }
 
-// RegisterStreamingSegmentRoute registers the segment download route (playback-token validated).
-func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, bucket ...string) {
+func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, bucket ...string) {
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -132,12 +193,20 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "missing playback token")
 			return
 		}
-		claims, err := authService.ValidatePlaybackToken(playbackToken, c.Param("id"))
+		contentID := c.Param("id")
+		claims, err := authService.ValidatePlaybackToken(playbackToken, contentID)
 		if err != nil {
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 			return
 		}
-		contentID := c.Param("id")
+		if limiter != nil && !limiter.tryAcquire() {
+			c.Header("Retry-After", "1")
+			abortWithError(c, http.StatusServiceUnavailable, ErrStreamLimitReached, "too many concurrent streams; try again shortly")
+			return
+		}
+		if limiter != nil {
+			defer limiter.release()
+		}
 		segName := c.Param("num")
 		if strings.Contains(segName, "..") || strings.Contains(segName, "/") || strings.Contains(segName, "\\") {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
@@ -148,34 +217,67 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			return
 		}
 		if objStorage != nil {
-			var rc io.ReadCloser
+			type segTry struct {
+				key  string
+				prio int
+			}
 			quality := c.Query("quality")
+			candidates := []segTry{
+				{key: fmt.Sprintf("streams/%s/720p/%s", contentID, segName), prio: 1},
+				{key: fmt.Sprintf("%s/%s", contentID, segName), prio: 0},
+			}
 			if quality != "" {
-				objectKey := fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName)
-				rc, err = objStorage.DownloadStream(c.Request.Context(), segBucket, objectKey)
+				candidates = append([]segTry{
+					{key: fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName), prio: 2},
+				}, candidates...)
 			}
-			if rc == nil {
-				objectKey := fmt.Sprintf("streams/%s/720p/%s", contentID, segName)
-				rc, err = objStorage.DownloadStream(c.Request.Context(), segBucket, objectKey)
+
+			ctx, cancel := context.WithCancel(c.Request.Context())
+			defer cancel()
+
+			type dlResult struct {
+				rc   io.ReadCloser
+				err  error
+				prio int
 			}
-			if rc == nil {
-				objectKey := fmt.Sprintf("%s/%s", contentID, segName)
-				rc, err = objStorage.DownloadStream(c.Request.Context(), segBucket, objectKey)
+			ch := make(chan dlResult, len(candidates))
+			for _, cand := range candidates {
+				cand := cand
+				go func() {
+					rc, dlErr := objStorage.DownloadStream(ctx, segBucket, cand.key)
+					ch <- dlResult{rc: rc, err: dlErr, prio: cand.prio}
+				}()
 			}
-			if err != nil || rc == nil {
+
+			var best dlResult
+			for i := 0; i < len(candidates); i++ {
+				res := <-ch
+				if res.err == nil && res.rc != nil {
+					if best.rc == nil || res.prio > best.prio {
+						if best.rc != nil {
+							best.rc.Close()
+						}
+						best = res
+					} else {
+						res.rc.Close()
+					}
+				}
+			}
+			cancel()
+
+			if best.rc == nil {
 				middleware.GetLogger(c, log).Warn("Segment download failed",
 					zap.String("content_id", contentID),
-					zap.String("segment", segName),
-					zap.Error(err))
+					zap.String("segment", segName))
 				abortWithError(c, http.StatusServiceUnavailable, ErrContentUnavailable, "segment unavailable")
 				return
 			}
-			defer func() { _ = rc.Close() }()
+			defer func() { _ = best.rc.Close() }()
 			c.Header("Content-Type", "video/mp2t")
-			c.Header("Cache-Control", "private, max-age=3600")
+			c.Header("Cache-Control", "public, max-age=86400, s-maxage=3600")
 			c.Header("X-Content-Type-Options", "nosniff")
 			c.Status(http.StatusOK)
-			if _, err := io.Copy(c.Writer, rc); err != nil {
+			if _, err := io.Copy(c.Writer, best.rc); err != nil {
 				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
 			}
 			return

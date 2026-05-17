@@ -26,17 +26,13 @@ var balanceDB = map[string]*big.Int{
 func getBalances(addresses []string) (map[string]*big.Int, error) {
 	balances := make(map[string]*big.Int)
 
-	// BUG: 重用同一个 *big.Int 变量
-	var tokenID *big.Int
 	for _, addr := range addresses {
 		balance, ok := balanceDB[addr]
 		if !ok {
 			continue
 		}
 
-		// BUG: 这里应该 new(big.Int).Set(balance) 创建新对象
-		tokenID = balance
-		balances[addr] = tokenID
+		balances[addr] = new(big.Int).Set(balance)
 	}
 
 	return balances, nil

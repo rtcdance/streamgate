@@ -27,7 +27,7 @@ func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
 		})
 		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var result map[string]interface{}
@@ -50,7 +50,7 @@ func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
 		require.NoError(t, err)
 		var cr map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		message, _ := cr["message"].(string)
@@ -68,7 +68,7 @@ func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
 		})
 		resp3, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
 		require.NoError(t, err)
-		defer resp3.Body.Close()
+		defer func() { _ = resp3.Body.Close() }()
 		assert.Equal(t, http.StatusOK, resp3.StatusCode)
 
 		var loginResult map[string]interface{}
@@ -94,7 +94,7 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		var result map[string]interface{}
@@ -120,7 +120,7 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken2)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		var result map[string]interface{}
@@ -147,7 +147,7 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	var cr map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	var lr map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	token := lr["token"].(string)
 
 	t.Run("ManifestReturnsHLS", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		body, _ := io.ReadAll(resp.Body)
 		assert.Contains(t, string(body), "#EXTM3U")
@@ -194,7 +194,7 @@ func TestE2ETranscodingWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusAccepted, resp.StatusCode)
 
 		var result map[string]interface{}
@@ -213,7 +213,7 @@ func TestE2EUploadWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		// Without multipart form, should get 400 (no file provided)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
@@ -226,7 +226,7 @@ func TestE2EHealthEndpoints(t *testing.T) {
 	t.Run("Health", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/health")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -236,7 +236,7 @@ func TestE2EHealthEndpoints(t *testing.T) {
 	t.Run("Ready", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/ready")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -252,7 +252,7 @@ func TestE2EWeb3RPCStatus(t *testing.T) {
 
 	resp, err := http.Get(server.URL + "/api/v1/web3/rpc-status")
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	var result map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -268,7 +268,7 @@ func TestE2EContentRoutesRequireAuth(t *testing.T) {
 	t.Run("NoAuth_Returns401", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/v1/content")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
@@ -278,7 +278,7 @@ func TestE2EContentRoutesRequireAuth(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -303,7 +303,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	var cr map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
 	require.NoError(t, err)
@@ -317,7 +317,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	var lr map[string]interface{}
 	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	jwtToken := lr["token"].(string)
 
 	t.Run("VerifyToken_Valid", func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -338,7 +338,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -350,7 +350,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -362,7 +362,7 @@ func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
@@ -379,7 +379,7 @@ func TestE2ENFTGateEnriched403(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -400,7 +400,7 @@ func TestE2EStructuredErrorResponses(t *testing.T) {
 	t.Run("AuthChallenge_InvalidRequest_HasCode", func(t *testing.T) {
 		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader([]byte("invalid")))
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
@@ -411,7 +411,7 @@ func TestE2EStructuredErrorResponses(t *testing.T) {
 	t.Run("ProtectedRoute_NoAuth_HasCode", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/v1/content")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))

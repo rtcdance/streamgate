@@ -16,7 +16,7 @@ func (m *mockTranscodingQueue) Enqueue(task *service.TranscodingTask) error {
 	return nil
 }
 
-func (m *mockTranscodingQueue) Dequeue() (*service.TranscodingTask, error) {
+func (m *mockTranscodingQueue) Dequeue(ctx context.Context) (*service.TranscodingTask, error) {
 	return nil, nil
 }
 

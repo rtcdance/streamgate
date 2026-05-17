@@ -20,27 +20,22 @@ import (
 
 // signMessage 对消息进行以太坊签名（目前缺少 EIP-191 前缀）
 func signMessage(privateKeyHex, message string) ([]byte, error) {
-	// 从十六进制字符串加载私钥
 	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("私钥加载失败: %w", err)
 	}
 
-	// BUG: 这里直接哈希了原始消息，没有加 EIP-191 前缀
-	// 正确的做法应该是:
-	//   prefixed := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
-	//   hash := crypto.Keccak256([]byte(prefixed))
-	hash := crypto.Keccak256([]byte(message))
+	prefixed := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	hash := crypto.Keccak256([]byte(prefixed))
 
 	return crypto.Sign(hash, privateKey)
 }
 
 // recoverAddress 从签名恢复出签名者地址
 func recoverAddress(message string, sig []byte) (string, error) {
-	// BUG: 同样的，验证端也要用同样的前缀
-	hash := crypto.Keccak256([]byte(message))
+	prefixed := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	hash := crypto.Keccak256([]byte(prefixed))
 
-	// 调整 v 值 (MetaMask 用 27/28, go-ethereum 用 0/1)
 	if len(sig) == 65 && sig[64] >= 27 {
 		sig[64] -= 27
 	}

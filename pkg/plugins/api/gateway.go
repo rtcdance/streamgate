@@ -85,10 +85,13 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 	p.resources = resources
 
 	p.server = &http.Server{
-		Addr:         fmt.Sprintf(":%d", p.config.Server.Port),
-		Handler:      router,
-		ReadTimeout:  time.Duration(p.config.Server.ReadTimeout) * time.Second,
-		WriteTimeout: time.Duration(p.config.Server.WriteTimeout) * time.Second,
+		Addr:              fmt.Sprintf(":%d", p.config.Server.Port),
+		Handler:           router,
+		ReadTimeout:       time.Duration(p.config.Server.ReadTimeout) * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      time.Duration(p.config.Server.WriteTimeout) * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {

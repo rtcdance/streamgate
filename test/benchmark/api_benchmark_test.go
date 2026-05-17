@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"streamgate/pkg/middleware"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
-	"streamgate/pkg/middleware"
 )
 
 func BenchmarkAPI_RoutingSimple(b *testing.B) {
@@ -60,7 +61,7 @@ func BenchmarkAPI_JSONSerialization(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		json.Marshal(data)
+		_, _ = json.Marshal(data)
 	}
 }
 
@@ -76,7 +77,7 @@ func BenchmarkAPI_JSONDeserialization(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var result map[string]interface{}
-		json.Unmarshal(jsonData, &result)
+		_ = json.Unmarshal(jsonData, &result)
 	}
 }
 
