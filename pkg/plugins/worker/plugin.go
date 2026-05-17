@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
+
+func init() {
+	core.RegisterPluginFactory("worker", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewWorkerPlugin(cfg, logger)
+	})
+}
 
 // WorkerPlugin is the worker service plugin
 type WorkerPlugin struct {

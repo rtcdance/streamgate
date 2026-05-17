@@ -10,9 +10,9 @@ import (
 // IAccount defines the ERC-4337 account abstraction verification interface.
 // An IAccount contract validates UserOperations (not traditional transactions).
 // When integrated, the system would:
-//   1. Extract the wallet's entry point address from chain config
-//   2. Call IAccount.validateUserOp to verify signature and paymaster sponsorship
-//   3. Use the returned validationData to decide NFT access
+//  1. Extract the wallet's entry point address from chain config
+//  2. Call IAccount.validateUserOp to verify signature and paymaster sponsorship
+//  3. Use the returned validationData to decide NFT access
 //
 // ERC-4337 is not the only AA standard; some L2s (e.g., zkSync) have their own
 // native AA. This interface provides a common entry point for future integration.

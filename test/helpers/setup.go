@@ -176,7 +176,7 @@ func SetupTestRedis(t *testing.T) *storage.RedisCache {
 
 	config := DefaultTestConfig()
 	cache := storage.NewRedisCache()
-	if err := cache.Connect(config.RedisAddr); err != nil {
+	if err := cache.Connect(storage.RedisConfig{Addr: config.RedisAddr}); err != nil {
 		t.Skipf("Skipping test: Redis not available: %v", err)
 		return nil
 	}

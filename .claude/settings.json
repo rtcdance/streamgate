@@ -1,0 +1,7 @@
+{
+  "customInstructions": "Read CLAUDE.md first — it contains project structure, conventions, skeleton registry, and task completion checklist. All changes must pass `make fmt && make lint && make test` before marking complete.",
+  "project": {
+    "name": "StreamGate",
+    "description": "Go-based NFT-gated streaming platform. Core flow: wallet sign-in -> NFT verification -> protected HLS streaming."
+  }
+}

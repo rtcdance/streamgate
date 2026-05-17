@@ -22,21 +22,21 @@ func TestContentHandlers_NilService(t *testing.T) {
 
 	t.Run("GET /content returns 503 with nil service", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/content", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/content", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
 
 	t.Run("GET /content/:id returns 503 with nil service", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/content/test-id", nil)
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/content/test-id", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
 
 	t.Run("POST /content returns 503 with nil service", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/api/v1/content", nil)
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/content", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
@@ -58,7 +58,7 @@ func TestContentHandlers_ListUsesWallet(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	// Attempt to override owner_id via query param — should be ignored
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/content?owner_id=0xAttacker", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/content?owner_id=0xAttacker", http.NoBody)
 	r.ServeHTTP(w, req)
 	// Service is nil so we get 503, but the handler didn't use owner_id param
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -83,7 +83,7 @@ func TestContentHandlers_RequireContentOwnerPath(t *testing.T) {
 	RegisterContentRoutes(r, zap.NewNop(), nil)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/content/some-id", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/content/some-id", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

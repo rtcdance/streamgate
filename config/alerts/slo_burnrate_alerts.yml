@@ -1,0 +1,180 @@
+# Multi-window, Multi-burn-rate SLO Alerts
+#
+# Two-tier approach: short-window for fast detection, long-window for confirmation.
+# Prevents false positives while maintaining rapid detection of real issues.
+#
+# SLO targets:
+#   API Availability:   99.9%  (budget = 0.1% of requests)
+#   NFT Verification:   99.5%  (budget = 0.5% of requests)
+#   RPC Availability:   99.5%  (budget = 0.5% of calls)
+#
+# Burn rate thresholds (Google SRE Workbook approach):
+#   Critical (page):  burn rate >= 10 over 1h  →  budget exhausted in ~3 days
+#   Warning  (ticket): burn rate >= 3  over 6h  →  budget exhausted in ~10 days
+#   Notice   (info):   burn rate >= 1  over 24h →  budget exhausted in ~30 days
+
+groups:
+  - name: slo_availability_burnrate
+    interval: 30s
+    rules:
+      # ────────────────────────────────────
+      # API Availability (99.9%)
+      # Burn rate >= 10 → critical, page
+      # ────────────────────────────────────
+      - alert: SLOApiAvailabilityCritical
+        expr: |
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[1m]))
+            / sum(rate(streamgate_http_requests_total[1m]))
+          ) > 0.01
+          and on()
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(streamgate_http_requests_total[5m]))
+          ) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+          slo: api_availability
+          burn_rate: ">=10x"
+        annotations:
+          summary: "SLO burn rate critical — API availability at risk"
+          description: >-
+            Error rate is {{ $value | humanizePercentage }} over the last 5 minutes,
+            exceeding 10x the budget burn rate. At this rate the monthly error budget
+            will be exhausted in ~3 days.
+
+      # Burn rate >= 3 → warning, ticket
+      - alert: SLOApiAvailabilityWarning
+        expr: |
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(streamgate_http_requests_total[5m]))
+          ) > 0.003
+          and on()
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[30m]))
+            / sum(rate(streamgate_http_requests_total[30m]))
+          ) > 0.003
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          slo: api_availability
+          burn_rate: ">=3x"
+        annotations:
+          summary: "SLO burn rate warning — API availability degrading"
+          description: >-
+            Error rate is {{ $value | humanizePercentage }} over the last 30 minutes,
+            exceeding 3x the budget burn rate. Investigate before this escalates.
+
+      # Burn rate >= 1 → notice, info
+      - alert: SLOApiAvailabilityNotice
+        expr: |
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[30m]))
+            / sum(rate(streamgate_http_requests_total[30m]))
+          ) > 0.001
+          and on()
+          (
+            sum(rate(streamgate_http_requests_total{status=~"5.."}[6h]))
+            / sum(rate(streamgate_http_requests_total[6h]))
+          ) > 0.001
+        for: 30m
+        labels:
+          severity: info
+          team: backend
+          slo: api_availability
+          burn_rate: ">=1x"
+        annotations:
+          summary: "SLO burn rate at budget — API availability steady"
+          description: >-
+            Error rate is {{ $value | humanizePercentage }} over the last 6 hours,
+            consuming error budget at exactly the budgeted rate. Monitor closely.
+
+  - name: slo_latency_burnrate
+    interval: 30s
+    rules:
+      # P99 Latency SLO: < 2s
+      - alert: SLOP99LatencyCritical
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le)
+          ) > 5000
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+          slo: api_latency_p99
+        annotations:
+          summary: "P99 latency critical — service degradation"
+          description: >-
+            P99 latency is {{ $value | printf "%.0f" }}ms over the last 5 minutes,
+            exceeding the SLO target of 2000ms and the critical threshold of 5000ms.
+
+      - alert: SLOP99LatencyWarning
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le)
+          ) > 2000
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+          slo: api_latency_p99
+        annotations:
+          summary: "P99 latency near SLO threshold"
+          description: >-
+            P99 latency is {{ $value | printf "%.0f" }}ms over the last 10 minutes,
+            approaching the 2000ms SLO target.
+
+  - name: slo_web3_burnrate
+    interval: 30s
+    rules:
+      # RPC Failover rate — indicates upstream RPC problems
+      - alert: SLORPCFailoverCritical
+        expr: |
+          sum(rate(streamgate_rpc_failover_total[5m])) > 20
+        for: 5m
+        labels:
+          severity: critical
+          team: web3
+          slo: rpc_availability
+        annotations:
+          summary: "RPC failover rate critical — provider degradation"
+          description: >-
+            RPC failover rate is {{ $value | printf "%.1f" }} per second over 5m.
+            Multiple RPC endpoints are likely unhealthy. Check RPC provider status.
+
+      - alert: SLORPCFailoverWarning
+        expr: |
+          sum(rate(streamgate_rpc_failover_total[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: web3
+          slo: rpc_availability
+        annotations:
+          summary: "RPC failover rate elevated"
+          description: >-
+            RPC failover rate is {{ $value | printf "%.1f" }} per second over 10m.
+            Primary RPC endpoint may be degrading.
+
+  - name: slo_health
+    interval: 30s
+    rules:
+      - alert: SLOErrorBudgetExhausted
+        expr: |
+          slo:api:error_budget_remaining < 0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+          slo: error_budget
+        annotations:
+          summary: "API error budget exhausted"
+          description: >-
+            The monthly error budget for API availability has been exhausted.
+            All deploys should be frozen until the budget resets.
+            Current remaining: {{ $value | printf "%.4f" }}%

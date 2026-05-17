@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,7 +101,7 @@ func TestStreamingService_GetStream_CacheHit(t *testing.T) {
 
 	svc := NewStreamingService(nil, nil, cache, "https://cdn.example.com")
 
-	result, err := svc.GetStream(context.Background(),"content-123")
+	result, err := svc.GetStream(context.Background(), "content-123")
 	require.NoError(t, err)
 	assert.Equal(t, "stream-1", result.ID)
 	assert.Equal(t, "hls", result.Type)
@@ -111,7 +112,7 @@ func TestStreamingService_GetStream_CacheMiss_NoDB(t *testing.T) {
 	svc := NewStreamingService(nil, nil, cache, "https://cdn.example.com")
 
 	// No DB set, should return error
-	_, err := svc.GetStream(context.Background(),"content-nonexistent")
+	_, err := svc.GetStream(context.Background(), "content-nonexistent")
 	assert.Error(t, err)
 }
 
@@ -135,6 +136,10 @@ func (m *mockStreamingCache) Set(key string, value interface{}) error {
 func (m *mockStreamingCache) Delete(key string) error {
 	delete(m.data, key)
 	return nil
+}
+
+func (m *mockStreamingCache) SetWithExpiration(key string, value interface{}, ttl time.Duration) error {
+	return m.Set(key, value)
 }
 
 var errCacheMiss = &cacheMissError{}

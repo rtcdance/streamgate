@@ -192,7 +192,7 @@ func PublishFileUploaded(ctx context.Context, bus EventBus, fileID, fileName str
 	event := &Event{
 		Type:      EventFileUploaded,
 		Source:    "upload-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"file_id":   fileID,
 			"file_name": fileName,
@@ -208,7 +208,7 @@ func PublishTranscodingStarted(ctx context.Context, bus EventBus, jobID, inputFi
 	event := &Event{
 		Type:      EventTranscodingStarted,
 		Source:    "transcoder-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"job_id":     jobID,
 			"input_file": inputFile,
@@ -223,7 +223,7 @@ func PublishTranscodingCompleted(ctx context.Context, bus EventBus, jobID, outpu
 	event := &Event{
 		Type:      EventTranscodingCompleted,
 		Source:    "transcoder-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"job_id":      jobID,
 			"output_file": outputFile,
@@ -238,7 +238,7 @@ func PublishJobSubmitted(ctx context.Context, bus EventBus, jobID, jobType strin
 	event := &Event{
 		Type:      EventJobSubmitted,
 		Source:    "worker-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"job_id":   jobID,
 			"job_type": jobType,
@@ -253,7 +253,7 @@ func PublishJobCompleted(ctx context.Context, bus EventBus, jobID string) error 
 	event := &Event{
 		Type:      EventJobCompleted,
 		Source:    "worker-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"job_id": jobID,
 		},
@@ -267,7 +267,7 @@ func PublishAlertTriggered(ctx context.Context, bus EventBus, alertID, level, me
 	event := &Event{
 		Type:      EventAlertTriggered,
 		Source:    "monitor-service",
-		Timestamp: 0, // TODO: Use current timestamp
+		Timestamp: time.Now().Unix(),
 		Data: map[string]interface{}{
 			"alert_id": alertID,
 			"level":    level,

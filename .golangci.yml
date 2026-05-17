@@ -2,7 +2,7 @@ version: "2"
 
 run:
   timeout: 5m
-  tests: false
+  tests: true
 
 severity:
   default: error
@@ -11,7 +11,6 @@ severity:
         - errcheck
         - unused
         - gocritic
-        - gocyclo
       severity: warning
 
 linters:
@@ -47,7 +46,7 @@ linters:
         - dupImport
         - whyNoLint
     gocyclo:
-      min-complexity: 35
+      min-complexity: 20
     staticcheck:
       checks:
         - all

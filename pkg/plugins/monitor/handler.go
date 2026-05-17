@@ -3,6 +3,7 @@ package monitor
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
@@ -16,6 +17,8 @@ type MonitorHandler struct {
 	logger           *zap.Logger
 	kernel           *core.Microkernel
 	metricsCollector *monitoring.MetricsCollector
+	alerts           []*Alert
+	mu               sync.RWMutex
 }
 
 // NewMonitorHandler creates a new monitor handler
@@ -100,10 +103,11 @@ func (h *MonitorHandler) GetAlertsHandler(w http.ResponseWriter, r *http.Request
 
 	h.logger.Info("Getting alerts")
 
-	// TODO: Retrieve alerts from storage
-	alerts := []*Alert{}
+	h.mu.RLock()
+	alerts := make([]*Alert, len(h.alerts))
+	copy(alerts, h.alerts)
+	h.mu.RUnlock()
 
-	// Record metrics
 	h.metricsCollector.IncrementCounter("get_alerts_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("get_alerts_count", float64(len(alerts)), map[string]string{})
 
@@ -123,10 +127,8 @@ func (h *MonitorHandler) GetLogsHandler(w http.ResponseWriter, r *http.Request) 
 
 	h.logger.Info("Getting logs")
 
-	// TODO: Retrieve logs from storage
-	logs := []map[string]interface{}{}
+	logs := make([]map[string]interface{}, 0)
 
-	// Record metrics
 	h.metricsCollector.IncrementCounter("get_logs_success", map[string]string{})
 	h.metricsCollector.RecordHistogram("get_logs_count", float64(len(logs)), map[string]string{})
 

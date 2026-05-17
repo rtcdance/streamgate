@@ -73,7 +73,7 @@ curl_body_contains "$BASE_URL/ready" "ready" "Readiness endpoint"
 echo ""
 echo "=== 2. API Documentation ==="
 curl_body_contains "$BASE_URL/docs" "swagger-ui" "Swagger UI served"
-curl_body_contains "$BASE_URL/docs/swagger.yaml" "openapi" "OpenAPI spec served"
+curl_body_contains "$BASE_URL/docs/openapi.yaml" "openapi" "OpenAPI spec served"
 
 # ═══════════════════════════════════════════════
 # SECTION 3: Auth Challenge (Happy Path)

@@ -52,8 +52,8 @@ func TestContractWriter_SendTx_NilABI(t *testing.T) {
 	})
 
 	_, err := cw.SendTx(context.Background(), ContractTxOpts{
-		To:       "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-		Method:   "transfer",
+		To:        "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+		Method:    "transfer",
 		ParsedABI: nil,
 	})
 	assert.Error(t, err)
@@ -240,12 +240,12 @@ func TestMemoryEventStore(t *testing.T) {
 
 func TestContractWriteResult(t *testing.T) {
 	result := &ContractWriteResult{
-		TxHash:      "0xabc123",
-		Nonce:       5,
-		GasLimit:    21000,
-		GasPrice:    big.NewInt(1000000000),
+		TxHash:       "0xabc123",
+		Nonce:        5,
+		GasLimit:     21000,
+		GasPrice:     big.NewInt(1000000000),
 		MaxFeePerGas: big.NewInt(2000000000),
-		TipCap:      big.NewInt(1000000000),
+		TipCap:       big.NewInt(1000000000),
 	}
 	assert.Equal(t, "0xabc123", result.TxHash)
 	assert.Equal(t, uint64(5), result.Nonce)

@@ -6,6 +6,7 @@ import (
 
 // ChainManagerInterface abstracts multi-chain RPC operations.
 // *MultiChainManager satisfies this interface.
+//
 //go:generate mockgen -destination=mocks/mock_chain_manager.go -package=mocks streamgate/pkg/web3 ChainManagerInterface
 type ChainManagerInterface interface {
 	AddChain(chainID int64) error
@@ -21,6 +22,7 @@ type ChainManagerInterface interface {
 
 // SignatureVerifierInterface abstracts signature verification.
 // *SignatureVerifier satisfies this interface.
+//
 //go:generate mockgen -destination=mocks/mock_sig_verifier.go -package=mocks streamgate/pkg/web3 SignatureVerifierInterface
 type SignatureVerifierInterface interface {
 	VerifySignature(ctx context.Context, address, message, signature string) (bool, error)
@@ -28,6 +30,7 @@ type SignatureVerifierInterface interface {
 
 // SolanaVerifierInterface abstracts Solana verification.
 // *SolanaVerifier satisfies this interface.
+//
 //go:generate mockgen -destination=mocks/mock_solana_verifier.go -package=mocks streamgate/pkg/web3 SolanaVerifierInterface
 type SolanaVerifierInterface interface {
 	VerifyTokenAccount(ctx context.Context, tokenAccount, ownerAddress string) (bool, error)

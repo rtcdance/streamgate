@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"streamgate/pkg/storage"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"streamgate/pkg/storage"
 )
 
 // DefaultMaxUploadSize is the default maximum upload size (5 GB)
@@ -32,6 +34,64 @@ type UploadService struct {
 	maxUploadSize int64
 	storageQuota  int64
 	logger        *zap.Logger
+	onProcessed   []PostUploadHook
+}
+
+type PostUploadHook func(ctx context.Context, uploadID, contentID, ownerID string)
+
+func (s *UploadService) RegisterPostUploadHook(hook PostUploadHook) {
+	s.onProcessed = append(s.onProcessed, hook)
+}
+
+type AutoTranscodeHookDeps struct {
+	TranscodingSvc *TranscodingService
+	Presigner      PresignedURLer
+	Bucket         string
+	Profiles       []string
+}
+
+func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
+	if deps.TranscodingSvc == nil {
+		return
+	}
+	profiles := deps.Profiles
+	if len(profiles) == 0 {
+		profiles = []string{"720p"}
+	}
+	s.RegisterPostUploadHook(func(ctx context.Context, uploadID, contentID, ownerID string) {
+		upload, err := s.GetUploadStatus(ctx, uploadID)
+		if err != nil {
+			s.logger.Warn("Post-upload hook: failed to get upload info", zap.Error(err))
+			return
+		}
+
+		inputURL := upload.URL
+		if deps.Presigner != nil {
+			storageKey := strings.TrimPrefix(upload.URL, "/"+deps.Bucket+"/")
+			if storageKey == "" {
+				storageKey = upload.URL
+			}
+			presignedURL, err := deps.Presigner.PresignedURL(ctx, deps.Bucket, storageKey, 60*time.Minute)
+			if err != nil {
+				s.logger.Warn("Post-upload hook: failed to generate presigned URL", zap.Error(err))
+			} else {
+				inputURL = presignedURL
+			}
+		}
+
+		for _, profile := range profiles {
+			if _, err := deps.TranscodingSvc.Transcode(ctx, contentID, profile, inputURL, 5, ownerID); err != nil {
+				s.logger.Warn("Post-upload hook: auto-transcode failed",
+					zap.String("content_id", contentID),
+					zap.String("profile", profile),
+					zap.Error(err))
+			} else {
+				s.logger.Info("Post-upload hook: auto-transcode triggered",
+					zap.String("content_id", contentID),
+					zap.String("profile", profile))
+			}
+		}
+	})
 }
 
 // UploadObjectStorage defines the interface for object storage
@@ -41,6 +101,7 @@ type UploadObjectStorage interface {
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
 	Delete(ctx context.Context, bucket, key string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
+	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
 }
 
 // PresignedURLer generates time-limited download URLs for stored objects.
@@ -252,6 +313,48 @@ func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*
 	return &info, nil
 }
 
+func (s *UploadService) GetChunkStatuses(ctx context.Context, uploadID string) ([]ChunkInfo, error) {
+	if s.objStore == nil {
+		return nil, fmt.Errorf("storage not available")
+	}
+	prefix := fmt.Sprintf("chunks/%s/", uploadID)
+	objs, err := s.objStore.ListObjects(ctx, s.bucket, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list chunks: %w", err)
+	}
+	uploadedSet := make(map[int]bool, len(objs))
+	maxIndex := -1
+	for _, key := range objs {
+		rel := strings.TrimPrefix(key, prefix)
+		idxStr := rel
+		if i := strings.Index(rel, "/"); i >= 0 {
+			idxStr = rel[:i]
+		}
+		idx, err := strconv.Atoi(idxStr)
+		if err != nil {
+			continue
+		}
+		uploadedSet[idx] = true
+		if idx > maxIndex {
+			maxIndex = idx
+		}
+	}
+	totalChunks := maxIndex + 1
+	if totalChunks == 0 {
+		return nil, nil
+	}
+	chunks := make([]ChunkInfo, totalChunks)
+	for i := 0; i < totalChunks; i++ {
+		chunks[i] = ChunkInfo{
+			UploadID:    uploadID,
+			ChunkIndex:  i,
+			TotalChunks: totalChunks,
+			Uploaded:    uploadedSet[i],
+		}
+	}
+	return chunks, nil
+}
+
 // InitiateChunkedUpload initiates a chunked upload
 func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename string, totalSize int64, totalChunks int, ownerID string) (string, error) {
 	if s.db == nil {
@@ -259,6 +362,9 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 	}
 	if s.maxUploadSize > 0 && totalSize > s.maxUploadSize {
 		return "", fmt.Errorf("upload size %d exceeds maximum allowed size %d", totalSize, s.maxUploadSize)
+	}
+	if err := s.CheckStorageQuota(ctx, ownerID, totalSize); err != nil {
+		return "", err
 	}
 
 	uploadID := uuid.New().String()
@@ -282,14 +388,26 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 }
 
 // UploadChunk uploads a single chunk from a byte slice (legacy).
-func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte) error {
-	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)))
+func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte, ownerID string) error {
+	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)), ownerID)
 }
 
-func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64) error {
+func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64, ownerID string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
+
+	info, err := s.GetUploadStatus(ctx, uploadID)
+	if err != nil {
+		return fmt.Errorf("upload not found: %s", uploadID)
+	}
+	if ownerID != "" && info.OwnerID != ownerID {
+		return fmt.Errorf("upload does not belong to this wallet")
+	}
+	if info.Status != "uploading" {
+		return fmt.Errorf("upload not in uploading state: %s", info.Status)
+	}
+
 	storageKey := fmt.Sprintf("chunks/%s/%d", uploadID, chunkIndex)
 
 	exists, err := s.objStore.Exists(ctx, s.bucket, storageKey)
@@ -388,11 +506,15 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 	query := `
 		UPDATE uploads
 		SET status = $2, hash = $3, url = $4, updated_at = $5
-		WHERE id = $1
+		WHERE id = $1 AND status = 'uploading'
 	`
-	_, err = s.db.Exec(ctx, query, uploadID, "completed", hash, fmt.Sprintf("/%s/%s", s.bucket, storageKey), time.Now())
+	result, err := s.db.Exec(ctx, query, uploadID, "completed", hash, fmt.Sprintf("/%s/%s", s.bucket, storageKey), time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to update upload info: %w", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("upload already completed or status changed")
 	}
 
 	return nil
@@ -403,22 +525,34 @@ func (s *UploadService) DeleteUpload(ctx context.Context, uploadID string) error
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	// Get upload info
 	uploadInfo, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
 		return err
 	}
 
-	// Extract storage key from URL
-	// URL format: /bucket/owner_id/upload_id.ext
-	storageKey := uploadInfo.URL[len("/"+s.bucket+"/"):]
+	prefix := "/" + s.bucket + "/"
+	if len(uploadInfo.URL) < len(prefix) {
+		return fmt.Errorf("unexpected URL format in upload %s: %s", uploadID, uploadInfo.URL)
+	}
+	storageKey := uploadInfo.URL[len(prefix):]
 
-	// Delete from storage
 	if err := s.objStore.Delete(ctx, s.bucket, storageKey); err != nil {
 		s.logger.Warn("Failed to delete from storage", zap.Error(err))
 	}
 
-	// Delete from database
+	chunkPrefix := fmt.Sprintf("chunks/%s/", uploadID)
+	chunks, err := s.objStore.ListObjects(ctx, s.bucket, chunkPrefix)
+	if err != nil {
+		s.logger.Warn("Failed to list chunks for cleanup", zap.String("upload_id", uploadID), zap.Error(err))
+	} else {
+		for _, chunkKey := range chunks {
+			if err := s.objStore.Delete(ctx, s.bucket, chunkKey); err != nil {
+				s.logger.Debug("Failed to delete chunk during cleanup",
+					zap.String("chunk_key", chunkKey), zap.Error(err))
+			}
+		}
+	}
+
 	_, err = s.db.Exec(ctx, "DELETE FROM uploads WHERE id = $1", uploadID)
 	if err != nil {
 		return fmt.Errorf("failed to delete upload: %w", err)
@@ -558,10 +692,15 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 	var contentID string
 	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
 		// Update upload status to "processed"
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1
-		`, uploadID, "processed", time.Now()); err != nil {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1 AND status = 'completed'
+		`, uploadID, "processed", time.Now())
+		if err != nil {
 			return fmt.Errorf("update upload: %w", err)
+		}
+		ra, _ := res.RowsAffected()
+		if ra == 0 {
+			return fmt.Errorf("upload not in completed state")
 		}
 
 		// Create content record from upload
@@ -584,6 +723,23 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 	s.logger.Info("Upload completed with content record",
 		zap.String("upload_id", uploadID),
 		zap.String("content_id", contentID))
+
+	for _, hook := range s.onProcessed {
+		go func(h PostUploadHook) {
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Error("PostUploadHook panic recovered",
+						zap.String("upload_id", uploadID),
+						zap.String("content_id", contentID),
+						zap.Any("panic", r))
+				}
+			}()
+			hookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			h(hookCtx, uploadID, contentID, upload.OwnerID)
+		}(hook)
+	}
+
 	return contentID, nil
 }
 

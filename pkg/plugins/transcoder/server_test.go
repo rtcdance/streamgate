@@ -42,7 +42,7 @@ func TestTranscoderServer_StartRegistersRoutes(t *testing.T) {
 		_ = server.Stop(context.Background())
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", http.NoBody)
 	rec := httptest.NewRecorder()
 
 	server.server.Handler.ServeHTTP(rec, req)
@@ -106,18 +106,18 @@ func TestTranscoderServer_StatusAndCancelByPath(t *testing.T) {
 	require.True(t, ok)
 	require.NotEmpty(t, taskID)
 
-	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status?task_id="+taskID, nil)
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status?task_id="+taskID, http.NoBody)
 	statusRec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(statusRec, statusReq)
 	require.Equal(t, http.StatusOK, statusRec.Code)
 	assert.Contains(t, statusRec.Body.String(), taskID)
 
-	pathStatusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, nil)
+	pathStatusReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/status/"+taskID, http.NoBody)
 	pathStatusRec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(pathStatusRec, pathStatusReq)
 	assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, pathStatusRec.Code)
 
-	cancelReq := httptest.NewRequest(http.MethodPost, "/api/v1/transcode/cancel?task_id="+taskID, nil)
+	cancelReq := httptest.NewRequest(http.MethodPost, "/api/v1/transcode/cancel?task_id="+taskID, http.NoBody)
 	cancelRec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(cancelRec, cancelReq)
 	assert.Contains(t, []int{http.StatusOK, http.StatusBadRequest, http.StatusInternalServerError}, cancelRec.Code)
@@ -145,7 +145,7 @@ func TestTranscoderServer_ListTasksAlias(t *testing.T) {
 	server.server.Handler.ServeHTTP(submitRec, submitReq)
 	require.Equal(t, http.StatusAccepted, submitRec.Code)
 
-	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=file-200", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/transcode/tasks?content_id=file-200", http.NoBody)
 	listRec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(listRec, listReq)
 

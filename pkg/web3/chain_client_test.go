@@ -148,7 +148,7 @@ func TestWithChainClient_RetryableErrorOnAllFail(t *testing.T) {
 
 func TestWithChainClient_SingleRPCSuccess(t *testing.T) {
 	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x64"} },
 	})
 	defer srv.Close()
@@ -179,7 +179,7 @@ func TestWithChainClient_FailoverToSecondEndpoint(t *testing.T) {
 	defer first.Close()
 
 	second := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x2a"} },
 	})
 	defer second.Close()
@@ -240,7 +240,7 @@ func TestWithChainClient_MixedErrorsPermanentWins(t *testing.T) {
 
 func TestWithChainClient_RateLimitExceeded(t *testing.T) {
 	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":    chainIDHandler(11155111),
+		"eth_chainId":     chainIDHandler(11155111),
 		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x1"} },
 	})
 	defer srv.Close()

@@ -1,30 +1,46 @@
 package event
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
-// Publisher publishes events
 type Publisher struct {
+	mu          sync.RWMutex
 	subscribers map[string][]func(Event)
+	wg          sync.WaitGroup
 }
 
-// NewPublisher creates a new publisher
 func NewPublisher() *Publisher {
 	return &Publisher{
 		subscribers: make(map[string][]func(Event)),
 	}
 }
 
-// Subscribe subscribes to events
 func (p *Publisher) Subscribe(eventType string, handler func(Event)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.subscribers[eventType] = append(p.subscribers[eventType], handler)
 }
 
-// Publish publishes an event
 func (p *Publisher) Publish(ctx context.Context, event Event) error {
-	if handlers, ok := p.subscribers[event.Type]; ok {
-		for _, handler := range handlers {
-			go handler(event)
-		}
+	p.mu.RLock()
+	handlers := p.subscribers[event.Type]
+	p.mu.RUnlock()
+
+	for _, handler := range handlers {
+		p.wg.Add(1)
+		go func(h func(Event)) {
+			defer p.wg.Done()
+			defer func() {
+				_ = recover()
+			}()
+			h(event)
+		}(handler)
 	}
 	return nil
+}
+
+func (p *Publisher) Close() {
+	p.wg.Wait()
 }

@@ -11,42 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestGetCurrentTimestamp(t *testing.T) {
-	ts := getCurrentTimestamp()
-	assert.Greater(t, ts, int64(0), "timestamp should be positive")
-
-	// Should advance over time
-	ts2 := getCurrentTimestamp()
-	assert.GreaterOrEqual(t, ts2, ts, "timestamp should be non-decreasing")
-}
-
-func TestGenerateChallengeID_Uniqueness(t *testing.T) {
-	ids := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		id := generateChallengeID()
-		assert.NotEmpty(t, id)
-		assert.True(t, len(id) > len("challenge-"), "ID should have random suffix")
-		assert.False(t, ids[id], "challenge ID should be unique, got duplicate: %s", id)
-		ids[id] = true
-	}
-}
-
-func TestChallengeGenerator_GenerateChallenge(t *testing.T) {
-	logger := zap.NewNop()
-	cg := NewChallengeGenerator(logger)
-
-	addr := "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
-	ch1 := cg.GenerateChallenge(addr)
-	ch2 := cg.GenerateChallenge(addr)
-
-	assert.NotNil(t, ch1)
-	assert.NotNil(t, ch2)
-	assert.NotEqual(t, ch1.ID, ch2.ID, "consecutive challenges should have unique IDs")
-	assert.Equal(t, addr, ch1.Address)
-	assert.Greater(t, ch1.ExpiresAt, int64(0), "ExpiresAt should be positive")
-	assert.Contains(t, ch1.Message, addr, "message should contain the wallet address")
-}
-
 func TestSignatureVerifier_SignAndVerify(t *testing.T) {
 	sv := NewSignatureVerifier(zap.NewNop())
 
@@ -185,15 +149,5 @@ func BenchmarkSignatureVerifier_VerifySignature(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		_, _ = sv.VerifySignature(context.Background(), address, msg, sig)
-	}
-}
-
-func BenchmarkChallengeGenerator_GenerateChallenge(b *testing.B) {
-	cg := NewChallengeGenerator(zap.NewNop())
-	addr := "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		cg.GenerateChallenge(addr)
 	}
 }

@@ -12,6 +12,7 @@ IMAGE="${1:-streamgate:latest}"
 TIMEOUT="${2:-300}"
 TRAFFIC_STEPS=(5 10 25 50 100)
 STEP_DURATION="${3:-60}"
+PROMETHEUS_URL="${PROMETHEUS_URL:-http://localhost:9090}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -78,20 +79,30 @@ check_deployment_health() {
     fi
 }
 
-# Get error rate from metrics
+# Get error rate from Prometheus (5xx / total over 5m window)
 get_error_rate() {
     local deployment=$1
-    # This would query Prometheus in a real implementation
-    # For now, return 0 (no errors)
-    echo "0"
+    local query='(sum(rate(streamgate_http_requests_total{status=~"5.."}[5m])) / sum(rate(streamgate_http_requests_total[5m]))) * 100'
+
+    local result
+    result=$(curl -sf --max-time 5 \
+        "$PROMETHEUS_URL/api/v1/query?query=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$query'))")" \
+        2>/dev/null | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['data']['result'][0]['value'][1] if r['data']['result'] else '0')" 2>/dev/null)
+
+    echo "${result:-0}"
 }
 
-# Get latency from metrics
+# Get P99 latency from Prometheus
 get_latency() {
     local deployment=$1
-    # This would query Prometheus in a real implementation
-    # For now, return 0 (no latency issues)
-    echo "0"
+    local query='histogram_quantile(0.99, sum(rate(streamgate_service_request_duration_ms_bucket[5m])) by (le))'
+
+    local result
+    result=$(curl -sf --max-time 5 \
+        "$PROMETHEUS_URL/api/v1/query?query=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$query'))")" \
+        2>/dev/null | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['data']['result'][0]['value'][1] if r['data']['result'] else '0')" 2>/dev/null)
+
+    echo "${result:-0}"
 }
 
 # Check canary metrics

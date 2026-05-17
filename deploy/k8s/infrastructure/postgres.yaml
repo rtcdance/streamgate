@@ -13,6 +13,13 @@ spec:
       labels:
         app: postgres
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: postgres
         image: postgres:15-alpine
@@ -53,6 +60,12 @@ spec:
             - postgres
           initialDelaySeconds: 5
           periodSeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:

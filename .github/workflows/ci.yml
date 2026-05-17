@@ -1,63 +1,132 @@
-name: CI Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [master, main]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [master, main]
 
-permissions:
-  contents: write
-  security-events: write
-  pages: write
-  id-token: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.24'
-  GOPROXY: 'https://goproxy.io,direct'
+  GO_VERSION: "1.24"
+  SOLC_VERSION: "0.8.24"
 
 jobs:
   lint:
-    name: Lint & Format Check
+    name: Lint
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: auto
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      - name: Set Go path
-        run: |
-          echo "GOROOT=$GOROOT" >> $GITHUB_ENV
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v6
         with:
-          version: v2.8.0
-          args: --config=.golangci.yml --timeout=5m ./...
+          version: latest
+          args: --timeout=5m --out-format=colored-line-number
 
-      - name: Check code formatting
+  test-go:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: streamgate
+          POSTGRES_PASSWORD: streamgate
+          POSTGRES_DB: streamgate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      - name: Run unit tests
+        run: make test-ci
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: streamgate
+          DB_PASSWORD: streamgate
+          DB_NAME: streamgate_test
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          flags: unittests
+        continue-on-error: true
+
+  test-contracts:
+    name: Solidity Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Run Forge tests
+        run: forge test -vvv
+
+      - name: Gas report
+        run: forge test --gas-report
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      - name: Build all binaries
+        run: make build-all
+
+      - name: Check binary sizes
         run: |
-          if [ -n "$(gofmt -s -l .)" ]; then
-            echo "Go code is not formatted:"
-            gofmt -s -d .
-            exit 1
-          fi
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-
-      - name: Verify dependencies
-        run: go mod verify
+          echo "=== Binary Sizes ==="
+          ls -lh build/ 2>/dev/null || ls -lh bin/ 2>/dev/null
 
   security:
     name: Security Scan
@@ -65,776 +134,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run gosec
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.22.3
         with:
-          args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+          args: -exclude-dir=examples -exclude-dir=test ./...
 
-      - name: Upload gosec results
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
         with:
-          sarif_file: gosec-results.sarif
+          target: contracts/
+          slither-args: --filter-paths "lib|test"
+        continue-on-error: true
 
-  build:
-    name: Build
+  docker:
+    name: Docker Build
     runs-on: ubuntu-latest
-    needs: [lint, security]
+    needs: [test-go, test-contracts, build]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build monolith image
+        uses: docker/build-push-action@v6
         with:
-          go-version: ${{ env.GO_VERSION }}
+          context: .
+          file: deploy/docker/Dockerfile.monolith
+          push: false
+          load: true
+          tags: streamgate-monolith:ci
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build monolith
-        run: go build -o bin/streamgate ./cmd/monolith/streamgate
-
-      - name: Build microservices
+      - name: Smoke test monolith
         run: |
-          go build -o bin/api-gateway ./cmd/microservices/api-gateway
-          go build -o bin/auth ./cmd/microservices/auth
-          go build -o bin/cache ./cmd/microservices/cache
-          go build -o bin/metadata ./cmd/microservices/metadata
-          go build -o bin/monitor ./cmd/microservices/monitor
-          go build -o bin/streaming ./cmd/microservices/streaming
-          go build -o bin/transcoder ./cmd/microservices/transcoder
-          go build -o bin/upload ./cmd/microservices/upload
-          go build -o bin/worker ./cmd/microservices/worker
-
-      - name: Verify binaries
-        run: |
-          for binary in bin/streamgate bin/api-gateway bin/auth bin/cache bin/metadata bin/monitor bin/streaming bin/transcoder bin/upload bin/worker; do
-            if [ ! -f "$binary" ]; then
-              echo "Binary $binary not found"
-              exit 1
-            fi
-            echo "✓ Found $binary"
-          done
-          echo "All binaries built successfully"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: bin/
-          retention-days: 5
-
-  unit-tests:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Run unit tests
-        run: |
-          go test -v -race -coverprofile=coverage-unit-pkg.out ./pkg/...
-          go test -v -race -coverprofile=coverage-unit-test.out ./test/unit/...
-          $GOROOT/bin/go tool cover -func=coverage-unit-pkg.out > coverage-unit-pkg.txt
-          $GOROOT/bin/go tool cover -func=coverage-unit-test.out > coverage-unit-test.txt
-          cat coverage-unit-pkg.out coverage-unit-test.out > coverage-unit.out
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-unit
-          path: coverage-unit.out
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: build
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Start MinIO
-        run: |
-          mkdir -p /tmp/minio
-          docker run -d \
-            --name minio \
-            -p 9000:9000 \
-            -p 9001:9001 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            -v /tmp/minio:/data \
-            minio/minio:latest server /data --console-address ":9001"
-          echo "Waiting for MinIO to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:9000/minio/health/live; then
-              echo "MinIO is ready"
-              break
-            fi
-            echo "Waiting for MinIO... ($i/30)"
-            sleep 2
-          done
-
-      - name: Create MinIO bucket
-        run: |
-          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set local http://localhost:9000 minioadmin minioadmin
-          ./mc mb local/test-bucket --ignore-existing
-
-      - name: Setup database
-        env:
-          PGPASSWORD: streamgate
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
-
-      - name: Run integration tests
-        env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          MINIO_ENDPOINT: localhost:9000
-          MINIO_ACCESS_KEY: minioadmin
-          MINIO_SECRET_KEY: minioadmin
-          MINIO_USE_SSL: false
-        run: go test -v -race -coverprofile=coverage-integration.out ./test/integration/...
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-integration
-          path: coverage-integration.out
-
-      - name: Cleanup MinIO
-        if: always()
-        run: |
-          docker stop minio || true
-          docker rm minio || true
-
-  e2e-tests:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: build
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Start MinIO
-        run: |
-          mkdir -p /tmp/minio
-          docker run -d \
-            --name minio \
-            -p 9000:9000 \
-            -p 9001:9001 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            -v /tmp/minio:/data \
-            minio/minio:latest server /data --console-address ":9001"
-          echo "Waiting for MinIO to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:9000/minio/health/live; then
-              echo "MinIO is ready"
-              break
-            fi
-            echo "Waiting for MinIO... ($i/30)"
-            sleep 2
-          done
-
-      - name: Create MinIO bucket
-        run: |
-          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set local http://localhost:9000 minioadmin minioadmin
-          ./mc mb local/test-bucket --ignore-existing
-
-      - name: Setup database
-        env:
-          PGPASSWORD: streamgate
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
-
-      - name: Run E2E tests
-        env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          MINIO_ENDPOINT: localhost:9000
-          MINIO_ACCESS_KEY: minioadmin
-          MINIO_SECRET_KEY: minioadmin
-          MINIO_USE_SSL: false
-        run: go test -v -race -coverprofile=coverage-e2e.out ./test/e2e/...
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-e2e
-          path: coverage-e2e.out
-
-      - name: Cleanup MinIO
-        if: always()
-        run: |
-          docker stop minio || true
-          docker rm minio || true
-
-  load-tests:
-    name: Load Tests
-    runs-on: ubuntu-latest
-    needs: build
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Start MinIO
-        run: |
-          mkdir -p /tmp/minio
-          docker run -d \
-            --name minio \
-            -p 9000:9000 \
-            -p 9001:9001 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            -v /tmp/minio:/data \
-            minio/minio:latest server /data --console-address ":9001"
-          echo "Waiting for MinIO to be ready..."
-          for i in {1..30}; do
-            if curl -f http://localhost:9000/minio/health/live; then
-              echo "MinIO is ready"
-              break
-            fi
-            echo "Waiting for MinIO... ($i/30)"
-            sleep 2
-          done
-
-      - name: Create MinIO bucket
-        run: |
-          wget -q https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set local http://localhost:9000 minioadmin minioadmin
-          ./mc mb local/test-bucket --ignore-existing
-
-      - name: Setup database
-        env:
-          PGPASSWORD: streamgate
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
-
-      - name: Run load tests
-        env:
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: streamgate
-          DB_PASSWORD: streamgate
-          DB_NAME: streamgate
-          REDIS_HOST: localhost
-          REDIS_PORT: 6379
-          MINIO_ENDPOINT: localhost:9000
-          MINIO_ACCESS_KEY: minioadmin
-          MINIO_SECRET_KEY: minioadmin
-          MINIO_USE_SSL: false
-        run: go test -v -race -coverprofile=coverage-load.out -timeout=30m ./test/load/...
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-load
-          path: coverage-load.out
-
-      - name: Cleanup MinIO
-        if: always()
-        run: |
-          docker stop minio || true
-          docker rm minio || true
-
-  benchmark-tests:
-    name: Benchmark Tests
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-
-      - name: Run benchmarks
-        run: go test -bench=. -benchmem -run=^$ ./test/benchmark/... | tee benchmark-results.txt
-
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: benchmark-results.txt
-
-  coverage:
-    name: Coverage Report
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests, load-tests]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download coverage artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Merge coverage reports
-        run: |
-          echo "Listing all downloaded artifacts:"
-          find . -type f -name "*.out" | head -20
-          
-          # Collect all coverage files from artifact directories
-          # Use a loop to properly merge files without duplicate mode lines
-          > coverage-unit-merged.out
-          for f in $(find . -path "*/coverage-unit.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-unit-merged.out || true
-          done
-          if [ ! -s coverage-unit-merged.out ]; then
-            # If no files found, try direct path
-            find . -path "*/coverage-unit.out" -exec tail -n +2 {} \; > coverage-unit-merged.out || true
-          fi
-          
-          > coverage-integration-merged.out
-          for f in $(find . -path "*/coverage-integration.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-integration-merged.out || true
-          done
-          if [ ! -s coverage-integration-merged.out ]; then
-            find . -path "*/coverage-integration.out" -exec tail -n +2 {} \; > coverage-integration-merged.out || true
-          fi
-          
-          > coverage-e2e-merged.out
-          for f in $(find . -path "*/coverage-e2e.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-e2e-merged.out || true
-          done
-          if [ ! -s coverage-e2e-merged.out ]; then
-            find . -path "*/coverage-e2e.out" -exec tail -n +2 {} \; > coverage-e2e-merged.out || true
-          fi
-          
-          > coverage-load-merged.out
-          for f in $(find . -path "*/coverage-load.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-load-merged.out || true
-          done
-          if [ ! -s coverage-load-merged.out ]; then
-            find . -path "*/coverage-load.out" -exec tail -n +2 {} \; > coverage-load-merged.out || true
-          fi
-          
-          echo "Coverage file sizes:"
-          ls -lh coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out 2>&1 || true
-          
-          # Merge all coverage files - add mode line first
-          echo "mode: atomic" > coverage-total.out
-          for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out coverage-load-merged.out; do
-            if [ -s "$f" ]; then
-              cat "$f" >> coverage-total.out
-            fi
-          done
-          echo "Coverage merge completed"
-          
-          echo "Final coverage file size:"
-          ls -lh coverage-total.out
-          
-          # Calculate and display coverage percentage
-            TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep "total:" | awk '{print $NF}' | sed 's/%//')
-          echo "Total Code Coverage: ${TOTAL_COVERAGE}%"
-          
-          # Check if coverage meets threshold
-          COVERAGE_THRESHOLD=25
-          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-            echo "⚠️  Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
-            echo "::warning::Coverage is ${TOTAL_COVERAGE}%, below ${COVERAGE_THRESHOLD}% threshold"
-          else
-            echo "✅ Coverage ${TOTAL_COVERAGE}% meets ${COVERAGE_THRESHOLD}% threshold"
-          fi
-
-      - name: Generate HTML coverage report
-        run: |
-          $GOROOT/bin/go tool cover -html=coverage-total.out -o coverage.html
-          $GOROOT/bin/go tool cover -func=coverage-total.out -o coverage-func.txt
-
-      - name: Generate coverage badge
-        run: |
-          TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
-          COVERAGE_INT=${TOTAL_COVERAGE%.*}
-          
-          # Generate SVG badge
-          cat > coverage-badge.svg <<'EOF'
-          <svg xmlns="http://www.w3.org/2000/svg" width="120" height="20">
-            <linearGradient id="b" x2="0" y2="100%">
-              <stop offset="0%" stop-color="#bbb" stop-opacity=".1"/>
-              <stop offset="1%" stop-opacity=".1"/>
-            </linearGradient>
-            <mask id="a">
-              <rect x="0" y="0" width="120" height="20" rx="3" fill="#fff"/>
-            </mask>
-            <g mask="url(#a)">
-              <path fill="#555" d="M0 0h120v20H0z"/>
-              <path fill="#007ec6" d="M0 0h55v20H0z"/>
-              <path fill="#dfb317" d="M55 0h65v20H55z"/>
-              <text x="65" y="15" fill="#010101" font-family="Verdana,Geneva,DejaVu,sans-serif" font-size="11" font-weight="bold">coverage</text>
-              <text x="10" y="15" fill="#fff" font-family="Verdana,Geneva,DejaVu,sans-serif" font-size="11">${TOTAL_COVERAGE}%</text>
-            </g>
-          </svg>
-          EOF
-          
-          echo "Coverage badge generated: ${TOTAL_COVERAGE}%"
-
-      - name: Display coverage summary
-        run: |
-          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Calculate overall coverage percentage
-          TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "### Overall Coverage: ${TOTAL_COVERAGE}%" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Check coverage threshold
-          COVERAGE_THRESHOLD=25
-          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-            echo "⚠️ Coverage is below ${COVERAGE_THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "✅ Coverage meets ${COVERAGE_THRESHOLD}% threshold" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          $GOROOT/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### Coverage Details" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|----------|" >> $GITHUB_STEP_SUMMARY
-          $GOROOT/bin/go tool cover -func=coverage-total.out | grep -E "^github.com/streamgate" | awk -F: '{print $1}' | sort -u | while read pkg; do
-            pkg_cov=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep "$pkg:" | awk '{sum+=$3} END {printf "%.1f", sum}')
-            echo "| $pkg | ${pkg_cov}% |" >> $GITHUB_STEP_SUMMARY
-          done
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: |
-            coverage-total.out
-            coverage.html
-            coverage-func.txt
-            coverage-badge.svg
-
-      - name: Comment coverage on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            let totalCoverage = '0.0';
-            
-            try {
-              const coverageData = fs.readFileSync('coverage-func.txt', 'utf8');
-              const match = coverageData.match(/total:\s*(\d+\.\d+)%/);
-              if (match) {
-                totalCoverage = match[1];
-              }
-            } catch (error) {
-              console.log('Could not read coverage file:', error.message);
-            }
-            
-            const comment = `## 📊 Code Coverage Report
-            
-            ### Overall Coverage: ${totalCoverage}%
-            
-            <details>
-            <summary>View detailed coverage</summary>
-            
-            \`\`\`
-            See coverage report artifact for detailed breakdown
-            \`\`\`
-            </details>
-            
-            ---
-            
-            📈 Coverage Badge: ![coverage](https://img.shields.io/badge/coverage-${totalCoverage}%25-brightgreen)
-            
-            📄 Full Report: [View HTML](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            `;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-
-      - name: Prepare deployment directory
-        run: |
-          mkdir -p deploy/coverage
-          cp coverage.html deploy/coverage/index.html
-          cp coverage-total.out deploy/coverage/
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./deploy/coverage
-          publish_branch: gh-pages
-          force_orphan: true
-
-      - name: Output coverage URL
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        run: |
-          echo "Coverage report will be available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage-total.out
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-      - name: Check coverage threshold
-        run: |
-            TOTAL_COVERAGE=$($GOROOT/bin/go tool cover -func=coverage-total.out | grep total | awk '{print $3}' | sed 's/%//')
-          COVERAGE_THRESHOLD=25
-          if (( $(echo "$TOTAL_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
-            echo "::error::Coverage ${TOTAL_COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
-            exit 1
-          fi
-          echo "✅ Coverage ${TOTAL_COVERAGE}% meets ${COVERAGE_THRESHOLD}% threshold"
-
-  quality-gate:
-    name: Quality Gate
-    runs-on: ubuntu-latest
-    needs: [lint, security, build, unit-tests, integration-tests, e2e-tests, benchmark-tests, load-tests, coverage]
-    if: always()
-    steps:
-      - name: Check job status
-        run: |
-          if [ "${{ needs.lint.result }}" != "success" ]; then
-            echo "Lint failed"
-            exit 1
-          fi
-          if [ "${{ needs.security.result }}" != "success" ]; then
-            echo "Security scan failed"
-            exit 1
-          fi
-          if [ "${{ needs.build.result }}" != "success" ]; then
-            echo "Build failed"
-            exit 1
-          fi
-          if [ "${{ needs.unit-tests.result }}" != "success" ]; then
-            echo "Unit tests failed"
-            exit 1
-          fi
-          if [ "${{ needs.integration-tests.result }}" != "success" ]; then
-            echo "Integration tests failed"
-            exit 1
-          fi
-          if [ "${{ needs.e2e-tests.result }}" != "success" ]; then
-            echo "E2E tests failed"
-            exit 1
-          fi
-          if [ "${{ needs.load-tests.result }}" != "success" ]; then
-            echo "Load tests failed"
-            exit 1
-          fi
-          echo "All quality gates passed!"
+          docker run --rm -d --name streamgate-test streamgate-monolith:ci
+          sleep 5
+          docker logs streamgate-test --tail 20
+          docker stop streamgate-test

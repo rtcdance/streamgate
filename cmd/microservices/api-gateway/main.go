@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"go.uber.org/zap"
-	"google.golang.org/grpc"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/gateway"
+
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -30,7 +30,10 @@ func main() {
 
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "api-gateway"
-	cfg.Server.Port = 9090
+	grpcPort := cfg.GRPC.Port
+	if grpcPort <= 0 {
+		grpcPort = 9090
+	}
 	if err := cfg.ValidateProduction(log); err != nil {
 		log.Fatal("Config validation failed", zap.Error(err))
 	}
@@ -53,11 +56,22 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	grpcListener, err := net.Listen("tcp", ":9091")
+	grpcAddr := fmt.Sprintf(":%d", grpcPort)
+	grpcListener, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		log.Fatal("Failed to create gRPC listener", zap.Error(err))
 	}
-	grpcServer := grpc.NewServer()
+
+	grpcServices := &gateway.GRPCServices{
+		AuthService:    resources.AuthService,
+		Web3Service:    resources.Web3Service,
+		NFTVerifier:    resources.NFTVerifier,
+		ContentService: resources.ContentService,
+		SegmentStorage: resources.SegmentStorage,
+		UploadService:  resources.UploadService,
+		TranscodingSvc: resources.TranscodingSvc,
+	}
+	grpcServer := gateway.SetupGRPCServer(cfg, log, grpcServices)
 
 	go func() {
 		log.Info("Starting HTTP server", zap.Int("port", cfg.Server.Port))
@@ -67,7 +81,7 @@ func main() {
 	}()
 
 	go func() {
-		log.Info("Starting gRPC server", zap.Int("port", 9091))
+		log.Info("Starting gRPC server", zap.Int("port", grpcPort))
 		if err := grpcServer.Serve(grpcListener); err != nil {
 			log.Error("gRPC server error", zap.Error(err))
 		}
@@ -75,7 +89,7 @@ func main() {
 
 	log.Info("StreamGate API Gateway Service started successfully",
 		zap.Int("http_port", cfg.Server.Port),
-		zap.Int("grpc_port", 9091))
+		zap.Int("grpc_port", grpcPort))
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

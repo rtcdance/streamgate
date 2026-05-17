@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/plugins/api"
-	"streamgate/test/helpers"
 )
 
 type testPlugin struct {
@@ -43,9 +43,9 @@ func TestE2E_PluginLoading(t *testing.T) {
 		name: "test-plugin",
 	}
 
-	helpers.AssertNotNil(t, plugin)
-	helpers.AssertEqual(t, "test-plugin", plugin.Name())
-	helpers.AssertEqual(t, "1.0.0", plugin.Version())
+	require.NotNil(t, plugin)
+	require.Equal(t, "test-plugin", plugin.Name())
+	require.Equal(t, "1.0.0", plugin.Version())
 }
 
 func TestE2E_PluginExecution(t *testing.T) {
@@ -56,7 +56,7 @@ func TestE2E_PluginExecution(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	plugin := &testPlugin{
@@ -64,16 +64,16 @@ func TestE2E_PluginExecution(t *testing.T) {
 	}
 
 	err = plugin.Init(context.Background(), kernel)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = plugin.Start(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = plugin.Stop(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = plugin.Health(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestE2E_GatewayPlugin(t *testing.T) {
@@ -85,7 +85,7 @@ func TestE2E_GatewayPlugin(t *testing.T) {
 
 	plugin := api.NewGatewayPlugin(cfg, nil)
 
-	helpers.AssertNotNil(t, plugin)
-	helpers.AssertEqual(t, "api-gateway", plugin.Name())
-	helpers.AssertEqual(t, "1.0.0", plugin.Version())
+	require.NotNil(t, plugin)
+	require.Equal(t, "api-gateway", plugin.Name())
+	require.Equal(t, "1.0.0", plugin.Version())
 }

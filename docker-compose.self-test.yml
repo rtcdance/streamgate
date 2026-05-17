@@ -177,7 +177,9 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: deploy/docker/Dockerfile.api-gateway
+      dockerfile: Dockerfile
+      args:
+        PKG: ./cmd/microservices/api-gateway
     container_name: streamgate-api-gateway
     ports:
       - "${SG_SELFTEST_GATEWAY_HTTP_PORT:-28080}:8080"
@@ -229,7 +231,10 @@ services:
   streamgate:
     build:
       context: .
-      dockerfile: deploy/docker/Dockerfile.monolith
+      dockerfile: Dockerfile
+      args:
+        PKG: ./cmd/monolith/streamgate
+        EXTRA_PKGS: ffmpeg
     container_name: streamgate-app
     ports:
       - "${SG_SELFTEST_MONOLITH_HTTP_PORT:-18080}:8080"

@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
+
+func init() {
+	core.RegisterPluginFactory("cache", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewCachePlugin(cfg, logger)
+	})
+}
 
 // CachePlugin is the cache service plugin
 type CachePlugin struct {

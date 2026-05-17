@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"time"
 
+	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/models"
+	"streamgate/pkg/storage"
+
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"streamgate/pkg/cachetypes"
-	"streamgate/pkg/storage"
 )
 
 // ContentService handles content operations
@@ -99,18 +101,21 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 
 	var content Content
 	var metadataJSON []byte
+	var desc, url, thumbURL, status, ownerID sql.NullString
+	var duration sql.NullInt64
+	var size sql.NullInt64
 
 	err := s.db.QueryRow(ctx, query, id).Scan(
 		&content.ID,
 		&content.Title,
-		&content.Description,
+		&desc,
 		&content.Type,
-		&content.URL,
-		&content.ThumbnailURL,
-		&content.Duration,
-		&content.Size,
-		&content.Status,
-		&content.OwnerID,
+		&url,
+		&thumbURL,
+		&duration,
+		&size,
+		&status,
+		&ownerID,
 		&content.CreatedAt,
 		&content.UpdatedAt,
 		&metadataJSON,
@@ -122,6 +127,14 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 		return nil, fmt.Errorf("failed to query content: %w", err)
 	}
 
+	content.Description = desc.String
+	content.URL = url.String
+	content.ThumbnailURL = thumbURL.String
+	content.Duration = int(duration.Int64)
+	content.Size = size.Int64
+	content.Status = status.String
+	content.OwnerID = ownerID.String
+
 	// Parse metadata
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &content.Metadata); err != nil {
@@ -132,7 +145,9 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 	// Cache a copy to prevent mutation of cached data
 	if s.cache != nil {
 		cp := content
-		_ = s.cache.Set("content:"+id, &cp)
+		if err := s.cache.SetWithExpiration("content:"+id, &cp, 15*time.Minute); err != nil {
+			s.logger.Warn("Failed to cache content", zap.String("id", id), zap.Error(err))
+		}
 	}
 
 	return &content, nil
@@ -232,14 +247,19 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *Content) er
 		return fmt.Errorf("failed to update content: %w", err)
 	}
 
-	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
+	rowsAffected, errRA := result.RowsAffected()
+	if errRA != nil {
+		return errRA
+	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("content not found: %s", content.ID)
 	}
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete("content:" + content.ID)
+		if err := s.cache.Delete("content:" + content.ID); err != nil {
+			s.logger.Warn("Failed to invalidate content cache", zap.String("id", content.ID), zap.Error(err))
+		}
 	}
 
 	return nil
@@ -301,8 +321,10 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 		VALUES ($1, $2, $3)
 		ON CONFLICT (content_id) DO NOTHING
 	`
-	_, _ = tx.ExecContext(ctx, metaQuery, content.ID, metadataJSON, now)
-	// Ignore error: table may not exist in all deployments
+	if _, err := tx.ExecContext(ctx, metaQuery, content.ID, metadataJSON, now); err != nil {
+		s.logger.Warn("failed to insert content metadata row",
+			zap.String("contentID", content.ID), zap.Error(err))
+	}
 
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("commit tx: %w", err)
@@ -340,7 +362,10 @@ func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) err
 	defer func() { _ = tx.Rollback() }()
 
 	// Delete metadata first (foreign key constraint)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM content_metadata WHERE content_id = $1", id)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM content_metadata WHERE content_id = $1", id); err != nil {
+		s.logger.Warn("failed to delete content metadata row",
+			zap.String("contentID", id), zap.Error(err))
+	}
 
 	// Delete content
 	result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1", id)
@@ -359,7 +384,9 @@ func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) err
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete("content:" + id)
+		if err := s.cache.Delete("content:" + id); err != nil {
+			s.logger.Warn("Failed to invalidate content cache", zap.String("id", id), zap.Error(err))
+		}
 	}
 
 	return nil
@@ -391,14 +418,19 @@ func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete content: %w", err)
 	}
 
-	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
+	rowsAffected, errRA := result.RowsAffected()
+	if errRA != nil {
+		return errRA
+	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("content not found: %s", id)
 	}
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete("content:" + id)
+		if err := s.cache.Delete("content:" + id); err != nil {
+			s.logger.Warn("Failed to invalidate content cache on delete", zap.String("id", id), zap.Error(err))
+		}
 	}
 
 	return nil
@@ -428,18 +460,21 @@ func (s *ContentService) ListContents(ctx context.Context, ownerID string, limit
 	for rows.Next() {
 		var content Content
 		var metadataJSON []byte
+		var desc, url, thumbURL, status, ownerID sql.NullString
+		var duration sql.NullInt64
+		var size sql.NullInt64
 
 		err := rows.Scan(
 			&content.ID,
 			&content.Title,
-			&content.Description,
+			&desc,
 			&content.Type,
-			&content.URL,
-			&content.ThumbnailURL,
-			&content.Duration,
-			&content.Size,
-			&content.Status,
-			&content.OwnerID,
+			&url,
+			&thumbURL,
+			&duration,
+			&size,
+			&status,
+			&ownerID,
 			&content.CreatedAt,
 			&content.UpdatedAt,
 			&metadataJSON,
@@ -448,6 +483,14 @@ func (s *ContentService) ListContents(ctx context.Context, ownerID string, limit
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan content: %w", err)
 		}
+
+		content.Description = desc.String
+		content.URL = url.String
+		content.ThumbnailURL = thumbURL.String
+		content.Duration = int(duration.Int64)
+		content.Size = size.Int64
+		content.Status = status.String
+		content.OwnerID = ownerID.String
 
 		// Parse metadata
 		if len(metadataJSON) > 0 {
@@ -480,20 +523,34 @@ func (s *ContentService) UpdateContentStatus(ctx context.Context, id, status str
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	query := "UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1"
-	result, err := s.db.Exec(ctx, query, id, status, time.Now())
+
+	var currentStatus string
+	if err := s.db.QueryRow(ctx, "SELECT status FROM contents WHERE id = $1", id).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("content not found: %s", id)
+	}
+	if !models.IsValidContentTransition(models.ContentStatus(currentStatus), models.ContentStatus(status)) {
+		return fmt.Errorf("invalid status transition: %s -> %s", currentStatus, status)
+	}
+
+	query := "UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1 AND status = $4"
+	result, err := s.db.Exec(ctx, query, id, status, time.Now(), currentStatus)
 	if err != nil {
 		return fmt.Errorf("failed to update content status: %w", err)
 	}
 
-	rowsAffected, errRA := result.RowsAffected(); if errRA != nil { return errRA }
+	rowsAffected, errRA := result.RowsAffected()
+	if errRA != nil {
+		return errRA
+	}
 	if rowsAffected == 0 {
-		return fmt.Errorf("content not found: %s", id)
+		return fmt.Errorf("content status changed concurrently, please retry")
 	}
 
 	// Invalidate cache
 	if s.cache != nil {
-		_ = s.cache.Delete("content:" + id)
+		if err := s.cache.Delete("content:" + id); err != nil {
+			s.logger.Warn("Failed to invalidate content cache on status change", zap.String("id", id), zap.Error(err))
+		}
 	}
 
 	return nil

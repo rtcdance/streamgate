@@ -1,0 +1,47 @@
+# Version control
+.git
+.gitignore
+
+# Build output
+bin/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project internal
+.comate
+.kiro/
+.deploy
+scripts/
+
+# Documentation (not needed in runtime image)
+docs/
+*.md
+LICENSE
+
+# Frontend demo (separate deployment / CDN)
+h5-demo/
+
+# Examples (standalone, not part of build)
+examples/
+
+# Tests (not in runtime)
+test/
+
+# Config secrets (never ship .env)
+.env
+.env.*
+!.env.example
+
+# CI
+.github/
+.gitlab-ci.yml
+.mergify.yml

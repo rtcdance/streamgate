@@ -34,7 +34,7 @@ func (m *mockHeaderReader) SubscribeNewHead(_ context.Context, ch chan<- *types.
 	return nil, m.subErr
 }
 
-func makeHeader(number int64, hash string, parentHash string) *types.Header {
+func makeHeader(number int64, hash, parentHash string) *types.Header {
 	h := &types.Header{
 		Number:     big.NewInt(number),
 		ParentHash: common.HexToHash(parentHash),

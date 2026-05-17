@@ -6,8 +6,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/monitoring"
-	"streamgate/test/helpers"
 )
 
 func TestMonitoring_RecordMetric(t *testing.T) {
@@ -15,7 +15,7 @@ func TestMonitoring_RecordMetric(t *testing.T) {
 
 	mc.SetGauge("test_metric", 100, nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_RecordLatency(t *testing.T) {
@@ -23,7 +23,7 @@ func TestMonitoring_RecordLatency(t *testing.T) {
 
 	mc.SetGauge("api_request", 150, nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_IncrementCounter(t *testing.T) {
@@ -33,7 +33,7 @@ func TestMonitoring_IncrementCounter(t *testing.T) {
 	mc.IncrementCounter("requests", nil)
 	mc.IncrementCounter("requests", nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_RecordError(t *testing.T) {
@@ -42,7 +42,7 @@ func TestMonitoring_RecordError(t *testing.T) {
 	mc.IncrementCounter("database_error", nil)
 	mc.IncrementCounter("database_error", nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_GetMetrics(t *testing.T) {
@@ -52,7 +52,7 @@ func TestMonitoring_GetMetrics(t *testing.T) {
 	mc.SetGauge("metric2", 200, nil)
 	mc.IncrementCounter("counter1", nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_ResetMetrics(t *testing.T) {
@@ -61,7 +61,7 @@ func TestMonitoring_ResetMetrics(t *testing.T) {
 	mc.SetGauge("test_metric", 100, nil)
 	mc.IncrementCounter("test_counter", nil)
 
-	helpers.AssertNotNil(t, mc)
+	require.NotNil(t, mc)
 }
 
 func TestMonitoring_Alerting(t *testing.T) {
@@ -82,7 +82,7 @@ func TestMonitoring_Alerting(t *testing.T) {
 	am.CheckMetric("latency", 1500)
 
 	recordedAlerts := am.GetActiveAlerts()
-	helpers.AssertTrue(t, len(recordedAlerts) > 0)
+	require.True(t, len(recordedAlerts) > 0)
 }
 
 func TestMonitoring_PrometheusMetrics(t *testing.T) {
@@ -92,22 +92,22 @@ func TestMonitoring_PrometheusMetrics(t *testing.T) {
 	collector.IncrementCounter("test_operation", nil)
 
 	metric := collector.GetMetric("test_operation")
-	helpers.AssertNotNil(t, metric)
+	require.NotNil(t, metric)
 }
 
 func TestMonitoring_HealthCheck(t *testing.T) {
 	hc := monitoring.NewHealthChecker(nil)
 
 	status := hc.Check()
-	helpers.AssertNotNil(t, status)
+	require.NotNil(t, status)
 }
 
 func TestMonitoring_Tracing(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	tracer := monitoring.NewTracer("test", logger)
 	span, ctx := tracer.StartSpan(context.Background(), "test_operation")
-	helpers.AssertNotNil(t, span)
-	helpers.AssertNotNil(t, ctx)
+	require.NotNil(t, span)
+	require.NotNil(t, ctx)
 
 	tracer.FinishSpan(span)
 }

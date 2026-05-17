@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"go.uber.org/zap"
@@ -161,10 +162,17 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	// Register service with Consul if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
 		serviceID := fmt.Sprintf("%s-%d", m.config.ServiceName, m.config.Server.Port)
-		serviceInfo := &service.ServiceInfo{
-			ID:      serviceID,
-			Name:    m.config.ServiceName,
-			Address: "localhost", // TODO: Get from config or environment
+		address := os.Getenv("SERVICE_HOST")
+	if address == "" {
+		address, _ = os.Hostname()
+	}
+	if address == "" {
+		address = "localhost"
+	}
+	serviceInfo := &service.ServiceInfo{
+		ID:      serviceID,
+		Name:    m.config.ServiceName,
+		Address: address,
 			Port:    m.config.Server.Port,
 			Tags:    []string{"v1", "microservice"},
 			Metadata: map[string]string{

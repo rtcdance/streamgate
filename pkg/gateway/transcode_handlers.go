@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/plugins/transcoder"
 	"streamgate/pkg/service"
 	"streamgate/pkg/util"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // RegisterTranscodingRoutes registers video transcoding management routes.
@@ -51,17 +52,25 @@ func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger) gin
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "content_id, profile and input_url are required")
 			return
 		}
+		if req.Priority < 0 || req.Priority > 10 {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "priority must be between 0 and 10")
+			return
+		}
 		if !util.IsValidURL(req.InputURL) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url must be a valid http/https URL")
+			return
+		}
+		if err := util.IsSafeURL(req.InputURL); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url targets a private or internal network")
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
 		taskID, err := svc.Transcode(c.Request.Context(), req.ContentID, req.Profile, req.InputURL, req.Priority, wallet)
 		if err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "transcode submission failed")
 			return
 		}
-		c.JSON(http.StatusAccepted, gin.H{
+		respondAccepted(c, gin.H{
 			"task_id": taskID,
 			"status":  "pending",
 		})
@@ -84,15 +93,19 @@ func handleTranscodeStatus(svc *service.TranscodingService, log *zap.Logger) gin
 		}
 		task, err := svc.GetTranscodingStatus(c.Request.Context(), taskID)
 		if err != nil {
-			abortWithError(c, http.StatusNotFound, ErrNotFound, err.Error())
+			abortWithError(c, http.StatusNotFound, ErrNotFound, "transcode task not found")
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
-		if task.OwnerWallet != "" && task.OwnerWallet != wallet {
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+			return
+		}
+		if task.OwnerWallet != wallet {
 			abortWithError(c, http.StatusForbidden, ErrForbidden, "not authorized to access this task")
 			return
 		}
-		c.JSON(http.StatusOK, task)
+		respondOK(c, task)
 	}
 }
 
@@ -112,19 +125,23 @@ func handleTranscodeCancel(svc *service.TranscodingService, log *zap.Logger) gin
 		}
 		task, err := svc.GetTranscodingStatus(c.Request.Context(), taskID)
 		if err != nil {
-			abortWithError(c, http.StatusNotFound, ErrNotFound, err.Error())
+			abortWithError(c, http.StatusNotFound, ErrNotFound, "transcode task not found")
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
-		if task.OwnerWallet != "" && task.OwnerWallet != wallet {
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+			return
+		}
+		if task.OwnerWallet != wallet {
 			abortWithError(c, http.StatusForbidden, ErrForbidden, "not authorized to cancel this task")
 			return
 		}
 		if err := svc.CancelTask(c.Request.Context(), taskID); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, err.Error())
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "task cancellation failed")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"task_id": taskID, "status": "cancelled"})
+		respondOK(c, gin.H{"task_id": taskID, "status": "cancelled"})
 	}
 }
 
@@ -153,7 +170,7 @@ func handleTranscodeTasks(svc *service.TranscodingService, log *zap.Logger) gin.
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"tasks": tasks})
+		respondOK(c, gin.H{"tasks": tasks})
 	}
 }
 
@@ -163,7 +180,7 @@ func handleTranscodeProfiles(svc *service.TranscodingService, log *zap.Logger) g
 			abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "transcoding service unavailable")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"profiles": svc.ListProfiles()})
+		respondOK(c, gin.H{"profiles": svc.ListProfiles()})
 	}
 }
 
@@ -175,30 +192,37 @@ type ffmpegRouterAdapter struct {
 }
 
 func (a *ffmpegRouterAdapter) TranscodeToHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
-	// Derive from caller's context so per-task timeouts propagate.
-	// Add a safety cap of 30 minutes in case no parent deadline exists.
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
 	}
-	tp := transcoder.TranscodeProfile{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"}
+
+	profiles := []transcoder.TranscodeProfile{
+		{Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"},
+		{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"},
+		{Resolution: "854x480", Bitrate: "1000k", Format: "hls"},
+		{Resolution: "640x360", Bitrate: "500k", Format: "hls"},
+	}
+
 	switch profile {
 	case "1080p":
-		tp = transcoder.TranscodeProfile{Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"}
+		profiles = []transcoder.TranscodeProfile{{Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"}}
 	case "720p":
-		tp = transcoder.TranscodeProfile{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"}
+		profiles = []transcoder.TranscodeProfile{{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"}}
 	case "480p":
-		tp = transcoder.TranscodeProfile{Resolution: "854x480", Bitrate: "1000k", Format: "hls"}
+		profiles = []transcoder.TranscodeProfile{{Resolution: "854x480", Bitrate: "1000k", Format: "hls"}}
 	case "360p":
-		tp = transcoder.TranscodeProfile{Resolution: "640x360", Bitrate: "500k", Format: "hls"}
+		profiles = []transcoder.TranscodeProfile{{Resolution: "640x360", Bitrate: "500k", Format: "hls"}}
+	case "abr", "":
 	}
+
 	callback := func(p *transcoder.TranscodeProgress) {
 		if progressFn != nil && p != nil {
 			progressFn(p.Progress)
 		}
 	}
-	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, []transcoder.TranscodeProfile{tp}, callback)
+	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback)
 }
 
 type zapRouterInfoLogger struct {

@@ -23,13 +23,13 @@ const (
 // TrackedTx extends PendingTx with lifecycle metadata for automated monitoring.
 type TrackedTx struct {
 	*PendingTx
-	Status       TxStatus
+	Status        TxStatus
 	Confirmations uint64
-	RequiredConf  uint64     // block confirmations required
-	BumpCount    int        // how many times gas has been bumped
-	MaxBumps     int        // maximum bump attempts before cancelling
-	BumpPercent  int64      // gas bump percentage (e.g. 10 = 10%)
-	StuckAfter   time.Duration // time before tx is considered stuck
+	RequiredConf  uint64        // block confirmations required
+	BumpCount     int           // how many times gas has been bumped
+	MaxBumps      int           // maximum bump attempts before cancelling
+	BumpPercent   int64         // gas bump percentage (e.g. 10 = 10%)
+	StuckAfter    time.Duration // time before tx is considered stuck
 }
 
 // TxLifecycleConfig configures the TxLifecycleManager behavior.
@@ -60,15 +60,15 @@ type KeyProvider interface {
 // TxLifecycleManager automates the full tx lifecycle: monitor pending txs,
 // bump gas for stuck transactions, and cancel after max bumps exceeded.
 type TxLifecycleManager struct {
-	mu         sync.RWMutex
-	tracked    map[string]*TrackedTx // txHash → TrackedTx
-	client     *ChainClient
+	mu          sync.RWMutex
+	tracked     map[string]*TrackedTx // txHash → TrackedTx
+	client      *ChainClient
 	keyProvider KeyProvider
-	config     TxLifecycleConfig
-	logger     *zap.Logger
-	stopCh     chan struct{}
-	stopOnce   sync.Once
-	wg         sync.WaitGroup // tracks in-flight autoBump/autoCancel goroutines
+	config      TxLifecycleConfig
+	logger      *zap.Logger
+	stopCh      chan struct{}
+	stopOnce    sync.Once
+	wg          sync.WaitGroup // tracks in-flight autoBump/autoCancel goroutines
 }
 
 // NewTxLifecycleManager creates a new lifecycle manager.
@@ -76,7 +76,7 @@ func NewTxLifecycleManager(client *ChainClient, keyProvider KeyProvider, config 
 	return &TxLifecycleManager{
 		tracked:     make(map[string]*TrackedTx),
 		client:      client,
-		keyProvider:  keyProvider,
+		keyProvider: keyProvider,
 		config:      config,
 		logger:      logger,
 		stopCh:      make(chan struct{}),
@@ -89,12 +89,12 @@ func (m *TxLifecycleManager) Track(tx *PendingTx) {
 	defer m.mu.Unlock()
 
 	m.tracked[tx.Hash] = &TrackedTx{
-		PendingTx:   tx,
-		Status:      TxStatusPending,
+		PendingTx:    tx,
+		Status:       TxStatusPending,
 		RequiredConf: m.config.RequiredConf,
-		MaxBumps:    m.config.MaxBumps,
-		BumpPercent: m.config.BumpPercent,
-		StuckAfter:  m.config.StuckAfter,
+		MaxBumps:     m.config.MaxBumps,
+		BumpPercent:  m.config.BumpPercent,
+		StuckAfter:   m.config.StuckAfter,
 	}
 
 	m.logger.Info("Tracking transaction",

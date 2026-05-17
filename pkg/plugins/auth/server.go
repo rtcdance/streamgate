@@ -108,10 +108,10 @@ func (s *AuthServer) Health(ctx context.Context) error {
 // When injected verifier interfaces are set, it delegates to real implementations.
 // When absent, methods return explicit "not configured" errors.
 type AuthVerifier struct {
-	logger       *zap.Logger
-	sigVerifier  WalletSignatureVerifier
-	nftVerifier  NFTOwnershipVerifier
-	jwtVerifier  JWTTokenVerifier
+	logger        *zap.Logger
+	sigVerifier   WalletSignatureVerifier
+	nftVerifier   NFTOwnershipVerifier
+	jwtVerifier   JWTTokenVerifier
 	challengeAuth *ChallengeResponseAuth
 }
 

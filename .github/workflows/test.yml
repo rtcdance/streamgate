@@ -9,7 +9,7 @@ on:
     - cron: '0 2 * * *'  # Daily at 2 AM UTC
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -18,24 +18,38 @@ env:
   GOPROXY: 'https://goproxy.io,direct'
 
 jobs:
+  verify-deps:
+    name: Verify Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
+
+      - name: Verify dependencies
+        run: go mod verify
+
   unit-tests:
     name: Unit Tests - ${{ matrix.test-path }}
     runs-on: ubuntu-latest
-    continue-on-error: true
+    needs: verify-deps
     strategy:
       fail-fast: false
       matrix:
         test-path:
-          - test-unit-analytics
           - test-unit-core
-          - test-unit-debug
           - test-unit-middleware
-          - test-unit-ml
           - test-unit-models
           - test-unit-monitoring
-          - test-unit-optimization
-          - test-unit-scaling
-          - test-unit-security
           - test-unit-service
           - test-unit-storage
           - test-unit-util
@@ -46,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -55,28 +69,14 @@ jobs:
         run: |
           echo "GOROOT=$GOROOT" >> $GITHUB_ENV
 
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-
-      - name: Verify dependencies
-        run: go mod verify
-
       - name: Set test path
         id: set-path
         run: |
           case "${{ matrix.test-path }}" in
-            test-unit-analytics) echo "path=./pkg/analytics/..." >> $GITHUB_OUTPUT ;;
             test-unit-core) echo "path=./pkg/core/..." >> $GITHUB_OUTPUT ;;
-            test-unit-debug) echo "path=./pkg/debug/..." >> $GITHUB_OUTPUT ;;
             test-unit-middleware) echo "path=./pkg/middleware/..." >> $GITHUB_OUTPUT ;;
-            test-unit-ml) echo "path=./pkg/ml/..." >> $GITHUB_OUTPUT ;;
             test-unit-models) echo "path=./pkg/models/..." >> $GITHUB_OUTPUT ;;
             test-unit-monitoring) echo "path=./pkg/monitoring/..." >> $GITHUB_OUTPUT ;;
-            test-unit-optimization) echo "path=./pkg/optimization/..." >> $GITHUB_OUTPUT ;;
-            test-unit-scaling) echo "path=./pkg/scaling/..." >> $GITHUB_OUTPUT ;;
-            test-unit-security) echo "path=./pkg/security/..." >> $GITHUB_OUTPUT ;;
             test-unit-service) echo "path=./pkg/service/..." >> $GITHUB_OUTPUT ;;
             test-unit-storage) echo "path=./pkg/storage/..." >> $GITHUB_OUTPUT ;;
             test-unit-util) echo "path=./pkg/util/..." >> $GITHUB_OUTPUT ;;
@@ -88,6 +88,15 @@ jobs:
       - name: Run unit tests
         run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
 
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
+          if [ "$(echo "$COVERAGE < 25" | bc -l)" = "1" ]; then
+            echo "Coverage ${COVERAGE}% is below 25% threshold"
+            exit 1
+          fi
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -98,24 +107,18 @@ jobs:
   integration-tests:
     name: Integration Tests - ${{ matrix.test-path }}
     runs-on: ubuntu-latest
-    continue-on-error: true
+    needs: verify-deps
     strategy:
       fail-fast: false
       matrix:
         test-path:
-          - test-integration-analytics
           - test-integration-api
           - test-integration-auth
           - test-integration-content
           - test-integration-dashboard
-          - test-integration-debug
           - test-integration-middleware
-          - test-integration-ml
           - test-integration-models
           - test-integration-monitoring
-          - test-integration-optimization
-          - test-integration-scaling
-          - test-integration-security
           - test-integration-service
           - test-integration-storage
           - test-integration-streaming
@@ -150,18 +153,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-
-      - name: Verify dependencies
-        run: go mod verify
 
       - name: Start MinIO
         run: |
@@ -190,38 +185,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
+          for f in migrations/*.sql; do psql -h localhost -U streamgate -d streamgate < "$f"; done
 
       - name: Set test path
         id: set-path
         run: |
           case "${{ matrix.test-path }}" in
-            test-integration-analytics) echo "path=./test/integration/analytics/..." >> $GITHUB_OUTPUT ;;
             test-integration-api) echo "path=./test/integration/api/..." >> $GITHUB_OUTPUT ;;
             test-integration-auth) echo "path=./test/integration/auth/..." >> $GITHUB_OUTPUT ;;
             test-integration-content) echo "path=./test/integration/content/..." >> $GITHUB_OUTPUT ;;
             test-integration-dashboard) echo "path=./test/integration/dashboard/..." >> $GITHUB_OUTPUT ;;
-            test-integration-debug) echo "path=./test/integration/debug/..." >> $GITHUB_OUTPUT ;;
             test-integration-middleware) echo "path=./test/integration/middleware/..." >> $GITHUB_OUTPUT ;;
-            test-integration-ml) echo "path=./test/integration/ml/..." >> $GITHUB_OUTPUT ;;
             test-integration-models) echo "path=./test/integration/models/..." >> $GITHUB_OUTPUT ;;
             test-integration-monitoring) echo "path=./test/integration/monitoring/..." >> $GITHUB_OUTPUT ;;
-            test-integration-optimization) echo "path=./test/integration/optimization/..." >> $GITHUB_OUTPUT ;;
-            test-integration-scaling) echo "path=./test/integration/scaling/..." >> $GITHUB_OUTPUT ;;
-            test-integration-security) echo "path=./test/integration/security/..." >> $GITHUB_OUTPUT ;;
             test-integration-service) echo "path=./test/integration/service/..." >> $GITHUB_OUTPUT ;;
             test-integration-storage) echo "path=./test/integration/storage/..." >> $GITHUB_OUTPUT ;;
             test-integration-streaming) echo "path=./test/integration/streaming/..." >> $GITHUB_OUTPUT ;;
@@ -261,12 +237,11 @@ jobs:
   e2e-tests:
     name: E2E Tests - ${{ matrix.test-file }}
     runs-on: ubuntu-latest
-    continue-on-error: true
+    needs: verify-deps
     strategy:
       fail-fast: false
       matrix:
         test-file:
-          - analytics_e2e_test.go
           - api_gateway_test.go
           - auth_flow_test.go
           - blue_green_deployment_test.go
@@ -274,18 +249,11 @@ jobs:
           - content_management_test.go
           - core_functionality_test.go
           - dashboard_e2e_test.go
-          - debug_e2e_test.go
-          - hpa_scaling_test.go
           - middleware_flow_test.go
-          - ml_e2e_test.go
           - models_test.go
           - monitoring_flow_test.go
           - nft_verification_test.go
-          - optimization_e2e_test.go
           - plugin_integration_test.go
-          - resource_optimization_e2e_test.go
-          - scaling_e2e_test.go
-          - security_e2e_test.go
           - streaming_flow_test.go
           - transcoding_flow_test.go
           - upload_flow_test.go
@@ -319,18 +287,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-
-      - name: Verify dependencies
-        run: go mod verify
 
       - name: Start MinIO
         run: |
@@ -359,20 +319,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
+          for f in migrations/*.sql; do psql -h localhost -U streamgate -d streamgate < "$f"; done
 
       - name: Run E2E test - ${{ matrix.test-file }}
         env:
@@ -406,11 +353,12 @@ jobs:
   benchmark-tests:
     name: Benchmark Tests
     runs-on: ubuntu-latest
+    needs: verify-deps
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -427,6 +375,7 @@ jobs:
   load-tests:
     name: Load Tests
     runs-on: ubuntu-latest
+    needs: verify-deps
     services:
       postgres:
         image: postgres:15
@@ -456,7 +405,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -495,20 +444,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/014_add_transcoding_timestamps.sql
+          for f in migrations/*.sql; do psql -h localhost -U streamgate -d streamgate < "$f"; done
 
       - name: Run load tests
         env:
@@ -537,201 +473,3 @@ jobs:
           docker stop minio || true
           docker rm minio || true
 
-  security-tests:
-    name: Security Tests
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Setup database
-        env:
-          PGPASSWORD: streamgate
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          psql -h localhost -U streamgate -d streamgate < migrations/001_init_schema.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/002_add_content_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/003_add_user_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/004_add_nft_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/005_add_transaction_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/006_add_content_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/007_add_nft_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/008_add_transaction_columns.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/009_create_streams_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/010_create_transcoding_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/011_create_uploads_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/012_create_tasks_table.sql
-          psql -h localhost -U streamgate -d streamgate < migrations/013_add_content_metadata.sql
-
-      - name: Run security tests
-        env:
-          DATABASE_HOST: localhost
-          DATABASE_PORT: 5432
-          DATABASE_USER: streamgate
-          DATABASE_PASSWORD: streamgate
-          DATABASE_NAME: streamgate
-        run: go test -v ./test/security/...
-
-      - name: Upload security test results
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-test-results
-          path: test/security/
-
-  coverage-report:
-    name: Coverage Report
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download coverage artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Merge coverage reports
-        run: |
-          echo "Listing all downloaded artifacts:"
-          find . -type f -name "*.out" | head -20
-          
-          # Collect all coverage files
-          # Use a loop to properly merge files without duplicate mode lines
-          > coverage-unit-merged.out
-          for f in $(find . -path "*/coverage-unit.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-unit-merged.out || true
-          done
-          if [ ! -s coverage-unit-merged.out ]; then
-            find . -path "*/coverage-unit.out" -exec tail -n +2 {} \; > coverage-unit-merged.out || true
-          fi
-          
-          > coverage-integration-merged.out
-          for f in $(find . -path "*/coverage-integration.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-integration-merged.out || true
-          done
-          if [ ! -s coverage-integration-merged.out ]; then
-            find . -path "*/coverage-integration.out" -exec tail -n +2 {} \; > coverage-integration-merged.out || true
-          fi
-          
-          > coverage-e2e-merged.out
-          for f in $(find . -path "*/coverage-e2e.out" 2>/dev/null); do
-            tail -n +2 "$f" >> coverage-e2e-merged.out || true
-          done
-          if [ ! -s coverage-e2e-merged.out ]; then
-            find . -path "*/coverage-e2e.out" -exec tail -n +2 {} \; > coverage-e2e-merged.out || true
-          fi
-          
-          echo "Coverage file sizes:"
-          ls -lh coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out 2>&1 || true
-          
-          # Merge all coverage files - add mode line first
-          echo "mode: atomic" > coverage-total.out
-          for f in coverage-unit-merged.out coverage-integration-merged.out coverage-e2e-merged.out; do
-            if [ -s "$f" ]; then
-              cat "$f" >> coverage-total.out
-            fi
-          done
-          echo "Coverage merge completed"
-          
-          echo "Final coverage file size:"
-          ls -lh coverage-total.out
-
-      - name: Generate HTML coverage report
-        run: |
-          $GOROOT/bin/go tool cover -html=coverage-total.out -o coverage.html
-
-      - name: Display coverage summary
-        run: |
-          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          $GOROOT/bin/go tool cover -func=coverage-total.out | tail -1 >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Coverage by Package" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          $GOROOT/bin/go tool cover -func=coverage-total.out >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: |
-            coverage-total.out
-            coverage.html
-
-      - name: Prepare deployment directory
-        run: |
-          mkdir -p deploy/coverage
-          cp coverage.html deploy/coverage/index.html
-          cp coverage-total.out deploy/coverage/
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./deploy/coverage
-          publish_branch: gh-pages
-          force_orphan: true
-
-      - name: Output coverage URL
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        run: |
-          echo "Coverage report will be available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage-total.out
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-
-  test-summary:
-    name: Test Summary
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, e2e-tests, benchmark-tests, load-tests, security-tests, coverage-report]
-    if: always()
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Generate test report
-        run: |
-          echo "# Test Summary Report" > test-summary.md
-          echo "" >> test-summary.md
-          echo "## Test Results" >> test-summary.md
-          echo "- Unit Tests: ${{ needs.unit-tests.result }}" >> test-summary.md
-          echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> test-summary.md
-          echo "- E2E Tests: ${{ needs.e2e-tests.result }}" >> test-summary.md
-          echo "- Benchmark Tests: ${{ needs.benchmark-tests.result }}" >> test-summary.md
-          echo "- Load Tests: ${{ needs.load-tests.result }}" >> test-summary.md
-          echo "- Security Tests: ${{ needs.security-tests.result }}" >> test-summary.md
-
-      - name: Upload test summary
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-summary
-          path: test-summary.md

@@ -159,7 +159,7 @@ func TestWeb3Service_Close_NoPanic(t *testing.T) {
 func newTestRPCServer(t *testing.T, handlers map[string]func(reqParams []json.RawMessage) interface{}) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 		var req struct {
 			ID     interface{}       `json:"id"`
 			Method string            `json:"method"`
@@ -182,8 +182,6 @@ func newTestRPCServer(t *testing.T, handlers map[string]func(reqParams []json.Ra
 		})
 	}))
 }
-
-
 
 func TestWeb3Service_GetGasPrice_EVM(t *testing.T) {
 	srv := newTestRPCServer(t, map[string]func(reqParams []json.RawMessage) interface{}{

@@ -10,10 +10,12 @@ import (
 
 // MerkleTree implements a binary Merkle tree compatible with Solidity's
 // MerkleProof library (OpenZeppelin). It uses sorted pair hashing:
-//   hash = keccak256(abi.encodePacked(min(a,b), max(a,b)))
+//
+//	hash = keccak256(abi.encodePacked(min(a,b), max(a,b)))
+//
 // This matches OpenZeppelin's MerkleProof.sol verification on-chain.
 type MerkleTree struct {
-	leaves [][32]byte // original leaf hashes
+	leaves [][32]byte   // original leaf hashes
 	layers [][][32]byte // all layers: [0]=leaves, [1]=parents, ..., [n]=root
 	root   [32]byte
 }
@@ -129,7 +131,8 @@ func HashLeaf(data []byte) [32]byte {
 
 // hashPair hashes two nodes together using sorted pair hashing
 // (compatible with OpenZeppelin MerkleProof.sol):
-//   hash = keccak256(abi.encodePacked(min(a,b), max(a,b)))
+//
+//	hash = keccak256(abi.encodePacked(min(a,b), max(a,b)))
 func hashPair(a, b [32]byte) [32]byte {
 	if bytes.Compare(a[:], b[:]) <= 0 {
 		return keccak256(append(a[:], b[:]...))
@@ -149,8 +152,8 @@ func keccak256(data []byte) [32]byte {
 // EstimateGas returns a rough estimate of the gas cost for verifying a
 // Merkle proof with the given number of proof elements on-chain.
 // OpenZeppelin's MerkleProof.verify costs approximately:
-//   base 600 + 700 * proofLength
+//
+//	base 600 + 700 * proofLength
 func EstimateProofGas(proofLength int) uint64 {
 	return 600 + 700*uint64(proofLength)
 }
-

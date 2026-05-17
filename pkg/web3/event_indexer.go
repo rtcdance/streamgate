@@ -15,6 +15,7 @@ import (
 
 // EventReader abstracts the event indexing methods needed by EventIndexer.
 // Obtain via ChainClient.GetEthClient() or provide a mock for testing.
+//
 //go:generate mockgen -destination=mocks/mock_event_reader.go -package=mocks streamgate/pkg/web3 EventReader
 type EventReader interface {
 	BlockNumber(ctx context.Context) (uint64, error)
@@ -36,27 +37,27 @@ type EventIndexerConfig struct {
 type EventIndexer struct {
 	client             EventReader
 	logger             *zap.Logger
-	contractAddress    common.Address       // primary contract (legacy single-address)
-	eventSignature     common.Hash          // primary event sig (legacy single-sig)
-	contractAddresses []common.Address      // filtered contract addresses
-	eventSignatures   []common.Hash         // filtered event signatures
-	startBlock        uint64
-	currentBlock      uint64
-	mu                sync.RWMutex
-	events            []*IndexedEvent
-	maxEvents         int
-	updateInterval    time.Duration
-	stopChan          chan struct{}
-	modeCh            chan string    // signals indexingLoop to switch mode ("polling")
-	subscriber        *LogSubscriber // WebSocket subscriber (nil = polling only)
-	mode              string         // "websocket" or "polling"
-	store             EventStore     // optional: persistent event storage + checkpoint
-	reorgDetector     *ReorgDetector // optional: reorg detection for indexed events
-	stopOnce          sync.Once      // ensures stopChan is closed only once
-	wg                sync.WaitGroup // tracks background goroutines
-	eventParser       *EventParser   // optional: decode event data into Decoded field
-	seenIDs           map[string]struct{} // in-memory dedup when EventStore is nil
-	confirmationBlocks uint64         // safety buffer: only index up to latestBlock - N
+	contractAddress    common.Address   // primary contract (legacy single-address)
+	eventSignature     common.Hash      // primary event sig (legacy single-sig)
+	contractAddresses  []common.Address // filtered contract addresses
+	eventSignatures    []common.Hash    // filtered event signatures
+	startBlock         uint64
+	currentBlock       uint64
+	mu                 sync.RWMutex
+	events             []*IndexedEvent
+	maxEvents          int
+	updateInterval     time.Duration
+	stopChan           chan struct{}
+	modeCh             chan string         // signals indexingLoop to switch mode ("polling")
+	subscriber         *LogSubscriber      // WebSocket subscriber (nil = polling only)
+	mode               string              // "websocket" or "polling"
+	store              EventStore          // optional: persistent event storage + checkpoint
+	reorgDetector      *ReorgDetector      // optional: reorg detection for indexed events
+	stopOnce           sync.Once           // ensures stopChan is closed only once
+	wg                 sync.WaitGroup      // tracks background goroutines
+	eventParser        *EventParser        // optional: decode event data into Decoded field
+	seenIDs            map[string]struct{} // in-memory dedup when EventStore is nil
+	confirmationBlocks uint64              // safety buffer: only index up to latestBlock - N
 }
 
 // IndexedEvent represents an indexed blockchain event
@@ -88,15 +89,15 @@ func NewEventIndexer(client EventReader, contractAddress, eventSignature string,
 // This allows filtering by multiple contract addresses and event signatures.
 func NewEventIndexerWithConfig(client EventReader, cfg EventIndexerConfig, logger *zap.Logger, wsURL ...string) (*EventIndexer, error) {
 	ei := &EventIndexer{
-		client:          client,
-		logger:          logger,
-		events:          make([]*IndexedEvent, 0, 1000),
-		maxEvents:       10000,
-		updateInterval:  15 * time.Second,
-		stopChan:        make(chan struct{}),
-		modeCh:          make(chan string, 1),
-		mode:            "polling",
-		seenIDs:         make(map[string]struct{}),
+		client:         client,
+		logger:         logger,
+		events:         make([]*IndexedEvent, 0, 1000),
+		maxEvents:      10000,
+		updateInterval: 15 * time.Second,
+		stopChan:       make(chan struct{}),
+		modeCh:         make(chan string, 1),
+		mode:           "polling",
+		seenIDs:        make(map[string]struct{}),
 	}
 
 	// Apply config

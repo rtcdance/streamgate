@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/monitoring"
-	"streamgate/test/helpers"
 )
 
 func TestE2E_MonitoringFlow(t *testing.T) {
@@ -18,7 +18,7 @@ func TestE2E_MonitoringFlow(t *testing.T) {
 	metrics.RecordTimer("api_response_time", 250000000, nil)
 
 	cpuUsage := metrics.GetMetric("cpu_usage")
-	helpers.AssertNotNil(t, cpuUsage)
+	require.NotNil(t, cpuUsage)
 
 	rule := &monitoring.AlertRule{
 		Name:      "high_cpu",
@@ -32,7 +32,7 @@ func TestE2E_MonitoringFlow(t *testing.T) {
 	alerts.CheckMetric("cpu_usage", cpuUsage.Value)
 
 	activeAlerts := alerts.GetActiveAlerts()
-	helpers.AssertNotNil(t, activeAlerts)
+	require.NotNil(t, activeAlerts)
 }
 
 func TestE2E_MetricsAggregation(t *testing.T) {
@@ -44,8 +44,8 @@ func TestE2E_MetricsAggregation(t *testing.T) {
 	}
 
 	allMetrics := metrics.GetAllMetrics()
-	helpers.AssertNotNil(t, allMetrics)
-	helpers.AssertTrue(t, len(allMetrics) > 0)
+	require.NotNil(t, allMetrics)
+	require.True(t, len(allMetrics) > 0)
 }
 
 func TestE2E_AlertingFlow(t *testing.T) {
@@ -79,16 +79,16 @@ func TestE2E_AlertingFlow(t *testing.T) {
 	alerts.CheckMetric("test_metric", 95)
 
 	activeAlerts := alerts.GetActiveAlerts()
-	helpers.AssertTrue(t, len(activeAlerts) > 0)
+	require.True(t, len(activeAlerts) > 0)
 }
 
 func TestE2E_HealthCheckFlow(t *testing.T) {
 	health := monitoring.NewHealthChecker(nil)
 
 	status := health.Check()
-	helpers.AssertNotNil(t, status)
+	require.NotNil(t, status)
 
-	helpers.AssertTrue(t, status.Status == "healthy" || status.Status == "degraded" || status.Status == "unhealthy")
+	require.True(t, status.Status == "healthy" || status.Status == "degraded" || status.Status == "unhealthy")
 }
 
 func TestE2E_PrometheusMetricsFlow(t *testing.T) {
@@ -101,22 +101,22 @@ func TestE2E_PrometheusMetricsFlow(t *testing.T) {
 	collector.RecordTimer("http_request_duration_seconds", 300000000, nil)
 
 	snapshot := collector.GetMetricsSnapshot()
-	helpers.AssertNotNil(t, snapshot)
+	require.NotNil(t, snapshot)
 }
 
 func TestE2E_TracingSpanFlow(t *testing.T) {
 	tracer := monitoring.NewTracer("test-service", nil)
 
 	span, ctx := tracer.StartSpan(context.Background(), "test_operation")
-	helpers.AssertNotNil(t, span)
-	helpers.AssertNotNil(t, ctx)
+	require.NotNil(t, span)
+	require.NotNil(t, ctx)
 
 	span.AddLog("operation_started", nil)
 	span.AddLog("operation_completed", nil)
 
 	tracer.FinishSpan(span)
 
-	helpers.AssertTrue(t, true)
+	require.True(t, true)
 }
 
 func TestE2E_MetricsExport(t *testing.T) {
@@ -126,8 +126,8 @@ func TestE2E_MetricsExport(t *testing.T) {
 	metrics.IncrementCounter("test_counter", nil)
 
 	snapshot := metrics.GetMetricsSnapshot()
-	helpers.AssertNotNil(t, snapshot)
-	helpers.AssertTrue(t, len(snapshot) > 0)
+	require.NotNil(t, snapshot)
+	require.True(t, len(snapshot) > 0)
 }
 
 func TestE2E_AlertNotification(t *testing.T) {
@@ -147,7 +147,7 @@ func TestE2E_AlertNotification(t *testing.T) {
 	alerts.CheckMetric("test_metric", 75)
 
 	activeAlerts := alerts.GetActiveAlerts()
-	helpers.AssertTrue(t, len(activeAlerts) > 0)
+	require.True(t, len(activeAlerts) > 0)
 }
 
 func TestE2E_MetricsRetention(t *testing.T) {
@@ -156,13 +156,13 @@ func TestE2E_MetricsRetention(t *testing.T) {
 	metrics.SetGauge("test_metric", 100, nil)
 
 	value := metrics.GetMetric("test_metric")
-	helpers.AssertNotNil(t, value)
-	helpers.AssertEqual(t, float64(100), value.Value)
+	require.NotNil(t, value)
+	require.Equal(t, float64(100), value.Value)
 
 	metrics.Reset()
 
 	value = metrics.GetMetric("test_metric")
 	if value == nil {
-		helpers.AssertTrue(t, true)
+		require.True(t, true)
 	}
 }

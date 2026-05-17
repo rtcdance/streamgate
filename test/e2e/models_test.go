@@ -3,8 +3,8 @@ package e2e_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/models"
-	"streamgate/test/helpers"
 )
 
 func TestE2E_UserModelValidation(t *testing.T) {
@@ -13,9 +13,9 @@ func TestE2E_UserModelValidation(t *testing.T) {
 		Email:    "test@example.com",
 	}
 
-	helpers.AssertNotNil(t, user)
-	helpers.AssertEqual(t, "testuser", user.Username)
-	helpers.AssertEqual(t, "test@example.com", user.Email)
+	require.NotNil(t, user)
+	require.Equal(t, "testuser", user.Username)
+	require.Equal(t, "test@example.com", user.Email)
 }
 
 func TestE2E_ContentModelValidation(t *testing.T) {
@@ -27,9 +27,9 @@ func TestE2E_ContentModelValidation(t *testing.T) {
 		FileSize:    1024000,
 	}
 
-	helpers.AssertNotNil(t, content)
-	helpers.AssertEqual(t, "Test Video", content.Title)
-	helpers.AssertEqual(t, "video", content.Type)
+	require.NotNil(t, content)
+	require.Equal(t, "Test Video", content.Title)
+	require.Equal(t, "video", content.Type)
 }
 
 func TestE2E_NFTModelValidation(t *testing.T) {
@@ -41,9 +41,9 @@ func TestE2E_NFTModelValidation(t *testing.T) {
 		TokenID:         "1",
 	}
 
-	helpers.AssertNotNil(t, nft)
-	helpers.AssertEqual(t, "Test NFT", nft.Name)
-	helpers.AssertEqual(t, int64(1), nft.ChainID)
+	require.NotNil(t, nft)
+	require.Equal(t, "Test NFT", nft.Name)
+	require.Equal(t, int64(1), nft.ChainID)
 }
 
 func TestE2E_ModelSerialization(t *testing.T) {
@@ -52,8 +52,8 @@ func TestE2E_ModelSerialization(t *testing.T) {
 		Email:    "test@example.com",
 	}
 
-	helpers.AssertNotNil(t, user)
-	helpers.AssertEqual(t, "testuser", user.Username)
+	require.NotNil(t, user)
+	require.Equal(t, "testuser", user.Username)
 }
 
 func TestE2E_ModelComparison(t *testing.T) {
@@ -73,8 +73,8 @@ func TestE2E_ModelComparison(t *testing.T) {
 		FileSize:    1024000,
 	}
 
-	helpers.AssertEqual(t, content1.Title, content2.Title)
-	helpers.AssertEqual(t, content1.Duration, content2.Duration)
+	require.Equal(t, content1.Title, content2.Title)
+	require.Equal(t, content1.Duration, content2.Duration)
 }
 
 func TestE2E_ModelDefaults(t *testing.T) {
@@ -83,9 +83,9 @@ func TestE2E_ModelDefaults(t *testing.T) {
 		Type:  "video",
 	}
 
-	helpers.AssertNotNil(t, content)
-	helpers.AssertTrue(t, content.Duration >= 0)
-	helpers.AssertTrue(t, content.FileSize >= 0)
+	require.NotNil(t, content)
+	require.True(t, content.Duration >= 0)
+	require.True(t, content.FileSize >= 0)
 }
 
 func TestE2E_ModelRelationships(t *testing.T) {
@@ -103,5 +103,5 @@ func TestE2E_ModelRelationships(t *testing.T) {
 		OwnerID:     user.ID,
 	}
 
-	helpers.AssertEqual(t, user.ID, content.OwnerID)
+	require.Equal(t, user.ID, content.OwnerID)
 }

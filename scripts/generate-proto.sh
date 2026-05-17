@@ -1,39 +1,37 @@
 #!/bin/bash
+set -euo pipefail
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROTO_DIR="$PROJECT_ROOT/proto/v1"
+OUTPUT_DIR="$PROJECT_ROOT"
 
-echo "Generating gRPC code from protocol buffers..."
+echo "==> Generating protobuf Go code..."
 
-# Check if protoc is installed
-if ! command -v protoc &> /dev/null; then
-    echo "Error: protoc is not installed"
-    echo "Please install Protocol Buffers compiler:"
-    echo "  macOS: brew install protobuf"
-    echo "  Ubuntu: apt-get install protobuf-compiler"
-    exit 1
-fi
+protoc \
+  --proto_path="$PROJECT_ROOT" \
+  --go_out="$OUTPUT_DIR" \
+  --go_opt=module=streamgate \
+  "$PROTO_DIR/common.proto" \
+  "$PROTO_DIR/auth.proto" \
+  "$PROTO_DIR/content.proto" \
+  "$PROTO_DIR/nft.proto" \
+  "$PROTO_DIR/streaming.proto" \
+  "$PROTO_DIR/upload.proto" \
+  "$PROTO_DIR/service.proto"
 
-# Check if protoc-gen-go is installed
-if ! command -v protoc-gen-go &> /dev/null; then
-    echo "Installing protoc-gen-go..."
-    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-fi
+echo "==> Generating gRPC Go code..."
 
-# Check if protoc-gen-go-grpc is installed
-if ! command -v protoc-gen-go-grpc &> /dev/null; then
-    echo "Installing protoc-gen-go-grpc..."
-    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-fi
+protoc \
+  --proto_path="$PROJECT_ROOT" \
+  --go-grpc_out="$OUTPUT_DIR" \
+  --go-grpc_opt=module=streamgate \
+  "$PROTO_DIR/auth.proto" \
+  "$PROTO_DIR/content.proto" \
+  "$PROTO_DIR/nft.proto" \
+  "$PROTO_DIR/streaming.proto" \
+  "$PROTO_DIR/upload.proto" \
+  "$PROTO_DIR/service.proto"
 
-# Create output directory
-mkdir -p pkg/api/v1
-
-# Generate Go code from proto files
-protoc --proto_path=proto \
-    --go_out=pkg/api/v1 \
-    --go_opt=paths=source_relative \
-    --go-grpc_out=pkg/api/v1 \
-    --go-grpc_opt=paths=source_relative \
-    proto/v1/*.proto
-
-echo "✓ gRPC code generated successfully"
+echo "==> Done. Generated files:"
+find "$PROJECT_ROOT/pkg/api" -name "*.pb.go" -type f | sort

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
+
+	"streamgate/pkg/cachetypes"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap"
-	"streamgate/pkg/cachetypes"
 )
 
 // MetaplexVerifier handles Solana Metaplex NFT verification
@@ -18,6 +20,7 @@ type MetaplexVerifier struct {
 	httpClient *http.Client
 	logger     *zap.Logger
 	cache      cachetypes.CacheBackend
+	cacheTTL   time.Duration
 }
 
 // NewMetaplexVerifier creates a new Metaplex verifier
@@ -27,6 +30,7 @@ func NewMetaplexVerifier(rpcClient *rpc.Client, logger *zap.Logger, cache cachet
 		httpClient: &http.Client{},
 		logger:     logger,
 		cache:      cache,
+		cacheTTL:   5 * time.Minute,
 	}
 }
 
@@ -155,7 +159,7 @@ func (mv *MetaplexVerifier) VerifyNFTOwnership(ctx context.Context, mintAddress,
 
 	// Cache the result
 	if mv.cache != nil {
-		_ = mv.cache.Set(cacheKey, owned)
+		_ = mv.cache.SetWithExpiration(cacheKey, owned, mv.cacheTTL)
 	}
 
 	mv.logger.Debug("Metaplex ownership verified",
@@ -267,7 +271,7 @@ func (mv *MetaplexVerifier) GetMetadata(ctx context.Context, mintAddress string)
 
 	// Cache the result
 	if mv.cache != nil {
-		_ = mv.cache.Set(cacheKey, metadata)
+		_ = mv.cache.SetWithExpiration(cacheKey, metadata, mv.cacheTTL)
 	}
 
 	return metadata, nil

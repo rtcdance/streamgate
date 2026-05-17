@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
+
+func init() {
+	core.RegisterPluginFactory("auth", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewAuthPlugin(cfg, logger)
+	})
+}
 
 // AuthPlugin is the authentication service plugin
 type AuthPlugin struct {

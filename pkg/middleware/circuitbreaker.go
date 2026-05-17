@@ -368,8 +368,8 @@ func (m *CircuitBreakerManager) ResetAll() {
 }
 
 // CircuitBreakerMiddleware returns a Gin middleware with circuit breaker
-func (m *Service) CircuitBreakerMiddleware(name string, config CircuitBreakerConfig) gin.HandlerFunc {
-	cb := NewCircuitBreaker(name, config, m.logger)
+func (s *Service) CircuitBreakerMiddleware(name string, config CircuitBreakerConfig) gin.HandlerFunc {
+	cb := s.cbManager.GetOrCreate(name, config)
 
 	return func(c *gin.Context) {
 		err := cb.Execute(c.Request.Context(), func() error {

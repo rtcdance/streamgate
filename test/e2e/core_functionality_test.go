@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
-	"streamgate/test/helpers"
 )
 
 type mockPlugin struct {
@@ -49,8 +49,8 @@ func TestE2E_MicrokernelInitialization(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, kernel)
+	require.NoError(t, err)
+	require.NotNil(t, kernel)
 
 	kernel.Shutdown(context.Background())
 }
@@ -63,7 +63,7 @@ func TestE2E_PluginRegistration(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	plugin := &mockPlugin{
@@ -72,11 +72,11 @@ func TestE2E_PluginRegistration(t *testing.T) {
 	}
 
 	err = kernel.RegisterPlugin(plugin)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	registered, err := kernel.GetPlugin("test-plugin")
-	helpers.AssertNoError(t, err)
-	helpers.AssertNotNil(t, registered)
+	require.NoError(t, err)
+	require.NotNil(t, registered)
 }
 
 func TestE2E_EventPublishing(t *testing.T) {
@@ -87,7 +87,7 @@ func TestE2E_EventPublishing(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	var eventReceived bool
@@ -106,14 +106,14 @@ func TestE2E_EventPublishing(t *testing.T) {
 	}
 
 	err = eventBus.Publish(context.Background(), ev)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
 
 	mu.Lock()
 	received := eventReceived
 	mu.Unlock()
-	helpers.AssertTrue(t, received)
+	require.True(t, received)
 }
 
 func TestE2E_HealthCheck(t *testing.T) {
@@ -124,11 +124,11 @@ func TestE2E_HealthCheck(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	err = kernel.Health(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestE2E_Lifecycle(t *testing.T) {
@@ -139,13 +139,13 @@ func TestE2E_Lifecycle(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = kernel.Start(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 
 	err = kernel.Shutdown(context.Background())
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestE2E_ConfigurationManagement(t *testing.T) {
@@ -156,12 +156,12 @@ func TestE2E_ConfigurationManagement(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	retrievedConfig := kernel.GetConfig()
-	helpers.AssertNotNil(t, retrievedConfig)
-	helpers.AssertEqual(t, "test-kernel", retrievedConfig.AppName)
+	require.NotNil(t, retrievedConfig)
+	require.Equal(t, "test-kernel", retrievedConfig.AppName)
 }
 
 func TestE2E_Logging(t *testing.T) {
@@ -172,7 +172,7 @@ func TestE2E_Logging(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
 	logger := kernel.GetLogger()
@@ -181,7 +181,7 @@ func TestE2E_Logging(t *testing.T) {
 		logger.Error("error message")
 	}
 
-	helpers.AssertTrue(t, true)
+	require.True(t, true)
 }
 
 func TestE2E_MetricsCollection(t *testing.T) {
@@ -192,8 +192,8 @@ func TestE2E_MetricsCollection(t *testing.T) {
 	}
 
 	kernel, err := core.NewMicrokernel(cfg, nil)
-	helpers.AssertNoError(t, err)
+	require.NoError(t, err)
 	defer kernel.Shutdown(context.Background())
 
-	helpers.AssertTrue(t, true)
+	require.True(t, true)
 }

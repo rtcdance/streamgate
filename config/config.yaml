@@ -97,7 +97,7 @@ web3:
 
 auth:
   jwt_secret: ""  # Set via AUTH_JWT_SECRET env var in production
-  jwt_expiry: 24h
+  jwt_expiry: 2h
   refresh_token_expiry: 168h
   nonce_expiry: 5m
 
@@ -106,6 +106,14 @@ rate_limiting:
   requests_per_minute: 60
   requests_per_hour: 1000
   burst_size: 10
+
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  success_threshold: 2
+  timeout: 30s
+  max_requests: 3
+  window_time: 1m
 
 monitoring:
   enabled: true

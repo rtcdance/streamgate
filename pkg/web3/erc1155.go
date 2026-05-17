@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
+
+	"streamgate/pkg/cachetypes"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
-	"streamgate/pkg/cachetypes"
 )
 
 // ERC1155Verifier handles ERC-1155 NFT verification
 type ERC1155Verifier struct {
-	ethClient    EthCaller
-	logger       *zap.Logger
-	cache        cachetypes.CacheBackend
+	ethClient        EthCaller
+	logger           *zap.Logger
+	cache            cachetypes.CacheBackend
+	cacheTTL         time.Duration
 	parsedERC1155ABI abi.ABI // pre-parsed at construction
 }
 
@@ -27,6 +30,7 @@ func NewERC1155Verifier(ethClient EthCaller, logger *zap.Logger, cache cachetype
 		ethClient:        ethClient,
 		logger:           logger,
 		cache:            cache,
+		cacheTTL:         5 * time.Minute,
 		parsedERC1155ABI: mustParseABI("ERC-1155", erc1155ABI),
 	}
 }
@@ -79,7 +83,7 @@ func (ev *ERC1155Verifier) VerifyNFTOwnership(ctx context.Context, contractAddre
 
 	// Cache the result
 	if ev.cache != nil {
-		_ = ev.cache.Set(cacheKey, balance)
+		_ = ev.cache.SetWithExpiration(cacheKey, balance, ev.cacheTTL)
 	}
 
 	// Check if owner has at least 1 token

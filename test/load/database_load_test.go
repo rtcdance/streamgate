@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
 )
@@ -37,7 +38,7 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 			for j := 0; j < numRequests; j++ {
 				username := fmt.Sprintf("user_%d_%d", id, j)
 				email := fmt.Sprintf("user%d%d@example.com", id, j)
-				err := authService.Register(context.Background(),username, "password", email)
+				err := authService.Register(context.Background(), username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -60,7 +61,7 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_DatabaseQueryPerformance(t *testing.T) {
@@ -76,7 +77,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		username := fmt.Sprintf("user%d", i)
 		email := fmt.Sprintf("user%d@example.com", i)
-		authService.Register(context.Background(),username, "password", email)
+		authService.Register(context.Background(), username, "password", email)
 	}
 
 	// Test query performance
@@ -127,7 +128,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	t.Logf("  Total Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f req/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_DatabaseTransactions(t *testing.T) {
@@ -156,7 +157,7 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 				username := fmt.Sprintf("user_%d_%d", id, j)
 				email := fmt.Sprintf("user%d%d@example.com", id, j)
 
-				err := authService.Register(context.Background(),username, "password", email)
+				err := authService.Register(context.Background(), username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -179,7 +180,7 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f tx/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }
 
 func TestLoad_DatabaseBulkOperations(t *testing.T) {
@@ -207,7 +208,7 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 			for j := 0; j < bulkSize; j++ {
 				username := fmt.Sprintf("user_%d_%d", bulkID, j)
 				email := fmt.Sprintf("user%d%d@example.com", bulkID, j)
-				err := authService.Register(context.Background(),username, "password", email)
+				err := authService.Register(context.Background(), username, "password", email)
 				if err == nil {
 					atomic.AddInt64(&successCount, 1)
 				} else {
@@ -230,5 +231,5 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 	t.Logf("  Duration: %v", elapsed)
 	t.Logf("  Throughput: %.2f records/s", throughput)
 
-	helpers.AssertTrue(t, successCount > 0)
+	require.True(t, successCount > 0)
 }

@@ -4,10 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
+
+func init() {
+	core.RegisterPluginFactory("transcoder", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
+		return NewTranscoderPluginWrapper(cfg, logger)
+	})
+}
 
 // TranscoderPluginWrapper is the transcoder service plugin wrapper
 type TranscoderPluginWrapper struct {

@@ -7,9 +7,9 @@ import (
 
 // bucket is a per-client token bucket for rate limiting.
 type bucket struct {
-	tokens    float64
-	maxTokens float64
-	refill    float64 // tokens added per second
+	tokens     float64
+	maxTokens  float64
+	refill     float64 // tokens added per second
 	lastRefill time.Time
 }
 
@@ -25,10 +25,10 @@ func (b *bucket) refillTokens() {
 
 // RateLimiter limits request rate per client IP using a token bucket algorithm.
 type RateLimiter struct {
-	limit    float64 // requests per second
-	burst    int     // max burst size
-	buckets  sync.Map // string → *bucket
-	mu       sync.Mutex
+	limit   float64  // requests per second
+	burst   int      // max burst size
+	buckets sync.Map // string → *bucket
+	mu      sync.Mutex
 }
 
 // NewRateLimiter creates a new rate limiter.

@@ -2,8 +2,9 @@ package event
 
 import (
 	"context"
-	"fmt"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Event represents an event in the system
@@ -17,19 +18,19 @@ type Event struct {
 // Event type constants
 const (
 	EventTypeCacheWarmed         = "cache.warmed"
-	EventTypeNFTVerified          = "nft.verified"
-	EventTypeServiceRegistered    = "service.registered"
-	EventTypeServiceDeregistered  = "service.deregistered"
-	EventTypeStreamingStarted     = "streaming.started"
-	EventTypeStreamingStopped     = "streaming.stopped"
-	EventTypeMetadataCreated      = "metadata.created"
-	EventTypeMetadataUpdated      = "metadata.updated"
-	EventTypeMetadataDeleted      = "metadata.deleted"
-	EventTypeJobSubmitted         = "job.submitted"
-	EventTypeJobCompleted         = "job.completed"
-	EventTypeJobFailed            = "job.failed"
-	EventTypeAlertTriggered       = "alert.triggered"
-	EventTypeAlertResolved        = "alert.resolved"
+	EventTypeNFTVerified         = "nft.verified"
+	EventTypeServiceRegistered   = "service.registered"
+	EventTypeServiceDeregistered = "service.deregistered"
+	EventTypeStreamingStarted    = "streaming.started"
+	EventTypeStreamingStopped    = "streaming.stopped"
+	EventTypeMetadataCreated     = "metadata.created"
+	EventTypeMetadataUpdated     = "metadata.updated"
+	EventTypeMetadataDeleted     = "metadata.deleted"
+	EventTypeJobSubmitted        = "job.submitted"
+	EventTypeJobCompleted        = "job.completed"
+	EventTypeJobFailed           = "job.failed"
+	EventTypeAlertTriggered      = "alert.triggered"
+	EventTypeAlertResolved       = "alert.resolved"
 )
 
 // EventHandler is a function that handles events
@@ -48,6 +49,7 @@ type MemoryEventBus struct {
 	handlers map[string][]EventHandler
 	mu       sync.RWMutex
 	wg       sync.WaitGroup
+	log      *zap.Logger
 }
 
 // NewMemoryEventBus creates a new in-memory event bus
@@ -73,11 +75,15 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 			defer b.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("Recovered panic in event handler: %v\n", r)
+					if b.log != nil {
+						b.log.Error("Recovered panic in event handler", zap.Any("panic", r), zap.String("event_type", event.Type))
+					}
 				}
 			}()
 			if err := h(ctx, event); err != nil {
-				fmt.Printf("Error handling event: %v\n", err)
+				if b.log != nil {
+					b.log.Error("Error handling event", zap.Error(err), zap.String("event_type", event.Type))
+				}
 			}
 		}(handler)
 	}

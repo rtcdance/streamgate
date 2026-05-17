@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -30,7 +29,8 @@ type EventCollector struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
-	sem             chan struct{} // limits concurrent subscriber notifications
+	sem             chan struct{}
+	closed          bool
 }
 
 // EventHandler is a function that handles analytics events
@@ -80,7 +80,9 @@ func (ec *EventCollector) collectLoop() {
 	for {
 		select {
 		case <-ec.ctx.Done():
+			ec.mu.Lock()
 			ec.flushAll()
+			ec.mu.Unlock()
 			return
 
 		case event := <-ec.events:
@@ -143,6 +145,13 @@ func (ec *EventCollector) collectLoop() {
 
 // RecordEvent records an analytics event
 func (ec *EventCollector) RecordEvent(eventType, serviceID, userID string, metadata map[string]interface{}, tags map[string]string) {
+	ec.mu.RLock()
+	closed := ec.closed
+	ec.mu.RUnlock()
+	if closed {
+		return
+	}
+
 	event := &AnalyticsEvent{
 		ID:        uuid.New().String(),
 		Timestamp: time.Now(),
@@ -163,6 +172,13 @@ func (ec *EventCollector) RecordEvent(eventType, serviceID, userID string, metad
 
 // RecordMetrics records system metrics
 func (ec *EventCollector) RecordMetrics(serviceID string, cpu, memory, disk, requestRate, errorRate, latency, cacheHitRate float64) {
+	ec.mu.RLock()
+	closed := ec.closed
+	ec.mu.RUnlock()
+	if closed {
+		return
+	}
+
 	metric := &MetricsSnapshot{
 		ID:           uuid.New().String(),
 		Timestamp:    time.Now(),
@@ -186,6 +202,13 @@ func (ec *EventCollector) RecordMetrics(serviceID string, cpu, memory, disk, req
 
 // RecordUserBehavior records user behavior
 func (ec *EventCollector) RecordUserBehavior(userID, action, contentID, clientIP, userAgent, sessionID string, duration int64, success bool, errorMsg string) {
+	ec.mu.RLock()
+	closed := ec.closed
+	ec.mu.RUnlock()
+	if closed {
+		return
+	}
+
 	behavior := &UserBehavior{
 		ID:           uuid.New().String(),
 		Timestamp:    time.Now(),
@@ -210,6 +233,13 @@ func (ec *EventCollector) RecordUserBehavior(userID, action, contentID, clientIP
 
 // RecordPerformanceMetric records performance metrics
 func (ec *EventCollector) RecordPerformanceMetric(serviceID, operation string, duration, resourceUsed, throughput float64, success bool, errorType string) {
+	ec.mu.RLock()
+	closed := ec.closed
+	ec.mu.RUnlock()
+	if closed {
+		return
+	}
+
 	perfMetric := &PerformanceMetric{
 		ID:           uuid.New().String(),
 		Timestamp:    time.Now(),
@@ -232,6 +262,13 @@ func (ec *EventCollector) RecordPerformanceMetric(serviceID, operation string, d
 
 // RecordBusinessMetric records business metrics
 func (ec *EventCollector) RecordBusinessMetric(metricType string, value float64, unit string, dimension map[string]string) {
+	ec.mu.RLock()
+	closed := ec.closed
+	ec.mu.RUnlock()
+	if closed {
+		return
+	}
+
 	businessMetric := &BusinessMetric{
 		ID:         uuid.New().String(),
 		Timestamp:  time.Now(),
@@ -271,11 +308,15 @@ func (ec *EventCollector) notifySubscribers(eventType string, event interface{})
 			defer ec.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					fmt.Printf("Recovered panic in subscriber notification: %v\n", r)
+					if ec.logger != nil {
+						ec.logger.Error("Recovered panic in subscriber notification", zap.Any("panic", r))
+					}
 				}
 			}()
 			if err := h(event); err != nil {
-				fmt.Printf("error notifying subscriber: %v\n", err)
+				if ec.logger != nil {
+					ec.logger.Error("Error notifying subscriber", zap.Error(err))
+				}
 			}
 		}(handler)
 	}
@@ -289,7 +330,9 @@ func (ec *EventCollector) notifySubscribersSync(eventType string, event interfac
 
 	for _, handler := range handlers {
 		if err := handler(event); err != nil {
-			fmt.Printf("error notifying subscriber: %v\n", err)
+			if ec.logger != nil {
+				ec.logger.Error("Error notifying subscriber sync", zap.Error(err))
+			}
 		}
 	}
 }
@@ -357,6 +400,14 @@ func (ec *EventCollector) FlushNow() {
 
 // Close closes the event collector
 func (ec *EventCollector) Close() error {
+	ec.mu.Lock()
+	if ec.closed {
+		ec.mu.Unlock()
+		return nil
+	}
+	ec.closed = true
+	ec.mu.Unlock()
+
 	ec.cancel()
 	ec.wg.Wait()
 
