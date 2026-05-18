@@ -9,6 +9,8 @@ import (
 )
 
 // ChainConfig represents a blockchain configuration
+type FinalityFactory func(reader HeaderReader, logger *zap.Logger) FinalityStrategy
+
 type ChainConfig struct {
 	ID        int64
 	Name      string
@@ -17,9 +19,7 @@ type ChainConfig struct {
 	Explorer  string
 	Currency  string
 	IsTestnet bool
-	// Finality is the chain-specific finality strategy.
-	// When nil, the system uses the default (EthereumL1Finality with 12 confirmations).
-	Finality FinalityStrategy
+	Finality  FinalityFactory
 }
 
 // SupportedChains defines supported blockchains
@@ -33,6 +33,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		Explorer:  "https://etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
+		Finality:  EthereumL1Finality,
 	},
 	11155111: {
 		ID:        11155111,
@@ -53,6 +54,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		Explorer:  "https://polygonscan.com",
 		Currency:  "MATIC",
 		IsTestnet: false,
+		Finality:  PolygonFinality,
 	},
 	80002: {
 		ID:        80002,
@@ -73,6 +75,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		Explorer:  "https://bscscan.com",
 		Currency:  "BNB",
 		IsTestnet: false,
+		Finality:  BSCFinality,
 	},
 	97: {
 		ID:        97,
@@ -93,6 +96,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		Explorer:  "https://arbiscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
+		Finality:  L2Finality,
 	},
 	421614: {
 		ID:        421614,
@@ -113,6 +117,7 @@ var SupportedChains = map[int64]*ChainConfig{
 		Explorer:  "https://optimistic.etherscan.io",
 		Currency:  "ETH",
 		IsTestnet: false,
+		Finality:  L2Finality,
 	},
 	11155420: {
 		ID:        11155420,
@@ -196,6 +201,10 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 			zap.Int64("chain_id", chainID),
 			zap.Error(err))
 		return err
+	}
+
+	if config.Finality != nil {
+		client.SetFinality(config.Finality(client, mcm.logger))
 	}
 
 	mcm.mu.Lock()

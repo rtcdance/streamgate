@@ -2,6 +2,7 @@ package web3
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -61,8 +62,5 @@ func NewAAProvider(client EthCaller) *AAProvider {
 // This is a stub: the full ABI encoding for validateUserOp should be
 // generated from the ERC-4337 EntryPoint ABI when integrating.
 func (a *AAProvider) ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int) ([]byte, error) {
-	// TODO: Implement full ERC-4337 validateUserOp ABI encoding
-	// when EntryPoint integration is required.
-	// For now, this confirms the interface compiles and the plumbing is ready.
-	return nil, nil
+	return nil, fmt.Errorf("ERC-4337 validateUserOp not implemented: account abstraction validation is disabled until EntryPoint integration is complete")
 }

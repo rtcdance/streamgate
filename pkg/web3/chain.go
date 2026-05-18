@@ -61,6 +61,7 @@ type ChainClient struct {
 	chainID     int64
 	logger      *zap.Logger
 	rateLimiter *RPCRateLimiter
+	finality    FinalityStrategy
 }
 
 type rpcEndpointState struct {
@@ -207,6 +208,28 @@ func (cc *ChainClient) SetRateLimiter(rl *RPCRateLimiter) {
 			zap.Float64("rate", rl.rate),
 			zap.Float64("burst", rl.maxTokens))
 	}
+}
+
+func (cc *ChainClient) SetFinality(f FinalityStrategy) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.finality = f
+}
+
+func (cc *ChainClient) GetFinality() FinalityStrategy {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	return cc.finality
+}
+
+func (cc *ChainClient) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+	cc.mu.RLock()
+	client := cc.client
+	cc.mu.RUnlock()
+	if client == nil {
+		return nil, fmt.Errorf("chain client not connected")
+	}
+	return client.SubscribeNewHead(ctx, ch)
 }
 
 // GetBalance gets the balance of an address

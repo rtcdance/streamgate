@@ -191,7 +191,7 @@ type ffmpegRouterAdapter struct {
 	log *zap.Logger
 }
 
-func (a *ffmpegRouterAdapter) TranscodeToHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
+func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)
