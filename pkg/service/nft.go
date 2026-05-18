@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum"
@@ -17,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
@@ -86,7 +88,12 @@ func NewNFTServiceWithCaller(caller web3.EthCaller, rpcURL string, cache cachety
 
 // VerifyNFT verifies NFT ownership
 func (s *NFTService) VerifyNFT(ctx context.Context, address, contractAddress, tokenID string) (bool, error) {
-	// Validate inputs
+	ctx, span := monitoring.StartOTelSpan(ctx, "nft.verify",
+		attribute.String("nft.contract", contractAddress),
+		attribute.String("nft.token_id", tokenID),
+	)
+	defer span.End()
+
 	if !common.IsHexAddress(address) {
 		return false, fmt.Errorf("invalid address: %s", address)
 	}

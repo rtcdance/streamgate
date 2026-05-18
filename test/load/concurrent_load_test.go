@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/test/helpers"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_ConcurrentAuthRequests(t *testing.T) {
@@ -21,7 +22,7 @@ func TestLoad_ConcurrentAuthRequests(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Setup: Create a user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
@@ -197,7 +198,7 @@ func TestLoad_ConcurrentDatabaseOperations(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Concurrent database operations
 	numGoroutines := 10
@@ -248,7 +249,7 @@ func TestLoad_SustainedLoad(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Setup: Create a user
 	err := authService.Register(context.Background(), "testuser", "password123", "test@example.com")
