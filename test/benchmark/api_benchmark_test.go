@@ -105,7 +105,7 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	jwtConfig := middleware.JWTAuthConfig{Secret: "bench-secret-key"}
+	jwtConfig := middleware.JWTAuthConfig{Secret: "bench-secret-key-at-least-32-chars!"}
 	router.Use(middleware.JWTAuthMiddleware(jwtConfig, zap.NewNop()))
 
 	router.GET("/api/protected", func(c *gin.Context) {
