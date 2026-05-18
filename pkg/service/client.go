@@ -49,21 +49,24 @@ func NewClientPoolWithTLS(registry ServiceRegistry, logger *zap.Logger, tlsCfg *
 
 // GetConnection gets or creates a gRPC connection to a service
 func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*grpc.ClientConn, error) {
-	// Check if connection already exists
 	p.mu.RLock()
 	conn, exists := p.clients[serviceName]
 	p.mu.RUnlock()
 	if exists {
-		return conn, nil
+		if conn.GetState().String() != "SHUTDOWN" {
+			return conn, nil
+		}
+		p.mu.Lock()
+		delete(p.clients, serviceName)
+		_ = conn.Close()
+		p.mu.Unlock()
 	}
 
-	// Get service address from registry
 	address, err := p.getServiceAddress(ctx, serviceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get service address: %w", err)
 	}
 
-	// Create new connection
 	opts := []grpc.DialOption{
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
@@ -85,11 +88,10 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 		zap.String("service", serviceName),
 		zap.String("address", address))
 
-	// Cache connection (double-check under write lock)
 	p.mu.Lock()
 	if existing, ok := p.clients[serviceName]; ok {
 		p.mu.Unlock()
-		_ = newConn.Close() // close the duplicate
+		_ = newConn.Close()
 		return existing, nil
 	}
 	p.clients[serviceName] = newConn
