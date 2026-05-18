@@ -16,7 +16,7 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.AI_BOT_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           release-type: go
           package-name: streamgate
           changelog-types: >

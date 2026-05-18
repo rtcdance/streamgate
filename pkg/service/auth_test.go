@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"streamgate/pkg/models"
-	"streamgate/pkg/web3"
 	stg "streamgate/pkg/storage"
+	"streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
