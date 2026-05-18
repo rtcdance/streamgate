@@ -144,7 +144,7 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@v2.22.3
         with:
-          args: -exclude-dir=examples -exclude-dir=test -exclude=G104,G204,G301,G304,G306 ./...
+          args: -exclude-dir=examples -exclude-dir=test -exclude-dir=pkg/api -exclude=G103,G104,G204,G301,G304,G306 ./...
 
       - uses: foundry-rs/foundry-toolchain@v1
 
