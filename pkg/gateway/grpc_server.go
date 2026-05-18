@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
@@ -37,7 +38,13 @@ type GRPCServices struct {
 	SegmentStorage service.SegmentStorage
 	UploadService  *service.UploadService
 	TranscodingSvc *service.TranscodingService
+	DB             Pinger
+	Cache          Pinger
 	Blacklist      middleware.TokenBlacklistChecker
+}
+
+type Pinger interface {
+	Ping(ctx context.Context) error
 }
 
 func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *grpc.Server {
@@ -45,6 +52,17 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 
 	srv := grpc.NewServer(
 		grpc.MaxRecvMsgSize(100<<20),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      30 * time.Minute,
+			MaxConnectionAgeGrace: 10 * time.Second,
+			Time:                  30 * time.Second,
+			Timeout:               10 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
 		grpc.ChainUnaryInterceptor(
 			grpcRecoveryInterceptor(log),
 			grpcLoggingInterceptor(log),
@@ -57,7 +75,7 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 		),
 	)
 
-	healthSvc := &healthGrpcServer{log: log}
+	healthSvc := &healthGrpcServer{log: log, db: svcs.DB, cache: svcs.Cache}
 	servicev1.RegisterHealthServiceServer(srv, healthSvc)
 
 	if svcs.AuthService != nil && svcs.Web3Service != nil {
@@ -114,10 +132,28 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 
 type healthGrpcServer struct {
 	servicev1.UnimplementedHealthServiceServer
-	log *zap.Logger
+	log   *zap.Logger
+	db    Pinger
+	cache Pinger
 }
 
 func (s *healthGrpcServer) Check(ctx context.Context, req *servicev1.HealthCheckRequest) (*servicev1.HealthCheckResponse, error) {
+	if s.db != nil {
+		if err := s.db.Ping(ctx); err != nil {
+			s.log.Warn("Health check: database unreachable", zap.Error(err))
+			return &servicev1.HealthCheckResponse{
+				Status: servicev1.HealthCheckResponse_NOT_SERVING,
+			}, nil
+		}
+	}
+	if s.cache != nil {
+		if err := s.cache.Ping(ctx); err != nil {
+			s.log.Warn("Health check: cache unreachable", zap.Error(err))
+			return &servicev1.HealthCheckResponse{
+				Status: servicev1.HealthCheckResponse_NOT_SERVING,
+			}, nil
+		}
+	}
 	return &servicev1.HealthCheckResponse{
 		Status: servicev1.HealthCheckResponse_SERVING,
 	}, nil

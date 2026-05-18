@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 
 	"streamgate/pkg/models"
@@ -14,12 +15,20 @@ import (
 )
 
 type PlaybackStatsService struct {
-	db     storage.DB
-	logger *zap.Logger
+	db         storage.DB
+	logger     *zap.Logger
+	debounceMu sync.Mutex
+	pending    map[string]*time.Timer
+	debounceDelay time.Duration
 }
 
 func NewPlaybackStatsService(db storage.DB, logger *zap.Logger) *PlaybackStatsService {
-	return &PlaybackStatsService{db: db, logger: logger}
+	return &PlaybackStatsService{
+		db:            db,
+		logger:        logger,
+		pending:       make(map[string]*time.Timer),
+		debounceDelay: 5 * time.Second,
+	}
 }
 
 func (s *PlaybackStatsService) RecordEvent(ctx context.Context, event *models.PlaybackEvent) error {
@@ -46,9 +55,26 @@ func (s *PlaybackStatsService) RecordEvent(ctx context.Context, event *models.Pl
 		return fmt.Errorf("failed to record playback event: %w", err)
 	}
 
-	go s.updateStatsAggregation(event.ContentID)
+	s.scheduleAggregation(event.ContentID)
 
 	return nil
+}
+
+func (s *PlaybackStatsService) scheduleAggregation(contentID string) {
+	s.debounceMu.Lock()
+	defer s.debounceMu.Unlock()
+
+	if t, ok := s.pending[contentID]; ok {
+		t.Stop()
+	}
+
+	s.pending[contentID] = time.AfterFunc(s.debounceDelay, func() {
+		s.debounceMu.Lock()
+		delete(s.pending, contentID)
+		s.debounceMu.Unlock()
+
+		s.updateStatsAggregation(contentID)
+	})
 }
 
 func (s *PlaybackStatsService) updateStatsAggregation(contentID string) {
@@ -119,16 +145,16 @@ func (s *PlaybackStatsService) ListTopContent(ctx context.Context, limit int) ([
 	}
 	defer func() { _ = rows.Close() }()
 
-	var stats []*models.ContentStats
+	var result []*models.ContentStats
 	for rows.Next() {
-		var s models.ContentStats
+		var cs models.ContentStats
 		if err := rows.Scan(
-			&s.ContentID, &s.TotalPlays, &s.UniqueViewers,
-			&s.TotalWatchSeconds, &s.AvgWatchSeconds, &s.UpdatedAt,
+			&cs.ContentID, &cs.TotalPlays, &cs.UniqueViewers,
+			&cs.TotalWatchSeconds, &cs.AvgWatchSeconds, &cs.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan content stats: %w", err)
 		}
-		stats = append(stats, &s)
+		result = append(result, &cs)
 	}
-	return stats, nil
+	return result, nil
 }
