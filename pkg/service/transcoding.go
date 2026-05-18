@@ -166,19 +166,18 @@ func (s *TranscodingService) StartWorker(log interface {
 
 	atomic.StoreInt32(&s.currentWorkers, int32(initWorkers))
 	for i := 0; i < initWorkers; i++ {
+		s.wg.Add(1)
 		s.startWorkerGoroutine(ctx, i, log)
 	}
 
+	s.wg.Add(1)
 	s.startAutoScaler(ctx, log)
-
-	go func() {
-		<-ctx.Done()
-	}()
 }
 
 func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log interface {
 	Info(msg string, fields ...interface{})
 }) {
+	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			if log != nil {
@@ -238,13 +237,14 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 	}
 }
 
-// StopWorker stops the background worker
+// StopWorker stops the background worker and waits for all goroutines to exit.
 func (s *TranscodingService) StopWorker() {
 	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.cancelMu.Unlock()
+	s.wg.Wait()
 }
 
 func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID int, log interface {
@@ -262,6 +262,7 @@ func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log inte
 	Info(msg string, fields ...interface{})
 }) {
 	go func() {
+		defer s.wg.Done()
 		ticker := time.NewTicker(scaleCheckInterval)
 		defer ticker.Stop()
 
@@ -305,6 +306,7 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log in
 			workerID := current + i
 			childCtx, cancel := context.WithCancel(parentCtx)
 			s.extraCancels = append(s.extraCancels, cancel)
+			s.wg.Add(1)
 			s.startWorkerGoroutine(childCtx, workerID, log)
 		}
 		atomic.StoreInt32(&s.currentWorkers, int32(target))
@@ -389,7 +391,7 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	}
 
 	// Run transcode with progress tracking
-	err = s.transcoder.TranscodeToHLS(taskCtx, inputPath, outputDir, profile, func(progress float64) {
+	err = s.transcoder.TranscodeHLS(taskCtx, inputPath, outputDir, profile, func(progress float64) {
 		task.Progress = int(progress)
 		s.storeTask(task)
 	})
@@ -597,7 +599,7 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 // VideoTranscoder defines the interface for video transcoding operations.
 // Implemented by FFmpegTranscoder in pkg/plugins/transcoder.
 type VideoTranscoder interface {
-	TranscodeToHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error
+	TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error
 }
 
 // SegmentStorage defines the object storage operations needed by TranscodingService.
