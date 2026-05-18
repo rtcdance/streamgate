@@ -1,2 +1,6 @@
 -- Add unique constraint on (contract_address, token_id) to prevent duplicate NFT records
-ALTER TABLE nfts ADD CONSTRAINT IF NOT EXISTS nfts_contract_token_unique UNIQUE (contract_address, token_id);
+DO $$ BEGIN
+    ALTER TABLE nfts ADD CONSTRAINT nfts_contract_token_unique UNIQUE (contract_address, token_id);
+EXCEPTION WHEN duplicate_object THEN
+    RAISE NOTICE 'constraint nfts_contract_token_unique already exists';
+END $$;

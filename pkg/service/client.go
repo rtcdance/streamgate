@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,15 +14,17 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 // ClientPool manages gRPC client connections
 type ClientPool struct {
-	registry  ServiceRegistry
-	logger    *zap.Logger
-	clients   map[string]*grpc.ClientConn
-	mu        sync.RWMutex
-	tlsConfig *tls.Config
+	registry    ServiceRegistry
+	logger      *zap.Logger
+	clients     map[string]*grpc.ClientConn
+	mu          sync.RWMutex
+	tlsConfig   *tls.Config
+	rrCounter   atomic.Uint64
 }
 
 // NewClientPool creates a new client pool with insecure (plaintext) connections
@@ -60,7 +64,13 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 	}
 
 	// Create new connection
-	opts := []grpc.DialOption{}
+	opts := []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	}
 	if p.tlsConfig != nil {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(p.tlsConfig)))
 	} else {
@@ -99,9 +109,9 @@ func (p *ClientPool) getServiceAddress(ctx context.Context, serviceName string) 
 		return "", fmt.Errorf("service not found: %s", serviceName)
 	}
 
-	// Return first available service
-	service := services[0]
-	return fmt.Sprintf("%s:%d", service.Address, service.Port), nil
+	idx := p.rrCounter.Add(1) - 1
+	service := services[idx%uint64(len(services))]
+	return net.JoinHostPort(service.Address, strconv.Itoa(service.Port)), nil
 }
 
 // Close closes all connections
@@ -125,8 +135,9 @@ func (p *ClientPool) Close() error {
 
 // ServiceLocator provides service discovery and location
 type ServiceLocator struct {
-	registry ServiceRegistry
-	logger   *zap.Logger
+	registry  ServiceRegistry
+	logger    *zap.Logger
+	rrCounter atomic.Uint64
 }
 
 // NewServiceLocator creates a new service locator
@@ -188,9 +199,9 @@ func (l *ServiceLocator) getServiceAddress(ctx context.Context, serviceName stri
 		return "", fmt.Errorf("service not found: %s", serviceName)
 	}
 
-	// Return first available service
-	service := services[0]
-	return fmt.Sprintf("%s:%d", service.Address, service.Port), nil
+	idx := l.rrCounter.Add(1) - 1
+	service := services[idx%uint64(len(services))]
+	return net.JoinHostPort(service.Address, strconv.Itoa(service.Port)), nil
 }
 
 // CircuitBreaker implements circuit breaker pattern for service calls

@@ -78,20 +78,22 @@ func (nm *NonceManager) NextNonce(ctx context.Context, address string) (uint64, 
 			}
 		}
 
-		var gapNonce uint64
-		gapFound := false
-		for n := range st.pending {
-			if n < st.next && (!gapFound || n < gapNonce) {
-				gapNonce = n
-				gapFound = true
+		if len(st.pending) > 0 {
+			var smallest uint64
+			found := false
+			for n := range st.pending {
+				if !found || n < smallest {
+					smallest = n
+					found = true
+				}
 			}
-		}
-		if gapFound {
-			delete(st.pending, gapNonce)
-			nm.logger.Debug("NonceManager: filled gap nonce",
-				zap.String("address", address),
-				zap.Uint64("nonce", gapNonce))
-			return gapNonce, nil
+			if found {
+				delete(st.pending, smallest)
+				nm.logger.Debug("NonceManager: filled gap nonce",
+					zap.String("address", address),
+					zap.Uint64("nonce", smallest))
+				return smallest, nil
+			}
 		}
 
 		nonce := st.next
@@ -106,11 +108,10 @@ func (nm *NonceManager) NextNonce(ctx context.Context, address string) (uint64, 
 	if err != nil {
 		return 0, fmt.Errorf("nonce manager: failed to get network nonce: %w", err)
 	}
-	st = &nonceState{
+	nm.states[address] = &nonceState{
 		next:    netNonce + 1,
 		pending: make(map[uint64]struct{}),
 	}
-	nm.states[address] = st
 	nm.lastSync[address] = time.Now()
 	nm.logger.Debug("NonceManager: synced nonce from network",
 		zap.String("address", address),
@@ -129,8 +130,10 @@ func (nm *NonceManager) Rollback(address string, nonce uint64) {
 
 	if nonce == st.next-1 {
 		st.next = nonce
+		delete(st.pending, nonce)
 		for n := range st.pending {
-			if n < st.next {
+			if n == st.next-1 {
+				st.next = n
 				delete(st.pending, n)
 			}
 		}

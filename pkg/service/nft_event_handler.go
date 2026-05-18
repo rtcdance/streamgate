@@ -52,7 +52,7 @@ func (h *NFTEventHandler) HandleTransfer(ctx context.Context, event *web3.Indexe
 		zap.String("token_id", tokenID),
 		zap.String("tx_hash", event.TransactionHash))
 
-	h.nftService.InvalidateOwnershipCache(contractAddress, tokenID)
+	h.nftService.InvalidateOwnershipCache(ctx, contractAddress, tokenID)
 	return nil
 }
 

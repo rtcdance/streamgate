@@ -7,7 +7,7 @@ import (
 
 // SolanaSignatureVerifier verifies Solana ed25519 signatures.
 type SolanaSignatureVerifier interface {
-	VerifySolanaSignature(address, message, signature string) (bool, error)
+	VerifySolanaSignature(ctx context.Context, address, message, signature string) (bool, error)
 }
 
 // MultiChainVerifier verifies signatures on multiple chains.
@@ -46,5 +46,5 @@ func (v *MultiChainVerifier) VerifySolana(ctx context.Context, address, message,
 	if v.solanaVerifier == nil {
 		return false, errors.New("Solana signature verification not configured: inject SolanaSignatureVerifier via NewMultiChainVerifierWithVerifiers")
 	}
-	return v.solanaVerifier.VerifySolanaSignature(address, message, signature)
+	return v.solanaVerifier.VerifySolanaSignature(ctx, address, message, signature)
 }

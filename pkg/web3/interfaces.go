@@ -35,6 +35,7 @@ type SignatureVerifierInterface interface {
 type SolanaVerifierInterface interface {
 	VerifyTokenAccount(ctx context.Context, tokenAccount, ownerAddress string) (bool, error)
 	VerifyMintAuthority(ctx context.Context, mintAddress, authorityAddress string) (bool, error)
-	VerifyMetaplexMetadata(ctx context.Context, metadataURI, creatorAddress, signature string) (bool, error)
+	VerifyMetaplexNFTOwnership(ctx context.Context, mintAddress, ownerAddress string) (bool, error)
+	FetchMetaplexMetadata(ctx context.Context, mintAddress string) (*MetaplexMetadata, error)
 	Close()
 }

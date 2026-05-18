@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/web3"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"streamgate/pkg/cachetypes"
-	"streamgate/pkg/web3"
 
 	"go.uber.org/zap"
 )
@@ -269,7 +270,7 @@ func (s *NFTService) VerifyNFTBatch(ctx context.Context, address string, nfts []
 // InvalidateOwnershipCache removes cached NFT ownership data for a specific token.
 // This is called when a Transfer event is detected on-chain, ensuring the next
 // VerifyNFT call queries fresh chain state instead of returning stale cached data.
-func (s *NFTService) InvalidateOwnershipCache(contractAddress, tokenID string) {
+func (s *NFTService) InvalidateOwnershipCache(ctx context.Context, contractAddress, tokenID string) {
 	if s.cacheEnabled && s.cache != nil {
 		key := fmt.Sprintf("nft:owner:%s:%s", contractAddress, tokenID)
 		if err := s.cache.Delete(key); err != nil {

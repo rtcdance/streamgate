@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/consul/api"
@@ -257,9 +258,9 @@ func (r *ConsulRegistry) Health(ctx context.Context) error {
 
 // ServiceClient provides methods to call other services
 type ServiceClient struct {
-	registry ServiceRegistry
-	logger   *zap.Logger
-	// TODO: Add gRPC clients for each service
+	registry  ServiceRegistry
+	logger    *zap.Logger
+	rrCounter uint64
 }
 
 // NewServiceClient creates a new service client
@@ -281,8 +282,8 @@ func (c *ServiceClient) GetServiceAddress(ctx context.Context, serviceName strin
 		return "", fmt.Errorf("service not found: %s", serviceName)
 	}
 
-	// Return first available service
-	service := services[0]
+	idx := atomic.AddUint64(&c.rrCounter, 1) - 1
+	service := services[idx%uint64(len(services))]
 	return net.JoinHostPort(service.Address, strconv.Itoa(service.Port)), nil
 }
 

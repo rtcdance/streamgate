@@ -203,6 +203,7 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
 	token, err := auth.GeneratePlaybackToken(
+		context.Background(),
 		"0x1234567890123456789012345678901234567890",
 		"content-1",
 		"0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
@@ -212,13 +213,13 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	claims, err := auth.ValidatePlaybackToken(token, "content-1")
+	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1")
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
 	assert.Equal(t, "7", claims.TokenID)
 	assert.Equal(t, int64(11155111), claims.ChainID)
 
-	_, err = auth.ValidatePlaybackToken(token, "other-content")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "other-content")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "content mismatch")
 }

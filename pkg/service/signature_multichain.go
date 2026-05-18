@@ -28,7 +28,7 @@ func (v *MultiChainSignatureVerifier) VerifySignature(ctx context.Context, addre
 }
 
 // VerifySolanaSignature verifies a Solana (ed25519) signature.
-func (v *MultiChainSignatureVerifier) VerifySolanaSignature(address, message, signature string) (bool, error) {
+func (v *MultiChainSignatureVerifier) VerifySolanaSignature(ctx context.Context, address, message, signature string) (bool, error) {
 	if v.solanaVerifier == nil {
 		return false, ErrSolanaNotConfigured
 	}
@@ -36,7 +36,7 @@ func (v *MultiChainSignatureVerifier) VerifySolanaSignature(address, message, si
 }
 
 // VerifyOffchainMessage verifies a Solana off-chain message with standard prefix.
-func (v *MultiChainSignatureVerifier) VerifyOffchainMessage(address, message, signature string) (bool, error) {
+func (v *MultiChainSignatureVerifier) VerifyOffchainMessage(ctx context.Context, address, message, signature string) (bool, error) {
 	if v.solanaVerifier == nil {
 		return false, ErrSolanaNotConfigured
 	}

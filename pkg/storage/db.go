@@ -30,8 +30,9 @@ type Database struct {
 
 // DatabaseConfig holds database configuration
 type DatabaseConfig struct {
-	Type string // postgres, mysql, etc.
-	DSN  string
+	Type     string
+	DSN      string
+	PoolCfg  PoolConfig
 }
 
 // NewDatabase creates a new database instance
@@ -39,7 +40,7 @@ func NewDatabase(config DatabaseConfig) (*Database, error) {
 	switch config.Type {
 	case "postgres", "postgresql":
 		postgres := NewPostgresDB()
-		if err := postgres.Connect(config.DSN); err != nil {
+		if err := postgres.ConnectWithConfig(config.DSN, config.PoolCfg); err != nil {
 			return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
 		}
 		return &Database{impl: postgres, dbType: config.Type}, nil

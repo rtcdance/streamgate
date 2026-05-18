@@ -72,7 +72,7 @@ func TestMultiChainSignatureVerifier_EVM(t *testing.T) {
 func TestMultiChainSignatureVerifier_SolanaNotConfigured(t *testing.T) {
 	verifier := NewMultiChainSignatureVerifier(zap.NewNop(), nil)
 
-	_, err := verifier.VerifySolanaSignature("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "msg", "sig")
+	_, err := verifier.VerifySolanaSignature(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "msg", "sig")
 	assert.ErrorIs(t, err, ErrSolanaNotConfigured)
 }
 
@@ -82,7 +82,7 @@ func TestMultiChainSignatureVerifier_SolanaWithVerifier(t *testing.T) {
 	verifier := NewMultiChainSignatureVerifier(zap.NewNop(), solanaVerifier)
 
 	// Invalid signature format should return error
-	_, err := verifier.VerifySolanaSignature("invalid-address", "msg", "invalid-sig")
+	_, err := verifier.VerifySolanaSignature(context.Background(), "invalid-address", "msg", "invalid-sig")
 	assert.Error(t, err)
 }
 

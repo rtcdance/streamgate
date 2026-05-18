@@ -596,7 +596,7 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		}
 	}
 
-	playbackToken, err := s.authSvc.GeneratePlaybackToken(wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute)
+	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to generate playback token")
 	}
@@ -678,7 +678,7 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 		if len(tokens) == 0 || tokens[0] == "" {
 			return nil, status.Error(codes.Unauthenticated, "missing playback token")
 		}
-		if _, err := s.authSvc.ValidatePlaybackToken(tokens[0], req.ContentId); err != nil {
+		if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId); err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid playback token")
 		}
 	} else {

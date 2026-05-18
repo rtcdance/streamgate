@@ -69,8 +69,8 @@ type WalletSignatureVerifier interface {
 // to the correct verification algorithm based on chain ID.
 type ChainAwareSignatureVerifier interface {
 	WalletSignatureVerifier
-	VerifySolanaSignature(address, message, signature string) (bool, error)
-	VerifyOffchainMessage(address, message, signature string) (bool, error)
+	VerifySolanaSignature(ctx context.Context, address, message, signature string) (bool, error)
+	VerifyOffchainMessage(ctx context.Context, address, message, signature string) (bool, error)
 }
 
 
@@ -199,7 +199,7 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 		if !ok {
 			return "", ErrNotSupported
 		}
-		valid, err = verifier.VerifyOffchainMessage(normalizedAddress, challenge.Message, signature)
+		valid, err = verifier.VerifyOffchainMessage(ctx, normalizedAddress, challenge.Message, signature)
 	} else if challenge.SigningType == "eip712" {
 		// EIP-712 typed data verification: reconstruct the typed data from the challenge
 		typedData := s.buildEIP712Challenge(challenge)
@@ -284,7 +284,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 }
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
-func (s *AuthService) GeneratePlaybackToken(walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration) (string, error) {
+func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration) (string, error) {
 	if ttl <= 0 {
 		ttl = 2 * time.Minute
 	}
@@ -310,7 +310,7 @@ func (s *AuthService) GeneratePlaybackToken(walletAddress, contentID, contract, 
 }
 
 // ValidatePlaybackToken validates a playback token and ensures it matches the requested content.
-func (s *AuthService) ValidatePlaybackToken(tokenString, contentID string) (*Claims, error) {
+func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID string) (*Claims, error) {
 	claims, err := s.ParseToken(tokenString)
 	if err != nil {
 		return nil, err

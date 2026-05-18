@@ -220,29 +220,28 @@ type MetaplexFile struct {
 }
 
 // VerifyMetaplexMetadata verifies Metaplex NFT metadata signature
-func (sv *SolanaVerifier) VerifyMetaplexMetadata(ctx context.Context, metadataURI, creatorAddress, signature string) (bool, error) {
-	sv.logger.Debug("Verifying Metaplex metadata",
-		zap.String("creator", creatorAddress),
-		zap.String("metadata_uri", metadataURI))
+func (sv *SolanaVerifier) VerifyMetaplexNFTOwnership(ctx context.Context, mintAddress, ownerAddress string) (bool, error) {
+	sv.logger.Debug("Verifying Metaplex NFT ownership",
+		zap.String("mint", mintAddress),
+		zap.String("owner", ownerAddress))
 
-	// In production, you would:
-	// 1. Fetch metadata from URI
-	// 2. Serialize metadata according to Metaplex spec
-	// 3. Verify signature with creator's public key
-
-	// For now, just verify the signature format
-	if signature == "" {
-		return false, fmt.Errorf("empty signature")
+	if sv.rpcClient == nil {
+		return false, fmt.Errorf("Solana RPC client not initialized")
 	}
 
-	_, err := base64.StdEncoding.DecodeString(signature)
-	if err != nil {
-		return false, fmt.Errorf("invalid signature format: %w", err)
+	verifier := NewMetaplexVerifier(sv.rpcClient, sv.logger, nil)
+	return verifier.VerifyNFTOwnership(ctx, mintAddress, ownerAddress)
+}
+
+func (sv *SolanaVerifier) FetchMetaplexMetadata(ctx context.Context, mintAddress string) (*MetaplexMetadata, error) {
+	sv.logger.Debug("Fetching Metaplex metadata", zap.String("mint", mintAddress))
+
+	if sv.rpcClient == nil {
+		return nil, fmt.Errorf("Solana RPC client not initialized")
 	}
 
-	// TODO: Implement full Metaplex metadata verification
-	sv.logger.Debug("Metaplex metadata format verified (full verification not implemented)")
-	return true, nil
+	verifier := NewMetaplexVerifier(sv.rpcClient, sv.logger, nil)
+	return verifier.GetMetadata(ctx, mintAddress)
 }
 
 // VerifyTokenAccount verifies token account ownership by querying the Solana RPC.
