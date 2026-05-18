@@ -161,17 +161,24 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 	}
 
 	ei.mu.Lock()
-	// Try to load checkpoint from store for resume
 	if ei.store != nil {
 		if checkpoint, err := ei.store.LoadCheckpoint(ei.contractAddress.Hex()); err == nil && checkpoint > 0 {
 			ei.startBlock = checkpoint
 			ei.currentBlock = checkpoint
 			ei.logger.Info("Resuming from checkpoint",
 				zap.Uint64("checkpoint_block", checkpoint))
+		} else if ei.startBlock > 0 {
+			ei.currentBlock = ei.startBlock
+			ei.logger.Info("Starting from configured startBlock",
+				zap.Uint64("start_block", ei.startBlock))
 		} else {
 			ei.startBlock = blockNumber
 			ei.currentBlock = blockNumber
 		}
+	} else if ei.startBlock > 0 {
+		ei.currentBlock = ei.startBlock
+		ei.logger.Info("Starting from configured startBlock",
+			zap.Uint64("start_block", ei.startBlock))
 	} else {
 		ei.startBlock = blockNumber
 		ei.currentBlock = blockNumber
@@ -367,30 +374,20 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 
 	ei.indexRange(ctx, currentBlock+1, safeBlock)
 
-	// Update current block to safeBlock (not latestBlock)
-	ei.mu.Lock()
-	ei.currentBlock = safeBlock
+	ei.mu.RLock()
 	store := ei.store
 	reorgDetector := ei.reorgDetector
-	ei.mu.Unlock()
+	ei.mu.RUnlock()
 
-	if store != nil {
-		// Save checkpoint for resume after restart
-		if err := store.SaveCheckpoint(ei.contractAddress.Hex(), safeBlock); err != nil {
-			ei.logger.Error("Failed to save checkpoint", zap.Error(err))
-		}
-
-		// Run reorg detection on recently indexed events
-		if reorgDetector != nil {
-			recentEvents, err := store.GetEventsByBlockRange(currentBlock+1, safeBlock)
-			if err == nil && len(recentEvents) > 0 {
-				reorgedHashes := reorgDetector.MarkReorgedEvents(ctx, recentEvents)
-				if len(reorgedHashes) > 0 {
-					ei.logger.Warn("Reorg detected: marking events as reorged",
-						zap.Int("reorged_count", len(reorgedHashes)))
-					if count, err := store.MarkEventsReorged(reorgedHashes); err == nil {
-						ei.logger.Info("Events marked as reorged", zap.Int("count", count))
-					}
+	if store != nil && reorgDetector != nil {
+		recentEvents, err := store.GetEventsByBlockRange(currentBlock+1, safeBlock)
+		if err == nil && len(recentEvents) > 0 {
+			reorgedHashes := reorgDetector.MarkReorgedEvents(ctx, recentEvents)
+			if len(reorgedHashes) > 0 {
+				ei.logger.Warn("Reorg detected: marking events as reorged",
+					zap.Int("reorged_count", len(reorgedHashes)))
+				if count, err := store.MarkEventsReorged(reorgedHashes); err == nil {
+					ei.logger.Info("Events marked as reorged", zap.Int("count", count))
 				}
 			}
 		}
@@ -399,32 +396,64 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 
 // indexRange indexes events in the specified block range [fromBlock, toBlock].
 // This is the shared logic used by both indexEvents and Replay.
+const indexBatchSize uint64 = 1000
+
 func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) {
-	query := ethereum.FilterQuery{
-		FromBlock: new(big.Int).SetUint64(fromBlock),
-		ToBlock:   new(big.Int).SetUint64(toBlock),
-	}
-	if len(ei.contractAddresses) > 0 {
-		query.Addresses = ei.contractAddresses
-	}
-	if len(ei.eventSignatures) > 0 {
-		query.Topics = [][]common.Hash{ei.eventSignatures}
-	}
+	for batchStart := fromBlock; batchStart <= toBlock; {
+		select {
+		case <-ctx.Done():
+			ei.logger.Info("indexRange cancelled", zap.Uint64("last_batch_start", batchStart))
+			return
+		default:
+		}
 
-	logs, err := ei.client.FilterLogs(ctx, query)
-	if err != nil {
-		ei.logger.Error("Failed to filter logs", zap.Error(err))
-		return
-	}
+		batchEnd := batchStart + indexBatchSize - 1
+		if batchEnd > toBlock {
+			batchEnd = toBlock
+		}
 
-	ei.logger.Debug("Events indexed",
-		zap.Int("count", len(logs)),
-		zap.Uint64("from_block", fromBlock),
-		zap.Uint64("to_block", toBlock))
+		query := ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(batchStart),
+			ToBlock:   new(big.Int).SetUint64(batchEnd),
+		}
+		if len(ei.contractAddresses) > 0 {
+			query.Addresses = ei.contractAddresses
+		}
+		if len(ei.eventSignatures) > 0 {
+			query.Topics = [][]common.Hash{ei.eventSignatures}
+		}
 
-	for _, log := range logs {
-		event := ei.logToEvent(&log)
-		ei.addEvent(event)
+		logs, err := ei.client.FilterLogs(ctx, query)
+		if err != nil {
+			ei.logger.Error("Failed to filter logs",
+				zap.Uint64("from_block", batchStart),
+				zap.Uint64("to_block", batchEnd),
+				zap.Error(err))
+			return
+		}
+
+		for _, log := range logs {
+			event := ei.logToEvent(&log)
+			ei.addEvent(event)
+		}
+
+		ei.logger.Debug("Batch indexed",
+			zap.Int("count", len(logs)),
+			zap.Uint64("from_block", batchStart),
+			zap.Uint64("to_block", batchEnd))
+
+		ei.mu.Lock()
+		ei.currentBlock = batchEnd
+		store := ei.store
+		ei.mu.Unlock()
+
+		if store != nil {
+			if err := store.SaveCheckpoint(ei.contractAddress.Hex(), batchEnd); err != nil {
+				ei.logger.Error("Failed to save checkpoint", zap.Uint64("block", batchEnd), zap.Error(err))
+			}
+		}
+
+		batchStart = batchEnd + 1
 	}
 }
 

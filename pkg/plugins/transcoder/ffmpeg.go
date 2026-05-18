@@ -301,6 +301,27 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 	return ft.generateHLSMasterPlaylist(outputDir, profiles)
 }
 
+var defaultProfileMap = map[string]TranscodeProfile{
+	"1080p": {Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"},
+	"720p":  {Resolution: "1280x720", Bitrate: "2500k", Format: "hls"},
+	"480p":  {Resolution: "854x480", Bitrate: "1000k", Format: "hls"},
+	"360p":  {Resolution: "640x360", Bitrate: "500k", Format: "hls"},
+}
+
+// TranscodeHLS transcodes video to HLS for a single profile name (e.g. "720p").
+// This method satisfies the service.VideoTranscoder interface.
+func (ft *FFmpegTranscoder) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(float64)) error {
+	p, ok := defaultProfileMap[profile]
+	if !ok {
+		p = defaultProfileMap["720p"]
+	}
+	cb := ProgressCallback(nil)
+	if progressFn != nil {
+		cb = func(pg *TranscodeProgress) { progressFn(pg.Progress) }
+	}
+	return ft.TranscodeToHLS(ctx, inputPath, outputDir, []TranscodeProfile{p}, cb)
+}
+
 // cleanupPartialOutput removes .ts and .m3u8 files from a failed transcode attempt
 func (ft *FFmpegTranscoder) cleanupPartialOutput(outputDir string) {
 	entries, err := os.ReadDir(outputDir)

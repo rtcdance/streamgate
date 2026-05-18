@@ -72,7 +72,7 @@ func (a *ffmpegAdapter) SelectProfiles(ctx context.Context, inputPath, requested
 	return profiles, nil
 }
 
-func (a *ffmpegAdapter) TranscodeToHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
+func (a *ffmpegAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)

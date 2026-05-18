@@ -153,18 +153,17 @@ func TestNonceManager_EvictStaleLocked(t *testing.T) {
 
 	// Add stale entries directly
 	nm.mu.Lock()
-	nm.cached["0xold"] = 0
-	nm.lastSync["0xold"] = time.Time{} // epoch time, very stale
-	nm.cached["0xnew"] = 5
+	nm.states["0xold"] = &nonceState{next: 0, pending: make(map[uint64]struct{})}
+	nm.lastSync["0xold"] = time.Time{}
+	nm.states["0xnew"] = &nonceState{next: 5, pending: make(map[uint64]struct{})}
 	nm.lastSync["0xnew"] = time.Now()
 	nm.mu.Unlock()
 
-	// Call the eviction directly (it's unexported, but we're in the same package)
 	nm.evictStaleLocked()
 
 	nm.mu.Lock()
-	_, oldExists := nm.cached["0xold"]
-	_, newExists := nm.cached["0xnew"]
+	_, oldExists := nm.states["0xold"]
+	_, newExists := nm.states["0xnew"]
 	nm.mu.Unlock()
 
 	assert.False(t, oldExists, "stale entry should have been evicted")
@@ -175,14 +174,15 @@ func TestNonceManager_ResetAddress(t *testing.T) {
 	nm := NewNonceManager(nil, zap.NewNop())
 
 	nm.mu.Lock()
-	nm.cached["0xaddr"] = 42
+	nm.states["0xaddr"] = &nonceState{next: 42, pending: make(map[uint64]struct{})}
 	nm.lastSync["0xaddr"] = time.Now()
 	nm.mu.Unlock()
 
 	nm.Reset("0xaddr")
 
 	nm.mu.Lock()
-	assert.Equal(t, uint64(0), nm.cached["0xaddr"])
+	_, exists := nm.states["0xaddr"]
+	assert.False(t, exists, "Reset should remove address state")
 	nm.mu.Unlock()
 }
 
