@@ -37,6 +37,7 @@ type UploadService struct {
 	storageQuota  int64
 	logger        *zap.Logger
 	onProcessed   []PostUploadHook
+	hookMu        sync.Mutex
 
 	chunkMergeConcurrency int // parallel chunk downloads during merge
 }
@@ -46,6 +47,8 @@ const defaultChunkMergeConcurrency = 5
 type PostUploadHook func(ctx context.Context, uploadID, contentID, ownerID string)
 
 func (s *UploadService) RegisterPostUploadHook(hook PostUploadHook) {
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
 	s.onProcessed = append(s.onProcessed, hook)
 }
 
@@ -889,7 +892,12 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 		zap.String("upload_id", uploadID),
 		zap.String("content_id", contentID))
 
-	for _, hook := range s.onProcessed {
+	s.hookMu.Lock()
+	hooks := make([]PostUploadHook, len(s.onProcessed))
+	copy(hooks, s.onProcessed)
+	s.hookMu.Unlock()
+
+	for _, hook := range hooks {
 		go func(h PostUploadHook) {
 			defer func() {
 				if r := recover(); r != nil {
