@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,7 +37,7 @@ type CacheStorage struct {
 type cacheItem struct {
 	value      interface{}
 	expiration time.Time
-	lastAccess time.Time
+	lastAccess atomic.Int64
 }
 
 // NewCacheStorage creates a new cache storage instance
@@ -80,7 +81,7 @@ func (cs *CacheStorage) Get(key string) (interface{}, error) {
 		return nil, fmt.Errorf("key expired: %s", key)
 	}
 
-	item.lastAccess = time.Now()
+	item.lastAccess.Store(time.Now().UnixNano())
 
 	return item.value, nil
 }
@@ -138,8 +139,8 @@ func (cs *CacheStorage) SetWithExpiration(key string, value interface{}, ttl tim
 	cs.items[key] = &cacheItem{
 		value:      value,
 		expiration: expiration,
-		lastAccess: time.Now(),
 	}
+	cs.items[key].lastAccess.Store(time.Now().UnixNano())
 
 	return nil
 }
@@ -262,15 +263,15 @@ func (cs *CacheStorage) evictLRU() {
 	}
 
 	type kv struct {
-		key       string
-		lastAccess time.Time
+		key        string
+		lastAccess int64
 	}
 	candidates := make([]kv, 0, len(cs.items))
 	for key, item := range cs.items {
-		candidates = append(candidates, kv{key: key, lastAccess: item.lastAccess})
+		candidates = append(candidates, kv{key: key, lastAccess: item.lastAccess.Load()})
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].lastAccess.Before(candidates[j].lastAccess)
+		return candidates[i].lastAccess < candidates[j].lastAccess
 	})
 
 	for i := 0; i < evictCount && i < len(candidates); i++ {

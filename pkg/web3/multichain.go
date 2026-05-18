@@ -3,6 +3,7 @@ package web3
 import (
 	"fmt"
 	"sort"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -146,6 +147,7 @@ var SupportedChains = map[int64]*ChainConfig{
 
 // MultiChainManager manages multiple blockchain connections
 type MultiChainManager struct {
+	mu            sync.RWMutex
 	clients       map[int64]*ChainClient
 	solanaClients map[int64]*SolanaVerifier
 	rateLimiter   *RPCRateLimiter
@@ -166,7 +168,6 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 	mcm.logger.Info("Adding chain",
 		zap.Int64("chain_id", chainID))
 
-	// Get chain config
 	config, exists := SupportedChains[chainID]
 	if !exists {
 		mcm.logger.Error("Chain not supported",
@@ -174,17 +175,17 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 		return fmt.Errorf("chain not supported: %d", chainID)
 	}
 
-	// Solana chains use SolanaVerifier
 	if chainID < 0 {
 		verifier := NewSolanaVerifier(mcm.logger, config.RPC)
+		mcm.mu.Lock()
 		mcm.solanaClients[chainID] = verifier
+		mcm.mu.Unlock()
 		mcm.logger.Info("Solana chain added",
 			zap.Int64("chain_id", chainID),
 			zap.String("name", config.Name))
 		return nil
 	}
 
-	// Create EVM client
 	rpcURLs := config.RPCs
 	if len(rpcURLs) == 0 && config.RPC != "" {
 		rpcURLs = []string{config.RPC}
@@ -197,7 +198,9 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 		return err
 	}
 
+	mcm.mu.Lock()
 	mcm.clients[chainID] = client
+	mcm.mu.Unlock()
 	mcm.logger.Info("Chain added",
 		zap.Int64("chain_id", chainID),
 		zap.String("name", config.Name))
@@ -207,6 +210,8 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 
 // AddChainWithClient adds a chain with an existing client.
 func (mcm *MultiChainManager) AddChainWithClient(chainID int64, client *ChainClient) {
+	mcm.mu.Lock()
+	defer mcm.mu.Unlock()
 	mcm.clients[chainID] = client
 }
 
@@ -214,6 +219,9 @@ func (mcm *MultiChainManager) AddChainWithClient(chainID int64, client *ChainCli
 func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 	mcm.logger.Info("Removing chain",
 		zap.Int64("chain_id", chainID))
+
+	mcm.mu.Lock()
+	defer mcm.mu.Unlock()
 
 	if client, exists := mcm.clients[chainID]; exists {
 		client.Close()
@@ -230,9 +238,11 @@ func (mcm *MultiChainManager) RemoveChain(chainID int64) {
 
 // GetClient gets a chain client
 func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
+	mcm.mu.RLock()
+	defer mcm.mu.RUnlock()
+
 	client, exists := mcm.clients[chainID]
 	if !exists {
-		// Check if it's a Solana chain
 		if _, solExists := mcm.solanaClients[chainID]; solExists {
 			return nil, fmt.Errorf("EVM chain client not found: %d is a Solana chain", chainID)
 		}
@@ -246,9 +256,11 @@ func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 
 // GetSolanaClient returns the Solana verifier for the given chain ID.
 func (mcm *MultiChainManager) GetSolanaClient(chainID int64) (*SolanaVerifier, error) {
+	mcm.mu.RLock()
+	defer mcm.mu.RUnlock()
+
 	verifier, exists := mcm.solanaClients[chainID]
 	if !exists {
-		// Check if it's an EVM chain
 		if _, evmExists := mcm.clients[chainID]; evmExists {
 			return nil, fmt.Errorf("Solana chain client not found: %d is an EVM chain", chainID)
 		}
@@ -285,6 +297,9 @@ func (mcm *MultiChainManager) GetSupportedChains() []*ChainConfig {
 
 // GetRPCStatuses returns the runtime RPC status for each configured chain.
 func (mcm *MultiChainManager) GetRPCStatuses() map[int64][]RPCStatus {
+	mcm.mu.RLock()
+	defer mcm.mu.RUnlock()
+
 	statuses := make(map[int64][]RPCStatus, len(mcm.clients))
 	for chainID, client := range mcm.clients {
 		statuses[chainID] = client.GetRPCStatuses()
@@ -320,6 +335,9 @@ func (mcm *MultiChainManager) GetMainnetChains() []*ChainConfig {
 func (mcm *MultiChainManager) Close() {
 	mcm.logger.Info("Closing all chain connections")
 
+	mcm.mu.Lock()
+	defer mcm.mu.Unlock()
+
 	for chainID, client := range mcm.clients {
 		client.Close()
 		mcm.logger.Info("Chain connection closed",
@@ -327,6 +345,7 @@ func (mcm *MultiChainManager) Close() {
 	}
 
 	mcm.clients = make(map[int64]*ChainClient)
+	mcm.solanaClients = make(map[int64]*SolanaVerifier)
 }
 
 // CrossChainBridge represents a cross-chain bridge (placeholder for future)
