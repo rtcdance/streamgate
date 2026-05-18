@@ -63,7 +63,7 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.version || 'latest' }}
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith:${{ env.IMAGE_TAG }}
           format: 'spdx'
@@ -167,7 +167,7 @@ jobs:
       
       - name: Run Trivy vulnerability scanner
         if: steps.check_image.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
           format: 'sarif'
