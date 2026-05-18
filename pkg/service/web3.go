@@ -933,15 +933,15 @@ func (ws *Web3Service) VerifySolanaMintAuthority(ctx context.Context, mintAddres
 }
 
 // VerifySolanaMetaplexMetadata verifies Metaplex NFT metadata signature.
-func (ws *Web3Service) VerifySolanaMetaplexMetadata(ctx context.Context, metadataURI, creatorAddress, signature string) (bool, error) {
-	ws.logger.Debug("Verifying Solana Metaplex metadata",
-		zap.String("creator", creatorAddress),
-		zap.String("metadata_uri", metadataURI))
+func (ws *Web3Service) VerifySolanaMetaplexNFTOwnership(ctx context.Context, mintAddress, ownerAddress string) (bool, error) {
+	ws.logger.Debug("Verifying Solana Metaplex NFT ownership",
+		zap.String("mint", mintAddress),
+		zap.String("owner", ownerAddress))
 
 	if ws.solanaVerifier == nil {
 		return false, fmt.Errorf("solana verifier not initialized")
 	}
-	return ws.solanaVerifier.VerifyMetaplexMetadata(ctx, metadataURI, creatorAddress, signature)
+	return ws.solanaVerifier.VerifyMetaplexNFTOwnership(ctx, mintAddress, ownerAddress)
 }
 
 // SubmitPermit submits an EIP-2612 permit transaction to an ERC-20 contract.

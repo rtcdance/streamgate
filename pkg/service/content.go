@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 // ContentService handles content operations
@@ -21,8 +22,9 @@ type ContentService struct {
 	db       storage.DB
 	objStore ContentObjectStorage
 	cache    cachetypes.CacheBackend
-	registry ContentRegistry // optional: on-chain registration
+	registry ContentRegistry
 	logger   *zap.Logger
+	sf       singleflight.Group
 }
 
 // ContentRegistry defines the interface for on-chain content registration.
@@ -82,7 +84,6 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 	if s.db == nil {
 		return nil, fmt.Errorf("database not available")
 	}
-	// Try cache first
 	if s.cache != nil {
 		if cached, err := s.cache.Get("content:" + id); err == nil {
 			if content, ok := cached.(*Content); ok {
@@ -91,66 +92,69 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 		}
 	}
 
-	// Query from database
-	query := `
-		SELECT id, title, description, type, url, thumbnail_url, 
-		       duration, size, status, owner_id, created_at, updated_at, metadata
-		FROM contents
-		WHERE id = $1
-	`
+	v, err, _ := s.sf.Do("content:"+id, func() (interface{}, error) {
+		query := `
+			SELECT id, title, description, type, url, thumbnail_url, 
+			       duration, size, status, owner_id, created_at, updated_at, metadata
+			FROM contents
+			WHERE id = $1
+		`
 
-	var content Content
-	var metadataJSON []byte
-	var desc, url, thumbURL, status, ownerID sql.NullString
-	var duration sql.NullInt64
-	var size sql.NullInt64
+		var content Content
+		var metadataJSON []byte
+		var desc, url, thumbURL, status, ownerID sql.NullString
+		var duration sql.NullInt64
+		var size sql.NullInt64
 
-	err := s.db.QueryRow(ctx, query, id).Scan(
-		&content.ID,
-		&content.Title,
-		&desc,
-		&content.Type,
-		&url,
-		&thumbURL,
-		&duration,
-		&size,
-		&status,
-		&ownerID,
-		&content.CreatedAt,
-		&content.UpdatedAt,
-		&metadataJSON,
-	)
+		err := s.db.QueryRow(ctx, query, id).Scan(
+			&content.ID,
+			&content.Title,
+			&desc,
+			&content.Type,
+			&url,
+			&thumbURL,
+			&duration,
+			&size,
+			&status,
+			&ownerID,
+			&content.CreatedAt,
+			&content.UpdatedAt,
+			&metadataJSON,
+		)
 
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("content not found: %s", id)
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to query content: %w", err)
-	}
-
-	content.Description = desc.String
-	content.URL = url.String
-	content.ThumbnailURL = thumbURL.String
-	content.Duration = int(duration.Int64)
-	content.Size = size.Int64
-	content.Status = status.String
-	content.OwnerID = ownerID.String
-
-	// Parse metadata
-	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &content.Metadata); err != nil {
-			return nil, fmt.Errorf("failed to parse metadata: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("content not found: %s", id)
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to query content: %w", err)
 		}
-	}
 
-	// Cache a copy to prevent mutation of cached data
-	if s.cache != nil {
-		cp := content
-		if err := s.cache.SetWithExpiration("content:"+id, &cp, 15*time.Minute); err != nil {
-			s.logger.Warn("Failed to cache content", zap.String("id", id), zap.Error(err))
+		content.Description = desc.String
+		content.URL = url.String
+		content.ThumbnailURL = thumbURL.String
+		content.Duration = int(duration.Int64)
+		content.Size = size.Int64
+		content.Status = status.String
+		content.OwnerID = ownerID.String
+
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &content.Metadata); err != nil {
+				return nil, fmt.Errorf("failed to parse metadata: %w", err)
+			}
 		}
-	}
 
-	return &content, nil
+		if s.cache != nil {
+			cp := content
+			if err := s.cache.SetWithExpiration("content:"+id, &cp, 15*time.Minute); err != nil {
+				s.logger.Warn("Failed to cache content", zap.String("id", id), zap.Error(err))
+			}
+		}
+
+		return &content, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*Content), nil
 }
 
 // CreateContent creates new content

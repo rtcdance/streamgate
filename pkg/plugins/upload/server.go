@@ -28,7 +28,13 @@ func NewUploadServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microk
 	pg := storage.NewPostgresDB()
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database, cfg.Database.SSLMode)
-	if err := pg.Connect(dsn); err != nil {
+	poolCfg := storage.PoolConfigFromValues(cfg.Database.MaxConns, cfg.Database.MaxIdleConns, 0, 0)
+	if cfg.Database.ConnMaxLifetime != "" {
+		if d, err := time.ParseDuration(cfg.Database.ConnMaxLifetime); err == nil {
+			poolCfg.ConnMaxLifetime = d
+		}
+	}
+	if err := pg.ConnectWithConfig(dsn, poolCfg); err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 

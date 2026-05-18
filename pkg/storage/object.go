@@ -23,6 +23,7 @@ type ObjectStorage interface {
 	Download(ctx context.Context, bucket, objectName string) ([]byte, error)
 	DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error)
 	Delete(ctx context.Context, bucket, objectName string) error
+	DeleteObjects(ctx context.Context, bucket string, objectNames []string) error
 	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
 	Exists(ctx context.Context, bucket, objectName string) (bool, error)
 	CreateBucket(ctx context.Context, bucket string) error

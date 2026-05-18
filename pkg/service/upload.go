@@ -117,6 +117,7 @@ type UploadObjectStorage interface {
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
 	DownloadStream(ctx context.Context, bucket, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, bucket, key string) error
+	DeleteObjects(ctx context.Context, bucket string, keys []string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
 	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
 }
@@ -712,12 +713,9 @@ func (s *UploadService) DeleteUpload(ctx context.Context, uploadID string) error
 	chunks, err := s.objStore.ListObjects(ctx, s.bucket, chunkPrefix)
 	if err != nil {
 		s.logger.Warn("Failed to list chunks for cleanup", zap.String("upload_id", uploadID), zap.Error(err))
-	} else {
-		for _, chunkKey := range chunks {
-			if err := s.objStore.Delete(ctx, s.bucket, chunkKey); err != nil {
-				s.logger.Debug("Failed to delete chunk during cleanup",
-					zap.String("chunk_key", chunkKey), zap.Error(err))
-			}
+	} else if len(chunks) > 0 {
+		if err := s.objStore.DeleteObjects(ctx, s.bucket, chunks); err != nil {
+			s.logger.Warn("Failed to batch delete chunks", zap.String("upload_id", uploadID), zap.Error(err))
 		}
 	}
 

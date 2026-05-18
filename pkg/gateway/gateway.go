@@ -206,16 +206,20 @@ func WithUploadService(svc *service.UploadService) RouterOption {
 }
 
 type serviceInit struct {
-	Web3Service    *service.Web3Service
-	AuthService    *service.AuthService
-	NFTVerifier    middleware.NFTOwnershipChecker
-	NFTCache       *NFTAccessCache
-	NFTCacheBackend middleware.NFTAccessCache
-	DB             storage.DB
-	ContentService *service.ContentService
-	SegmentStorage service.SegmentStorage
-	TranscodingSvc *service.TranscodingService
-	UploadService  *service.UploadService
+	Web3Service       *service.Web3Service
+	AuthService       *service.AuthService
+	NFTVerifier       middleware.NFTOwnershipChecker
+	NFTCache          *NFTAccessCache
+	NFTCacheBackend   middleware.NFTAccessCache
+	GatingRuleSvc     *service.GatingRuleService
+	GatingRuleResolver middleware.GatingRuleResolver
+	PlaybackStatsSvc  *service.PlaybackStatsService
+	CategorySvc       *service.CategoryService
+	DB                storage.DB
+	ContentService    *service.ContentService
+	SegmentStorage    service.SegmentStorage
+	TranscodingSvc    *service.TranscodingService
+	UploadService     *service.UploadService
 }
 
 func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gin.Engine, *AppResources, error) {
@@ -311,17 +315,25 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	setupMiddleware(router, cfg, log, sharedRedis, resources)
 
 	svc := &serviceInit{
-		Web3Service:     web3Svc,
-		AuthService:     authService,
-		NFTVerifier:     nftVerifier,
-		NFTCache:        nftCache,
-		NFTCacheBackend: nftCacheBackend,
-		DB:              db,
-		ContentService:  contentSvc,
-		SegmentStorage:  objStorage,
-		TranscodingSvc:  transcodingSvc,
-		UploadService:   uploadSvc,
+		Web3Service:        web3Svc,
+		AuthService:        authService,
+		NFTVerifier:        nftVerifier,
+		NFTCache:           nftCache,
+		NFTCacheBackend:    nftCacheBackend,
+		DB:                 db,
+		ContentService:     contentSvc,
+		SegmentStorage:     objStorage,
+		TranscodingSvc:     transcodingSvc,
+		UploadService:      uploadSvc,
 	}
+
+	if db != nil {
+		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
+		svc.GatingRuleResolver = NewGatingRuleResolverAdapter(svc.GatingRuleSvc)
+		svc.PlaybackStatsSvc = service.NewPlaybackStatsService(db, log.Named("playback-stats"))
+		svc.CategorySvc = service.NewCategoryService(db, log.Named("category"))
+	}
+
 	registerRoutes(router, cfg, log, svc, resources)
 
 	return router, resources, nil
@@ -763,6 +775,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		nftGateConfig := middleware.NFTGateConfig{
 			Verifier:       svc.NFTVerifier,
 			Cache:          svc.NFTCacheBackend,
+			RuleResolver:   svc.GatingRuleResolver,
 			DefaultChainID: cfg.Web3.ChainID,
 			CacheTTL:       60 * time.Second,
 			MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
@@ -780,5 +793,15 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 
 		RegisterContentRoutes(authGroup, log, svc.ContentService)
 		RegisterTranscodingRoutes(authGroup, log, svc.TranscodingSvc)
+
+		if svc.GatingRuleSvc != nil {
+			RegisterGatingRuleRoutes(authGroup, svc.GatingRuleSvc)
+		}
+		if svc.PlaybackStatsSvc != nil {
+			RegisterPlaybackStatsRoutes(authGroup, svc.PlaybackStatsSvc)
+		}
+		if svc.CategorySvc != nil {
+			RegisterCategoryRoutes(authGroup, svc.CategorySvc)
+		}
 	}
 }

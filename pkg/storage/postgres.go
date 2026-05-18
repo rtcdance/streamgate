@@ -12,6 +12,11 @@ import (
 const (
 	defaultMaxRetries   = 3
 	defaultRetryBackoff = time.Second
+
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 5
+	defaultConnMaxLifetime = 5 * time.Minute
+	defaultConnMaxIdleTime = 1 * time.Minute
 )
 
 var errNotConnectedDB *sql.DB
@@ -59,9 +64,58 @@ func (pdb *PostgresDB) SetConnMaxLifetime(d time.Duration) {
 	}
 }
 
+func (pdb *PostgresDB) SetConnMaxIdleTime(d time.Duration) {
+	if pdb.db != nil {
+		pdb.db.SetConnMaxIdleTime(d)
+	}
+}
+
+type PoolConfig struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
+
+func (c PoolConfig) apply(db *sql.DB) {
+	if c.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(c.MaxOpenConns)
+	} else {
+		db.SetMaxOpenConns(defaultMaxOpenConns)
+	}
+	if c.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(c.MaxIdleConns)
+	} else {
+		db.SetMaxIdleConns(defaultMaxIdleConns)
+	}
+	if c.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(c.ConnMaxLifetime)
+	} else {
+		db.SetConnMaxLifetime(defaultConnMaxLifetime)
+	}
+	if c.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(c.ConnMaxIdleTime)
+	} else {
+		db.SetConnMaxIdleTime(defaultConnMaxIdleTime)
+	}
+}
+
+func PoolConfigFromValues(maxOpenConns, maxIdleConns int, connMaxLifetime, connMaxIdleTime time.Duration) PoolConfig {
+	return PoolConfig{
+		MaxOpenConns:    maxOpenConns,
+		MaxIdleConns:    maxIdleConns,
+		ConnMaxLifetime: connMaxLifetime,
+		ConnMaxIdleTime: connMaxIdleTime,
+	}
+}
+
 // Connect connects to PostgreSQL. Uses a background context for the initial
 // connection test since the caller has not yet provided a request context.
 func (pdb *PostgresDB) Connect(dsn string) error {
+	return pdb.ConnectWithConfig(dsn, PoolConfig{})
+}
+
+func (pdb *PostgresDB) ConnectWithConfig(dsn string, poolCfg PoolConfig) error {
 	pdb.dsn = dsn
 
 	var lastErr error
@@ -76,10 +130,7 @@ func (pdb *PostgresDB) Connect(dsn string) error {
 			continue
 		}
 
-		db.SetMaxOpenConns(25)
-		db.SetMaxIdleConns(5)
-		db.SetConnMaxLifetime(5 * time.Minute)
-		db.SetConnMaxIdleTime(1 * time.Minute)
+		poolCfg.apply(db)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = db.PingContext(ctx)
