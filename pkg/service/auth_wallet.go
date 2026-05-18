@@ -15,7 +15,9 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+	"streamgate/pkg/monitoring"
 	stg "streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 )
@@ -285,6 +287,12 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
 func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration) (string, error) {
+	_, span := monitoring.StartOTelSpan(ctx, "auth.generate_playback_token",
+		attribute.String("content_id", contentID),
+		attribute.Int64("chain_id", chainID),
+	)
+	defer span.End()
+
 	if ttl <= 0 {
 		ttl = 2 * time.Minute
 	}
@@ -311,6 +319,11 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 
 // ValidatePlaybackToken validates a playback token and ensures it matches the requested content.
 func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID string) (*Claims, error) {
+	_, span := monitoring.StartOTelSpan(ctx, "auth.validate_playback_token",
+		attribute.String("content_id", contentID),
+	)
+	defer span.End()
+
 	claims, err := s.ParseToken(tokenString)
 	if err != nil {
 		return nil, err

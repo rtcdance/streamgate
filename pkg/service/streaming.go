@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/storage"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -73,6 +75,11 @@ func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache
 
 // GetStream gets stream information
 func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*StreamInfo, error) {
+	ctx, span := monitoring.StartOTelSpan(ctx, "streaming.get_stream",
+		attribute.String("content_id", contentID),
+	)
+	defer span.End()
+
 	cacheKey := fmt.Sprintf("stream:%s", contentID)
 	if s.cache != nil {
 		if cached, err := s.cache.Get(cacheKey); err == nil {

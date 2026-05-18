@@ -30,8 +30,12 @@ func NewSecurePrivateKey(key *ecdsa.PrivateKey) (*SecurePrivateKey, error) {
 
 	// Serialize the key
 	keyBytes := key.D.Bytes()
+	if len(keyBytes) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(keyBytes):], keyBytes)
+		keyBytes = padded
+	}
 
-	// Generate a random XOR pad
 	xorPad := make([]byte, len(keyBytes))
 	if _, err := rand.Read(xorPad); err != nil {
 		return nil, fmt.Errorf("failed to generate XOR pad: %w", err)

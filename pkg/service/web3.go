@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"streamgate/pkg/core/config"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum"
@@ -19,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/params"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
@@ -268,6 +270,13 @@ func (ws *Web3Service) VerifySignature(ctx context.Context, address, message, si
 // For Solana chains (negative chainID) it derives the Associated Token Account
 // from (owner, mint) and verifies on-chain ownership via RPC.
 func (ws *Web3Service) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
+	ctx, span := monitoring.StartOTelSpan(ctx, "web3.verify_nft_ownership",
+		attribute.Int64("chain_id", chainID),
+		attribute.String("contract", contractAddress),
+		attribute.String("token_id", tokenID),
+	)
+	defer span.End()
+
 	ws.logger.Debug("Verifying NFT ownership",
 		zap.Int64("chain_id", chainID),
 		zap.String("contract", contractAddress),
