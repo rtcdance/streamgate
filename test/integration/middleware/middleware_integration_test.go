@@ -19,7 +19,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	router := gin.New()
 
 	svc := middleware.NewService(zap.NewNop())
-	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key"}
+	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key-at-least-32-chars!"}
 
 	// Apply middleware stack
 	router.Use(svc.LoggingMiddleware())
@@ -56,7 +56,7 @@ func TestMiddlewareStack_AuthenticationRequired(t *testing.T) {
 	router := gin.New()
 
 	svc := middleware.NewService(zap.NewNop())
-	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key"}
+	jwtConfig := middleware.JWTAuthConfig{Secret: "test-secret-key-at-least-32-chars!"}
 
 	// Apply middleware stack
 	router.Use(svc.LoggingMiddleware())

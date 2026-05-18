@@ -30,7 +30,7 @@ const (
 	anvilURL  = "http://localhost:18545"
 	anvilKey  = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	anvilAddr = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-	jwtSecret = "fullchain-acceptance-secret"
+	jwtSecret = "fullchain-acceptance-secret-32ch"
 )
 
 func TestFullUserFlow(t *testing.T) {
