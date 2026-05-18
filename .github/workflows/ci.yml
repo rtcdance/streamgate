@@ -29,7 +29,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.8
-          args: --timeout=5m --out-format=colored-line-number
+          args: --timeout=5m
 
   test-go:
     name: Go Tests
@@ -144,7 +144,7 @@ jobs:
       - name: Run gosec
         uses: securego/gosec@v2.22.3
         with:
-          args: -exclude-dir=examples -exclude-dir=test -exclude=G104 -exclude=G204 -exclude=G301 -exclude=G304 -exclude=G306 ./...
+          args: -exclude-dir=examples -exclude-dir=test -exclude=G104,G204,G301,G304,G306 ./...
 
       - uses: foundry-rs/foundry-toolchain@v1
 
