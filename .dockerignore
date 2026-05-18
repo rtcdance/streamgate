@@ -22,13 +22,13 @@ Thumbs.db
 .deploy
 scripts/
 
-# Documentation (not needed in runtime image)
-docs/
+# Documentation markdown (not needed in runtime image)
+docs/*.md
 *.md
 LICENSE
 
 # Frontend demo (separate deployment / CDN)
-h5-demo/
+# h5-demo/ is needed for Docker build COPY step
 
 # Examples (standalone, not part of build)
 examples/
