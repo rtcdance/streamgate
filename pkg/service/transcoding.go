@@ -43,6 +43,8 @@ type TranscodingService struct {
 	workerCount         int
 	uploadConcurrency   int
 	transcodeHooks      []PostTranscodeHook
+	hookMu              sync.Mutex
+	wg                  sync.WaitGroup
 
 	minWorkers      int
 	maxWorkers      int
@@ -86,6 +88,8 @@ func WithLogger(l *zap.Logger) TranscodingOption {
 
 // RegisterPostTranscodeHook adds a hook that fires after a transcode completes.
 func (s *TranscodingService) RegisterPostTranscodeHook(hook PostTranscodeHook) {
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
 	s.transcodeHooks = append(s.transcodeHooks, hook)
 }
 
@@ -419,7 +423,12 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 		s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
 	}
 
-	for _, hook := range s.transcodeHooks {
+	s.hookMu.Lock()
+	hooks := make([]PostTranscodeHook, len(s.transcodeHooks))
+	copy(hooks, s.transcodeHooks)
+	s.hookMu.Unlock()
+
+	for _, hook := range hooks {
 		hook(taskCtx, task.ContentID, task.Profile, outputURL)
 	}
 
