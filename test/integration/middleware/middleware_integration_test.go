@@ -37,7 +37,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 		"wallet_address": "0xTest",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})
-	tokenStr, _ := tok.SignedString([]byte("test-secret-key"))
+	tokenStr, _ := tok.SignedString([]byte("test-secret-key-at-least-32-chars!"))
 
 	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+tokenStr)
