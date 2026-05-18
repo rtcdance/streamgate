@@ -320,18 +320,19 @@ func (s *StreamingService) AddStreamQuality(ctx context.Context, streamID string
 	query := `
 		INSERT INTO stream_qualities (stream_id, name, resolution, bitrate, url)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING (SELECT content_id FROM streams WHERE id = $1)
 	`
 
-	var contentID sql.NullString
-	err := s.db.QueryRow(ctx, query, streamID, quality.Name, quality.Resolution, quality.Bitrate, quality.URL).Scan(&contentID)
+	_, err := s.db.Exec(ctx, query, streamID, quality.Name, quality.Resolution, quality.Bitrate, quality.URL)
 	if err != nil {
 		return fmt.Errorf("failed to add stream quality: %w", err)
 	}
 
-	if s.cache != nil && contentID.Valid && contentID.String != "" {
-		if delErr := s.cache.Delete(fmt.Sprintf("stream:%s", contentID.String)); delErr != nil {
-			s.logger.Warn("Failed to invalidate stream cache on quality add", zap.String("content_id", contentID.String), zap.Error(delErr))
+	if s.cache != nil {
+		var contentID string
+		if err := s.db.QueryRow(ctx, "SELECT content_id FROM streams WHERE id = $1", streamID).Scan(&contentID); err == nil && contentID != "" {
+			if delErr := s.cache.Delete(fmt.Sprintf("stream:%s", contentID)); delErr != nil {
+				s.logger.Warn("Failed to invalidate stream cache on quality add", zap.String("content_id", contentID), zap.Error(delErr))
+			}
 		}
 	}
 

@@ -617,7 +617,7 @@ func setDefaults() {
 	viper.SetDefault("features.multi_codec", true)
 
 	// Auth defaults
-	viper.SetDefault("auth.jwt_secret", "streamgate-dev-secret")
+	viper.SetDefault("auth.jwt_secret", "streamgate-dev-secret-32chars!!")
 	viper.SetDefault("auth.nonce_expiry", "5m")
 
 	// CORS defaults
@@ -651,6 +651,7 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		violations = append(violations, "auth.jwt_secret is empty — set via AUTH_JWT_SECRET env var")
 	}
 	insecureSecrets := []string{
+		"streamgate-dev-secret-32chars!!",
 		"streamgate-dev-secret",
 		"your-secret-key-change-in-production",
 		"dev-secret-key-not-for-production",

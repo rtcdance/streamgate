@@ -12,6 +12,7 @@ import (
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
@@ -52,15 +53,20 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 	p.mu.RLock()
 	conn, exists := p.clients[serviceName]
 	p.mu.RUnlock()
-	if exists {
-		if conn.GetState().String() != "SHUTDOWN" {
-			return conn, nil
-		}
-		p.mu.Lock()
-		delete(p.clients, serviceName)
-		_ = conn.Close()
-		p.mu.Unlock()
+	if exists && conn.GetState() != connectivity.Shutdown {
+		return conn, nil
 	}
+
+	p.mu.Lock()
+	if existing, ok := p.clients[serviceName]; ok {
+		if existing.GetState() != connectivity.Shutdown {
+			p.mu.Unlock()
+			return existing, nil
+		}
+		delete(p.clients, serviceName)
+		_ = existing.Close()
+	}
+	p.mu.Unlock()
 
 	address, err := p.getServiceAddress(ctx, serviceName)
 	if err != nil {

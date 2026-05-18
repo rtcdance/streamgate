@@ -21,7 +21,7 @@ func TestLoad_DatabaseConnectionPool(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Test connection pool under load
 	numGoroutines := 10
@@ -72,7 +72,7 @@ func TestLoad_DatabaseQueryPerformance(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Setup: Create test data
 	for i := 0; i < 10; i++ {
@@ -139,7 +139,7 @@ func TestLoad_DatabaseTransactions(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Test transaction handling under load
 	numGoroutines := 10
@@ -191,7 +191,7 @@ func TestLoad_DatabaseBulkOperations(t *testing.T) {
 	}
 	defer helpers.CleanupTestDB(t, db)
 
-	authService := service.NewAuthService("test-secret-key", db)
+	authService := service.NewAuthService("test-secret-key-that-is-at-least-32-chars", db)
 
 	// Test bulk operations
 	bulkSize := 10
