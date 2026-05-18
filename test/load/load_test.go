@@ -87,6 +87,7 @@ func runLoadTest(t *testing.T, name string, target vegeta.Target, rate vegeta.Ra
 }
 
 func TestLoad_HealthEndpoint(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	results := make([]LoadTestResult, 0, 3)
@@ -121,6 +122,7 @@ func TestLoad_ReadyEndpoint(t *testing.T) {
 }
 
 func TestLoad_MetricsEndpoint(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	target := vegeta.Target{
@@ -132,6 +134,7 @@ func TestLoad_MetricsEndpoint(t *testing.T) {
 }
 
 func TestLoad_AuthChallenge(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	target := vegeta.Target{
@@ -145,6 +148,7 @@ func TestLoad_AuthChallenge(t *testing.T) {
 }
 
 func TestLoad_NFTVerify(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	target := vegeta.Target{
@@ -161,6 +165,7 @@ func TestLoad_NFTVerify(t *testing.T) {
 }
 
 func TestLoad_DocsEndpoint(t *testing.T) {
+	t.Skip("requires external service")
 	baseURL := getTargetURL()
 
 	target := vegeta.Target{
