@@ -241,7 +241,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage)
 
 		token, err := authService.GeneratePlaybackToken(
-			"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 		)
 		require.NoError(t, err)
 
@@ -262,7 +262,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage)
 
 		token, err := authService.GeneratePlaybackToken(
-			"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 		)
 		require.NoError(t, err)
 
@@ -281,7 +281,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage)
 
 		token, err := authService.GeneratePlaybackToken(
-			"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 		)
 		require.NoError(t, err)
 
@@ -300,7 +300,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, nil)
 
 		token, err := authService.GeneratePlaybackToken(
-			"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 		)
 		require.NoError(t, err)
 
@@ -322,7 +322,7 @@ func TestHandleGetSegment_PathTraversal(t *testing.T) {
 	r := setupStreamingSegmentRouter(authService, storage)
 
 	token, err := authService.GeneratePlaybackToken(
-		"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 	)
 	require.NoError(t, err)
 
@@ -372,7 +372,7 @@ func TestHandleGetSegment_AuthHeader(t *testing.T) {
 	r := setupStreamingSegmentRouter(authService, storage)
 
 	token, err := authService.GeneratePlaybackToken(
-		"0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
 	)
 	require.NoError(t, err)
 

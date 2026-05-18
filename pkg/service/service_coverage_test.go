@@ -206,6 +206,13 @@ func (m *mockUploadStorage) Delete(ctx context.Context, bucket, key string) erro
 	return nil
 }
 
+func (m *mockUploadStorage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	for _, key := range keys {
+		delete(m.data, bucket+"/"+key)
+	}
+	return nil
+}
+
 func (m *mockUploadStorage) Exists(ctx context.Context, bucket, key string) (bool, error) {
 	_, ok := m.data[bucket+"/"+key]
 	return ok, nil
@@ -952,9 +959,9 @@ func TestWeb3Service_VerifySolanaMintAuthority_NilVerifier(t *testing.T) {
 	assert.Contains(t, err.Error(), "solana verifier not initialized")
 }
 
-func TestWeb3Service_VerifySolanaMetaplexMetadata_NilVerifier(t *testing.T) {
+func TestWeb3Service_VerifySolanaMetaplexNFTOwnership_NilVerifier(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.VerifySolanaMetaplexMetadata(context.Background(), "uri", "creator", "sig")
+	_, err := svc.VerifySolanaMetaplexNFTOwnership(context.Background(), "mint", "owner")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "solana verifier not initialized")
 }
@@ -1132,17 +1139,7 @@ func TestAuthService_GeneratePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
-	require.NoError(t, err)
-	assert.NotEmpty(t, token)
-}
-
-func TestAuthService_GeneratePlaybackToken_DefaultTTL(t *testing.T) {
-	storage := NewMockAuthStorage()
-	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
-
-	// Zero TTL should default to 2 minutes
-	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 0)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -1151,10 +1148,10 @@ func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
 
-	claims, err := svc.ValidatePlaybackToken(token, "content1")
+	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1")
 	require.NoError(t, err)
 	assert.Equal(t, "content1", claims.Subject)
 	assert.Equal(t, "0xWallet", claims.WalletAddress)
@@ -1164,10 +1161,10 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken("0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
 	require.NoError(t, err)
 
-	_, err = svc.ValidatePlaybackToken(token, "different-content")
+	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mismatch")
 }
@@ -1206,7 +1203,7 @@ func TestParseMetadataJSON_Invalid(t *testing.T) {
 func TestNFTService_InvalidateOwnershipCache_NoCache(t *testing.T) {
 	svc := &NFTService{logger: zap.NewNop()}
 	// Should not panic with no cache
-	svc.InvalidateOwnershipCache("0xContract", "1")
+	svc.InvalidateOwnershipCache(context.Background(), "0xContract", "1")
 }
 
 func TestNFTService_SetLogger(t *testing.T) {

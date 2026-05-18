@@ -82,6 +82,13 @@ func (s *mockSegmentStorage) Delete(ctx context.Context, bucket, objectName stri
 	return nil
 }
 
+func (s *mockSegmentStorage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	for _, key := range keys {
+		delete(s.objects, bucket+"/"+key)
+	}
+	return nil
+}
+
 func (s *mockSegmentStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
 	var result []string
 	for key := range s.objects {

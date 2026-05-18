@@ -189,6 +189,82 @@ func TestNonceManager_Rollback_DecrementNext(t *testing.T) {
 	}
 }
 
+func TestNonceManager_Rollback_MultipleGaps(t *testing.T) {
+	logger := zap.NewNop()
+	nm := &NonceManager{
+		client: nil,
+		logger: logger,
+		states: make(map[string]*nonceState),
+	}
+
+	addr := "0xaddr"
+	nm.states[addr] = &nonceState{
+		next:    10,
+		pending: make(map[uint64]struct{}),
+	}
+
+	nextCachedNonce(nm, addr)
+	nextCachedNonce(nm, addr)
+	nextCachedNonce(nm, addr)
+	nextCachedNonce(nm, addr)
+
+	nm.Rollback(addr, 11)
+	nm.Rollback(addr, 13)
+
+	st := nm.states[addr]
+	if len(st.pending) != 1 {
+		t.Errorf("expected 1 pending nonce, got %d", len(st.pending))
+	}
+	if st.next != 13 {
+		t.Errorf("next should be 13 after rollback 13 decremented it, got %d", st.next)
+	}
+
+	n4 := nextCachedNonce(nm, addr)
+	if n4 != 11 {
+		t.Errorf("should fill smallest gap nonce 11, got %d", n4)
+	}
+
+	n5 := nextCachedNonce(nm, addr)
+	if n5 != 13 {
+		t.Errorf("should allocate nonce 13, got %d", n5)
+	}
+
+	n6 := nextCachedNonce(nm, addr)
+	if n6 != 14 {
+		t.Errorf("should allocate fresh nonce 14, got %d", n6)
+	}
+}
+
+func TestNonceManager_Rollback_CollapseChain(t *testing.T) {
+	logger := zap.NewNop()
+	nm := &NonceManager{
+		client: nil,
+		logger: logger,
+		states: make(map[string]*nonceState),
+	}
+
+	addr := "0xaddr"
+	nm.states[addr] = &nonceState{
+		next:    10,
+		pending: make(map[uint64]struct{}),
+	}
+
+	nextCachedNonce(nm, addr)
+	nextCachedNonce(nm, addr)
+	nextCachedNonce(nm, addr)
+
+	nm.Rollback(addr, 11)
+	nm.Rollback(addr, 12)
+
+	st := nm.states[addr]
+	if st.next != 11 {
+		t.Errorf("next should collapse to 11, got %d", st.next)
+	}
+	if len(st.pending) != 0 {
+		t.Errorf("pending should be empty after collapse, got %d", len(st.pending))
+	}
+}
+
 func nextCachedNonce(nm *NonceManager, address string) uint64 {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
@@ -198,17 +274,19 @@ func nextCachedNonce(nm *NonceManager, address string) uint64 {
 		panic(fmt.Sprintf("nonce not cached for %s", address))
 	}
 
-	var gapNonce uint64
-	gapFound := false
-	for n := range st.pending {
-		if n < st.next && (!gapFound || n < gapNonce) {
-			gapNonce = n
-			gapFound = true
+	if len(st.pending) > 0 {
+		var smallest uint64
+		found := false
+		for n := range st.pending {
+			if !found || n < smallest {
+				smallest = n
+				found = true
+			}
 		}
-	}
-	if gapFound {
-		delete(st.pending, gapNonce)
-		return gapNonce
+		if found {
+			delete(st.pending, smallest)
+			return smallest
+		}
 	}
 
 	nonce := st.next

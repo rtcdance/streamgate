@@ -181,6 +181,30 @@ func (ms *MinIOStorage) Delete(ctx context.Context, bucket, objectName string) e
 	return nil
 }
 
+func (ms *MinIOStorage) DeleteObjects(ctx context.Context, bucket string, objectNames []string) error {
+	if len(objectNames) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	objectsCh := make(chan minio.ObjectInfo, len(objectNames))
+	for _, name := range objectNames {
+		objectsCh <- minio.ObjectInfo{Key: name}
+	}
+	close(objectsCh)
+
+	errCh := ms.client.RemoveObjects(ctx, bucket, objectsCh, minio.RemoveObjectsOptions{})
+	for err := range errCh {
+		if err.Err != nil {
+			return fmt.Errorf("failed to delete object %s from MinIO: %w", err.ObjectName, err.Err)
+		}
+	}
+
+	return nil
+}
+
 // Exists checks if an object exists in MinIO
 func (ms *MinIOStorage) Exists(ctx context.Context, bucket, objectName string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

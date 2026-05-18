@@ -171,6 +171,31 @@ func (s3s *S3Storage) Delete(ctx context.Context, bucket, key string) error {
 	return nil
 }
 
+func (s3s *S3Storage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	objects := make([]*s3.ObjectIdentifier, len(keys))
+	for i, k := range keys {
+		objects[i] = &s3.ObjectIdentifier{Key: aws.String(k)}
+	}
+
+	_, err := s3s.client.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucket),
+		Delete: &s3.Delete{
+			Objects: objects,
+			Quiet:   aws.Bool(true),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete objects from S3: %w", err)
+	}
+	return nil
+}
+
 // Exists checks if an object exists in S3
 func (s3s *S3Storage) Exists(ctx context.Context, bucket, key string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -188,7 +188,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "missing playback token"})
 				return
 			}
-			if _, err := authService.ValidatePlaybackToken(playbackToken, c.Param("id")); err != nil {
+			if _, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, c.Param("id")); err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid playback token"})
 				return
 			}
@@ -320,6 +320,7 @@ func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 	router := newTestRouter(authService, &mockNFTAccessVerifier{}, nil)
 
 	token, err := authService.GeneratePlaybackToken(
+		context.Background(),
 		"0x1234567890123456789012345678901234567890",
 		"demo",
 		"0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
