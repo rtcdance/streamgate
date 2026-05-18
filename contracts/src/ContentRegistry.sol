@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract ContentRegistry is Ownable {
+    constructor() Ownable(msg.sender) {}
+
     struct ContentRecord {
         string contentId;
         address creator;
