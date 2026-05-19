@@ -408,9 +408,11 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 	}
 }
 
-// indexRange indexes events in the specified block range [fromBlock, toBlock].
-// This is the shared logic used by both indexEvents and Replay.
-const indexBatchSize uint64 = 1000
+// indexBatchSize and per-batch timeout limit
+const (
+	indexBatchSize  uint64 = 1000
+	batchTimeout           = 30 * time.Second // max time for a single FilterLogs call
+)
 
 func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) {
 	for batchStart := fromBlock; batchStart <= toBlock; {
@@ -437,9 +439,14 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			query.Topics = [][]common.Hash{ei.eventSignatures}
 		}
 
-		logs, err := ei.client.FilterLogs(ctx, query)
+		// Apply per-batch timeout to prevent hanging on unresponsive RPC.
+		// If the batch times out, the remaining blocks are left for the
+		// next cycle rather than blocking the indexer indefinitely.
+		batchCtx, batchCancel := context.WithTimeout(ctx, batchTimeout)
+		logs, err := ei.client.FilterLogs(batchCtx, query)
+		batchCancel()
 		if err != nil {
-			ei.logger.Error("Failed to filter logs",
+			ei.logger.Error("Failed to filter logs (batch timed out)",
 				zap.Uint64("from_block", batchStart),
 				zap.Uint64("to_block", batchEnd),
 				zap.Error(err))
