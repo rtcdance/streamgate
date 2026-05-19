@@ -117,7 +117,8 @@ logging:
 cors:
   enabled: true
   allowed_origins:
-    - "*"
+    - "http://localhost:3000"
+    - "http://localhost:8080"
   allowed_methods:
     - "GET"
     - "POST"
@@ -125,7 +126,9 @@ cors:
     - "DELETE"
     - "OPTIONS"
   allowed_headers:
-    - "*"
+    - "Content-Type"
+    - "Authorization"
+    - "X-Request-ID"
   exposed_headers:
     - "X-Request-ID"
   max_age: 86400
