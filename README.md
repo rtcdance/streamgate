@@ -11,6 +11,8 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](Dockerfile)
 [![OpenAPI](https://img.shields.io/badge/API-OpenAPI_3.0-6BA539)](docs/api/openapi.yaml)
+[![Status](https://img.shields.io/badge/Status-v1.0.0--stable-2ea44f)](VERSION)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord)](https://discord.gg/streamgate)
 
 ---
 
@@ -301,8 +303,9 @@ See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) and [docs/web3-faq.
 |---------|---------|
 | **GitHub Issues** | Bug reports, feature requests |
 | **GitHub Discussions** | Q&A, ideas, show and tell |
+| **Discord** | Real-time discussion: [Join](https://discord.gg/streamgate) |
 | **Security** | [Private vulnerability report](https://github.com/rtcdance/streamgate/security/advisories) |
-| **Commercial** | For enterprise licensing, SLA, or custom deployment: streamgate@rtcdance.github.io |
+| **Commercial** | [COMMERCIAL.md](COMMERCIAL.md) — licensing, SLA, custom deployment |
 
 ---
 
