@@ -104,7 +104,15 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 	}
 
 	for _, sub := range subs {
-		b.sem <- struct{}{}
+		select {
+		case b.sem <- struct{}{}:
+		case <-ctx.Done():
+			if b.log != nil {
+				b.log.Warn("Event publish blocked by slow subscriber, dropping event",
+					zap.String("event_type", event.Type))
+			}
+			return ctx.Err()
+		}
 		b.wg.Add(1)
 		go func(s *subscription) {
 			defer b.wg.Done()

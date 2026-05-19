@@ -175,7 +175,10 @@ func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interfac
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
+		// cancel is not deferred here — *sql.Rows is lazy and needs the
+		// context alive during iteration. The context's internal timer
+		// will fire after 30s; the cancel func is unused.
+		_ = cancel
 	}
 
 	rows, err := pdb.db.QueryContext(ctx, query, args...)
@@ -193,34 +196,15 @@ func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interfac
 }
 
 // QueryRow queries PostgreSQL and returns a single row.
-// Callers MUST pass a context with an appropriate timeout — unlike Query,
-// no default timeout is applied here because the returned *sql.Row is lazy
-// and the query is not executed until .Scan() is called, at which point the
-// context deadline must still be valid.
-type cancellableRow struct {
-	*sql.Row
-	cancel context.CancelFunc
-}
-
-func (cr *cancellableRow) Scan(dest ...interface{}) error {
-	err := cr.Row.Scan(dest...)
-	cr.cancel()
-	return err
-}
-
+// Callers MUST pass a context with an appropriate timeout — the returned
+// *sql.Row is lazy and the query is not executed until .Scan() is called,
+// at which point the context deadline must still be valid.
 func (pdb *PostgresDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if pdb.db == nil {
 		return errNotConnectedDB.QueryRowContext(ctx, "SELECT 1")
 	}
 	if pdb.cb != nil && !pdb.cb.Allow() {
 		return errCircuitBreakerOpen.QueryRowContext(ctx, "SELECT 1")
-	}
-
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		row := pdb.db.QueryRowContext(ctx, query, args...)
-		return (&cancellableRow{Row: row, cancel: cancel}).Row
 	}
 
 	return pdb.db.QueryRowContext(ctx, query, args...)
