@@ -719,7 +719,13 @@ If you have questions or need help:
 
 ## 🚀 Roadmap
 
-### Phase 1: Identity + Ownership
+| Document | Description |
+|----------|-------------|
+| [Product Roadmap](docs/product-roadmap.md) | Quarterly roadmap with deliverables and success metrics |
+| [Product OKRs](docs/product-okrs.md) | North star metric + Q3 objectives and key results |
+| [Competitive Analysis](docs/competitive-analysis.md) | StreamGate vs Livepeer vs DIY vs DRM |
+
+### Phase 1: Identity + Ownership (Completed ✅)
 - Wallet sign-in
 - Real NFT verification
 - API wiring for `/api/v1/nft/verify`
