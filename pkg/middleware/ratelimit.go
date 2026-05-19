@@ -40,9 +40,74 @@ func DefaultRateLimitConfig() RateLimitConfig {
 	}
 }
 
+// WalletRateLimitConfig holds per-wallet rate limiting configuration.
+// Wallet-level limits are typically stricter than global limits.
+type WalletRateLimitConfig struct {
+	RequestsPerMinute int
+	WindowSize        time.Duration
+	CleanupInterval   time.Duration
+	IPFallback        bool // if true, rate-limit by IP when no wallet is available
+}
+
+func DefaultWalletRateLimitConfig() WalletRateLimitConfig {
+	return WalletRateLimitConfig{
+		RequestsPerMinute: 10,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+		IPFallback:        true,
+	}
+}
+
 type RateLimiter interface {
 	Allow(key string) bool
 	Stop()
+}
+
+// WalletRateLimiter provides per-wallet rate limiting.
+// Uses the same backend as the global rate limiter but with wallet-based keys.
+type WalletRateLimiter struct {
+	inner  RateLimiter
+	ipRl   RateLimiter // fallback for IP-based limiting when wallet unknown
+	config WalletRateLimitConfig
+}
+
+func NewWalletRateLimiter(cfg WalletRateLimitConfig, redisClient RedisClient) *WalletRateLimiter {
+	if cfg.RequestsPerMinute <= 0 {
+		cfg.RequestsPerMinute = 10
+	}
+	if cfg.WindowSize <= 0 {
+		cfg.WindowSize = time.Minute
+	}
+	if cfg.CleanupInterval <= 0 {
+		cfg.CleanupInterval = 5 * time.Minute
+	}
+	innerCfg := RateLimitConfig{
+		RequestsPerMinute: cfg.RequestsPerMinute,
+		WindowSize:        cfg.WindowSize,
+		CleanupInterval:   cfg.CleanupInterval,
+	}
+	return &WalletRateLimiter{
+		inner:  NewRateLimiter(innerCfg, redisClient),
+		ipRl:   NewRateLimiter(innerCfg, redisClient),
+		config: cfg,
+	}
+}
+
+// AllowWallet checks if a wallet address is within its rate limit.
+// If the wallet is empty and IPFallback is enabled, falls back to IP-based limiting.
+func (w *WalletRateLimiter) AllowWallet(wallet, ip string) bool {
+	if wallet != "" {
+		return w.inner.Allow("wallet:" + wallet)
+	}
+	if w.config.IPFallback && ip != "" {
+		return w.ipRl.Allow("ip:" + ip)
+	}
+	return true
+}
+
+func (w *WalletRateLimiter) Stop() {
+	w.inner.Stop()
+	w.ipRl.Stop()
 }
 
 type RedisClient interface {

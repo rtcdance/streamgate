@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -88,7 +89,8 @@ func (v *JWTVerifier) keyFunc(token *jwt.Token) (interface{}, error) {
 
 // AuthService handles authentication
 type AuthService struct {
-	jwtSecret         []byte
+	jwtSecret         []byte   // current signing key
+	previousSecrets   [][]byte // previous keys (verify only, not sign)
 	privateKey        *rsa.PrivateKey
 	publicKey         *rsa.PublicKey
 	signingType       JWTSigningType
@@ -190,11 +192,24 @@ func (errSigVerifier) VerifySignature(_ context.Context, _, _, _ string) (bool, 
 }
 
 func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
-	if len(jwtSecret) < 32 {
+	// Support key rotation: comma-separated secrets, the first is the signing key,
+	// the rest are previous keys that only verify existing tokens.
+	secrets := strings.Split(jwtSecret, ",")
+	currentSecret := strings.TrimSpace(secrets[0])
+	if len(currentSecret) < 32 {
 		panic("jwtSecret must be at least 32 characters for HS256 security")
 	}
+	var prev [][]byte
+	for _, s := range secrets[1:] {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			prev = append(prev, []byte(s))
+		}
+	}
+
 	s := &AuthService{
-		jwtSecret:         []byte(jwtSecret),
+		jwtSecret:         []byte(currentSecret),
+		previousSecrets:   prev,
 		storage:           storage,
 		signatureVerifier: errSigVerifier{},
 		challengeStore:    stg.NewMemoryChallengeStore(),
@@ -287,36 +302,43 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
-	claims := &Claims{}
 	validMethods := []string{"HS256"}
 	if s.signingType == JWTRS256 {
 		validMethods = []string{"RS256"}
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		switch s.signingType {
-		case JWTRS256:
+	// For RS256, only one key pair is used
+	if s.signingType == JWTRS256 {
+		claims := &Claims{}
+		_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return s.publicKey, nil
-		default:
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return s.jwtSecret, nil
+		}, jwt.WithValidMethods(validMethods))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse token: %w", err)
 		}
-	}, jwt.WithValidMethods(validMethods))
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		return claims, nil
 	}
 
-	if !token.Valid {
-		return nil, ErrInvalidToken
+	// For HS256, try current key first, then previous keys for rotation support
+	secrets := append([][]byte{s.jwtSecret}, s.previousSecrets...)
+	var lastErr error
+	for _, secret := range secrets {
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return secret, nil
+		}, jwt.WithValidMethods(validMethods))
+		if err == nil && token.Valid {
+			return claims, nil
+		}
+		lastErr = err
 	}
-
-	return claims, nil
+	return nil, fmt.Errorf("token not valid with any known signing key: %w", lastErr)
 }
 
 func (s *AuthService) signToken(claims *Claims) (string, error) {
