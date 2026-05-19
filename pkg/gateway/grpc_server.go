@@ -71,11 +71,13 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 		}),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
+			grpcRequestIDUnaryInterceptor(),
 			grpcRecoveryInterceptor(log),
 			grpcLoggingInterceptor(log),
 			grpcAuthInterceptor(jwtSecret, svcs.Blacklist, log),
 		),
 		grpc.ChainStreamInterceptor(
+			grpcRequestIDStreamInterceptor(),
 			grpcStreamRecoveryInterceptor(log),
 			grpcStreamLoggingInterceptor(log),
 			grpcStreamAuthInterceptor(jwtSecret, svcs.Blacklist, log),
@@ -1027,6 +1029,38 @@ func grpcWalletFromContext(ctx context.Context) string {
 	return ""
 }
 
+// grpcRequestIDKey is the context key for the gRPC request ID.
+type grpcRequestIDKey struct{}
+
+const grpcRequestIDHeader = "x-request-id"
+
+// grpcRequestIDUnaryInterceptor extracts x-request-id from gRPC metadata
+// and injects it into the context for correlation with HTTP-side logging.
+func grpcRequestIDUnaryInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if vals := md.Get(grpcRequestIDHeader); len(vals) > 0 && vals[0] != "" {
+				ctx = context.WithValue(ctx, grpcRequestIDKey{}, vals[0])
+			}
+		}
+		return handler(ctx, req)
+	}
+}
+
+// grpcRequestIDStreamInterceptor extracts x-request-id for streaming RPCs.
+func grpcRequestIDStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if md, ok := metadata.FromIncomingContext(ss.Context()); ok {
+			if vals := md.Get(grpcRequestIDHeader); len(vals) > 0 && vals[0] != "" {
+				ctx := context.WithValue(ss.Context(), grpcRequestIDKey{}, vals[0])
+				ws := &wrappedStream{ServerStream: ss, ctx: ctx}
+				return handler(srv, ws)
+			}
+		}
+		return handler(srv, ss)
+	}
+}
+
 func grpcAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if grpcNoAuthMethods[info.FullMethod] {
@@ -1099,13 +1133,19 @@ func grpcLoggingInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 		latency := time.Since(start)
 		code := status.Code(err)
+		fields := []zap.Field{
+			zap.String("method", info.FullMethod),
+			zap.String("code", code.String()),
+			zap.Duration("latency", latency),
+		}
+		if reqID, ok := ctx.Value(grpcRequestIDKey{}).(string); ok && reqID != "" {
+			fields = append(fields, zap.String("request_id", reqID))
+		}
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+		}
 		if code != codes.OK {
-			log.Warn("gRPC unary call",
-				zap.String("method", info.FullMethod),
-				zap.String("code", code.String()),
-				zap.Duration("latency", latency),
-				zap.Error(err),
-			)
+			log.Warn("gRPC unary call", fields...)
 		}
 		return resp, err
 	}
