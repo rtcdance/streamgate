@@ -258,7 +258,9 @@ func (t *Tracer) getSpanID(ctx context.Context) string {
 	return ""
 }
 
-// TracingMiddleware provides tracing middleware
+// Deprecated: TracingMiddleware provides tracing middleware using a custom
+// in-memory Tracer. Use OpenTelemetry via middleware/tracing.go (otelgin) instead.
+// This tracer uses custom context keys and does not interoperate with OTel spans.
 type TracingMiddleware struct {
 	tracer *Tracer
 	logger *zap.Logger
@@ -305,7 +307,8 @@ func (tm *TracingMiddleware) TraceSpan(ctx context.Context, operationName string
 	return err
 }
 
-// TraceCollector collects traces for analysis
+// Deprecated: TraceCollector collects traces in-process. OTel spans exported
+// via Jaeger/OTLP replace this functionality. Kept for backward compatibility.
 type TraceCollector struct {
 	logger    *zap.Logger
 	mu        sync.RWMutex
