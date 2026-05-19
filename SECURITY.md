@@ -11,9 +11,11 @@
 
 We take security vulnerabilities seriously. Please report them responsibly.
 
-**Do not file a public issue.** Instead, contact the security team directly:
+**Do not file a public issue.** Instead, report vulnerabilities via:
 
-- **Email**: security@streamgate.dev
+- **GitHub Private Vulnerability Reporting**: Use the "Report a vulnerability" button at
+  `https://github.com/rtcdance/streamgate/security/advisories` (recommended)
+- **Email**: security@streamgate.dev (alternative, may have delays)
 - **PGP Key**: Available at `https://streamgate.dev/security/pgp-key.asc`
 
 Include the following details in your report:

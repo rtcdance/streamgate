@@ -73,8 +73,8 @@ var (
 	// NFTVerifyDuration tracks NFT verification latency in seconds.
 	NFTVerifyDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "streamgate_nft_verify_duration_seconds",
-			Help:    "NFT verification latency in seconds",
+			Name:    "streamgate_nft_verify_latency_seconds",
+			Help:    "NFT verification RPC latency in seconds",
 			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 		},
 	)
