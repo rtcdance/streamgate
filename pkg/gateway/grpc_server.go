@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -54,9 +55,9 @@ type Pinger interface {
 func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *grpc.Server {
 	jwtSecret := cfg.Auth.JWTSecret
 
-	srv := grpc.NewServer(
-		grpc.MaxRecvMsgSize(100<<20),
-		grpc.MaxSendMsgSize(100<<20),
+	opts := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(100 << 20),
+		grpc.MaxSendMsgSize(100 << 20),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     5 * time.Minute,
 			MaxConnectionAge:      30 * time.Minute,
@@ -79,7 +80,22 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 			grpcStreamLoggingInterceptor(log),
 			grpcStreamAuthInterceptor(jwtSecret, svcs.Blacklist, log),
 		),
-	)
+	}
+
+	// Add TLS credentials if configured
+	if cfg.GRPC.TLSEnabled && cfg.GRPC.TLSCert != "" && cfg.GRPC.TLSKey != "" {
+		creds, err := credentials.NewServerTLSFromFile(cfg.GRPC.TLSCert, cfg.GRPC.TLSKey)
+		if err != nil {
+			log.Warn("Failed to load gRPC TLS credentials, falling back to plaintext",
+				zap.String("cert", cfg.GRPC.TLSCert),
+				zap.Error(err))
+		} else {
+			opts = append(opts, grpc.Creds(creds))
+			log.Info("gRPC TLS enabled")
+		}
+	}
+
+	srv := grpc.NewServer(opts...)
 
 	healthSvc := &healthGrpcServer{log: log, db: svcs.DB, cache: svcs.Cache}
 	servicev1.RegisterHealthServiceServer(srv, healthSvc)

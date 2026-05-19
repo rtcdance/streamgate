@@ -104,7 +104,10 @@ type ServerConfig struct {
 
 // GRPCConfig holds gRPC configuration
 type GRPCConfig struct {
-	Port int
+	Port       int
+	TLSEnabled bool   `yaml:"tls_enabled"`
+	TLSCert    string `yaml:"tls_cert"`
+	TLSKey     string `yaml:"tls_key"`
 }
 
 // ConsulConfig holds Consul configuration
