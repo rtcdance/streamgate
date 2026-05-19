@@ -226,13 +226,21 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 					log.Info("TranscodingService: re-enqueuing task for retry",
 						"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
 				}
-				_ = s.queue.Enqueue(task)
-				_ = s.queue.Nak(task.ID)
+				if err := s.queue.Enqueue(task); err != nil {
+					s.log.Error("Failed to re-enqueue task for retry", zap.String("task_id", task.ID), zap.Error(err))
+				}
+				if err := s.queue.Nak(task.ID); err != nil {
+					s.log.Error("Failed to Nak task", zap.String("task_id", task.ID), zap.Error(err))
+				}
 			} else {
-				_ = s.queue.Nak(task.ID)
+				if err := s.queue.Nak(task.ID); err != nil {
+					s.log.Error("Failed to Nak task", zap.String("task_id", task.ID), zap.Error(err))
+				}
 			}
 		} else {
-			_ = s.queue.Ack(task.ID)
+			if err := s.queue.Ack(task.ID); err != nil {
+				s.log.Error("Failed to Ack task", zap.String("task_id", task.ID), zap.Error(err))
+			}
 		}
 	}
 }

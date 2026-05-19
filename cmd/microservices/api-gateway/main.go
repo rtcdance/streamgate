@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/gateway"
@@ -99,6 +100,9 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigChan
 	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
+
+	core.SetDraining()
+	log.Info("Drain state activated, rejecting new requests")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
