@@ -1,7 +1,6 @@
 package web3
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -15,18 +14,6 @@ var (
 	contentVerifiedTopic   = crypto.Keccak256Hash([]byte("ContentVerified(bytes32,bool)"))
 	contentDeletedTopic    = crypto.Keccak256Hash([]byte("ContentDeleted(bytes32,address)"))
 )
-
-// SmartContractDeployer handles smart contract deployment
-type SmartContractDeployer struct {
-	logger *zap.Logger
-}
-
-// NewSmartContractDeployer creates a new smart contract deployer
-func NewSmartContractDeployer(logger *zap.Logger) *SmartContractDeployer {
-	return &SmartContractDeployer{
-		logger: logger,
-	}
-}
 
 // ContentRegistry represents the ContentRegistry smart contract
 type ContentRegistry struct {
@@ -164,114 +151,6 @@ const ERC721ABI = `[
   }
 ]`
 
-// DeploymentConfig contains deployment configuration
-type DeploymentConfig struct {
-	ChainID       int64
-	RPC           string
-	PrivateKey    string
-	GasPrice      string
-	GasLimit      uint64
-	Confirmations uint64
-}
-
-// DeploymentResult contains deployment result
-type DeploymentResult struct {
-	ContractAddress string
-	TransactionHash string
-	BlockNumber     uint64
-	GasUsed         uint64
-	Status          string
-	Timestamp       int64
-}
-
-// DeployContentRegistry deploys the ContentRegistry contract
-// Deprecated: not implemented — placeholder only.
-func (scd *SmartContractDeployer) DeployContentRegistry(config *DeploymentConfig) (*DeploymentResult, error) {
-	scd.logger.Info("Deploying ContentRegistry contract", zap.Int64("chain_id", config.ChainID))
-
-	// TODO: Implement contract deployment
-	// 1. Create transaction
-	// 2. Sign transaction
-	// 3. Send transaction
-	// 4. Wait for confirmation
-	// 5. Return result
-
-	return &DeploymentResult{
-		Status: "pending",
-	}, fmt.Errorf("DeployNFTContract: stub — not implemented")
-}
-
-// DeployNFTContract deploys an NFT contract
-// Deprecated: not implemented — placeholder only.
-func (scd *SmartContractDeployer) DeployNFTContract(config *DeploymentConfig, name, symbol string) (*DeploymentResult, error) {
-	scd.logger.Info("Deploying NFT contract",
-		zap.Int64("chain_id", config.ChainID),
-		zap.String("name", name),
-		zap.String("symbol", symbol))
-
-	// TODO: Implement contract deployment
-	return &DeploymentResult{
-		Status: "pending",
-	}, fmt.Errorf("DeployNFTContract: stub — not implemented")
-}
-
-// VerifyContract verifies a contract on a block explorer
-// Deprecated: not implemented — placeholder only.
-func (scd *SmartContractDeployer) VerifyContract(chainID int64, contractAddress, sourceCode string) error {
-	scd.logger.Info("Verifying contract",
-		zap.Int64("chain_id", chainID),
-		zap.String("contract", contractAddress))
-
-	// TODO: Implement contract verification
-	// 1. Get block explorer API key
-	// 2. Prepare verification request
-	// 3. Submit to block explorer
-	// 4. Wait for verification
-
-	return fmt.Errorf("VerifyContract: stub — not implemented")
-}
-
-// ContractDeploymentTracker tracks contract deployments
-type ContractDeploymentTracker struct {
-	mu          sync.RWMutex
-	deployments map[string]*DeploymentResult
-	logger      *zap.Logger
-}
-
-// NewContractDeploymentTracker creates a new deployment tracker
-func NewContractDeploymentTracker(logger *zap.Logger) *ContractDeploymentTracker {
-	return &ContractDeploymentTracker{
-		deployments: make(map[string]*DeploymentResult),
-		logger:      logger,
-	}
-}
-
-// TrackDeployment tracks a contract deployment
-func (cdt *ContractDeploymentTracker) TrackDeployment(contractName string, result *DeploymentResult) {
-	cdt.mu.Lock()
-	defer cdt.mu.Unlock()
-	cdt.logger.Info("Tracking deployment",
-		zap.String("contract", contractName),
-		zap.String("address", result.ContractAddress))
-	cdt.deployments[contractName] = result
-}
-
-func (cdt *ContractDeploymentTracker) GetDeployment(contractName string) *DeploymentResult {
-	cdt.mu.RLock()
-	defer cdt.mu.RUnlock()
-	return cdt.deployments[contractName]
-}
-
-func (cdt *ContractDeploymentTracker) GetAllDeployments() map[string]*DeploymentResult {
-	cdt.mu.RLock()
-	defer cdt.mu.RUnlock()
-	out := make(map[string]*DeploymentResult, len(cdt.deployments))
-	for k, v := range cdt.deployments {
-		out[k] = v
-	}
-	return out
-}
-
 // SmartContractRegistry maintains a registry of deployed contracts
 type SmartContractRegistry struct {
 	mu        sync.RWMutex
@@ -339,6 +218,8 @@ func (scr *SmartContractRegistry) GetAllContracts() map[string]*SmartContractInf
 
 // GetContractsByChain gets contracts on a specific chain
 func (scr *SmartContractRegistry) GetContractsByChain(chainID int64) []*SmartContractInfo {
+	scr.mu.RLock()
+	defer scr.mu.RUnlock()
 	result := make([]*SmartContractInfo, 0)
 	for _, contract := range scr.contracts {
 		if contract.ChainID == chainID {

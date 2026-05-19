@@ -3,6 +3,7 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -12,6 +13,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/credentials"
 )
 
 // InitOTelTracing initializes the OpenTelemetry tracing pipeline.
@@ -20,11 +22,16 @@ import (
 // The returned shutdown function must be called on application exit to flush
 // pending spans.
 func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *zap.Logger) (shutdown func(ctx context.Context) error, err error) {
-	// Create OTLP gRPC exporter
-	exporter, err := otlptracegrpc.New(ctx,
+	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(endpoint),
-		otlptracegrpc.WithInsecure(),
-	)
+	}
+	if strings.Contains(endpoint, "443") || strings.HasPrefix(endpoint, "https") {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(nil)))
+	} else {
+		opts = append(opts, otlptracegrpc.WithInsecure())
+	}
+
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}

@@ -4,34 +4,44 @@ import (
 	"context"
 )
 
-// ChainManagerInterface abstracts multi-chain RPC operations.
-// *MultiChainManager satisfies this interface.
-//
-//go:generate mockgen -destination=mocks/mock_chain_manager.go -package=mocks streamgate/pkg/web3 ChainManagerInterface
-type ChainManagerInterface interface {
-	AddChain(chainID int64) error
+type ChainReader interface {
 	GetClient(chainID int64) (*ChainClient, error)
 	GetSolanaClient(chainID int64) (*SolanaVerifier, error)
 	GetSupportedChains() []*ChainConfig
 	GetRPCStatuses() map[int64][]RPCStatus
 	GetTestnetChains() []*ChainConfig
 	GetMainnetChains() []*ChainConfig
+}
+
+type ChainAdmin interface {
+	AddChain(chainID int64) error
 	SetRateLimiter(rl *RPCRateLimiter)
+}
+
+type ChainLifecycle interface {
 	Close()
 }
 
-// SignatureVerifierInterface abstracts signature verification.
-// *SignatureVerifier satisfies this interface.
-//
-//go:generate mockgen -destination=mocks/mock_sig_verifier.go -package=mocks streamgate/pkg/web3 SignatureVerifierInterface
+type ChainManagerInterface interface {
+	ChainReader
+	ChainAdmin
+	ChainLifecycle
+}
+
 type SignatureVerifierInterface interface {
 	VerifySignature(ctx context.Context, address, message, signature string) (bool, error)
 }
 
-// SolanaVerifierInterface abstracts Solana verification.
-// *SolanaVerifier satisfies this interface.
-//
-//go:generate mockgen -destination=mocks/mock_solana_verifier.go -package=mocks streamgate/pkg/web3 SolanaVerifierInterface
+type EIP712VerifierInterface interface {
+	VerifyTypedData(address string, typedData *EIP712TypedData, signature string) (bool, error)
+}
+
+// SolanaSigner verifies Solana ed25519 signatures (purely local crypto, no RPC).
+type SolanaSigner interface {
+	VerifySignature(address, message, signature string) (bool, error)
+	VerifyOffchainMessage(address, message, signature string) (bool, error)
+}
+
 type SolanaVerifierInterface interface {
 	VerifyTokenAccount(ctx context.Context, tokenAccount, ownerAddress string) (bool, error)
 	VerifyMintAuthority(ctx context.Context, mintAddress, authorityAddress string) (bool, error)

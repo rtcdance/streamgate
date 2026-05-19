@@ -17,17 +17,20 @@ import (
 	"go.uber.org/zap"
 )
 
+var Version = "0.0.0-dev"
+
 func main() {
 	log := logger.NewDevelopmentLogger("streamgate-api-gateway")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate API Gateway Service...")
+	log.Info("Starting StreamGate API Gateway Service...", zap.String("version", Version))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
+	cfg.Version = Version
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "api-gateway"
 	grpcPort := cfg.GRPC.Port
@@ -66,6 +69,7 @@ func main() {
 		AuthService:    resources.AuthService,
 		Web3Service:    resources.Web3Service,
 		NFTVerifier:    resources.NFTVerifier,
+		StreamingSvc:   resources.StreamingSvc,
 		ContentService: resources.ContentService,
 		SegmentStorage: resources.SegmentStorage,
 		UploadService:  resources.UploadService,

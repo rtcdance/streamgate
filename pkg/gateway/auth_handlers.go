@@ -9,6 +9,7 @@ import (
 
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/middleware"
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/service"
 	"streamgate/pkg/util"
 
@@ -99,7 +100,7 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 		}
 		challenge, err := authService.GenerateWalletChallenge(c.Request.Context(), wallet, chainID, req.SignType)
 		if err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "failed to generate wallet challenge")
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{
@@ -131,9 +132,11 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		}
 		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature)
 		if err != nil {
+			monitoring.AuthOperationsTotal.WithLabelValues("login", "failure").Inc()
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed")
 			return
 		}
+		monitoring.AuthOperationsTotal.WithLabelValues("login", "success").Inc()
 		// Parse token to extract expires_at
 		var expiresAt string
 		if claims, err := authService.ParseToken(token); err == nil && claims.ExpiresAt != nil {
@@ -143,6 +146,15 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		c.Header("Pragma", "no-cache")
 		respondOK(c, gin.H{"token": token, "wallet_address": wallet, "expires_at": expiresAt})
 	}
+}
+
+func isValidUsername(username string) bool {
+	for _, r := range username {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.HandlerFunc {
@@ -158,6 +170,14 @@ func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.H
 		}
 		if req.Username == "" || req.Password == "" {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username and password are required")
+			return
+		}
+		if len(req.Username) < 3 || len(req.Username) > 50 {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username must be between 3 and 50 characters")
+			return
+		}
+		if !isValidUsername(req.Username) {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username must contain only alphanumeric characters and underscores")
 			return
 		}
 		if len(req.Password) < 8 {
@@ -200,9 +220,11 @@ func handleAuthRefresh(authService *service.AuthService) gin.HandlerFunc {
 		}
 		newToken, err := authService.RefreshToken(c.Request.Context(), req.Token)
 		if err != nil {
+			monitoring.AuthOperationsTotal.WithLabelValues("refresh", "failure").Inc()
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "token refresh failed")
 			return
 		}
+		monitoring.AuthOperationsTotal.WithLabelValues("refresh", "success").Inc()
 		var expiresAt string
 		if claims, err := authService.ParseToken(newToken); err == nil && claims.ExpiresAt != nil {
 			expiresAt = claims.ExpiresAt.Format(time.RFC3339)
@@ -217,14 +239,14 @@ func handleAuthLogout(authService *service.AuthService, log *zap.Logger) gin.Han
 	return func(c *gin.Context) {
 		tokenStr := extractBearerToken(c)
 		if tokenStr == "" {
+			monitoring.AuthOperationsTotal.WithLabelValues("logout", "failure").Inc()
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "missing token")
 			return
 		}
 		if err := authService.RevokeToken(c.Request.Context(), tokenStr); err != nil {
-			// Log the error but still consider logout successful from client perspective.
-			// The token will expire naturally; revocation is a best-effort optimization.
 			middleware.GetLogger(c, log).Warn("failed to revoke token on logout", zap.Error(err))
 		}
+		monitoring.AuthOperationsTotal.WithLabelValues("logout", "success").Inc()
 		respondOK(c, gin.H{"message": "logged out"})
 	}
 }
@@ -233,11 +255,13 @@ func handleAuthVerify(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := extractBearerToken(c)
 		if tokenStr == "" {
+			monitoring.AuthOperationsTotal.WithLabelValues("verify", "failure").Inc()
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "missing token")
 			return
 		}
 		result, err := authService.VerifyToken(c.Request.Context(), tokenStr)
 		if err != nil || !result.Valid {
+			monitoring.AuthOperationsTotal.WithLabelValues("verify", "failure").Inc()
 			code := ErrUnauthorized
 			if err != nil && errors.Is(err, service.ErrTokenRevoked) {
 				code = ErrTokenRevoked
@@ -245,6 +269,7 @@ func handleAuthVerify(authService *service.AuthService) gin.HandlerFunc {
 			abortWithError(c, http.StatusUnauthorized, code, "invalid token")
 			return
 		}
+		monitoring.AuthOperationsTotal.WithLabelValues("verify", "success").Inc()
 		respondOK(c, gin.H{"valid": true, "expires_at": result.ExpiresAt, "wallet_address": result.WalletAddress})
 	}
 }
@@ -275,7 +300,7 @@ func RegisterAuthProtectedRoutes(router gin.IRouter, log *zap.Logger, authServic
 			return
 		}
 		if err := authService.ChangePassword(c.Request.Context(), username, req.OldPassword, req.NewPassword); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "password change failed")
+			abortWithErrorDetail(c, http.StatusUnauthorized, ErrUnauthorized, "password change failed", err.Error())
 			return
 		}
 		respondOK(c, gin.H{"message": "password changed"})

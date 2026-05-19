@@ -16,13 +16,13 @@ import (
 
 // ContractWriteResult contains the result of a contract write operation.
 type ContractWriteResult struct {
-	TxHash      string
-	Nonce       uint64
-	GasLimit    uint64
-	GasPrice    *big.Int // nil for EIP-1559
+	TxHash       string
+	Nonce        uint64
+	GasLimit     uint64
+	GasPrice     *big.Int // nil for EIP-1559
 	MaxFeePerGas *big.Int
-	TipCap      *big.Int
-	SentAt      time.Time
+	TipCap       *big.Int
+	SentAt       time.Time
 }
 
 // ContractWriter sends state-changing transactions to smart contracts.
@@ -30,13 +30,13 @@ type ContractWriteResult struct {
 // SecurePrivateKey, and sending via ChainClient (no failover on writes to
 // prevent duplicate submission).  Optionally tracks the tx with TxTracker.
 type ContractWriter struct {
-	client       *ChainClient
-	key          KeyProvider
-	nonceMgr     NonceProvider
-	tracker      *TxTracker // optional: set via WithTracker
-	logger       *zap.Logger
-	fromAddress  common.Address // derived from key at construction
-	chainID      *big.Int
+	client      *ChainClient
+	key         KeyProvider
+	nonceMgr    NonceProvider
+	tracker     *TxTracker // optional: set via WithTracker
+	logger      *zap.Logger
+	fromAddress common.Address // derived from key at construction
+	chainID     *big.Int
 }
 
 // ContractWriterConfig holds configuration for creating a ContractWriter.
@@ -111,7 +111,7 @@ func (cw *ContractWriter) buildAndSignTx(ctx context.Context, privKey *ecdsa.Pri
 		// Fallback to legacy
 		gasPrice, err2 := cw.client.GetGasPrice(ctx)
 		if err2 != nil {
-			return nil, nil, fmt.Errorf("contract_writer: get gas price: %w (tipcap err: %w)", err2, err)
+			return nil, nil, fmt.Errorf("contract_writer: get gas price: %w (tipcap err: %v)", err2, err)
 		}
 
 		legacyTx := types.NewTransaction(nonce, contractAddr, opts.Value, gasLimit, gasPrice, callData)
@@ -249,10 +249,10 @@ func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*Con
 
 // ContractTxOpts specifies the parameters for a contract write transaction.
 type ContractTxOpts struct {
-	To        string      // contract address (hex)
-	Method    string      // function name, e.g. "registerContent"
-	ParsedABI *abi.ABI   // pre-parsed ABI (avoids re-parsing on every call)
+	To        string        // contract address (hex)
+	Method    string        // function name, e.g. "registerContent"
+	ParsedABI *abi.ABI      // pre-parsed ABI (avoids re-parsing on every call)
 	Args      []interface{} // positional arguments
-	Value     *big.Int   // ETH value to send (nil = 0)
-	GasLimit  uint64     // 0 = auto-estimate
+	Value     *big.Int      // ETH value to send (nil = 0)
+	GasLimit  uint64        // 0 = auto-estimate
 }

@@ -73,6 +73,9 @@ func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache
 	}
 }
 
+func (s *StreamingService) Close() {
+}
+
 // GetStream gets stream information
 func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*StreamInfo, error) {
 	ctx, span := monitoring.StartOTelSpan(ctx, "streaming.get_stream",
@@ -84,14 +87,17 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 	if s.cache != nil {
 		if cached, err := s.cache.Get(cacheKey); err == nil {
 			if streamInfo, ok := cached.(*StreamInfo); ok {
-				return streamInfo, nil
+				cp := *streamInfo
+				cp.Qualities = make([]Quality, len(streamInfo.Qualities))
+				copy(cp.Qualities, streamInfo.Qualities)
+				return &cp, nil
 			}
 		}
 	}
 
 	v, err, _ := s.sf.Do(cacheKey, func() (interface{}, error) {
 		if s.db == nil {
-			return nil, fmt.Errorf("stream not found for content: %s", contentID)
+			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, ErrNotFound)
 		}
 
 		query := `
@@ -119,7 +125,7 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 		)
 
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("stream not found for content: %s", contentID)
+			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, ErrNotFound)
 		} else if err != nil {
 			return nil, fmt.Errorf("failed to query stream: %w", err)
 		}
@@ -177,30 +183,90 @@ func (s *StreamingService) CreateStream(ctx context.Context, contentID, streamTy
 	return streamID, nil
 }
 
-// GenerateHLSPlaylist generates an HLS playlist
-func (s *StreamingService) GenerateHLSPlaylist(contentID string, qualities []Quality) (string, error) {
-	var playlist strings.Builder
-
-	// Write HLS header
-	playlist.WriteString("#EXTM3U\n")
-	playlist.WriteString("#EXT-X-VERSION:3\n")
-
-	// Write quality variants
-	for _, quality := range qualities {
-		playlist.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n",
-			quality.Bitrate*1000, quality.Resolution))
-		playlist.WriteString(fmt.Sprintf("%s/%s/%s.m3u8\n",
-			s.baseURL, contentID, quality.Name))
+// GenerateHLSPlaylist generates an HLS master playlist with inline segments
+// for multi-quality streaming. The playbackToken parameter is a placeholder
+// (e.g. "{{PLAYBACK_TOKEN}}") that the handler replaces per-request.
+func (s *StreamingService) GenerateHLSPlaylist(contentID string, qualitySegments map[string][]string, playbackToken string) (string, error) {
+	if len(qualitySegments) == 0 {
+		return "", fmt.Errorf("no segments available for content %s", contentID)
 	}
-
-	return playlist.String(), nil
+	if len(qualitySegments) == 1 {
+		for _, segs := range qualitySegments {
+			return BuildSimplePlaylist(contentID, segs, playbackToken), nil
+		}
+	}
+	return BuildMasterPlaylist(contentID, qualitySegments, playbackToken), nil
 }
 
-// GenerateDASHManifest generates a DASH manifest
-func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Quality) (string, error) {
+var qualityBandwidth = map[string]int{
+	"1080p": 5000,
+	"720p":  2800,
+	"480p":  1400,
+	"360p":  800,
+}
+
+func BuildSimplePlaylist(contentID string, segments []string, playbackToken string) string {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n")
+	for _, seg := range segments {
+		name := seg
+		if idx := strings.LastIndex(seg, "/"); idx >= 0 {
+			name = seg[idx+1:]
+		}
+		b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?playback_token=%s\n", contentID, name, playbackToken))
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	return b.String()
+}
+
+func BuildMasterPlaylist(contentID string, qualitySegments map[string][]string, playbackToken string) string {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
+	for quality := range qualitySegments {
+		bw := qualityBandwidth[quality]
+		if bw == 0 {
+			bw = 1500
+		}
+		resolution := qualityToResolution(quality)
+		b.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bw*1000, resolution))
+		b.WriteString(fmt.Sprintf("/api/v1/streaming/%s/manifest.m3u8?quality=%s&playback_token=%s\n", contentID, quality, playbackToken))
+	}
+	return b.String()
+}
+
+func BuildMediaPlaylist(contentID string, quality string, segments []string, playbackToken string) string {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n")
+	for _, seg := range segments {
+		name := seg
+		if idx := strings.LastIndex(seg, "/"); idx >= 0 {
+			name = seg[idx+1:]
+		}
+		b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s\n", contentID, name, quality, playbackToken))
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	return b.String()
+}
+
+func qualityToResolution(quality string) string {
+	switch quality {
+	case "1080p":
+		return "1920x1080"
+	case "720p":
+		return "1280x720"
+	case "480p":
+		return "854x480"
+	case "360p":
+		return "640x360"
+	default:
+		return "1280x720"
+	}
+}
+
+// GenerateDASHManifest generates a DASH manifest with playback token for segment access.
+func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Quality, playbackToken string) (string, error) {
 	var manifest strings.Builder
 
-	// Write DASH header
 	manifest.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
 	manifest.WriteString("\n")
 	manifest.WriteString(`<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">`)
@@ -210,13 +276,12 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 	manifest.WriteString(`    <AdaptationSet mimeType="video/mp4">`)
 	manifest.WriteString("\n")
 
-	// Write quality representations
 	for _, quality := range qualities {
 		manifest.WriteString(fmt.Sprintf(`      <Representation bandwidth="%d" width=%q>`, //nolint:gocritic // "%s" is XML attribute syntax, not Go quoting
 			quality.Bitrate*1000, strings.Split(quality.Resolution, "x")[0]))
 		manifest.WriteString("\n")
-		manifest.WriteString(fmt.Sprintf(`        <BaseURL>%s/%s/%s.mp4</BaseURL>`,
-			s.baseURL, contentID, quality.Name))
+		manifest.WriteString(fmt.Sprintf(`        <BaseURL>%s/%s/%s.mp4?playback_token=%s</BaseURL>`,
+			s.baseURL, contentID, quality.Name, playbackToken))
 		manifest.WriteString("\n")
 		manifest.WriteString(`      </Representation>`)
 		manifest.WriteString("\n")

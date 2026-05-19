@@ -25,12 +25,12 @@ type Cache interface {
 
 // CacheStorage handles cache storage with in-memory LRU cache
 type CacheStorage struct {
-	items   map[string]*cacheItem
-	mu      sync.RWMutex
-	wg      sync.WaitGroup
-	maxSize int
-	stopCh  chan struct{}
-	closed  bool
+	items     map[string]*cacheItem
+	mu        sync.RWMutex
+	wg        sync.WaitGroup
+	maxSize   int
+	stopCh    chan struct{}
+	closed    bool
 	closeOnce sync.Once
 }
 

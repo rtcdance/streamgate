@@ -356,7 +356,7 @@ func (x *GetNFTBalanceRequest) GetChainType() string {
 
 type GetNFTBalanceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Balance       int32                  `protobuf:"varint,1,opt,name=balance,proto3" json:"balance,omitempty"`
+	Balance       int64                  `protobuf:"varint,1,opt,name=balance,proto3" json:"balance,omitempty"`
 	TokenIds      []string               `protobuf:"bytes,2,rep,name=token_ids,json=tokenIds,proto3" json:"token_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -392,7 +392,7 @@ func (*GetNFTBalanceResponse) Descriptor() ([]byte, []int) {
 	return file_proto_v1_nft_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetNFTBalanceResponse) GetBalance() int32 {
+func (x *GetNFTBalanceResponse) GetBalance() int64 {
 	if x != nil {
 		return x.Balance
 	}
@@ -828,7 +828,7 @@ type NFTItem struct {
 	TokenId         string                 `protobuf:"bytes,2,opt,name=token_id,json=tokenId,proto3" json:"token_id,omitempty"`
 	Name            string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Image           string                 `protobuf:"bytes,4,opt,name=image,proto3" json:"image,omitempty"`
-	Balance         int32                  `protobuf:"varint,5,opt,name=balance,proto3" json:"balance,omitempty"`
+	Balance         int64                  `protobuf:"varint,5,opt,name=balance,proto3" json:"balance,omitempty"`
 	Metadata        *NFTMetadata           `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -892,7 +892,7 @@ func (x *NFTItem) GetImage() string {
 	return ""
 }
 
-func (x *NFTItem) GetBalance() int32 {
+func (x *NFTItem) GetBalance() int64 {
 	if x != nil {
 		return x.Balance
 	}
@@ -1032,7 +1032,7 @@ const file_proto_v1_nft_proto_rawDesc = "" +
 	"\n" +
 	"chain_type\x18\x04 \x01(\tR\tchainType\"N\n" +
 	"\x15GetNFTBalanceResponse\x12\x18\n" +
-	"\abalance\x18\x01 \x01(\x05R\abalance\x12\x1b\n" +
+	"\abalance\x18\x01 \x01(\x03R\abalance\x12\x1b\n" +
 	"\ttoken_ids\x18\x02 \x03(\tR\btokenIds\"\xa7\x01\n" +
 	"\x13ListUserNFTsRequest\x12%\n" +
 	"\x0ewallet_address\x18\x01 \x01(\tR\rwalletAddress\x12\x19\n" +
@@ -1080,7 +1080,7 @@ const file_proto_v1_nft_proto_rawDesc = "" +
 	"\btoken_id\x18\x02 \x01(\tR\atokenId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x04 \x01(\tR\x05image\x12\x18\n" +
-	"\abalance\x18\x05 \x01(\x05R\abalance\x12/\n" +
+	"\abalance\x18\x05 \x01(\x03R\abalance\x12/\n" +
 	"\bmetadata\x18\x06 \x01(\v2\x13.nft.v1.NFTMetadataR\bmetadata\"\xd6\x01\n" +
 	"\fContractInfo\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x12\n" +

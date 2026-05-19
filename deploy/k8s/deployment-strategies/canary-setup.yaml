@@ -75,10 +75,19 @@ spec:
         prometheus.io/port: "9091"
         prometheus.io/path: "/metrics"
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: streamgate
       containers:
         - name: streamgate
           image: streamgate:stable
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -158,10 +167,19 @@ spec:
         prometheus.io/port: "9091"
         prometheus.io/path: "/metrics"
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: streamgate
       containers:
         - name: streamgate
           image: streamgate:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
           imagePullPolicy: Always
           ports:
             - name: http

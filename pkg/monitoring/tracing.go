@@ -47,6 +47,10 @@ type Tracer struct {
 	mu          sync.RWMutex
 	spans       map[string]*Span
 	traces      map[string][]*Span
+	spanOrder   []string
+	traceOrder  []string
+	maxSpans    int
+	maxTraces   int
 	serviceName string
 }
 
@@ -56,6 +60,10 @@ func NewTracer(serviceName string, logger *zap.Logger) *Tracer {
 		logger:      logger,
 		spans:       make(map[string]*Span),
 		traces:      make(map[string][]*Span),
+		spanOrder:   make([]string, 0),
+		traceOrder:  make([]string, 0),
+		maxSpans:    10000,
+		maxTraces:   1000,
 		serviceName: serviceName,
 	}
 }
@@ -63,6 +71,19 @@ func NewTracer(serviceName string, logger *zap.Logger) *Tracer {
 func (t *Tracer) logDebug(msg string, fields ...zap.Field) {
 	if t.logger != nil {
 		t.logger.Debug(msg, fields...)
+	}
+}
+
+func (t *Tracer) evict() {
+	for len(t.spans) > t.maxSpans && len(t.spanOrder) > 0 {
+		oldestID := t.spanOrder[0]
+		t.spanOrder = t.spanOrder[1:]
+		delete(t.spans, oldestID)
+	}
+	for len(t.traces) > t.maxTraces && len(t.traceOrder) > 0 {
+		oldestID := t.traceOrder[0]
+		t.traceOrder = t.traceOrder[1:]
+		delete(t.traces, oldestID)
 	}
 }
 
@@ -88,7 +109,12 @@ func (t *Tracer) StartSpan(ctx context.Context, operationName string) (*Span, co
 
 	t.mu.Lock()
 	t.spans[span.ID] = span
+	t.spanOrder = append(t.spanOrder, span.ID)
 	t.traces[traceID] = append(t.traces[traceID], span)
+	if _, exists := t.traces[traceID]; exists && len(t.traces[traceID]) == 1 {
+		t.traceOrder = append(t.traceOrder, traceID)
+	}
+	t.evict()
 	t.mu.Unlock()
 
 	t.logDebug("Span started",

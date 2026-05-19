@@ -12,8 +12,8 @@ import (
 type PluginFactory func(cfg *config.Config, logger *zap.Logger) Plugin
 
 var (
-	factoryMu         sync.RWMutex
-	pluginFactories   = make(map[string]PluginFactory)
+	factoryMu       sync.RWMutex
+	pluginFactories = make(map[string]PluginFactory)
 )
 
 func RegisterPluginFactory(name string, factory PluginFactory) {
@@ -30,6 +30,12 @@ func MustRegisterPluginFactory(name string, factory PluginFactory) {
 	factoryMu.Lock()
 	defer factoryMu.Unlock()
 	pluginFactories[name] = factory
+}
+
+func GetPluginFactory(name string) PluginFactory {
+	factoryMu.RLock()
+	defer factoryMu.RUnlock()
+	return pluginFactories[name]
 }
 
 func RegisteredPluginNames() []string {

@@ -47,6 +47,14 @@ var safeHTTPClient = &http.Client{
 	},
 }
 
+// CloseSafeHTTPClient closes idle connections on the shared safe HTTP client.
+// Call this during application shutdown.
+func CloseSafeHTTPClient() {
+	if t, ok := safeHTTPClient.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+}
+
 // isPrivateIP checks if an IP is in a private, loopback, or link-local range.
 func isPrivateIP(ip net.IP) bool {
 	privateRanges := []struct {

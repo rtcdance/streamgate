@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -146,6 +147,41 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "challenge already used")
+	})
+
+	t.Run("concurrent challenge replay only one succeeds", func(t *testing.T) {
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
+		challenge, err := auth.GenerateWalletChallenge(context.Background(), walletAddress, 11155111)
+		require.NoError(t, err)
+
+		signature, err := verifier.SignMessage(challenge.Message, privateKey)
+		require.NoError(t, err)
+
+		const concurrency = 10
+		var wg sync.WaitGroup
+		results := make(chan error, concurrency)
+
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
+				results <- err
+			}()
+		}
+		wg.Wait()
+		close(results)
+
+		successCount := 0
+		for err := range results {
+			if err == nil {
+				successCount++
+			}
+		}
+		assert.Equal(t, 1, successCount, "exactly one concurrent request should succeed")
 	})
 
 	t.Run("expired challenge fails", func(t *testing.T) {

@@ -206,13 +206,6 @@ func (m *mockUploadStorage) Delete(ctx context.Context, bucket, key string) erro
 	return nil
 }
 
-func (m *mockUploadStorage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
-	for _, key := range keys {
-		delete(m.data, bucket+"/"+key)
-	}
-	return nil
-}
-
 func (m *mockUploadStorage) Exists(ctx context.Context, bucket, key string) (bool, error) {
 	_, ok := m.data[bucket+"/"+key]
 	return ok, nil
@@ -227,6 +220,13 @@ func (m *mockUploadStorage) ListObjects(ctx context.Context, bucket, prefix stri
 		}
 	}
 	return keys, nil
+}
+
+func (m *mockUploadStorage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	for _, key := range keys {
+		delete(m.data, bucket+"/"+key)
+	}
+	return nil
 }
 
 // --- ContentService Tests ---
@@ -398,12 +398,12 @@ func TestStreamingService_CreateStream_DBNil(t *testing.T) {
 
 func TestStreamingService_GenerateHLSPlaylist_Coverage(t *testing.T) {
 	svc := NewStreamingService(nil, nil, newMockCache(), "http://cdn.example.com")
-	qualities := []Quality{
-		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000},
-		{Name: "720p", Resolution: "1280x720", Bitrate: 3000},
+	qualitySegments := map[string][]string{
+		"1080p": {"segment0.ts", "segment1.ts"},
+		"720p":  {"segment0.ts", "segment1.ts"},
 	}
 
-	playlist, err := svc.GenerateHLSPlaylist("content-1", qualities)
+	playlist, err := svc.GenerateHLSPlaylist("content-1", qualitySegments, "{{PLAYBACK_TOKEN}}")
 	require.NoError(t, err)
 	assert.Contains(t, playlist, "#EXTM3U")
 	assert.Contains(t, playlist, "#EXT-X-STREAM-INF")
@@ -417,7 +417,7 @@ func TestStreamingService_GenerateDASHManifest_Coverage(t *testing.T) {
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000},
 	}
 
-	manifest, err := svc.GenerateDASHManifest("content-1", qualities)
+	manifest, err := svc.GenerateDASHManifest("content-1", qualities, "test-playback-token")
 	require.NoError(t, err)
 	assert.Contains(t, manifest, "<MPD")
 	assert.Contains(t, manifest, "bandwidth=\"5000000\"")
@@ -715,20 +715,6 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	})
 }
 
-
-// --- DomainError tests ---
-
-func TestNewDomainError(t *testing.T) {
-	err := NewDomainError("VALIDATION_FAILED", "invalid input", nil)
-	assert.Equal(t, "VALIDATION_FAILED", err.Code)
-	assert.Equal(t, "invalid input", err.Message)
-	assert.Nil(t, err.Cause)
-
-	wrapped := fmt.Errorf("db error")
-	err2 := NewDomainError("DB_ERROR", "query failed", wrapped)
-	assert.Equal(t, wrapped, err2.Cause)
-	assert.Equal(t, wrapped, err2.Unwrap())
-}
 
 // --- MemoryTokenBlacklist tests ---
 

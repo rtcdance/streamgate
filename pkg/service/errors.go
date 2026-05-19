@@ -26,31 +26,6 @@ var (
 	ErrSolanaNotConfigured = errors.New("solana verifier not configured")
 
 	// Operation errors
-	ErrNotSupported  = errors.New("operation not supported")
+	ErrNotSupported   = errors.New("operation not supported")
 	ErrInvalidRequest = errors.New("invalid request")
 )
-
-// DomainError wraps an error with a machine-readable code for HTTP response mapping.
-type DomainError struct {
-	Code    string
-	Message string
-	Cause   error
-}
-
-func (e *DomainError) Error() string {
-	if e.Cause != nil {
-		return e.Message + ": " + e.Cause.Error()
-	}
-	return e.Message
-}
-
-func (e *DomainError) Unwrap() error { return e.Cause }
-
-// NewDomainError creates a DomainError with code, message, and optional cause.
-func NewDomainError(code, message string, cause ...error) *DomainError {
-	var c error
-	if len(cause) > 0 {
-		c = cause[0]
-	}
-	return &DomainError{Code: code, Message: message, Cause: c}
-}

@@ -65,7 +65,6 @@ type QueueMetrics struct {
 	TotalFailed     int64
 	CurrentQueueLen int
 	AverageWaitTime time.Duration
-	mu              sync.RWMutex //nolint:unused
 }
 
 // WorkerPool manages concurrent transcoding workers for standalone microservice mode.
@@ -94,7 +93,7 @@ type Worker struct {
 	FailedTasks     int64
 	TotalProcessing time.Duration
 	LastHeartbeat   time.Time
-	mu              sync.RWMutex //nolint:unused
+	mu              sync.RWMutex
 }
 
 // WorkerStatus represents the status of a worker
@@ -115,7 +114,6 @@ type WorkerMetrics struct {
 	TotalTasksProcessed int64
 	TotalTasksFailed    int64
 	AverageTaskTime     time.Duration
-	mu                  sync.RWMutex //nolint:unused
 }
 
 // ScalingPolicy defines auto-scaling rules

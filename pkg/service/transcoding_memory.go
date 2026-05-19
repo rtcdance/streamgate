@@ -10,11 +10,11 @@ import (
 )
 
 type MemoryTranscodingQueue struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	queue    []*models.TranscodingTask
-	tasks    map[string]*models.TranscodingTask
-	depth    int64
+	mu    sync.Mutex
+	cond  *sync.Cond
+	queue []*models.TranscodingTask
+	tasks map[string]*models.TranscodingTask
+	depth int64
 }
 
 func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
@@ -48,7 +48,7 @@ func (q *MemoryTranscodingQueue) Dequeue(ctx context.Context) (*models.Transcodi
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-			done := make(chan struct{}, 1)
+		done := make(chan struct{}, 1)
 		go func() {
 			select {
 			case <-ctx.Done():

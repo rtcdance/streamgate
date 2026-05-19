@@ -87,10 +87,10 @@ func (b *NATSEventBus) Publish(ctx context.Context, event *Event) error {
 }
 
 // Subscribe subscribes to events via NATS
-func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) error {
+func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) (string, error) {
 	if b.conn == nil || !b.conn.IsConnected() {
 		b.logger.Error("NATS connection not available")
-		return fmt.Errorf("NATS connection not available")
+		return "", fmt.Errorf("NATS connection not available")
 	}
 
 	subject := fmt.Sprintf("streamgate.%s", eventType)
@@ -113,26 +113,28 @@ func (b *NATSEventBus) Subscribe(ctx context.Context, eventType string, handler 
 		b.logger.Error("Failed to subscribe",
 			zap.String("type", eventType),
 			zap.Error(err))
-		return fmt.Errorf("failed to subscribe: %w", err)
+		return "", fmt.Errorf("failed to subscribe: %w", err)
 	}
+
+	subID := fmtSubscriptionID()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.subscriptions[eventType] = sub
+	b.subscriptions[subID] = sub
 
 	b.logger.Info("Subscribed to events",
 		zap.String("type", eventType),
 		zap.String("subject", subject))
-	return nil
+	return subID, nil
 }
 
 // Unsubscribe unsubscribes from events
-func (b *NATSEventBus) Unsubscribe(ctx context.Context, eventType string, handler EventHandler) error {
+func (b *NATSEventBus) Unsubscribe(ctx context.Context, subscriptionID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	sub, exists := b.subscriptions[eventType]
+	sub, exists := b.subscriptions[subscriptionID]
 	if !exists {
 		return nil
 	}
@@ -141,9 +143,9 @@ func (b *NATSEventBus) Unsubscribe(ctx context.Context, eventType string, handle
 		return fmt.Errorf("failed to unsubscribe: %w", err)
 	}
 
-	delete(b.subscriptions, eventType)
+	delete(b.subscriptions, subscriptionID)
 
-	b.logger.Info("Unsubscribed from events", zap.String("type", eventType))
+	b.logger.Info("Unsubscribed from events", zap.String("subscription_id", subscriptionID))
 	return nil
 }
 

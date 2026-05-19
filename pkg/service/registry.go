@@ -8,9 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"streamgate/pkg/core/config"
+
 	"github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
 )
 
 // ServiceRegistry handles service registration and discovery

@@ -36,15 +36,19 @@ func (m *mockNFTChecker) GetNFTBalance(ctx context.Context, chainID int64, contr
 	return m.balance, m.balanceErr
 }
 
-func (m *mockNFTChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contract, tokenID, owner string) (bool, error) {
+func (m *mockNFTChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error) {
 	return m.verifyResult, m.verifyErr
 }
 
-func (m *mockNFTChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contract, owner string) (bool, error) {
+func (m *mockNFTChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contract, owner string) (bool, error) {
 	if m.balanceErr != nil {
 		return false, m.balanceErr
 	}
 	return m.balance != nil && m.balance.Sign() > 0, nil
+}
+
+func (m *mockNFTChecker) GetNFTInfo(ctx context.Context, chainID int64, contract, tokenID string) (*middleware.NFTMetadata, error) {
+	return nil, nil
 }
 
 // mockSegmentStorage implements service.SegmentStorage for E2E tests.

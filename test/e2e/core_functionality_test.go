@@ -96,7 +96,7 @@ func TestE2E_EventPublishing(t *testing.T) {
 	var eventReceived bool
 	var mu sync.Mutex
 	eventBus := kernel.GetEventBus()
-	_ = eventBus.Subscribe(context.Background(), "test-event", func(ctx context.Context, e *event.Event) error {
+	_, _ = eventBus.Subscribe(context.Background(), "test-event", func(ctx context.Context, e *event.Event) error {
 		mu.Lock()
 		eventReceived = true
 		mu.Unlock()

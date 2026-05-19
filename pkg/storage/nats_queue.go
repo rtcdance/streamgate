@@ -19,7 +19,7 @@ const (
 	jsStreamSubject = "streamgate.transcoding.tasks"
 	jsConsumerName  = "transcoding-worker"
 
-	msgStaleTimeout   = 30 * time.Minute
+	msgStaleTimeout    = 30 * time.Minute
 	statusStaleTimeout = 2 * time.Hour
 	cleanupInterval    = 5 * time.Minute
 )

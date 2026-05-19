@@ -16,7 +16,7 @@ spec:
     kind: Deployment
     name: streamgate-blue
   updatePolicy:
-    updateMode: "Auto"
+    updateMode: "Off"
   resourcePolicy:
     containerPolicies:
       - containerName: streamgate

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -58,6 +59,8 @@ type EventIndexer struct {
 	eventParser        *EventParser        // optional: decode event data into Decoded field
 	seenIDs            map[string]struct{} // in-memory dedup when EventStore is nil
 	confirmationBlocks uint64              // safety buffer: only index up to latestBlock - N
+	onEvent            EventHandler        // optional: called when a new event is indexed
+	started            atomic.Bool         // prevents double Start
 }
 
 // IndexedEvent represents an indexed blockchain event
@@ -151,6 +154,11 @@ func NewEventIndexerWithConfig(client EventReader, cfg EventIndexerConfig, logge
 // Start starts the event indexer. If a WebSocket subscriber is configured,
 // it subscribes to real-time logs; otherwise falls back to polling.
 func (ei *EventIndexer) Start(ctx context.Context) error {
+	if !ei.started.CompareAndSwap(false, true) {
+		ei.logger.Warn("Event indexer already started, ignoring duplicate call")
+		return nil
+	}
+
 	ei.logger.Info("Starting event indexer", zap.String("mode", ei.mode))
 
 	// Get current block number
@@ -250,6 +258,12 @@ func (ei *EventIndexer) SetEventParser(ep *EventParser) {
 	ei.mu.Lock()
 	defer ei.mu.Unlock()
 	ei.eventParser = ep
+}
+
+func (ei *EventIndexer) SetOnEvent(handler EventHandler) {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.onEvent = handler
 }
 
 // websocketLoop processes real-time logs from a WebSocket subscription.
@@ -527,19 +541,19 @@ func (ei *EventIndexer) logToEvent(log *types.Log) *IndexedEvent {
 // addEvent adds an event to the index with deduplication and persistence.
 func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 	ei.mu.Lock()
-	defer ei.mu.Unlock()
 
-	// Lazy-init seenIDs for in-memory dedup
 	if ei.seenIDs == nil {
 		ei.seenIDs = make(map[string]struct{})
 	}
 
 	if _, seen := ei.seenIDs[event.ID]; seen {
+		ei.mu.Unlock()
 		ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
 		return
 	}
 	if ei.store != nil {
 		if exists, _ := ei.store.EventExists(event.ID); exists {
+			ei.mu.Unlock()
 			ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
 			return
 		}
@@ -558,6 +572,13 @@ func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 		trimmed := make([]*IndexedEvent, ei.maxEvents)
 		copy(trimmed, ei.events[len(ei.events)-ei.maxEvents:])
 		ei.events = trimmed
+	}
+
+	onEvent := ei.onEvent
+	ei.mu.Unlock()
+
+	if onEvent != nil {
+		_ = onEvent(context.Background(), event)
 	}
 }
 

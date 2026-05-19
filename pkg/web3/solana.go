@@ -177,21 +177,43 @@ func (sv *SolanaVerifier) VerifyMultiSignature(addresses []string, message strin
 	return true, nil
 }
 
-// VerifyOffchainMessage verifies an off-chain message
 func (sv *SolanaVerifier) VerifyOffchainMessage(address, message, signature string) (bool, error) {
-	// Off-chain messages are typically prefixed
-	prefix := "solana offchain message:"
-	prefixedMessage := prefix + message
-
-	return sv.VerifySignature(address, prefixedMessage, signature)
+	encoded := base64.StdEncoding.EncodeToString(encodeSIP004Message(message))
+	return sv.VerifySignature(address, encoded, signature)
 }
 
-// SignOffchainMessage signs an off-chain message
 func (sv *SolanaVerifier) SignOffchainMessage(message string, privateKey ed25519.PrivateKey) (string, error) {
-	prefix := "solana offchain message:"
-	prefixedMessage := prefix + message
+	encoded := base64.StdEncoding.EncodeToString(encodeSIP004Message(message))
+	return sv.SignMessage(encoded, privateKey)
+}
 
-	return sv.SignMessage(prefixedMessage, privateKey)
+func encodeSIP004Message(message string) []byte {
+	msgBytes := []byte(message)
+	var buf []byte
+	buf = append(buf, 0xff)
+	buf = append(buf, []byte("solana offchain")...)
+	buf = append(buf, 0x00)
+	buf = append(buf, 0x00) // version 0
+	buf = append(buf, 0x00) // format 0 (free-form)
+	buf = append(buf, encodeVarint(uint64(len(msgBytes)))...)
+	buf = append(buf, msgBytes...)
+	return buf
+}
+
+func encodeVarint(v uint64) []byte {
+	var buf []byte
+	for {
+		b := byte(v & 0x7f)
+		v >>= 7
+		if v != 0 {
+			b |= 0x80
+		}
+		buf = append(buf, b)
+		if v == 0 {
+			break
+		}
+	}
+	return buf
 }
 
 // MetaplexAttribute represents an NFT attribute
@@ -226,7 +248,7 @@ func (sv *SolanaVerifier) VerifyMetaplexNFTOwnership(ctx context.Context, mintAd
 		zap.String("owner", ownerAddress))
 
 	if sv.rpcClient == nil {
-		return false, fmt.Errorf("Solana RPC client not initialized")
+		return false, fmt.Errorf("solana RPC client not initialized")
 	}
 
 	verifier := NewMetaplexVerifier(sv.rpcClient, sv.logger, nil)

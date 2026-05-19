@@ -91,7 +91,7 @@ func newStreamingTestAuthService() *service.AuthService {
 	)
 }
 
-func setupStreamingManifestRouter(authService *service.AuthService, storage service.SegmentStorage) *gin.Engine {
+func setupStreamingManifestRouter(authService *service.AuthService, storage service.SegmentStorage, cache *StreamingCache) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -100,14 +100,14 @@ func setupStreamingManifestRouter(authService *service.AuthService, storage serv
 		c.Set("nft_chain_id", int64(1))
 		c.Next()
 	})
-	RegisterStreamingRoutes(r, zap.NewNop(), authService, storage, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authService, service.NewStreamingService(nil, nil, nil, "", nil), storage, newStreamLimiter(100), cache)
 	return r
 }
 
-func setupStreamingSegmentRouter(authService *service.AuthService, storage service.SegmentStorage) *gin.Engine {
+func setupStreamingSegmentRouter(authService *service.AuthService, storage service.SegmentStorage, cache *StreamingCache) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, storage, nil)
+	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, storage, nil, cache)
 	return r
 }
 
@@ -115,8 +115,8 @@ func TestRegisterStreamingRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	authService := newStreamingTestAuthService()
-	RegisterStreamingRoutes(r, zap.NewNop(), authService, nil, nil)
-	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, nil, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authService, service.NewStreamingService(nil, nil, nil, "", nil), nil, newStreamLimiter(100), NewStreamingCache())
+	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, nil, nil, NewStreamingCache())
 
 	routes := r.Routes()
 	routeMap := make(map[string]string)
@@ -132,12 +132,7 @@ func TestRegisterStreamingRoutes(t *testing.T) {
 
 func TestHandleGetManifest(t *testing.T) {
 	authService := newStreamingTestAuthService()
-	manifestCacheMu.Lock()
-	manifestCache = make(map[string]manifestCacheEntry)
-	manifestCacheMu.Unlock()
-	segmentIndexCacheMu.Lock()
-	segmentIndexCache = make(map[string]segmentIndexEntry)
-	segmentIndexCacheMu.Unlock()
+	cache := NewStreamingCache()
 
 	t.Run("returns HLS manifest with playback tokens", func(t *testing.T) {
 		storage := newMockSegmentStorage()
@@ -145,7 +140,7 @@ func TestHandleGetManifest(t *testing.T) {
 			"streams/content-1/720p/seg001.ts",
 			"streams/content-1/720p/seg002.ts",
 		}
-		r := setupStreamingManifestRouter(authService, storage)
+		r := setupStreamingManifestRouter(authService, storage, cache)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-1/manifest.m3u8?token_id=1", http.NoBody)
@@ -165,15 +160,10 @@ func TestHandleGetManifest(t *testing.T) {
 	})
 
 	t.Run("returns 404 when no segments available", func(t *testing.T) {
-		manifestCacheMu.Lock()
-		delete(manifestCache, "content-1")
-		manifestCacheMu.Unlock()
-		segmentIndexCacheMu.Lock()
-		delete(segmentIndexCache, "content-1")
-		segmentIndexCacheMu.Unlock()
+		cache.Invalidate("content-1")
 		storage := newMockSegmentStorage()
 		storage.listResult = []string{}
-		r := setupStreamingManifestRouter(authService, storage)
+		r := setupStreamingManifestRouter(authService, storage, cache)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-1/manifest.m3u8?token_id=1", http.NoBody)
@@ -186,13 +176,8 @@ func TestHandleGetManifest(t *testing.T) {
 	})
 
 	t.Run("returns 404 when nil storage", func(t *testing.T) {
-		manifestCacheMu.Lock()
-		delete(manifestCache, "content-1")
-		manifestCacheMu.Unlock()
-		segmentIndexCacheMu.Lock()
-		delete(segmentIndexCache, "content-1")
-		segmentIndexCacheMu.Unlock()
-		r := setupStreamingManifestRouter(authService, nil)
+		cache.Invalidate("content-1")
+		r := setupStreamingManifestRouter(authService, nil, cache)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-1/manifest.m3u8?token_id=1", http.NoBody)
@@ -202,19 +187,14 @@ func TestHandleGetManifest(t *testing.T) {
 	})
 
 	t.Run("filters only 720p ts segments", func(t *testing.T) {
-		manifestCacheMu.Lock()
-		delete(manifestCache, "content-1")
-		manifestCacheMu.Unlock()
-		segmentIndexCacheMu.Lock()
-		delete(segmentIndexCache, "content-1")
-		segmentIndexCacheMu.Unlock()
+		cache.Invalidate("content-1")
 		storage := newMockSegmentStorage()
 		storage.listResult = []string{
 			"streams/content-1/720p/seg001.ts",
 			"streams/content-1/1080p/seg001.ts",
 			"streams/content-1/720p/metadata.json",
 		}
-		r := setupStreamingManifestRouter(authService, storage)
+		r := setupStreamingManifestRouter(authService, storage, cache)
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-1/manifest.m3u8?token_id=1", http.NoBody)
@@ -222,23 +202,21 @@ func TestHandleGetManifest(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		body := w.Body.String()
-		assert.Contains(t, body, "seg001.ts")
+		assert.Contains(t, body, "#EXT-X-STREAM-INF")
 		assert.NotContains(t, body, "metadata.json")
-		assert.Contains(t, body, "720p")
-		assert.Contains(t, body, "1080p")
+		assert.Contains(t, body, "quality=720p")
+		assert.Contains(t, body, "quality=1080p")
 	})
 }
 
 func TestHandleGetSegment(t *testing.T) {
 	authService := newStreamingTestAuthService()
-	segmentIndexCacheMu.Lock()
-	segmentIndexCache = make(map[string]segmentIndexEntry)
-	segmentIndexCacheMu.Unlock()
+	cache := NewStreamingCache()
 
 	t.Run("returns segment data with valid token", func(t *testing.T) {
 		storage := newMockSegmentStorage()
 		storage.objects["streams/content-1/720p/seg001.ts"] = "fake-ts-data"
-		r := setupStreamingSegmentRouter(authService, storage)
+		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
 			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -252,14 +230,14 @@ func TestHandleGetSegment(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "video/mp2t", w.Header().Get("Content-Type"))
-		assert.Equal(t, "public, max-age=86400, s-maxage=3600", w.Header().Get("Cache-Control"))
+		assert.Equal(t, "private, max-age=86400", w.Header().Get("Cache-Control"))
 		assert.Equal(t, "fake-ts-data", w.Body.String())
 	})
 
 	t.Run("falls back to flat key pattern", func(t *testing.T) {
 		storage := newMockSegmentStorage()
 		storage.objects["content-1/seg001.ts"] = "flat-ts-data"
-		r := setupStreamingSegmentRouter(authService, storage)
+		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
 			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -278,7 +256,7 @@ func TestHandleGetSegment(t *testing.T) {
 	t.Run("returns 503 when segment download fails", func(t *testing.T) {
 		storage := newMockSegmentStorage()
 		storage.downloadErr = fmt.Errorf("storage unavailable")
-		r := setupStreamingSegmentRouter(authService, storage)
+		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
 			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -297,7 +275,7 @@ func TestHandleGetSegment(t *testing.T) {
 	})
 
 	t.Run("returns 404 when storage is nil", func(t *testing.T) {
-		r := setupStreamingSegmentRouter(authService, nil)
+		r := setupStreamingSegmentRouter(authService, nil, cache)
 
 		token, err := authService.GeneratePlaybackToken(
 			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -319,7 +297,7 @@ func TestHandleGetSegment(t *testing.T) {
 func TestHandleGetSegment_PathTraversal(t *testing.T) {
 	authService := newStreamingTestAuthService()
 	storage := newMockSegmentStorage()
-	r := setupStreamingSegmentRouter(authService, storage)
+	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	token, err := authService.GeneratePlaybackToken(
 		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -353,7 +331,7 @@ func TestHandleGetSegment_PathTraversal(t *testing.T) {
 func TestHandleGetSegment_MissingToken(t *testing.T) {
 	authService := newStreamingTestAuthService()
 	storage := newMockSegmentStorage()
-	r := setupStreamingSegmentRouter(authService, storage)
+	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-1/segment/seg001.ts", http.NoBody)
@@ -369,7 +347,7 @@ func TestHandleGetSegment_MissingToken(t *testing.T) {
 func TestHandleGetSegment_AuthHeader(t *testing.T) {
 	authService := newStreamingTestAuthService()
 	storage := newMockSegmentStorage()
-	r := setupStreamingSegmentRouter(authService, storage)
+	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	token, err := authService.GeneratePlaybackToken(
 		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
@@ -410,7 +388,7 @@ func TestHandleGetSegment_AuthHeader(t *testing.T) {
 func TestHandleGetSegment_InvalidToken(t *testing.T) {
 	authService := newStreamingTestAuthService()
 	storage := newMockSegmentStorage()
-	r := setupStreamingSegmentRouter(authService, storage)
+	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	tests := []struct {
 		name  string
@@ -435,4 +413,79 @@ func TestHandleGetSegment_InvalidToken(t *testing.T) {
 			assert.Equal(t, "invalid playback token", resp.Error)
 		})
 	}
+}
+
+func TestStreamingE2E_AuthToSegment(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	authService := newStreamingTestAuthService()
+	storage := newMockSegmentStorage()
+	storage.objects["streams/content-e2e/720p/seg001.ts"] = "e2e-ts-data"
+	storage.listResult = []string{
+		"streams/content-e2e/720p/seg001.ts",
+	}
+	cache := NewStreamingCache()
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("wallet_address", "0xE2EWallet1234567890abcdef1234567890abcdef12")
+		c.Set("nft_contract", "0xE2ENFTContract")
+		c.Set("nft_chain_id", int64(1))
+		c.Next()
+	})
+	RegisterStreamingRoutes(r, zap.NewNop(), authService, service.NewStreamingService(nil, nil, nil, "", nil), storage, newStreamLimiter(100), cache)
+	RegisterStreamingSegmentRoute(r, zap.NewNop(), authService, storage, nil, cache)
+
+	t.Run("full flow: manifest → segment with playback token", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/api/v1/streaming/content-e2e/manifest.m3u8?token_id=1", http.NoBody)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/vnd.apple.mpegurl", w.Header().Get("Content-Type"))
+
+		body := w.Body.String()
+		assert.Contains(t, body, "#EXTM3U")
+		assert.Contains(t, body, "playback_token=")
+
+		var playbackToken string
+		for _, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "playback_token=") {
+				idx := strings.Index(line, "playback_token=")
+				tokenPart := line[idx+len("playback_token="):]
+				if end := strings.IndexAny(tokenPart, "&\r"); end != -1 {
+					playbackToken = tokenPart[:end]
+				} else {
+					playbackToken = strings.TrimSpace(tokenPart)
+				}
+				break
+			}
+		}
+		require.NotEmpty(t, playbackToken, "playback token should be present in manifest")
+
+		w2 := httptest.NewRecorder()
+		segReq, _ := http.NewRequest(http.MethodGet,
+			"/api/v1/streaming/content-e2e/segment/seg001.ts?playback_token="+playbackToken, http.NoBody)
+		r.ServeHTTP(w2, segReq)
+
+		assert.Equal(t, http.StatusOK, w2.Code)
+		assert.Equal(t, "video/mp2t", w2.Header().Get("Content-Type"))
+		assert.Equal(t, "private, max-age=86400", w2.Header().Get("Cache-Control"))
+		assert.Equal(t, "Authorization", w2.Header().Get("Vary"))
+		assert.Equal(t, "e2e-ts-data", w2.Body.String())
+	})
+
+	t.Run("segment with wrong content token rejected", func(t *testing.T) {
+		token, err := authService.GeneratePlaybackToken(
+			context.Background(), "0xE2EWallet", "other-content", "0xE2ENFTContract", "1", 1, 2*time.Minute,
+		)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet,
+			"/api/v1/streaming/content-e2e/segment/seg001.ts?playback_token="+token, http.NoBody)
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
 }

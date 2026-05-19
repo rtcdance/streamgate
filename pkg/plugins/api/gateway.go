@@ -113,6 +113,7 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 
 	grpcServices := &gateway.GRPCServices{
 		AuthService:    resources.AuthService,
+		StreamingSvc:   resources.StreamingSvc,
 		Web3Service:    resources.Web3Service,
 		NFTVerifier:    resources.NFTVerifier,
 		ContentService: resources.ContentService,

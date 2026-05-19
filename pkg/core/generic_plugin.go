@@ -24,20 +24,27 @@ type GenericPlugin struct {
 	kernel *Microkernel
 	logger *zap.Logger
 	config *config.Config
+	deps   []string
 
-	// initFn creates the server instance during Init. It receives cfg and logger
-	// from the closure that created the GenericPlugin and only needs the kernel.
 	initFn func(kernel *Microkernel) (ServerLifecycle, error)
 	server ServerLifecycle
 }
 
-// NewGenericPlugin creates a GenericPlugin. The initFn receives the microkernel
-// and returns a server that satisfies ServerLifecycle.
 func NewGenericPlugin(name string, cfg *config.Config, logger *zap.Logger, initFn func(*Microkernel) (ServerLifecycle, error)) *GenericPlugin {
 	return &GenericPlugin{
 		name:   name,
 		config: cfg,
 		logger: logger,
+		initFn: initFn,
+	}
+}
+
+func NewGenericPluginWithDeps(name string, cfg *config.Config, logger *zap.Logger, deps []string, initFn func(*Microkernel) (ServerLifecycle, error)) *GenericPlugin {
+	return &GenericPlugin{
+		name:   name,
+		config: cfg,
+		logger: logger,
+		deps:   deps,
 		initFn: initFn,
 	}
 }
@@ -87,5 +94,10 @@ func (p *GenericPlugin) Health(ctx context.Context) error {
 }
 
 func (p *GenericPlugin) DependsOn() []string {
-	return nil
+	if len(p.deps) == 0 {
+		return nil
+	}
+	result := make([]string, len(p.deps))
+	copy(result, p.deps)
+	return result
 }

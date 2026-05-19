@@ -72,7 +72,7 @@ spec:
   ports:
   - port: 9090
     targetPort: 9090
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: ConfigMap

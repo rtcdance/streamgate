@@ -16,4 +16,6 @@ type NFTAccessEntry struct {
 type NFTAccessCache interface {
 	Get(key string) (NFTAccessEntry, bool)
 	Set(key string, entry NFTAccessEntry)
+	Delete(key string)
+	DeleteByPrefix(prefix string)
 }

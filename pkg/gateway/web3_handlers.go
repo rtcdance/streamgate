@@ -28,7 +28,7 @@ func RegisterWeb3Routes(router *gin.Engine, log *zap.Logger, web3Svc Web3StatusP
 		for chainID, statuses := range statusesByChain {
 			rpcs := make([]gin.H, 0, len(statuses))
 			for _, status := range statuses {
-				rpc := gin.H{"url": status.URL, "is_active": status.IsActive, "failures": status.Failures}
+				rpc := gin.H{"is_active": status.IsActive, "failures": status.Failures}
 				if !status.LastFailureAt.IsZero() {
 					rpc["last_failure_at"] = status.LastFailureAt.Format(time.RFC3339)
 				}

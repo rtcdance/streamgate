@@ -24,15 +24,25 @@ type TranscodingTask struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-var validTaskTransitions = map[string][]string{
-	"pending":    {"processing", "cancelled", "failed"},
-	"processing": {"completed", "failed", "cancelled"},
-	"completed":  {},
-	"failed":     {"pending"},
-	"cancelled":  {},
+type TranscodingTaskStatus string
+
+const (
+	TaskStatusPending    TranscodingTaskStatus = "pending"
+	TaskStatusProcessing TranscodingTaskStatus = "processing"
+	TaskStatusCompleted  TranscodingTaskStatus = "completed"
+	TaskStatusFailed     TranscodingTaskStatus = "failed"
+	TaskStatusCancelled  TranscodingTaskStatus = "cancelled"
+)
+
+var validTaskTransitions = map[TranscodingTaskStatus][]TranscodingTaskStatus{
+	TaskStatusPending:    {TaskStatusProcessing, TaskStatusCancelled, TaskStatusFailed},
+	TaskStatusProcessing: {TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled},
+	TaskStatusCompleted:  {},
+	TaskStatusFailed:     {TaskStatusPending},
+	TaskStatusCancelled:  {},
 }
 
-func IsValidTaskTransition(from, to string) bool {
+func IsValidTaskTransition(from, to TranscodingTaskStatus) bool {
 	if from == to {
 		return true
 	}

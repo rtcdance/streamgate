@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/test/helpers"
+
+	"github.com/stretchr/testify/require"
 )
 
 // MockCacheStorage implements service.StreamingCacheStorage for testing
@@ -98,10 +99,11 @@ func TestStreamingService_HLSFormat(t *testing.T) {
 	cache := NewMockCacheStorage()
 	streamingService := newStreamingService(t, db, cache)
 
-	playlist, err := streamingService.GenerateHLSPlaylist("content-123", []service.Quality{
-		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.m3u8"},
-		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.m3u8"},
-	})
+	qualitySegments := map[string][]string{
+		"1080p": {"seg000.ts", "seg001.ts"},
+		"720p":  {"seg000.ts", "seg001.ts"},
+	}
+	playlist, err := streamingService.GenerateHLSPlaylist("content-123", qualitySegments, "test-token")
 	require.NoError(t, err)
 	require.NotEmpty(t, playlist)
 	require.Contains(t, playlist, ".m3u8")
@@ -120,7 +122,7 @@ func TestStreamingService_DASHFormat(t *testing.T) {
 	manifest, err := streamingService.GenerateDASHManifest("content-123", []service.Quality{
 		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000, URL: "http://localhost:8080/stream/1080p.mpd"},
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000, URL: "http://localhost:8080/stream/720p.mpd"},
-	})
+	}, "test-playback-token")
 	require.NoError(t, err)
 	require.NotEmpty(t, manifest)
 	require.Contains(t, manifest, ".mpd")

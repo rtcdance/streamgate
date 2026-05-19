@@ -25,6 +25,8 @@ func (e *RevertError) Error() string {
 	return fmt.Sprintf("contract revert: %s", e.Reason)
 }
 
+func (e *RevertError) IsRetryable() bool { return false }
+
 // ParseRevertReason attempts to decode an ABI-encoded revert reason from
 // the data returned by a failed contract call or transaction receipt.
 //
