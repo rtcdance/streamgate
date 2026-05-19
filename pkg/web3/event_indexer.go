@@ -326,7 +326,7 @@ func (ei *EventIndexer) processLog(ctx context.Context, log types.Log) {
 		}
 	}
 
-	ei.addEvent(event)
+	ei.addEvent(ctx, event)
 
 	ei.logger.Debug("WebSocket event received",
 		zap.String("tx_hash", event.TransactionHash),
@@ -455,7 +455,7 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 
 		for _, log := range logs {
 			event := ei.logToEvent(&log)
-			ei.addEvent(event)
+			ei.addEvent(ctx, event)
 		}
 
 		ei.logger.Debug("Batch indexed",
@@ -546,7 +546,8 @@ func (ei *EventIndexer) logToEvent(log *types.Log) *IndexedEvent {
 }
 
 // addEvent adds an event to the index with deduplication and persistence.
-func (ei *EventIndexer) addEvent(event *IndexedEvent) {
+// ctx is propagated to the onEvent callback for tracing and timeout control.
+func (ei *EventIndexer) addEvent(ctx context.Context, event *IndexedEvent) {
 	ei.mu.Lock()
 
 	if ei.seenIDs == nil {
@@ -585,7 +586,7 @@ func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 	ei.mu.Unlock()
 
 	if onEvent != nil {
-		_ = onEvent(context.Background(), event)
+		_ = onEvent(ctx, event)
 	}
 }
 
