@@ -55,7 +55,7 @@ help:
 	@echo ""
 
 # Build all binaries
-build-all: build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor
+build-all: build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn
 	@echo "✓ All binaries built successfully"
 
 # Build monolithic binary
