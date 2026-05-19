@@ -71,12 +71,17 @@ StreamGate replaces all three with **on-chain NFT ownership**: hold the token, w
 
 StreamGate is a Go-based NFT-gated streaming project for learning and interview preparation. It combines a video distribution pipeline you would expect in a media backend with Web3 capabilities such as wallet sign-in, NFT ownership verification, and RPC reliability handling.
 
-### 🎯 Project Goals
+### 🎯 Why StreamGate?
 
-- Build a believable `NFT-gated streaming gateway` instead of a generic Web3 demo
-- Reuse audio/video backend experience in transcoding, caching, and content delivery
-- Add real Web3 capabilities: wallet sign-in, NFT verification, RPC high availability
-- Practice Go service design with a monolith-first, microservice-expandable architecture
+**Token-based access replaces passwords, DRM, and whitelists.**
+
+| Problem | Traditional Solution | StreamGate |
+|---------|-------------------|------------|
+| Password sharing | Rate limiting, MFA | **Impossible** — access = wallet signature |
+| DRM licensing fees | $50K+/yr Widevine/FairPlay | **Free** — open source MIT |
+| Manual access management | Admin dashboards, CSV exports | **Automatic** — own the NFT = get access |
+| Piracy | Legal threats, DMCA takedowns | **Programmatic** — token validity is on-chain |
+| Cross-platform | Multiple SDKs per platform | **One API** — REST/gRPC/OpenAPI |
 - Turn the project into a strong interview story for Go + Web3 backend roles
 
 ### ✨ Current Focus
@@ -569,47 +574,64 @@ Step 5: docs/learning-roadmap.md             — 2-3 周系统学习路线
 
 ## 🎯 Features
 
-### Core Architecture
-- [x] Microkernel plugin architecture
-- [x] Dual-mode deployment (monolithic + microservices)
-- [ ] 3 core microservices (skeleton only, P2 target)
-- [ ] Event-driven communication (NATS) - skeleton
-- [ ] gRPC inter-service communication - skeleton
-- [ ] Service discovery (Consul) - skeleton
-- [ ] Health checks and monitoring - partial
+### 👥 Who Is It For?
 
-### Video Processing
-- [x] File upload skeleton (chunked, resumable)
-- [x] FFmpeg transcoding skeleton (HLS + DASH)
-- [ ] Adaptive bitrate streaming - incomplete
-- [ ] Worker pool with auto-scaling - needs implementation
-- [ ] High-concurrency design (10K+ users) - target, not achieved
-- [ ] Multi-level caching (LRU + Redis) - partial
+| Role | Goal | Quick Start |
+|------|------|-------------|
+| **Platform Developer** | Integrate NFT-gated video via API | Read the [OpenAPI spec](docs/api/openapi.yaml) — no Go required |
+| **Content Creator** | Upload video, set NFT rules, go live | Use `make demo-quick` (no blockchain needed for testing) |
+| **Node Operator** | Deploy and scale StreamGate | Use `make fullchain-deploy` or K8s manifests in `deploy/k8s/` |
 
-### Web3 Integration
-- [x] Multi-chain support (EVM + Solana) - skeleton
-- [ ] NFT permission verification (ERC-721, ERC-1155) - P0 in progress
-- [ ] Wallet signature verification (EIP-191, EIP-712) - skeleton
-- [ ] Passwordless authentication - skeleton
-- [ ] Smart contract integration - incomplete
-- [ ] IPFS integration - partial
-- [ ] Gas optimization and monitoring - skeleton
+### 📦 Product Roadmap
 
-### Enterprise Features
-- [ ] Service registration and discovery - skeleton
-- [ ] Rate limiting and circuit breaker - needs implementation
-- [ ] Distributed tracing (OpenTelemetry) - partial
-- [ ] Prometheus monitoring - partial
-- [ ] Graceful shutdown - partial
-- [x] Configuration management
-- [x] Structured logging (zap)
+#### P0 — Core Flow (Stable)
 
-### In Development
-- [ ] On-chain event listening
-- [ ] Advanced IPFS features
-- [ ] Video watermarking
-- [ ] DRM protection
-- [ ] Advanced analytics
+Core authentication, NFT verification, and streaming pipeline. All items are implemented and tested.
+
+- [x] **Wallet Sign-In** — EIP-191 / EIP-712 / SIWE (EIP-4361) + Solana ed25519
+- [x] **NFT Ownership Verification** — ERC-721, ERC-1155, ERC-165 auto-detect
+- [x] **NFTOwnershipsApproval (TOCTOU Protection)** — CheckApproval + CheckApprovalAutoDetect
+- [x] **HLS Streaming** — Manifest generation + per-user playback tokens
+- [x] **Video Upload** — Chunked resumable upload with integrity checks
+- [x] **FFmpeg Transcoding** — Multi-profile HLS/DASH with worker pool
+- [x] **Multi-chain EVM** — Ethereum, Polygon, BSC, Arbitrum, Optimism with RPC failover
+- [x] **Solana Integration** — Multi-endpoint RPC failover, Metaplex NFT
+- [x] **JWT Auth** — HS256/RS256 with key rotation support
+- [x] **Rate Limiting** — Global + per-wallet (10 req/min)
+- [x] **Configuration Management** — Viper YAML + env vars with hot reload
+- [x] **Graceful Shutdown** — Context-aware with 30s timeout
+
+#### P1 — Usability & Operations (Stable)
+
+Production operations and developer experience.
+
+- [x] **Dual-mode Deployment** — Monolith (dev) + 9 microservices (prod)
+- [x] **Docker + Docker Compose** — Full stack with health checks
+- [x] **Kubernetes Manifests** — Deployments, services, config maps, secrets
+- [x] **Prometheus Metrics** — RED metrics (Rate/Errors/Duration) + custom
+- [x] **gRPC API** — Full proto definitions + interceptors + health protocol
+- [x] **OpenTelemetry Tracing** — Gin + gRPC integrated, export to Jaeger
+- [x] **gRPC TLS** — Certificate-based server-side TLS
+- [x] **Structured Logging** — Zap with request ID correlation
+- [x] **Health Check Aggregation** — `/health`, `/ready`, `/health/live`
+- [x] **Database Migrations** — 31 versioned migrations with rollback
+- [x] **CI/CD Pipeline** — GitHub Actions: lint → test → build → security → docker
+- [x] **Multi-stage Docker Build** — Builder + distroless runtime support
+- [x] **Blues/Green + Canary Deployment** — K8s rollout strategies
+- [x] **SLO Alerts** — Prometheus alerting rules with burn rate
+
+#### P2 — Ecosystem & Advanced (Planned)
+
+Features planned for future releases.
+
+- [ ] **Web Admin UI** — Browser-based content and gating management
+- [ ] **JS / Python SDK** — First-party client libraries
+- [ ] **Account Abstraction (ERC-4337)** — Gasless wallet login
+- [ ] **Social Login** — Email/OAuth → embedded wallet
+- [ ] **NFT-gated Live Streaming** — WebRTC → HLS real-time
+- [ ] **Analytics Dashboard** — Viewer metrics, revenue tracking
+- [ ] **IPFS Pinning Service** — Decentralized content storage
+- [ ] **Commercial License** — Enterprise support, SLA, SSO
 
 ## 📊 Performance Metrics
 
