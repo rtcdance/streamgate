@@ -6,16 +6,21 @@
 
 <!-- Link to related issues, if any. -->
 
+## Type of Change
+
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation
+- [ ] Performance / Security
+
 ## Testing
 
-- [ ] `make fmt` — formatting clean
-- [ ] `make lint` — no new warnings
-- [ ] `make test` — all tests pass
+- [ ] `make test` passes with race detection
+- [ ] `go vet ./...` — no new warnings
 - [ ] Manual verification (describe below)
 
 ## Checklist
 
 - [ ] No unnecessary comments added
-- [ ] No new dependencies without approval (see DEPENDENCY_APPROVAL.md)
 - [ ] NFT ownership check in place for protected content
 - [ ] Single RPC endpoint not used (must have fallback)

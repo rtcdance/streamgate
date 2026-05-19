@@ -771,6 +771,15 @@ See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) for the current exe
 
 See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) and [docs/web3-faq.md](docs/web3-faq.md) for the current development plan.
 
+## 📬 Contact & Community
+
+| Channel | Purpose |
+|---------|---------|
+| **GitHub Issues** | Bug reports, feature requests |
+| **GitHub Discussions** | Q&A, ideas, show and tell |
+| **Security** | [Private vulnerability report](https://github.com/rtcdance/streamgate/security/advisories) |
+| **Commercial** | For enterprise licensing, SLA, or custom deployment: streamgate@rtcdance.github.io |
+
 ---
 
 ⭐ If this project helps you, please give it a Star!
