@@ -12,7 +12,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// SignatureVerifier handles signature verification
+// SignatureVerifier handles Ethereum ECDSA signature verification.
+//
+// ## Signature Standards (EIP-191 / personal_sign)
+//
+// MetaMask and most wallets use EIP-191 to sign messages:
+//
+//	keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
+//
+// The resulting 65-byte signature [r || s || v] uses v = 27 or 28 (MetaMask
+// convention). go-ethereum's crypto.SigToPub expects v = 0 or 1, so the
+// conversion at lines 58-60 adjusts accordingly.
+//
+// ## Security Notes
+//
+// - ConstantTimeCompare (line 77) prevents timing side-channel attacks.
+// - If EOA recovery fails and an EIP-1271 checker is configured, the verifier
+//   falls back to smart contract wallet verification (e.g., Gnosis Safe).
+// - This does NOT support EIP-712 typed data signing (use VerifyTypedData).
 type SignatureVerifier struct {
 	logger  *zap.Logger
 	eip1271 *EIP1271Checker // optional: for smart contract wallet verification
@@ -54,7 +71,9 @@ func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, messa
 		return false, fmt.Errorf("invalid signature length: expected 65, got %d", len(sig))
 	}
 
-	// Adjust recovery ID (v) from 27/28 to 0/1
+	// Adjust recovery ID (v) from MetaMask convention (27/28) to
+	// go-ethereum convention (0/1). go-ethereum's crypto.SigToPub
+	// expects v ∈ {0,1} but wallets return v ∈ {27,28} per EIP-155.
 	if sig[64] >= 27 {
 		sig[64] -= 27
 	}
@@ -112,9 +131,15 @@ func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, messa
 	return true, nil
 }
 
-// hashMessage creates a message hash compatible with eth_sign
+// hashMessage creates the EIP-191 personal_sign message hash.
+//
+// Format: keccak256("\x19Ethereum Signed Message:\n" + len(message) + message)
+//
+// This prefix prevents users from accidentally signing transactions or other
+// structured data when they intend to sign a plain text message. It ensures
+// that signatures produced by eth_sign / personal_sign cannot be replayed as
+// raw transaction signatures.
 func (sv *SignatureVerifier) hashMessage(message string) []byte {
-	// Prefix message with Ethereum prefix
 	prefix := fmt.Sprintf("\x19Ethereum Signed Message:\n%d", len(message))
 	prefixedMessage := prefix + message
 
