@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,47 +31,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ChainClientNFTAdapter implements middleware.NFTOwnershipChecker using a
-// web3.MultiChainManager directly, bypassing service.Web3Service as a proxy.
-// NFTVerifier instances are cached per ChainClient for reuse across calls.
-type ChainClientNFTAdapter struct {
-	manager web3.ChainManagerInterface
-	chainID int64
-	logger  *zap.Logger
-}
-
-func (a *ChainClientNFTAdapter) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	client, err := a.manager.GetClient(chainID)
-	if err != nil {
-		return false, err
-	}
-	return client.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
-}
-
-func (a *ChainClientNFTAdapter) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
-	client, err := a.manager.GetClient(chainID)
-	if err != nil {
-		return nil, err
-	}
-	return client.GetNFTBalance(ctx, contractAddress, ownerAddress)
-}
-
-func (a *ChainClientNFTAdapter) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	client, err := a.manager.GetClient(a.chainID)
-	if err != nil {
-		return false, err
-	}
-	return client.VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
-}
-
-func (a *ChainClientNFTAdapter) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
-	client, err := a.manager.GetClient(a.chainID)
-	if err != nil {
-		return false, err
-	}
-	return client.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
-}
-
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -81,23 +39,25 @@ const defaultMaxBodySize int64 = 10 << 20 // 10MB global body size limit
 // AppResources holds closeable resources created by SetupRouter.
 // Callers should defer resources.Close() to ensure cleanup on shutdown.
 type AppResources struct {
-	DB                *sql.DB
-	ChallengeStore    io.Closer
-	ObjStorage        io.Closer
-	TokenBlacklist    io.Closer
-	RateLimiter       middleware.RateLimiter
-	SharedRedis       *redis.Client
-	OTelShutdown      func(ctx context.Context) error
-	AuthService       *service.AuthService
-	Web3Service       *service.Web3Service
-	NFTVerifier       middleware.NFTOwnershipChecker
-	ContentService    *service.ContentService
-	SegmentStorage    service.SegmentStorage
-	UploadService     *service.UploadService
-	TranscodingSvc    *service.TranscodingService
-	NFTCache          *NFTAccessCache
-	NATSQueue         io.Closer
-	MiddlewareSvc     *middleware.Service
+	DB             *sql.DB
+	ChallengeStore io.Closer
+	ObjStorage     io.Closer
+	TokenBlacklist io.Closer
+	RateLimiter    middleware.RateLimiter
+	SharedRedis    *redis.Client
+	OTelShutdown   func(ctx context.Context) error
+	AuthService    *service.AuthService
+	Web3Service    *service.Web3Service
+	NFTVerifier    middleware.NFTOwnershipChecker
+	StreamingSvc   *service.StreamingService
+	ContentService *service.ContentService
+	SegmentStorage service.SegmentStorage
+	UploadService  *service.UploadService
+	TranscodingSvc *service.TranscodingService
+	NFTCache       *NFTAccessCache
+	StreamingCache *StreamingCache
+	NATSQueue      io.Closer
+	MiddlewareSvc  *middleware.Service
 }
 
 // Close releases all held resources. Errors from individual closes are
@@ -111,6 +71,9 @@ func (r *AppResources) Close() error {
 	// use the same client so we only close it once.
 	if r.TranscodingSvc != nil {
 		r.TranscodingSvc.StopWorker()
+	}
+	if r.UploadService != nil {
+		r.UploadService.Close()
 	}
 	if r.NFTCache != nil {
 		r.NFTCache.Stop()
@@ -206,20 +169,21 @@ func WithUploadService(svc *service.UploadService) RouterOption {
 }
 
 type serviceInit struct {
-	Web3Service       *service.Web3Service
-	AuthService       *service.AuthService
-	NFTVerifier       middleware.NFTOwnershipChecker
-	NFTCache          *NFTAccessCache
-	NFTCacheBackend   middleware.NFTAccessCache
-	GatingRuleSvc     *service.GatingRuleService
+	Web3Service        *service.Web3Service
+	AuthService        *service.AuthService
+	StreamingSvc       *service.StreamingService
+	NFTVerifier        middleware.NFTOwnershipChecker
+	NFTCache           *NFTAccessCache
+	NFTCacheBackend    middleware.NFTAccessCache
+	GatingRuleSvc      *service.GatingRuleService
 	GatingRuleResolver middleware.GatingRuleResolver
-	PlaybackStatsSvc  *service.PlaybackStatsService
-	CategorySvc       *service.CategoryService
-	DB                storage.DB
-	ContentService    *service.ContentService
-	SegmentStorage    service.SegmentStorage
-	TranscodingSvc    *service.TranscodingService
-	UploadService     *service.UploadService
+	PlaybackStatsSvc   *service.PlaybackStatsService
+	CategorySvc        *service.CategoryService
+	DB                 storage.DB
+	ContentService     *service.ContentService
+	SegmentStorage     service.SegmentStorage
+	TranscodingSvc     *service.TranscodingService
+	UploadService      *service.UploadService
 }
 
 func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gin.Engine, *AppResources, error) {
@@ -261,7 +225,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	challengeTTL := parseChallengeTTL(cfg)
 	challengeStore := initChallengeStore(rc, log, challengeTTL, sharedRedis, resources)
 
-	authService := initAuthService(rc, cfg, log, challengeStore, challengeTTL, sharedRedis, resources)
+	authService := initAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
 	resources.AuthService = authService
 
 	nftCache := NewNFTAccessCache()
@@ -274,13 +238,11 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		nftCacheBackend = &NFTAccessCacheAdapter{Cache: nftCache}
 	}
 
+	web3Svc.SetNFTAccessCache(nftCacheBackend)
+
 	nftVerifier := rc.NFTVerifier
 	if nftVerifier == nil {
-		nftVerifier = &ChainClientNFTAdapter{
-			manager: web3Svc.GetMultiChainManager(),
-			chainID: cfg.Web3.ChainID,
-			logger:  log.Named("nft-verify"),
-		}
+		nftVerifier = web3Svc
 	}
 	resources.NFTVerifier = nftVerifier
 
@@ -295,13 +257,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	resources.TranscodingSvc = transcodingSvc
 
 	if transcodingSvc != nil {
+		streamCache := NewStreamingCache()
+		resources.StreamingCache = streamCache
 		transcodingSvc.RegisterPostTranscodeHook(func(ctx context.Context, contentID, profile, outputURL string) {
-			manifestCacheMu.Lock()
-			delete(manifestCache, contentID)
-			manifestCacheMu.Unlock()
-			segmentIndexCacheMu.Lock()
-			delete(segmentIndexCache, contentID)
-			segmentIndexCacheMu.Unlock()
+			streamCache.Invalidate(contentID)
 		})
 	}
 
@@ -315,17 +274,19 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	setupMiddleware(router, cfg, log, sharedRedis, resources)
 
 	svc := &serviceInit{
-		Web3Service:        web3Svc,
-		AuthService:        authService,
-		NFTVerifier:        nftVerifier,
-		NFTCache:           nftCache,
-		NFTCacheBackend:    nftCacheBackend,
-		DB:                 db,
-		ContentService:     contentSvc,
-		SegmentStorage:     objStorage,
-		TranscodingSvc:     transcodingSvc,
-		UploadService:      uploadSvc,
+		Web3Service:     web3Svc,
+		AuthService:     authService,
+		StreamingSvc:    service.NewStreamingService(db, nil, nil, "", log.Named("streaming")),
+		NFTVerifier:     nftVerifier,
+		NFTCache:        nftCache,
+		NFTCacheBackend: nftCacheBackend,
+		DB:              db,
+		ContentService:  contentSvc,
+		SegmentStorage:  objStorage,
+		TranscodingSvc:  transcodingSvc,
+		UploadService:   uploadSvc,
 	}
+	resources.StreamingSvc = svc.StreamingSvc
 
 	if db != nil {
 		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
@@ -387,12 +348,13 @@ func initTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppReso
 	return rbl
 }
 
-func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
+func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
 	if rc.AuthService != nil {
 		return rc.AuthService
 	}
-	solanaVerifier := web3.NewSolanaVerifier(log.Named("solana"), cfg.Web3.SolanaRPC)
-	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaVerifier)
+	solanaSigner := web3Svc.GetSolanaSigner()
+	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaSigner)
+	eip712Verifier := web3Svc.GetEIP712Verifier()
 	tokenBlacklist := initTokenBlacklist(log, redisClient, res)
 
 	jwtExpiry := 2 * time.Hour
@@ -404,6 +366,7 @@ func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, chal
 
 	return service.NewAuthService(cfg.Auth.JWTSecret, nil,
 		service.WithSignatureVerifier(signatureVerifier),
+		service.WithEIP712Verifier(eip712Verifier),
 		service.WithChallengeStore(challengeStore),
 		service.WithChallengeTTL(challengeTTL),
 		service.WithTokenBlacklist(tokenBlacklist),
@@ -412,9 +375,7 @@ func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, chal
 }
 
 func initDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB) {
-	dbConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password,
-		cfg.Database.Database, cfg.Database.SSLMode)
+	dbConnStr := cfg.Database.GetDSN()
 	d, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
 		log.Warn("Database unavailable, using in-memory fallback",
@@ -569,8 +530,6 @@ func initOTelTracing(cfg *config.Config, log *zap.Logger, res *AppResources) {
 }
 
 func setupMiddleware(router *gin.Engine, cfg *config.Config, log *zap.Logger, redisClient *redis.Client, res *AppResources) {
-	router.Use(RequestIDMiddleware())
-
 	var middlewareSvc *middleware.Service
 	if redisClient != nil {
 		log.Info("Using Redis-backed rate limiter")
@@ -588,16 +547,17 @@ func setupMiddleware(router *gin.Engine, cfg *config.Config, log *zap.Logger, re
 	res.RateLimiter = rl
 	res.MiddlewareSvc = middlewareSvc
 
+	router.Use(RequestIDMiddleware())
+	router.Use(middlewareSvc.RecoveryMiddleware())
+	router.Use(rlHandler)
 	router.Use(core.DrainMiddleware())
 	router.Use(middlewareSvc.TraceIDMiddleware())
 	router.Use(middlewareSvc.LoggingMiddleware())
-	router.Use(middlewareSvc.RecoveryMiddleware())
 	router.Use(middlewareSvc.SecurityHeadersMiddleware())
 	router.Use(middlewareSvc.ContentTypeMiddleware())
 	router.Use(middlewareSvc.RequestSizeLimitMiddleware(defaultMaxBodySize))
 	router.Use(middlewareSvc.CORSMiddleware(cfg.CORS.AllowedOrigins...))
 	router.Use(middlewareSvc.TracingMiddleware())
-	router.Use(rlHandler)
 	router.Use(prometheusMiddleware())
 }
 
@@ -623,9 +583,13 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	RegisterWeb3Routes(router, log, svc.Web3Service)
 
 	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)
-	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, cfg.Storage.Bucket)
+	streamCache := res.StreamingCache
+	if streamCache == nil {
+		streamCache = NewStreamingCache()
+	}
+	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache)
 }
 
 func buildCircuitBreakerConfig(cfg *config.Config) middleware.CircuitBreakerConfig {
@@ -721,13 +685,13 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		breakers := make([]gin.H, 0, len(stats))
 		for name, s := range stats {
 			breakers = append(breakers, gin.H{
-				"name":             name,
-				"state":            s.State.String(),
-				"failure_count":    s.FailureCount,
-				"success_count":    s.SuccessCount,
-				"request_count":    s.RequestCount,
-				"failure_rate":     s.FailureRate,
-				"last_failure":     s.LastFailureTime,
+				"name":              name,
+				"state":             s.State.String(),
+				"failure_count":     s.FailureCount,
+				"success_count":     s.SuccessCount,
+				"request_count":     s.RequestCount,
+				"failure_rate":      s.FailureRate,
+				"last_failure":      s.LastFailureTime,
 				"last_state_change": s.LastStateChange,
 			})
 		}
@@ -744,7 +708,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	}
 }
 
-func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter) {
+func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache) {
 	jwtConfig := middleware.JWTAuthConfig{
 		Secret:    cfg.Auth.JWTSecret,
 		Blacklist: svc.AuthService,
@@ -772,16 +736,19 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 
 		RegisterUploadRoutes(authGroup, log, svc.UploadService)
 
+		blockProver := svc.Web3Service
 		nftGateConfig := middleware.NFTGateConfig{
 			Verifier:       svc.NFTVerifier,
+			BlockProver:    blockProver,
 			Cache:          svc.NFTCacheBackend,
 			RuleResolver:   svc.GatingRuleResolver,
 			DefaultChainID: cfg.Web3.ChainID,
 			CacheTTL:       60 * time.Second,
 			MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
+			BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 		}
 		nftGroup := authGroup.Group("/")
-		nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, log))
+		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
 		nftGroup.Use(func(c *gin.Context) {
 			if core.IsDraining() {
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
@@ -789,7 +756,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 			}
 			c.Next()
 		})
-		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, cfg.Storage.Bucket)
+		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
 		RegisterContentRoutes(authGroup, log, svc.ContentService)
 		RegisterTranscodingRoutes(authGroup, log, svc.TranscodingSvc)
@@ -803,5 +770,16 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		if svc.CategorySvc != nil {
 			RegisterCategoryRoutes(authGroup, svc.CategorySvc)
 		}
+	}
+}
+
+func parseBlockTag(s string) web3.BlockTag {
+	switch s {
+	case "finalized":
+		return web3.BlockTagFinalized
+	case "latest":
+		return web3.BlockTagLatest
+	default:
+		return web3.BlockTagSafe
 	}
 }

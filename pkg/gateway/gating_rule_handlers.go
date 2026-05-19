@@ -21,7 +21,7 @@ func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {
 		contentID := c.Param("id")
 		rules, err := svc.ListRulesByContent(c.Request.Context(), contentID)
 		if err != nil {
-			respond(c, http.StatusInternalServerError, gin.H{"error": err.Error()})
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"rules": rules})
@@ -39,7 +39,7 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			MinBalance      int    `json:"min_balance"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			respond(c, http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_REQUEST"})
+			abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request body", err.Error())
 			return
 		}
 		rule := &models.GatingRule{
@@ -53,10 +53,10 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 		}
 		id, err := svc.CreateRule(c.Request.Context(), rule)
 		if err != nil {
-			respond(c, http.StatusInternalServerError, gin.H{"error": err.Error()})
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
 			return
 		}
-		respond(c, http.StatusCreated, gin.H{"id": id, "rule": rule})
+		respondCreated(c, gin.H{"id": id, "rule": rule})
 	}
 }
 
@@ -72,12 +72,12 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			IsActive        *bool  `json:"is_active"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			respond(c, http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_REQUEST"})
+			abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request body", err.Error())
 			return
 		}
 		existing, err := svc.GetRule(c.Request.Context(), ruleID)
 		if err != nil {
-			respond(c, http.StatusNotFound, gin.H{"error": err.Error(), "code": "NOT_FOUND"})
+			abortWithError(c, http.StatusNotFound, ErrNotFound, "gating rule not found")
 			return
 		}
 		if req.ContractAddress != "" {
@@ -99,7 +99,7 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			existing.IsActive = *req.IsActive
 		}
 		if err := svc.UpdateRule(c.Request.Context(), existing); err != nil {
-			respond(c, http.StatusInternalServerError, gin.H{"error": err.Error()})
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"rule": existing})
@@ -110,9 +110,9 @@ func deleteGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("ruleId")
 		if err := svc.DeleteRule(c.Request.Context(), ruleID); err != nil {
-			respond(c, http.StatusNotFound, gin.H{"error": err.Error(), "code": "NOT_FOUND"})
+			abortWithError(c, http.StatusNotFound, ErrNotFound, "gating rule not found")
 			return
 		}
-		respond(c, http.StatusOK, gin.H{"deleted": true})
+		respondOK(c, gin.H{"deleted": true})
 	}
 }

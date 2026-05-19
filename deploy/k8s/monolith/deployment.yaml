@@ -58,94 +58,69 @@ spec:
           value: "/config/config.yaml"
         - name: DB_HOST
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: db-host
+            configMapKeyRef:
+              name: streamgate-config
+              key: DATABASE_HOST
         - name: DB_PORT
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: db-port
+            configMapKeyRef:
+              name: streamgate-config
+              key: DATABASE_PORT
         - name: DB_USER
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: db-user
+            configMapKeyRef:
+              name: streamgate-config
+              key: DATABASE_USER
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
               name: streamgate-secrets
-              key: db-password
+              key: DATABASE_PASSWORD
         - name: DB_NAME
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: db-name
+            configMapKeyRef:
+              name: streamgate-config
+              key: DATABASE_NAME
         - name: REDIS_HOST
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: redis-host
+            configMapKeyRef:
+              name: streamgate-config
+              key: REDIS_HOST
         - name: REDIS_PORT
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: redis-port
-        - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: redis-password
+            configMapKeyRef:
+              name: streamgate-config
+              key: REDIS_PORT
         - name: S3_ENDPOINT
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: s3-endpoint
+            configMapKeyRef:
+              name: streamgate-config
+              key: STORAGE_ENDPOINT
         - name: S3_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: streamgate-secrets
-              key: s3-access-key
+              key: STORAGE_ACCESS_KEY
         - name: S3_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: streamgate-secrets
-              key: s3-secret-key
+              key: STORAGE_SECRET_KEY
         - name: S3_BUCKET
           valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: s3-bucket
-        - name: S3_REGION
-          valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: s3-region
+            configMapKeyRef:
+              name: streamgate-config
+              key: STORAGE_BUCKET
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
               name: streamgate-secrets
-              key: jwt-secret
-        - name: FRONTEND_URL
-          valueFrom:
-            configMapKeyRef:
-              name: streamgate-config
-              key: frontend-url
+              key: JWT_SECRET
         - name: ETH_RPC_URL
           valueFrom:
             secretKeyRef:
-              name: streamgate-secrets
-              key: eth-rpc-url
-        - name: POLYGON_RPC_URL
-          valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: polygon-rpc-url
-        - name: BSC_RPC_URL
-          valueFrom:
-            secretKeyRef:
-              name: streamgate-secrets
-              key: bsc-rpc-url
+              name: web3-secrets
+              key: ETHEREUM_RPC_URL
         resources:
           requests:
             memory: "512Mi"

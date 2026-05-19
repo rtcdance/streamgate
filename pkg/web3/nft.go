@@ -55,7 +55,7 @@ const erc721ABIJSON = `[{"constant":true,"inputs":[{"name":"owner","type":"addre
 // erc721MetaABIJSON contains ERC-721 metadata methods for GetNFTInfo.
 const erc721MetaABIJSON = `[{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"},{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"name":"","type":"address"}],"type":"function"}]`
 
-const erc1155ABIJSON = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
+const erc1155ABIJSON = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":true,"inputs":[{"name":"owner","type":"address"},{"name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"name":"","type":"bool"}],"type":"function"}]`
 
 // NewNFTVerifier creates a new NFT verifier
 func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
@@ -379,19 +379,35 @@ func (nv *NFTVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contrac
 }
 
 // VerifyNFTCollectionAutoDetect detects the token standard and routes to the
-// correct collection-level verification. For ERC-721 it uses balanceOf(address);
-// for ERC-1155 it uses balanceOf(address,0) as a heuristic (token ID 0 balance).
+// correct collection-level verification. For ERC-721 it uses balanceOf(address).
+// For ERC-1155, collection-level verification without a specific token ID is
+// unreliable (checking balanceOf(address,0) is a heuristic that fails when the
+// user holds other token IDs). Callers should specify tokenID for ERC-1155
+// contracts; if not provided, this returns an error directing the caller to
+// supply one.
 func (nv *NFTVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
 	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
 	switch standard {
 	case TokenStandardERC1155:
-		balance, err := nv.GetERC1155Balance(ctx, contractAddress, ownerAddress, "0")
-		if err != nil {
-			return false, err
-		}
-		return balance.Cmp(big.NewInt(0)) > 0, nil
+		return false, fmt.Errorf("ERC-1155 collection verification requires a specific tokenID; provide token_id parameter")
 	default:
 		return nv.VerifyNFTCollection(ctx, contractAddress, ownerAddress)
+	}
+}
+
+// GetNFTBalanceAutoDetect detects the token standard and routes to the correct
+// balance check. For ERC-721 it uses balanceOf(address); for ERC-1155 it
+// requires a tokenID parameter and uses balanceOf(address,uint256).
+func (nv *NFTVerifier) GetNFTBalanceAutoDetect(ctx context.Context, contractAddress, ownerAddress string, tokenID ...string) (*big.Int, error) {
+	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	switch standard {
+	case TokenStandardERC1155:
+		if len(tokenID) == 0 || tokenID[0] == "" {
+			return nil, fmt.Errorf("ERC-1155 balance query requires a tokenID parameter")
+		}
+		return nv.GetERC1155Balance(ctx, contractAddress, ownerAddress, tokenID[0])
+	default:
+		return nv.GetNFTBalance(ctx, contractAddress, ownerAddress)
 	}
 }
 
@@ -427,6 +443,11 @@ type ApprovalInfo struct {
 // a third party to transfer it. This is important for TOCTOU protection:
 // even if the owner currently holds the NFT, an approved operator could
 // transfer it immediately after verification.
+//
+// For ERC-721, this checks getApproved (per-token) and isApprovedForAll
+// against known marketplace operators. For ERC-1155, only isApprovedForAll
+// applies (no per-token approval concept). Use CheckApprovalAutoDetect for
+// automatic standard detection, or call CheckERC1155Approval directly.
 func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, tokenID, ownerAddress string) (*ApprovalInfo, error) {
 	nv.logger.Debug("Checking NFT approvals",
 		zap.String("contract", contractAddress),
@@ -438,6 +459,7 @@ func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, token
 	info := &ApprovalInfo{}
 
 	// Check getApproved(tokenId) — returns the approved address for a specific token
+	// This is ERC-721 only; ERC-1155 doesn't have per-token approvals.
 	tokenIDInt := new(big.Int)
 	if _, ok := tokenIDInt.SetString(tokenID, 10); !ok {
 		return nil, fmt.Errorf("invalid token ID: %s", tokenID)
@@ -466,6 +488,9 @@ func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, token
 	}
 
 	// Check isApprovedForAll(owner, operator) against known marketplace operators.
+	// Both ERC-721 and ERC-1155 define isApprovedForAll(address,address) with
+	// the same selector (0xe985e9c5) and return type (bool), so this check
+	// works cross-standard.
 	operators := nv.KnownOperators
 	if len(operators) == 0 {
 		operators = DefaultKnownOperators
@@ -499,6 +524,64 @@ func (nv *NFTVerifier) CheckApproval(ctx context.Context, contractAddress, token
 		zap.String("approved_operator", info.ApprovedOperator))
 
 	return info, nil
+}
+
+// CheckERC1155Approval checks ERC-1155 isApprovedForAll against known
+// marketplace operators. ERC-1155 does not have per-token approvals
+// (no getApproved equivalent), so only operator-level checks apply.
+func (nv *NFTVerifier) CheckERC1155Approval(ctx context.Context, contractAddress, ownerAddress string) (*ApprovalInfo, error) {
+	nv.logger.Debug("Checking ERC-1155 approvals",
+		zap.String("contract", contractAddress),
+		zap.String("owner", ownerAddress))
+
+	contract := common.HexToAddress(contractAddress)
+	owner := common.HexToAddress(ownerAddress)
+	info := &ApprovalInfo{}
+
+	operators := nv.KnownOperators
+	if len(operators) == 0 {
+		operators = DefaultKnownOperators
+	}
+	for _, op := range operators {
+		if !common.IsHexAddress(op) {
+			continue
+		}
+		operatorAddr := common.HexToAddress(op)
+		opData, err := nv.erc1155ABI.Pack("isApprovedForAll", owner, operatorAddr)
+		if err != nil {
+			continue
+		}
+		opResult, err := nv.callContract(ctx, contract, opData)
+		if err != nil {
+			continue
+		}
+		if len(opResult) >= 32 {
+			var approved bool
+			if err := nv.erc1155ABI.UnpackIntoInterface(&approved, "isApprovedForAll", opResult); err == nil && approved {
+				info.ApprovedOperator = op
+				break
+			}
+		}
+	}
+
+	nv.logger.Debug("ERC-1155 approval check completed",
+		zap.String("contract", contractAddress),
+		zap.String("approved_operator", info.ApprovedOperator))
+	return info, nil
+}
+
+// CheckApprovalAutoDetect detects the token standard and routes to the
+// correct approval check. For ERC-721 it uses CheckApproval (getApproved +
+// isApprovedForAll); for ERC-1155 it uses CheckERC1155Approval
+// (isApprovedForAll only). Falls back to ERC-721 on detection failure.
+func (nv *NFTVerifier) CheckApprovalAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (*ApprovalInfo, error) {
+	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	switch standard {
+	case TokenStandardERC1155:
+		return nv.CheckERC1155Approval(ctx, contractAddress, ownerAddress)
+	default:
+		return nv.CheckApproval(ctx, contractAddress, tokenID, ownerAddress)
+	}
 }
 
 // TokenStandard represents the NFT token standard
@@ -539,7 +622,12 @@ func init() {
 
 // DetectTokenStandard detects whether a contract is ERC-721 or ERC-1155.
 // It first checks ERC-165 supportsInterface, then falls back to probing
-// balanceOf selectors if ERC-165 is not supported.
+// balanceOf selectors if ERC-165 is not supported. If neither probe
+// produces a definitive result, TokenStandardUnknown is returned.
+//
+// The fallback probes use balanceOf at zero address/ID; contracts that
+// don't revert on unknown selectors may be misidentified. ERC-165
+// compliant contracts always produce accurate results.
 func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress string, logger *zap.Logger) TokenStandard {
 	if !common.IsHexAddress(contractAddress) {
 		return TokenStandardUnknown
@@ -556,15 +644,16 @@ func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress 
 		}
 	}
 
-	// Fallback: try ERC-1155 balanceOf(address,uint256) selector (0x00fdd58e).
-	// If the contract responds without revert, it's likely ERC-1155.
-	// ERC-721 balanceOf(address) selector is 0x70a08231.
+	// Fallback: probe selectors for contracts that don't implement ERC-165.
 	if try1155BalanceOf(ctx, caller, contract) {
 		return TokenStandardERC1155
 	}
+	if try721BalanceOf(ctx, caller, contract) {
+		return TokenStandardERC721
+	}
 
-	// Default to ERC-721 — it's the more common standard
-	return TokenStandardERC721
+	// Neither ERC-165 nor selector probing produced a result.
+	return TokenStandardUnknown
 }
 
 // callSupportsInterface calls supportsInterface on a contract
@@ -603,6 +692,25 @@ func try1155BalanceOf(ctx context.Context, caller EthCaller, contract common.Add
 	data = append(data, selector...)
 	data = append(data, paddedAddr...)
 	data = append(data, paddedID...)
+
+	_, err := caller.CallContract(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: data,
+	}, nil)
+	return err == nil
+}
+
+// try721BalanceOf attempts an ERC-721 balanceOf(address) call with zero address.
+// Returns true if the call succeeds (contract likely supports ERC-721).
+func try721BalanceOf(ctx context.Context, caller EthCaller, contract common.Address) bool {
+	// ERC-721 balanceOf(address) selector: 0x70a08231
+	selector := common.Hex2Bytes("70a08231")
+	zeroAddr := common.Address{}
+	paddedAddr := common.LeftPadBytes(zeroAddr.Bytes(), 32)
+
+	data := make([]byte, 0, 4+32)
+	data = append(data, selector...)
+	data = append(data, paddedAddr...)
 
 	_, err := caller.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,

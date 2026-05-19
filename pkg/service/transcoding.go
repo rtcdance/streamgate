@@ -30,27 +30,27 @@ type PostTranscodeHook func(ctx context.Context, contentID, profile, outputURL s
 
 // TranscodingService handles transcoding operations
 type TranscodingService struct {
-	db          storage.DB
-	queue       TranscodingQueue
-	transcoder  VideoTranscoder
-	storage     SegmentStorage
-	log         *zap.Logger
-	mu          sync.RWMutex
-	tasks       map[string]*TranscodingTask
-	cancel      context.CancelFunc
-	cancelMu    sync.Mutex
-	httpClient          *http.Client
-	workerCount         int
-	uploadConcurrency   int
-	transcodeHooks      []PostTranscodeHook
-	hookMu              sync.Mutex
-	wg                  sync.WaitGroup
+	db                storage.DB
+	queue             TranscodingQueue
+	transcoder        VideoTranscoder
+	storage           SegmentStorage
+	log               *zap.Logger
+	mu                sync.RWMutex
+	tasks             map[string]*TranscodingTask
+	cancel            context.CancelFunc
+	cancelMu          sync.Mutex
+	httpClient        *http.Client
+	workerCount       int
+	uploadConcurrency int
+	transcodeHooks    []PostTranscodeHook
+	hookMu            sync.Mutex
+	wg                sync.WaitGroup
 
-	minWorkers      int
-	maxWorkers      int
-	currentWorkers  int32
-	extraCancels    []context.CancelFunc
-	extraMu         sync.Mutex
+	minWorkers     int
+	maxWorkers     int
+	currentWorkers int32
+	extraCancels   []context.CancelFunc
+	extraMu        sync.Mutex
 }
 
 const defaultUploadConcurrency = 5
@@ -245,6 +245,39 @@ func (s *TranscodingService) StopWorker() {
 	}
 	s.cancelMu.Unlock()
 	s.wg.Wait()
+	if s.httpClient != nil {
+		if t, ok := s.httpClient.Transport.(*http.Transport); ok {
+			t.CloseIdleConnections()
+		}
+	}
+}
+
+func (s *TranscodingService) Close() {
+	s.cancelMu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.cancelMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		if s.log != nil {
+			s.log.Warn("TranscodingService: timed out waiting for goroutines to finish")
+		}
+	}
+
+	if s.httpClient != nil {
+		if t, ok := s.httpClient.Transport.(*http.Transport); ok {
+			t.CloseIdleConnections()
+		}
+	}
 }
 
 func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID int, log interface {
@@ -254,8 +287,8 @@ func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID 
 }
 
 const (
-	scaleCheckInterval  = 5 * time.Second
-	tasksPerWorker      = 2
+	scaleCheckInterval = 5 * time.Second
+	tasksPerWorker     = 2
 )
 
 func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log interface {
@@ -337,14 +370,24 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log in
 func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log interface {
 	Info(msg string, fields ...interface{})
 }) {
-	// Mark as processing
+	// Claim task via DB optimistic lock FIRST to avoid race with other workers.
+	// In-memory state is updated only after the DB lock succeeds.
+	if s.db != nil {
+		now := time.Now()
+		result, execErr := s.db.Exec(ctx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
+		if execErr != nil {
+			s.log.Error("Failed to update task status to processing", zap.String("task_id", task.ID), zap.Error(execErr))
+		} else if rows, _ := result.RowsAffected(); rows == 0 {
+			s.log.Warn("Task was already being processed by another worker", zap.String("task_id", task.ID))
+			return
+		}
+	}
+
+	// Mark as processing (in-memory, after DB lock succeeded)
 	task.Status = "processing"
 	now := time.Now()
 	task.StartedAt = &now
 	s.storeTask(task)
-	if s.db != nil {
-		_, _ = s.db.Exec(ctx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
-	}
 
 	// Create temp dir for output
 	outputDir, err := os.MkdirTemp("", "streamgate-transcode-*")
@@ -485,6 +528,8 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 	var uploadErr error
 	var uploadMu sync.Mutex
 	var uploadWg sync.WaitGroup
+	uploadCtx, cancelUploads := context.WithCancel(ctx)
+	defer cancelUploads()
 
 	for _, job := range jobs {
 		uploadWg.Add(1)
@@ -493,11 +538,19 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			// If a previous upload already failed, skip remaining work
+			select {
+			case <-uploadCtx.Done():
+				return
+			default:
+			}
+
 			f, err := os.Open(j.path)
 			if err != nil {
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("open file %s: %w", j.path, err)
+					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -509,6 +562,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("stat file %s: %w", j.path, err)
+					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -518,6 +572,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("upload %s: %w", j.objectKey, err)
+					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -570,7 +625,7 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 	if err != nil {
 		return "", fmt.Errorf("download input: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download input returned status %d", resp.StatusCode)
@@ -674,8 +729,6 @@ var DefaultProfiles = map[string]TranscodingProfile{
 	},
 }
 
-
-
 // Transcode creates a transcoding task
 func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, inputURL string, priority int, ownerWallet string) (string, error) {
 	// Validate profile
@@ -754,7 +807,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("task not found: %s", taskID)
+		return nil, fmt.Errorf("task not found %s: %w", taskID, ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query task: %w", err)
 	}
@@ -792,7 +845,7 @@ func (s *TranscodingService) UpdateTaskStatus(ctx context.Context, taskID, statu
 	if err := s.db.QueryRow(ctx, "SELECT status FROM transcoding_tasks WHERE id = $1", taskID).Scan(&currentStatus); err != nil {
 		return fmt.Errorf("task not found: %s", taskID)
 	}
-	if !models.IsValidTaskTransition(currentStatus, status) {
+	if !models.IsValidTaskTransition(models.TranscodingTaskStatus(currentStatus), models.TranscodingTaskStatus(status)) {
 		return fmt.Errorf("invalid task status transition: %s -> %s", currentStatus, status)
 	}
 
@@ -882,7 +935,9 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 				contentID).Scan(&pendingCount); err != nil {
 				s.log.Warn("Failed to check pending tasks", zap.Error(err))
 			}
-			_ = tx.QueryRowContext(ctx, "SELECT url FROM contents WHERE id = $1", contentID).Scan(&sourceURL)
+			if err := tx.QueryRowContext(ctx, "SELECT url FROM contents WHERE id = $1", contentID).Scan(&sourceURL); err != nil {
+				s.log.Warn("Failed to fetch content source URL for cleanup", zap.String("content_id", contentID), zap.Error(err))
+			}
 			if pendingCount == 0 {
 				if _, err := tx.ExecContext(ctx,
 					"UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1",
@@ -1031,7 +1086,7 @@ func (s *TranscodingService) CancelTask(ctx context.Context, taskID string) erro
 
 	rowsAffected, errRA := result.RowsAffected()
 	if errRA != nil {
-		return errRA
+		return fmt.Errorf("failed to read rows affected for task %s: %w", taskID, errRA)
 	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("task cannot be cancelled: %s", taskID)

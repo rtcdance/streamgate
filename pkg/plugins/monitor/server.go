@@ -41,8 +41,9 @@ func (s *MonitorServer) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
-	// Health endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
+	mux.HandleFunc("/health/live", handler.HealthHandler)
+	mux.HandleFunc("/health/ready", handler.ReadyHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
 	// Monitoring endpoints

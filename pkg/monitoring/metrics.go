@@ -88,6 +88,13 @@ var (
 		Name: "streamgate_transcoding_workers_active",
 		Help: "Current number of active transcoding worker goroutines",
 	})
+	AuthOperationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_auth_operations_total",
+			Help: "Total auth operations by type and status",
+		},
+		[]string{"operation", "status"},
+	)
 )
 
 func init() {
@@ -104,6 +111,7 @@ func init() {
 		StreamingDownloadDuration,
 		TranscodingQueueDepth,
 		TranscodingWorkersActive,
+		AuthOperationsTotal,
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	} {

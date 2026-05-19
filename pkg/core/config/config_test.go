@@ -16,7 +16,6 @@ func TestSetDefaults(t *testing.T) {
 
 		assert.Equal(t, "streamgate", viper.GetString("app.name"))
 		assert.Equal(t, "monolith", viper.GetString("app.mode"))
-		assert.Equal(t, 8080, viper.GetInt("app.port"))
 		assert.Equal(t, false, viper.GetBool("app.debug"))
 		assert.Equal(t, 8080, viper.GetInt("server.port"))
 		assert.Equal(t, 30, viper.GetInt("server.read_timeout"))
@@ -100,7 +99,7 @@ func TestLoadConfig(t *testing.T) {
 		assert.NotNil(t, cfg)
 		assert.Equal(t, "streamgate", cfg.AppName)
 		assert.Equal(t, "monolith", cfg.Mode)
-		assert.Equal(t, 8080, cfg.Port)
+		assert.Equal(t, 8080, cfg.Server.Port)
 		assert.Equal(t, false, cfg.Debug)
 	})
 

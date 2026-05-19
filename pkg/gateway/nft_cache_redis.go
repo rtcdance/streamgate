@@ -65,6 +65,33 @@ func (c *RedisNFTAccessCache) Set(key string, entry middleware.NFTAccessEntry) {
 	}
 }
 
+func (c *RedisNFTAccessCache) Delete(key string) {
+	c.local.Delete(key)
+	if c.redis != nil {
+		c.redis.Del(context.Background(), nftRedisKeyPrefix+key)
+	}
+}
+
+func (c *RedisNFTAccessCache) DeleteByPrefix(prefix string) {
+	c.local.DeleteByPrefix(prefix)
+	if c.redis != nil {
+		var cursor uint64
+		for {
+			keys, next, err := c.redis.Scan(context.Background(), cursor, nftRedisKeyPrefix+prefix+"*", 100).Result()
+			if err != nil {
+				break
+			}
+			if len(keys) > 0 {
+				c.redis.Del(context.Background(), keys...)
+			}
+			cursor = next
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+}
+
 func toMiddlewareNFTAccessEntry(e CachedNFTAccess) middleware.NFTAccessEntry {
 	return middleware.NFTAccessEntry{
 		HasNFT: e.HasNFT, Balance: e.Balance,

@@ -92,17 +92,17 @@ type ffprobeFormat struct {
 }
 
 type ffprobeStream struct {
-	CodecName string `json:"codec_name"`
-	CodecType string `json:"codec_type"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
+	CodecName  string `json:"codec_name"`
+	CodecType  string `json:"codec_type"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
 	RFrameRate string `json:"r_frame_rate"`
-	NBFrames  string `json:"nb_frames"`
-	BitRate   string `json:"bit_rate"`
+	NBFrames   string `json:"nb_frames"`
+	BitRate    string `json:"bit_rate"`
 }
 
 type ffprobeOutput struct {
-	Format  ffprobeFormat  `json:"format"`
+	Format  ffprobeFormat   `json:"format"`
 	Streams []ffprobeStream `json:"streams"`
 }
 
@@ -487,11 +487,6 @@ func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []strin
 func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callback ProgressCallback) error {
 	cmd := exec.CommandContext(ctx, ft.config.FFmpegPath, args...)
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
@@ -501,18 +496,21 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callba
 		return fmt.Errorf("failed to start FFmpeg: %w", err)
 	}
 
-	if callback != nil {
-		go ft.monitorProgress(stderr, callback)
-	}
+	progressDone := make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		if callback != nil {
+			ft.monitorProgress(stderr, callback)
+		} else {
+			_, _ = io.Copy(io.Discard, stderr)
+		}
+	}()
 
-	if _, err := cmd.Process.Wait(); err != nil {
-		_ = stdout.Close()
-		_ = stderr.Close()
+	<-progressDone
+
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("FFmpeg process failed: %w", err)
 	}
-
-	_ = stdout.Close()
-	_ = stderr.Close()
 
 	return nil
 }

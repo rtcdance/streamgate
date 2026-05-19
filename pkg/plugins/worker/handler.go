@@ -58,7 +58,6 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-
 	var job Job
 	if err := json.NewDecoder(r.Body).Decode(&job); err != nil {
 		h.logger.Error("Failed to decode job", zap.Error(err))
@@ -99,7 +98,6 @@ func (h *WorkerHandler) GetJobStatusHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
 		h.metricsCollector.IncrementCounter("get_job_status_missing_id", map[string]string{})
@@ -130,7 +128,6 @@ func (h *WorkerHandler) CancelJobHandler(w http.ResponseWriter, r *http.Request)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {
@@ -166,7 +163,6 @@ func (h *WorkerHandler) ListJobsHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-
 	h.logger.Info("Listing jobs")
 
 	jobs := h.scheduler.ListJobs()
@@ -187,7 +183,6 @@ func (h *WorkerHandler) ScheduleJobHandler(w http.ResponseWriter, r *http.Reques
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-
 
 	var scheduled ScheduledJob
 	if err := json.NewDecoder(r.Body).Decode(&scheduled); err != nil {

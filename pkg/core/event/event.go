@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 )
 
-// Event represents an event in the system
 type Event struct {
 	Type      string                 `json:"type"`
 	Source    string                 `json:"source"`
@@ -16,7 +16,6 @@ type Event struct {
 	Data      map[string]interface{} `json:"data"`
 }
 
-// Event type constants
 const (
 	EventTypeCacheWarmed         = "cache.warmed"
 	EventTypeNFTVerified         = "nft.verified"
@@ -34,46 +33,82 @@ const (
 	EventTypeAlertResolved       = "alert.resolved"
 )
 
-// EventHandler is a function that handles events
 type EventHandler func(ctx context.Context, event *Event) error
 
-// EventBus defines the interface for event publishing and subscription
 type EventBus interface {
 	Publish(ctx context.Context, event *Event) error
-	Subscribe(ctx context.Context, eventType string, handler EventHandler) error
-	Unsubscribe(ctx context.Context, eventType string, handler EventHandler) error
+	Subscribe(ctx context.Context, eventType string, handler EventHandler) (string, error)
+	Unsubscribe(ctx context.Context, subscriptionID string) error
 	Close() error
 }
 
-// MemoryEventBus is an in-memory implementation of EventBus
+const defaultMaxConcurrency = 64
+
+var nextSubscriptionID atomic.Int64
+
+type subscription struct {
+	id        string
+	eventType string
+	handler   EventHandler
+}
+
 type MemoryEventBus struct {
-	handlers map[string][]EventHandler
-	mu       sync.RWMutex
-	wg       sync.WaitGroup
-	log      *zap.Logger
+	subscriptions  map[string]*subscription
+	mu             sync.RWMutex
+	wg             sync.WaitGroup
+	sem            chan struct{}
+	maxConcurrency int
+	log            *zap.Logger
 }
 
-// NewMemoryEventBus creates a new in-memory event bus
-func NewMemoryEventBus() (*MemoryEventBus, error) {
-	return &MemoryEventBus{
-		handlers: make(map[string][]EventHandler),
-	}, nil
+func NewMemoryEventBus(opts ...MemoryEventBusOption) (*MemoryEventBus, error) {
+	b := &MemoryEventBus{
+		subscriptions:  make(map[string]*subscription),
+		maxConcurrency: defaultMaxConcurrency,
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	b.sem = make(chan struct{}, b.maxConcurrency)
+	return b, nil
 }
 
-// Publish publishes an event to all subscribers
+type MemoryEventBusOption func(*MemoryEventBus)
+
+func WithMaxConcurrency(n int) MemoryEventBusOption {
+	return func(b *MemoryEventBus) {
+		if n > 0 {
+			b.maxConcurrency = n
+		}
+	}
+}
+
+func WithLogger(log *zap.Logger) MemoryEventBusOption {
+	return func(b *MemoryEventBus) {
+		b.log = log
+	}
+}
+
 func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
+	var subs []*subscription
 	b.mu.RLock()
-	handlers, exists := b.handlers[event.Type]
+	for _, sub := range b.subscriptions {
+		if sub.eventType == event.Type {
+			subs = append(subs, sub)
+		}
+	}
 	b.mu.RUnlock()
 
-	if !exists {
+	if len(subs) == 0 {
 		return nil
 	}
 
-	for _, handler := range handlers {
+	for _, sub := range subs {
+		b.sem <- struct{}{}
 		b.wg.Add(1)
-		go func(h EventHandler) {
+		go func(s *subscription) {
 			defer b.wg.Done()
+			defer func() { <-b.sem }()
 			defer func() {
 				if r := recover(); r != nil {
 					if b.log != nil {
@@ -81,52 +116,45 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 					}
 				}
 			}()
-			if err := h(ctx, event); err != nil {
+			if err := s.handler(ctx, event); err != nil {
 				if b.log != nil {
 					b.log.Error("Error handling event", zap.Error(err), zap.String("event_type", event.Type))
 				}
 			}
-		}(handler)
+		}(sub)
 	}
 
 	return nil
 }
 
-// Subscribe subscribes to events of a specific type
-func (b *MemoryEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) error {
+func (b *MemoryEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) (string, error) {
+	id := fmtSubscriptionID()
+	sub := &subscription{
+		id:        id,
+		eventType: eventType,
+		handler:   handler,
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.handlers[eventType] = append(b.handlers[eventType], handler)
-	return nil
+	b.subscriptions[id] = sub
+	return id, nil
 }
 
-// Unsubscribe unsubscribes from events
-func (b *MemoryEventBus) Unsubscribe(ctx context.Context, eventType string, handler EventHandler) error {
+func (b *MemoryEventBus) Unsubscribe(ctx context.Context, subscriptionID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	handlers, exists := b.handlers[eventType]
-	if !exists {
-		return nil
-	}
-
-	for i, h := range handlers {
-		if fmt.Sprintf("%p", h) == fmt.Sprintf("%p", handler) {
-			b.handlers[eventType] = append(handlers[:i], handlers[i+1:]...)
-			break
-		}
-	}
-
-	if len(b.handlers[eventType]) == 0 {
-		delete(b.handlers, eventType)
-	}
-
+	delete(b.subscriptions, subscriptionID)
 	return nil
 }
 
-// Close waits for in-flight handlers to finish, then closes the event bus.
 func (b *MemoryEventBus) Close() error {
 	b.wg.Wait()
 	return nil
+}
+
+func fmtSubscriptionID() string {
+	return fmt.Sprintf("sub-%d", nextSubscriptionID.Add(1))
 }

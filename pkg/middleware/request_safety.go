@@ -13,9 +13,9 @@ const defaultMaxBodySize int64 = 10 << 20 // 10MB for non-upload routes
 // JSON routes must use application/json. Upload routes are exempted.
 func (s *Service) ContentTypeMiddleware() gin.HandlerFunc {
 	jsonContentTypes := map[string]bool{
-		"application/json":                  true,
-		"application/json; charset=utf-8":   true,
-		"application/json;charset=utf-8":    true,
+		"application/json":                true,
+		"application/json; charset=utf-8": true,
+		"application/json;charset=utf-8":  true,
 	}
 
 	return func(c *gin.Context) {
@@ -75,10 +75,10 @@ func (s *Service) RequestSizeLimitMiddleware(maxBodySize int64) gin.HandlerFunc 
 // SecurityHeadersMiddleware adds standard security headers to every response.
 func (s *Service) SecurityHeadersMiddleware() gin.HandlerFunc {
 	headers := map[string]string{
-		"X-Content-Type-Options":  "nosniff",
-		"X-Frame-Options":         "DENY",
-		"Referrer-Policy":         "strict-origin-when-cross-origin",
-		"Content-Security-Policy": "default-src 'self'",
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
+		"Content-Security-Policy":   "default-src 'self'",
 		"Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
 	}
 	return func(c *gin.Context) {

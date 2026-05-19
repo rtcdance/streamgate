@@ -18,9 +18,9 @@ import (
 type Config struct {
 	// Application
 	AppName     string
+	Version     string // set via ldflags -X main.Version at build time
 	Mode        string // "monolith" or "microservice"
 	ServiceName string // for microservice mode
-	Port        int
 	Debug       bool
 
 	// Server
@@ -151,6 +151,16 @@ type StorageConfig struct {
 	UseSSL    bool
 }
 
+// Redacted returns a copy with sensitive fields masked, for safe logging.
+func (c StorageConfig) Redacted() StorageConfig {
+	r := c
+	if r.AccessKey != "" {
+		r.AccessKey = r.AccessKey[:min(len(r.AccessKey), 4)] + "****"
+	}
+	r.SecretKey = "****"
+	return r
+}
+
 // TranscodingConfig holds transcoding configuration
 type TranscodingConfig struct {
 	Enabled       bool
@@ -209,6 +219,7 @@ type Web3Config struct {
 	EthereumWSURL string // WebSocket URL for real-time event subscriptions
 	SolanaRPC     string
 	ChainID       int64
+	BlockTag      string // "safe" (default), "finalized", or "latest"
 	Transaction   TransactionConfig
 	RateLimit     RPCRateLimitConfig
 }
@@ -232,6 +243,15 @@ type TransactionConfig struct {
 	EIP1559                  bool    // use EIP-1559 dynamic fee transactions when true
 }
 
+// Redacted returns a copy with PrivateKeyHex masked, for safe logging.
+func (c TransactionConfig) Redacted() TransactionConfig {
+	r := c
+	if r.PrivateKeyHex != "" {
+		r.PrivateKeyHex = "****(redacted)"
+	}
+	return r
+}
+
 // MonitoringConfig holds monitoring configuration
 type MonitoringConfig struct {
 	PrometheusPort int
@@ -241,10 +261,10 @@ type MonitoringConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTSecret     string
-	JWTExpiry      string
+	JWTSecret          string
+	JWTExpiry          string
 	RefreshTokenExpiry string
-	NonceExpiry string
+	NonceExpiry        string
 }
 
 // CORSConfig holds CORS configuration
@@ -254,12 +274,12 @@ type CORSConfig struct {
 
 // CircuitBreakerConfig holds circuit breaker configuration
 type CircuitBreakerConfig struct {
-	Enabled           bool
-	FailureThreshold  int
-	SuccessThreshold  int
-	Timeout           string
-	MaxRequests       int
-	WindowTime        string
+	Enabled          bool
+	FailureThreshold int
+	SuccessThreshold int
+	Timeout          string
+	MaxRequests      int
+	WindowTime       string
 }
 
 // LoadConfig loads configuration from environment and config files.
@@ -345,7 +365,6 @@ func LoadConfig() (*Config, error) {
 		AppName:     viper.GetString("app.name"),
 		Mode:        viper.GetString("app.mode"),
 		ServiceName: viper.GetString("app.service_name"),
-		Port:        viper.GetInt("app.port"),
 		Debug:       viper.GetBool("app.debug"),
 
 		Server: ServerConfig{
@@ -402,6 +421,7 @@ func LoadConfig() (*Config, error) {
 			EthereumWSURL: viper.GetString("web3.ethereum_ws_url"),
 			SolanaRPC:     viper.GetString("web3.solana_rpc"),
 			ChainID:       viper.GetInt64("web3.chain_id"),
+			BlockTag:      viper.GetString("web3.block_tag"),
 			Transaction: TransactionConfig{
 				PrivateKeyHex:            viper.GetString("web3.transaction.private_key_hex"),
 				GasLimit:                 viper.GetUint64("web3.transaction.gas_limit"),
@@ -477,10 +497,10 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Auth: AuthConfig{
-			JWTSecret:     viper.GetString("auth.jwt_secret"),
-			JWTExpiry:      viper.GetString("auth.jwt_expiry"),
+			JWTSecret:          viper.GetString("auth.jwt_secret"),
+			JWTExpiry:          viper.GetString("auth.jwt_expiry"),
 			RefreshTokenExpiry: viper.GetString("auth.refresh_token_expiry"),
-			NonceExpiry: viper.GetString("auth.nonce_expiry"),
+			NonceExpiry:        viper.GetString("auth.nonce_expiry"),
 		},
 
 		CORS: CORSConfig{
@@ -509,7 +529,6 @@ func setDefaults() {
 	viper.SetDefault("app.name", "streamgate")
 	viper.SetDefault("app.mode", "monolith")
 	viper.SetDefault("app.service_name", "")
-	viper.SetDefault("app.port", 8080)
 	viper.SetDefault("app.debug", false)
 
 	// Server defaults
@@ -558,6 +577,7 @@ func setDefaults() {
 	viper.SetDefault("web3.ethereum_rpc", "https://sepolia.infura.io/v3/YOUR_KEY")
 	viper.SetDefault("web3.solana_rpc", "https://api.devnet.solana.com")
 	viper.SetDefault("web3.chain_id", 11155111) // Sepolia
+	viper.SetDefault("web3.block_tag", "safe")
 
 	// Monitoring defaults
 	viper.SetDefault("monitoring.prometheus_port", 9090)
@@ -616,8 +636,8 @@ func setDefaults() {
 	viper.SetDefault("features.adaptive_bitrate", true)
 	viper.SetDefault("features.multi_codec", true)
 
-	// Auth defaults
-	viper.SetDefault("auth.jwt_secret", "streamgate-dev-secret-32chars!!")
+	// Auth defaults: must set via AUTH_JWT_SECRET env var
+	viper.SetDefault("auth.jwt_secret", "")
 	viper.SetDefault("auth.nonce_expiry", "5m")
 
 	// CORS defaults
@@ -627,7 +647,9 @@ func setDefaults() {
 	viper.SetDefault("plugins.enabled", []string{})
 }
 
-// GetDSN returns the database connection string
+// GetDSN returns the database connection string.
+// WARNING: contains plaintext password — do not log the return value.
+// Use Redacted() for safe logging.
 func (c *DatabaseConfig) GetDSN() string {
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
@@ -640,15 +662,42 @@ func (c *DatabaseConfig) GetDSN() string {
 	)
 }
 
-// ValidateProduction checks for insecure default values that should not be
-// present in a production deployment. Security checks apply regardless of
-// deployment mode (monolith or microservice).
-func (c *Config) ValidateProduction(log *zap.Logger) error {
-	var violations []string
+// Redacted returns a copy with sensitive fields masked, for safe logging.
+func (c *DatabaseConfig) Redacted() DatabaseConfig {
+	return DatabaseConfig{
+		Host:            c.Host,
+		Port:            c.Port,
+		User:            c.User,
+		Password:        "****",
+		Database:        c.Database,
+		SSLMode:         c.SSLMode,
+		MaxConns:        c.MaxConns,
+		MaxIdleConns:    c.MaxIdleConns,
+		ConnMaxLifetime: c.ConnMaxLifetime,
+	}
+}
 
-	// JWT secret checks
+type ValidationError struct {
+	Critical []string
+	Warnings []string
+}
+
+func (e *ValidationError) Error() string {
+	var all []string
+	all = append(all, e.Critical...)
+	all = append(all, e.Warnings...)
+	return fmt.Sprintf("production config validation failed — insecure defaults: %s", strings.Join(all, "; "))
+}
+
+func (e *ValidationError) HasCritical() bool {
+	return len(e.Critical) > 0
+}
+
+func (c *Config) ValidateProduction(log *zap.Logger) error {
+	var ve ValidationError
+
 	if c.Auth.JWTSecret == "" {
-		violations = append(violations, "auth.jwt_secret is empty — set via AUTH_JWT_SECRET env var")
+		ve.Critical = append(ve.Critical, "auth.jwt_secret is empty — set via AUTH_JWT_SECRET env var")
 	}
 	insecureSecrets := []string{
 		"streamgate-dev-secret-32chars!!",
@@ -658,46 +707,42 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	}
 	for _, s := range insecureSecrets {
 		if c.Auth.JWTSecret == s {
-			violations = append(violations, fmt.Sprintf("auth.jwt_secret uses insecure default '%s'", s))
+			ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret uses insecure default '%s'", s))
 			break
 		}
 	}
 
-	// Storage credential checks
 	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" {
-		violations = append(violations, "storage credentials use dev default 'minioadmin'")
+		ve.Warnings = append(ve.Warnings, "storage credentials use dev default 'minioadmin'")
 	}
 	if !c.Storage.UseSSL {
-		violations = append(violations, "storage.use_ssl is disabled — use SSL for production storage connections")
+		ve.Warnings = append(ve.Warnings, "storage.use_ssl is disabled — use SSL for production storage connections")
 	}
 
-	// Database checks
 	insecureDBPasswords := []string{"streamgate_password", "streamgate_dev_password"}
 	for _, p := range insecureDBPasswords {
 		if c.Database.Password == p {
-			violations = append(violations, fmt.Sprintf("database.password uses insecure default '%s'", p))
+			ve.Critical = append(ve.Critical, fmt.Sprintf("database.password uses insecure default '%s'", p))
 			break
 		}
 	}
 	if c.Database.SSLMode == "disable" {
-		violations = append(violations, "database.sslmode is 'disable'")
+		ve.Warnings = append(ve.Warnings, "database.sslmode is 'disable'")
 	}
 
-	// Web3 RPC placeholder check
 	if strings.Contains(c.Web3.EthereumRPC, "YOUR_KEY") {
-		violations = append(violations, "web3.ethereum_rpc contains placeholder YOUR_KEY")
+		ve.Warnings = append(ve.Warnings, "web3.ethereum_rpc contains placeholder YOUR_KEY")
 	}
 
-	// CORS wildcard check
 	for _, origin := range c.CORS.AllowedOrigins {
 		if origin == "*" {
-			violations = append(violations, "cors.allowed_origins contains wildcard '*' — restrict to specific domains")
+			ve.Warnings = append(ve.Warnings, "cors.allowed_origins contains wildcard '*' — restrict to specific domains")
 			break
 		}
 	}
 
-	if len(violations) > 0 {
-		return fmt.Errorf("production config validation failed — insecure defaults: %s", strings.Join(violations, "; "))
+	if len(ve.Critical) > 0 || len(ve.Warnings) > 0 {
+		return &ve
 	}
 	return nil
 }
@@ -708,7 +753,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		AppName: "streamgate",
 		Mode:    "monolith",
-		Port:    8080,
 		Debug:   false,
 
 		Server: ServerConfig{
@@ -764,6 +808,7 @@ func DefaultConfig() *Config {
 			EthereumRPC: envOr("STREAMGATE_ETH_RPC", "https://sepolia.infura.io/v3/YOUR_KEY"),
 			SolanaRPC:   "https://api.devnet.solana.com",
 			ChainID:     11155111,
+			BlockTag:    "safe",
 			Transaction: TransactionConfig{
 				GasMultiplier:            1.2,
 				Confirmations:            2,
@@ -780,7 +825,7 @@ func DefaultConfig() *Config {
 
 		Monitoring: MonitoringConfig{
 			PrometheusPort: 9090,
-			JaegerEndpoint: "http://localhost:14268/api/traces",
+			JaegerEndpoint: "localhost:4317",
 			LogLevel:       "info",
 		},
 
@@ -836,10 +881,10 @@ func DefaultConfig() *Config {
 		},
 
 		Auth: AuthConfig{
-			JWTSecret:     envOr("STREAMGATE_JWT_SECRET", "streamgate-dev-secret"),
-			JWTExpiry:      "2h",
+			JWTSecret:          envOr("STREAMGATE_JWT_SECRET", ""),
+			JWTExpiry:          "2h",
 			RefreshTokenExpiry: "168h",
-			NonceExpiry: "5m",
+			NonceExpiry:        "5m",
 		},
 
 		CORS: CORSConfig{
@@ -894,31 +939,31 @@ func (cm *ConfigManager) Get() *Config {
 	return cm.config
 }
 
-// Load loads configuration from the JSON file at configPath
+// Load loads configuration using Viper (YAML + env vars).
+// This is the canonical loading path. JSON-based config is not supported;
+// use LoadOrCreate for file-based management.
 func (cm *ConfigManager) Load() error {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	data, err := os.ReadFile(cm.configPath)
+	cfg, err := LoadConfig()
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var newConfig Config
-	if err := json.Unmarshal(data, &newConfig); err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
+		cm.mu.Unlock()
+		return fmt.Errorf("failed to load config via Viper: %w", err)
 	}
 
 	oldConfig := cm.config
-	cm.config = &newConfig
+	cm.config = cfg
 
 	if info, err := os.Stat(cm.configPath); err == nil {
 		cm.lastModified = info.ModTime()
 	}
 
-	if oldConfig != nil && len(cm.handlers) > 0 {
-		for _, handler := range cm.handlers {
-			if err := handler(oldConfig, &newConfig); err != nil {
+	handlers := make([]ConfigChangeHandler, len(cm.handlers))
+	copy(handlers, cm.handlers)
+	cm.mu.Unlock()
+
+	if oldConfig != nil && len(handlers) > 0 {
+		for _, handler := range handlers {
+			if err := handler(oldConfig, cfg); err != nil {
 				cm.logger.Error("Config change handler failed", zap.Error(err))
 			}
 		}
@@ -927,7 +972,10 @@ func (cm *ConfigManager) Load() error {
 	return nil
 }
 
-// Save saves the current configuration to the JSON file at configPath
+// Save saves the current configuration to a JSON file.
+// Deprecated: ConfigManager now uses Viper (YAML + env vars) for loading.
+// JSON persistence is retained for tool compatibility but is not the
+// canonical config format. Use Viper config files (config.yaml + config.{env}.yaml) instead.
 func (cm *ConfigManager) Save() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -972,16 +1020,19 @@ func (cm *ConfigManager) Validate() error {
 	return nil
 }
 
-// Update updates the configuration and notifies change handlers
+// Update updates the configuration and notifies change handlers.
+// Handlers are called outside the write lock to prevent deadlocks
+// if a handler tries to read the config.
 func (cm *ConfigManager) Update(newConfig *Config) error {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
 	oldConfig := cm.config
 	cm.config = newConfig
+	handlers := make([]ConfigChangeHandler, len(cm.handlers))
+	copy(handlers, cm.handlers)
+	cm.mu.Unlock()
 
-	if oldConfig != nil && len(cm.handlers) > 0 {
-		for _, handler := range cm.handlers {
+	if oldConfig != nil && len(handlers) > 0 {
+		for _, handler := range handlers {
 			if err := handler(oldConfig, newConfig); err != nil {
 				cm.logger.Error("Config change handler failed", zap.Error(err))
 			}
@@ -1069,6 +1120,9 @@ func (cm *ConfigManager) Watch(ctx context.Context, interval time.Duration) erro
 		case <-ticker.C:
 			info, err := os.Stat(cm.configPath)
 			if err != nil {
+				cm.logger.Warn("Config file stat failed, skipping watch cycle",
+					zap.String("path", cm.configPath),
+					zap.Error(err))
 				continue
 			}
 

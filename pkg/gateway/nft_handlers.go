@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 		}
 		balance, err := verifier.GetNFTBalance(c.Request.Context(), chainID, contract, wallet)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrNFTVerifyError, internalErrMsg(err), err.Error())
+			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT balance check failed")
 			return
 		}
 		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "chain_id": chainID, "balance": balance.String(), "has_nft": balance.Sign() > 0})
@@ -54,7 +55,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 		wallet := middleware.GetWalletAddress(c)
 		hasNFT, err := verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, tokenID, wallet)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrNFTVerifyError, internalErrMsg(err), err.Error())
+			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT ownership verification failed")
 			return
 		}
 		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "token_id": tokenID, "chain_id": chainID, "has_nft": hasNFT})
@@ -125,7 +126,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			}
 		}
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrNFTVerifyError, internalErrMsg(err), err.Error())
+			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT verification failed")
 			return
 		}
 		if cache != nil && !cacheHit {
@@ -267,6 +268,22 @@ func (c *NFTAccessCache) Set(key string, entry CachedNFTAccess) {
 	}
 }
 
+func (c *NFTAccessCache) Delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+}
+
+func (c *NFTAccessCache) DeleteByPrefix(prefix string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.entries {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.entries, k)
+		}
+	}
+}
+
 // NFTAccessCacheAdapter adapts NFTAccessCache to middleware.NFTAccessCache.
 type NFTAccessCacheAdapter struct {
 	Cache *NFTAccessCache
@@ -296,4 +313,12 @@ func (a *NFTAccessCacheAdapter) Set(key string, entry middleware.NFTAccessEntry)
 		BlockHash:   entry.BlockHash,
 		ExpiresAt:   entry.Expires,
 	})
+}
+
+func (a *NFTAccessCacheAdapter) Delete(key string) {
+	a.Cache.Delete(key)
+}
+
+func (a *NFTAccessCacheAdapter) DeleteByPrefix(prefix string) {
+	a.Cache.DeleteByPrefix(prefix)
 }

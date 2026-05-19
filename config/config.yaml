@@ -136,6 +136,9 @@ cors:
   allowed_origins:
     - "http://localhost:3000"
     - "http://localhost:8080"
+    - "http://localhost:18080"
+    - "http://localhost:19090"
+    - "http://localhost:29090"
   allowed_methods:
     - "GET"
     - "POST"

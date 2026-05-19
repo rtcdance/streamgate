@@ -30,8 +30,8 @@ func (e *revocationEntry) isExpired() bool {
 // recently revoked JTIs are cached in-process so that a Redis outage
 // does not silently allow revoked tokens through.
 type RedisTokenBlacklist struct {
-	client    *redis.Client
-	local     *lru.Cache
+	client     *redis.Client
+	local      *lru.Cache
 	FailClosed bool
 }
 

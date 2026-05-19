@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -24,12 +25,16 @@ import (
 	_ "streamgate/pkg/plugins/worker"
 )
 
+// Version is injected at build time via ldflags (see Makefile).
+// Fallback value for development builds.
+var Version = "0.0.0-dev"
+
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-monolith")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate Monolithic Mode...")
+	log.Info("Starting StreamGate Monolithic Mode...", zap.String("version", Version))
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
@@ -37,9 +42,16 @@ func main() {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
+	// Inject build-time version into config for Consul registration etc.
+	cfg.Version = Version
+
 	// Force monolithic mode
 	cfg.Mode = "monolith"
 	if err := cfg.ValidateProduction(log); err != nil {
+		var ve *config.ValidationError
+		if errors.As(err, &ve) && ve.HasCritical() {
+			log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", ve.Critical))
+		}
 		if cfg.Debug {
 			log.Warn("Production config validation failed (debug mode, continuing anyway)", zap.Error(err))
 		} else {

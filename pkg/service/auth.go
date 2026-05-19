@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -54,9 +55,13 @@ func WithRSAPublicKey(key *rsa.PublicKey) JWTVerifierOption {
 // ParseToken parses and validates a JWT without issuing capability.
 func (v *JWTVerifier) ParseToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
+	validMethods := []string{"HS256"}
+	if v.signingType == JWTRS256 {
+		validMethods = []string{"RS256"}
+	}
 	parsed, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return v.keyFunc(token)
-	})
+	}, jwt.WithValidMethods(validMethods))
 	if err != nil {
 		return nil, fmt.Errorf("token verification failed: %w", err)
 	}
@@ -88,22 +93,27 @@ type AuthService struct {
 	publicKey         *rsa.PublicKey
 	signingType       JWTSigningType
 	storage           AuthStorage
-	signatureVerifier WalletSignatureVerifier
+	signatureVerifier web3.SignatureVerifierInterface
 	challengeStore    stg.ChallengeStore
 	challengeTTL      time.Duration
 	blacklist         stg.TokenBlacklist
 	jwtExpiry         time.Duration
-	eip712Verifier    interface {
-		VerifyTypedData(address string, typedData *web3.EIP712TypedData, signature string) (bool, error)
-	}
+	eip712Verifier    web3.EIP712VerifierInterface
+	siweDomain        string
+	siweURI           string
 }
 
 // AuthServiceOption configures an AuthService with optional dependencies.
 type AuthServiceOption func(*AuthService)
 
 // WithSignatureVerifier sets the wallet signature verifier.
-func WithSignatureVerifier(v WalletSignatureVerifier) AuthServiceOption {
+func WithSignatureVerifier(v web3.SignatureVerifierInterface) AuthServiceOption {
 	return func(s *AuthService) { s.signatureVerifier = v }
+}
+
+// WithEIP712Verifier sets the EIP-712 typed data verifier.
+func WithEIP712Verifier(v web3.EIP712VerifierInterface) AuthServiceOption {
+	return func(s *AuthService) { s.eip712Verifier = v }
 }
 
 // WithChallengeStore sets the challenge store for wallet authentication.
@@ -124,6 +134,19 @@ func WithTokenBlacklist(b stg.TokenBlacklist) AuthServiceOption {
 // WithJWTExpiry sets the JWT token expiry duration.
 func WithJWTExpiry(d time.Duration) AuthServiceOption {
 	return func(s *AuthService) { s.jwtExpiry = d }
+}
+
+// WithSIWEDomain sets the SIWE (EIP-4361) domain and URI for challenge generation.
+// Defaults to "streamgate.io" / "https://streamgate.io/login" if not set.
+func WithSIWEDomain(domain, uri string) AuthServiceOption {
+	return func(s *AuthService) {
+		if domain != "" {
+			s.siweDomain = domain
+		}
+		if uri != "" {
+			s.siweURI = uri
+		}
+	}
 }
 
 // AuthStorage defines the interface for user storage
@@ -158,6 +181,14 @@ func WithRSASigning(privateKey *rsa.PrivateKey) AuthServiceSigningOption {
 	}
 }
 
+// errSigVerifier returns ErrNotSupported for all verifications.
+// It serves as a safe default when no real signature verifier is injected.
+type errSigVerifier struct{}
+
+func (errSigVerifier) VerifySignature(_ context.Context, _, _, _ string) (bool, error) {
+	return false, ErrNotSupported
+}
+
 func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
 	if len(jwtSecret) < 32 {
 		panic("jwtSecret must be at least 32 characters for HS256 security")
@@ -165,11 +196,12 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 	s := &AuthService{
 		jwtSecret:         []byte(jwtSecret),
 		storage:           storage,
-		signatureVerifier: defaultWalletSignatureVerifier(),
-		eip712Verifier:    defaultEIP712Verifier(),
+		signatureVerifier: errSigVerifier{},
 		challengeStore:    stg.NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
+		siweDomain:        "streamgate.io",
+		siweURI:           "https://streamgate.io/login",
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -187,7 +219,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 //	    WithChallengeTTL(ttl),
 //	    WithTokenBlacklist(blacklist),
 //	)
-func NewAuthServiceWithDeps(jwtSecret string, as AuthStorage, verifier WalletSignatureVerifier, challengeStore stg.ChallengeStore, challengeTTL time.Duration, blacklist stg.TokenBlacklist) *AuthService {
+func NewAuthServiceWithDeps(jwtSecret string, as AuthStorage, verifier web3.SignatureVerifierInterface, challengeStore stg.ChallengeStore, challengeTTL time.Duration, blacklist stg.TokenBlacklist) *AuthService {
 	var opts []AuthServiceOption
 	if verifier != nil {
 		opts = append(opts, WithSignatureVerifier(verifier))
@@ -202,6 +234,17 @@ func NewAuthServiceWithDeps(jwtSecret string, as AuthStorage, verifier WalletSig
 		opts = append(opts, WithTokenBlacklist(blacklist))
 	}
 	return NewAuthService(jwtSecret, as, opts...)
+}
+
+func (s *AuthService) Close() {
+	if s.challengeStore != nil {
+		if closer, ok := s.challengeStore.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+	if s.blacklist != nil {
+		_ = s.blacklist.Close()
+	}
 }
 
 // Authenticate authenticates user with username and password
@@ -245,6 +288,10 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
+	validMethods := []string{"HS256"}
+	if s.signingType == JWTRS256 {
+		validMethods = []string{"RS256"}
+	}
 
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		switch s.signingType {
@@ -259,7 +306,7 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 			}
 			return s.jwtSecret, nil
 		}
-	})
+	}, jwt.WithValidMethods(validMethods))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
@@ -288,7 +335,7 @@ func (s *AuthService) Register(ctx context.Context, username, password, email st
 	if s.storage == nil {
 		return fmt.Errorf("user storage not available")
 	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -318,7 +365,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, username, oldPassword,
 	}
 	user, err := s.storage.GetUser(ctx, username)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrNotFound, err)
+		return fmt.Errorf("%w: %v", ErrNotFound, err)
 	}
 	if user == nil {
 		return ErrNotFound
@@ -330,7 +377,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, username, oldPassword,
 	}
 
 	// 3. Hash new password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), 12)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
@@ -401,6 +448,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 // within the given grace period. This enables token refresh after expiry.
 func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod time.Duration) (*Claims, error) {
 	claims := &Claims{}
+	validMethods := []string{"HS256"}
+	if s.signingType == JWTRS256 {
+		validMethods = []string{"RS256"}
+	}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		switch s.signingType {
 		case JWTRS256:
@@ -414,7 +465,7 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 			}
 			return s.jwtSecret, nil
 		}
-	})
+	}, jwt.WithValidMethods(validMethods))
 	if err != nil {
 		if !token.Valid {
 			if claims.ExpiresAt != nil {

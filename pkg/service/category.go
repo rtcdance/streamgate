@@ -48,7 +48,7 @@ func (s *CategoryService) GetCategory(ctx context.Context, id string) (*models.C
 	var parentID sql.NullString
 	err := s.db.QueryRow(ctx, query, id).Scan(&cat.ID, &cat.Name, &cat.Slug, &cat.Description, &parentID, &cat.CreatedAt)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("category not found: %s", id)
+		return nil, fmt.Errorf("category not found %s: %w", id, ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query category: %w", err)
@@ -92,7 +92,7 @@ func (s *CategoryService) UpdateCategory(ctx context.Context, cat *models.Catego
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		return fmt.Errorf("category not found: %s", cat.ID)
+		return fmt.Errorf("category not found %s: %w", cat.ID, ErrNotFound)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (s *CategoryService) DeleteCategory(ctx context.Context, id string) error {
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		return fmt.Errorf("category not found: %s", id)
+		return fmt.Errorf("category not found %s: %w", id, ErrNotFound)
 	}
 	return nil
 }

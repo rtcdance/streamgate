@@ -13,13 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/gateway"
 	"streamgate/pkg/middleware"
@@ -27,6 +20,14 @@ import (
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type mockSegmentStorage struct {
@@ -86,12 +87,16 @@ func (m *mockNFTAccessVerifier) GetNFTBalance(ctx context.Context, chainID int64
 	return m.balance, m.balanceErr
 }
 
-func (m *mockNFTAccessVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+func (m *mockNFTAccessVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error) {
 	return m.verifyResult, m.verifyErr
 }
 
-func (m *mockNFTAccessVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+func (m *mockNFTAccessVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
 	return m.verifyResult, m.verifyErr
+}
+
+func (m *mockNFTAccessVerifier) GetNFTInfo(ctx context.Context, chainID int64, contractAddress, tokenID string) (*middleware.NFTMetadata, error) {
+	return nil, nil
 }
 
 func (m *mockWeb3StatusProvider) GetRPCStatuses() map[int64][]web3.RPCStatus {
@@ -178,8 +183,8 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 			CacheTTL:       60 * time.Second,
 		}
 		nftGroup := authGroup.Group("/")
-	nftGroup.Use(middleware.NFTGateMiddleware(nftGateConfig, zap.NewNop()))
-	gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, segStorage, nil)
+		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, zap.NewNop()))
+		gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil, segStorage, nil, nil)
 
 		// Segment route uses playback token, not NFT gate
 		authGroup.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {

@@ -30,9 +30,9 @@ type Database struct {
 
 // DatabaseConfig holds database configuration
 type DatabaseConfig struct {
-	Type     string
-	DSN      string
-	PoolCfg  PoolConfig
+	Type    string
+	DSN     string
+	PoolCfg PoolConfig
 }
 
 // NewDatabase creates a new database instance

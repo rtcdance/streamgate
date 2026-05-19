@@ -1,16 +1,24 @@
 package api
 
 import (
+	"container/heap"
 	"sync"
 	"time"
 )
 
-// bucket is a per-client token bucket for rate limiting.
+const (
+	defaultMaxBuckets   = 100000
+	defaultCleanupEvery = 5 * time.Minute
+	defaultBucketMaxAge = 30 * time.Minute
+)
+
 type bucket struct {
 	tokens     float64
 	maxTokens  float64
-	refill     float64 // tokens added per second
+	refill     float64
 	lastRefill time.Time
+	lastAccess time.Time
+	index      int
 }
 
 func (b *bucket) refillTokens() {
@@ -23,28 +31,99 @@ func (b *bucket) refillTokens() {
 	b.lastRefill = now
 }
 
-// RateLimiter limits request rate per client IP using a token bucket algorithm.
-type RateLimiter struct {
-	limit   float64  // requests per second
-	burst   int      // max burst size
-	buckets sync.Map // string → *bucket
-	mu      sync.Mutex
+type bucketEntry struct {
+	ip         string
+	lastAccess time.Time
 }
 
-// NewRateLimiter creates a new rate limiter.
-// limit is the number of requests allowed per second per client.
+type bucketHeap []*bucketEntry
+
+func (h bucketHeap) Len() int           { return len(h) }
+func (h bucketHeap) Less(i, j int) bool { return h[i].lastAccess.Before(h[j].lastAccess) }
+func (h bucketHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}
+func (h *bucketHeap) Push(x interface{}) {
+	item := x.(*bucketEntry)
+	*h = append(*h, item)
+}
+func (h *bucketHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	old[n-1] = nil
+	*h = old[:n-1]
+	return item
+}
+
+type RateLimiter struct {
+	limit      float64
+	burst      int
+	buckets    sync.Map
+	mu         sync.Mutex
+	maxBuckets int
+	bucketHeap *bucketHeap
+	stopCh     chan struct{}
+	cleanupMu  sync.Mutex
+}
+
 func NewRateLimiter(limit int) *RateLimiter {
 	if limit <= 0 {
 		limit = 1
 	}
-	return &RateLimiter{
-		limit: float64(limit),
-		burst: limit, // burst equals the per-second rate
+	rl := &RateLimiter{
+		limit:      float64(limit),
+		burst:      limit,
+		maxBuckets: defaultMaxBuckets,
+		bucketHeap: &bucketHeap{},
+		stopCh:     make(chan struct{}),
+	}
+	heap.Init(rl.bucketHeap)
+	go rl.cleanupLoop()
+	return rl
+}
+
+func (r *RateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(defaultCleanupEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanup()
+		case <-r.stopCh:
+			return
+		}
 	}
 }
 
-// Allow checks if a request from the given client IP is allowed.
-// Returns true if the request is within rate limits, false otherwise.
+func (r *RateLimiter) cleanup() {
+	r.cleanupMu.Lock()
+	defer r.cleanupMu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-defaultBucketMaxAge)
+	removed := 0
+
+	for r.bucketHeap.Len() > 0 {
+		oldest := (*r.bucketHeap)[0]
+		if oldest.lastAccess.After(cutoff) {
+			break
+		}
+		heap.Pop(r.bucketHeap)
+		r.buckets.Delete(oldest.ip)
+		removed++
+	}
+
+	if removed > 0 {
+		r.buckets.Range(func(key, _ interface{}) bool {
+			if r.bucketHeap.Len() >= r.maxBuckets {
+				return false
+			}
+			return true
+		})
+	}
+}
+
 func (r *RateLimiter) Allow(clientIP string) bool {
 	now := time.Now()
 
@@ -53,11 +132,16 @@ func (r *RateLimiter) Allow(clientIP string) bool {
 		maxTokens:  float64(r.burst),
 		refill:     r.limit,
 		lastRefill: now,
+		lastAccess: now,
 	})
 
 	b := val.(*bucket)
+	b.lastAccess = now
+
 	if !loaded {
-		// New bucket: we already consumed one token in the initial value
+		r.cleanupMu.Lock()
+		heap.Push(r.bucketHeap, &bucketEntry{ip: clientIP, lastAccess: now})
+		r.cleanupMu.Unlock()
 		return true
 	}
 
@@ -72,4 +156,8 @@ func (r *RateLimiter) Allow(clientIP string) bool {
 
 	b.tokens--
 	return true
+}
+
+func (r *RateLimiter) Stop() {
+	close(r.stopCh)
 }

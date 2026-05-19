@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -13,12 +14,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// mockNFTOwnershipChecker implements NFTOwnershipChecker for testing
+const testContractAddr = "0x1234567890123456789012345678901234567890"
+
 type mockNFTOwnershipChecker struct {
 	verifyFn         func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
 	balanceFn        func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error)
-	autoDetectFn     func(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error)
-	collectionAutoFn func(ctx context.Context, contractAddress, ownerAddress string) (bool, error)
+	autoDetectFn     func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
+	collectionAutoFn func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error)
+	getNFTInfoFn     func(ctx context.Context, chainID int64, contractAddress, tokenID string) (*NFTMetadata, error)
 }
 
 func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
@@ -29,25 +32,31 @@ func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int
 	return m.balanceFn(ctx, chainID, contractAddress, ownerAddress)
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
 	if m.autoDetectFn != nil {
-		return m.autoDetectFn(ctx, contractAddress, tokenID, ownerAddress)
+		return m.autoDetectFn(ctx, chainID, contractAddress, tokenID, ownerAddress)
 	}
-	return m.verifyFn(ctx, 1, contractAddress, tokenID, ownerAddress)
+	return m.verifyFn(ctx, chainID, contractAddress, tokenID, ownerAddress)
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error) {
 	if m.collectionAutoFn != nil {
-		return m.collectionAutoFn(ctx, contractAddress, ownerAddress)
+		return m.collectionAutoFn(ctx, chainID, contractAddress, ownerAddress)
 	}
-	bal, err := m.balanceFn(ctx, 1, contractAddress, ownerAddress)
+	bal, err := m.balanceFn(ctx, chainID, contractAddress, ownerAddress)
 	if err != nil {
 		return false, err
 	}
 	return bal != nil && bal.Sign() > 0, nil
 }
 
-// mockNFTAccessCache implements NFTAccessCache for testing
+func (m *mockNFTOwnershipChecker) GetNFTInfo(ctx context.Context, chainID int64, contractAddress, tokenID string) (*NFTMetadata, error) {
+	if m.getNFTInfoFn != nil {
+		return m.getNFTInfoFn(ctx, chainID, contractAddress, tokenID)
+	}
+	return nil, nil
+}
+
 type mockNFTAccessCache struct {
 	entries map[string]NFTAccessEntry
 }
@@ -61,7 +70,19 @@ func (m *mockNFTAccessCache) Set(key string, entry NFTAccessEntry) {
 	m.entries[key] = entry
 }
 
-func setupNFTGateRouter(config NFTGateConfig) *gin.Engine {
+func (m *mockNFTAccessCache) Delete(key string) {
+	delete(m.entries, key)
+}
+
+func (m *mockNFTAccessCache) DeleteByPrefix(prefix string) {
+	for k := range m.entries {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			delete(m.entries, k)
+		}
+	}
+}
+
+func setupNFTGateRouter(config *NFTGateConfig) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
@@ -95,9 +116,9 @@ func TestNFTGateMiddleware_Owner(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -114,9 +135,9 @@ func TestNFTGateMiddleware_NotOwner(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xNotOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xNotOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -128,10 +149,9 @@ func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 		Verifier:       &mockNFTOwnershipChecker{},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	// Request without JWT (no wallet_address in context)
-	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract=0xABC", http.NoBody)
+	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract="+testContractAddr, http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -143,13 +163,30 @@ func TestNFTGateMiddleware_MissingContract(t *testing.T) {
 		Verifier:       &mockNFTOwnershipChecker{},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
 	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestNFTGateMiddleware_InvalidContractAddress(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier:       &mockNFTOwnershipChecker{},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(&config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "INVALID_CONTRACT", resp["code"])
 }
 
 func TestNFTGateMiddleware_VerifierError(t *testing.T) {
@@ -161,9 +198,9 @@ func TestNFTGateMiddleware_VerifierError(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -181,7 +218,7 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		},
 		Cache: &mockNFTAccessCache{
 			entries: map[string]NFTAccessEntry{
-				"1:0xOwner:0xABC:__collection__": {
+				"1:0xOwner:" + testContractAddr + ":__collection__": {
 					HasNFT:  true,
 					Balance: big.NewInt(5),
 					Expires: time.Now().Add(time.Minute),
@@ -190,9 +227,9 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -210,9 +247,9 @@ func TestNFTGateMiddleware_WithTokenID(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC&token_id=42", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr+"&token_id=42", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -228,10 +265,9 @@ func TestNFTGateMiddleware_ContractAddressAlias(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	router := setupNFTGateRouter(config)
+	router := setupNFTGateRouter(&config)
 
-	// Use contract_address instead of contract
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract_address=0xABC", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract_address="+testContractAddr, "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

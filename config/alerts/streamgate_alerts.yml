@@ -47,12 +47,12 @@ groups:
           description: >-
             RPC failover count increased by {{ $value | printf "%.0f" }} in the last 5 minutes,
             exceeding the threshold of 10. Operation: {{ $labels.operation }},
-            from_rpc: {{ $labels.from_rpc }}, to_rpc: {{ $labels.to_rpc }}.
+            from_provider: {{ $labels.from_provider }}, to_provider: {{ $labels.to_provider }}.
 
       - alert: HighRPCLatency
         expr: |
           histogram_quantile(0.99,
-            sum(rate(streamgate_rpc_latency_seconds_bucket[5m])) by (le, operation, rpc_url)
+            sum(rate(streamgate_rpc_latency_seconds_bucket[5m])) by (le, operation, rpc_provider)
           ) > 3
         for: 5m
         labels:
@@ -61,7 +61,7 @@ groups:
         annotations:
           summary: "High RPC P99 latency"
           description: >-
-            RPC P99 latency for operation {{ $labels.operation }} on {{ $labels.rpc_url }}
+            RPC P99 latency for operation {{ $labels.operation }} on {{ $labels.rpc_provider }}
             is {{ $value | printf "%.2f" }}s over the last 5 minutes,
             exceeding the 3s threshold.
 

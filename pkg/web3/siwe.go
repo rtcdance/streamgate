@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // SIWEMessage represents an EIP-4361 (Sign-In with Ethereum) message.
@@ -85,6 +87,9 @@ func ParseSIWEMessage(message string) (*SIWEMessage, error) {
 
 	// Line 1: Ethereum address
 	msg.Address = strings.TrimSpace(lines[1])
+	if !common.IsHexAddress(msg.Address) {
+		return nil, fmt.Errorf("invalid SIWE message: invalid Ethereum address format")
+	}
 
 	// Line 2: empty
 	// Line 3: statement

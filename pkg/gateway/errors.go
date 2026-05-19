@@ -117,5 +117,8 @@ func RequestIDMiddleware() gin.HandlerFunc {
 // It replaces raw internal error strings with a generic message while
 // preserving the original error in the detail field for debugging.
 func internalErrMsg(err error) string {
+	if log := getErrorLogger(); log != nil && err != nil {
+		log.Error("internal error", zap.Error(err))
+	}
 	return "an internal error occurred"
 }

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -20,12 +21,12 @@ import (
 
 // ClientPool manages gRPC client connections
 type ClientPool struct {
-	registry    ServiceRegistry
-	logger      *zap.Logger
-	clients     map[string]*grpc.ClientConn
-	mu          sync.RWMutex
-	tlsConfig   *tls.Config
-	rrCounter   atomic.Uint64
+	registry  ServiceRegistry
+	logger    *zap.Logger
+	clients   map[string]*grpc.ClientConn
+	mu        sync.RWMutex
+	tlsConfig *tls.Config
+	rrCounter atomic.Uint64
 }
 
 // NewClientPool creates a new client pool with insecure (plaintext) connections
@@ -79,6 +80,7 @@ func (p *ClientPool) GetConnection(ctx context.Context, serviceName string) (*gr
 			Timeout:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 	if p.tlsConfig != nil {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(p.tlsConfig)))

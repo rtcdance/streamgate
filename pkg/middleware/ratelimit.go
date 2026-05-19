@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"net/http"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	rateLimitTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "streamgate_ratelimit_total",
+		Help: "Total rate limit checks",
+	}, []string{"result", "backend"})
+
+	rateLimitFallback = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "streamgate_ratelimit_fallback_total",
+		Help: "Rate limiter fallbacks to memory backend",
+	})
 )
 
 type RateLimitConfig struct {
@@ -52,23 +67,55 @@ func NewRateLimiter(cfg RateLimitConfig, redisClient RedisClient) RateLimiter {
 }
 
 type memoryRateLimiter struct {
-	clients map[string]*clientEntry
-	mu      sync.RWMutex
-	wg      sync.WaitGroup
-	config  RateLimitConfig
-	done    chan struct{}
+	clients    map[string]*clientEntry
+	pq         clientHeap
+	mu         sync.RWMutex
+	wg         sync.WaitGroup
+	config     RateLimitConfig
+	maxClients int
+	done       chan struct{}
 }
 
 type clientEntry struct {
-	count     int
-	resetTime time.Time
+	key        string
+	count      int
+	resetTime  time.Time
+	lastAccess time.Time
+	index      int
+}
+
+type clientHeap []*clientEntry
+
+func (h clientHeap) Len() int           { return len(h) }
+func (h clientHeap) Less(i, j int) bool { return h[i].lastAccess.Before(h[j].lastAccess) }
+func (h clientHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index = i
+	h[j].index = j
+}
+func (h *clientHeap) Push(x any) {
+	n := len(*h)
+	e := x.(*clientEntry)
+	e.index = n
+	*h = append(*h, e)
+}
+func (h *clientHeap) Pop() any {
+	old := *h
+	n := len(old)
+	e := old[n-1]
+	old[n-1] = nil
+	e.index = -1
+	*h = old[:n-1]
+	return e
 }
 
 func newMemoryRateLimiter(cfg RateLimitConfig) *memoryRateLimiter {
 	rl := &memoryRateLimiter{
-		clients: make(map[string]*clientEntry),
-		config:  cfg,
-		done:    make(chan struct{}),
+		clients:    make(map[string]*clientEntry),
+		pq:         make(clientHeap, 0),
+		config:     cfg,
+		maxClients: 10000,
+		done:       make(chan struct{}),
 	}
 	rl.wg.Add(1)
 	go rl.cleanup()
@@ -83,19 +130,38 @@ func (rl *memoryRateLimiter) Allow(key string) bool {
 	entry, exists := rl.clients[key]
 
 	if !exists || now.After(entry.resetTime) {
-		rl.clients[key] = &clientEntry{
-			count:     1,
-			resetTime: now.Add(rl.config.WindowSize),
+		if len(rl.clients) >= rl.maxClients {
+			rl.evictOldest()
 		}
+		entry = &clientEntry{
+			key:        key,
+			count:      1,
+			resetTime:  now.Add(rl.config.WindowSize),
+			lastAccess: now,
+		}
+		rl.clients[key] = entry
+		heap.Push(&rl.pq, entry)
+		rateLimitTotal.WithLabelValues("allowed", "memory").Inc()
 		return true
 	}
 
-	if entry.count < rl.config.RequestsPerMinute {
-		entry.count++
-		return true
+	entry.lastAccess = now
+	heap.Fix(&rl.pq, entry.index)
+	if entry.count >= rl.config.RequestsPerMinute {
+		rateLimitTotal.WithLabelValues("denied", "memory").Inc()
+		return false
 	}
+	entry.count++
+	rateLimitTotal.WithLabelValues("allowed", "memory").Inc()
+	return true
+}
 
-	return false
+func (rl *memoryRateLimiter) evictOldest() {
+	if rl.pq.Len() == 0 {
+		return
+	}
+	oldest := heap.Pop(&rl.pq).(*clientEntry)
+	delete(rl.clients, oldest.key)
 }
 
 func (rl *memoryRateLimiter) Stop() {
@@ -176,28 +242,39 @@ func newRedisRateLimiter(cfg RateLimitConfig, client RedisClient, fallback RateL
 }
 
 func (rl *redisRateLimiter) Allow(key string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	return rl.AllowWithContext(context.Background(), key)
+}
+
+func (rl *redisRateLimiter) AllowWithContext(ctx context.Context, key string) bool {
+	evalCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	redisKey := fmt.Sprintf("ratelimit:%s", key)
 	nowMs := time.Now().UnixMilli()
 
-	result, err := rl.client.Eval(ctx, rl.script, []string{redisKey},
+	result, err := rl.client.Eval(evalCtx, rl.script, []string{redisKey},
 		rl.config.RequestsPerMinute,
 		rl.config.WindowSize.Milliseconds(),
 		nowMs,
 	).Result()
 
 	if err != nil {
+		rateLimitFallback.Inc()
 		return rl.fallback.Allow(key)
 	}
 
 	allowed, ok := result.(int64)
 	if !ok {
+		rateLimitFallback.Inc()
 		return rl.fallback.Allow(key)
 	}
 
-	return allowed == 1
+	if allowed == 1 {
+		rateLimitTotal.WithLabelValues("allowed", "redis").Inc()
+		return true
+	}
+	rateLimitTotal.WithLabelValues("denied", "redis").Inc()
+	return false
 }
 
 func (rl *redisRateLimiter) Stop() {}

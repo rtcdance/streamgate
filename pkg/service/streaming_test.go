@@ -35,29 +35,25 @@ func TestDetectStreamType(t *testing.T) {
 func TestStreamingService_GenerateHLSPlaylist(t *testing.T) {
 	svc := NewStreamingService(nil, nil, nil, "https://cdn.example.com")
 
-	qualities := []Quality{
-		{Name: "1080p", Resolution: "1920x1080", Bitrate: 5000},
-		{Name: "720p", Resolution: "1280x720", Bitrate: 3000},
-		{Name: "480p", Resolution: "854x480", Bitrate: 1500},
+	qualitySegments := map[string][]string{
+		"1080p": {"seg000.ts", "seg001.ts", "seg002.ts"},
+		"720p":  {"seg000.ts", "seg001.ts", "seg002.ts"},
+		"480p":  {"seg000.ts", "seg001.ts", "seg002.ts"},
 	}
 
-	playlist, err := svc.GenerateHLSPlaylist("content-123", qualities)
+	playlist, err := svc.GenerateHLSPlaylist("content-123", qualitySegments, "test-token")
 	require.NoError(t, err)
 
-	// Must start with HLS header
 	assert.True(t, strings.HasPrefix(playlist, "#EXTM3U"))
 	assert.Contains(t, playlist, "#EXT-X-VERSION:3")
 
-	// Each quality gets a STREAM-INF line and a URL line
-	for _, q := range qualities {
-		assert.Contains(t, playlist, q.Resolution, "missing resolution %s", q.Resolution)
-		assert.Contains(t, playlist, "content-123/"+q.Name, "missing URL path for %s", q.Name)
+	for q := range qualitySegments {
+		assert.Contains(t, playlist, q, "missing quality %s", q)
 	}
 
-	// Bandwidth should be bitrate * 1000
 	assert.Contains(t, playlist, "BANDWIDTH=5000000")
-	assert.Contains(t, playlist, "BANDWIDTH=3000000")
-	assert.Contains(t, playlist, "BANDWIDTH=1500000")
+	assert.Contains(t, playlist, "BANDWIDTH=2800000")
+	assert.Contains(t, playlist, "BANDWIDTH=1400000")
 }
 
 func TestStreamingService_GenerateDASHManifest(t *testing.T) {
@@ -68,7 +64,7 @@ func TestStreamingService_GenerateDASHManifest(t *testing.T) {
 		{Name: "720p", Resolution: "1280x720", Bitrate: 3000},
 	}
 
-	manifest, err := svc.GenerateDASHManifest("content-456", qualities)
+	manifest, err := svc.GenerateDASHManifest("content-456", qualities, "test-playback-token")
 	require.NoError(t, err)
 
 	// Must contain DASH XML structure

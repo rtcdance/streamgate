@@ -130,7 +130,7 @@ func (db *DashboardBuilder) buildRequestRatePanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:         "rate(streamgate_requests_total[5m])",
+				Expr:         "rate(streamgate_http_requests_total[5m])",
 				RefID:        "A",
 				LegendFormat: "{{service}}",
 			},
@@ -158,7 +158,7 @@ func (db *DashboardBuilder) buildErrorRatePanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:         "rate(streamgate_service_errors[5m]) / rate(streamgate_service_requests[5m])",
+				Expr:         "rate(streamgate_service_requests_total{status=\"error\"}[5m]) / rate(streamgate_service_requests_total[5m])",
 				RefID:        "A",
 				LegendFormat: "{{service}}",
 			},
@@ -186,14 +186,14 @@ func (db *DashboardBuilder) buildLatencyPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:         "streamgate_service_latency_avg",
+				Expr:         "rate(streamgate_service_latency_ms_sum[5m]) / rate(streamgate_service_latency_ms_count[5m])",
 				RefID:        "A",
 				LegendFormat: "{{service}} avg",
 			},
 			{
-				Expr:         "streamgate_service_latency_max",
+				Expr:         "histogram_quantile(0.99, rate(streamgate_service_latency_ms_bucket[5m]))",
 				RefID:        "B",
-				LegendFormat: "{{service}} max",
+				LegendFormat: "{{service}} p99",
 			},
 		},
 		Options: map[string]interface{}{
@@ -245,7 +245,7 @@ func (db *DashboardBuilder) buildActiveConnectionsPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "streamgate_gauge_value{metric=\"active_connections\"}",
+				Expr:  "streamgate_http_requests_total",
 				RefID: "A",
 			},
 		},
@@ -466,7 +466,7 @@ func NewAlertRuleBuilder(logger *zap.Logger) *AlertRuleBuilder {
 func (arb *AlertRuleBuilder) BuildHighErrorRateAlert() *AlertRule {
 	return &AlertRule{
 		Name:      "HighErrorRate",
-		Condition: "rate(streamgate_service_errors[5m]) / rate(streamgate_service_requests[5m]) > 0.1",
+		Condition: "rate(streamgate_service_requests_total{status=\"error\"}[5m]) / rate(streamgate_service_requests_total[5m]) > 0.1",
 		Threshold: 0.1,
 		Duration:  5 * time.Minute,
 		Level:     "critical",
@@ -477,7 +477,7 @@ func (arb *AlertRuleBuilder) BuildHighErrorRateAlert() *AlertRule {
 func (arb *AlertRuleBuilder) BuildHighLatencyAlert() *AlertRule {
 	return &AlertRule{
 		Name:      "HighLatency",
-		Condition: "streamgate_service_latency_avg > 5000",
+		Condition: "rate(streamgate_service_latency_ms_sum[5m]) / rate(streamgate_service_latency_ms_count[5m]) > 5000",
 		Threshold: 5000,
 		Duration:  5 * time.Minute,
 		Level:     "warning",

@@ -8,24 +8,26 @@ import (
 )
 
 type Publisher struct {
-	mu          sync.RWMutex
-	subscribers map[string][]func(Event)
-	wg          sync.WaitGroup
-	log         *zap.Logger
+	mu             sync.RWMutex
+	subscribers    map[string][]func(Event)
+	wg             sync.WaitGroup
+	sem            chan struct{}
+	log            *zap.Logger
+	maxConcurrency int
 }
 
 func NewPublisher() *Publisher {
 	return &Publisher{
-		subscribers: make(map[string][]func(Event)),
-		log:         zap.NewNop(),
+		subscribers:    make(map[string][]func(Event)),
+		maxConcurrency: defaultMaxConcurrency,
+		log:            zap.NewNop(),
 	}
 }
 
 func NewPublisherWithLogger(log *zap.Logger) *Publisher {
-	return &Publisher{
-		subscribers: make(map[string][]func(Event)),
-		log:         log,
-	}
+	p := NewPublisher()
+	p.log = log
+	return p
 }
 
 func (p *Publisher) Subscribe(eventType string, handler func(Event)) {
@@ -39,10 +41,25 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 	handlers := p.subscribers[event.Type]
 	p.mu.RUnlock()
 
+	if len(handlers) == 0 {
+		return nil
+	}
+
+	if p.sem == nil {
+		p.sem = make(chan struct{}, p.maxConcurrency)
+	}
+
 	for _, handler := range handlers {
+		select {
+		case p.sem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
 		p.wg.Add(1)
 		go func(h func(Event)) {
 			defer p.wg.Done()
+			defer func() { <-p.sem }()
 			defer func() {
 				if r := recover(); r != nil {
 					p.log.Error("Recovered panic in event publisher handler",

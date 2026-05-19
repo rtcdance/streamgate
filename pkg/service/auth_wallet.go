@@ -4,11 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"streamgate/pkg/monitoring"
+	stg "streamgate/pkg/storage"
+	"streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gagliardetto/solana-go"
@@ -16,10 +22,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
-	"streamgate/pkg/monitoring"
-	stg "streamgate/pkg/storage"
-	"streamgate/pkg/web3"
 )
 
 var (
@@ -49,7 +51,6 @@ func isSolanaChain(chainID int64) bool {
 	return chainID < 0
 }
 
-
 // TokenVerifyResult contains the result of a token verification.
 type TokenVerifyResult struct {
 	Valid         bool
@@ -57,14 +58,8 @@ type TokenVerifyResult struct {
 	WalletAddress string
 }
 
-// WalletSignatureVerifier verifies wallet signatures.
-// Implementations must handle chain-specific verification:
-// EVM chains use secp256k1/EIP-191, Solana uses ed25519.
-//
-//go:generate mockgen -destination=mocks/mock_wallet_sig_verifier.go -package=mocks streamgate/pkg/service WalletSignatureVerifier
-type WalletSignatureVerifier interface {
-	VerifySignature(ctx context.Context, address, message, signature string) (bool, error)
-}
+//go:generate mockgen -destination=mocks/mock_wallet_sig_verifier.go -package=mocks streamgate/pkg/web3 SignatureVerifierInterface
+type WalletSignatureVerifier = web3.SignatureVerifierInterface
 
 // ChainAwareSignatureVerifier extends WalletSignatureVerifier with chain routing.
 // If available, the auth service will use this interface to route signatures
@@ -75,24 +70,14 @@ type ChainAwareSignatureVerifier interface {
 	VerifyOffchainMessage(ctx context.Context, address, message, signature string) (bool, error)
 }
 
-
-func defaultWalletSignatureVerifier() WalletSignatureVerifier {
-	return web3.NewSignatureVerifier(zap.NewNop())
-}
-
-func defaultEIP712Verifier() *web3.EIP712Verifier {
-	return web3.NewEIP712Verifier(zap.NewNop())
-}
-
 // GenerateWalletChallenge creates and stores a one-time wallet login challenge.
 // Supports both EVM (hex addresses) and Solana (base58 addresses) chains.
-// signType controls the signing method: "personal_sign" (default) or "eip712".
-// Solana chains ignore signType and always use Ed25519 off-chain verification.
+// signType controls the signing method: "siwe" (default, EIP-4361), "personal_sign",
+// or "eip712". Solana chains ignore signType and always use Ed25519 off-chain verification.
+//
+// When possible, prefer "siwe" — it follows the EIP-4361 standard and provides better
+// wallet UX (structured parsing, human-readable domain, nonce).
 func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress string, chainID int64, signType ...string) (*stg.WalletChallenge, error) {
-	st := "personal_sign"
-	if len(signType) > 0 && signType[0] != "" {
-		st = signType[0]
-	}
 	var normalizedAddr string
 	if isSolanaChain(chainID) {
 		if !IsValidSolanaAddress(walletAddress) {
@@ -113,6 +98,12 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(s.challengeTTL)
+
+	st := "siwe"
+	if len(signType) > 0 && signType[0] != "" {
+		st = signType[0]
+	}
+
 	challenge := &stg.WalletChallenge{
 		ID:            generateID(),
 		WalletAddress: normalizedAddr,
@@ -122,27 +113,35 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 		IssuedAt:      now,
 		ExpiresAt:     expiresAt,
 	}
-	challenge.Message = fmt.Sprintf(
-		"Sign this message to authenticate with StreamGate.\nAddress: %s\nChain ID: %d\nNonce: %s\nIssued At: %s\nExpires At: %s",
-		challenge.WalletAddress,
-		challenge.ChainID,
-		challenge.Nonce,
-		challenge.IssuedAt.Format(time.RFC3339),
-		challenge.ExpiresAt.Format(time.RFC3339),
-	)
 
-	// SIWE (EIP-4361) standard message format
-	if st == "siwe" {
+	switch st {
+	case "siwe":
 		siweMsg := web3.NewSIWEMessage(
-			"streamgate.io",
+			s.siweDomain,
 			challenge.WalletAddress,
-			"https://streamgate.io/login",
+			s.siweURI,
 			challenge.ChainID,
 			challenge.Nonce,
 			challenge.IssuedAt,
 			web3.WithSIWEExpirationTime(challenge.ExpiresAt),
 		)
 		challenge.Message = web3.BuildSIWEMessage(siweMsg)
+	case "eip712":
+		typedData := s.buildEIP712Challenge(challenge)
+		encoded, err := json.Marshal(typedData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize EIP-712 typed data: %w", err)
+		}
+		challenge.Message = string(encoded)
+	default:
+		challenge.Message = fmt.Sprintf(
+			"Sign this message to authenticate with StreamGate.\nAddress: %s\nChain ID: %d\nNonce: %s\nIssued At: %s\nExpires At: %s",
+			challenge.WalletAddress,
+			challenge.ChainID,
+			challenge.Nonce,
+			challenge.IssuedAt.Format(time.RFC3339),
+			challenge.ExpiresAt.Format(time.RFC3339),
+		)
 	}
 
 	if err := s.challengeStore.SaveChallenge(ctx, challenge); err != nil {
@@ -157,6 +156,9 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string) (string, error) {
 	if challengeID == "" {
 		return "", ErrInvalidRequest
+	}
+	if _, err := uuid.Parse(challengeID); err != nil {
+		return "", fmt.Errorf("invalid challenge ID format: %w", ErrInvalidRequest)
 	}
 	if signature == "" {
 		return "", ErrInvalidRequest
@@ -198,15 +200,24 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 	var valid bool
 	if isSolanaChain(challenge.ChainID) {
 		verifier, ok := s.signatureVerifier.(ChainAwareSignatureVerifier)
-		if !ok {
+		if !ok || verifier == nil {
 			return "", ErrNotSupported
 		}
 		valid, err = verifier.VerifyOffchainMessage(ctx, normalizedAddress, challenge.Message, signature)
 	} else if challenge.SigningType == "eip712" {
-		// EIP-712 typed data verification: reconstruct the typed data from the challenge
-		typedData := s.buildEIP712Challenge(challenge)
-		valid, err = s.eip712Verifier.VerifyTypedData(normalizedAddress, typedData, signature)
+		if s.eip712Verifier == nil {
+			return "", ErrNotSupported
+		}
+		// EIP-712 typed data verification: parse the stored JSON message
+		var typedData web3.EIP712TypedData
+		if err := json.Unmarshal([]byte(challenge.Message), &typedData); err != nil {
+			return "", fmt.Errorf("failed to parse stored EIP-712 typed data: %w", err)
+		}
+		valid, err = s.eip712Verifier.VerifyTypedData(normalizedAddress, &typedData, signature)
 	} else {
+		if s.signatureVerifier == nil {
+			return "", ErrNotSupported
+		}
 		// Default: EIP-191 personal_sign
 		valid, err = s.signatureVerifier.VerifySignature(ctx, normalizedAddress, challenge.Message, signature)
 	}
@@ -262,8 +273,8 @@ func (s *AuthService) buildEIP712Challenge(challenge *stg.WalletChallenge) *web3
 			"nonce":     challenge.Nonce,
 			"issuedAt":  challenge.IssuedAt.Format(time.RFC3339),
 			"expiresAt": challenge.ExpiresAt.Format(time.RFC3339),
-			"domain":    "streamgate.io",
-			"uri":       "https://streamgate.io/login",
+			"domain":    s.siweDomain,
+			"uri":       s.siweURI,
 			"version":   "1",
 		},
 	}
@@ -314,11 +325,19 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	}
 
 	svcPlaybackTokenIssued.Inc()
-	return s.signToken(claims)
+	token, err := s.signToken(claims)
+	if err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", err
+	}
+	monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "success").Inc()
+	return token, nil
 }
 
-// ValidatePlaybackToken validates a playback token and ensures it matches the requested content.
-func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID string) (*Claims, error) {
+// ValidatePlaybackToken validates a playback token and ensures it matches the
+// requested content. If walletAddress is non-empty, it also verifies that the
+// token was issued to the same wallet, preventing token sharing between users.
+func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID string, walletAddress ...string) (*Claims, error) {
 	_, span := monitoring.StartOTelSpan(ctx, "auth.validate_playback_token",
 		attribute.String("content_id", contentID),
 	)
@@ -326,11 +345,18 @@ func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, co
 
 	claims, err := s.ParseToken(tokenString)
 	if err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
 		return nil, err
 	}
 	if claims.Subject != contentID {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
 		return nil, errors.New("playback token content mismatch")
 	}
+	if len(walletAddress) > 0 && walletAddress[0] != "" && claims.WalletAddress != walletAddress[0] {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		return nil, errors.New("playback token wallet mismatch")
+	}
+	monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "success").Inc()
 	return claims, nil
 }
 

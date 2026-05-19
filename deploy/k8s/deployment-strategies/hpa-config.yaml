@@ -1,11 +1,11 @@
 ---
 # Horizontal Pod Autoscaling Configuration for StreamGate
-# This file contains HPA policies for automatic scaling based on metrics
+# Merged CPU + request-based HPA to avoid competing scalers on the same Deployment.
 
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: streamgate-hpa-cpu
+  name: streamgate-hpa
   namespace: streamgate
   labels:
     app: streamgate
@@ -30,6 +30,13 @@ spec:
         target:
           type: Utilization
           averageUtilization: 75
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "1000"
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300
@@ -51,44 +58,6 @@ spec:
           value: 2
           periodSeconds: 30
       selectPolicy: Max
-
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: streamgate-hpa-requests
-  namespace: streamgate
-  labels:
-    app: streamgate
-    type: autoscaling
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: streamgate-blue
-  minReplicas: 3
-  maxReplicas: 10
-  metrics:
-    - type: Pods
-      pods:
-        metric:
-          name: http_requests_per_second
-        target:
-          type: AverageValue
-          averageValue: "1000"
-  behavior:
-    scaleDown:
-      stabilizationWindowSeconds: 300
-      policies:
-        - type: Percent
-          value: 50
-          periodSeconds: 60
-    scaleUp:
-      stabilizationWindowSeconds: 0
-      policies:
-        - type: Percent
-          value: 100
-          periodSeconds: 30
 
 ---
 apiVersion: autoscaling/v2

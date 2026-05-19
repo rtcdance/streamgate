@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"streamgate/pkg/cachetypes"
+	"streamgate/pkg/middleware"
 	"streamgate/pkg/monitoring"
 	"streamgate/pkg/web3"
 
@@ -95,7 +96,7 @@ func (s *NFTService) VerifyNFT(ctx context.Context, address, contractAddress, to
 	defer span.End()
 
 	if !common.IsHexAddress(address) {
-		return false, fmt.Errorf("invalid address: %s", address)
+		return false, fmt.Errorf("invalid address %s: %w", address, ErrInvalidAddress)
 	}
 	if !common.IsHexAddress(contractAddress) {
 		return false, fmt.Errorf("invalid contract address: %s", contractAddress)
@@ -298,6 +299,13 @@ func (s *NFTService) InvalidateOwnershipCache(ctx context.Context, contractAddre
 func (s *NFTService) RegisterEventHandler(listener *web3.EventListener) {
 	handler := NewNFTEventHandler(s, s.logger)
 	listener.On("Transfer", handler.HandleTransfer)
+	listener.On("TransferSingle", handler.HandleTransferSingle)
+}
+
+func (s *NFTService) RegisterEventHandlerWithCache(listener *web3.EventListener, cache middleware.NFTAccessCache, chainID int64) {
+	handler := NewNFTEventHandlerWithCache(s, cache, chainID, s.logger)
+	listener.On("Transfer", handler.HandleTransfer)
+	listener.On("TransferSingle", handler.HandleTransferSingle)
 }
 
 // SetLogger sets the logger for the NFT service.

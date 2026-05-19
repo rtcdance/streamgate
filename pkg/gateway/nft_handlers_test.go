@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"streamgate/pkg/middleware"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"streamgate/pkg/middleware"
 )
 
 // mockNFTOwnershipChecker implements middleware.NFTOwnershipChecker
@@ -35,18 +36,22 @@ func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int
 	return m.balance, nil
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
 	if m.err != nil {
 		return false, m.err
 	}
 	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
+func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error) {
 	if m.err != nil {
 		return false, m.err
 	}
 	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
+}
+
+func (m *mockNFTOwnershipChecker) GetNFTInfo(ctx context.Context, chainID int64, contractAddress, tokenID string) (*middleware.NFTMetadata, error) {
+	return nil, nil
 }
 
 // mockNFTAccessCache implements middleware.NFTAccessCache
@@ -56,6 +61,8 @@ func (m *mockNFTAccessCache) Get(key string) (middleware.NFTAccessEntry, bool) {
 	return middleware.NFTAccessEntry{}, false
 }
 func (m *mockNFTAccessCache) Set(key string, entry middleware.NFTAccessEntry) {}
+func (m *mockNFTAccessCache) Delete(key string)                               {}
+func (m *mockNFTAccessCache) DeleteByPrefix(prefix string)                    {}
 
 func setupNFTRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)

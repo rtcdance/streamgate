@@ -263,10 +263,10 @@ func handleChunkStatuses(uploadSvc *service.UploadService, log *zap.Logger) gin.
 		}
 
 		respondOK(c, gin.H{
-			"upload_id":        uploadID,
-			"total_chunks":     len(chunks),
-			"uploaded_chunks":  uploaded,
-			"chunks":           chunks,
+			"upload_id":       uploadID,
+			"total_chunks":    len(chunks),
+			"uploaded_chunks": uploaded,
+			"chunks":          chunks,
 		})
 	}
 }
@@ -499,6 +499,10 @@ func handleChunkedUploadComplete(uploadSvc *service.UploadService, log *zap.Logg
 		}
 
 		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
 
 		uploadInfo, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
 		if err != nil {
@@ -607,6 +611,10 @@ func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Lo
 		}
 
 		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
 		contentID, err := uploadSvc.CompleteUploadWithTx(c.Request.Context(), uploadID)
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete presigned upload", err.Error())
@@ -640,6 +648,10 @@ func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin
 		}
 
 		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
 
 		info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
 		if err != nil {
@@ -684,6 +696,10 @@ func handleUploadStatus(uploadSvc *service.UploadService, log *zap.Logger) gin.H
 		}
 
 		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
 		info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
 		if err != nil {
 			abortWithError(c, http.StatusNotFound, ErrNotFound, "upload not found")
@@ -775,6 +791,10 @@ func handleDownloadURL(uploadSvc *service.UploadService, log *zap.Logger) gin.Ha
 		}
 
 		uploadID := c.Param("id")
+		if _, ok := sanitizeObjectKey(uploadID); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
+			return
+		}
 		expiry := 1 * time.Hour
 		if v := c.Query("expiry_minutes"); v != "" {
 			if mins, err := strconv.Atoi(v); err == nil && mins > 0 && mins <= 60 {

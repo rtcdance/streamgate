@@ -66,6 +66,7 @@ type CircuitBreaker struct {
 	requestCount    int
 	halfOpenCount   int
 	failureWindow   []time.Time
+	requestWindow   []time.Time
 	lastFailureTime time.Time
 	lastStateChange time.Time
 	mu              sync.RWMutex
@@ -80,12 +81,13 @@ func NewCircuitBreaker(name string, config CircuitBreakerConfig, logger *zap.Log
 		config:          config,
 		state:           StateClosed,
 		failureWindow:   make([]time.Time, 0),
+		requestWindow:   make([]time.Time, 0),
 		lastStateChange: time.Now(),
 		logger:          logger,
 	}
 }
 
-func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
+func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) (retErr error) {
 	cb.mu.Lock()
 
 	if cb.state == StateOpen {
@@ -107,29 +109,32 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) error {
 
 	cb.mu.Unlock()
 
-	err := fn()
-
-	cb.mu.Lock()
-
-	if wasHalfOpen {
-		cb.halfOpenCount--
-	}
-
-	if err != nil {
-		cb.onFailure()
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("panic in circuit breaker '%s': %v", cb.name, r)
+		}
+		cb.mu.Lock()
+		if wasHalfOpen {
+			cb.halfOpenCount--
+		}
+		if retErr != nil {
+			cb.onFailure()
+		} else {
+			cb.onSuccess()
+		}
 		cb.mu.Unlock()
-		return err
-	}
+	}()
 
-	cb.onSuccess()
-	cb.mu.Unlock()
-	return nil
+	retErr = fn()
+	return
 }
 
 // onSuccess handles successful execution
 func (cb *CircuitBreaker) onSuccess() {
 	cb.failureCount = 0
 	cb.requestCount++
+	cb.requestWindow = append(cb.requestWindow, time.Now())
+	cb.cleanupWindows()
 
 	if cb.state == StateHalfOpen {
 		cb.successCount++
@@ -145,8 +150,9 @@ func (cb *CircuitBreaker) onFailure() {
 	cb.requestCount++
 	cb.lastFailureTime = time.Now()
 	cb.failureWindow = append(cb.failureWindow, time.Now())
+	cb.requestWindow = append(cb.requestWindow, time.Now())
 
-	cb.cleanupFailureWindow()
+	cb.cleanupWindows()
 
 	if cb.state == StateHalfOpen {
 		cb.setState(StateOpen)
@@ -163,23 +169,40 @@ func (cb *CircuitBreaker) onFailure() {
 	}
 }
 
-// cleanupFailureWindow removes old failures from the window
-func (cb *CircuitBreaker) cleanupFailureWindow() {
-	cutoff := time.Now().Add(-cb.config.WindowTime)
-	for i, t := range cb.failureWindow {
+func trimWindow(window *[]time.Time, cutoff time.Time) {
+	for i, t := range *window {
 		if t.After(cutoff) {
-			cb.failureWindow = cb.failureWindow[i:]
-			break
+			*window = (*window)[i:]
+			return
 		}
 	}
+	*window = (*window)[:0]
 }
 
-// calculateFailureRate calculates the failure rate in the current window
+func (cb *CircuitBreaker) cleanupWindows() {
+	cutoff := time.Now().Add(-cb.config.WindowTime)
+	trimWindow(&cb.failureWindow, cutoff)
+	trimWindow(&cb.requestWindow, cutoff)
+}
+
 func (cb *CircuitBreaker) calculateFailureRate() float64 {
-	if cb.requestCount == 0 {
+	cutoff := time.Now().Add(-cb.config.WindowTime)
+	failuresInWindow := 0
+	for _, t := range cb.failureWindow {
+		if t.After(cutoff) {
+			failuresInWindow++
+		}
+	}
+	requestsInWindow := 0
+	for _, t := range cb.requestWindow {
+		if t.After(cutoff) {
+			requestsInWindow++
+		}
+	}
+	if requestsInWindow == 0 {
 		return 0
 	}
-	return float64(cb.failureCount) / float64(cb.requestCount)
+	return float64(failuresInWindow) / float64(requestsInWindow)
 }
 
 // setState changes the circuit breaker state
@@ -198,6 +221,7 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 		cb.requestCount = 0
 		cb.halfOpenCount = 0
 		cb.failureWindow = make([]time.Time, 0)
+		cb.requestWindow = make([]time.Time, 0)
 	} else if newState == StateHalfOpen {
 		cb.successCount = 0
 		cb.halfOpenCount = 0
@@ -264,6 +288,27 @@ func (cb *CircuitBreaker) Reset() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	cb.setState(StateClosed)
+}
+
+func (cb *CircuitBreaker) Allow() bool {
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	if cb.state == StateOpen {
+		return time.Since(cb.lastFailureTime) >= cb.config.Timeout
+	}
+	return true
+}
+
+func (cb *CircuitBreaker) RecordSuccess() {
+	cb.mu.Lock()
+	cb.onSuccess()
+	cb.mu.Unlock()
+}
+
+func (cb *CircuitBreaker) RecordFailure() {
+	cb.mu.Lock()
+	cb.onFailure()
+	cb.mu.Unlock()
 }
 
 // IsOpen returns true if the circuit is open

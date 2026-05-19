@@ -6,11 +6,15 @@ import (
 	"io"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
@@ -25,7 +29,6 @@ import (
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/service"
-	"streamgate/pkg/web3"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
@@ -34,6 +37,7 @@ type GRPCServices struct {
 	AuthService    *service.AuthService
 	Web3Service    *service.Web3Service
 	NFTVerifier    middleware.NFTOwnershipChecker
+	StreamingSvc   *service.StreamingService
 	ContentService *service.ContentService
 	SegmentStorage service.SegmentStorage
 	UploadService  *service.UploadService
@@ -52,6 +56,7 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 
 	srv := grpc.NewServer(
 		grpc.MaxRecvMsgSize(100<<20),
+		grpc.MaxSendMsgSize(100<<20),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     5 * time.Minute,
 			MaxConnectionAge:      30 * time.Minute,
@@ -63,6 +68,7 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			grpcRecoveryInterceptor(log),
 			grpcLoggingInterceptor(log),
@@ -77,6 +83,12 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 
 	healthSvc := &healthGrpcServer{log: log, db: svcs.DB, cache: svcs.Cache}
 	servicev1.RegisterHealthServiceServer(srv, healthSvc)
+
+	// Register standard grpc.health.v1.Health for Kubernetes readiness probes.
+	// The standard health server serves based on internal health checks.
+	grpcHealthSvc := health.NewServer()
+	grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(srv, grpcHealthSvc)
 
 	if svcs.AuthService != nil && svcs.Web3Service != nil {
 		authSrv := &authGrpcServer{
@@ -107,10 +119,11 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 
 	if svcs.AuthService != nil && svcs.SegmentStorage != nil {
 		streamingSrv := &streamingGrpcServer{
-			authSvc:    svcs.AuthService,
-			nftVerifier: svcs.NFTVerifier,
-			segStore:   svcs.SegmentStorage,
-			log:        log,
+			authSvc:      svcs.AuthService,
+			nftVerifier:  svcs.NFTVerifier,
+			streamingSvc: svcs.StreamingSvc,
+			segStore:     svcs.SegmentStorage,
+			log:          log,
 		}
 		streamingv1.RegisterStreamingServiceServer(srv, streamingSrv)
 	}
@@ -163,18 +176,37 @@ func (s *healthGrpcServer) Watch(req *servicev1.HealthCheckRequest, stream servi
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	ctx := stream.Context()
 	for {
 		select {
-		case <-stream.Context().Done():
-			return stream.Context().Err()
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-ticker.C:
+			status := s.servingStatus()
 			if err := stream.Send(&servicev1.HealthCheckResponse{
-				Status: servicev1.HealthCheckResponse_SERVING,
+				Status: status,
 			}); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func (s *healthGrpcServer) servingStatus() servicev1.HealthCheckResponse_ServingStatus {
+	checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	if s.db != nil {
+		if err := s.db.Ping(checkCtx); err != nil {
+			return servicev1.HealthCheckResponse_NOT_SERVING
+		}
+	}
+	if s.cache != nil {
+		if err := s.cache.Ping(checkCtx); err != nil {
+			return servicev1.HealthCheckResponse_NOT_SERVING
+		}
+	}
+	return servicev1.HealthCheckResponse_SERVING
 }
 
 // ============================== Auth Service ==============================
@@ -282,12 +314,8 @@ func (s *nftGrpcServer) GetNFTBalance(ctx context.Context, req *nftv1.GetNFTBala
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get nft balance")
 	}
-	balInt64 := balance.Int64()
-	if balInt64 > math.MaxInt32 {
-		balInt64 = math.MaxInt32
-	}
 	return &nftv1.GetNFTBalanceResponse{
-		Balance: int32(balInt64),
+		Balance: balance.Int64(),
 	}, nil
 }
 
@@ -322,8 +350,15 @@ func validatePagination(page, pageSize int) (p, ps int) {
 		pageSize = 100
 	}
 	p = page
-		ps = pageSize
-		return
+	ps = pageSize
+	return
+}
+
+func validateID(id string) error {
+	if strings.ContainsAny(id, "./\\") {
+		return status.Error(codes.InvalidArgument, "id contains invalid characters")
+	}
+	return nil
 }
 
 func (s *nftGrpcServer) ListUserNFTs(ctx context.Context, req *nftv1.ListUserNFTsRequest) (*nftv1.ListUserNFTsResponse, error) {
@@ -343,6 +378,11 @@ func (s *nftGrpcServer) ListUserNFTs(ctx context.Context, req *nftv1.ListUserNFT
 		if indexer != nil {
 			events := indexer.GetEventsByType("Transfer")
 			seen := make(map[string]bool)
+			type nftCandidate struct {
+				contract string
+				tokenID  string
+			}
+			var candidates []nftCandidate
 			for _, evt := range events {
 				if evt.Decoded == nil {
 					continue
@@ -366,22 +406,47 @@ func (s *nftGrpcServer) ListUserNFTs(ctx context.Context, req *nftv1.ListUserNFT
 					continue
 				}
 				seen[key] = true
+				candidates = append(candidates, nftCandidate{contract: contract, tokenID: tokenID})
+			}
 
-				owns, err := s.nftVerifier.VerifyNFTOwnership(ctx, req.ChainId, contract, tokenID, wallet)
-				if err != nil || !owns {
-					continue
+			type nftResult struct {
+				item *nftv1.NFTItem
+				ok   bool
+			}
+			resultCh := make(chan nftResult, len(candidates))
+			sem := make(chan struct{}, 5)
+			var wg sync.WaitGroup
+			for _, c := range candidates {
+				wg.Add(1)
+				sem <- struct{}{}
+				go func(contract, tokenID string) {
+					defer wg.Done()
+					defer func() { <-sem }()
+					owns, err := s.nftVerifier.VerifyNFTOwnership(ctx, req.ChainId, contract, tokenID, wallet)
+					if err != nil || !owns {
+						resultCh <- nftResult{ok: false}
+						return
+					}
+					item := &nftv1.NFTItem{
+						ContractAddress: contract,
+						TokenId:         tokenID,
+					}
+					nftInfo, err := s.web3Svc.GetNFT(ctx, req.ChainId, contract, tokenID)
+					if err == nil && nftInfo != nil {
+						item.Name = nftInfo.Name
+						item.Image = nftInfo.URI
+					}
+					resultCh <- nftResult{item: item, ok: true}
+				}(c.contract, c.tokenID)
+			}
+			go func() {
+				wg.Wait()
+				close(resultCh)
+			}()
+			for r := range resultCh {
+				if r.ok && r.item != nil {
+					items = append(items, r.item)
 				}
-
-				item := &nftv1.NFTItem{
-					ContractAddress: contract,
-					TokenId:         tokenID,
-				}
-				nftInfo, err := s.web3Svc.GetNFT(ctx, req.ChainId, contract, tokenID)
-				if err == nil && nftInfo != nil {
-					item.Name = nftInfo.Name
-					item.Image = nftInfo.URI
-				}
-				items = append(items, item)
 			}
 		}
 	}
@@ -423,16 +488,7 @@ func (s *nftGrpcServer) GetContractInfo(ctx context.Context, req *nftv1.GetContr
 
 	contractType := "unknown"
 	if s.nftVerifier != nil {
-		client, err := s.web3Svc.GetMultiChainManager().GetClient(req.ChainId)
-		if err == nil {
-			ts := web3.DetectTokenStandard(ctx, client.GetEthClient(), req.ContractAddress, s.log)
-			switch ts {
-			case web3.TokenStandardERC721:
-				contractType = "ERC-721"
-			case web3.TokenStandardERC1155:
-				contractType = "ERC-1155"
-			}
-		}
+		contractType = s.web3Svc.DetectContractType(ctx, req.ChainId, req.ContractAddress)
 	}
 
 	chainName := ""
@@ -472,6 +528,9 @@ func (s *contentGrpcServer) GetContent(ctx context.Context, req *contentv1.GetCo
 	if req.ContentId == "" {
 		return nil, status.Error(codes.InvalidArgument, "content_id is required")
 	}
+	if err := validateID(req.ContentId); err != nil {
+		return nil, err
+	}
 	svcContent, err := s.contentSvc.GetContent(ctx, req.ContentId)
 	if err != nil || svcContent == nil {
 		return nil, status.Error(codes.NotFound, "content not found")
@@ -499,6 +558,9 @@ func (s *contentGrpcServer) GetTranscodeStatus(ctx context.Context, req *content
 	}
 	if req.ContentId == "" {
 		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+	if err := validateID(req.ContentId); err != nil {
+		return nil, err
 	}
 	task, err := s.transcodeSvc.GetTranscodingStatus(ctx, req.ContentId)
 	if err != nil || task == nil {
@@ -559,6 +621,9 @@ func (s *contentGrpcServer) DeleteContent(ctx context.Context, req *contentv1.De
 	if req.ContentId == "" {
 		return nil, status.Error(codes.InvalidArgument, "content_id is required")
 	}
+	if err := validateID(req.ContentId); err != nil {
+		return nil, err
+	}
 	wallet := grpcWalletFromContext(ctx)
 	if wallet == "" {
 		return nil, status.Error(codes.Unauthenticated, "wallet address required")
@@ -582,10 +647,11 @@ func (s *contentGrpcServer) DeleteContent(ctx context.Context, req *contentv1.De
 
 type streamingGrpcServer struct {
 	streamingv1.UnimplementedStreamingServiceServer
-	authSvc    *service.AuthService
-	nftVerifier middleware.NFTOwnershipChecker
-	segStore   service.SegmentStorage
-	log        *zap.Logger
+	authSvc      *service.AuthService
+	nftVerifier  middleware.NFTOwnershipChecker
+	streamingSvc *service.StreamingService
+	segStore     service.SegmentStorage
+	log          *zap.Logger
 }
 
 func (s *streamingGrpcServer) GetStreamURL(ctx context.Context, req *streamingv1.GetStreamURLRequest) (*streamingv1.GetStreamURLResponse, error) {
@@ -600,6 +666,9 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 	}
 	if req.ContentId == "" {
 		return nil, status.Error(codes.InvalidArgument, "content_id is required")
+	}
+	if err := validateID(req.ContentId); err != nil {
+		return nil, err
 	}
 
 	var contract, tokenID string
@@ -618,18 +687,22 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		}
 	}
 
-	if s.nftVerifier != nil && contract != "" {
-		owned, err := s.nftVerifier.VerifyNFTOwnership(ctx, chainID, contract, tokenID, wallet)
-		if err != nil {
-			s.log.Warn("NFT ownership verification failed",
-				zap.String("wallet", wallet),
-				zap.String("contract", contract),
-				zap.Error(err))
-			return nil, status.Error(codes.PermissionDenied, "NFT ownership verification failed")
-		}
-		if !owned {
-			return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
-		}
+	if contract == "" {
+		return nil, status.Error(codes.PermissionDenied, "NFT contract address required; provide x-nft-contract metadata header")
+	}
+	if s.nftVerifier == nil {
+		return nil, status.Error(codes.Internal, "NFT verification service unavailable; access denied for safety")
+	}
+	owned, err := s.nftVerifier.VerifyNFTOwnership(ctx, chainID, contract, tokenID, wallet)
+	if err != nil {
+		s.log.Warn("NFT ownership verification failed",
+			zap.String("wallet", wallet),
+			zap.String("contract", contract),
+			zap.Error(err))
+		return nil, status.Error(codes.PermissionDenied, "NFT ownership verification failed")
+	}
+	if !owned {
+		return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
 	}
 
 	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute)
@@ -667,37 +740,19 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 
 	var manifest string
 	segments := make([]*streamingv1.SegmentInfo, 0)
-	if len(qualitySegments) == 1 {
-		for q, segs := range qualitySegments {
-			manifest = buildSimplePlaylist(req.ContentId, segs, playbackToken)
-			for _, seg := range segs {
-				name := seg
-				if idx := strings.LastIndex(seg, "/"); idx >= 0 {
-					name = seg[idx+1:]
-				}
-				segments = append(segments, &streamingv1.SegmentInfo{
-					SegmentId: name,
-					Quality:   q,
-					Duration:  4,
-					Url:       fmt.Sprintf("/api/v1/streaming/%s/segment/%s?playback_token=%s", req.ContentId, name, playbackToken),
-				})
+	manifest, _ = s.streamingSvc.GenerateHLSPlaylist(req.ContentId, qualitySegments, playbackToken)
+	for q, segs := range qualitySegments {
+		for _, seg := range segs {
+			name := seg
+			if idx := strings.LastIndex(seg, "/"); idx >= 0 {
+				name = seg[idx+1:]
 			}
-		}
-	} else {
-		manifest = buildMasterPlaylist(req.ContentId, qualitySegments, playbackToken)
-		for q, segs := range qualitySegments {
-			for _, seg := range segs {
-				name := seg
-				if idx := strings.LastIndex(seg, "/"); idx >= 0 {
-					name = seg[idx+1:]
-				}
-				segments = append(segments, &streamingv1.SegmentInfo{
-					SegmentId: name,
-					Quality:   q,
-					Duration:  4,
-					Url:       fmt.Sprintf("/api/v1/streaming/%s/segment/%s?playback_token=%s", req.ContentId, name, playbackToken),
-				})
-			}
+			segments = append(segments, &streamingv1.SegmentInfo{
+				SegmentId: name,
+				Quality:   q,
+				Duration:  4,
+				Url:       fmt.Sprintf("/api/v1/streaming/%s/segment/%s?playback_token=%s", req.ContentId, name, playbackToken),
+			})
 		}
 	}
 
@@ -723,6 +778,9 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 
 	if strings.Contains(req.SegmentId, "..") || strings.Contains(req.SegmentId, "/") || strings.Contains(req.SegmentId, "\\") {
 		return nil, status.Error(codes.InvalidArgument, "invalid segment id")
+	}
+	if err := validateID(req.ContentId); err != nil {
+		return nil, err
 	}
 
 	objKey := fmt.Sprintf("streams/%s/%s", req.ContentId, req.SegmentId)
@@ -801,7 +859,13 @@ func (s *uploadGrpcServer) InitUpload(ctx context.Context, req *uploadv1.InitUpl
 }
 
 func (s *uploadGrpcServer) UploadPart(stream uploadv1.UploadService_UploadPartServer) error {
+	wallet := grpcWalletFromContext(stream.Context())
+	if wallet == "" {
+		return status.Error(codes.Unauthenticated, "wallet address required")
+	}
+
 	var uploadID string
+	ownershipVerified := false
 	msgCount := 0
 	const maxMessages = 10001
 	for {
@@ -824,6 +888,16 @@ func (s *uploadGrpcServer) UploadPart(stream uploadv1.UploadService_UploadPartSe
 		}
 		if req.PartNumber < 1 {
 			return status.Error(codes.InvalidArgument, "part_number must be >= 1")
+		}
+		if !ownershipVerified && uploadID != "" {
+			info, infoErr := s.uploadSvc.GetUploadStatus(stream.Context(), uploadID)
+			if infoErr != nil {
+				return status.Error(codes.NotFound, "upload not found")
+			}
+			if !strings.EqualFold(info.OwnerID, wallet) {
+				return status.Error(codes.PermissionDenied, "not authorized to upload to this resource")
+			}
+			ownershipVerified = true
 		}
 		if err := s.uploadSvc.UploadChunk(stream.Context(), req.UploadId, int(req.PartNumber)-1, req.Data, ""); err != nil {
 			return status.Error(codes.Internal, "upload chunk failed")

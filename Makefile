@@ -343,6 +343,12 @@ k8s-deploy:
 	kubectl apply -k deploy/k8s/
 	@echo "✓ Deployment complete"
 
+# Deploy local secrets with envsubst (template → literal substitution)
+k8s-local-secret:
+	@echo "Applying local secrets with envsubst..."
+	@envsubst < deploy/k8s/config/local-secret.yaml | kubectl apply -f -
+	@echo "✓ Local secrets applied"
+
 # Check Kubernetes status
 k8s-status:
 	@echo "Kubernetes status:"
