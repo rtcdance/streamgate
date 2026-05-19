@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -138,11 +139,11 @@ func TestEventIndexer_WithEventStore(t *testing.T) {
 	indexer.logger = zap.NewNop()
 
 	// First add should succeed
-	indexer.addEvent(event)
+	indexer.addEvent(context.Background(), event)
 	assert.Len(t, indexer.events, 1)
 
 	// Second add should be deduped
-	indexer.addEvent(event)
+	indexer.addEvent(context.Background(), event)
 	assert.Len(t, indexer.events, 1)
 }
 
