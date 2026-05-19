@@ -1,16 +1,31 @@
-# StreamGate - NFT-Gated 视频分发平台
+# StreamGate — Token-Gated Video Streaming for Web3
 
-> 结合传统高并发架构 + 区块链权限控制的 Web3 内容分发服务
+> **Token-gated video delivery.** Users prove NFT ownership to watch — no password, no piracy, no middleware.
+>
+> English: [Overview](#overview) · [Quick Start](#quick-start) · [API Docs](docs/api/API_DOCUMENTATION.md)
+>
+> 中文: [一句话介绍](#-一句话介绍) · [快速开始](#quick-start)
 
 [![Go Version](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](Dockerfile)
+[![OpenAPI](https://img.shields.io/badge/API-OpenAPI_3.0-6BA539)](docs/api/openapi.yaml)
 
 ---
 
-> 🚀 **一分钟体验**: `make demo` — 自动启动基础设施、构建、运行，直接可测 API
+> 🚀 **One-command demo**: `make demo` — starts infra, builds, runs, ready to test in 60 seconds
 
 ---
+
+## 💡 The Problem
+
+Content creators lose revenue to piracy. Access control is either:
+- **Passwords** (shared, stolen, phished)
+- **DRM** (proprietary, requires licensing fees, locked to platforms)
+- **Manual whitelists** (doesn't scale, no transparency)
+
+StreamGate replaces all three with **on-chain NFT ownership**: hold the token, watch the video. No shared passwords. No DRM licensing. Programmable, transparent, permissionless.
 
 ## 🎯 一句话介绍
 
