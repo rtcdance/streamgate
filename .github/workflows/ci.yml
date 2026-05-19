@@ -31,6 +31,9 @@ jobs:
           version: v2.8
           args: --timeout=5m
 
+      - name: go vet
+        run: go vet ./...
+
   test-go:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -123,13 +126,25 @@ jobs:
 
       - run: go mod download
 
-      - name: Build all binaries
-        run: make build-all
+      - name: Build all binaries with version
+        run: make build-all VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "ci-$(git rev-parse --short HEAD)")
 
       - name: Check binary sizes
         run: |
           echo "=== Binary Sizes ==="
           ls -lh build/ 2>/dev/null || ls -lh bin/ 2>/dev/null
+
+  vet:
+    name: Go Vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: go vet
+        run: go vet ./...
 
   security:
     name: Security Scan
