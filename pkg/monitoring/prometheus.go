@@ -55,6 +55,29 @@ var (
 		},
 		[]string{"operation", "rpc_provider"},
 	)
+	// AuthAttemptsTotal tracks wallet login attempts by result (success/failure).
+	AuthAttemptsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_auth_attempts_total",
+			Help: "Total wallet login attempts",
+		},
+		[]string{"result", "method"}, // result: success, failure; method: eip191, eip712, siwe, solana
+	)
+	// TokenBlacklistHitsTotal tracks token revocation checks that found a match.
+	TokenBlacklistHitsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "streamgate_token_blacklist_hits_total",
+			Help: "Total number of revoked token detections",
+		},
+	)
+	// NFTVerifyDuration tracks NFT verification latency in seconds.
+	NFTVerifyDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_nft_verify_duration_seconds",
+			Help:    "NFT verification latency in seconds",
+			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+		},
+	)
 )
 
 func init() {
@@ -73,6 +96,9 @@ func init() {
 	register(HealthCheckTotal)
 	register(RPCFailoverTotal)
 	register(RPCLatencySeconds)
+	register(AuthAttemptsTotal)
+	register(TokenBlacklistHitsTotal)
+	register(NFTVerifyDuration)
 }
 
 // RPCProviderFromURL extracts a stable provider identifier from an RPC URL.
