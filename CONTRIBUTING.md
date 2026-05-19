@@ -2,9 +2,9 @@
 
 ## Getting Started
 
-1. Read `CLAUDE.md` for project conventions and architecture
-2. Read `AGENTS.md` for package-level guidance
-3. Check `DEPENDENCY_APPROVAL.md` before adding new dependencies
+1. Read `README.md` for project overview and architecture
+2. Review the [OpenAPI spec](docs/api/openapi.yaml) for API contracts
+3. Check issue tracker for active work items
 
 ## Development Workflow
 
