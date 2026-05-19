@@ -476,12 +476,40 @@ make fmt                                   # Format code
 make coverage                              # Generate coverage report
 ```
 
+### 🧭 Quick Start for Learners
+
+Recommended reading order for Web3+Go developers:
+
+```
+Step 1: examples/signature-verify-demo/      — EIP-191 签名最小示例
+Step 2: examples/nft-verify-demo/            — NFT 验证最小示例
+Step 3: examples/streaming-demo/             — HLS 流媒体概念演示
+Step 4: examples/challenges/01_eip191_prefix/— 动手改 bug 学习
+Step 5: docs/learning-roadmap.md             — 2-3 周系统学习路线
+```
+
+### Web3 Glossary
+
+| Term | Meaning | In StreamGate |
+|------|---------|---------------|
+| **EIP-191** | Personal sign: `\x19Ethereum Signed Message:\n` prefix | `pkg/web3/signature.go` |
+| **EIP-712** | Typed structured data signing | `pkg/web3/eip712.go` |
+| **EIP-1271** | Smart contract wallet signature validation | `pkg/web3/eip1271.go` |
+| **EIP-4361 (SIWE)** | Sign-In with Ethereum, standardized login | `pkg/web3/siwe.go` |
+| **ERC-721** | Non-fungible token (NFT) standard | `pkg/web3/nft.go` |
+| **ERC-1155** | Multi-token standard (fungible + NFT) | `pkg/web3/nft.go` |
+| **ERC-165** | Interface detection (`supportsInterface`) | `pkg/web3/nft.go` |
+| **HLS** | HTTP Live Streaming: `.m3u8` + `.ts` segments | `pkg/service/streaming.go` |
+| **DASH** | Dynamic Adaptive Streaming over HTTP | `pkg/service/streaming.go` |
+| **HS256** | HMAC-SHA256 JWT signing (symmetric) | `pkg/service/auth.go` |
+| **SIWE** | Sign-In with Ethereum = EIP-4361 | `pkg/web3/siwe.go` |
+
 ### Beginner Guides
 
-- [Web3 Development Environment Setup](docs/web3-setup.md) - Configure Web3 development environment from scratch
-- [Learning Roadmap](docs/learning-roadmap.md) - 2-3 week learning plan
-- [Architecture Guide](docs/ARCHITECTURE_GUIDE.md) - Architecture review, 4-week sprint, dual-mode deployment ⭐
-- [Frequently Asked Questions](docs/web3-faq.md) - 23 common questions
+- [Learning Roadmap](docs/learning-roadmap.md) ✅ — 2-3 week learning plan
+- [Web3 Development Environment Setup](docs/web3-setup.md) 🚧 — Coming soon
+- [Architecture Guide](docs/ARCHITECTURE_GUIDE.md) 🚧 — Coming soon
+- [Frequently Asked Questions](docs/web3-faq.md) 🚧 — Coming soon
 
 ### Development Guides
 
