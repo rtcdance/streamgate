@@ -8,10 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"github.com/golang-jwt/jwt/v4"
+	"go.uber.org/zap"
 )
 
 // StreamingServer handles video streaming
@@ -87,6 +88,8 @@ func (s *StreamingServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", handler.HealthHandler)
+	mux.HandleFunc("/health/live", handler.HealthHandler)
+	mux.HandleFunc("/health/ready", handler.ReadyHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
 	mux.HandleFunc("/api/v1/stream/hls", s.requireAuth(handler.GetHLSPlaylistHandler))

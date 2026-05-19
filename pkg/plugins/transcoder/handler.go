@@ -163,7 +163,6 @@ func (h *TranscoderHandler) GetTaskStatusHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-
 	taskID := resolveTaskID(r, "/api/v1/transcode/status/")
 	if taskID == "" {
 		h.metricsCollector.IncrementCounter("get_task_status_missing_id", map[string]string{})
@@ -198,7 +197,6 @@ func (h *TranscoderHandler) CancelTaskHandler(w http.ResponseWriter, r *http.Req
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-
 
 	taskID := resolveTaskID(r, "/api/v1/transcode/cancel/")
 	if taskID == "" {
@@ -235,7 +233,6 @@ func (h *TranscoderHandler) ListTasksHandler(w http.ResponseWriter, r *http.Requ
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-
 
 	h.logger.Info("Listing transcoding tasks")
 
@@ -298,7 +295,6 @@ func (h *TranscoderHandler) GetMetricsHandler(w http.ResponseWriter, r *http.Req
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 		return
 	}
-
 
 	metrics := h.plugin.GetMetrics()
 

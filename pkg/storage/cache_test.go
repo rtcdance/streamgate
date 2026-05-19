@@ -295,7 +295,9 @@ func TestCacheStorage_LRUEviction(t *testing.T) {
 	cs := NewCacheStorage(3)
 
 	_ = cs.Set("key1", "value1")
+	time.Sleep(time.Millisecond)
 	_ = cs.Set("key2", "value2")
+	time.Sleep(time.Millisecond)
 	_ = cs.Set("key3", "value3")
 	assert.Equal(t, 3, cs.Size())
 

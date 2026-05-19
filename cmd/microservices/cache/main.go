@@ -15,12 +15,14 @@ import (
 	"streamgate/pkg/plugins/cache"
 )
 
+var Version = "0.0.0-dev"
+
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-cache")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate Cache Service...")
+	log.Info("Starting StreamGate Cache Service...", zap.String("version", Version))
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
@@ -28,9 +30,15 @@ func main() {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
+	// Inject build-time version into config for Consul registration etc.
+	cfg.Version = Version
+
 	// Force microservice mode
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "cache"
+	if err := cfg.ValidateProduction(log); err != nil {
+		log.Fatal("Production config validation failed", zap.Error(err))
+	}
 	log.Info("Configuration loaded",
 		zap.String("mode", cfg.Mode),
 		zap.String("service", cfg.ServiceName),

@@ -15,12 +15,14 @@ import (
 	"streamgate/pkg/plugins/transcoder"
 )
 
+var Version = "0.0.0-dev"
+
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-transcoder")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate Transcoder Service...")
+	log.Info("Starting StreamGate Transcoder Service...", zap.String("version", Version))
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
@@ -28,9 +30,15 @@ func main() {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
+	// Inject build-time version into config for Consul registration etc.
+	cfg.Version = Version
+
 	// Force microservice mode
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "transcoder"
+	if err := cfg.ValidateProduction(log); err != nil {
+		log.Fatal("Production config validation failed", zap.Error(err))
+	}
 	log.Info("Configuration loaded",
 		zap.String("mode", cfg.Mode),
 		zap.String("service", cfg.ServiceName),
@@ -65,7 +73,7 @@ func main() {
 	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
 
 	// Graceful shutdown with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := kernel.Shutdown(shutdownCtx); err != nil {

@@ -7,9 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
 
 // WalletSignatureVerifier verifies EVM/Solana wallet signatures.
@@ -56,6 +57,8 @@ func (s *AuthServer) Start(ctx context.Context) error {
 
 	// Health endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
+	mux.HandleFunc("/health/live", handler.HealthHandler)
+	mux.HandleFunc("/health/ready", handler.ReadyHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
 	// Auth endpoints

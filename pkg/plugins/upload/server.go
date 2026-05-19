@@ -7,27 +7,27 @@ import (
 	"os"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/plugins/transcoder"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
+
+	"go.uber.org/zap"
 )
 
 type UploadServer struct {
-	config        *config.Config
-	logger        *zap.Logger
-	kernel        *core.Microkernel
-	server        *http.Server
-	svc           *service.UploadService
+	config         *config.Config
+	logger         *zap.Logger
+	kernel         *core.Microkernel
+	server         *http.Server
+	svc            *service.UploadService
 	transcodingSvc *service.TranscodingService
 }
 
 func NewUploadServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microkernel) (*UploadServer, error) {
 	pg := storage.NewPostgresDB()
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database, cfg.Database.SSLMode)
+	dsn := cfg.Database.GetDSN()
 	poolCfg := storage.PoolConfigFromValues(cfg.Database.MaxConns, cfg.Database.MaxIdleConns, 0, 0)
 	if cfg.Database.ConnMaxLifetime != "" {
 		if d, err := time.ParseDuration(cfg.Database.ConnMaxLifetime); err == nil {
@@ -153,6 +153,9 @@ func (s *UploadServer) Start(ctx context.Context) error {
 }
 
 func (s *UploadServer) Stop(ctx context.Context) error {
+	if s.svc != nil {
+		s.svc.Close()
+	}
 	if s.transcodingSvc != nil {
 		s.transcodingSvc.StopWorker()
 	}

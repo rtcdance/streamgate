@@ -7,9 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
 
 // ErrNotFound is returned when a cache key does not exist.
@@ -45,8 +46,9 @@ func (s *CacheServer) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
-	// Health endpoints
 	mux.HandleFunc("/health", handler.HealthHandler)
+	mux.HandleFunc("/health/live", handler.HealthHandler)
+	mux.HandleFunc("/health/ready", handler.ReadyHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
 	// Cache endpoints

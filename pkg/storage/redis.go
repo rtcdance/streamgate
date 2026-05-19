@@ -8,27 +8,36 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+
+	"streamgate/pkg/middleware"
 )
 
-// RedisCache handles Redis cache
+const (
+	redisMaxRetries   = 3
+	redisRetryBackoff = time.Second
+)
+
 type RedisCache struct {
 	client *redis.Client
+	cb     *middleware.CircuitBreaker
 }
 
 // RedisConfig holds Redis connection configuration
 type RedisConfig struct {
-	Addr     string
-	Password string
-	DB       int
+	Addr       string
+	Password   string
+	DB         int
 	TLSEnabled bool
 }
 
-// NewRedisCache creates a new Redis cache instance
 func NewRedisCache() *RedisCache {
 	return &RedisCache{}
 }
 
-// Connect connects to Redis using a RedisConfig for full configuration support.
+func (rc *RedisCache) SetCircuitBreaker(cb *middleware.CircuitBreaker) {
+	rc.cb = cb
+}
+
 func (rc *RedisCache) Connect(cfg RedisConfig) error {
 	opts := &redis.Options{
 		Addr:               cfg.Addr,
@@ -49,23 +58,38 @@ func (rc *RedisCache) Connect(cfg RedisConfig) error {
 			MinVersion: tls.VersionTLS12,
 		}
 	}
-	rc.client = redis.NewClient(opts)
 
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	var lastErr error
+	for attempt := 0; attempt <= redisMaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(redisRetryBackoff * time.Duration(1<<(attempt-1)))
+		}
 
-	if err := rc.client.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("failed to connect to Redis: %w", err)
+		client := redis.NewClient(opts)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := client.Ping(ctx).Err()
+		cancel()
+
+		if err != nil {
+			_ = client.Close()
+			lastErr = fmt.Errorf("failed to connect to Redis: %w", err)
+			continue
+		}
+
+		rc.client = client
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("redis connect failed after %d attempts: %w", redisMaxRetries+1, lastErr)
 }
 
-// Get gets value from Redis. Derives a 3s timeout from ctx.
 func (rc *RedisCache) Get(ctx context.Context, key string) (string, error) {
 	if rc.client == nil {
 		return "", fmt.Errorf("redis not connected")
+	}
+	if rc.cb != nil && !rc.cb.Allow() {
+		return "", fmt.Errorf("circuit breaker is open for Redis")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -73,55 +97,81 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (string, error) {
 
 	val, err := rc.client.Get(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
+		if rc.cb != nil {
+			rc.cb.RecordSuccess()
+		}
 		return "", fmt.Errorf("key not found: %s", key)
 	} else if err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
 	return val, nil
 }
 
-// Set sets value in Redis
 func (rc *RedisCache) Set(ctx context.Context, key, value string) error {
 	return rc.SetWithExpiration(ctx, key, value, 0)
 }
 
-// SetWithExpiration sets value in Redis with expiration. Derives a 3s timeout from ctx.
 func (rc *RedisCache) SetWithExpiration(ctx context.Context, key, value string, expiration time.Duration) error {
 	if rc.client == nil {
 		return fmt.Errorf("redis not connected")
+	}
+	if rc.cb != nil && !rc.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Set(ctx, key, value, expiration).Err(); err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
 		return fmt.Errorf("failed to set key: %w", err)
 	}
 
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
 	return nil
 }
 
-// Delete deletes a key from Redis. Derives a 3s timeout from ctx.
 func (rc *RedisCache) Delete(ctx context.Context, key string) error {
 	if rc.client == nil {
 		return fmt.Errorf("redis not connected")
+	}
+	if rc.cb != nil && !rc.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Del(ctx, key).Err(); err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
 
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
 	return nil
 }
 
-// Exists checks if a key exists in Redis. Derives a 3s timeout from ctx.
 func (rc *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 	if rc.client == nil {
 		return false, fmt.Errorf("redis not connected")
+	}
+	if rc.cb != nil && !rc.cb.Allow() {
+		return false, fmt.Errorf("circuit breaker is open for Redis")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -129,34 +179,62 @@ func (rc *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 
 	count, err := rc.client.Exists(ctx, key).Result()
 	if err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
 		return false, fmt.Errorf("failed to check key existence: %w", err)
 	}
 
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
 	return count > 0, nil
 }
 
-// Expire sets expiration on a key. Derives a 3s timeout from ctx.
 func (rc *RedisCache) Expire(ctx context.Context, key string, expiration time.Duration) error {
 	if rc.client == nil {
 		return fmt.Errorf("redis not connected")
+	}
+	if rc.cb != nil && !rc.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Expire(ctx, key, expiration).Err(); err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
 		return fmt.Errorf("failed to set expiration: %w", err)
 	}
 
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
 	return nil
 }
 
-// Close closes Redis connection
 func (rc *RedisCache) Close() error {
 	if rc.client == nil {
 		return nil
 	}
-	return rc.client.Close()
+	if rc.cb != nil && !rc.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open for Redis")
+	}
+
+	err := rc.client.Close()
+	if err != nil {
+		if rc.cb != nil {
+			rc.cb.RecordFailure()
+		}
+		return err
+	}
+
+	if rc.cb != nil {
+		rc.cb.RecordSuccess()
+	}
+	return nil
 }
 
 // Ping checks if Redis is alive. Derives a 3s timeout from ctx.

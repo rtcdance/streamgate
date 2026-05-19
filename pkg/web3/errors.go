@@ -85,3 +85,17 @@ func (e *DualError) Error() string {
 }
 
 func (e *DualError) Unwrap() []error { return []error{e.Primary, e.Secondary} }
+
+func (e *DualError) IsRetryable() bool {
+	var r Retryable
+	if errors.As(e.Primary, &r) && !r.IsRetryable() {
+		return false
+	}
+	if errors.As(e.Secondary, &r) && !r.IsRetryable() {
+		return false
+	}
+	if errors.As(e.Primary, &r) || errors.As(e.Secondary, &r) {
+		return true
+	}
+	return false
+}

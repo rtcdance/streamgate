@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -28,17 +29,103 @@ type segmentIndexEntry struct {
 	expiresAt time.Time
 }
 
-var (
-	manifestCache       = make(map[string]manifestCacheEntry)
-	manifestCacheMu     sync.RWMutex
-	segmentIndexCache   = make(map[string]segmentIndexEntry)
-	segmentIndexCacheMu sync.RWMutex
-)
-
 const (
 	manifestCacheTTL      = 30 * time.Second
 	segmentIndexCacheTTL  = 2 * time.Minute
+	maxManifestCacheSize  = 10000
+	maxSegmentIndexSize   = 10000
 )
+
+type StreamingCache struct {
+	manifests    map[string]manifestCacheEntry
+	manifestsMu  sync.RWMutex
+	segmentIdx   map[string]segmentIndexEntry
+	segmentIdxMu sync.RWMutex
+}
+
+func NewStreamingCache() *StreamingCache {
+	return &StreamingCache{
+		manifests:  make(map[string]manifestCacheEntry),
+		segmentIdx: make(map[string]segmentIndexEntry),
+	}
+}
+
+func (sc *StreamingCache) GetManifest(contentID string) (string, bool) {
+	sc.manifestsMu.RLock()
+	defer sc.manifestsMu.RUnlock()
+	if entry, ok := sc.manifests[contentID]; ok && time.Now().Before(entry.expiresAt) {
+		return entry.manifest, true
+	}
+	return "", false
+}
+
+func (sc *StreamingCache) SetManifest(contentID, manifest string) {
+	sc.manifestsMu.Lock()
+	defer sc.manifestsMu.Unlock()
+	sc.manifests[contentID] = manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)}
+	if len(sc.manifests) > maxManifestCacheSize {
+		now := time.Now()
+		evicted := 0
+		for k, v := range sc.manifests {
+			if now.After(v.expiresAt) {
+				delete(sc.manifests, k)
+				evicted++
+			}
+		}
+		if len(sc.manifests) > maxManifestCacheSize {
+			for k := range sc.manifests {
+				if evicted >= len(sc.manifests)/2 {
+					break
+				}
+				delete(sc.manifests, k)
+				evicted++
+			}
+		}
+	}
+}
+
+func (sc *StreamingCache) GetSegmentIndex(contentID string) (map[string][]string, bool) {
+	sc.segmentIdxMu.RLock()
+	defer sc.segmentIdxMu.RUnlock()
+	if entry, ok := sc.segmentIdx[contentID]; ok && time.Now().Before(entry.expiresAt) {
+		return entry.qualities, true
+	}
+	return nil, false
+}
+
+func (sc *StreamingCache) SetSegmentIndex(contentID string, qualities map[string][]string) {
+	sc.segmentIdxMu.Lock()
+	defer sc.segmentIdxMu.Unlock()
+	sc.segmentIdx[contentID] = segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
+	if len(sc.segmentIdx) > maxSegmentIndexSize {
+		now := time.Now()
+		evicted := 0
+		for k, v := range sc.segmentIdx {
+			if now.After(v.expiresAt) {
+				delete(sc.segmentIdx, k)
+				evicted++
+			}
+		}
+		if len(sc.segmentIdx) > maxSegmentIndexSize {
+			for k := range sc.segmentIdx {
+				if evicted >= len(sc.segmentIdx)/2 {
+					break
+				}
+				delete(sc.segmentIdx, k)
+				evicted++
+			}
+		}
+	}
+}
+
+func (sc *StreamingCache) Invalidate(contentID string) {
+	sc.manifestsMu.Lock()
+	delete(sc.manifests, contentID)
+	sc.manifestsMu.Unlock()
+	sc.segmentIdxMu.Lock()
+	delete(sc.segmentIdx, contentID)
+	sc.segmentIdxMu.Unlock()
+}
 
 type streamLimiter struct {
 	sem chan struct{}
@@ -64,7 +151,10 @@ func (l *streamLimiter) release() {
 	<-l.sem
 }
 
-func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, bucket ...string) {
+func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, bucket ...string) {
+	if cache == nil {
+		cache = NewStreamingCache()
+	}
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -75,6 +165,10 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		chainID, _ := c.Get("nft_chain_id")
 		tokenID := c.Query("token_id")
 		contentID := c.Param("id")
+		if !isValidContentID(contentID) {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
+			return
+		}
 		var chainIDInt int64 = 1
 		if v, ok := chainID.(int64); ok {
 			chainIDInt = v
@@ -87,9 +181,9 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		if limiter != nil {
 			defer func() {
 				limiter.release()
-				monitoring.StreamingViewersActive.Set(float64(len(limiter.sem)))
+				monitoring.StreamingViewersActive.Set(float64(cap(limiter.sem) - len(limiter.sem)))
 			}()
-			monitoring.StreamingViewersActive.Set(float64(len(limiter.sem)))
+			monitoring.StreamingViewersActive.Set(float64(cap(limiter.sem) - len(limiter.sem)))
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
@@ -99,25 +193,19 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 
-		manifestCacheMu.RLock()
-		if entry, ok := manifestCache[contentID]; ok && time.Now().Before(entry.expiresAt) {
-			manifestCacheMu.RUnlock()
+		if cached, ok := cache.GetManifest(contentID); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
-			rendered := strings.ReplaceAll(entry.manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
+			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
+			c.Header("X-Content-Type-Options", "nosniff")
 			c.String(http.StatusOK, rendered)
 			return
 		}
-		manifestCacheMu.RUnlock()
-
-		segmentIndexCacheMu.RLock()
-		cachedIdx, idxHit := segmentIndexCache[contentID]
-		segmentIndexCacheMu.RUnlock()
 
 		var qualitySegments map[string][]string
-		if idxHit && time.Now().Before(cachedIdx.expiresAt) {
+		if cached, ok := cache.GetSegmentIndex(contentID); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("segment_index").Inc()
-			qualitySegments = cachedIdx.qualities
+			qualitySegments = cached
 		} else {
 			qualitySegments = make(map[string][]string)
 			segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
@@ -140,9 +228,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 				}
 			}
 			if len(qualitySegments) > 0 {
-				segmentIndexCacheMu.Lock()
-				segmentIndexCache[contentID] = segmentIndexEntry{qualities: qualitySegments, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
-				segmentIndexCacheMu.Unlock()
+				cache.SetSegmentIndex(contentID, qualitySegments)
 			}
 		}
 		if len(qualitySegments) == 0 {
@@ -157,40 +243,24 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			qualitySegments[q] = segs
 		}
 
-		var manifest string
-		if len(qualitySegments) == 1 {
-			for _, segs := range qualitySegments {
-				manifest = buildSimplePlaylist(contentID, segs, "{{PLAYBACK_TOKEN}}")
-			}
-		} else {
-			manifest = buildMasterPlaylist(contentID, qualitySegments, "{{PLAYBACK_TOKEN}}")
+		manifest, err := streamingSvc.GenerateHLSPlaylist(contentID, qualitySegments, "{{PLAYBACK_TOKEN}}")
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			return
 		}
 
-		manifestCacheMu.Lock()
-		if entry, ok := manifestCache[contentID]; ok && time.Now().Before(entry.expiresAt) {
-			manifest = entry.manifest
-		} else {
-			manifestCache[contentID] = manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)}
-			if len(manifestCache) > 10000 {
-				now := time.Now()
-				for k, v := range manifestCache {
-					if now.After(v.expiresAt) {
-						delete(manifestCache, k)
-					}
-				}
-			}
-		}
-		manifestCacheMu.Unlock()
+		cache.SetManifest(contentID, manifest)
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
+		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("Cache-Control", "private, max-age=30") // per-user token in body; browser-only cache
 		c.String(http.StatusOK, rendered)
 	})
 	log.Info("Streaming routes registered")
 }
 
-func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, bucket ...string) {
+func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, bucket ...string) {
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -202,10 +272,26 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			return
 		}
 		contentID := c.Param("id")
-		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID)
+		if !isValidContentID(contentID) {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
+			return
+		}
+		wallet := middleware.GetWalletAddress(c)
+		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, wallet)
 		if err != nil {
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 			return
+		}
+		if claims.Contract != "" || claims.TokenID != "" {
+			// Playback token carries NFT contract/tokenID; verify it matches
+			// the NFT gate context to prevent token reuse across content.
+			if c.GetBool("nft_verified") {
+				gateContract := middleware.GetNFTContract(c)
+				if gateContract != "" && !strings.EqualFold(claims.Contract, gateContract) {
+					abortWithError(c, http.StatusForbidden, ErrUnauthorized, "nft contract mismatch")
+					return
+				}
+			}
 		}
 		if limiter != nil && !limiter.tryAcquire() {
 			c.Header("Retry-After", "1")
@@ -217,7 +303,13 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		}
 		quality := c.Query("quality")
 		segName := c.Param("num")
-		if strings.Contains(segName, "..") || strings.Contains(segName, "/") || strings.Contains(segName, "\\") {
+		// Normalize path to prevent directory traversal attacks (including Windows-style backslashes)
+		if strings.Contains(segName, "\\") || strings.Contains(segName, "..") {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
+			return
+		}
+		cleaned := path.Clean(segName)
+		if cleaned != segName || path.IsAbs(cleaned) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
 			return
 		}
@@ -236,11 +328,9 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			// Use segment index cache to find available quality levels,
 			// avoiding wasted MinIO requests to non-existent profiles.
 			var qlist map[string][]string
-			segmentIndexCacheMu.RLock()
-			if cachedIdx, ok := segmentIndexCache[contentID]; ok && time.Now().Before(cachedIdx.expiresAt) {
-				qlist = cachedIdx.qualities
+			if cached, ok := cache.GetSegmentIndex(contentID); ok {
+				qlist = cached
 			}
-			segmentIndexCacheMu.RUnlock()
 			if len(qlist) > 0 {
 				for q := range qlist {
 					prio := 1
@@ -265,7 +355,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				})
 			}
 
-			ctx, cancel := context.WithCancel(c.Request.Context())
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 			defer cancel()
 
 			start := time.Now()
@@ -310,7 +400,8 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			}
 			defer func() { _ = best.rc.Close() }()
 			c.Header("Content-Type", "video/mp2t")
-			c.Header("Cache-Control", "public, max-age=86400, s-maxage=3600")
+			c.Header("Cache-Control", "private, max-age=86400")
+			c.Header("Vary", "Authorization")
 			c.Header("X-Content-Type-Options", "nosniff")
 			c.Status(http.StatusOK)
 			if _, err := io.Copy(c.Writer, best.rc); err != nil {
@@ -318,72 +409,15 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			}
 			monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
 			quality := c.Query("quality")
-			if quality == "" { quality = "default" }
+			if quality == "" {
+				quality = "default"
+			}
 			monitoring.StreamingSegmentsTotal.WithLabelValues(quality).Inc()
 			return
 		}
 		_ = claims
 		abortWithError(c, http.StatusNotFound, ErrNotFound, "segment not found")
 	})
-}
-
-var qualityBandwidth = map[string]int{
-	"1080p": 5000,
-	"720p":  2800,
-	"480p":  1400,
-	"360p":  800,
-}
-
-func buildSimplePlaylist(contentID string, segments []string, playbackToken string) string {
-	var b strings.Builder
-	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n")
-	for _, seg := range segments {
-		name := seg
-		if idx := strings.LastIndex(seg, "/"); idx >= 0 {
-			name = seg[idx+1:]
-		}
-		b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?playback_token=%s\n", contentID, name, playbackToken))
-	}
-	b.WriteString("#EXT-X-ENDLIST\n")
-	return b.String()
-}
-
-func buildMasterPlaylist(contentID string, qualitySegments map[string][]string, playbackToken string) string {
-	var b strings.Builder
-	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
-	for quality, segs := range qualitySegments {
-		bw := qualityBandwidth[quality]
-		if bw == 0 {
-			bw = 1500
-		}
-		resolution := qualityToResolution(quality)
-		b.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bw*1000, resolution))
-		b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-TARGETDURATION:10\n")
-		for _, seg := range segs {
-			name := seg
-			if idx := strings.LastIndex(seg, "/"); idx >= 0 {
-				name = seg[idx+1:]
-			}
-			b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s\n", contentID, name, quality, playbackToken))
-		}
-		b.WriteString("#EXT-X-ENDLIST\n")
-	}
-	return b.String()
-}
-
-func qualityToResolution(quality string) string {
-	switch quality {
-	case "1080p":
-		return "1920x1080"
-	case "720p":
-		return "1280x720"
-	case "480p":
-		return "854x480"
-	case "360p":
-		return "640x360"
-	default:
-		return "1280x720"
-	}
 }
 
 func extractPlaybackToken(c *gin.Context) string {
@@ -410,4 +444,16 @@ func extractSegmentNumber(segName string) int {
 		}
 	}
 	return n
+}
+
+func isValidContentID(id string) bool {
+	if id == "" || len(id) > 256 {
+		return false
+	}
+	for _, ch := range id {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+			return false
+		}
+	}
+	return true
 }

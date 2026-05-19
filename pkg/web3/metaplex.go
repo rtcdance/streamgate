@@ -26,11 +26,27 @@ type MetaplexVerifier struct {
 // NewMetaplexVerifier creates a new Metaplex verifier
 func NewMetaplexVerifier(rpcClient *rpc.Client, logger *zap.Logger, cache cachetypes.CacheBackend) *MetaplexVerifier {
 	return &MetaplexVerifier{
-		rpcClient:  rpcClient,
-		httpClient: &http.Client{},
-		logger:     logger,
-		cache:      cache,
-		cacheTTL:   5 * time.Minute,
+		rpcClient: rpcClient,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 5,
+				IdleConnTimeout:     30 * time.Second,
+			},
+		},
+		logger:   logger,
+		cache:    cache,
+		cacheTTL: 5 * time.Minute,
+	}
+}
+
+// Close releases resources held by the Metaplex verifier.
+func (mv *MetaplexVerifier) Close() {
+	if mv.httpClient != nil && mv.httpClient.Transport != nil {
+		if t, ok := mv.httpClient.Transport.(*http.Transport); ok {
+			t.CloseIdleConnections()
+		}
 	}
 }
 

@@ -5,38 +5,83 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/ipfs/go-ipfs-api"
 	"go.uber.org/zap"
 )
 
+const defaultIPFSTimeout = 30 * time.Second
+
 // IPFSClient handles IPFS operations
 type IPFSClient struct {
-	shell  *shell.Shell
-	logger *zap.Logger
+	shell   *shell.Shell
+	logger  *zap.Logger
+	timeout time.Duration
 }
 
 // NewIPFSClient creates a new IPFS client
 func NewIPFSClient(ipfsURL string, logger *zap.Logger) (*IPFSClient, error) {
 	logger.Info("Connecting to IPFS", zap.String("url", ipfsURL))
 
-	// Connect to IPFS
 	sh := shell.NewShell(ipfsURL)
 
-	// Verify connection
-	version, err := sh.ID()
-	if err != nil {
+	connCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	versionCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		version, err := sh.ID()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		versionCh <- version.AgentVersion
+	}()
+
+	var agentVersion string
+	select {
+	case <-connCtx.Done():
+		logger.Error("Failed to connect to IPFS: timeout")
+		return nil, fmt.Errorf("failed to connect to IPFS: timeout")
+	case err := <-errCh:
 		logger.Error("Failed to connect to IPFS", zap.Error(err))
 		return nil, fmt.Errorf("failed to connect to IPFS: %w", err)
+	case agentVersion = <-versionCh:
 	}
 
 	logger.Info("Connected to IPFS",
-		zap.String("version", version.AgentVersion))
+		zap.String("version", agentVersion))
 
 	return &IPFSClient{
-		shell:  sh,
-		logger: logger,
+		shell:   sh,
+		logger:  logger,
+		timeout: defaultIPFSTimeout,
 	}, nil
+}
+
+func (ic *IPFSClient) runWithContext(ctx context.Context, fn func() error) error {
+	timeout := ic.timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d < timeout {
+			timeout = d
+		}
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		return context.DeadlineExceeded
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // UploadFile uploads a file to IPFS
@@ -45,11 +90,13 @@ func (ic *IPFSClient) UploadFile(ctx context.Context, filename string, data []by
 		zap.String("filename", filename),
 		zap.Int("size", len(data)))
 
-	// Create reader
-	reader := bytes.NewReader(data)
-
-	// Upload to IPFS
-	cid, err := ic.shell.Add(reader)
+	var cid string
+	err := ic.runWithContext(ctx, func() error {
+		reader := bytes.NewReader(data)
+		var err error
+		cid, err = ic.shell.Add(reader)
+		return err
+	})
 	if err != nil {
 		ic.logger.Error("Failed to upload file to IPFS",
 			zap.String("filename", filename),
@@ -67,23 +114,22 @@ func (ic *IPFSClient) UploadFile(ctx context.Context, filename string, data []by
 func (ic *IPFSClient) DownloadFile(ctx context.Context, cid string) ([]byte, error) {
 	ic.logger.Debug("Downloading file from IPFS", zap.String("cid", cid))
 
-	// Download from IPFS
-	reader, err := ic.shell.Cat(cid)
+	var data []byte
+	err := ic.runWithContext(ctx, func() error {
+		reader, err := ic.shell.Cat(cid)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = reader.Close() }()
+
+		data, err = io.ReadAll(io.LimitReader(reader, 512<<20))
+		return err
+	})
 	if err != nil {
 		ic.logger.Error("Failed to download file from IPFS",
 			zap.String("cid", cid),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to download file from IPFS: %w", err)
-	}
-	defer func() { _ = reader.Close() }()
-
-	// Read data
-	data, err := io.ReadAll(io.LimitReader(reader, 512<<20))
-	if err != nil {
-		ic.logger.Error("Failed to read file from IPFS",
-			zap.String("cid", cid),
-			zap.Error(err))
-		return nil, fmt.Errorf("failed to read file from IPFS: %w", err)
 	}
 
 	ic.logger.Debug("File downloaded from IPFS",
@@ -96,8 +142,9 @@ func (ic *IPFSClient) DownloadFile(ctx context.Context, cid string) ([]byte, err
 func (ic *IPFSClient) PinFile(ctx context.Context, cid string) error {
 	ic.logger.Debug("Pinning file on IPFS", zap.String("cid", cid))
 
-	// Pin file
-	err := ic.shell.Pin(cid)
+	err := ic.runWithContext(ctx, func() error {
+		return ic.shell.Pin(cid)
+	})
 	if err != nil {
 		ic.logger.Error("Failed to pin file on IPFS",
 			zap.String("cid", cid),
@@ -113,8 +160,9 @@ func (ic *IPFSClient) PinFile(ctx context.Context, cid string) error {
 func (ic *IPFSClient) UnpinFile(ctx context.Context, cid string) error {
 	ic.logger.Debug("Unpinning file from IPFS", zap.String("cid", cid))
 
-	// Unpin file
-	err := ic.shell.Unpin(cid)
+	err := ic.runWithContext(ctx, func() error {
+		return ic.shell.Unpin(cid)
+	})
 	if err != nil {
 		ic.logger.Error("Failed to unpin file from IPFS",
 			zap.String("cid", cid),
@@ -130,9 +178,12 @@ func (ic *IPFSClient) UnpinFile(ctx context.Context, cid string) error {
 func (ic *IPFSClient) GetFileInfo(ctx context.Context, cid string) (*FileInfo, error) {
 	ic.logger.Debug("Getting file info from IPFS", zap.String("cid", cid))
 
-	// Get file stats - Note: FileStat may not be available in all IPFS shell versions
-	// Using ObjectStat as alternative
-	stat, err := ic.shell.ObjectStat(cid)
+	var stat *shell.ObjectStats
+	err := ic.runWithContext(ctx, func() error {
+		var err error
+		stat, err = ic.shell.ObjectStat(cid)
+		return err
+	})
 	if err != nil {
 		ic.logger.Error("Failed to get file info from IPFS",
 			zap.String("cid", cid),

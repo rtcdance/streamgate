@@ -378,53 +378,6 @@ type ContentInfo struct {
 	IsValid   bool
 }
 
-// ContractEventListener listens for contract events
-type ContractEventListener struct {
-	client EthCaller
-	logger *zap.Logger
-}
-
-// NewContractEventListener creates a new contract event listener
-func NewContractEventListener(client EthCaller, logger *zap.Logger) *ContractEventListener {
-	return &ContractEventListener{
-		client: client,
-		logger: logger,
-	}
-}
-
-// ListenForEvents listens for contract events
-// Deprecated: not implemented — placeholder only.
-func (el *ContractEventListener) ListenForEvents(ctx context.Context, contractAddress, eventSignature string) error {
-	el.logger.Info("Listening for events",
-		zap.String("contract", contractAddress),
-		zap.String("event", eventSignature))
-
-	// TODO: Implement event listening
-	return fmt.Errorf("ListenForEvents: stub — not implemented")
-}
-
-// ContractEvent represents a contract event
-type ContractEvent struct {
-	Address     string
-	Topics      []string
-	Data        string
-	BlockNumber uint64
-	TxHash      string
-	Index       uint
-}
-
-// GetContractEvents gets events from a contract
-// Deprecated: not implemented — placeholder only.
-func (el *ContractEventListener) GetContractEvents(ctx context.Context, contractAddress string, fromBlock, toBlock int64) ([]*ContractEvent, error) {
-	el.logger.Debug("Getting contract events",
-		zap.String("contract", contractAddress),
-		zap.Int64("from_block", fromBlock),
-		zap.Int64("to_block", toBlock))
-
-	// TODO: Implement get contract events
-	return nil, fmt.Errorf("GetContractEvents: stub — not implemented")
-}
-
 // TransactionBuilder builds transactions
 type TransactionBuilder struct {
 	logger *zap.Logger

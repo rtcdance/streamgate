@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +37,7 @@ type UploadService struct {
 	logger        *zap.Logger
 	onProcessed   []PostUploadHook
 	hookMu        sync.Mutex
+	hookWg        sync.WaitGroup
 
 	chunkMergeConcurrency int // parallel chunk downloads during merge
 }
@@ -53,10 +53,10 @@ func (s *UploadService) RegisterPostUploadHook(hook PostUploadHook) {
 }
 
 type AutoTranscodeHookDeps struct {
-	TranscodingSvc    *TranscodingService
-	Presigner         PresignedURLer
-	Bucket            string
-	Profiles          []string
+	TranscodingSvc     *TranscodingService
+	Presigner          PresignedURLer
+	Bucket             string
+	Profiles           []string
 	PresignedURLExpiry time.Duration // zero = default 2h
 }
 
@@ -222,6 +222,10 @@ func (s *UploadService) SetChunkMergeConcurrency(n int) {
 	}
 }
 
+func (s *UploadService) Close() {
+	s.hookWg.Wait()
+}
+
 // CheckStorageQuota returns an error if the wallet has exceeded its storage quota.
 func (s *UploadService) CheckStorageQuota(ctx context.Context, ownerID string, newFileSize int64) error {
 	if s.storageQuota <= 0 || s.db == nil {
@@ -331,7 +335,7 @@ func (s *UploadService) GetUploadStatus(ctx context.Context, uploadID string) (*
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("upload not found: %s", uploadID)
+		return nil, fmt.Errorf("upload not found %s: %w", uploadID, ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query upload: %w", err)
 	}
@@ -373,42 +377,31 @@ func (s *UploadService) GetUploadProgress(ctx context.Context, uploadID string) 
 }
 
 func (s *UploadService) GetChunkStatuses(ctx context.Context, uploadID string) ([]ChunkInfo, error) {
-	if s.objStore == nil {
-		return nil, fmt.Errorf("storage not available")
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
 	}
-	prefix := fmt.Sprintf("chunks/%s/", uploadID)
-	objs, err := s.objStore.ListObjects(ctx, s.bucket, prefix)
+	rows, err := s.db.Query(ctx,
+		"SELECT chunk_index, chunk_size, uploaded FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index",
+		uploadID,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list chunks: %w", err)
+		return nil, fmt.Errorf("failed to query chunk statuses: %w", err)
 	}
-	uploadedSet := make(map[int]bool, len(objs))
-	maxIndex := -1
-	for _, key := range objs {
-		rel := strings.TrimPrefix(key, prefix)
-		idxStr := rel
-		if i := strings.Index(rel, "/"); i >= 0 {
-			idxStr = rel[:i]
+	defer func() { _ = rows.Close() }()
+
+	var chunks []ChunkInfo
+	for rows.Next() {
+		var ci ChunkInfo
+		if err := rows.Scan(&ci.ChunkIndex, &ci.ChunkSize, &ci.Uploaded); err != nil {
+			return nil, fmt.Errorf("failed to scan chunk: %w", err)
 		}
-		idx, err := strconv.Atoi(idxStr)
-		if err != nil {
-			continue
-		}
-		uploadedSet[idx] = true
-		if idx > maxIndex {
-			maxIndex = idx
-		}
+		ci.UploadID = uploadID
+		chunks = append(chunks, ci)
 	}
-	totalChunks := maxIndex + 1
-	if totalChunks == 0 {
-		return nil, nil
-	}
-	chunks := make([]ChunkInfo, totalChunks)
-	for i := 0; i < totalChunks; i++ {
-		chunks[i] = ChunkInfo{
-			UploadID:    uploadID,
-			ChunkIndex:  i,
-			TotalChunks: totalChunks,
-			Uploaded:    uploadedSet[i],
+	if len(chunks) > 0 {
+		totalChunks := len(chunks)
+		for i := range chunks {
+			chunks[i].TotalChunks = totalChunks
 		}
 	}
 	return chunks, nil
@@ -504,6 +497,9 @@ func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, 
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
+	if chunkIndex < 0 || chunkIndex > 100000 {
+		return fmt.Errorf("chunk_index out of range: %d", chunkIndex)
+	}
 
 	info, err := s.GetUploadStatus(ctx, uploadID)
 	if err != nil {
@@ -528,6 +524,15 @@ func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, 
 
 	if err := s.objStore.UploadStream(ctx, s.bucket, storageKey, reader, size); err != nil {
 		return fmt.Errorf("failed to upload chunk stream: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx,
+		`INSERT INTO upload_chunks (upload_id, chunk_index, chunk_size, uploaded, uploaded_at)
+		 VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP)
+		 ON CONFLICT (upload_id, chunk_index) DO UPDATE SET uploaded = true, uploaded_at = CURRENT_TIMESTAMP, chunk_size = $3`,
+		uploadID, chunkIndex, size)
+	if err != nil {
+		s.logger.Warn("failed to record chunk in upload_chunks", zap.String("upload_id", uploadID), zap.Int("chunk_index", chunkIndex), zap.Error(err))
 	}
 
 	if err := s.updateUploadStatus(ctx, uploadID, "uploading"); err != nil {
@@ -559,6 +564,18 @@ func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID stri
 	}
 	if s.maxUploadSize > 0 && uploadInfo.Size > s.maxUploadSize {
 		return fmt.Errorf("upload size %d exceeds maximum allowed size %d", uploadInfo.Size, s.maxUploadSize)
+	}
+
+	var uploadedCount int
+	err = s.db.QueryRow(ctx,
+		"SELECT COUNT(*) FROM upload_chunks WHERE upload_id = $1 AND uploaded = true",
+		uploadID,
+	).Scan(&uploadedCount)
+	if err != nil {
+		return fmt.Errorf("failed to verify chunk upload status: %w", err)
+	}
+	if uploadedCount < totalChunks {
+		return fmt.Errorf("not all chunks uploaded: %d/%d", uploadedCount, totalChunks)
 	}
 
 	ext := filepath.Ext(uploadInfo.Filename)
@@ -896,7 +913,9 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 	s.hookMu.Unlock()
 
 	for _, hook := range hooks {
+		s.hookWg.Add(1)
 		go func(h PostUploadHook) {
+			defer s.hookWg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					s.logger.Error("PostUploadHook panic recovered",

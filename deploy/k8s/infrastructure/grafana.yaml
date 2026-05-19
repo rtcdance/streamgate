@@ -27,9 +27,15 @@ spec:
         - containerPort: 3000
         env:
         - name: GF_SECURITY_ADMIN_USER
-          value: "admin"
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-monitoring-secrets
+              key: GRAFANA_ADMIN_USER
         - name: GF_SECURITY_ADMIN_PASSWORD
-          value: "admin"
+          valueFrom:
+            secretKeyRef:
+              name: streamgate-monitoring-secrets
+              key: GRAFANA_ADMIN_PASSWORD
         - name: GF_INSTALL_PLUGINS
           value: ""
         volumeMounts:
@@ -79,7 +85,7 @@ spec:
   ports:
   - port: 3000
     targetPort: 3000
-  type: LoadBalancer
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: ConfigMap

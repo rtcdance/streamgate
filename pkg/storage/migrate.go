@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"hash/crc32"
 	"io/fs"
 	"sort"
 	"strconv"
@@ -38,6 +39,19 @@ func NewMigrator(db *sql.DB, log *zap.Logger, migrationFS embed.FS, dir string) 
 }
 
 func (m *Migrator) Up(ctx context.Context) error {
+	lockID := int64(crc32.ChecksumIEEE([]byte("streamgate_migrations")))
+	var locked bool
+	if err := m.db.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&locked); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	if !locked {
+		m.log.Info("another instance is running migrations, skipping")
+		return nil
+	}
+	defer func() {
+		_, _ = m.db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
+	}()
+
 	if err := m.ensureMigrationsTable(ctx); err != nil {
 		return fmt.Errorf("ensure migrations table: %w", err)
 	}
@@ -82,6 +96,19 @@ func (m *Migrator) Up(ctx context.Context) error {
 }
 
 func (m *Migrator) Down(ctx context.Context, targetVersion int) error {
+	lockID := int64(crc32.ChecksumIEEE([]byte("streamgate_migrations")))
+	var locked bool
+	if err := m.db.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&locked); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	if !locked {
+		m.log.Info("another instance is running migrations, skipping")
+		return nil
+	}
+	defer func() {
+		_, _ = m.db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
+	}()
+
 	if err := m.ensureMigrationsTable(ctx); err != nil {
 		return fmt.Errorf("ensure migrations table: %w", err)
 	}

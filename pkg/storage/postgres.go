@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"streamgate/pkg/middleware"
+
 	_ "github.com/lib/pq"
 )
 
@@ -20,16 +22,20 @@ const (
 )
 
 var errNotConnectedDB *sql.DB
+var errCircuitBreakerOpen *sql.DB
 
 func init() {
 	errNotConnectedDB, _ = sql.Open("postgres", "host=invalid")
 	errNotConnectedDB.Close()
+	errCircuitBreakerOpen, _ = sql.Open("postgres", "host=invalid")
+	errCircuitBreakerOpen.Close()
 }
 
 // PostgresDB handles PostgreSQL database
 type PostgresDB struct {
 	db  *sql.DB
 	dsn string
+	cb  *middleware.CircuitBreaker
 }
 
 // NewPostgresDB creates a new PostgreSQL database instance
@@ -41,6 +47,11 @@ func NewPostgresDB() *PostgresDB {
 // The caller is responsible for having already verified connectivity.
 func NewPostgresDBFromDB(db *sql.DB) *PostgresDB {
 	return &PostgresDB{db: db}
+}
+
+// SetCircuitBreaker sets the circuit breaker for database operations.
+func (pdb *PostgresDB) SetCircuitBreaker(cb *middleware.CircuitBreaker) {
+	pdb.cb = cb
 }
 
 // SetMaxOpenConns sets the maximum number of open connections.
@@ -149,27 +160,67 @@ func (pdb *PostgresDB) ConnectWithConfig(dsn string, poolCfg PoolConfig) error {
 }
 
 // Query queries PostgreSQL and returns rows.
-// Callers should pass a context with an appropriate timeout; the returned
-// *sql.Rows is lazy and requires the context to remain valid during iteration.
+// If ctx has no deadline, a default 30s timeout is applied to prevent
+// unbounded queries. Callers should pass a context with an appropriate
+// timeout for fine-grained control; the returned *sql.Rows is lazy and
+// requires the context to remain valid during iteration.
 func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
+	if pdb.cb != nil && !pdb.cb.Allow() {
+		return nil, fmt.Errorf("circuit breaker is open")
+	}
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 
 	rows, err := pdb.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		if pdb.cb != nil {
+			pdb.cb.RecordFailure()
+		}
 		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	if pdb.cb != nil {
+		pdb.cb.RecordSuccess()
 	}
 
 	return rows, nil
 }
 
 // QueryRow queries PostgreSQL and returns a single row.
-// Callers should pass a context with an appropriate timeout; the returned
-// *sql.Row is lazy — the query is not executed until .Scan() is called.
+// Callers MUST pass a context with an appropriate timeout — unlike Query,
+// no default timeout is applied here because the returned *sql.Row is lazy
+// and the query is not executed until .Scan() is called, at which point the
+// context deadline must still be valid.
+type cancellableRow struct {
+	*sql.Row
+	cancel context.CancelFunc
+}
+
+func (cr *cancellableRow) Scan(dest ...interface{}) error {
+	err := cr.Row.Scan(dest...)
+	cr.cancel()
+	return err
+}
+
 func (pdb *PostgresDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if pdb.db == nil {
 		return errNotConnectedDB.QueryRowContext(ctx, "SELECT 1")
+	}
+	if pdb.cb != nil && !pdb.cb.Allow() {
+		return errCircuitBreakerOpen.QueryRowContext(ctx, "SELECT 1")
+	}
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		row := pdb.db.QueryRowContext(ctx, query, args...)
+		return (&cancellableRow{Row: row, cancel: cancel}).Row
 	}
 
 	return pdb.db.QueryRowContext(ctx, query, args...)
@@ -180,13 +231,22 @@ func (pdb *PostgresDB) Exec(ctx context.Context, query string, args ...interface
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
+	if pdb.cb != nil && !pdb.cb.Allow() {
+		return nil, fmt.Errorf("circuit breaker is open")
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	result, err := pdb.db.ExecContext(ctx, query, args...)
 	if err != nil {
+		if pdb.cb != nil {
+			pdb.cb.RecordFailure()
+		}
 		return nil, fmt.Errorf("exec failed: %w", err)
+	}
+	if pdb.cb != nil {
+		pdb.cb.RecordSuccess()
 	}
 
 	return result, nil
@@ -213,9 +273,21 @@ func (pdb *PostgresDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) er
 	if pdb.db == nil {
 		return fmt.Errorf("database not connected")
 	}
+	if pdb.cb != nil && !pdb.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open")
+	}
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 
 	tx, err := pdb.db.BeginTx(ctx, nil)
 	if err != nil {
+		if pdb.cb != nil {
+			pdb.cb.RecordFailure()
+		}
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
@@ -225,8 +297,18 @@ func (pdb *PostgresDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) er
 			panic(p)
 		} else if err != nil {
 			_ = tx.Rollback()
+			if pdb.cb != nil {
+				pdb.cb.RecordFailure()
+			}
 		} else {
 			err = tx.Commit()
+			if err != nil {
+				if pdb.cb != nil {
+					pdb.cb.RecordFailure()
+				}
+			} else if pdb.cb != nil {
+				pdb.cb.RecordSuccess()
+			}
 		}
 	}()
 
@@ -258,11 +340,24 @@ func (pdb *PostgresDB) Ping(ctx context.Context) error {
 	if pdb.db == nil {
 		return fmt.Errorf("database not connected")
 	}
+	if pdb.cb != nil && !pdb.cb.Allow() {
+		return fmt.Errorf("circuit breaker is open")
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	return pdb.db.PingContext(ctx)
+	err := pdb.db.PingContext(ctx)
+	if err != nil {
+		if pdb.cb != nil {
+			pdb.cb.RecordFailure()
+		}
+		return err
+	}
+	if pdb.cb != nil {
+		pdb.cb.RecordSuccess()
+	}
+	return nil
 }
 
 // Stats returns database statistics
