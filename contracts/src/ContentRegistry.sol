@@ -52,7 +52,7 @@ contract ContentRegistry is Ownable {
         string calldata contentId,
         string calldata contentHash,
         string calldata metadataURI
-    ) external {
+    ) external onlyOwner {
         if (_contents[contentId].status != ContentStatus.Nonexistent) {
             revert ContentAlreadyExists(contentId);
         }

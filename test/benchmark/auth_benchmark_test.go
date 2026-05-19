@@ -2,6 +2,8 @@ package benchmark_test
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"streamgate/pkg/models"
@@ -14,8 +16,8 @@ func BenchmarkAuthService_Register(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		username := "testuser" + string(rune(i))
-		email := "test" + string(rune(i)) + "@example.com"
+		username := fmt.Sprintf("testuser%d", i)
+		email := fmt.Sprintf("test%d@example.com", i)
 		_ = authService.Register(context.Background(), username, "password123", email)
 	}
 }
@@ -92,6 +94,7 @@ func BenchmarkAuthService_ConcurrentLogins(b *testing.B) {
 
 // MockAuthStorage implements service.AuthStorage for testing
 type MockAuthStorage struct {
+	mu    sync.Mutex
 	users map[string]*models.User
 }
 
@@ -102,6 +105,8 @@ func NewMockAuthStorage() *MockAuthStorage {
 }
 
 func (m *MockAuthStorage) GetUser(ctx context.Context, username string) (*models.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	user, exists := m.users[username]
 	if !exists {
 		return nil, nil
@@ -110,11 +115,15 @@ func (m *MockAuthStorage) GetUser(ctx context.Context, username string) (*models
 }
 
 func (m *MockAuthStorage) CreateUser(ctx context.Context, user *models.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.users[user.Username] = user
 	return nil
 }
 
 func (m *MockAuthStorage) UpdateUser(ctx context.Context, user *models.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.users[user.Username] = user
 	return nil
 }
