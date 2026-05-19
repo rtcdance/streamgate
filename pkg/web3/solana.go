@@ -15,30 +15,64 @@ import (
 
 // SolanaVerifier handles Solana signature verification
 type SolanaVerifier struct {
-	logger    *zap.Logger
-	rpcURL    string
-	rpcClient *rpc.Client
+	logger     *zap.Logger
+	rpcURL     string
+	rpcClient  *rpc.Client
+	rpcMulti   *SolanaMultiClient // multi-endpoint failover client
 }
 
-// NewSolanaVerifier creates a new Solana verifier
+// NewSolanaVerifier creates a new Solana verifier.
+// Accepts one or more RPC endpoints for automatic failover.
 func NewSolanaVerifier(logger *zap.Logger, rpcEndpoint ...string) *SolanaVerifier {
 	var rpcURL string
+	var endpoints []string
 	if len(rpcEndpoint) > 0 {
 		rpcURL = rpcEndpoint[0]
+		endpoints = rpcEndpoint
 	}
 	var client *rpc.Client
+	var multi *SolanaMultiClient
 	if rpcURL != "" {
 		client = rpc.New(rpcURL)
+	}
+	if len(endpoints) > 0 {
+		var err error
+		multi, err = NewSolanaMultiClient(logger, endpoints)
+		if err != nil {
+			logger.Warn("Failed to create Solana multi-endpoint client, using single endpoint",
+				zap.Error(err))
+		}
 	}
 	return &SolanaVerifier{
 		logger:    logger,
 		rpcURL:    rpcURL,
 		rpcClient: client,
+		rpcMulti:  multi,
 	}
 }
 
 // Close releases resources held by the verifier.
 func (sv *SolanaVerifier) Close() {}
+
+// getClient returns a healthy RPC client using multi-endpoint failover.
+// Falls back to the single rpcClient if multi-endpoint is not available.
+func (sv *SolanaVerifier) getClient(ctx context.Context) (*rpc.Client, error) {
+	if sv.rpcMulti != nil {
+		client, err := sv.rpcMulti.GetClient(ctx)
+		if err != nil {
+			// Fall back to single client if multi-endpoint fails
+			if sv.rpcClient != nil {
+				return sv.rpcClient, nil
+			}
+			return nil, err
+		}
+		return client, nil
+	}
+	if sv.rpcClient != nil {
+		return sv.rpcClient, nil
+	}
+	return nil, fmt.Errorf("solana RPC client not configured")
+}
 
 // VerifySignature verifies a Solana signature
 func (sv *SolanaVerifier) VerifySignature(address, message, signature string) (bool, error) {
@@ -247,22 +281,24 @@ func (sv *SolanaVerifier) VerifyMetaplexNFTOwnership(ctx context.Context, mintAd
 		zap.String("mint", mintAddress),
 		zap.String("owner", ownerAddress))
 
-	if sv.rpcClient == nil {
-		return false, fmt.Errorf("solana RPC client not initialized")
+	client, err := sv.getClient(ctx)
+	if err != nil {
+		return false, err
 	}
 
-	verifier := NewMetaplexVerifier(sv.rpcClient, sv.logger, nil)
+	verifier := NewMetaplexVerifier(client, sv.logger, nil)
 	return verifier.VerifyNFTOwnership(ctx, mintAddress, ownerAddress)
 }
 
 func (sv *SolanaVerifier) FetchMetaplexMetadata(ctx context.Context, mintAddress string) (*MetaplexMetadata, error) {
 	sv.logger.Debug("Fetching Metaplex metadata", zap.String("mint", mintAddress))
 
-	if sv.rpcClient == nil {
-		return nil, fmt.Errorf("Solana RPC client not initialized")
+	client, err := sv.getClient(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	verifier := NewMetaplexVerifier(sv.rpcClient, sv.logger, nil)
+	verifier := NewMetaplexVerifier(client, sv.logger, nil)
 	return verifier.GetMetadata(ctx, mintAddress)
 }
 
@@ -272,15 +308,12 @@ func (sv *SolanaVerifier) VerifyTokenAccount(ctx context.Context, tokenAccount, 
 		zap.String("token_account", tokenAccount),
 		zap.String("owner", ownerAddress))
 
-	if sv.rpcURL == "" {
-		return false, fmt.Errorf("Solana RPC client not configured")
+	client, err := sv.getClient(ctx)
+	if err != nil {
+		return false, err
 	}
 
-	if sv.rpcClient == nil {
-		return false, fmt.Errorf("Solana RPC client not initialized")
-	}
-
-	accountInfo, err := sv.rpcClient.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(tokenAccount))
+	accountInfo, err := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(tokenAccount))
 	if err != nil {
 		return false, fmt.Errorf("failed to get token account info: %w", err)
 	}
@@ -308,15 +341,12 @@ func (sv *SolanaVerifier) VerifyMintAuthority(ctx context.Context, mintAddress, 
 		zap.String("mint", mintAddress),
 		zap.String("authority", authorityAddress))
 
-	if sv.rpcURL == "" {
-		return false, fmt.Errorf("Solana RPC client not configured")
+	client, err := sv.getClient(ctx)
+	if err != nil {
+		return false, err
 	}
 
-	if sv.rpcClient == nil {
-		return false, fmt.Errorf("Solana RPC client not initialized")
-	}
-
-	accountInfo, err := sv.rpcClient.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(mintAddress))
+	accountInfo, err := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(mintAddress))
 	if err != nil {
 		return false, fmt.Errorf("failed to get mint account info: %w", err)
 	}
