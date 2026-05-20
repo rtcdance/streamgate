@@ -758,6 +758,16 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		ve.Warnings = append(ve.Warnings, "web3.ethereum_rpc contains placeholder YOUR_KEY")
 	}
 
+	if c.Redis.Password == "" {
+		ve.Warnings = append(ve.Warnings, "redis.password is empty — set a password for production Redis")
+	}
+	if c.NATS.URL == "" {
+		ve.Warnings = append(ve.Warnings, "nats.url is empty")
+	}
+	if c.Storage.Endpoint == "" && c.Storage.Type == "s3" {
+		ve.Warnings = append(ve.Warnings, "storage.endpoint is empty with type=s3")
+	}
+
 	if pk := c.Web3.Transaction.PrivateKeyHex; pk != "" {
 		hexStr := strings.TrimPrefix(pk, "0x")
 		if len(hexStr) != 64 {

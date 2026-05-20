@@ -184,6 +184,14 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 		}
 		svcWalletAuthTotal.WithLabelValues("authenticate", status).Inc()
 		svcWalletAuthDuration.WithLabelValues("authenticate").Observe(time.Since(start).Seconds())
+
+		if s.auditLogger != nil {
+			errMsg := ""
+			if err != nil {
+				errMsg = err.Error()
+			}
+			s.auditLogger.Log(ctx, "auth.wallet_login", walletAddress, "auth", challengeID, err == nil, errMsg, "")
+		}
 	}()
 
 	if challengeID == "" {
@@ -431,7 +439,16 @@ func (s *AuthService) RevokeToken(ctx context.Context, tokenString string) error
 	if claims.ExpiresAt != nil {
 		expiresAt = claims.ExpiresAt.Time
 	}
-	return s.blacklist.Revoke(ctx, jti, expiresAt)
+	if err := s.blacklist.Revoke(ctx, jti, expiresAt); err != nil {
+		if s.auditLogger != nil {
+			s.auditLogger.Log(ctx, "auth.token_revoke", claims.WalletAddress, "token", jti, false, err.Error(), "")
+		}
+		return err
+	}
+	if s.auditLogger != nil {
+		s.auditLogger.Log(ctx, "auth.token_revoke", claims.WalletAddress, "token", jti, true, "", "")
+	}
+	return nil
 }
 
 // VerifyToken checks if a token is valid, not expired, and not revoked.

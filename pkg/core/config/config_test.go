@@ -182,6 +182,8 @@ func TestValidateProduction_PassesWithSecureConfig(t *testing.T) {
 		Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
 		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+		Redis:    RedisConfig{Password: "redis-pw"},
+		NATS:     NATSConfig{URL: "nats://localhost:4222"},
 	}
 	err := cfg.ValidateProduction(zap.NewNop())
 	if err != nil {
@@ -221,6 +223,8 @@ func TestValidateProduction_InsecureDBPassword(t *testing.T) {
 				Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 				Database: DatabaseConfig{SSLMode: "require", Password: tt.password},
 				Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+				Redis:    RedisConfig{Password: "redis-pw"},
+				NATS:     NATSConfig{URL: "nats://localhost:4222"},
 			}
 			err := cfg.ValidateProduction(zap.NewNop())
 			if (err != nil) != tt.wantErr {
@@ -267,6 +271,8 @@ func TestValidateProduction_CORSRestrictive(t *testing.T) {
 		Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
 		Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 		CORS:     CORSConfig{AllowedOrigins: []string{"https://streamgate.example.com"}},
+		Redis:    RedisConfig{Password: "redis-pw"},
+		NATS:     NATSConfig{URL: "nats://localhost:4222"},
 	}
 	err := cfg.ValidateProduction(zap.NewNop())
 	if err != nil {

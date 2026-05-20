@@ -186,6 +186,17 @@ func (nm *NonceManager) Reset(address string) {
 		zap.String("address", address))
 }
 
+func (nm *NonceManager) ResetAddresses(addresses []string) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	for _, addr := range addresses {
+		delete(nm.states, addr)
+		delete(nm.lastSync, addr)
+	}
+	nm.logger.Info("NonceManager: reset nonce state after reorg",
+		zap.Int("address_count", len(addresses)))
+}
+
 func (nm *NonceManager) ResetAll() {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
