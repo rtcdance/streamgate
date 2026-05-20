@@ -184,10 +184,6 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
 			return
 		}
-		if !isValidContentID(contentID) {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
-			return
-		}
 		var chainIDInt int64 = 1
 		if v, ok := chainID.(int64); ok {
 			chainIDInt = v
@@ -395,7 +391,13 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				cand := cand
 				go func() {
 					rc, dlErr := objStorage.DownloadStream(ctx, segBucket, cand.key)
-					ch <- dlResult{rc: rc, err: dlErr, prio: cand.prio}
+					select {
+					case ch <- dlResult{rc: rc, err: dlErr, prio: cand.prio}:
+					case <-ctx.Done():
+						if rc != nil {
+							rc.Close()
+						}
+					}
 				}()
 			}
 

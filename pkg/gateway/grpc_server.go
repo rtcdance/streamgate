@@ -678,7 +678,7 @@ func (s *contentGrpcServer) DeleteContent(ctx context.Context, req *contentv1.De
 		return nil, status.Error(codes.PermissionDenied, "not authorized to delete this content")
 	}
 
-	if err := s.contentSvc.DeleteContent(ctx, req.ContentId); err != nil {
+	if err := s.contentSvc.DeleteContent(ctx, req.ContentId, wallet); err != nil {
 		return nil, status.Error(codes.Internal, "failed to delete content")
 	}
 	return &contentv1.DeleteContentResponse{Success: true}, nil

@@ -1,7 +1,6 @@
 package web3
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -19,6 +18,20 @@ import (
 // erc1967ImplementationSlot is the ERC-1967 storage slot for the implementation
 // address in proxy contracts: keccak256("eip1967.proxy.implementation") - 1
 var erc1967ImplementationSlot = common.HexToHash("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+
+var abiCache sync.Map
+
+func getOrParseABI(abiJSON string) (abi.ABI, error) {
+	if cached, ok := abiCache.Load(abiJSON); ok {
+		return cached.(abi.ABI), nil
+	}
+	parsed, err := abi.JSON(strings.NewReader(abiJSON))
+	if err != nil {
+		return abi.ABI{}, err
+	}
+	abiCache.Store(abiJSON, parsed)
+	return parsed, nil
+}
 
 // proxyCacheTTL is how long a resolved proxy implementation address stays cached.
 // This allows cache refresh when a proxy is upgraded to a new implementation.
@@ -156,7 +169,7 @@ func (ci *ContractInteractor) callContractFunction(ctx context.Context, contract
 	contract := common.HexToAddress(contractAddress)
 
 	// Parse ABI
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(abiJSON)))
+	parsedABI, err := getOrParseABI(abiJSON)
 	if err != nil {
 		ci.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)
@@ -254,7 +267,7 @@ type ContractContentRegistry struct {
 // It returns the encoded call data; the caller is responsible for building,
 // signing, and sending the full transaction.
 func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash, owner, metadata string) ([]byte, error) {
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	parsedABI, err := getOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
@@ -275,7 +288,7 @@ func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *Cont
 
 // VerifyContent verifies content on-chain by calling verifyContent(bytes32).
 func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	parsedABI, err := getOrParseABI(cr.ABI)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
@@ -314,7 +327,7 @@ func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *Contra
 
 // GetContentInfo gets information about registered content via getContentInfo(bytes32).
 func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
-	parsedABI, err := abi.JSON(bytes.NewReader([]byte(cr.ABI)))
+	parsedABI, err := getOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}

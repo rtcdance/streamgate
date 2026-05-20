@@ -191,12 +191,13 @@ type BlockHeader struct {
 // It tracks block headers and can verify whether a previously-seen
 // block hash is still part of the canonical chain.
 type ReorgDetector struct {
-	client     HeaderReader
-	logger     *zap.Logger
-	mu         sync.RWMutex
-	headers    map[uint64]BlockHeader
-	blockOrder []uint64
-	maxBlocks  int
+	client        HeaderReader
+	logger        *zap.Logger
+	mu            sync.RWMutex
+	headers       map[uint64]BlockHeader
+	blockOrder    []uint64
+	maxBlocks     int
+	reorgCallback func(addresses []string)
 }
 
 // HeaderReader abstracts the block header reading interface.
@@ -217,6 +218,14 @@ func NewReorgDetector(client HeaderReader, logger *zap.Logger) *ReorgDetector {
 		blockOrder: make([]uint64, 0, 256),
 		maxBlocks:  256,
 	}
+}
+
+// SetReorgCallback registers a callback invoked when a reorg is detected.
+// The callback receives a list of addresses whose nonce state may be stale.
+func (rd *ReorgDetector) SetReorgCallback(fn func(addresses []string)) {
+	rd.mu.Lock()
+	defer rd.mu.Unlock()
+	rd.reorgCallback = fn
 }
 
 // RecordHeader records a block header for future reorg checks.
@@ -358,6 +367,25 @@ func (rd *ReorgDetector) MarkReorgedEvents(ctx context.Context, events []*Indexe
 				zap.String("event_id", event.ID),
 				zap.Uint64("block_number", event.BlockNumber),
 				zap.String("block_hash", event.BlockHash))
+		}
+	}
+
+	rd.mu.RLock()
+	cb := rd.reorgCallback
+	rd.mu.RUnlock()
+	if cb != nil && len(reorgedIDs) > 0 {
+		seen := make(map[string]struct{})
+		var addresses []string
+		for _, event := range events {
+			if event.ContractAddress != "" {
+				if _, ok := seen[event.ContractAddress]; !ok {
+					seen[event.ContractAddress] = struct{}{}
+					addresses = append(addresses, event.ContractAddress)
+				}
+			}
+		}
+		if len(addresses) > 0 {
+			cb(addresses)
 		}
 	}
 

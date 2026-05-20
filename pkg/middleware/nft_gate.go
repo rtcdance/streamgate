@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -134,6 +135,7 @@ type NFTGateConfig struct {
 	BlockProver        BlockProver
 	Cache              NFTAccessCache
 	RuleResolver       GatingRuleResolver
+	AuditLogger        storage.AuditLogger
 	CircuitBreaker     *CircuitBreaker
 	BlockVerifyCache   *BlockHashCache
 	DefaultChainID     int64
@@ -247,11 +249,13 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			}
 		}
 
+		var minBalance int
 		if contract == "" && len(resolvedRules) > 0 {
 			rule := resolvedRules[0]
 			contract = rule.ContractAddress
 			tokenID = rule.TokenID
 			chainID = rule.ChainID
+			minBalance = rule.MinBalance
 		}
 
 		if contract == "" {
@@ -294,7 +298,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 
 		cacheKey := nftCacheKey(chainID, walletAddress, contract, tokenID)
 
-		hasNFT, err := resolveOwnershipWithAutoDetect(c.Request.Context(), config, logger, cacheKey, chainID, contract, tokenID, walletAddress, autoDetect)
+		hasNFT, err := resolveOwnershipWithAutoDetect(c.Request.Context(), config, logger, cacheKey, chainID, contract, tokenID, walletAddress, minBalance, autoDetect)
 		if err != nil {
 			logger.Error("NFT verification failed", zap.Error(err))
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -313,7 +317,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 				if rErr == nil && len(rules) > 1 {
 					for _, rule := range rules[1:] {
 						ruleCacheKey := nftCacheKey(rule.ChainID, walletAddress, rule.ContractAddress, rule.TokenID)
-						altHasNFT, altErr := resolveOwnership(c.Request.Context(), config, logger, ruleCacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
+						altHasNFT, altErr := resolveOwnership(c.Request.Context(), config, logger, ruleCacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress, rule.MinBalance)
 						if altErr == nil && altHasNFT {
 							hasNFT = true
 							contract = rule.ContractAddress
@@ -327,6 +331,9 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		}
 
 		if !hasNFT {
+			if config.AuditLogger != nil {
+				config.AuditLogger.Log(c.Request.Context(), "nft.gate_denied", walletAddress, "content", contentID, false, "nft_access_denied", contract)
+			}
 			resp := gin.H{
 				"error": "nft access denied",
 				"code":  "NFT_REQUIRED",
@@ -349,17 +356,21 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		}
 
 		c.Set("nft_verified", true)
+		c.Set("wallet_address", walletAddress)
 		c.Set("nft_contract", contract)
 		c.Set("nft_chain_id", chainID)
+		if config.AuditLogger != nil {
+			config.AuditLogger.Log(c.Request.Context(), "nft.gate_passed", walletAddress, "content", contentID, true, "", fmt.Sprintf("%s:%d", contract, chainID))
+		}
 		c.Next()
 	}
 }
 
-func resolveOwnership(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (bool, error) {
-	return resolveOwnershipWithAutoDetect(ctx, config, logger, cacheKey, chainID, contract, tokenID, walletAddress, config.AutoDetectStandard)
+func resolveOwnership(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string, minBalance int) (bool, error) {
+	return resolveOwnershipWithAutoDetect(ctx, config, logger, cacheKey, chainID, contract, tokenID, walletAddress, minBalance, config.AutoDetectStandard)
 }
 
-func resolveOwnershipWithAutoDetect(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string, autoDetect bool) (bool, error) {
+func resolveOwnershipWithAutoDetect(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string, minBalance int, autoDetect bool) (bool, error) {
 	start := time.Now()
 
 	if config.Cache != nil {
@@ -448,7 +459,11 @@ func resolveOwnershipWithAutoDetect(ctx context.Context, config *NFTGateConfig, 
 			hasNFT, verifyErr = config.Verifier.VerifyNFTCollectionAutoDetect(ctx, chainID, contract, walletAddress)
 		} else {
 			balance, verifyErr = config.Verifier.GetNFTBalance(ctx, chainID, contract, walletAddress)
-			hasNFT = balance != nil && balance.Sign() > 0
+			if minBalance > 1 {
+				hasNFT = balance != nil && balance.Cmp(big.NewInt(int64(minBalance))) >= 0
+			} else {
+				hasNFT = balance != nil && balance.Sign() > 0
+			}
 		}
 		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), boolStr(hasNFT && verifyErr == nil)).Inc()
 		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())

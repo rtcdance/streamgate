@@ -3,12 +3,29 @@ package logger
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func NewLogger(serviceName string) *zap.Logger {
+type LogMode string
+
+const (
+	LogModeDevelopment LogMode = "development"
+	LogModeProduction  LogMode = "production"
+)
+
+func NewLogger(serviceName string, mode ...LogMode) *zap.Logger {
+	m := LogModeProduction
+	if len(mode) > 0 && mode[0] != "" {
+		m = mode[0]
+	}
+
+	if strings.EqualFold(string(m), string(LogModeDevelopment)) {
+		return NewDevelopmentLogger(serviceName)
+	}
+
 	config := zap.NewProductionConfig()
 	config.EncoderConfig.TimeKey = "timestamp"
 	config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
