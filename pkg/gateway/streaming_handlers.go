@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"container/list"
 	"context"
 	"fmt"
 	"io"
@@ -30,101 +31,113 @@ type segmentIndexEntry struct {
 }
 
 const (
-	manifestCacheTTL      = 30 * time.Second
-	segmentIndexCacheTTL  = 2 * time.Minute
-	maxManifestCacheSize  = 10000
-	maxSegmentIndexSize   = 10000
+	manifestCacheTTL     = 30 * time.Second
+	segmentIndexCacheTTL = 2 * time.Minute
+	maxManifestCacheSize = 10000
+	maxSegmentIndexSize  = 10000
 )
 
+type lruEntry[T any] struct {
+	key   string
+	value T
+}
+
+type lruCache[T any] struct {
+	mu      sync.RWMutex
+	items   map[string]*list.Element
+	order   *list.List
+	maxSize int
+	ttl     time.Duration
+}
+
+func newLRUCache[T any](maxSize int, ttl time.Duration) *lruCache[T] {
+	return &lruCache[T]{
+		items:   make(map[string]*list.Element),
+		order:   list.New(),
+		maxSize: maxSize,
+		ttl:     ttl,
+	}
+}
+
+func (c *lruCache[T]) Get(key string) (T, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		entry := elem.Value.(*lruEntry[T])
+		c.order.MoveToFront(elem)
+		return entry.value, true
+	}
+	var zero T
+	return zero, false
+}
+
+func (c *lruCache[T]) Set(key string, value T) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		c.order.MoveToFront(elem)
+		elem.Value.(*lruEntry[T]).value = value
+		return
+	}
+	entry := &lruEntry[T]{key: key, value: value}
+	elem := c.order.PushFront(entry)
+	c.items[key] = elem
+	for len(c.items) > c.maxSize {
+		oldest := c.order.Back()
+		if oldest == nil {
+			break
+		}
+		c.order.Remove(oldest)
+		delete(c.items, oldest.Value.(*lruEntry[T]).key)
+	}
+}
+
+func (c *lruCache[T]) Delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		c.order.Remove(elem)
+		delete(c.items, key)
+	}
+}
+
 type StreamingCache struct {
-	manifests    map[string]manifestCacheEntry
-	manifestsMu  sync.RWMutex
-	segmentIdx   map[string]segmentIndexEntry
-	segmentIdxMu sync.RWMutex
+	manifests  *lruCache[manifestCacheEntry]
+	segmentIdx *lruCache[segmentIndexEntry]
 }
 
 func NewStreamingCache() *StreamingCache {
 	return &StreamingCache{
-		manifests:  make(map[string]manifestCacheEntry),
-		segmentIdx: make(map[string]segmentIndexEntry),
+		manifests:  newLRUCache[manifestCacheEntry](maxManifestCacheSize, manifestCacheTTL),
+		segmentIdx: newLRUCache[segmentIndexEntry](maxSegmentIndexSize, segmentIndexCacheTTL),
 	}
 }
 
 func (sc *StreamingCache) GetManifest(contentID string) (string, bool) {
-	sc.manifestsMu.RLock()
-	defer sc.manifestsMu.RUnlock()
-	if entry, ok := sc.manifests[contentID]; ok && time.Now().Before(entry.expiresAt) {
+	if entry, ok := sc.manifests.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
 		return entry.manifest, true
 	}
 	return "", false
 }
 
 func (sc *StreamingCache) SetManifest(contentID, manifest string) {
-	sc.manifestsMu.Lock()
-	defer sc.manifestsMu.Unlock()
-	sc.manifests[contentID] = manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)}
-	if len(sc.manifests) > maxManifestCacheSize {
-		now := time.Now()
-		evicted := 0
-		for k, v := range sc.manifests {
-			if now.After(v.expiresAt) {
-				delete(sc.manifests, k)
-				evicted++
-			}
-		}
-		if len(sc.manifests) > maxManifestCacheSize {
-			for k := range sc.manifests {
-				if evicted >= len(sc.manifests)/2 {
-					break
-				}
-				delete(sc.manifests, k)
-				evicted++
-			}
-		}
-	}
+	sc.manifests.Set(contentID, manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)})
 }
 
 func (sc *StreamingCache) GetSegmentIndex(contentID string) (map[string][]string, bool) {
-	sc.segmentIdxMu.RLock()
-	defer sc.segmentIdxMu.RUnlock()
-	if entry, ok := sc.segmentIdx[contentID]; ok && time.Now().Before(entry.expiresAt) {
+	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
 		return entry.qualities, true
 	}
 	return nil, false
 }
 
 func (sc *StreamingCache) SetSegmentIndex(contentID string, qualities map[string][]string) {
-	sc.segmentIdxMu.Lock()
-	defer sc.segmentIdxMu.Unlock()
-	sc.segmentIdx[contentID] = segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
-	if len(sc.segmentIdx) > maxSegmentIndexSize {
-		now := time.Now()
-		evicted := 0
-		for k, v := range sc.segmentIdx {
-			if now.After(v.expiresAt) {
-				delete(sc.segmentIdx, k)
-				evicted++
-			}
-		}
-		if len(sc.segmentIdx) > maxSegmentIndexSize {
-			for k := range sc.segmentIdx {
-				if evicted >= len(sc.segmentIdx)/2 {
-					break
-				}
-				delete(sc.segmentIdx, k)
-				evicted++
-			}
-		}
-	}
+	sc.segmentIdx.Set(contentID, segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)})
 }
 
 func (sc *StreamingCache) Invalidate(contentID string) {
-	sc.manifestsMu.Lock()
-	delete(sc.manifests, contentID)
-	sc.manifestsMu.Unlock()
-	sc.segmentIdxMu.Lock()
-	delete(sc.segmentIdx, contentID)
-	sc.segmentIdxMu.Unlock()
+	sc.manifests.Delete(contentID)
+	sc.segmentIdx.Delete(contentID)
 }
 
 type streamLimiter struct {
@@ -169,6 +182,10 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
 			return
 		}
+		if !isValidContentID(contentID) {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
+			return
+		}
 		var chainIDInt int64 = 1
 		if v, ok := chainID.(int64); ok {
 			chainIDInt = v
@@ -187,9 +204,9 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
-		playbackToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 2*time.Minute)
+		playbackToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 2*time.Minute, c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 
@@ -197,7 +214,6 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			c.Header("X-Content-Type-Options", "nosniff")
 			c.String(http.StatusOK, rendered)
 			return
 		}
@@ -245,7 +261,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 
 		manifest, err := streamingSvc.GenerateHLSPlaylist(contentID, qualitySegments, "{{PLAYBACK_TOKEN}}")
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 
@@ -253,7 +269,6 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
-		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("Cache-Control", "private, max-age=30") // per-user token in body; browser-only cache
 		c.String(http.StatusOK, rendered)
 	})
@@ -277,7 +292,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
-		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, wallet)
+		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
 		if err != nil {
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 			return

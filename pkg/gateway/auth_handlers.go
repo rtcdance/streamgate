@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"streamgate/pkg/core/config"
@@ -17,44 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// authRateLimiter provides strict per-IP rate limiting for auth endpoints.
-// 10 requests/minute per IP to prevent brute-force and challenge spam.
-var authRateLimiterMu sync.RWMutex
-var authRateLimiter = middleware.NewRateLimiter(middleware.RateLimitConfig{
-	RequestsPerMinute: 10,
-	WindowSize:        time.Minute,
-	CleanupInterval:   5 * time.Minute,
-}, nil)
-
-func getAuthRateLimiter() middleware.RateLimiter {
-	authRateLimiterMu.RLock()
-	defer authRateLimiterMu.RUnlock()
-	return authRateLimiter
-}
-
-func resetAuthRateLimiter() {
-	authRateLimiterMu.Lock()
-	defer authRateLimiterMu.Unlock()
-	if authRateLimiter != nil {
-		authRateLimiter.Stop()
-	}
-	authRateLimiter = middleware.NewRateLimiter(middleware.RateLimitConfig{
-		RequestsPerMinute: 10,
-		WindowSize:        time.Minute,
-		CleanupInterval:   5 * time.Minute,
-	}, nil)
-}
-
-// RegisterAuthRoutes registers public authentication routes (no JWT required).
-func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config, authService *service.AuthService) {
+func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config, authService *service.AuthService, rateLimiter middleware.RateLimiter) {
 	auth := router.Group("/api/v1/auth")
-	// Apply strict rate limiting to all auth endpoints
 	auth.Use(func(c *gin.Context) {
 		key := c.ClientIP()
 		if wallet := c.GetHeader("X-Wallet-Address"); wallet != "" {
 			key = key + ":" + wallet
 		}
-		if !getAuthRateLimiter().Allow(key) {
+		if !rateLimiter.Allow(key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",
@@ -100,7 +69,7 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 		}
 		challenge, err := authService.GenerateWalletChallenge(c.Request.Context(), wallet, chainID, req.SignType)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{
@@ -121,6 +90,7 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 			Wallet      string `json:"wallet"`
 			ChallengeID string `json:"challenge_id"`
 			Signature   string `json:"signature"`
+			ChainID     int64  `json:"chain_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
@@ -130,7 +100,7 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		if wallet == "" {
 			wallet = req.Address
 		}
-		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature)
+		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature, req.ChainID)
 		if err != nil {
 			monitoring.AuthOperationsTotal.WithLabelValues("login", "failure").Inc()
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed")

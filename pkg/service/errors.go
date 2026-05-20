@@ -12,6 +12,7 @@ var (
 
 	// Challenge errors
 	ErrChallengeExpired = errors.New("challenge expired")
+	ErrChainIDMismatch  = errors.New("chain id mismatch")
 
 	// Resource errors
 	ErrNotFound      = errors.New("resource not found")

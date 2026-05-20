@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum"
@@ -29,11 +30,19 @@ type FeeHistoryProvider interface {
 
 // FeeHistoryEstimator uses eth_feeHistory to compute EIP-1559 gas price levels
 // with percentile-based priority fee suggestions.
+type EIP1559Levels []*GasPrice
+
+type gasCacheEntry struct {
+	levels   *EIP1559Levels
+	cachedAt time.Time
+}
+
 type FeeHistoryEstimator struct {
 	provider    FeeHistoryProvider
 	logger      *zap.Logger
-	blockCount  uint64    // number of recent blocks to sample
-	percentiles []float64 // e.g. [25, 50, 75] for low/medium/high
+	blockCount  uint64
+	percentiles []float64
+	gasCache    atomic.Value
 }
 
 // NewFeeHistoryEstimator creates a new estimator.
@@ -56,6 +65,12 @@ func NewFeeHistoryEstimator(provider FeeHistoryProvider, logger *zap.Logger, blo
 // EIP1559GasLevels returns gas price levels derived from eth_feeHistory.
 // Falls back to simple multiplier-based estimation on error.
 func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPrice, error) {
+	if v := fe.gasCache.Load(); v != nil {
+		if entry, ok := v.(*gasCacheEntry); ok && time.Since(entry.cachedAt) < 15*time.Second {
+			return *entry.levels, nil
+		}
+	}
+
 	fh, err := fe.provider.FeeHistory(ctx, fe.blockCount, nil, fe.percentiles)
 	if err != nil {
 		fe.logger.Warn("FeeHistory failed, falling back to SuggestGasPrice", zap.Error(err))
@@ -134,7 +149,7 @@ func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPric
 
 	estimatedTimes := fe.estimateTimes(avgRatio)
 
-	return []*GasPrice{
+	levels := EIP1559Levels{
 		{
 			Level:                "safe",
 			GasPrice:             safeMaxFee,
@@ -162,11 +177,21 @@ func (fe *FeeHistoryEstimator) EIP1559GasLevels(ctx context.Context) ([]*GasPric
 			MaxPriorityFeePerGas: highTip,
 			MaxFeePerGas:         fastMaxFee,
 		},
-	}, nil
+	}
+
+	fe.gasCache.Store(&gasCacheEntry{levels: &levels, cachedAt: time.Now()})
+
+	return levels, nil
 }
 
 // fallbackLevels returns simple multiplier-based gas levels when FeeHistory is unavailable.
 func (fe *FeeHistoryEstimator) fallbackLevels(ctx context.Context) ([]*GasPrice, error) {
+	if v := fe.gasCache.Load(); v != nil {
+		if entry, ok := v.(*gasCacheEntry); ok && time.Since(entry.cachedAt) < 15*time.Second {
+			return *entry.levels, nil
+		}
+	}
+
 	gasPrice, err := fe.provider.GetGasPrice(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get gas price for fallback: %w", err)
@@ -176,11 +201,15 @@ func (fe *FeeHistoryEstimator) fallbackLevels(ctx context.Context) ([]*GasPrice,
 	standard := new(big.Int).Mul(gasPrice, big.NewInt(1))
 	fast := new(big.Int).Mul(gasPrice, big.NewInt(2))
 
-	return []*GasPrice{
+	levels := EIP1559Levels{
 		{Level: "safe", GasPrice: safe, Gwei: toGwei(safe), EstimatedTime: "> 30 seconds"},
 		{Level: "standard", GasPrice: standard, Gwei: toGwei(standard), EstimatedTime: "15-30 seconds"},
 		{Level: "fast", GasPrice: fast, Gwei: toGwei(fast), EstimatedTime: "< 15 seconds"},
-	}, nil
+	}
+
+	fe.gasCache.Store(&gasCacheEntry{levels: &levels, cachedAt: time.Now()})
+
+	return levels, nil
 }
 
 // estimateTimes returns estimated confirmation times based on network congestion.

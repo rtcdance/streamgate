@@ -17,14 +17,21 @@ type Wallet struct {
 	PublicKey  *ecdsa.PublicKey
 }
 
+func maskAddress(addr string) string {
+	if len(addr) > 10 {
+		return addr[:6] + "..." + addr[len(addr)-4:]
+	}
+	return addr
+}
+
 func (w *Wallet) Destroy() {
 	if w.PrivateKey != nil {
-		w.PrivateKey.D.SetBytes(make([]byte, 32))
+		for i := range w.PrivateKey.D.Bits() {
+			w.PrivateKey.D.Bits()[i] = 0
+		}
 		w.PrivateKey = nil
 	}
-	if w.PublicKey != nil {
-		w.PublicKey = nil
-	}
+	w.PublicKey = nil
 }
 
 // WalletManager manages wallet operations
@@ -67,7 +74,7 @@ func (wm *WalletManager) CreateWallet() (*Wallet, error) {
 		PublicKey:  publicKeyECDSA,
 	}
 
-	wm.logger.Info("Wallet created", zap.String("address", wallet.Address))
+	wm.logger.Info("Wallet created", zap.String("address", maskAddress(wallet.Address)))
 	return wallet, nil
 }
 
@@ -104,7 +111,7 @@ func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
 		PublicKey:  publicKeyECDSA,
 	}
 
-	wm.logger.Info("Wallet imported", zap.String("address", wallet.Address))
+	wm.logger.Info("Wallet imported", zap.String("address", maskAddress(wallet.Address)))
 	return wallet, nil
 }
 
@@ -124,7 +131,7 @@ type WalletInfo struct {
 
 // GetWalletInfo gets wallet information
 func (wm *WalletManager) GetWalletInfo(address string) *WalletInfo {
-	wm.logger.Debug("Getting wallet info", zap.String("address", address))
+	wm.logger.Debug("Getting wallet info", zap.String("address", maskAddress(address)))
 
 	return &WalletInfo{
 		Address: address,
@@ -167,6 +174,6 @@ func (wm *WalletManager) ImportFromMnemonic(mnemonic, password string, accountIn
 		PublicKey:  publicKeyECDSA,
 	}
 
-	wm.logger.Info("Wallet imported from mnemonic", zap.String("address", wallet.Address))
+	wm.logger.Info("Wallet imported from mnemonic", zap.String("address", maskAddress(wallet.Address)))
 	return wallet, nil
 }

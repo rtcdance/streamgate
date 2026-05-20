@@ -191,11 +191,12 @@ type BlockHeader struct {
 // It tracks block headers and can verify whether a previously-seen
 // block hash is still part of the canonical chain.
 type ReorgDetector struct {
-	client    HeaderReader
-	logger    *zap.Logger
-	mu        sync.RWMutex
-	headers   map[uint64]BlockHeader // blockNumber → header
-	maxBlocks int                    // how many headers to retain
+	client     HeaderReader
+	logger     *zap.Logger
+	mu         sync.RWMutex
+	headers    map[uint64]BlockHeader
+	blockOrder []uint64
+	maxBlocks  int
 }
 
 // HeaderReader abstracts the block header reading interface.
@@ -210,10 +211,11 @@ type HeaderReader interface {
 // NewReorgDetector creates a new reorg detector.
 func NewReorgDetector(client HeaderReader, logger *zap.Logger) *ReorgDetector {
 	return &ReorgDetector{
-		client:    client,
-		logger:    logger,
-		headers:   make(map[uint64]BlockHeader),
-		maxBlocks: 256,
+		client:     client,
+		logger:     logger,
+		headers:    make(map[uint64]BlockHeader),
+		blockOrder: make([]uint64, 0, 256),
+		maxBlocks:  256,
 	}
 }
 
@@ -222,17 +224,15 @@ func (rd *ReorgDetector) RecordHeader(header BlockHeader) {
 	rd.mu.Lock()
 	defer rd.mu.Unlock()
 
+	if _, exists := rd.headers[header.Number]; !exists {
+		rd.blockOrder = append(rd.blockOrder, header.Number)
+	}
 	rd.headers[header.Number] = header
 
-	// Evict old headers beyond retention window — bulk eviction using
-	// the latest block number as the anchor point for O(n) cleanup.
-	if len(rd.headers) > rd.maxBlocks {
-		cutoff := header.Number - uint64(rd.maxBlocks) + 1
-		for n := range rd.headers {
-			if n < cutoff {
-				delete(rd.headers, n)
-			}
-		}
+	for len(rd.headers) > rd.maxBlocks && len(rd.blockOrder) > 0 {
+		oldest := rd.blockOrder[0]
+		delete(rd.headers, oldest)
+		rd.blockOrder = rd.blockOrder[1:]
 	}
 }
 

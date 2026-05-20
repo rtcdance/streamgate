@@ -61,6 +61,7 @@ type EventIndexer struct {
 	confirmationBlocks uint64              // safety buffer: only index up to latestBlock - N
 	onEvent            EventHandler        // optional: called when a new event is indexed
 	started            atomic.Bool         // prevents double Start
+	wsBackoff          time.Duration
 }
 
 // IndexedEvent represents an indexed blockchain event
@@ -101,6 +102,7 @@ func NewEventIndexerWithConfig(client EventReader, cfg EventIndexerConfig, logge
 		modeCh:         make(chan string, 1),
 		mode:           "polling",
 		seenIDs:        make(map[string]struct{}),
+		wsBackoff:      time.Second,
 	}
 
 	// Apply config
@@ -158,6 +160,10 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 		ei.logger.Warn("Event indexer already started, ignoring duplicate call")
 		return nil
 	}
+
+	ei.stopChan = make(chan struct{})
+	ei.stopOnce = sync.Once{}
+	ei.modeCh = make(chan string, 1)
 
 	ei.logger.Info("Starting event indexer", zap.String("mode", ei.mode))
 
@@ -236,6 +242,7 @@ func (ei *EventIndexer) Stop() {
 		close(ei.stopChan)
 	})
 	ei.wg.Wait()
+	ei.started.Store(false)
 }
 
 // SetEventStore sets the persistent event store for checkpointing and deduplication.
@@ -275,9 +282,11 @@ func (ei *EventIndexer) websocketLoop(ctx context.Context, logs <-chan types.Log
 		select {
 		case log, ok := <-logs:
 			if !ok {
-				ei.logger.Warn("WebSocket log channel closed, signalling switch to polling")
-				// Signal the single indexingLoop to start polling.
-				// Non-blocking send: indexingLoop will pick it up on next tick.
+				newLogs, reconnected := ei.reconnectWithBackoff(ctx)
+				if reconnected {
+					logs = newLogs
+					continue
+				}
 				select {
 				case ei.modeCh <- "polling":
 				default:
@@ -295,11 +304,45 @@ func (ei *EventIndexer) websocketLoop(ctx context.Context, logs <-chan types.Log
 	}
 }
 
-// processLog converts a raw types.Log into an IndexedEvent and stores it.
-// It reuses logToEvent for consistent ID generation and EventParser decoding,
-// and addEvent for deduplication and persistence.
-// If a reorgDetector is configured, it verifies the block hash is still canonical
-// before adding the event — events from reorg'd blocks are discarded.
+func (ei *EventIndexer) reconnectWithBackoff(ctx context.Context) (<-chan types.Log, bool) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-ei.stopChan:
+			return nil, false
+		case <-time.After(ei.wsBackoff):
+		}
+
+		ei.subscriber.Unsubscribe()
+
+		query := ethereum.FilterQuery{
+			Addresses: []common.Address{ei.contractAddress},
+			Topics:    [][]common.Hash{{ei.eventSignature}},
+		}
+
+		logs, err := ei.subscriber.Subscribe(ctx, query)
+		if err == nil {
+			ei.mu.Lock()
+			ei.wsBackoff = time.Second
+			ei.mu.Unlock()
+			ei.logger.Info("WebSocket reconnected")
+			return logs, true
+		}
+
+		ei.logger.Warn("WebSocket reconnect failed",
+			zap.Duration("backoff", ei.wsBackoff),
+			zap.Error(err))
+
+		ei.mu.Lock()
+		ei.wsBackoff *= 2
+		if ei.wsBackoff > 30*time.Second {
+			ei.wsBackoff = 30 * time.Second
+		}
+		ei.mu.Unlock()
+	}
+}
+
 func (ei *EventIndexer) processLog(ctx context.Context, log types.Log) {
 	event := ei.logToEvent(&log)
 
@@ -326,7 +369,7 @@ func (ei *EventIndexer) processLog(ctx context.Context, log types.Log) {
 		}
 	}
 
-	ei.addEvent(ctx, event)
+	ei.addEvent(event)
 
 	ei.logger.Debug("WebSocket event received",
 		zap.String("tx_hash", event.TransactionHash),
@@ -408,11 +451,9 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 	}
 }
 
-// indexBatchSize and per-batch timeout limit
-const (
-	indexBatchSize  uint64 = 1000
-	batchTimeout           = 30 * time.Second // max time for a single FilterLogs call
-)
+// indexRange indexes events in the specified block range [fromBlock, toBlock].
+// This is the shared logic used by both indexEvents and Replay.
+const indexBatchSize uint64 = 1000
 
 func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) {
 	for batchStart := fromBlock; batchStart <= toBlock; {
@@ -439,14 +480,9 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			query.Topics = [][]common.Hash{ei.eventSignatures}
 		}
 
-		// Apply per-batch timeout to prevent hanging on unresponsive RPC.
-		// If the batch times out, the remaining blocks are left for the
-		// next cycle rather than blocking the indexer indefinitely.
-		batchCtx, batchCancel := context.WithTimeout(ctx, batchTimeout)
-		logs, err := ei.client.FilterLogs(batchCtx, query)
-		batchCancel()
+		logs, err := ei.client.FilterLogs(ctx, query)
 		if err != nil {
-			ei.logger.Error("Failed to filter logs (batch timed out)",
+			ei.logger.Error("Failed to filter logs",
 				zap.Uint64("from_block", batchStart),
 				zap.Uint64("to_block", batchEnd),
 				zap.Error(err))
@@ -455,7 +491,7 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 
 		for _, log := range logs {
 			event := ei.logToEvent(&log)
-			ei.addEvent(ctx, event)
+			ei.addEvent(event)
 		}
 
 		ei.logger.Debug("Batch indexed",
@@ -546,8 +582,7 @@ func (ei *EventIndexer) logToEvent(log *types.Log) *IndexedEvent {
 }
 
 // addEvent adds an event to the index with deduplication and persistence.
-// ctx is propagated to the onEvent callback for tracing and timeout control.
-func (ei *EventIndexer) addEvent(ctx context.Context, event *IndexedEvent) {
+func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 	ei.mu.Lock()
 
 	if ei.seenIDs == nil {
@@ -573,6 +608,13 @@ func (ei *EventIndexer) addEvent(ctx context.Context, event *IndexedEvent) {
 	ei.events = append(ei.events, event)
 	ei.seenIDs[event.ID] = struct{}{}
 
+	if len(ei.seenIDs) > ei.maxEvents*2 {
+		ei.seenIDs = make(map[string]struct{}, ei.maxEvents)
+		for _, ev := range ei.events {
+			ei.seenIDs[ev.ID] = struct{}{}
+		}
+	}
+
 	if len(ei.events) > ei.maxEvents {
 		for _, ev := range ei.events[:len(ei.events)-ei.maxEvents] {
 			delete(ei.seenIDs, ev.ID)
@@ -586,7 +628,7 @@ func (ei *EventIndexer) addEvent(ctx context.Context, event *IndexedEvent) {
 	ei.mu.Unlock()
 
 	if onEvent != nil {
-		_ = onEvent(ctx, event)
+		_ = onEvent(context.Background(), event)
 	}
 }
 

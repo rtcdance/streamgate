@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
+	"streamgate/pkg/middleware"
 	"streamgate/pkg/models"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
@@ -54,7 +55,6 @@ func (m *mockAuthStorage) UpdateUser(_ context.Context, user *models.User) error
 
 func setupAuthRouter() (*gin.Engine, *service.AuthService) {
 	gin.SetMode(gin.TestMode)
-	resetAuthRateLimiter()
 	r := gin.New()
 
 	sigVerifier := service.NewMultiChainSignatureVerifier(zap.NewNop(), nil)
@@ -68,7 +68,12 @@ func setupAuthRouter() (*gin.Engine, *service.AuthService) {
 	)
 
 	cfg := config.DefaultConfig()
-	RegisterAuthRoutes(r, zap.NewNop(), cfg, authService)
+	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
+		RequestsPerMinute: 10,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}, nil)
+	RegisterAuthRoutes(r, zap.NewNop(), cfg, authService, authRL)
 	return r, authService
 }
 

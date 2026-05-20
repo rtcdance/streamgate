@@ -37,8 +37,8 @@ func (d *uploadMockDB) Query(_ context.Context, query string, args ...interface{
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (d *uploadMockDB) QueryRow(_ context.Context, query string, args ...interface{}) *sql.Row {
-	return nil
+func (d *uploadMockDB) QueryRow(_ context.Context, query string, args ...interface{}) *storage.CancelRow {
+	return storage.NewErrorCancelRow(fmt.Errorf("not implemented"))
 }
 
 func (d *uploadMockDB) Exec(_ context.Context, query string, args ...interface{}) (sql.Result, error) {

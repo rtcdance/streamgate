@@ -253,7 +253,7 @@ func (s *authGrpcServer) GetNonce(ctx context.Context, req *authv1.GetNonceReque
 }
 
 func (s *authGrpcServer) VerifySignature(ctx context.Context, req *authv1.VerifySignatureRequest) (*authv1.VerifySignatureResponse, error) {
-	token, err := s.authSvc.AuthenticateWithWallet(ctx, req.WalletAddress, req.Nonce, req.Signature)
+	token, err := s.authSvc.AuthenticateWithWallet(ctx, req.WalletAddress, req.Nonce, req.Signature, 0)
 	if err != nil {
 		return &authv1.VerifySignatureResponse{Valid: false}, nil
 	}
@@ -723,7 +723,7 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
 	}
 
-	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute)
+	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute, "")
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to generate playback token")
 	}
@@ -787,7 +787,7 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 		if len(tokens) == 0 || tokens[0] == "" {
 			return nil, status.Error(codes.Unauthenticated, "missing playback token")
 		}
-		if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId); err != nil {
+		if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId, ""); err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid playback token")
 		}
 	} else {

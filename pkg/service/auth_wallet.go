@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"streamgate/pkg/monitoring"
 	stg "streamgate/pkg/storage"
 	"streamgate/pkg/web3"
@@ -153,12 +152,9 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 
 // AuthenticateWithWallet verifies a challenge-based wallet login and issues a JWT.
 // Supports both EVM (secp256k1/EIP-191) and Solana (ed25519) signature verification.
-func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string) (string, error) {
+func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string, chainID int64) (string, error) {
 	if challengeID == "" {
 		return "", ErrInvalidRequest
-	}
-	if _, err := uuid.Parse(challengeID); err != nil {
-		return "", fmt.Errorf("invalid challenge ID format: %w", ErrInvalidRequest)
 	}
 	if signature == "" {
 		return "", ErrInvalidRequest
@@ -187,8 +183,9 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 	if challenge.WalletAddress != normalizedAddress {
 		return "", ErrInvalidCredential
 	}
-	// Fast-fail: skip expensive signature verification for already-used challenges.
-	// The atomic MarkChallengeUsed below provides the definitive TOCTOU-safe check.
+	if challenge.ChainID != 0 && chainID != challenge.ChainID {
+		return "", ErrChainIDMismatch
+	}
 	if !challenge.UsedAt.IsZero() {
 		return "", stg.ErrChallengeUsed
 	}
@@ -297,7 +294,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 }
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
-func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration) (string, error) {
+func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration, clientFingerprint string) (string, error) {
 	_, span := monitoring.StartOTelSpan(ctx, "auth.generate_playback_token",
 		attribute.String("content_id", contentID),
 		attribute.Int64("chain_id", chainID),
@@ -309,13 +306,14 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	}
 
 	claims := &Claims{
-		Username:      walletAddress,
-		WalletAddress: walletAddress,
-		ContentID:     contentID,
-		Contract:      contract,
-		TokenID:       tokenID,
-		ChainID:       chainID,
-		JTI:           generateID(),
+		Username:          walletAddress,
+		WalletAddress:     walletAddress,
+		ContentID:         contentID,
+		Contract:          contract,
+		TokenID:           tokenID,
+		ChainID:           chainID,
+		JTI:               generateID(),
+		ClientFingerprint: clientFingerprint,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -337,7 +335,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 // ValidatePlaybackToken validates a playback token and ensures it matches the
 // requested content. If walletAddress is non-empty, it also verifies that the
 // token was issued to the same wallet, preventing token sharing between users.
-func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID string, walletAddress ...string) (*Claims, error) {
+func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint string, walletAddress ...string) (*Claims, error) {
 	_, span := monitoring.StartOTelSpan(ctx, "auth.validate_playback_token",
 		attribute.String("content_id", contentID),
 	)
@@ -355,6 +353,10 @@ func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, co
 	if len(walletAddress) > 0 && walletAddress[0] != "" && claims.WalletAddress != walletAddress[0] {
 		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
 		return nil, errors.New("playback token wallet mismatch")
+	}
+	if clientFingerprint != "" && claims.ClientFingerprint != clientFingerprint {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		return nil, errors.New("playback token fingerprint mismatch")
 	}
 	monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "success").Inc()
 	return claims, nil

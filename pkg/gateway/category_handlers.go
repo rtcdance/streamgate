@@ -25,7 +25,7 @@ func listCategories(svc *service.CategoryService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cats, err := svc.ListCategories(c.Request.Context())
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"categories": cats})
@@ -52,7 +52,7 @@ func createCategory(svc *service.CategoryService) gin.HandlerFunc {
 		}
 		id, err := svc.CreateCategory(c.Request.Context(), cat)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondCreated(c, gin.H{"id": id, "category": cat})
@@ -102,7 +102,7 @@ func updateCategory(svc *service.CategoryService) gin.HandlerFunc {
 			existing.ParentID = req.ParentID
 		}
 		if err := svc.UpdateCategory(c.Request.Context(), existing); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"category": existing})
@@ -125,7 +125,7 @@ func bindContentCategory(svc *service.CategoryService) gin.HandlerFunc {
 		contentID := c.Param("id")
 		catID := c.Param("catId")
 		if err := svc.BindContent(c.Request.Context(), contentID, catID); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"bound": true})
@@ -137,7 +137,7 @@ func unbindContentCategory(svc *service.CategoryService) gin.HandlerFunc {
 		contentID := c.Param("id")
 		catID := c.Param("catId")
 		if err := svc.UnbindContent(c.Request.Context(), contentID, catID); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"unbound": true})
@@ -161,7 +161,7 @@ func listContentByCategory(svc *service.CategoryService) gin.HandlerFunc {
 		}
 		ids, err := svc.ListContentByCategory(c.Request.Context(), catID, limit, offset)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"content_ids": ids})

@@ -67,7 +67,7 @@ func TestWalletAuth_PersonalSign_FullFlow(t *testing.T) {
 	assert.NotEmpty(t, signature)
 
 	// Step 3: Authenticate with the signed challenge
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -88,19 +88,16 @@ func TestWalletAuth_PersonalSign_FullFlow(t *testing.T) {
 func TestWalletAuth_WrongSignature_Rejected(t *testing.T) {
 	authSvc, _, address := newTestAuthService()
 
-	// Generate a different key for wrong-signature test
 	wrongKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
 	require.NoError(t, err)
 
-	// Sign with the WRONG private key
 	wrongSig, err := signPersonalMessage(challenge.Message, wrongKey)
 	require.NoError(t, err)
 
-	// Authentication should fail
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, wrongSig)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, wrongSig, 1)
 	assert.Error(t, err)
 	assert.Empty(t, token)
 }
@@ -115,12 +112,11 @@ func TestWalletAuth_ChallengeReuse_Rejected(t *testing.T) {
 	require.NoError(t, err)
 
 	// First use should succeed
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	// Second use of same challenge should fail
-	token2, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token2, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	assert.Error(t, err)
 	assert.Empty(t, token2)
 }
@@ -153,7 +149,7 @@ func TestWalletAuth_ExpiredChallenge_Rejected(t *testing.T) {
 	signature, err := signPersonalMessage(challenge.Message, privateKey)
 	require.NoError(t, err)
 
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	assert.Error(t, err)
 	assert.Empty(t, token)
 }
@@ -167,9 +163,8 @@ func TestWalletAuth_WrongAddress_Rejected(t *testing.T) {
 	signature, err := signPersonalMessage(challenge.Message, privateKey)
 	require.NoError(t, err)
 
-	// Use a different address than the one the challenge was issued for
 	wrongAddress := "0x0000000000000000000000000000000000000001"
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), wrongAddress, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), wrongAddress, challenge.ID, signature, 1)
 	assert.Error(t, err)
 	assert.Empty(t, token)
 }
@@ -183,10 +178,9 @@ func TestWalletAuth_TokenRevocation(t *testing.T) {
 	signature, err := signPersonalMessage(challenge.Message, privateKey)
 	require.NoError(t, err)
 
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	require.NoError(t, err)
 
-	// Token should be valid
 	valid, err := authSvc.Verify(token)
 	require.NoError(t, err)
 	assert.True(t, valid)
@@ -216,7 +210,7 @@ func TestWalletAuth_MultipleChallenges(t *testing.T) {
 	sig2, err := signPersonalMessage(ch2.Message, privateKey)
 	require.NoError(t, err)
 
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, ch2.ID, sig2)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, ch2.ID, sig2, 1)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -253,10 +247,9 @@ func TestWalletAuth_FullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Authenticate
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 11155111)
 	require.NoError(t, err)
 
-	// 4. Verify
 	valid, err := authSvc.Verify(token)
 	require.NoError(t, err)
 	assert.True(t, valid)
@@ -280,7 +273,7 @@ func TestWalletAuth_FullLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	sig2, err := signPersonalMessage(ch2.Message, privateKey)
 	require.NoError(t, err)
-	token2, err := authSvc.AuthenticateWithWallet(context.Background(), address, ch2.ID, sig2)
+	token2, err := authSvc.AuthenticateWithWallet(context.Background(), address, ch2.ID, sig2, 11155111)
 	require.NoError(t, err)
 	valid2, err := authSvc.Verify(token2)
 	require.NoError(t, err)
@@ -310,7 +303,7 @@ func BenchmarkWalletAuth_FullFlow(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ch, _ := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
 		sig, _ := signPersonalMessage(ch.Message, privateKey)
-		token, _ := authSvc.AuthenticateWithWallet(context.Background(), address, ch.ID, sig)
+		token, _ := authSvc.AuthenticateWithWallet(context.Background(), address, ch.ID, sig, 1)
 		if token == "" {
 			b.Fatal("expected non-empty token")
 		}
@@ -343,7 +336,7 @@ func Example_fullWalletAuth() {
 	signature, _ := sv.SignMessage(challenge.Message, privateKey)
 
 	// 4. Server-side: verify and issue JWT
-	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature)
+	token, err := authSvc.AuthenticateWithWallet(context.Background(), address, challenge.ID, signature, 1)
 	if err != nil {
 		fmt.Println("auth failed:", err)
 		return

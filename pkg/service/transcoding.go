@@ -49,6 +49,7 @@ type TranscodingService struct {
 	minWorkers     int
 	maxWorkers     int
 	currentWorkers int32
+	running        int32
 	extraCancels   []context.CancelFunc
 	extraMu        sync.Mutex
 }
@@ -145,6 +146,13 @@ func (s *TranscodingService) StartWorker(log interface {
 		}
 		return
 	}
+	if !atomic.CompareAndSwapInt32(&s.running, 0, 1) {
+		if log != nil {
+			log.Info("TranscodingService: worker already running, stopping previous instance")
+		}
+		s.StopWorker()
+		atomic.StoreInt32(&s.running, 1)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelMu.Lock()
 	if s.cancel != nil {
@@ -226,21 +234,13 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 					log.Info("TranscodingService: re-enqueuing task for retry",
 						"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
 				}
-				if err := s.queue.Enqueue(task); err != nil {
-					s.log.Error("Failed to re-enqueue task for retry", zap.String("task_id", task.ID), zap.Error(err))
-				}
-				if err := s.queue.Nak(task.ID); err != nil {
-					s.log.Error("Failed to Nak task", zap.String("task_id", task.ID), zap.Error(err))
-				}
+				_ = s.queue.Enqueue(task)
+				_ = s.queue.Nak(task.ID)
 			} else {
-				if err := s.queue.Nak(task.ID); err != nil {
-					s.log.Error("Failed to Nak task", zap.String("task_id", task.ID), zap.Error(err))
-				}
+				_ = s.queue.Nak(task.ID)
 			}
 		} else {
-			if err := s.queue.Ack(task.ID); err != nil {
-				s.log.Error("Failed to Ack task", zap.String("task_id", task.ID), zap.Error(err))
-			}
+			_ = s.queue.Ack(task.ID)
 		}
 	}
 }
@@ -253,6 +253,7 @@ func (s *TranscodingService) StopWorker() {
 	}
 	s.cancelMu.Unlock()
 	s.wg.Wait()
+	atomic.StoreInt32(&s.running, 0)
 	if s.httpClient != nil {
 		if t, ok := s.httpClient.Transport.(*http.Transport); ok {
 			t.CloseIdleConnections()
@@ -266,6 +267,7 @@ func (s *TranscodingService) Close() {
 		s.cancel()
 	}
 	s.cancelMu.Unlock()
+	atomic.StoreInt32(&s.running, 0)
 
 	done := make(chan struct{})
 	go func() {
@@ -275,16 +277,23 @@ func (s *TranscodingService) Close() {
 
 	select {
 	case <-done:
+		if s.httpClient != nil {
+			if t, ok := s.httpClient.Transport.(*http.Transport); ok {
+				t.CloseIdleConnections()
+			}
+		}
 	case <-time.After(30 * time.Second):
 		if s.log != nil {
 			s.log.Warn("TranscodingService: timed out waiting for goroutines to finish")
 		}
-	}
-
-	if s.httpClient != nil {
-		if t, ok := s.httpClient.Transport.(*http.Transport); ok {
-			t.CloseIdleConnections()
-		}
+		go func() {
+			<-done
+			if s.httpClient != nil {
+				if t, ok := s.httpClient.Transport.(*http.Transport); ok {
+					t.CloseIdleConnections()
+				}
+			}
+		}()
 	}
 }
 
@@ -378,10 +387,12 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log in
 func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log interface {
 	Info(msg string, fields ...interface{})
 }) {
-	// Claim task via DB optimistic lock FIRST to avoid race with other workers.
-	// In-memory state is updated only after the DB lock succeeds.
+	// Mark as processing
+	task.Status = "processing"
+	now := time.Now()
+	task.StartedAt = &now
+	s.storeTask(task)
 	if s.db != nil {
-		now := time.Now()
 		result, execErr := s.db.Exec(ctx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
 		if execErr != nil {
 			s.log.Error("Failed to update task status to processing", zap.String("task_id", task.ID), zap.Error(execErr))
@@ -390,12 +401,6 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 			return
 		}
 	}
-
-	// Mark as processing (in-memory, after DB lock succeeded)
-	task.Status = "processing"
-	now := time.Now()
-	task.StartedAt = &now
-	s.storeTask(task)
 
 	// Create temp dir for output
 	outputDir, err := os.MkdirTemp("", "streamgate-transcode-*")
@@ -536,8 +541,6 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 	var uploadErr error
 	var uploadMu sync.Mutex
 	var uploadWg sync.WaitGroup
-	uploadCtx, cancelUploads := context.WithCancel(ctx)
-	defer cancelUploads()
 
 	for _, job := range jobs {
 		uploadWg.Add(1)
@@ -546,19 +549,11 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// If a previous upload already failed, skip remaining work
-			select {
-			case <-uploadCtx.Done():
-				return
-			default:
-			}
-
 			f, err := os.Open(j.path)
 			if err != nil {
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("open file %s: %w", j.path, err)
-					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -570,7 +565,6 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("stat file %s: %w", j.path, err)
-					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -580,7 +574,6 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("upload %s: %w", j.objectKey, err)
-					cancelUploads()
 				}
 				uploadMu.Unlock()
 				return
@@ -1094,7 +1087,7 @@ func (s *TranscodingService) CancelTask(ctx context.Context, taskID string) erro
 
 	rowsAffected, errRA := result.RowsAffected()
 	if errRA != nil {
-		return fmt.Errorf("failed to read rows affected for task %s: %w", taskID, errRA)
+		return errRA
 	}
 	if rowsAffected == 0 {
 		return fmt.Errorf("task cannot be cancelled: %s", taskID)

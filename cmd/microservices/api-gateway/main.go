@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/logger"
 	"streamgate/pkg/gateway"
@@ -18,20 +17,17 @@ import (
 	"go.uber.org/zap"
 )
 
-var Version = "0.0.0-dev"
-
 func main() {
 	log := logger.NewDevelopmentLogger("streamgate-api-gateway")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate API Gateway Service...", zap.String("version", Version))
+	log.Info("Starting StreamGate API Gateway Service...")
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
-	cfg.Version = Version
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "api-gateway"
 	grpcPort := cfg.GRPC.Port
@@ -100,9 +96,6 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigChan
 	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
-
-	core.SetDraining()
-	log.Info("Drain state activated, rejecting new requests")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

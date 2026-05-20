@@ -42,9 +42,9 @@ type solanaEndpointState struct {
 
 // SolanaMultiClient provides multi-endpoint failover for Solana RPC calls.
 type SolanaMultiClient struct {
-	mu         sync.RWMutex
-	logger     *zap.Logger
-	endpoints  []*solanaEndpointState
+	mu        sync.RWMutex
+	logger    *zap.Logger
+	endpoints []*solanaEndpointState
 }
 
 // NewSolanaMultiClient creates a client with multiple Solana RPC endpoints.

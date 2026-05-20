@@ -18,20 +18,13 @@ var (
 		},
 		[]string{"method", "route", "status"},
 	)
-	HTTPRequestErrorsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "streamgate_http_errors_total",
-			Help: "Total number of HTTP 5xx errors by route",
-		},
-		[]string{"method", "route"},
-	)
 	ServiceRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "streamgate_service_request_duration_ms",
 			Help:    "Service request duration in milliseconds",
-			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
+			Buckets: prometheus.DefBuckets,
 		},
-		[]string{"service", "status"},
+		[]string{"service"},
 	)
 	HealthCheckTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -55,29 +48,6 @@ var (
 		},
 		[]string{"operation", "rpc_provider"},
 	)
-	// AuthAttemptsTotal tracks wallet login attempts by result (success/failure).
-	AuthAttemptsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "streamgate_auth_attempts_total",
-			Help: "Total wallet login attempts",
-		},
-		[]string{"result", "method"}, // result: success, failure; method: eip191, eip712, siwe, solana
-	)
-	// TokenBlacklistHitsTotal tracks token revocation checks that found a match.
-	TokenBlacklistHitsTotal = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "streamgate_token_blacklist_hits_total",
-			Help: "Total number of revoked token detections",
-		},
-	)
-	// NFTVerifyDuration tracks NFT verification latency in seconds.
-	NFTVerifyDuration = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "streamgate_nft_verify_latency_seconds",
-			Help:    "NFT verification RPC latency in seconds",
-			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
-		},
-	)
 )
 
 func init() {
@@ -91,14 +61,10 @@ func init() {
 		}
 	}
 	register(HTTPRequestsTotal)
-	register(HTTPRequestErrorsTotal)
 	register(ServiceRequestDuration)
 	register(HealthCheckTotal)
 	register(RPCFailoverTotal)
 	register(RPCLatencySeconds)
-	register(AuthAttemptsTotal)
-	register(TokenBlacklistHitsTotal)
-	register(NFTVerifyDuration)
 }
 
 // RPCProviderFromURL extracts a stable provider identifier from an RPC URL.
