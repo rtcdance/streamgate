@@ -416,18 +416,19 @@ func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
 		}
 	}
 
-	// Delete from database
-	result, err := s.db.Exec(ctx, "DELETE FROM contents WHERE id = $1", id)
+	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1", id)
+		if err != nil {
+			return fmt.Errorf("delete content: %w", err)
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			return fmt.Errorf("content not found: %s", id)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to delete content: %w", err)
-	}
-
-	rowsAffected, errRA := result.RowsAffected()
-	if errRA != nil {
-		return errRA
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("content not found: %s", id)
+		return err
 	}
 
 	// Invalidate cache
@@ -438,6 +439,76 @@ func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+func (s *ContentService) ListContentsWithCount(ctx context.Context, ownerID string, limit, offset int) ([]*Content, int, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not available")
+	}
+	query := `
+		SELECT COUNT(*) OVER() AS total_count,
+		       id, title, description, type, url, thumbnail_url,
+		       duration, size, status, owner_id, created_at, updated_at, metadata
+		FROM contents
+		WHERE owner_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := s.db.Query(ctx, query, ownerID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query contents: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	contents := make([]*Content, 0)
+	var totalCount int
+	for rows.Next() {
+		var content Content
+		var metadataJSON []byte
+		var desc, url, thumbURL, status, ownerIDVal sql.NullString
+		var duration sql.NullInt64
+		var size sql.NullInt64
+
+		err := rows.Scan(
+			&totalCount,
+			&content.ID,
+			&content.Title,
+			&desc,
+			&content.Type,
+			&url,
+			&thumbURL,
+			&duration,
+			&size,
+			&status,
+			&ownerIDVal,
+			&content.CreatedAt,
+			&content.UpdatedAt,
+			&metadataJSON,
+		)
+
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan content: %w", err)
+		}
+
+		content.Description = desc.String
+		content.URL = url.String
+		content.ThumbnailURL = thumbURL.String
+		content.Duration = int(duration.Int64)
+		content.Size = size.Int64
+		content.Status = status.String
+		content.OwnerID = ownerIDVal.String
+
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &content.Metadata); err != nil {
+				return nil, 0, fmt.Errorf("failed to parse metadata: %w", err)
+			}
+		}
+
+		contents = append(contents, &content)
+	}
+
+	return contents, totalCount, nil
 }
 
 // ListContents lists contents with pagination

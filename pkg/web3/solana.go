@@ -7,72 +7,78 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"go.uber.org/zap"
 )
 
-// SolanaVerifier handles Solana signature verification
 type SolanaVerifier struct {
 	logger     *zap.Logger
-	rpcURL     string
-	rpcClient  *rpc.Client
-	rpcMulti   *SolanaMultiClient // multi-endpoint failover client
+	rpcURLs    []string
+	clients    []*rpc.Client
+	currentIdx atomic.Uint32
 }
 
-// NewSolanaVerifier creates a new Solana verifier.
-// Accepts one or more RPC endpoints for automatic failover.
 func NewSolanaVerifier(logger *zap.Logger, rpcEndpoint ...string) *SolanaVerifier {
-	var rpcURL string
-	var endpoints []string
-	if len(rpcEndpoint) > 0 {
-		rpcURL = rpcEndpoint[0]
-		endpoints = rpcEndpoint
+	urls := rpcEndpoint
+	if len(urls) == 0 {
+		urls = []string{}
 	}
-	var client *rpc.Client
-	var multi *SolanaMultiClient
-	if rpcURL != "" {
-		client = rpc.New(rpcURL)
-	}
-	if len(endpoints) > 0 {
-		var err error
-		multi, err = NewSolanaMultiClient(logger, endpoints)
-		if err != nil {
-			logger.Warn("Failed to create Solana multi-endpoint client, using single endpoint",
-				zap.Error(err))
+	clients := make([]*rpc.Client, 0, len(urls))
+	for _, u := range urls {
+		if u != "" {
+			clients = append(clients, rpc.New(u))
 		}
 	}
 	return &SolanaVerifier{
-		logger:    logger,
-		rpcURL:    rpcURL,
-		rpcClient: client,
-		rpcMulti:  multi,
+		logger:  logger,
+		rpcURLs: urls,
+		clients: clients,
 	}
+}
+
+func (sv *SolanaVerifier) getRPCClient() *rpc.Client {
+	if len(sv.clients) == 0 {
+		return nil
+	}
+	idx := sv.currentIdx.Load() % uint32(len(sv.clients))
+	return sv.clients[idx]
+}
+
+func (sv *SolanaVerifier) switchToNextRPC() {
+	if len(sv.clients) <= 1 {
+		return
+	}
+	newIdx := sv.currentIdx.Add(1) % uint32(len(sv.clients))
+	sv.logger.Warn("Switching Solana RPC endpoint",
+		zap.Int("new_index", int(newIdx)),
+		zap.Int("total_endpoints", len(sv.clients)))
+}
+
+func (sv *SolanaVerifier) withRPCClient(fn func(*rpc.Client) error) error {
+	if len(sv.clients) == 0 {
+		return fmt.Errorf("solana RPC client not configured")
+	}
+	startIdx := sv.currentIdx.Load() % uint32(len(sv.clients))
+	for i := 0; i < len(sv.clients); i++ {
+		idx := (startIdx + uint32(i)) % uint32(len(sv.clients))
+		client := sv.clients[idx]
+		err := fn(client)
+		if err == nil {
+			return nil
+		}
+		sv.logger.Warn("Solana RPC call failed, trying next endpoint",
+			zap.Int("endpoint_index", int(idx)),
+			zap.Error(err))
+		sv.switchToNextRPC()
+	}
+	return fmt.Errorf("all %d Solana RPC endpoints failed", len(sv.clients))
 }
 
 // Close releases resources held by the verifier.
 func (sv *SolanaVerifier) Close() {}
-
-// getClient returns a healthy RPC client using multi-endpoint failover.
-// Falls back to the single rpcClient if multi-endpoint is not available.
-func (sv *SolanaVerifier) getClient(ctx context.Context) (*rpc.Client, error) {
-	if sv.rpcMulti != nil {
-		client, err := sv.rpcMulti.GetClient(ctx)
-		if err != nil {
-			// Fall back to single client if multi-endpoint fails
-			if sv.rpcClient != nil {
-				return sv.rpcClient, nil
-			}
-			return nil, err
-		}
-		return client, nil
-	}
-	if sv.rpcClient != nil {
-		return sv.rpcClient, nil
-	}
-	return nil, fmt.Errorf("solana RPC client not configured")
-}
 
 // VerifySignature verifies a Solana signature
 func (sv *SolanaVerifier) VerifySignature(address, message, signature string) (bool, error) {
@@ -103,7 +109,7 @@ func (sv *SolanaVerifier) VerifySignature(address, message, signature string) (b
 	// Decode message
 	messageBytes, err := base64.StdEncoding.DecodeString(message)
 	if err != nil {
-		messageBytes = []byte(message)
+		return false, fmt.Errorf("failed to decode message: %w", err)
 	}
 
 	// Verify signature
@@ -281,25 +287,33 @@ func (sv *SolanaVerifier) VerifyMetaplexNFTOwnership(ctx context.Context, mintAd
 		zap.String("mint", mintAddress),
 		zap.String("owner", ownerAddress))
 
-	client, err := sv.getClient(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	verifier := NewMetaplexVerifier(client, sv.logger, nil)
-	return verifier.VerifyNFTOwnership(ctx, mintAddress, ownerAddress)
+	var result bool
+	err := sv.withRPCClient(func(client *rpc.Client) error {
+		verifier := NewMetaplexVerifier(client, sv.logger, nil)
+		verified, e := verifier.VerifyNFTOwnership(ctx, mintAddress, ownerAddress)
+		if e != nil {
+			return e
+		}
+		result = verified
+		return nil
+	})
+	return result, err
 }
 
 func (sv *SolanaVerifier) FetchMetaplexMetadata(ctx context.Context, mintAddress string) (*MetaplexMetadata, error) {
 	sv.logger.Debug("Fetching Metaplex metadata", zap.String("mint", mintAddress))
 
-	client, err := sv.getClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	verifier := NewMetaplexVerifier(client, sv.logger, nil)
-	return verifier.GetMetadata(ctx, mintAddress)
+	var result *MetaplexMetadata
+	err := sv.withRPCClient(func(client *rpc.Client) error {
+		verifier := NewMetaplexVerifier(client, sv.logger, nil)
+		meta, e := verifier.GetMetadata(ctx, mintAddress)
+		if e != nil {
+			return e
+		}
+		result = meta
+		return nil
+	})
+	return result, err
 }
 
 // VerifyTokenAccount verifies token account ownership by querying the Solana RPC.
@@ -308,31 +322,32 @@ func (sv *SolanaVerifier) VerifyTokenAccount(ctx context.Context, tokenAccount, 
 		zap.String("token_account", tokenAccount),
 		zap.String("owner", ownerAddress))
 
-	client, err := sv.getClient(ctx)
-	if err != nil {
-		return false, err
-	}
+	var result bool
+	err := sv.withRPCClient(func(client *rpc.Client) error {
+		accountInfo, e := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(tokenAccount))
+		if e != nil {
+			return fmt.Errorf("failed to get token account info: %w", e)
+		}
+		if accountInfo == nil || accountInfo.Value == nil {
+			result = false
+			return nil
+		}
 
-	accountInfo, err := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(tokenAccount))
-	if err != nil {
-		return false, fmt.Errorf("failed to get token account info: %w", err)
-	}
-	if accountInfo == nil || accountInfo.Value == nil {
-		return false, nil
-	}
+		data := accountInfo.Value.Data.GetBinary()
+		if len(data) < 64 {
+			return fmt.Errorf("token account data too short")
+		}
 
-	data := accountInfo.Value.Data.GetBinary()
-	if len(data) < 64 {
-		return false, fmt.Errorf("token account data too short")
-	}
+		actualOwner := solana.PublicKeyFromBytes(data[32:64])
+		expectedOwner, e := solana.PublicKeyFromBase58(ownerAddress)
+		if e != nil {
+			return fmt.Errorf("invalid owner address: %w", e)
+		}
 
-	actualOwner := solana.PublicKeyFromBytes(data[32:64])
-	expectedOwner, err := solana.PublicKeyFromBase58(ownerAddress)
-	if err != nil {
-		return false, fmt.Errorf("invalid owner address: %w", err)
-	}
-
-	return actualOwner.Equals(expectedOwner), nil
+		result = actualOwner.Equals(expectedOwner)
+		return nil
+	})
+	return result, err
 }
 
 // VerifyMintAuthority verifies mint authority by querying the Solana RPC.
@@ -341,36 +356,38 @@ func (sv *SolanaVerifier) VerifyMintAuthority(ctx context.Context, mintAddress, 
 		zap.String("mint", mintAddress),
 		zap.String("authority", authorityAddress))
 
-	client, err := sv.getClient(ctx)
-	if err != nil {
-		return false, err
-	}
+	var result bool
+	err := sv.withRPCClient(func(client *rpc.Client) error {
+		accountInfo, e := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(mintAddress))
+		if e != nil {
+			return fmt.Errorf("failed to get mint account info: %w", e)
+		}
+		if accountInfo == nil || accountInfo.Value == nil {
+			result = false
+			return nil
+		}
 
-	accountInfo, err := client.GetAccountInfo(ctx, solana.MustPublicKeyFromBase58(mintAddress))
-	if err != nil {
-		return false, fmt.Errorf("failed to get mint account info: %w", err)
-	}
-	if accountInfo == nil || accountInfo.Value == nil {
-		return false, nil
-	}
+		data := accountInfo.Value.Data.GetBinary()
+		if len(data) < 36 {
+			return fmt.Errorf("mint account data too short")
+		}
 
-	data := accountInfo.Value.Data.GetBinary()
-	if len(data) < 36 {
-		return false, fmt.Errorf("mint account data too short")
-	}
+		mintAuthorityOpt := data[0:36]
+		if mintAuthorityOpt[0] == 0 {
+			result = false
+			return nil
+		}
 
-	mintAuthorityOpt := data[0:36]
-	if mintAuthorityOpt[0] == 0 {
-		return false, nil
-	}
+		mintAuthority := solana.PublicKeyFromBytes(mintAuthorityOpt[4:36])
+		expectedAuthority, e := solana.PublicKeyFromBase58(authorityAddress)
+		if e != nil {
+			return fmt.Errorf("invalid authority address: %w", e)
+		}
 
-	mintAuthority := solana.PublicKeyFromBytes(mintAuthorityOpt[4:36])
-	expectedAuthority, err := solana.PublicKeyFromBase58(authorityAddress)
-	if err != nil {
-		return false, fmt.Errorf("invalid authority address: %w", err)
-	}
-
-	return mintAuthority.Equals(expectedAuthority), nil
+		result = mintAuthority.Equals(expectedAuthority)
+		return nil
+	})
+	return result, err
 }
 
 // ParseSolanaAddress parses and validates a Solana address

@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -89,8 +88,7 @@ func (v *JWTVerifier) keyFunc(token *jwt.Token) (interface{}, error) {
 
 // AuthService handles authentication
 type AuthService struct {
-	jwtSecret         []byte   // current signing key
-	previousSecrets   [][]byte // previous keys (verify only, not sign)
+	jwtSecret         []byte
 	privateKey        *rsa.PrivateKey
 	publicKey         *rsa.PublicKey
 	signingType       JWTSigningType
@@ -160,13 +158,14 @@ type AuthStorage interface {
 
 // Claims represents JWT claims
 type Claims struct {
-	Username      string `json:"username"`
-	WalletAddress string `json:"wallet_address,omitempty"`
-	ContentID     string `json:"content_id,omitempty"`
-	Contract      string `json:"contract,omitempty"`
-	TokenID       string `json:"token_id,omitempty"`
-	ChainID       int64  `json:"chain_id,omitempty"`
-	JTI           string `json:"jti,omitempty"`
+	Username          string `json:"username"`
+	WalletAddress     string `json:"wallet_address,omitempty"`
+	ContentID         string `json:"content_id,omitempty"`
+	Contract          string `json:"contract,omitempty"`
+	TokenID           string `json:"token_id,omitempty"`
+	ChainID           int64  `json:"chain_id,omitempty"`
+	JTI               string `json:"jti,omitempty"`
+	ClientFingerprint string `json:"client_fingerprint,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -192,24 +191,11 @@ func (errSigVerifier) VerifySignature(_ context.Context, _, _, _ string) (bool, 
 }
 
 func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOption) *AuthService {
-	// Support key rotation: comma-separated secrets, the first is the signing key,
-	// the rest are previous keys that only verify existing tokens.
-	secrets := strings.Split(jwtSecret, ",")
-	currentSecret := strings.TrimSpace(secrets[0])
-	if len(currentSecret) < 32 {
+	if len(jwtSecret) < 32 {
 		panic("jwtSecret must be at least 32 characters for HS256 security")
 	}
-	var prev [][]byte
-	for _, s := range secrets[1:] {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			prev = append(prev, []byte(s))
-		}
-	}
-
 	s := &AuthService{
-		jwtSecret:         []byte(currentSecret),
-		previousSecrets:   prev,
+		jwtSecret:         []byte(jwtSecret),
 		storage:           storage,
 		signatureVerifier: errSigVerifier{},
 		challengeStore:    stg.NewMemoryChallengeStore(),
@@ -302,43 +288,36 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
+	claims := &Claims{}
 	validMethods := []string{"HS256"}
 	if s.signingType == JWTRS256 {
 		validMethods = []string{"RS256"}
 	}
 
-	// For RS256, only one key pair is used
-	if s.signingType == JWTRS256 {
-		claims := &Claims{}
-		_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		switch s.signingType {
+		case JWTRS256:
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
 			return s.publicKey, nil
-		}, jwt.WithValidMethods(validMethods))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse token: %w", err)
+		default:
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return s.jwtSecret, nil
 		}
-		return claims, nil
+	}, jwt.WithValidMethods(validMethods))
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	// For HS256, try current key first, then previous keys for rotation support
-	secrets := append([][]byte{s.jwtSecret}, s.previousSecrets...)
-	var lastErr error
-	for _, secret := range secrets {
-		claims := &Claims{}
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return secret, nil
-		}, jwt.WithValidMethods(validMethods))
-		if err == nil && token.Valid {
-			return claims, nil
-		}
-		lastErr = err
+	if !token.Valid {
+		return nil, ErrInvalidToken
 	}
-	return nil, fmt.Errorf("token not valid with any known signing key: %w", lastErr)
+
+	return claims, nil
 }
 
 func (s *AuthService) signToken(claims *Claims) (string, error) {
@@ -451,7 +430,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 	newClaims := &Claims{
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
+		JTI:          generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        generateID(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),

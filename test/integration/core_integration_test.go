@@ -54,7 +54,7 @@ func TestConfigManagerIntegration(t *testing.T) {
 	logger := zap.NewNop()
 
 	t.Run("ConfigLoadAndSave", func(t *testing.T) {
-		manager := config.NewConfigManager(t.TempDir()+"/test-config.json", logger)
+		manager := config.NewConfigManager("/tmp/test-config.json", logger)
 
 		configData := config.DefaultConfig()
 		configData.Server.Port = 9090
@@ -65,13 +65,16 @@ func TestConfigManagerIntegration(t *testing.T) {
 		err = manager.Save()
 		require.NoError(t, err)
 
-		// Load uses Viper (YAML+env), so we verify via Update/Get instead
-		loadedConfig := manager.Get()
+		newManager := config.NewConfigManager("/tmp/test-config.json", logger)
+		err = newManager.Load()
+		require.NoError(t, err)
+
+		loadedConfig := newManager.Get()
 		assert.Equal(t, 9090, loadedConfig.Server.Port)
 	})
 
 	t.Run("ConfigUpdate", func(t *testing.T) {
-		manager := config.NewConfigManager(t.TempDir()+"/test-config-update.json", logger)
+		manager := config.NewConfigManager("/tmp/test-config-update.json", logger)
 
 		configData := config.DefaultConfig()
 		err := manager.Update(configData)
@@ -97,7 +100,7 @@ func TestConfigManagerIntegration(t *testing.T) {
 	})
 
 	t.Run("ConfigValidation", func(t *testing.T) {
-		manager := config.NewConfigManager(t.TempDir()+"/test-config-validate.json", logger)
+		manager := config.NewConfigManager("/tmp/test-config-validate.json", logger)
 
 		configData := config.DefaultConfig()
 		err := manager.Update(configData)

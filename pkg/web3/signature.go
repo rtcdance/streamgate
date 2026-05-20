@@ -26,10 +26,10 @@ import (
 //
 // ## Security Notes
 //
-// - ConstantTimeCompare (line 77) prevents timing side-channel attacks.
-// - If EOA recovery fails and an EIP-1271 checker is configured, the verifier
-//   falls back to smart contract wallet verification (e.g., Gnosis Safe).
-// - This does NOT support EIP-712 typed data signing (use VerifyTypedData).
+//   - ConstantTimeCompare (line 77) prevents timing side-channel attacks.
+//   - If EOA recovery fails and an EIP-1271 checker is configured, the verifier
+//     falls back to smart contract wallet verification (e.g., Gnosis Safe).
+//   - This does NOT support EIP-712 typed data signing (use VerifyTypedData).
 type SignatureVerifier struct {
 	logger  *zap.Logger
 	eip1271 *EIP1271Checker // optional: for smart contract wallet verification

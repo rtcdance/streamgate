@@ -64,6 +64,9 @@ func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache
 	} else {
 		l = zap.NewNop()
 	}
+	if db == nil {
+		l.Warn("StreamingService created without database, all DB operations will return errors")
+	}
 	return &StreamingService{
 		db:       db,
 		objStore: objStorage,
@@ -74,6 +77,13 @@ func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache
 }
 
 func (s *StreamingService) Close() {
+}
+
+func (s *StreamingService) checkDB() error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	return nil
 }
 
 // GetStream gets stream information
@@ -96,7 +106,7 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 	}
 
 	v, err, _ := s.sf.Do(cacheKey, func() (interface{}, error) {
-		if s.db == nil {
+		if err := s.checkDB(); err != nil {
 			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, ErrNotFound)
 		}
 
@@ -160,8 +170,8 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 
 // CreateStream creates a new stream
 func (s *StreamingService) CreateStream(ctx context.Context, contentID, streamType string) (string, error) {
-	if s.db == nil {
-		return "", fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return "", err
 	}
 	// Generate stream ID
 	streamID := fmt.Sprintf("stream_%s_%d", contentID, time.Now().Unix())
@@ -323,8 +333,8 @@ func isValidStreamTransition(from, to string) bool {
 }
 
 func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, status string) error {
-	if s.db == nil {
-		return fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return err
 	}
 
 	var currentStatus, contentID string
@@ -356,8 +366,8 @@ func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, sta
 
 // UpdateStreamPlaylist updates stream playlist
 func (s *StreamingService) UpdateStreamPlaylist(ctx context.Context, streamID, playlist string) error {
-	if s.db == nil {
-		return fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return err
 	}
 	url := fmt.Sprintf("%s/streams/%s/playlist.m3u8", s.baseURL, streamID)
 	query := "UPDATE streams SET playlist = $2, url = $3 WHERE id = $1 RETURNING content_id"
@@ -378,8 +388,8 @@ func (s *StreamingService) UpdateStreamPlaylist(ctx context.Context, streamID, p
 
 // AddStreamQuality adds a quality variant to a stream
 func (s *StreamingService) AddStreamQuality(ctx context.Context, streamID string, quality Quality) error {
-	if s.db == nil {
-		return fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return err
 	}
 
 	query := `
@@ -406,8 +416,8 @@ func (s *StreamingService) AddStreamQuality(ctx context.Context, streamID string
 
 // getStreamQualities gets all quality variants for a stream
 func (s *StreamingService) getStreamQualities(ctx context.Context, streamID string) ([]Quality, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return nil, err
 	}
 	query := `
 		SELECT name, resolution, bitrate, url
@@ -437,25 +447,21 @@ func (s *StreamingService) getStreamQualities(ctx context.Context, streamID stri
 
 // DeleteStream deletes a stream
 func (s *StreamingService) DeleteStream(ctx context.Context, streamID string) error {
-	if s.db == nil {
-		return fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return err
 	}
 
-	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM stream_qualities WHERE stream_id = $1", streamID); err != nil {
-			return fmt.Errorf("failed to delete stream qualities: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM streams WHERE id = $1", streamID); err != nil {
-			return fmt.Errorf("failed to delete stream: %w", err)
-		}
-		return nil
-	})
+	_, err := s.db.Exec(ctx, "DELETE FROM streams WHERE id = $1", streamID)
+	if err != nil {
+		return fmt.Errorf("failed to delete stream: %w", err)
+	}
+	return nil
 }
 
 // GetStreamByID gets stream by ID
 func (s *StreamingService) GetStreamByID(ctx context.Context, streamID string) (*StreamInfo, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not available")
+	if err := s.checkDB(); err != nil {
+		return nil, err
 	}
 	query := `
 		SELECT id, content_id, type, url, playlist, duration, status, created_at, expires_at

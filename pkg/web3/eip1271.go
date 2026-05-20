@@ -3,6 +3,7 @@ package web3
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -51,6 +52,9 @@ func (c *EIP1271Checker) IsValidSignature(ctx context.Context, contractAddress s
 	}
 
 	// Call the contract
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	result, err := c.caller.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,
 		Data: data,

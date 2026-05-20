@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
@@ -110,12 +109,6 @@ func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error
 		eventBus, err = event.NewMemoryEventBus()
 	} else {
 		eventBus, err = event.NewNATSEventBus(cfg.NATS.URL, logger)
-		if err != nil {
-			logger.Warn("NATS unavailable, falling back to in-memory event bus (inter-service events will be lost)",
-				zap.String("nats_url", cfg.NATS.URL),
-				zap.Error(err))
-			eventBus, err = event.NewMemoryEventBus()
-		}
 	}
 
 	if err != nil {
@@ -155,10 +148,6 @@ func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error
 func (m *Microkernel) RegisterPlugin(plugin Plugin) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if m.started {
-		return fmt.Errorf("cannot register plugin %q after microkernel has started", plugin.Name())
-	}
 
 	if _, exists := m.plugins[plugin.Name()]; exists {
 		return fmt.Errorf("plugin %s already registered", plugin.Name())
@@ -268,11 +257,11 @@ func (m *Microkernel) Start(ctx context.Context) error {
 			Port:    m.config.Server.Port,
 			Tags:    []string{"v1", "microservice"},
 			Metadata: map[string]string{
-				"version": m.config.Version,
+				"version": "1.0.0",
 				"mode":    "microservice",
 			},
 			Check: &service.HealthCheck{
-				HTTP:     fmt.Sprintf("http://%s:%d/health", address, m.config.Server.Port),
+				HTTP:     fmt.Sprintf("http://localhost:%d/health", m.config.Server.Port),
 				Interval: "10s",
 				Timeout:  "5s",
 			},
@@ -337,23 +326,6 @@ func (m *Microkernel) Start(ctx context.Context) error {
 	return nil
 }
 
-// closeWithContext runs closeFn in a goroutine, respecting ctx cancellation.
-// This prevents Shutdown from hanging indefinitely on unresponsive resources.
-func closeWithContext(ctx context.Context, name string, closeFn func() error, logger *zap.Logger) {
-	done := make(chan struct{}, 1)
-	go func() {
-		if err := closeFn(); err != nil {
-			logger.Error("Error during "+name, zap.Error(err))
-		}
-		done <- struct{}{}
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		logger.Warn("Shutdown timed out for "+name, zap.Error(ctx.Err()))
-	}
-}
-
 // Shutdown gracefully shuts down the microkernel and all plugins
 func (m *Microkernel) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
@@ -378,55 +350,41 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	for i := len(orderedPlugins) - 1; i >= 0; i-- {
 		plugin := orderedPlugins[i]
-		done := make(chan struct{}, 1)
-		go func(p Plugin) {
-			if err := p.Stop(ctx); err != nil {
-				m.logger.Error("Error stopping plugin",
-					zap.String("name", p.Name()),
-					zap.Error(err))
-			} else {
-				m.logger.Info("Plugin stopped", zap.String("name", p.Name()))
-			}
-			done <- struct{}{}
-		}(plugin)
-		select {
-		case <-done:
-		case <-ctx.Done():
-			m.logger.Warn("Plugin stop timed out",
+		if err := plugin.Stop(ctx); err != nil {
+			m.logger.Error("Error stopping plugin",
 				zap.String("name", plugin.Name()),
-				zap.Error(ctx.Err()))
+				zap.Error(err))
+		} else {
+			m.logger.Info("Plugin stopped", zap.String("name", plugin.Name()))
 		}
 	}
 
 	// Deregister service if in microservice mode
 	if m.registry != nil && m.config.Mode == "microservice" {
 		serviceID := fmt.Sprintf("%s-%d", m.config.ServiceName, m.config.Server.Port)
-		closeWithContext(ctx, "service deregistration", func() error {
-			return m.registry.Deregister(context.Background(), serviceID)
-		}, m.logger)
+		if err := m.registry.Deregister(ctx, serviceID); err != nil {
+			m.logger.Error("Error deregistering service", zap.Error(err))
+		}
 	}
 
-	// Close client pool with timeout protection
-	closeWithContext(ctx, "client pool close", func() error {
-		if m.clientPool != nil {
-			return m.clientPool.Close()
+	// Close client pool
+	if m.clientPool != nil {
+		if err := m.clientPool.Close(); err != nil {
+			m.logger.Error("Error closing client pool", zap.Error(err))
 		}
-		return nil
-	}, m.logger)
+	}
 
-	// Close event bus with timeout protection
-	closeWithContext(ctx, "event bus close", func() error {
-		return m.eventBus.Close()
-	}, m.logger)
+	// Close event bus
+	if err := m.eventBus.Close(); err != nil {
+		m.logger.Error("Error closing event bus", zap.Error(err))
+	}
 
 	m.cancel()
 	m.logger.Info("Microkernel shutdown complete")
 	return nil
 }
 
-// Health checks the health of the microkernel and all plugins.
-// Each plugin health check has a 5-second timeout. If a plugin
-// health check hangs, the remaining plugins are still checked.
+// Health checks the health of the microkernel and all plugins
 func (m *Microkernel) Health(ctx context.Context) error {
 	m.mu.RLock()
 	plugins := make([]Plugin, 0, len(m.plugins))
@@ -435,36 +393,14 @@ func (m *Microkernel) Health(ctx context.Context) error {
 	}
 	m.mu.RUnlock()
 
-	var firstErr error
 	for _, plugin := range plugins {
-		func(p Plugin) {
-			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-
-			done := make(chan error, 1)
-			go func() {
-				done <- p.Health(checkCtx)
-			}()
-
-			select {
-			case err := <-done:
-				if err != nil {
-					m.logger.Error("Plugin health check failed",
-						zap.String("name", p.Name()),
-						zap.Error(err))
-					if firstErr == nil {
-						firstErr = fmt.Errorf("plugin %s health check failed: %w", p.Name(), err)
-					}
-				}
-			case <-checkCtx.Done():
-				m.logger.Warn("Plugin health check timed out",
-					zap.String("name", p.Name()))
-				if firstErr == nil {
-					firstErr = fmt.Errorf("plugin %s health check timed out", p.Name())
-				}
-			}
-		}(plugin)
+		if err := plugin.Health(ctx); err != nil {
+			m.logger.Error("Plugin health check failed",
+				zap.String("name", plugin.Name()),
+				zap.Error(err))
+			return fmt.Errorf("plugin %s health check failed: %w", plugin.Name(), err)
+		}
 	}
 
-	return firstErr
+	return nil
 }

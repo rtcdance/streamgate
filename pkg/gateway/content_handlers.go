@@ -44,14 +44,9 @@ func handleListContents(contentSvc *service.ContentService, log *zap.Logger) gin
 			}
 		}
 		ownerID := wallet
-		items, err := contentSvc.ListContents(c.Request.Context(), ownerID, limit, offset)
+		items, totalCount, err := contentSvc.ListContentsWithCount(c.Request.Context(), ownerID, limit, offset)
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to list content", err.Error())
-			return
-		}
-		totalCount, err := contentSvc.CountContents(c.Request.Context(), ownerID)
-		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to count contents", err.Error())
 			return
 		}
 		respondOK(c, gin.H{"items": items, "total_count": totalCount, "limit": limit, "offset": offset})

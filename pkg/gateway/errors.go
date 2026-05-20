@@ -1,12 +1,11 @@
 package gateway
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +21,14 @@ func SetErrorLogger(log *zap.Logger) {
 	errLogger = log
 }
 
-func getErrorLogger() *zap.Logger {
+func getErrorLogger(c *gin.Context) *zap.Logger {
+	if c != nil {
+		if v, ok := c.Get("logger"); ok {
+			if log, ok := v.(*zap.Logger); ok {
+				return log
+			}
+		}
+	}
 	errLoggerMu.RLock()
 	defer errLoggerMu.RUnlock()
 	return errLogger
@@ -84,7 +90,7 @@ func abortWithErrorDetail(c *gin.Context, status int, code, msg, detail string) 
 	// For server errors, log the real detail but don't send it to the client
 	if status >= 500 {
 		if detail != "" {
-			if log := getErrorLogger(); log != nil {
+			if log := getErrorLogger(c); log != nil {
 				log.Error("request error",
 					zap.String("request_id", reqIDStr),
 					zap.String("code", code),
@@ -106,7 +112,9 @@ func abortWithErrorDetail(c *gin.Context, status int, code, msg, detail string) 
 // for each request and stores it in the context and response headers.
 func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := fmt.Sprintf("req-%s-%d", uuid.New().String()[:8], time.Now().UnixNano())
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		requestID := fmt.Sprintf("req-%x-%x", b[:8], b[8:])
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()
@@ -116,8 +124,8 @@ func RequestIDMiddleware() gin.HandlerFunc {
 // internalErrMsg returns a safe user-facing message for 5xx errors.
 // It replaces raw internal error strings with a generic message while
 // preserving the original error in the detail field for debugging.
-func internalErrMsg(err error) string {
-	if log := getErrorLogger(); log != nil && err != nil {
+func internalErrMsg(c *gin.Context, err error) string {
+	if log := getErrorLogger(c); log != nil && err != nil {
 		log.Error("internal error", zap.Error(err))
 	}
 	return "an internal error occurred"

@@ -109,13 +109,23 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func() error) (retErr 
 
 	cb.mu.Unlock()
 
+	var panicked bool
+
 	defer func() {
 		if r := recover(); r != nil {
+			panicked = true
 			retErr = fmt.Errorf("panic in circuit breaker '%s': %v", cb.name, r)
+			cb.logger.Error("panic recovered in circuit breaker execute",
+				zap.String("circuit", cb.name),
+				zap.Any("panic", r))
 		}
 		cb.mu.Lock()
 		if wasHalfOpen {
 			cb.halfOpenCount--
+		}
+		if panicked {
+			cb.mu.Unlock()
+			return
 		}
 		if retErr != nil {
 			cb.onFailure()

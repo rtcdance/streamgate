@@ -25,7 +25,7 @@ import (
 // mockDB implements storage.DB
 type mockDB struct {
 	queryFn    func(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
-	queryRowFn func(ctx context.Context, query string, args ...interface{}) *sql.Row
+	queryRowFn func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow
 	execFn     func(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	beginFn    func(ctx context.Context) (*sql.Tx, error)
 	pingFn     func(ctx context.Context) error
@@ -38,11 +38,11 @@ func (m *mockDB) Query(ctx context.Context, query string, args ...interface{}) (
 	}
 	return nil, errors.New("not implemented")
 }
-func (m *mockDB) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (m *mockDB) QueryRow(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
 	if m.queryRowFn != nil {
 		return m.queryRowFn(ctx, query, args...)
 	}
-	return nil
+	return stg.NewErrorCancelRow(errors.New("not implemented"))
 }
 func (m *mockDB) Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if m.execFn != nil {
@@ -715,7 +715,6 @@ func TestAuthService_FunctionalOptions(t *testing.T) {
 	})
 }
 
-
 // --- MemoryTokenBlacklist tests ---
 
 func TestMemoryTokenBlacklist_RevokeAndCheck(t *testing.T) {
@@ -1125,7 +1124,7 @@ func TestAuthService_GeneratePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -1134,10 +1133,10 @@ func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
 	require.NoError(t, err)
 
-	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1")
+	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "content1", claims.Subject)
 	assert.Equal(t, "0xWallet", claims.WalletAddress)
@@ -1147,10 +1146,10 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute)
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
 	require.NoError(t, err)
 
-	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content")
+	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mismatch")
 }

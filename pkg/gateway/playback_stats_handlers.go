@@ -38,7 +38,7 @@ func recordPlaybackEvent(svc *service.PlaybackStatsService) gin.HandlerFunc {
 			IPAddress:       c.ClientIP(),
 		}
 		if err := svc.RecordEvent(c.Request.Context(), event); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"recorded": true})
@@ -50,7 +50,7 @@ func getContentStats(svc *service.PlaybackStatsService) gin.HandlerFunc {
 		contentID := c.Param("id")
 		stats, err := svc.GetContentStats(c.Request.Context(), contentID)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, stats)
@@ -67,7 +67,7 @@ func listTopContent(svc *service.PlaybackStatsService) gin.HandlerFunc {
 		}
 		stats, err := svc.ListTopContent(c.Request.Context(), limit)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"content": stats})

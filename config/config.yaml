@@ -91,7 +91,7 @@ web3:
       explorer_url: "https://bscscan.com"
   chain_id: 1
   rate_limit:
-    enabled: false
+    enabled: true
     rate: 10
     burst: 20
 

@@ -27,7 +27,8 @@ type UploadServer struct {
 
 func NewUploadServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microkernel) (*UploadServer, error) {
 	pg := storage.NewPostgresDB()
-	dsn := cfg.Database.GetDSN()
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password, cfg.Database.Database, cfg.Database.SSLMode)
 	poolCfg := storage.PoolConfigFromValues(cfg.Database.MaxConns, cfg.Database.MaxIdleConns, 0, 0)
 	if cfg.Database.ConnMaxLifetime != "" {
 		if d, err := time.ParseDuration(cfg.Database.ConnMaxLifetime); err == nil {

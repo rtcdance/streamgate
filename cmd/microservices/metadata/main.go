@@ -15,23 +15,18 @@ import (
 	"streamgate/pkg/plugins/metadata"
 )
 
-var Version = "0.0.0-dev"
-
 func main() {
 	// Initialize logger
 	log := logger.NewDevelopmentLogger("streamgate-metadata")
 	defer func() { _ = log.Sync() }()
 
-	log.Info("Starting StreamGate Metadata Service...", zap.String("version", Version))
+	log.Info("Starting StreamGate Metadata Service...")
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatal("Failed to load configuration", zap.Error(err))
 	}
-
-	// Inject build-time version into config for Consul registration etc.
-	cfg.Version = Version
 
 	// Force microservice mode
 	cfg.Mode = "microservice"

@@ -15,10 +15,10 @@ import (
 )
 
 type PlaybackStatsService struct {
-	db         storage.DB
-	logger     *zap.Logger
-	debounceMu sync.Mutex
-	pending    map[string]*time.Timer
+	db            storage.DB
+	logger        *zap.Logger
+	debounceMu    sync.Mutex
+	pending       map[string]*time.Timer
 	debounceDelay time.Duration
 }
 

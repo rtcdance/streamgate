@@ -21,7 +21,7 @@ func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {
 		contentID := c.Param("id")
 		rules, err := svc.ListRulesByContent(c.Request.Context(), contentID)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"rules": rules})
@@ -53,7 +53,7 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 		}
 		id, err := svc.CreateRule(c.Request.Context(), rule)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondCreated(c, gin.H{"id": id, "rule": rule})
@@ -99,7 +99,7 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			existing.IsActive = *req.IsActive
 		}
 		if err := svc.UpdateRule(c.Request.Context(), existing); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"rule": existing})

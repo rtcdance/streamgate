@@ -157,7 +157,12 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 	router.GET("/metrics", func(c *gin.Context) {
 		promhttp.Handler().ServeHTTP(c.Writer, c.Request)
 	})
-	gateway.RegisterAuthRoutes(router, zap.NewNop(), config.DefaultConfig(), authService)
+	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
+		RequestsPerMinute: 10,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}, nil)
+	gateway.RegisterAuthRoutes(router, zap.NewNop(), config.DefaultConfig(), authService, authRL)
 	gateway.RegisterWeb3Routes(router, zap.NewNop(), &mockWeb3StatusProvider{})
 
 	// Auth-required routes
@@ -193,7 +198,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "missing playback token"})
 				return
 			}
-			if _, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, c.Param("id")); err != nil {
+			if _, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, c.Param("id"), ""); err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid playback token"})
 				return
 			}
@@ -332,6 +337,7 @@ func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 		"",
 		11155111,
 		time.Minute,
+		"",
 	)
 	require.NoError(t, err)
 
@@ -364,7 +370,7 @@ func TestRegisterStreamingRoutes_ManifestSuccess(t *testing.T) {
 	signature, err := verifier.SignMessage(challenge.Message, privateKey)
 	require.NoError(t, err)
 
-	token, err := authService.AuthenticateWithWallet(context.Background(), wallet, challenge.ID, signature)
+	token, err := authService.AuthenticateWithWallet(context.Background(), wallet, challenge.ID, signature, 11155111)
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(

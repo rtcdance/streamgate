@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -21,6 +23,13 @@ type EthCaller interface {
 	CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error)
 }
 
+type tokenStandardEntry struct {
+	standard TokenStandard
+	cachedAt time.Time
+}
+
+const tokenStandardCacheTTL = 1 * time.Hour
+
 // NFTVerifier handles NFT verification
 type NFTVerifier struct {
 	client         EthCaller
@@ -30,6 +39,7 @@ type NFTVerifier struct {
 	erc1155ABI     abi.ABI  // pre-parsed: balanceOf(address,uint256)
 	KnownOperators []string // known marketplace/operator contracts to check isApprovedForAll
 	blockTag       BlockTag // block tag for reading state (default: BlockTagLatest)
+	standardCache  sync.Map // contractAddress → *tokenStandardEntry
 }
 
 // BlockTagCaller is an optional interface that EthCaller implementations
@@ -57,14 +67,20 @@ const erc721MetaABIJSON = `[{"constant":true,"inputs":[],"name":"name","outputs"
 
 const erc1155ABIJSON = `[{"constant":true,"inputs":[{"name":"account","type":"address"},{"name":"id","type":"uint256"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"},{"constant":true,"inputs":[{"name":"owner","type":"address"},{"name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"name":"","type":"bool"}],"type":"function"}]`
 
+var (
+	preparsedERC721ABI     = mustParseABI("ERC-721", erc721ABIJSON)
+	preparsedERC721MetaABI = mustParseABI("ERC-721-meta", erc721MetaABIJSON)
+	preparsedERC1155ABI    = mustParseABI("ERC-1155", erc1155ABIJSON)
+)
+
 // NewNFTVerifier creates a new NFT verifier
 func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
 	return &NFTVerifier{
 		client:        client,
 		logger:        logger,
-		erc721ABI:     mustParseABI("ERC-721", erc721ABIJSON),
-		erc721MetaABI: mustParseABI("ERC-721-meta", erc721MetaABIJSON),
-		erc1155ABI:    mustParseABI("ERC-1155", erc1155ABIJSON),
+		erc721ABI:     preparsedERC721ABI,
+		erc721MetaABI: preparsedERC721MetaABI,
+		erc1155ABI:    preparsedERC1155ABI,
 	}
 }
 
@@ -365,11 +381,28 @@ func (nv *NFTVerifier) GetERC1155Balance(ctx context.Context, contractAddress, o
 	return balance, nil
 }
 
+func (nv *NFTVerifier) detectTokenStandardCached(ctx context.Context, contractAddress string) TokenStandard {
+	if cached, ok := nv.standardCache.Load(contractAddress); ok {
+		entry := cached.(*tokenStandardEntry)
+		if time.Since(entry.cachedAt) < tokenStandardCacheTTL {
+			return entry.standard
+		}
+	}
+	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	if standard != TokenStandardUnknown {
+		nv.standardCache.Store(contractAddress, &tokenStandardEntry{
+			standard: standard,
+			cachedAt: time.Now(),
+		})
+	}
+	return standard
+}
+
 // VerifyNFTOwnershipAutoDetect detects the token standard and routes to the
 // correct verification method. For ERC-721 it uses ownerOf; for ERC-1155 it
 // uses balanceOf(address,uint256). Falls back to ERC-721 on detection failure.
 func (nv *NFTVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	standard := nv.detectTokenStandardCached(ctx, contractAddress)
 	switch standard {
 	case TokenStandardERC1155:
 		return nv.VerifyERC1155Ownership(ctx, contractAddress, tokenID, ownerAddress)
@@ -386,7 +419,7 @@ func (nv *NFTVerifier) VerifyNFTOwnershipAutoDetect(ctx context.Context, contrac
 // contracts; if not provided, this returns an error directing the caller to
 // supply one.
 func (nv *NFTVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
-	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	standard := nv.detectTokenStandardCached(ctx, contractAddress)
 	switch standard {
 	case TokenStandardERC1155:
 		return false, fmt.Errorf("ERC-1155 collection verification requires a specific tokenID; provide token_id parameter")
@@ -399,7 +432,7 @@ func (nv *NFTVerifier) VerifyNFTCollectionAutoDetect(ctx context.Context, contra
 // balance check. For ERC-721 it uses balanceOf(address); for ERC-1155 it
 // requires a tokenID parameter and uses balanceOf(address,uint256).
 func (nv *NFTVerifier) GetNFTBalanceAutoDetect(ctx context.Context, contractAddress, ownerAddress string, tokenID ...string) (*big.Int, error) {
-	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	standard := nv.detectTokenStandardCached(ctx, contractAddress)
 	switch standard {
 	case TokenStandardERC1155:
 		if len(tokenID) == 0 || tokenID[0] == "" {
@@ -575,7 +608,7 @@ func (nv *NFTVerifier) CheckERC1155Approval(ctx context.Context, contractAddress
 // isApprovedForAll); for ERC-1155 it uses CheckERC1155Approval
 // (isApprovedForAll only). Falls back to ERC-721 on detection failure.
 func (nv *NFTVerifier) CheckApprovalAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (*ApprovalInfo, error) {
-	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	standard := nv.detectTokenStandardCached(ctx, contractAddress)
 	switch standard {
 	case TokenStandardERC1155:
 		return nv.CheckERC1155Approval(ctx, contractAddress, ownerAddress)

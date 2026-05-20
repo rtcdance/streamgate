@@ -22,8 +22,7 @@ type ChainConfig struct {
 	Finality  FinalityFactory
 }
 
-// SupportedChains defines supported blockchains
-var SupportedChains = map[int64]*ChainConfig{
+var supportedChains = map[int64]*ChainConfig{
 	// Ethereum
 	1: {
 		ID:        1,
@@ -173,7 +172,7 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 	mcm.logger.Info("Adding chain",
 		zap.Int64("chain_id", chainID))
 
-	config, exists := SupportedChains[chainID]
+	config, exists := supportedChains[chainID]
 	if !exists {
 		mcm.logger.Error("Chain not supported",
 			zap.Int64("chain_id", chainID))
@@ -285,7 +284,7 @@ func (mcm *MultiChainManager) SetRateLimiter(rl *RPCRateLimiter) {
 
 // GetChainConfig gets the configuration for a chain
 func (mcm *MultiChainManager) GetChainConfig(chainID int64) (*ChainConfig, error) {
-	config, exists := SupportedChains[chainID]
+	config, exists := supportedChains[chainID]
 	if !exists {
 		mcm.logger.Error("Chain not supported",
 			zap.Int64("chain_id", chainID))
@@ -295,10 +294,23 @@ func (mcm *MultiChainManager) GetChainConfig(chainID int64) (*ChainConfig, error
 	return config, nil
 }
 
+func GetSupportedChains() []*ChainConfig {
+	chains := make([]*ChainConfig, 0, len(supportedChains))
+	for _, config := range supportedChains {
+		chains = append(chains, config)
+	}
+	return chains
+}
+
+func GetChainConfig(chainID int64) (*ChainConfig, bool) {
+	cfg, ok := supportedChains[chainID]
+	return cfg, ok
+}
+
 // GetSupportedChains gets all supported chains
 func (mcm *MultiChainManager) GetSupportedChains() []*ChainConfig {
-	chains := make([]*ChainConfig, 0, len(SupportedChains))
-	for _, config := range SupportedChains {
+	chains := make([]*ChainConfig, 0, len(supportedChains))
+	for _, config := range supportedChains {
 		chains = append(chains, config)
 	}
 	return chains
@@ -319,7 +331,7 @@ func (mcm *MultiChainManager) GetRPCStatuses() map[int64][]RPCStatus {
 // GetTestnetChains gets all testnet chains
 func (mcm *MultiChainManager) GetTestnetChains() []*ChainConfig {
 	chains := make([]*ChainConfig, 0)
-	for _, config := range SupportedChains {
+	for _, config := range supportedChains {
 		if config.IsTestnet {
 			chains = append(chains, config)
 		}
@@ -331,7 +343,7 @@ func (mcm *MultiChainManager) GetTestnetChains() []*ChainConfig {
 // GetMainnetChains gets all mainnet chains
 func (mcm *MultiChainManager) GetMainnetChains() []*ChainConfig {
 	chains := make([]*ChainConfig, 0)
-	for _, config := range SupportedChains {
+	for _, config := range supportedChains {
 		if !config.IsTestnet {
 			chains = append(chains, config)
 		}
@@ -355,28 +367,4 @@ func (mcm *MultiChainManager) Close() {
 
 	mcm.clients = make(map[int64]*ChainClient)
 	mcm.solanaClients = make(map[int64]*SolanaVerifier)
-}
-
-// CrossChainBridge represents a cross-chain bridge (placeholder for future)
-type CrossChainBridge struct {
-	logger *zap.Logger
-}
-
-// NewCrossChainBridge creates a new cross-chain bridge
-func NewCrossChainBridge(logger *zap.Logger) *CrossChainBridge {
-	return &CrossChainBridge{
-		logger: logger,
-	}
-}
-
-// BridgeAsset bridges an asset between chains (placeholder)
-func (ccb *CrossChainBridge) BridgeAsset(fromChain, toChain int64, asset, amount string) error {
-	ccb.logger.Info("Bridging asset",
-		zap.Int64("from_chain", fromChain),
-		zap.Int64("to_chain", toChain),
-		zap.String("asset", asset),
-		zap.String("amount", amount))
-
-	// TODO: Implement cross-chain bridge
-	return fmt.Errorf("cross-chain bridge not yet implemented")
 }
