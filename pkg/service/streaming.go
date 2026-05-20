@@ -339,7 +339,7 @@ func (s *StreamingService) UpdateStreamStatus(ctx context.Context, streamID, sta
 
 	var currentStatus, contentID string
 	if err := s.db.QueryRow(ctx, "SELECT status, content_id FROM streams WHERE id = $1", streamID).Scan(&currentStatus, &contentID); err != nil {
-		return fmt.Errorf("stream not found: %s", streamID)
+		return fmt.Errorf("stream not found: %s: %w", streamID, err)
 	}
 	if !isValidStreamTransition(currentStatus, status) {
 		return fmt.Errorf("invalid stream status transition: %s -> %s", currentStatus, status)
@@ -486,7 +486,7 @@ func (s *StreamingService) GetStreamByID(ctx context.Context, streamID string) (
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("stream not found: %s", streamID)
+		return nil, fmt.Errorf("stream not found: %s: %w", streamID, ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
 	}

@@ -88,7 +88,7 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 	if cfg.GRPC.TLSEnabled && cfg.GRPC.TLSCert != "" && cfg.GRPC.TLSKey != "" {
 		creds, err := credentials.NewServerTLSFromFile(cfg.GRPC.TLSCert, cfg.GRPC.TLSKey)
 		if err != nil {
-			log.Warn("Failed to load gRPC TLS credentials, falling back to plaintext",
+			log.Fatal("Failed to load gRPC TLS credentials; TLS was explicitly enabled but credentials are invalid",
 				zap.String("cert", cfg.GRPC.TLSCert),
 				zap.Error(err))
 		} else {
@@ -107,6 +107,27 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 	grpcHealthSvc := health.NewServer()
 	grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, grpcHealthSvc)
+
+	if healthSvc != nil {
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				resp, err := healthSvc.Check(ctx, &servicev1.HealthCheckRequest{})
+				cancel()
+				if err != nil {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+					continue
+				}
+				if resp.Status == servicev1.HealthCheckResponse_SERVING {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+				} else {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+				}
+			}
+		}()
+	}
 
 	if svcs.AuthService != nil && svcs.Web3Service != nil {
 		authSrv := &authGrpcServer{
@@ -154,7 +175,9 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 		uploadv1.RegisterUploadServiceServer(srv, uploadSrv)
 	}
 
-	reflection.Register(srv)
+	if cfg.Mode != "production" {
+		reflection.Register(srv)
+	}
 	log.Info("gRPC server initialized with registered services")
 	return srv
 }
@@ -1063,53 +1086,71 @@ func grpcRequestIDStreamInterceptor() grpc.StreamServerInterceptor {
 
 func grpcAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if grpcNoAuthMethods[info.FullMethod] {
-			return handler(ctx, req)
+		newCtx, err := verifyGRPCJWT(ctx, info.FullMethod, jwtSecret, blacklist)
+		if err != nil {
+			return nil, err
 		}
-
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		values := md.Get("authorization")
-		if len(values) == 0 {
-			return nil, status.Error(codes.Unauthenticated, "missing authorization token")
-		}
-
-		tokenStr := strings.TrimPrefix(values[0], "Bearer ")
-		tokenStr = strings.TrimSpace(tokenStr)
-		if tokenStr == "" {
-			return nil, status.Error(codes.Unauthenticated, "empty authorization token")
-		}
-
-		claims := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return []byte(jwtSecret), nil
-		})
-		if err != nil || !token.Valid {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
-		}
-
-		if blacklist != nil {
-			if jti, ok := claims["jti"].(string); ok && jti != "" {
-				if blacklist.IsTokenRevoked(ctx, jti) {
-					return nil, status.Error(codes.Unauthenticated, "token has been revoked")
-				}
-			}
-		}
-
-		wallet, _ := claims["wallet_address"].(string)
-		if wallet == "" {
-			return nil, status.Error(codes.Unauthenticated, "wallet address required in token")
-		}
-		ctx = context.WithValue(ctx, grpcWalletKey, wallet)
-
-		return handler(ctx, req)
+		return handler(newCtx, req)
 	}
+}
+
+func grpcStreamAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		newCtx, err := verifyGRPCJWT(ss.Context(), info.FullMethod, jwtSecret, blacklist)
+		if err != nil {
+			return err
+		}
+		return handler(srv, &wrappedStream{ServerStream: ss, ctx: newCtx})
+	}
+}
+
+func verifyGRPCJWT(ctx context.Context, fullMethod string, jwtSecret string, blacklist middleware.TokenBlacklistChecker) (context.Context, error) {
+	if grpcNoAuthMethods[fullMethod] {
+		return ctx, nil
+	}
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	values := md.Get("authorization")
+	if len(values) == 0 {
+		return nil, status.Error(codes.Unauthenticated, "missing authorization token")
+	}
+
+	tokenStr := strings.TrimPrefix(values[0], "Bearer ")
+	tokenStr = strings.TrimSpace(tokenStr)
+	if tokenStr == "" {
+		return nil, status.Error(codes.Unauthenticated, "empty authorization token")
+	}
+
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, status.Error(codes.Unauthenticated, "invalid token")
+	}
+
+	if blacklist != nil {
+		if jti, ok := claims["jti"].(string); ok && jti != "" {
+			if blacklist.IsTokenRevoked(ctx, jti) {
+				return nil, status.Error(codes.Unauthenticated, "token has been revoked")
+			}
+		}
+	}
+
+	wallet, _ := claims["wallet_address"].(string)
+	if wallet == "" {
+		return nil, status.Error(codes.Unauthenticated, "wallet address required in token")
+	}
+
+	ctx = context.WithValue(ctx, grpcWalletKey, wallet)
+	return ctx, nil
 }
 
 func grpcRecoveryInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
@@ -1163,57 +1204,6 @@ func grpcStreamRecoveryInterceptor(log *zap.Logger) grpc.StreamServerInterceptor
 			}
 		}()
 		return handler(srv, ss)
-	}
-}
-
-func grpcStreamAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if grpcNoAuthMethods[info.FullMethod] {
-			return handler(srv, ss)
-		}
-
-		md, ok := metadata.FromIncomingContext(ss.Context())
-		if !ok {
-			return status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		values := md.Get("authorization")
-		if len(values) == 0 {
-			return status.Error(codes.Unauthenticated, "missing authorization token")
-		}
-
-		tokenStr := strings.TrimPrefix(values[0], "Bearer ")
-		tokenStr = strings.TrimSpace(tokenStr)
-		if tokenStr == "" {
-			return status.Error(codes.Unauthenticated, "empty authorization token")
-		}
-
-		claims := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method")
-			}
-			return []byte(jwtSecret), nil
-		})
-		if err != nil || !token.Valid {
-			return status.Error(codes.Unauthenticated, "invalid token")
-		}
-
-		if blacklist != nil {
-			if jti, ok := claims["jti"].(string); ok && jti != "" {
-				if blacklist.IsTokenRevoked(ss.Context(), jti) {
-					return status.Error(codes.Unauthenticated, "token has been revoked")
-				}
-			}
-		}
-
-		wallet, _ := claims["wallet_address"].(string)
-		if wallet == "" {
-			return status.Error(codes.Unauthenticated, "wallet address required in token")
-		}
-
-		ctx := context.WithValue(ss.Context(), grpcWalletKey, wallet)
-		return handler(srv, &wrappedStream{ServerStream: ss, ctx: ctx})
 	}
 }
 

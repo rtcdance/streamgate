@@ -48,8 +48,9 @@ func NewRedisTokenBlacklist(client *redis.Client) (*RedisTokenBlacklist, error) 
 	cache, _ := lru.New(localLRUSize)
 
 	return &RedisTokenBlacklist{
-		client: client,
-		local:  cache,
+		client:     client,
+		local:      cache,
+		FailClosed: true,
 	}, nil
 }
 

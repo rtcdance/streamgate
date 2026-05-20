@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"streamgate/pkg/core/config"
 	"streamgate/pkg/core/event"
@@ -94,7 +95,11 @@ func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error
 
 	if logger == nil {
 		var err error
-		logger, err = zap.NewDevelopment()
+		if cfg.Mode == "production" || cfg.Mode == "prod" || cfg.Mode == "microservices" {
+			logger, err = zap.NewProduction()
+		} else {
+			logger, err = zap.NewDevelopment()
+		}
 		if err != nil {
 			cancel()
 			return nil, fmt.Errorf("failed to initialize logger: %w", err)
@@ -261,7 +266,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 				"mode":    "microservice",
 			},
 			Check: &service.HealthCheck{
-				HTTP:     fmt.Sprintf("http://localhost:%d/health", m.config.Server.Port),
+				HTTP:     fmt.Sprintf("http://localhost:%d/health/live", m.config.Server.Port),
 				Interval: "10s",
 				Timeout:  "5s",
 			},
@@ -338,7 +343,9 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	m.logger.Info("Shutting down microkernel")
 
-	// Stop all plugins in reverse dependency order
+	shutdownCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	m.mu.RLock()
 	orderedPlugins := make([]Plugin, 0, len(m.pluginOrder))
 	for _, name := range m.pluginOrder {
@@ -350,7 +357,7 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	for i := len(orderedPlugins) - 1; i >= 0; i-- {
 		plugin := orderedPlugins[i]
-		if err := plugin.Stop(ctx); err != nil {
+		if err := plugin.Stop(shutdownCtx); err != nil {
 			m.logger.Error("Error stopping plugin",
 				zap.String("name", plugin.Name()),
 				zap.Error(err))

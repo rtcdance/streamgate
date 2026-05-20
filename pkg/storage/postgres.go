@@ -4,9 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"streamgate/pkg/resilience"
 	"time"
-
-	"streamgate/pkg/middleware"
 
 	_ "github.com/lib/pq"
 )
@@ -16,16 +15,16 @@ const (
 	defaultRetryBackoff = time.Second
 
 	defaultMaxOpenConns    = 25
-	defaultMaxIdleConns    = 5
-	defaultConnMaxLifetime = 5 * time.Minute
-	defaultConnMaxIdleTime = 1 * time.Minute
+	defaultMaxIdleConns    = 12
+	defaultConnMaxLifetime = 15 * time.Minute
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 // PostgresDB handles PostgreSQL database
 type PostgresDB struct {
 	db  *sql.DB
 	dsn string
-	cb  *middleware.CircuitBreaker
+	cb  *resilience.CircuitBreaker
 }
 
 // NewPostgresDB creates a new PostgreSQL database instance
@@ -40,7 +39,7 @@ func NewPostgresDBFromDB(db *sql.DB) *PostgresDB {
 }
 
 // SetCircuitBreaker sets the circuit breaker for database operations.
-func (pdb *PostgresDB) SetCircuitBreaker(cb *middleware.CircuitBreaker) {
+func (pdb *PostgresDB) SetCircuitBreaker(cb *resilience.CircuitBreaker) {
 	pdb.cb = cb
 }
 
@@ -165,7 +164,9 @@ func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interfac
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
+		// cancel is not deferred — *sql.Rows is lazy; context must stay
+		// alive during iteration. The timer fires after 30s automatically.
+		_ = cancel
 	}
 
 	rows, err := pdb.db.QueryContext(ctx, query, args...)

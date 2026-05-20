@@ -13,10 +13,30 @@ import (
 	"sync"
 	"time"
 
+	"streamgate/pkg/monitoring"
 	"streamgate/pkg/storage"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+)
+
+var (
+	svcUploadTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "streamgate_upload_total",
+		Help: "Total upload operations",
+	}, []string{"operation", "status"})
+	svcUploadDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "streamgate_upload_duration_seconds",
+		Help:    "Upload operation latency",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"operation"})
+	svcUploadBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "streamgate_upload_bytes_total",
+		Help: "Total bytes uploaded",
+	})
 )
 
 // DefaultMaxUploadSize is the default maximum upload size (5 GB)
@@ -408,7 +428,22 @@ func (s *UploadService) GetChunkStatuses(ctx context.Context, uploadID string) (
 }
 
 // InitiateChunkedUpload initiates a chunked upload
-func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename string, totalSize int64, totalChunks int, ownerID string) (string, error) {
+func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename string, totalSize int64, totalChunks int, ownerID string) (result string, err error) {
+	start := time.Now()
+	_, span := monitoring.StartOTelSpan(ctx, "upload.initiate_chunked",
+		attribute.Int64("total_size", totalSize),
+		attribute.Int("total_chunks", totalChunks),
+	)
+	defer func() {
+		span.End()
+		status := "success"
+		if err != nil {
+			status = "failure"
+		}
+		svcUploadTotal.WithLabelValues("initiate_chunked", status).Inc()
+		svcUploadDuration.WithLabelValues("initiate_chunked").Observe(time.Since(start).Seconds())
+	}()
+
 	if s.db == nil {
 		return "", fmt.Errorf("database not available")
 	}
@@ -493,7 +528,25 @@ func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkI
 	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)), ownerID)
 }
 
-func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64, ownerID string) error {
+func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64, ownerID string) (err error) {
+	start := time.Now()
+	_, span := monitoring.StartOTelSpan(ctx, "upload.upload_chunk",
+		attribute.String("upload_id", uploadID),
+		attribute.Int64("chunk_size", size),
+	)
+	defer func() {
+		span.End()
+		status := "success"
+		if err != nil {
+			status = "failure"
+		}
+		svcUploadTotal.WithLabelValues("upload_chunk", status).Inc()
+		svcUploadDuration.WithLabelValues("upload_chunk").Observe(time.Since(start).Seconds())
+		if err == nil {
+			svcUploadBytesTotal.Add(float64(size))
+		}
+	}()
+
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
@@ -551,7 +604,22 @@ type streamDLResult struct {
 // CompleteChunkedUpload completes a chunked upload by merging chunks.
 // Chunks are downloaded in parallel (chunkMergeConcurrency) and streamed
 // through a pipe to the object store in the correct order.
-func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID string, totalChunks int) error {
+func (s *UploadService) CompleteChunkedUpload(ctx context.Context, uploadID string, totalChunks int) (err error) {
+	start := time.Now()
+	_, span := monitoring.StartOTelSpan(ctx, "upload.complete_chunked",
+		attribute.String("upload_id", uploadID),
+		attribute.Int("total_chunks", totalChunks),
+	)
+	defer func() {
+		span.End()
+		status := "success"
+		if err != nil {
+			status = "failure"
+		}
+		svcUploadTotal.WithLabelValues("complete_chunked", status).Inc()
+		svcUploadDuration.WithLabelValues("complete_chunked").Observe(time.Since(start).Seconds())
+	}()
+
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}

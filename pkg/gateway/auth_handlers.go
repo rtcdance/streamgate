@@ -17,7 +17,7 @@ import (
 )
 
 func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config, authService *service.AuthService, rateLimiter middleware.RateLimiter) {
-	auth := router.Group("/api/v1/auth")
+	auth := router.Group(APIPrefix + "/auth")
 	auth.Use(func(c *gin.Context) {
 		key := c.ClientIP()
 		if wallet := c.GetHeader("X-Wallet-Address"); wallet != "" {
@@ -246,11 +246,11 @@ func handleAuthVerify(authService *service.AuthService) gin.HandlerFunc {
 
 // RegisterAuthProtectedRoutes registers JWT-protected authentication routes.
 func RegisterAuthProtectedRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService) {
-	router.GET("/api/v1/auth/profile", func(c *gin.Context) {
+	router.GET(APIPrefix+"/auth/profile", func(c *gin.Context) {
 		wallet := middleware.GetWalletAddress(c)
 		respondOK(c, gin.H{"wallet_address": wallet})
 	})
-	router.POST("/api/v1/auth/change-password", func(c *gin.Context) {
+	router.POST(APIPrefix+"/auth/change-password", func(c *gin.Context) {
 		var req struct {
 			OldPassword string `json:"old_password"`
 			NewPassword string `json:"new_password"`

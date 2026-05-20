@@ -1,0 +1,55 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: streamgate-monolith-pdb
+  labels:
+    app: streamgate
+    component: monolith
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: streamgate
+      component: monolith
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: streamgate-api-gateway-pdb
+  labels:
+    app: streamgate
+    component: api-gateway
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: streamgate
+      component: api-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: streamgate-streaming-pdb
+  labels:
+    app: streamgate
+    component: streaming
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: streamgate
+      component: streaming
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: streamgate-auth-pdb
+  labels:
+    app: streamgate
+    component: auth
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: streamgate
+      component: auth

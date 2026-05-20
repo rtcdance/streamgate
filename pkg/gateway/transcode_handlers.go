@@ -18,7 +18,7 @@ import (
 
 // RegisterTranscodingRoutes registers video transcoding management routes.
 func RegisterTranscodingRoutes(router gin.IRouter, log *zap.Logger, svc *service.TranscodingService) {
-	transcode := router.Group("/api/v1/transcode")
+	transcode := router.Group(APIPrefix + "/transcode")
 	transcode.POST("/submit", handleTranscodeSubmit(svc, log))
 	transcode.GET("/status/:id", handleTranscodeStatus(svc, log))
 	transcode.POST("/cancel/:id", handleTranscodeCancel(svc, log))

@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 type manifestCacheEntry struct {
@@ -60,13 +61,13 @@ func newLRUCache[T any](maxSize int, ttl time.Duration) *lruCache[T] {
 }
 
 func (c *lruCache[T]) Get(key string) (T, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
 	if elem, ok := c.items[key]; ok {
 		entry := elem.Value.(*lruEntry[T])
-		c.order.MoveToFront(elem)
+		c.mu.RUnlock()
 		return entry.value, true
 	}
+	c.mu.RUnlock()
 	var zero T
 	return zero, false
 }
@@ -104,6 +105,7 @@ func (c *lruCache[T]) Delete(key string) {
 type StreamingCache struct {
 	manifests  *lruCache[manifestCacheEntry]
 	segmentIdx *lruCache[segmentIndexEntry]
+	sfGroup    singleflight.Group
 }
 
 func NewStreamingCache() *StreamingCache {
@@ -172,7 +174,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
 	}
-	router.GET("/api/v1/streaming/:id/manifest.m3u8", func(c *gin.Context) {
+	router.GET(APIPrefix+"/streaming/:id/manifest.m3u8", func(c *gin.Context) {
 		wallet := middleware.GetWalletAddress(c)
 		contract := middleware.GetNFTContract(c)
 		chainID, _ := c.Get("nft_chain_id")
@@ -223,28 +225,36 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("segment_index").Inc()
 			qualitySegments = cached
 		} else {
-			qualitySegments = make(map[string][]string)
-			segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
-			if objStorage != nil {
-				if objs, err := objStorage.ListObjects(c.Request.Context(), segBucket, segmentPrefix); err == nil {
-					for _, key := range objs {
-						if !strings.HasSuffix(key, ".ts") {
-							continue
+			v, err, _ := cache.sfGroup.Do("segidx:"+contentID, func() (interface{}, error) {
+				qs := make(map[string][]string)
+				segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
+				if objStorage != nil {
+					if objs, listErr := objStorage.ListObjects(c.Request.Context(), segBucket, segmentPrefix); listErr == nil {
+						for _, key := range objs {
+							if !strings.HasSuffix(key, ".ts") {
+								continue
+							}
+							rel := strings.TrimPrefix(key, segmentPrefix)
+							parts := strings.SplitN(rel, "/", 2)
+							quality := "default"
+							segName := rel
+							if len(parts) == 2 {
+								quality = parts[0]
+								segName = parts[1]
+							}
+							qs[quality] = append(qs[quality], segName)
 						}
-						rel := strings.TrimPrefix(key, segmentPrefix)
-						parts := strings.SplitN(rel, "/", 2)
-						quality := "default"
-						segName := rel
-						if len(parts) == 2 {
-							quality = parts[0]
-							segName = parts[1]
-						}
-						qualitySegments[quality] = append(qualitySegments[quality], segName)
 					}
 				}
-			}
-			if len(qualitySegments) > 0 {
-				cache.SetSegmentIndex(contentID, qualitySegments)
+				if len(qs) > 0 {
+					cache.SetSegmentIndex(contentID, qs)
+				}
+				return qs, nil
+			})
+			if err != nil {
+				qualitySegments = make(map[string][]string)
+			} else {
+				qualitySegments = v.(map[string][]string)
 			}
 		}
 		if len(qualitySegments) == 0 {
@@ -280,7 +290,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
 	}
-	router.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {
+	router.GET(APIPrefix+"/streaming/:id/segment/:num", func(c *gin.Context) {
 		playbackToken := extractPlaybackToken(c)
 		if playbackToken == "" {
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "missing playback token")

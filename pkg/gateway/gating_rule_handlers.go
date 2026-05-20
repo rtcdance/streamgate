@@ -10,10 +10,10 @@ import (
 )
 
 func RegisterGatingRuleRoutes(router *gin.RouterGroup, svc *service.GatingRuleService) {
-	router.GET("/api/v1/content/:id/gating-rules", listGatingRules(svc))
-	router.POST("/api/v1/content/:id/gating-rules", createGatingRule(svc))
-	router.PUT("/api/v1/gating-rules/:ruleId", updateGatingRule(svc))
-	router.DELETE("/api/v1/gating-rules/:ruleId", deleteGatingRule(svc))
+	router.GET(APIPrefix+"/content/:id/gating-rules", listGatingRules(svc))
+	router.POST(APIPrefix+"/content/:id/gating-rules", createGatingRule(svc))
+	router.PUT(APIPrefix+"/gating-rules/:ruleId", updateGatingRule(svc))
+	router.DELETE(APIPrefix+"/gating-rules/:ruleId", deleteGatingRule(svc))
 }
 
 func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {

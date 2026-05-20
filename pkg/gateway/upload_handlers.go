@@ -117,10 +117,18 @@ func sanitizeObjectKey(val string) (string, bool) {
 	return val, true
 }
 
+func formatAllowedExtensions() string {
+	exts := make([]string, 0, len(allowedVideoExtensions))
+	for ext := range allowedVideoExtensions {
+		exts = append(exts, ext)
+	}
+	return strings.Join(exts, ", ")
+}
+
 // RegisterUploadRoutes registers file upload routes.
 // If uploadSvc is nil, all routes return 503 Service Unavailable.
 func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService) {
-	upload := router.Group("/api/v1/upload")
+	upload := router.Group(APIPrefix + "/upload")
 	upload.Use(func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 		c.Next()
@@ -347,6 +355,12 @@ func handleChunkedUploadInit(uploadSvc *service.UploadService, log *zap.Logger) 
 			return
 		}
 
+		ext := strings.ToLower(filepath.Ext(req.Filename))
+		if _, ok := allowedVideoExtensions[ext]; !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, fmt.Sprintf("file extension %q not allowed; accepted: %s", ext, formatAllowedExtensions()))
+			return
+		}
+
 		uploadID, err := uploadSvc.InitiateChunkedUpload(c.Request.Context(), req.Filename, req.TotalSize, req.TotalChunks, wallet)
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to initiate chunked upload", err.Error())
@@ -408,7 +422,17 @@ func handleChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.Ha
 		}
 		defer func() { _ = src.Close() }()
 
-		if err := uploadSvc.UploadChunkStream(c.Request.Context(), uploadID, chunkIndex, src, file.Size, wallet); err != nil {
+		var reader io.Reader = src
+		if chunkIndex == 0 {
+			detected, combined, _ := readFileHeader(src)
+			reader = combined
+			if detected == "" {
+				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "first chunk does not match any known video format")
+				return
+			}
+		}
+
+		if err := uploadSvc.UploadChunkStream(c.Request.Context(), uploadID, chunkIndex, reader, file.Size, wallet); err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "chunk upload failed", err.Error())
 			return
 		}

@@ -11,14 +11,14 @@ import (
 )
 
 func RegisterCategoryRoutes(router *gin.RouterGroup, svc *service.CategoryService) {
-	router.GET("/api/v1/categories", listCategories(svc))
-	router.POST("/api/v1/categories", createCategory(svc))
-	router.GET("/api/v1/categories/:id", getCategory(svc))
-	router.PUT("/api/v1/categories/:id", updateCategory(svc))
-	router.DELETE("/api/v1/categories/:id", deleteCategory(svc))
-	router.POST("/api/v1/content/:id/categories/:catId", bindContentCategory(svc))
-	router.DELETE("/api/v1/content/:id/categories/:catId", unbindContentCategory(svc))
-	router.GET("/api/v1/categories/:id/content", listContentByCategory(svc))
+	router.GET(APIPrefix+"/categories", listCategories(svc))
+	router.POST(APIPrefix+"/categories", createCategory(svc))
+	router.GET(APIPrefix+"/categories/:id", getCategory(svc))
+	router.PUT(APIPrefix+"/categories/:id", updateCategory(svc))
+	router.DELETE(APIPrefix+"/categories/:id", deleteCategory(svc))
+	router.POST(APIPrefix+"/content/:id/categories/:catId", bindContentCategory(svc))
+	router.DELETE(APIPrefix+"/content/:id/categories/:catId", unbindContentCategory(svc))
+	router.GET(APIPrefix+"/categories/:id/content", listContentByCategory(svc))
 }
 
 func listCategories(svc *service.CategoryService) gin.HandlerFunc {
