@@ -104,15 +104,7 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 	}
 
 	for _, sub := range subs {
-		select {
-		case b.sem <- struct{}{}:
-		case <-ctx.Done():
-			if b.log != nil {
-				b.log.Warn("Event publish blocked by slow subscriber, dropping event",
-					zap.String("event_type", event.Type))
-			}
-			return ctx.Err()
-		}
+		b.sem <- struct{}{}
 		b.wg.Add(1)
 		go func(s *subscription) {
 			defer b.wg.Done()
@@ -133,6 +125,43 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 	}
 
 	return nil
+}
+
+func (b *MemoryEventBus) PublishSync(ctx context.Context, event *Event) error {
+	var subs []*subscription
+	b.mu.RLock()
+	for _, sub := range b.subscriptions {
+		if sub.eventType == event.Type {
+			subs = append(subs, sub)
+		}
+	}
+	b.mu.RUnlock()
+
+	if len(subs) == 0 {
+		return nil
+	}
+
+	var firstErr error
+	for _, sub := range subs {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if b.log != nil {
+						b.log.Error("Recovered panic in sync event handler", zap.Any("panic", r), zap.String("event_type", event.Type))
+					}
+				}
+			}()
+			if err := sub.handler(ctx, event); err != nil {
+				if b.log != nil {
+					b.log.Error("Error handling event synchronously", zap.Error(err), zap.String("event_type", event.Type))
+				}
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+		}()
+	}
+	return firstErr
 }
 
 func (b *MemoryEventBus) Subscribe(ctx context.Context, eventType string, handler EventHandler) (string, error) {

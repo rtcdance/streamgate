@@ -14,6 +14,8 @@ import (
 	sql "database/sql"
 	reflect "reflect"
 
+	storage "streamgate/pkg/storage"
+
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -125,14 +127,14 @@ func (mr *MockDBMockRecorder) Query(ctx, query any, args ...any) *gomock.Call {
 }
 
 // QueryRow mocks base method.
-func (m *MockDB) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+func (m *MockDB) QueryRow(ctx context.Context, query string, args ...any) *storage.CancelRow {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, query}
 	for _, a := range args {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "QueryRow", varargs...)
-	ret0, _ := ret[0].(*sql.Row)
+	ret0, _ := ret[0].(*storage.CancelRow)
 	return ret0
 }
 

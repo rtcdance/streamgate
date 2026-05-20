@@ -19,7 +19,6 @@ import (
 	"streamgate/pkg/health"
 	"streamgate/pkg/middleware"
 	"streamgate/pkg/monitoring"
-	"streamgate/pkg/plugins/transcoder"
 	"streamgate/pkg/service"
 	"streamgate/pkg/storage"
 	"streamgate/pkg/web3"
@@ -39,25 +38,26 @@ const defaultMaxBodySize int64 = 10 << 20 // 10MB global body size limit
 // AppResources holds closeable resources created by SetupRouter.
 // Callers should defer resources.Close() to ensure cleanup on shutdown.
 type AppResources struct {
-	DB             *sql.DB
-	ChallengeStore io.Closer
-	ObjStorage     io.Closer
-	TokenBlacklist io.Closer
-	RateLimiter    middleware.RateLimiter
-	SharedRedis    *redis.Client
-	OTelShutdown   func(ctx context.Context) error
-	AuthService    *service.AuthService
-	Web3Service    *service.Web3Service
-	NFTVerifier    middleware.NFTOwnershipChecker
-	StreamingSvc   *service.StreamingService
-	ContentService *service.ContentService
-	SegmentStorage service.SegmentStorage
-	UploadService  *service.UploadService
-	TranscodingSvc *service.TranscodingService
-	NFTCache       *NFTAccessCache
-	StreamingCache *StreamingCache
-	NATSQueue      io.Closer
-	MiddlewareSvc  *middleware.Service
+	DB              *sql.DB
+	ChallengeStore  io.Closer
+	ObjStorage      io.Closer
+	TokenBlacklist  io.Closer
+	RateLimiter     middleware.RateLimiter
+	AuthRateLimiter middleware.RateLimiter
+	SharedRedis     *redis.Client
+	OTelShutdown    func(ctx context.Context) error
+	AuthService     *service.AuthService
+	Web3Service     *service.Web3Service
+	NFTVerifier     middleware.NFTOwnershipChecker
+	StreamingSvc    *service.StreamingService
+	ContentService  *service.ContentService
+	SegmentStorage  service.SegmentStorage
+	UploadService   *service.UploadService
+	TranscodingSvc  *service.TranscodingService
+	NFTCache        *NFTAccessCache
+	StreamingCache  *StreamingCache
+	NATSQueue       io.Closer
+	MiddlewareSvc   *middleware.Service
 }
 
 // Close releases all held resources. Errors from individual closes are
@@ -66,6 +66,9 @@ func (r *AppResources) Close() error {
 	var errs []error
 	if r.RateLimiter != nil {
 		r.RateLimiter.Stop()
+	}
+	if r.AuthRateLimiter != nil {
+		r.AuthRateLimiter.Stop()
 	}
 	// Shared redis client closed below; individual Redis-backed components
 	// use the same client so we only close it once.
@@ -193,39 +196,18 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	}
 	resources := &AppResources{}
 
-	// Create a single shared Redis client for all Redis-backed components.
-	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	sharedRedis := redis.NewClient(&redis.Options{
-		Addr:         redisAddr,
-		Password:     cfg.Redis.Password,
-		DB:           cfg.Redis.DB,
-		PoolSize:     cfg.Redis.PoolSize,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-	})
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	redisOK := sharedRedis.Ping(pingCtx).Err() == nil
-	pingCancel()
-	if !redisOK {
-		log.Warn("Redis unavailable, components will use in-memory fallbacks", zap.String("addr", redisAddr))
-		_ = sharedRedis.Close()
-		sharedRedis = nil
-	} else {
-		log.Info("Redis connected", zap.String("addr", redisAddr))
-		resources.SharedRedis = sharedRedis
-	}
+	sharedRedis := provideRedis(cfg, log, resources)
 
-	web3Svc, err := initWeb3Service(rc, cfg, log)
+	web3Svc, err := provideWeb3Service(rc, cfg, log)
 	if err != nil {
 		return nil, nil, err
 	}
 	resources.Web3Service = web3Svc
 
 	challengeTTL := parseChallengeTTL(cfg)
-	challengeStore := initChallengeStore(rc, log, challengeTTL, sharedRedis, resources)
+	challengeStore := provideChallengeStore(rc, log, challengeTTL, sharedRedis, resources)
 
-	authService := initAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
+	authService := provideAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
 	resources.AuthService = authService
 
 	nftCache := NewNFTAccessCache()
@@ -246,14 +228,14 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	}
 	resources.NFTVerifier = nftVerifier
 
-	db, _ := initDatabase(cfg, log, resources)
-	contentSvc := initContentService(rc, db, log)
+	db, _ := provideDatabase(cfg, log, resources)
+	contentSvc := provideContentService(rc, db, log)
 	resources.ContentService = contentSvc
 
-	objStorage := initObjectStorage(rc, cfg, log, resources)
+	objStorage := provideObjectStorage(rc, cfg, log, resources)
 	resources.SegmentStorage = objStorage
 
-	transcodingSvc := initTranscodingService(cfg, log, db, objStorage, resources)
+	transcodingSvc := provideTranscodingService(cfg, log, db, objStorage, resources)
 	resources.TranscodingSvc = transcodingSvc
 
 	if transcodingSvc != nil {
@@ -264,10 +246,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		})
 	}
 
-	uploadSvc := initUploadService(rc, cfg, log, db, objStorage, transcodingSvc)
+	uploadSvc := provideUploadService(rc, cfg, log, db, objStorage, transcodingSvc)
 	resources.UploadService = uploadSvc
 
-	initOTelTracing(cfg, log, resources)
+	provideOTelTracing(cfg, log, resources)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -298,235 +280,6 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	registerRoutes(router, cfg, log, svc, resources)
 
 	return router, resources, nil
-}
-
-func parseChallengeTTL(cfg *config.Config) time.Duration {
-	ttl := 5 * time.Minute
-	if cfg.Auth.NonceExpiry != "" {
-		if parsed, err := time.ParseDuration(cfg.Auth.NonceExpiry); err == nil && parsed > 0 {
-			ttl = parsed
-		}
-	}
-	return ttl
-}
-
-func initWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger) (*service.Web3Service, error) {
-	if rc.Web3Service != nil {
-		return rc.Web3Service, nil
-	}
-	svc, err := service.NewWeb3Service(service.DefaultWeb3Deps(cfg, log), cfg, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Web3 service: %w", err)
-	}
-	return svc, nil
-}
-
-func initChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) storage.ChallengeStore {
-	if rc.ChallengeStore != nil {
-		return rc.ChallengeStore
-	}
-	if redisClient == nil {
-		log.Warn("Redis unavailable, falling back to in-memory challenge store")
-		return nil
-	}
-	store := storage.NewRedisChallengeStoreWithClient(redisClient, challengeTTL)
-	res.ChallengeStore = store
-	return store
-}
-
-func initTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppResources) storage.TokenBlacklist {
-	if redisClient == nil {
-		log.Warn("Redis unavailable, falling back to in-memory token blacklist")
-		return storage.NewMemoryTokenBlacklist()
-	}
-	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
-	if err != nil {
-		log.Warn("Redis token blacklist init failed, falling back to in-memory", zap.Error(err))
-		return storage.NewMemoryTokenBlacklist()
-	}
-	res.TokenBlacklist = rbl
-	return rbl
-}
-
-func initAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
-	if rc.AuthService != nil {
-		return rc.AuthService
-	}
-	solanaSigner := web3Svc.GetSolanaSigner()
-	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaSigner)
-	eip712Verifier := web3Svc.GetEIP712Verifier()
-	tokenBlacklist := initTokenBlacklist(log, redisClient, res)
-
-	jwtExpiry := 2 * time.Hour
-	if cfg.Auth.JWTExpiry != "" {
-		if parsed, err := time.ParseDuration(cfg.Auth.JWTExpiry); err == nil && parsed > 0 {
-			jwtExpiry = parsed
-		}
-	}
-
-	return service.NewAuthService(cfg.Auth.JWTSecret, nil,
-		service.WithSignatureVerifier(signatureVerifier),
-		service.WithEIP712Verifier(eip712Verifier),
-		service.WithChallengeStore(challengeStore),
-		service.WithChallengeTTL(challengeTTL),
-		service.WithTokenBlacklist(tokenBlacklist),
-		service.WithJWTExpiry(jwtExpiry),
-	)
-}
-
-func initDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB) {
-	dbConnStr := cfg.Database.GetDSN()
-	d, err := sql.Open("postgres", dbConnStr)
-	if err != nil {
-		log.Warn("Database unavailable, using in-memory fallback",
-			zap.String("host", cfg.Database.Host),
-			zap.String("database", cfg.Database.Database))
-		return
-	}
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer pingCancel()
-	if err := d.PingContext(pingCtx); err != nil {
-		log.Warn("Database ping failed, using in-memory fallback",
-			zap.String("host", cfg.Database.Host),
-			zap.String("database", cfg.Database.Database))
-		_ = d.Close()
-		return
-	}
-	pg := storage.NewPostgresDBFromDB(d)
-	pg.SetMaxOpenConns(cfg.Database.MaxConns)
-	if cfg.Database.MaxIdleConns > 0 {
-		pg.SetMaxIdleConns(cfg.Database.MaxIdleConns)
-	}
-	if cfg.Database.ConnMaxLifetime != "" {
-		if dur, parseErr := time.ParseDuration(cfg.Database.ConnMaxLifetime); parseErr == nil {
-			pg.SetConnMaxLifetime(dur)
-		}
-	}
-	res.DB = d
-	log.Info("Database connected", zap.String("host", cfg.Database.Host))
-	if err := storage.RunEmbeddedMigrations(d, migrationFS, "migrations"); err != nil {
-		log.Warn("Database migration failed, continuing with current schema", zap.Error(err))
-	} else {
-		log.Info("Database migrations applied")
-	}
-	db = pg
-	sqlDB = d
-	return
-}
-
-func initContentService(rc *RouterConfig, db storage.DB, log *zap.Logger) *service.ContentService {
-	if rc.ContentService != nil {
-		return rc.ContentService
-	}
-	if db != nil {
-		log.Info("Content service initialized")
-		return service.NewContentService(db, nil, nil)
-	}
-	log.Warn("Content service unavailable, database not connected")
-	return nil
-}
-
-func initObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger, res *AppResources) service.SegmentStorage {
-	if rc.SegmentStorage != nil {
-		return rc.SegmentStorage
-	}
-	minioCfg := storage.MinIOConfig{
-		Endpoint:        cfg.Storage.Endpoint,
-		AccessKeyID:     cfg.Storage.AccessKey,
-		SecretAccessKey: cfg.Storage.SecretKey,
-		UseSSL:          cfg.Storage.UseSSL,
-	}
-	ms, err := storage.NewMinIOStorage(minioCfg)
-	if err != nil {
-		log.Warn("MinIO unavailable, segment serving disabled", zap.Error(err))
-		return nil
-	}
-	res.ObjStorage = ms
-	bucketCtx, bucketCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer bucketCancel()
-	if err := ms.CreateBucket(bucketCtx, "streamgate"); err != nil {
-		log.Warn("Failed to create streamgate bucket", zap.Error(err))
-	}
-	log.Info("MinIO storage initialized", zap.String("endpoint", cfg.Storage.Endpoint))
-	return ms
-}
-
-func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, res *AppResources) *service.TranscodingService {
-	ffmpegCfg := &transcoder.FFmpegConfig{
-		FFmpegPath:  "ffmpeg",
-		FFprobePath: "ffprobe",
-		TempDir:     os.TempDir(),
-		Timeout:     30 * time.Minute,
-	}
-	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
-	videoTranscoder := &ffmpegRouterAdapter{ft: ft, log: log.Named("ffmpeg")}
-
-	var transcodingQueue service.TranscodingQueue
-	nq, err := storage.NewNATSTranscodingQueue(cfg.NATS.URL, log.Named("nats-queue"))
-	if err != nil {
-		log.Warn("NATS unavailable, falling back to in-memory transcoding queue", zap.Error(err))
-		transcodingQueue = service.NewMemoryTranscodingQueue()
-	} else {
-		log.Info("Using NATS JetStream transcoding queue", zap.String("url", cfg.NATS.URL))
-		transcodingQueue = nq
-		res.NATSQueue = nq
-	}
-
-	svc := service.NewTranscodingService(db, transcodingQueue,
-		service.WithTranscoder(videoTranscoder),
-		service.WithStorage(objStorage),
-		service.WithLogger(log),
-	)
-	svc.StartWorker(&zapRouterInfoLogger{log.Named("transcode-worker")})
-	return svc
-}
-
-func initUploadService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, transcodingSvc *service.TranscodingService) *service.UploadService {
-	if rc.UploadService != nil {
-		return rc.UploadService
-	}
-	if db == nil || objStorage == nil {
-		return nil
-	}
-	uploadObj, ok := objStorage.(service.UploadObjectStorage)
-	if !ok {
-		log.Warn("Object storage does not implement UploadObjectStorage, upload service disabled")
-		return nil
-	}
-	svc := service.NewUploadService(db, uploadObj, "streamgate", log.Named("upload"))
-	if cfg.Upload.MaxSize > 0 {
-		svc.SetMaxUploadSize(cfg.Upload.MaxSize)
-	}
-	if cfg.Upload.StorageQuota > 0 {
-		svc.SetStorageQuota(cfg.Upload.StorageQuota)
-	}
-	var presigner service.PresignedURLer
-	if ps, ok := objStorage.(service.PresignedURLer); ok {
-		presigner = ps
-		svc.SetPresigner(ps)
-	}
-	if ups, ok := objStorage.(service.UploadPresignedURLer); ok {
-		svc.SetUploadPresigner(ups)
-	}
-	svc.RegisterAutoTranscodeHook(service.AutoTranscodeHookDeps{
-		TranscodingSvc: transcodingSvc,
-		Presigner:      presigner,
-		Bucket:         "streamgate",
-		Profiles:       cfg.Transcode.Profiles,
-	})
-	return svc
-}
-
-func initOTelTracing(cfg *config.Config, log *zap.Logger, res *AppResources) {
-	if cfg.Monitoring.JaegerEndpoint == "" {
-		return
-	}
-	shutdown, err := monitoring.InitOTelTracing(context.Background(), "streamgate", cfg.Monitoring.JaegerEndpoint, log)
-	if err != nil {
-		log.Warn("OTel tracing init failed, continuing without tracing", zap.Error(err))
-		return
-	}
-	res.OTelShutdown = shutdown
 }
 
 func setupMiddleware(router *gin.Engine, cfg *config.Config, log *zap.Logger, redisClient *redis.Client, res *AppResources) {
@@ -579,7 +332,13 @@ func prometheusMiddleware() gin.HandlerFunc {
 func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, res *AppResources) {
 	registerInfrastructureRoutes(router, log, svc.DB, svc.SegmentStorage, res.MiddlewareSvc, cfg)
 
-	RegisterAuthRoutes(router, log, cfg, svc.AuthService)
+	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
+		RequestsPerMinute: 10,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}, nil)
+	res.AuthRateLimiter = authRL
+	RegisterAuthRoutes(router, log, cfg, svc.AuthService, authRL)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
 
 	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)

@@ -147,7 +147,12 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 
 // callContractFunction is the internal implementation that performs the actual contract call.
 func (ci *ContractInteractor) callContractFunction(ctx context.Context, contractAddress, abiJSON, functionName, fromAddress string, args ...interface{}) (interface{}, error) {
-	// Parse contract address
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+
 	contract := common.HexToAddress(contractAddress)
 
 	// Parse ABI

@@ -147,29 +147,49 @@ type NFTGateConfig struct {
 	reorgDetectedAt    atomic.Int64
 }
 
-// BlockHashCache provides thread-safe caching for block hashes to avoid redundant RPC calls.
+type blockHashEntry struct {
+	hash      string
+	expiresAt time.Time
+}
+
 type BlockHashCache struct {
 	mu      sync.RWMutex
-	entries map[uint64]string
+	entries map[uint64]blockHashEntry
+	ttl     time.Duration
 }
 
-// NewBlockHashCache creates a new block hash cache.
-func NewBlockHashCache() *BlockHashCache {
-	return &BlockHashCache{entries: make(map[uint64]string)}
+func NewBlockHashCache(ttl ...time.Duration) *BlockHashCache {
+	d := 5 * time.Minute
+	if len(ttl) > 0 && ttl[0] > 0 {
+		d = ttl[0]
+	}
+	return &BlockHashCache{entries: make(map[uint64]blockHashEntry), ttl: d}
 }
 
-// Get retrieves a cached block hash.
 func (bhc *BlockHashCache) Get(blockNumber uint64) (string, bool) {
 	bhc.mu.RLock()
-	hash, ok := bhc.entries[blockNumber]
+	entry, ok := bhc.entries[blockNumber]
 	bhc.mu.RUnlock()
-	return hash, ok
+	if !ok || time.Now().After(entry.expiresAt) {
+		return "", false
+	}
+	return entry.hash, true
 }
 
-// Set stores a block hash in the cache.
 func (bhc *BlockHashCache) Set(blockNumber uint64, hash string) {
 	bhc.mu.Lock()
-	bhc.entries[blockNumber] = hash
+	if bhc.entries == nil {
+		bhc.entries = make(map[uint64]blockHashEntry)
+	}
+	bhc.entries[blockNumber] = blockHashEntry{hash: hash, expiresAt: time.Now().Add(bhc.ttl)}
+	if len(bhc.entries) > 1024 {
+		now := time.Now()
+		for k, v := range bhc.entries {
+			if now.After(v.expiresAt) {
+				delete(bhc.entries, k)
+			}
+		}
+	}
 	bhc.mu.Unlock()
 }
 
@@ -362,8 +382,21 @@ func resolveOwnershipWithAutoDetect(ctx context.Context, config *NFTGateConfig, 
 							return entry.HasNFT, nil
 						}
 					} else {
-						nftCacheHits.WithLabelValues("l1_l2").Inc()
-						return entry.HasNFT, nil
+						logger.Warn("Block prover RPC failed during reorg check, using degraded cache TTL",
+							zap.Uint64("block", entry.BlockNumber),
+							zap.Error(err))
+						degradedTTL := config.ReorgTTL
+						if degradedTTL == 0 {
+							degradedTTL = 5 * time.Second
+						}
+						degradedExpiry := entry.Expires.Add(-config.CacheTTL).Add(degradedTTL)
+						if time.Now().Before(degradedExpiry) {
+							nftCacheHits.WithLabelValues("l1_l2_degraded").Inc()
+							return entry.HasNFT, nil
+						}
+						logger.Warn("Degraded cache TTL expired, refusing to serve stale NFT verification",
+							zap.String("cache_key", cacheKey))
+						return false, fmt.Errorf("block prover unavailable and degraded cache expired for chain %d", chainID)
 					}
 				} else {
 					nftCacheHits.WithLabelValues("l1_l2").Inc()
@@ -491,7 +524,7 @@ func parseInt64(s string) (int64, error) {
 }
 
 func chainName(chainID int64) string {
-	if cfg, ok := web3.SupportedChains[chainID]; ok {
+	if cfg, ok := web3.GetChainConfig(chainID); ok {
 		return cfg.Name
 	}
 	return fmt.Sprintf("Chain %d", chainID)

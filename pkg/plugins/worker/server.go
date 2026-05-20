@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
 
 // WorkerServer handles background job processing

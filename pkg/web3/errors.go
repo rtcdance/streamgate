@@ -71,10 +71,7 @@ func NewPermanentError(msg string, cause error) *PermanentError {
 	return &PermanentError{Message: msg, Cause: cause}
 }
 
-// DualError holds two errors from a primary attempt and a fallback attempt.
-// Both errors are accessible via Unwrap, enabling errors.Is/As to traverse
-// the full chain. Use this when an operation is tried against two targets
-// (e.g. proxy address and implementation address) and both fail.
+// DualError.Unwrap() []error requires Go 1.20+ for correct errors.Is/errors.As traversal.
 type DualError struct {
 	Primary   error
 	Secondary error

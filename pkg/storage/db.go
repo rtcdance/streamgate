@@ -14,7 +14,7 @@ import (
 //go:generate mockgen -destination=mocks/mock_db.go -package=mocks streamgate/pkg/storage DB
 type DB interface {
 	Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row
+	QueryRow(ctx context.Context, query string, args ...interface{}) *CancelRow
 	Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Begin(ctx context.Context) (*sql.Tx, error)
 	InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
@@ -59,8 +59,7 @@ func (db *Database) Query(ctx context.Context, query string, args ...interface{}
 	return db.impl.Query(ctx, query, args...)
 }
 
-// QueryRow executes a query that returns a single row
-func (db *Database) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (db *Database) QueryRow(ctx context.Context, query string, args ...interface{}) *CancelRow {
 	return db.impl.QueryRow(ctx, query, args...)
 }
 

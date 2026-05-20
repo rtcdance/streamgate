@@ -219,7 +219,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
-			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 		)
 		require.NoError(t, err)
 
@@ -240,7 +240,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
-			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 		)
 		require.NoError(t, err)
 
@@ -259,7 +259,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, storage, cache)
 
 		token, err := authService.GeneratePlaybackToken(
-			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 		)
 		require.NoError(t, err)
 
@@ -278,7 +278,7 @@ func TestHandleGetSegment(t *testing.T) {
 		r := setupStreamingSegmentRouter(authService, nil, cache)
 
 		token, err := authService.GeneratePlaybackToken(
-			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 		)
 		require.NoError(t, err)
 
@@ -300,7 +300,7 @@ func TestHandleGetSegment_PathTraversal(t *testing.T) {
 	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	token, err := authService.GeneratePlaybackToken(
-		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 	)
 	require.NoError(t, err)
 
@@ -350,7 +350,7 @@ func TestHandleGetSegment_AuthHeader(t *testing.T) {
 	r := setupStreamingSegmentRouter(authService, storage, NewStreamingCache())
 
 	token, err := authService.GeneratePlaybackToken(
-		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute,
+		context.Background(), "0xTestWallet", "content-1", "0xNFTContract", "1", 1, 2*time.Minute, "",
 	)
 	require.NoError(t, err)
 
@@ -477,7 +477,7 @@ func TestStreamingE2E_AuthToSegment(t *testing.T) {
 
 	t.Run("segment with wrong content token rejected", func(t *testing.T) {
 		token, err := authService.GeneratePlaybackToken(
-			context.Background(), "0xE2EWallet", "other-content", "0xE2ENFTContract", "1", 1, 2*time.Minute,
+			context.Background(), "0xE2EWallet", "other-content", "0xE2ENFTContract", "1", 1, 2*time.Minute, "",
 		)
 		require.NoError(t, err)
 

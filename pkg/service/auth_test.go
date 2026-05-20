@@ -121,7 +121,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		signature, err := verifier.SignMessage(challenge.Message, privateKey)
 		require.NoError(t, err)
 
-		token, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
+		token, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature, 11155111)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -141,10 +141,10 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		signature, err := verifier.SignMessage(challenge.Message, privateKey)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature, 11155111)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature, 11155111)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "challenge already used")
 	})
@@ -168,7 +168,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature)
+				_, err := auth.AuthenticateWithWallet(context.Background(), walletAddress, challenge.ID, signature, 11155111)
 				results <- err
 			}()
 		}
@@ -190,7 +190,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 
 		walletAddress := verifier.GetAddressFromPrivateKey(privateKey)
 		expiredChallenge := &stg.WalletChallenge{
-			ID:            "550e8400-e29b-41d4-a716-446655440000",
+			ID:            "expired-challenge",
 			WalletAddress: walletAddress,
 			ChainID:       11155111,
 			Nonce:         "nonce-expired",
@@ -203,7 +203,7 @@ func TestAuthService_AuthenticateWithWallet(t *testing.T) {
 		signature, err := verifier.SignMessage(expiredChallenge.Message, privateKey)
 		require.NoError(t, err)
 
-		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, expiredChallenge.ID, signature)
+		_, err = auth.AuthenticateWithWallet(context.Background(), walletAddress, expiredChallenge.ID, signature, 11155111)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "challenge expired")
 	})
@@ -246,16 +246,18 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 		"7",
 		11155111,
 		time.Minute,
+		"fp-abc123",
 	)
 	require.NoError(t, err)
 
-	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1")
+	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc123")
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
 	assert.Equal(t, "7", claims.TokenID)
 	assert.Equal(t, int64(11155111), claims.ChainID)
+	assert.Equal(t, "fp-abc123", claims.ClientFingerprint)
 
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "other-content")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "other-content", "fp-abc123")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "content mismatch")
 }

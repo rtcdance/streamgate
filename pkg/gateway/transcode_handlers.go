@@ -67,7 +67,7 @@ func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger) gin
 		wallet := middleware.GetWalletAddress(c)
 		taskID, err := svc.Transcode(c.Request.Context(), req.ContentID, req.Profile, req.InputURL, req.Priority, wallet)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondAccepted(c, gin.H{
@@ -138,7 +138,7 @@ func handleTranscodeCancel(svc *service.TranscodingService, log *zap.Logger) gin
 			return
 		}
 		if err := svc.CancelTask(c.Request.Context(), taskID); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"task_id": taskID, "status": "cancelled"})
@@ -167,7 +167,7 @@ func handleTranscodeTasks(svc *service.TranscodingService, log *zap.Logger) gin.
 		wallet := middleware.GetWalletAddress(c)
 		tasks, err := svc.ListTasks(c.Request.Context(), contentID, wallet, limit, offset)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(err), err.Error())
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
 		respondOK(c, gin.H{"tasks": tasks})

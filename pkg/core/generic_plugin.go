@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
 
 // ServerLifecycle is the interface that plugin servers must implement.
@@ -20,33 +21,52 @@ type ServerLifecycle interface {
 // that returns a server satisfying ServerLifecycle. GenericPlugin captures
 // that creation and delegation pattern once.
 type GenericPlugin struct {
-	name   string
-	kernel *Microkernel
-	logger *zap.Logger
-	config *config.Config
-	deps   []string
+	name    string
+	version string
+	kernel  *Microkernel
+	logger  *zap.Logger
+	config  *config.Config
+	deps    []string
 
 	initFn func(kernel *Microkernel) (ServerLifecycle, error)
 	server ServerLifecycle
 }
 
-func NewGenericPlugin(name string, cfg *config.Config, logger *zap.Logger, initFn func(*Microkernel) (ServerLifecycle, error)) *GenericPlugin {
-	return &GenericPlugin{
-		name:   name,
-		config: cfg,
-		logger: logger,
-		initFn: initFn,
+type GenericPluginOption func(*GenericPlugin)
+
+func WithVersion(version string) GenericPluginOption {
+	return func(p *GenericPlugin) {
+		p.version = version
 	}
 }
 
-func NewGenericPluginWithDeps(name string, cfg *config.Config, logger *zap.Logger, deps []string, initFn func(*Microkernel) (ServerLifecycle, error)) *GenericPlugin {
-	return &GenericPlugin{
-		name:   name,
-		config: cfg,
-		logger: logger,
-		deps:   deps,
-		initFn: initFn,
+func NewGenericPlugin(name string, cfg *config.Config, logger *zap.Logger, initFn func(*Microkernel) (ServerLifecycle, error), opts ...GenericPluginOption) *GenericPlugin {
+	p := &GenericPlugin{
+		name:    name,
+		version: "1.0.0",
+		config:  cfg,
+		logger:  logger,
+		initFn:  initFn,
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+func NewGenericPluginWithDeps(name string, cfg *config.Config, logger *zap.Logger, deps []string, initFn func(*Microkernel) (ServerLifecycle, error), opts ...GenericPluginOption) *GenericPlugin {
+	p := &GenericPlugin{
+		name:    name,
+		version: "1.0.0",
+		config:  cfg,
+		logger:  logger,
+		deps:    deps,
+		initFn:  initFn,
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 func (p *GenericPlugin) Name() string {
@@ -54,7 +74,7 @@ func (p *GenericPlugin) Name() string {
 }
 
 func (p *GenericPlugin) Version() string {
-	return "1.0.0"
+	return p.version
 }
 
 func (p *GenericPlugin) Init(ctx context.Context, kernel *Microkernel) error {

@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.uber.org/zap"
 	"streamgate/pkg/core"
 	"streamgate/pkg/core/config"
+
+	"go.uber.org/zap"
 )
 
 // MonitorServer handles health monitoring and metrics

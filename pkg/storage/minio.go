@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -291,18 +293,30 @@ func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 }
 
 // detectContentTypeByExt returns a MIME type based on the object name extension.
+var videoMimeTypes = map[string]string{
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".mkv":  "video/x-matroska",
+	".avi":  "video/x-msvideo",
+	".mov":  "video/quicktime",
+	".flv":  "video/x-flv",
+	".wmv":  "video/x-ms-wmv",
+	".m4v":  "video/mp4",
+	".3gp":  "video/3gpp",
+	".ogv":  "video/ogg",
+	".ts":   "video/mp2t",
+	".m3u8": "application/vnd.apple.mpegurl",
+	".mpd":  "application/dash+xml",
+	".m4s":  "video/iso.segment",
+}
+
 func detectContentTypeByExt(objectName string) string {
+	ext := strings.ToLower(path.Ext(objectName))
+	if mt, ok := videoMimeTypes[ext]; ok {
+		return mt
+	}
 	if mt := mime.TypeByExtension(objectName); mt != "" {
 		return mt
 	}
-	switch {
-	case len(objectName) < 4:
-		return "application/octet-stream"
-	case string(objectName[len(objectName)-4:]) == ".ts":
-		return "video/mp2t"
-	case string(objectName[len(objectName)-5:]) == ".m3u8":
-		return "application/vnd.apple.mpegurl"
-	default:
-		return "application/octet-stream"
-	}
+	return "application/octet-stream"
 }

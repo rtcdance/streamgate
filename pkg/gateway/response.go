@@ -10,7 +10,12 @@ func respond(c *gin.Context, status int, data interface{}) {
 	reqID, _ := c.Get("request_id")
 	if id, ok := reqID.(string); ok && id != "" {
 		if m, ok := data.(gin.H); ok {
-			m["request_id"] = id
+			cp := make(gin.H, len(m)+1)
+			for k, v := range m {
+				cp[k] = v
+			}
+			cp["request_id"] = id
+			data = cp
 		}
 	}
 	c.JSON(status, data)
