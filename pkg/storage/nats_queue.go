@@ -15,9 +15,12 @@ import (
 )
 
 const (
-	jsStreamName    = "TRANSCODING"
-	jsStreamSubject = "streamgate.transcoding.tasks"
-	jsConsumerName  = "transcoding-worker"
+	jsStreamName       = "TRANSCODING"
+	jsStreamSubject    = "streamgate.transcoding.tasks"
+	jsConsumerName     = "transcoding-worker"
+	jsDLQStreamName    = "TRANSCODING_DLQ"
+	jsDLQStreamSubject = "streamgate.transcoding.dlq"
+	jsMaxDeliver       = 5
 
 	msgStaleTimeout    = 30 * time.Minute
 	statusStaleTimeout = 2 * time.Hour
@@ -94,22 +97,57 @@ func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQu
 
 func (q *NATSTranscodingQueue) ensureStream() error {
 	_, err := q.js.StreamInfo(jsStreamName)
-	if err == nil {
-		return nil
+	if err != nil {
+		_, err = q.js.AddStream(&nats.StreamConfig{
+			Name:     jsStreamName,
+			Subjects: []string{jsStreamSubject},
+			Storage:  nats.FileStorage,
+			MaxMsgs:  10000,
+			MaxAge:   24 * time.Hour,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create JetStream stream: %w", err)
+		}
+		q.logger.Info("JetStream stream created", zap.String("stream", jsStreamName))
 	}
 
+	q.ensureDLQStream()
+	q.ensureMaxDeliverConsumer()
+
+	return nil
+}
+
+func (q *NATSTranscodingQueue) ensureDLQStream() {
+	_, err := q.js.StreamInfo(jsDLQStreamName)
+	if err == nil {
+		return
+	}
 	_, err = q.js.AddStream(&nats.StreamConfig{
-		Name:     jsStreamName,
-		Subjects: []string{jsStreamSubject},
+		Name:     jsDLQStreamName,
+		Subjects: []string{jsDLQStreamSubject},
 		Storage:  nats.FileStorage,
-		MaxMsgs:  10000,
-		MaxAge:   24 * time.Hour,
+		MaxMsgs:  5000,
+		MaxAge:   7 * 24 * time.Hour,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create JetStream stream: %w", err)
+		q.logger.Warn("Failed to create DLQ stream", zap.Error(err))
+	} else {
+		q.logger.Info("DLQ stream created", zap.String("stream", jsDLQStreamName))
 	}
-	q.logger.Info("JetStream stream created", zap.String("stream", jsStreamName))
-	return nil
+}
+
+func (q *NATSTranscodingQueue) ensureMaxDeliverConsumer() {
+	_, err := q.js.ConsumerInfo(jsStreamName, jsConsumerName)
+	if err == nil {
+		return
+	}
+	_, err = q.js.AddConsumer(jsStreamName, &nats.ConsumerConfig{
+		Durable:    jsConsumerName,
+		MaxDeliver: jsMaxDeliver,
+	})
+	if err != nil {
+		q.logger.Warn("Failed to configure consumer MaxDeliver", zap.Error(err))
+	}
 }
 
 func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {

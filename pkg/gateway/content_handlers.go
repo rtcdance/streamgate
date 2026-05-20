@@ -215,7 +215,7 @@ func handleDeleteContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			return
 		}
 		id := c.Param("id")
-		if err := contentSvc.DeleteContent(c.Request.Context(), id); err != nil {
+		if err := contentSvc.DeleteContent(c.Request.Context(), id, middleware.GetWalletAddress(c)); err != nil {
 			abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not found")
 			return
 		}

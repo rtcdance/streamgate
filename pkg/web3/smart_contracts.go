@@ -81,8 +81,9 @@ const ContentRegistryABI = `[
   }
 ]`
 
-// ContentRegistryBytecode is the bytecode for the ContentRegistry contract
-const ContentRegistryBytecode = "0x..." // TODO: Add contract bytecode
+// ContentRegistryBytecode is reserved for contract deployment tooling (Foundry/Hardhat).
+// The Go backend interacts with ContentRegistry via its ABI only, not by deploying contracts.
+const ContentRegistryBytecode = "0x"
 
 // NFTContract represents an NFT smart contract
 type NFTContract struct {
@@ -151,10 +152,13 @@ const ERC721ABI = `[
   }
 ]`
 
+const balanceOfABIJSON = `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
+
 // SmartContractRegistry maintains a registry of deployed contracts
 type SmartContractRegistry struct {
 	mu        sync.RWMutex
 	contracts map[string]*SmartContractInfo
+	byAddr    map[string]*SmartContractInfo
 	logger    *zap.Logger
 }
 
@@ -174,6 +178,7 @@ type SmartContractInfo struct {
 func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
 	return &SmartContractRegistry{
 		contracts: make(map[string]*SmartContractInfo),
+		byAddr:    make(map[string]*SmartContractInfo),
 		logger:    logger,
 	}
 }
@@ -187,6 +192,7 @@ func (scr *SmartContractRegistry) RegisterContract(info *SmartContractInfo) {
 		zap.String("address", info.Address),
 		zap.Int64("chain_id", info.ChainID))
 	scr.contracts[info.Name] = info
+	scr.byAddr[info.Address] = info
 }
 
 func (scr *SmartContractRegistry) GetContract(name string) *SmartContractInfo {
@@ -198,12 +204,7 @@ func (scr *SmartContractRegistry) GetContract(name string) *SmartContractInfo {
 func (scr *SmartContractRegistry) GetContractByAddress(address string) *SmartContractInfo {
 	scr.mu.RLock()
 	defer scr.mu.RUnlock()
-	for _, contract := range scr.contracts {
-		if contract.Address == address {
-			return contract
-		}
-	}
-	return nil
+	return scr.byAddr[address]
 }
 
 func (scr *SmartContractRegistry) GetAllContracts() map[string]*SmartContractInfo {

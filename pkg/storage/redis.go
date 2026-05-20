@@ -92,7 +92,7 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (string, error) {
 		return "", fmt.Errorf("circuit breaker is open for Redis")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	val, err := rc.client.Get(ctx, key).Result()
@@ -126,7 +126,7 @@ func (rc *RedisCache) SetWithExpiration(ctx context.Context, key, value string, 
 		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Set(ctx, key, value, expiration).Err(); err != nil {
@@ -150,7 +150,7 @@ func (rc *RedisCache) Delete(ctx context.Context, key string) error {
 		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Del(ctx, key).Err(); err != nil {
@@ -174,7 +174,7 @@ func (rc *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 		return false, fmt.Errorf("circuit breaker is open for Redis")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	count, err := rc.client.Exists(ctx, key).Result()
@@ -199,7 +199,7 @@ func (rc *RedisCache) Expire(ctx context.Context, key string, expiration time.Du
 		return fmt.Errorf("circuit breaker is open for Redis")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	if err := rc.client.Expire(ctx, key, expiration).Err(); err != nil {
@@ -228,7 +228,7 @@ func (rc *RedisCache) Ping(ctx context.Context) error {
 		return fmt.Errorf("redis not connected")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
 	return rc.client.Ping(ctx).Err()

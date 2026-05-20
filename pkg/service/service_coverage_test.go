@@ -272,7 +272,7 @@ func TestContentService_UpdateContent_DatabaseNil(t *testing.T) {
 
 func TestContentService_DeleteContent_DatabaseNil(t *testing.T) {
 	svc := NewContentService(nil, newMockContentStorage(), newMockCache())
-	err := svc.DeleteContent(context.Background(), "id")
+	err := svc.DeleteContent(context.Background(), "id", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not available")
 }
@@ -354,7 +354,7 @@ func (m *mockResult) RowsAffected() (int64, error) { return m.rowsAffected, nil 
 
 func TestContentService_DeleteContentWithTx_DatabaseNil(t *testing.T) {
 	svc := NewContentService(nil, newMockContentStorage(), newMockCache())
-	err := svc.DeleteContentWithTx(context.Background(), "id")
+	err := svc.DeleteContentWithTx(context.Background(), "id", "")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not available")
 }

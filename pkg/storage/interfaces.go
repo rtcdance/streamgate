@@ -41,3 +41,9 @@ type ChallengeStore interface {
 	GetChallenge(ctx context.Context, id string) (*WalletChallenge, error)
 	MarkChallengeUsed(ctx context.Context, id string, usedAt time.Time) error
 }
+
+// AuditLogger records security-relevant operations for compliance and forensics.
+type AuditLogger interface {
+	Log(ctx context.Context, action, actor, resource, resourceID string, success bool, errMsg, details string)
+	Close() error
+}

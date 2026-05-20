@@ -19,12 +19,13 @@ import (
 
 // ContentService handles content operations
 type ContentService struct {
-	db       storage.DB
-	objStore ContentObjectStorage
-	cache    cachetypes.CacheBackend
-	registry ContentRegistry
-	logger   *zap.Logger
-	sf       singleflight.Group
+	db          storage.DB
+	objStore    ContentObjectStorage
+	cache       cachetypes.CacheBackend
+	registry    ContentRegistry
+	auditLogger storage.AuditLogger
+	logger      *zap.Logger
+	sf          singleflight.Group
 }
 
 // ContentRegistry defines the interface for on-chain content registration.
@@ -77,6 +78,11 @@ func NewContentService(db storage.DB, objStorage ContentObjectStorage, cache cac
 // SetContentRegistry sets the on-chain content registry for registration after DB insert.
 func (s *ContentService) SetContentRegistry(registry ContentRegistry) {
 	s.registry = registry
+}
+
+// SetAuditLogger sets the audit logger for tracking content operations.
+func (s *ContentService) SetAuditLogger(al storage.AuditLogger) {
+	s.auditLogger = al
 }
 
 // GetContent gets content by ID
@@ -210,6 +216,14 @@ func (s *ContentService) CreateContent(ctx context.Context, content *Content) (s
 		return "", fmt.Errorf("failed to insert content: %w", err)
 	}
 
+	s.logger.Info("Content created",
+		zap.String("id", content.ID),
+		zap.String("title", content.Title))
+
+	if s.auditLogger != nil {
+		s.auditLogger.Log(ctx, "content.create", content.OwnerID, "content", content.ID, true, "", content.Title)
+	}
+
 	return content.ID, nil
 }
 
@@ -230,7 +244,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *Content) er
 		UPDATE contents
 		SET title = $2, description = $3, type = $4, url = $5, thumbnail_url = $6,
 		    duration = $7, size = $8, status = $9, updated_at = $10, metadata = $11
-		WHERE id = $1
+		WHERE id = $1 AND owner_id = $12
 	`
 
 	result, err := s.db.Exec(ctx, query,
@@ -245,6 +259,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *Content) er
 		content.Status,
 		content.UpdatedAt,
 		metadataJSON,
+		content.OwnerID,
 	)
 
 	if err != nil {
@@ -264,6 +279,10 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *Content) er
 		if err := s.cache.Delete("content:" + content.ID); err != nil {
 			s.logger.Warn("Failed to invalidate content cache", zap.String("id", content.ID), zap.Error(err))
 		}
+	}
+
+	if s.auditLogger != nil {
+		s.auditLogger.Log(ctx, "content.update", content.OwnerID, "content", content.ID, true, "", content.Title)
 	}
 
 	return nil
@@ -354,7 +373,7 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 }
 
 // DeleteContentWithTx deletes content and its metadata in a single transaction.
-func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) error {
+func (s *ContentService) DeleteContentWithTx(ctx context.Context, id, ownerID string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
@@ -372,7 +391,7 @@ func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) err
 	}
 
 	// Delete content
-	result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1", id)
+	result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1 AND owner_id = $2", id, ownerID)
 	if err != nil {
 		return fmt.Errorf("delete content: %w", err)
 	}
@@ -397,7 +416,7 @@ func (s *ContentService) DeleteContentWithTx(ctx context.Context, id string) err
 }
 
 // DeleteContent deletes content
-func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
+func (s *ContentService) DeleteContent(ctx context.Context, id, ownerID string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
@@ -417,7 +436,7 @@ func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
 	}
 
 	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
-		result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1", id)
+		result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1 AND owner_id = $2", id, ownerID)
 		if err != nil {
 			return fmt.Errorf("delete content: %w", err)
 		}
@@ -436,6 +455,10 @@ func (s *ContentService) DeleteContent(ctx context.Context, id string) error {
 		if err := s.cache.Delete("content:" + id); err != nil {
 			s.logger.Warn("Failed to invalidate content cache on delete", zap.String("id", id), zap.Error(err))
 		}
+	}
+
+	if s.auditLogger != nil {
+		s.auditLogger.Log(ctx, "content.delete", ownerID, "content", id, true, "", content.Title)
 	}
 
 	return nil

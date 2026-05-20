@@ -150,9 +150,8 @@ func (mc *MulticallCaller) BatchCall(ctx context.Context, targets []common.Addre
 // BatchBalanceOfERC20 queries the ERC-20 balanceOf for multiple token/owner pairs.
 // Returns balances in the same order as the input.
 func (mc *MulticallCaller) BatchBalanceOfERC20(ctx context.Context, tokenAddresses []common.Address, owner common.Address) ([]*big.Int, error) {
-	// balanceOf(address) selector
 	balanceOfABI := `[{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]`
-	parsed, err := abi.JSON(strings.NewReader(balanceOfABI))
+	parsed, err := getOrParseABI(balanceOfABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse balanceOf ABI: %w", err)
 	}

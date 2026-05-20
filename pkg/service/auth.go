@@ -97,6 +97,7 @@ type AuthService struct {
 	challengeStore    stg.ChallengeStore
 	challengeTTL      time.Duration
 	blacklist         stg.TokenBlacklist
+	auditLogger       stg.AuditLogger
 	jwtExpiry         time.Duration
 	eip712Verifier    web3.EIP712VerifierInterface
 	siweDomain        string
@@ -147,6 +148,11 @@ func WithSIWEDomain(domain, uri string) AuthServiceOption {
 			s.siweURI = uri
 		}
 	}
+}
+
+// WithAuditLogger sets the audit logger for auth operations.
+func WithAuditLogger(al stg.AuditLogger) AuthServiceOption {
+	return func(s *AuthService) { s.auditLogger = al }
 }
 
 // AuthStorage defines the interface for user storage
@@ -274,16 +280,10 @@ func (s *AuthService) Authenticate(ctx context.Context, username, password strin
 
 // Verify verifies token and returns claims
 func (s *AuthService) Verify(tokenString string) (bool, error) {
-	claims, err := s.ParseToken(tokenString)
+	_, err := s.ParseToken(tokenString)
 	if err != nil {
 		return false, err
 	}
-
-	// Check if token is expired
-	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
-		return false, ErrTokenExpired
-	}
-
 	return true, nil
 }
 
@@ -294,7 +294,11 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 		validMethods = []string{"RS256"}
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	// Parse with signature verification but skip automatic claims
+	// validation. Claims are checked manually below with 30s leeway
+	// to tolerate clock skew between services.
+	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		switch s.signingType {
 		case JWTRS256:
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
@@ -307,14 +311,19 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 			}
 			return s.jwtSecret, nil
 		}
-	}, jwt.WithValidMethods(validMethods))
+	})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	if !token.Valid {
-		return nil, ErrInvalidToken
+	// With WithoutClaimsValidation, token.Valid is based on signature only.
+	// Manually check exp/nbf with 30s clock skew tolerance.
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+		return nil, ErrTokenExpired
+	}
+	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+		return nil, fmt.Errorf("token not yet valid")
 	}
 
 	return claims, nil
@@ -430,7 +439,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 	newClaims := &Claims{
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
-		JTI:          generateID(),
+		JTI:           generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        generateID(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
@@ -455,7 +464,8 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 	if s.signingType == JWTRS256 {
 		validMethods = []string{"RS256"}
 	}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		switch s.signingType {
 		case JWTRS256:
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
@@ -468,18 +478,19 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 			}
 			return s.jwtSecret, nil
 		}
-	}, jwt.WithValidMethods(validMethods))
+	})
 	if err != nil {
-		if !token.Valid {
-			if claims.ExpiresAt != nil {
-				expiredDuration := time.Since(claims.ExpiresAt.Time)
-				if expiredDuration > 0 && expiredDuration <= gracePeriod {
-					return claims, nil
-				}
-			}
-			return nil, fmt.Errorf("failed to parse token: %w", err)
-		}
 		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+	// Manual 30s leeway for clock skew
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+		expiredDuration := time.Since(claims.ExpiresAt.Time)
+		if expiredDuration > gracePeriod {
+			return nil, ErrTokenExpired
+		}
+	}
+	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+		return nil, fmt.Errorf("token not yet valid")
 	}
 	return claims, nil
 }
