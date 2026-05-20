@@ -1,3 +1,9 @@
+// Package monitoring provides metrics, tracing, and alerting infrastructure.
+//
+// Deprecated: The in-memory Tracer, Span, and TraceCollector types in this file
+// are superseded by the OpenTelemetry integration in tracing_otel.go and
+// tracing_helpers.go. New code should use StartOTelSpan / OTelTracer instead.
+// This file will be removed in a future release once all test references are migrated.
 package monitoring
 
 import (

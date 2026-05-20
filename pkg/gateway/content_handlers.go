@@ -15,7 +15,7 @@ import (
 
 // RegisterContentRoutes registers content CRUD routes.
 func RegisterContentRoutes(router gin.IRouter, log *zap.Logger, contentSvc *service.ContentService) {
-	content := router.Group("/api/v1/content")
+	content := router.Group(APIPrefix + "/content")
 	content.GET("", handleListContents(contentSvc, log))
 	content.GET("/:id", handleGetContent(contentSvc, log))
 	content.POST("", handleCreateContent(contentSvc, log))

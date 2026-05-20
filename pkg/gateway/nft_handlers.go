@@ -18,7 +18,7 @@ import (
 
 // RegisterNFTRoutes registers NFT verification and ownership routes.
 func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, defaultChainID int64, cacheTTL time.Duration, blockProver ...middleware.BlockProver) {
-	nft := router.Group("/api/v1/nft")
+	nft := router.Group(APIPrefix + "/nft")
 	nft.GET("", func(c *gin.Context) {
 		wallet := middleware.GetWalletAddress(c)
 		contract := c.Query("contract")

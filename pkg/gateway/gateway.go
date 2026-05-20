@@ -472,12 +472,12 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		Secret:    cfg.Auth.JWTSecret,
 		Blacklist: svc.AuthService,
 		SkipPaths: []string{
-			"/api/v1/auth/challenge",
-			"/api/v1/auth/login",
-			"/api/v1/auth/register",
-			"/api/v1/auth/refresh",
-			"/api/v1/web3/rpc-status",
-			"/api/v1/web3/supported-chains",
+			APIPrefix + "/auth/challenge",
+			APIPrefix + "/auth/login",
+			APIPrefix + "/auth/register",
+			APIPrefix + "/auth/refresh",
+			APIPrefix + "/web3/rpc-status",
+			APIPrefix + "/web3/supported-chains",
 		},
 	}
 
@@ -505,6 +505,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 			CacheTTL:       60 * time.Second,
 			MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
 			BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
+			Enabled:        cfg.Features.NFTGating,
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))

@@ -219,7 +219,7 @@ func (db *DashboardBuilder) buildCacheHitRatePanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "rate(streamgate_requests_total{endpoint=~\".*cache.*\"}[5m])",
+				Expr:  "sum(rate(streamgate_streaming_cache_hits_total[5m])) / sum(rate(streamgate_streaming_cache_hits_total[5m]) + rate(streamgate_http_requests_total{route=~\"/api/v1/streaming/.*\"}[5m]))",
 				RefID: "A",
 			},
 		},
@@ -245,7 +245,7 @@ func (db *DashboardBuilder) buildActiveConnectionsPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "streamgate_http_requests_total",
+				Expr:  "streamgate_streaming_viewers_active",
 				RefID: "A",
 			},
 		},
@@ -320,7 +320,7 @@ func (db *DashboardBuilder) buildUploadMetricsPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "rate(streamgate_requests_total{service=\"upload\"}[5m])",
+				Expr:  "rate(streamgate_upload_total[5m])",
 				RefID: "A",
 			},
 		},
@@ -344,7 +344,7 @@ func (db *DashboardBuilder) buildStreamingMetricsPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "rate(streamgate_requests_total{service=\"streaming\"}[5m])",
+				Expr:  "rate(streamgate_streaming_manifests_total[5m])",
 				RefID: "A",
 			},
 		},
@@ -368,7 +368,7 @@ func (db *DashboardBuilder) buildTranscodingMetricsPanel() GrafanaPanel {
 		},
 		Targets: []GrafanaTarget{
 			{
-				Expr:  "rate(streamgate_requests_total{service=\"transcoder\"}[5m])",
+				Expr:  "streamgate_transcoding_queue_depth",
 				RefID: "A",
 			},
 		},

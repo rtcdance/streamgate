@@ -2,9 +2,11 @@ package config
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,43 @@ import (
 	"go.uber.org/zap"
 	"go.yaml.in/yaml/v3"
 )
+
+var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+func expandEnvWithDefaults(s string) string {
+	return envVarPattern.ReplaceAllStringFunc(s, func(match string) string {
+		inner := match[2 : len(match)-1]
+		if idx := strings.Index(inner, ":-"); idx >= 0 {
+			name := inner[:idx]
+			defVal := inner[idx+2:]
+			if val, ok := os.LookupEnv(name); ok {
+				return val
+			}
+			return defVal
+		}
+		return os.Getenv(inner)
+	})
+}
+
+func readConfigWithExpansion(configName string, merge bool, configPaths ...string) error {
+	for _, cp := range configPaths {
+		path := filepath.Join(cp, configName+".yaml")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("error reading config file %s: %w", path, err)
+		}
+		expanded := expandEnvWithDefaults(string(data))
+		viper.SetConfigType("yaml")
+		if merge {
+			return viper.MergeConfig(strings.NewReader(expanded))
+		}
+		return viper.ReadConfig(strings.NewReader(expanded))
+	}
+	return viper.ConfigFileNotFoundError{}
+}
 
 // Config holds the application configuration
 type Config struct {
@@ -270,78 +309,75 @@ type CircuitBreakerConfig struct {
 // Reads base config.yaml first, then merges environment-specific config
 // (config.{STREAMGATE_ENV}.yaml). STREAMGATE_ENV defaults to "dev".
 func LoadConfig() (*Config, error) {
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath("./config")
-	viper.AddConfigPath(".")
-
-	// Set defaults
 	setDefaults()
 
-	// Read from environment - allow DATABASE_ prefix to map to database.* keys
 	viper.SetEnvPrefix("")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
-	// Explicitly bind environment variables for database config
-	_ = viper.BindEnv("database.host", "DATABASE_HOST")
-	_ = viper.BindEnv("database.port", "DATABASE_PORT")
-	_ = viper.BindEnv("database.user", "DATABASE_USER")
-	_ = viper.BindEnv("database.password", "DATABASE_PASSWORD")
-	_ = viper.BindEnv("database.database", "DATABASE_NAME")
-	_ = viper.BindEnv("database.sslmode", "DATABASE_SSLMODE")
-	_ = viper.BindEnv("database.maxconns", "DATABASE_MAXCONNS")
+	// Database — STREAMGATE_DB_* (legacy DATABASE_* also supported)
+	_ = viper.BindEnv("database.host", "STREAMGATE_DB_HOST")
+	_ = viper.BindEnv("database.port", "STREAMGATE_DB_PORT")
+	_ = viper.BindEnv("database.user", "STREAMGATE_DB_USER")
+	_ = viper.BindEnv("database.password", "STREAMGATE_DB_PASSWORD")
+	_ = viper.BindEnv("database.database", "STREAMGATE_DB_NAME")
+	_ = viper.BindEnv("database.sslmode", "STREAMGATE_DB_SSLMODE")
+	_ = viper.BindEnv("database.maxconns", "STREAMGATE_DB_MAXCONNS")
+	_ = viper.BindEnv("database.max_idle_conns", "STREAMGATE_DB_MAX_IDLE_CONNS")
+	_ = viper.BindEnv("database.conn_max_lifetime", "STREAMGATE_DB_CONN_MAX_LIFETIME")
 
-	// Explicitly bind environment variables for Redis config
-	_ = viper.BindEnv("redis.host", "REDIS_HOST")
-	_ = viper.BindEnv("redis.port", "REDIS_PORT")
-	_ = viper.BindEnv("redis.password", "REDIS_PASSWORD")
-	_ = viper.BindEnv("redis.db", "REDIS_DB")
+	// Redis
+	_ = viper.BindEnv("redis.host", "STREAMGATE_REDIS_HOST")
+	_ = viper.BindEnv("redis.port", "STREAMGATE_REDIS_PORT")
+	_ = viper.BindEnv("redis.password", "STREAMGATE_REDIS_PASSWORD")
+	_ = viper.BindEnv("redis.db", "STREAMGATE_REDIS_DB")
 
-	// Explicitly bind environment variables for Storage config
-	_ = viper.BindEnv("storage.type", "STORAGE_TYPE")
-	_ = viper.BindEnv("storage.endpoint", "STORAGE_ENDPOINT")
-	_ = viper.BindEnv("storage.accesskey", "STORAGE_ACCESSKEY")
-	_ = viper.BindEnv("storage.secretkey", "STORAGE_SECRETKEY")
-	_ = viper.BindEnv("storage.bucket", "STORAGE_BUCKET")
-	_ = viper.BindEnv("storage.region", "STORAGE_REGION")
-	_ = viper.BindEnv("storage.use_ssl", "STORAGE_USE_SSL")
+	// Storage
+	_ = viper.BindEnv("storage.type", "STREAMGATE_STORAGE_TYPE")
+	_ = viper.BindEnv("storage.endpoint", "STREAMGATE_STORAGE_ENDPOINT")
+	_ = viper.BindEnv("storage.accesskey", "STREAMGATE_STORAGE_ACCESS_KEY")
+	_ = viper.BindEnv("storage.secretkey", "STREAMGATE_STORAGE_SECRET_KEY")
+	_ = viper.BindEnv("storage.bucket", "STREAMGATE_STORAGE_BUCKET")
+	_ = viper.BindEnv("storage.region", "STREAMGATE_STORAGE_REGION")
+	_ = viper.BindEnv("storage.use_ssl", "STREAMGATE_STORAGE_USE_SSL")
 
-	_ = viper.BindEnv("database.max_idle_conns", "DATABASE_MAX_IDLE_CONNS")
-	_ = viper.BindEnv("database.conn_max_lifetime", "DATABASE_CONN_MAX_LIFETIME")
+	// NATS
+	_ = viper.BindEnv("nats.url", "STREAMGATE_NATS_URL")
 
-	// Explicitly bind environment variables for NATS config
-	_ = viper.BindEnv("nats.url", "NATS_URL")
+	// Consul
+	_ = viper.BindEnv("consul.address", "STREAMGATE_CONSUL_HOST")
+	_ = viper.BindEnv("consul.port", "STREAMGATE_CONSUL_PORT")
 
-	// Explicitly bind environment variables for Consul config
-	_ = viper.BindEnv("consul.address", "CONSUL_HOST")
-	_ = viper.BindEnv("consul.port", "CONSUL_PORT")
+	// Monitoring
+	_ = viper.BindEnv("monitoring.jaeger_endpoint", "STREAMGATE_JAEGER_ENDPOINT")
 
-	// Explicitly bind environment variables for monitoring
-	_ = viper.BindEnv("monitoring.jaeger_endpoint", "JAEGER_ENDPOINT")
+	// Web3
+	_ = viper.BindEnv("web3.ethereum_rpc", "STREAMGATE_ETH_RPC")
+	_ = viper.BindEnv("web3.solana_rpc", "STREAMGATE_SOLANA_RPC")
+	_ = viper.BindEnv("web3.ethereum_ws_url", "STREAMGATE_ETH_WS_URL")
+	_ = viper.BindEnv("web3.transaction.private_key_hex", "STREAMGATE_PRIVATE_KEY_HEX")
 
-	// Explicitly bind environment variables for Web3
-	_ = viper.BindEnv("web3.ethereum_rpc", "WEB3_ETHEREUM_RPC")
-	_ = viper.BindEnv("web3.solana_rpc", "WEB3_SOLANA_RPC")
-	_ = viper.BindEnv("auth.jwt_secret", "AUTH_JWT_SECRET")
-	_ = viper.BindEnv("cors.allowed_origins", "CORS_ALLOWED_ORIGINS")
+	// Auth
+	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
 
-	// Read base config file
-	viper.SetConfigName("config")
-	if err := viper.ReadInConfig(); err != nil {
+	// CORS
+	_ = viper.BindEnv("cors.allowed_origins", "STREAMGATE_CORS_ORIGINS")
+
+	configPaths := []string{"./config", "."}
+
+	if err := readConfigWithExpansion("config", false, configPaths...); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
-		// Config file not found; using environment variables and defaults
 	}
 
-	// Merge environment-specific config (overrides base values)
 	env := os.Getenv("STREAMGATE_ENV")
 	if env == "" {
 		env = "dev"
 	}
-	viper.SetConfigName("config." + env)
-	if err := viper.MergeInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok { //nolint:staticcheck
+	if err := readConfigWithExpansion("config."+env, true, configPaths...); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("error reading environment config file: %w", err)
 		}
 	}
 
@@ -505,6 +541,22 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("database host is required")
 	}
 
+	if cfg.Database.Port <= 0 || cfg.Database.Port > 65535 {
+		return nil, fmt.Errorf("invalid database port: %d", cfg.Database.Port)
+	}
+
+	if cfg.Redis.Host == "" {
+		return nil, fmt.Errorf("redis host is required")
+	}
+
+	if cfg.Storage.Endpoint == "" {
+		return nil, fmt.Errorf("storage endpoint is required")
+	}
+
+	if cfg.GRPC.Port <= 0 || cfg.GRPC.Port > 65535 {
+		return nil, fmt.Errorf("invalid gRPC port: %d", cfg.GRPC.Port)
+	}
+
 	return cfg, nil
 }
 
@@ -666,7 +718,7 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	var ve ValidationError
 
 	if c.Auth.JWTSecret == "" {
-		ve.Critical = append(ve.Critical, "auth.jwt_secret is empty — set via AUTH_JWT_SECRET env var")
+		ve.Critical = append(ve.Critical, "auth.jwt_secret is empty — set via STREAMGATE_JWT_SECRET env var")
 	}
 	if len(c.Auth.JWTSecret) > 0 && len(c.Auth.JWTSecret) < 32 {
 		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret is only %d bytes — minimum 32 bytes required for HS256", len(c.Auth.JWTSecret)))
@@ -704,6 +756,16 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 
 	if strings.Contains(c.Web3.EthereumRPC, "YOUR_KEY") {
 		ve.Warnings = append(ve.Warnings, "web3.ethereum_rpc contains placeholder YOUR_KEY")
+	}
+
+	if pk := c.Web3.Transaction.PrivateKeyHex; pk != "" {
+		hexStr := strings.TrimPrefix(pk, "0x")
+		if len(hexStr) != 64 {
+			ve.Critical = append(ve.Critical, fmt.Sprintf("web3.transaction.private_key_hex: invalid hex length (%d chars, expected 64)", len(hexStr)))
+		}
+		if _, err := hex.DecodeString(hexStr); err != nil {
+			ve.Critical = append(ve.Critical, "web3.transaction.private_key_hex: not valid hex encoding")
+		}
 	}
 
 	for _, origin := range c.CORS.AllowedOrigins {

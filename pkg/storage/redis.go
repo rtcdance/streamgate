@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
-	"streamgate/pkg/middleware"
+	"streamgate/pkg/resilience"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 
 type RedisCache struct {
 	client *redis.Client
-	cb     *middleware.CircuitBreaker
+	cb     *resilience.CircuitBreaker
 }
 
 // RedisConfig holds Redis connection configuration
@@ -34,7 +34,7 @@ func NewRedisCache() *RedisCache {
 	return &RedisCache{}
 }
 
-func (rc *RedisCache) SetCircuitBreaker(cb *middleware.CircuitBreaker) {
+func (rc *RedisCache) SetCircuitBreaker(cb *resilience.CircuitBreaker) {
 	rc.cb = cb
 }
 
@@ -219,22 +219,7 @@ func (rc *RedisCache) Close() error {
 	if rc.client == nil {
 		return nil
 	}
-	if rc.cb != nil && !rc.cb.Allow() {
-		return fmt.Errorf("circuit breaker is open for Redis")
-	}
-
-	err := rc.client.Close()
-	if err != nil {
-		if rc.cb != nil {
-			rc.cb.RecordFailure()
-		}
-		return err
-	}
-
-	if rc.cb != nil {
-		rc.cb.RecordSuccess()
-	}
-	return nil
+	return rc.client.Close()
 }
 
 // Ping checks if Redis is alive. Derives a 3s timeout from ctx.

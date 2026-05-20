@@ -50,73 +50,91 @@ func NewNonceManager(client nonceClient, logger *zap.Logger) *NonceManager {
 
 func (nm *NonceManager) NextNonce(ctx context.Context, address string) (uint64, error) {
 	nm.mu.Lock()
-	defer nm.mu.Unlock()
-
 	nm.evictStaleLocked()
 
 	st, ok := nm.states[address]
-	if ok {
-		if last, ok := nm.lastSync[address]; ok && time.Since(last) > nm.syncInterval {
-			netNonce, err := nm.client.GetNonce(ctx, address)
-			if err != nil {
-				nm.logger.Warn("NonceManager: failed to re-sync nonce from network, using cached",
-					zap.String("address", address),
-					zap.Error(err))
-			} else {
-				if netNonce > st.next {
-					st.next = netNonce
+	needSync := !ok || (nm.lastSync[address].Before(time.Now().Add(-nm.syncInterval)))
+	nm.mu.Unlock()
+
+	if needSync {
+		netNonce, err := nm.client.GetNonce(ctx, address)
+		if err != nil {
+			if !ok {
+				return 0, fmt.Errorf("nonce manager: failed to get network nonce: %w", err)
+			}
+			nm.logger.Warn("NonceManager: failed to re-sync nonce from network, using cached",
+				zap.String("address", address),
+				zap.Error(err))
+		} else {
+			nm.mu.Lock()
+			if st2, ok2 := nm.states[address]; ok2 {
+				if netNonce > st2.next {
+					st2.next = netNonce
 				}
-				for n := range st.pending {
-					if n < st.next {
-						delete(st.pending, n)
+				for n := range st2.pending {
+					if n < st2.next {
+						delete(st2.pending, n)
 					}
 				}
-				nm.lastSync[address] = time.Now()
-				nm.logger.Debug("NonceManager: re-synced nonce from network",
-					zap.String("address", address),
-					zap.Uint64("nonce", st.next))
-			}
-		}
-
-		if len(st.pending) > 0 {
-			var smallest uint64
-			found := false
-			for n := range st.pending {
-				if !found || n < smallest {
-					smallest = n
-					found = true
+			} else {
+				nm.states[address] = &nonceState{
+					next:    netNonce + 1,
+					pending: make(map[uint64]struct{}),
 				}
 			}
-			if found {
-				delete(st.pending, smallest)
-				nm.logger.Debug("NonceManager: filled gap nonce",
-					zap.String("address", address),
-					zap.Uint64("nonce", smallest))
-				return smallest, nil
+			nm.lastSync[address] = time.Now()
+			nm.logger.Debug("NonceManager: synced nonce from network",
+				zap.String("address", address),
+				zap.Uint64("nonce", netNonce))
+			nm.mu.Unlock()
+
+			if !ok {
+				return netNonce, nil
 			}
 		}
-
-		nonce := st.next
-		st.next++
-		nm.logger.Debug("NonceManager: returned cached nonce",
-			zap.String("address", address),
-			zap.Uint64("nonce", nonce))
-		return nonce, nil
 	}
 
-	netNonce, err := nm.client.GetNonce(ctx, address)
-	if err != nil {
-		return 0, fmt.Errorf("nonce manager: failed to get network nonce: %w", err)
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+
+	st = nm.states[address]
+	if st == nil {
+		netNonce, err := nm.client.GetNonce(ctx, address)
+		if err != nil {
+			return 0, fmt.Errorf("nonce manager: failed to get network nonce: %w", err)
+		}
+		nm.states[address] = &nonceState{
+			next:    netNonce + 1,
+			pending: make(map[uint64]struct{}),
+		}
+		nm.lastSync[address] = time.Now()
+		return netNonce, nil
 	}
-	nm.states[address] = &nonceState{
-		next:    netNonce + 1,
-		pending: make(map[uint64]struct{}),
+
+	if len(st.pending) > 0 {
+		var smallest uint64
+		found := false
+		for n := range st.pending {
+			if !found || n < smallest {
+				smallest = n
+				found = true
+			}
+		}
+		if found {
+			delete(st.pending, smallest)
+			nm.logger.Debug("NonceManager: filled gap nonce",
+				zap.String("address", address),
+				zap.Uint64("nonce", smallest))
+			return smallest, nil
+		}
 	}
-	nm.lastSync[address] = time.Now()
-	nm.logger.Debug("NonceManager: synced nonce from network",
+
+	nonce := st.next
+	st.next++
+	nm.logger.Debug("NonceManager: returned cached nonce",
 		zap.String("address", address),
-		zap.Uint64("nonce", netNonce))
-	return netNonce, nil
+		zap.Uint64("nonce", nonce))
+	return nonce, nil
 }
 
 func (nm *NonceManager) Rollback(address string, nonce uint64) {

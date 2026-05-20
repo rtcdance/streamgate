@@ -33,6 +33,8 @@ spec:
         volumeMounts:
         - name: prometheus-config
           mountPath: /etc/prometheus
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
         - name: prometheus-storage
           mountPath: /prometheus
         livenessProbe:
@@ -57,6 +59,9 @@ spec:
       - name: prometheus-config
         configMap:
           name: prometheus-config
+      - name: prometheus-rules
+        configMap:
+          name: prometheus-alert-rules
       - name: prometheus-storage
         persistentVolumeClaim:
           claimName: prometheus-pvc
@@ -84,6 +89,15 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager-service:9093
 
     scrape_configs:
       - job_name: 'streamgate-api-gateway'
