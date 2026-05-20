@@ -12,9 +12,9 @@ import (
 )
 
 func RegisterPlaybackStatsRoutes(router *gin.RouterGroup, svc *service.PlaybackStatsService) {
-	router.POST("/api/v1/stats/playback", recordPlaybackEvent(svc))
-	router.GET("/api/v1/content/:id/stats", getContentStats(svc))
-	router.GET("/api/v1/stats/top", listTopContent(svc))
+	router.POST(APIPrefix+"/stats/playback", recordPlaybackEvent(svc))
+	router.GET(APIPrefix+"/content/:id/stats", getContentStats(svc))
+	router.GET(APIPrefix+"/stats/top", listTopContent(svc))
 }
 
 func recordPlaybackEvent(svc *service.PlaybackStatsService) gin.HandlerFunc {

@@ -28,6 +28,15 @@ var (
 		Name: "streamgate_playback_token_issued_total",
 		Help: "Total playback tokens issued",
 	})
+	svcWalletAuthTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "streamgate_wallet_auth_total",
+		Help: "Total wallet authentication operations",
+	}, []string{"operation", "status"})
+	svcWalletAuthDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "streamgate_wallet_auth_duration_seconds",
+		Help:    "Wallet authentication operation latency",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"operation"})
 )
 
 const defaultChallengeTTL = 5 * time.Minute
@@ -77,6 +86,12 @@ type ChainAwareSignatureVerifier interface {
 // When possible, prefer "siwe" — it follows the EIP-4361 standard and provides better
 // wallet UX (structured parsing, human-readable domain, nonce).
 func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress string, chainID int64, signType ...string) (*stg.WalletChallenge, error) {
+	start := time.Now()
+	_, span := monitoring.StartOTelSpan(ctx, "auth.generate_wallet_challenge",
+		attribute.Int64("chain_id", chainID),
+	)
+	defer span.End()
+
 	var normalizedAddr string
 	if isSolanaChain(chainID) {
 		if !IsValidSolanaAddress(walletAddress) {
@@ -144,15 +159,33 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 	}
 
 	if err := s.challengeStore.SaveChallenge(ctx, challenge); err != nil {
+		svcWalletAuthTotal.WithLabelValues("generate_challenge", "failure").Inc()
+		svcWalletAuthDuration.WithLabelValues("generate_challenge").Observe(time.Since(start).Seconds())
 		return nil, fmt.Errorf("failed to store challenge: %w", err)
 	}
 
+	svcWalletAuthTotal.WithLabelValues("generate_challenge", "success").Inc()
+	svcWalletAuthDuration.WithLabelValues("generate_challenge").Observe(time.Since(start).Seconds())
 	return challenge, nil
 }
 
 // AuthenticateWithWallet verifies a challenge-based wallet login and issues a JWT.
 // Supports both EVM (secp256k1/EIP-191) and Solana (ed25519) signature verification.
-func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string, chainID int64) (string, error) {
+func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress, challengeID, signature string, chainID int64) (result string, err error) {
+	start := time.Now()
+	_, span := monitoring.StartOTelSpan(ctx, "auth.authenticate_with_wallet",
+		attribute.Int64("chain_id", chainID),
+	)
+	defer func() {
+		span.End()
+		status := "success"
+		if err != nil {
+			status = "failure"
+		}
+		svcWalletAuthTotal.WithLabelValues("authenticate", status).Inc()
+		svcWalletAuthDuration.WithLabelValues("authenticate").Observe(time.Since(start).Seconds())
+	}()
+
 	if challengeID == "" {
 		return "", ErrInvalidRequest
 	}
@@ -283,6 +316,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 		WalletAddress: walletAddress,
 		JTI:           generateID(),
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "streamgate",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
@@ -315,6 +349,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		JTI:               generateID(),
 		ClientFingerprint: clientFingerprint,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "streamgate",
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
@@ -357,6 +392,12 @@ func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, co
 	if clientFingerprint != "" && claims.ClientFingerprint != clientFingerprint {
 		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
 		return nil, errors.New("playback token fingerprint mismatch")
+	}
+	if s.blacklist != nil && claims.ID != "" {
+		if s.blacklist.IsRevoked(ctx, claims.ID) {
+			monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+			return nil, ErrTokenRevoked
+		}
 	}
 	monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "success").Inc()
 	return claims, nil

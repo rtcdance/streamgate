@@ -104,7 +104,11 @@ func (b *MemoryEventBus) Publish(ctx context.Context, event *Event) error {
 	}
 
 	for _, sub := range subs {
-		b.sem <- struct{}{}
+		select {
+		case b.sem <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 		b.wg.Add(1)
 		go func(s *subscription) {
 			defer b.wg.Done()

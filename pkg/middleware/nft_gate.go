@@ -143,6 +143,7 @@ type NFTGateConfig struct {
 	MarketplaceURL     string
 	BlockTag           web3.BlockTag
 	AutoDetectStandard bool
+	Enabled            bool
 	reorgActive        atomic.Bool
 	reorgDetectedAt    atomic.Int64
 }
@@ -208,6 +209,11 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 	}
 
 	return func(c *gin.Context) {
+		if !config.Enabled {
+			c.Next()
+			return
+		}
+
 		walletAddress := GetWalletAddress(c)
 		if walletAddress == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required", "code": "UNAUTHORIZED"})

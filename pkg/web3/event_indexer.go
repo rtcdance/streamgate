@@ -594,15 +594,28 @@ func (ei *EventIndexer) addEvent(event *IndexedEvent) {
 		ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
 		return
 	}
-	if ei.store != nil {
-		if exists, _ := ei.store.EventExists(event.ID); exists {
+
+	store := ei.store
+	ei.mu.Unlock()
+
+	if store != nil {
+		if exists, _ := store.EventExists(event.ID); exists {
+			ei.mu.Lock()
+			ei.seenIDs[event.ID] = struct{}{}
 			ei.mu.Unlock()
-			ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
+			ei.logger.Debug("Skipping duplicate event (persisted)", zap.String("event_id", event.ID))
 			return
 		}
-		if err := ei.store.SaveEvent(event); err != nil {
+		if err := store.SaveEvent(event); err != nil {
 			ei.logger.Warn("Failed to persist event", zap.String("event_id", event.ID), zap.Error(err))
 		}
+	}
+
+	ei.mu.Lock()
+
+	if _, seen := ei.seenIDs[event.ID]; seen {
+		ei.mu.Unlock()
+		return
 	}
 
 	ei.events = append(ei.events, event)

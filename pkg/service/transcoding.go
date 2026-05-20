@@ -146,15 +146,19 @@ func (s *TranscodingService) StartWorker(log interface {
 		}
 		return
 	}
-	if !atomic.CompareAndSwapInt32(&s.running, 0, 1) {
+
+	s.cancelMu.Lock()
+	if atomic.LoadInt32(&s.running) == 1 {
+		s.cancelMu.Unlock()
 		if log != nil {
 			log.Info("TranscodingService: worker already running, stopping previous instance")
 		}
 		s.StopWorker()
-		atomic.StoreInt32(&s.running, 1)
+		s.cancelMu.Lock()
 	}
+	atomic.StoreInt32(&s.running, 1)
+
 	ctx, cancel := context.WithCancel(context.Background())
-	s.cancelMu.Lock()
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -235,7 +239,6 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 						"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
 				}
 				_ = s.queue.Enqueue(task)
-				_ = s.queue.Nak(task.ID)
 			} else {
 				_ = s.queue.Nak(task.ID)
 			}
@@ -286,14 +289,12 @@ func (s *TranscodingService) Close() {
 		if s.log != nil {
 			s.log.Warn("TranscodingService: timed out waiting for goroutines to finish")
 		}
-		go func() {
-			<-done
-			if s.httpClient != nil {
-				if t, ok := s.httpClient.Transport.(*http.Transport); ok {
-					t.CloseIdleConnections()
-				}
+		<-done
+		if s.httpClient != nil {
+			if t, ok := s.httpClient.Transport.(*http.Transport); ok {
+				t.CloseIdleConnections()
 			}
-		}()
+		}
 	}
 }
 

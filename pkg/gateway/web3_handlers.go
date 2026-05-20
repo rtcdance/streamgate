@@ -3,9 +3,10 @@ package gateway
 import (
 	"time"
 
+	"streamgate/pkg/web3"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"streamgate/pkg/web3"
 )
 
 // Web3StatusProvider provides RPC status and chain configuration information.
@@ -16,7 +17,7 @@ type Web3StatusProvider interface {
 
 // RegisterWeb3Routes registers Web3 RPC status routes.
 func RegisterWeb3Routes(router *gin.Engine, log *zap.Logger, web3Svc Web3StatusProvider) {
-	w3 := router.Group("/api/v1/web3")
+	w3 := router.Group(APIPrefix + "/web3")
 	w3.GET("/rpc-status", func(c *gin.Context) {
 		statusesByChain := web3Svc.GetRPCStatuses()
 		chains := web3Svc.GetSupportedChains()
