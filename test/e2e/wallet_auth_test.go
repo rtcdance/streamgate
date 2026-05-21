@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
-	"streamgate/pkg/web3"
 )
 
 // newTestAuthService creates an AuthService wired with a real SignatureVerifier
@@ -58,7 +58,7 @@ func TestWalletAuth_PersonalSign_FullFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, challenge)
 	assert.Equal(t, address, challenge.WalletAddress)
-	assert.Equal(t, "personal_sign", challenge.SigningType)
+	assert.Equal(t, "siwe", challenge.SigningType)
 	assert.False(t, challenge.ExpiresAt.IsZero())
 
 	// Step 2: Sign the challenge message with the private key

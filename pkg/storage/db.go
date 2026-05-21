@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/models"
 )
 
 // DB abstracts SQL database operations.

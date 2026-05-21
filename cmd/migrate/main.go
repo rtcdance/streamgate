@@ -16,8 +16,8 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"streamgate/migrations"
-	"streamgate/pkg/storage/migrate"
+	"github.com/rtcdance/streamgate/migrations"
+	"github.com/rtcdance/streamgate/pkg/storage/migrate"
 )
 
 func main() {

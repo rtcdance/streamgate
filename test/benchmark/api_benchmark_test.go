@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"

@@ -3,6 +3,7 @@ package gateway
 import (
 	"crypto/rand"
 	"fmt"
+	"net/http"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -78,6 +79,32 @@ func abortWithError(c *gin.Context, status int, code, msg string) {
 		apiErr.RequestID = id
 	}
 	c.AbortWithStatusJSON(status, apiErr)
+}
+
+// abortWithValidationError sends a 400 response with field-level validation errors.
+// The fields map is placed under a "validation" key for client-side handling.
+func abortWithValidationError(c *gin.Context, fields map[string]string) {
+	reqID, _ := c.Get("request_id")
+	msg := "request validation failed"
+	if raw, ok := fields["_error"]; ok {
+		msg = raw
+		delete(fields, "_error")
+	}
+	apiErr := APIError{Error: msg, Code: ErrInvalidRequest}
+	if id, ok := reqID.(string); ok && id != "" {
+		apiErr.RequestID = id
+	}
+	resp := map[string]interface{}{
+		"error": apiErr.Error,
+		"code":  apiErr.Code,
+	}
+	if apiErr.RequestID != "" {
+		resp["request_id"] = apiErr.RequestID
+	}
+	if len(fields) > 0 {
+		resp["validation"] = fields
+	}
+	c.AbortWithStatusJSON(http.StatusBadRequest, resp)
 }
 
 // abortWithErrorDetail sends a structured error response with detail and aborts.

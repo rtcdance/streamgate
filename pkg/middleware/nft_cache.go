@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"math/big"
 	"time"
 )
@@ -14,8 +15,8 @@ type NFTAccessEntry struct {
 }
 
 type NFTAccessCache interface {
-	Get(key string) (NFTAccessEntry, bool)
-	Set(key string, entry NFTAccessEntry)
-	Delete(key string)
-	DeleteByPrefix(prefix string)
+	Get(ctx context.Context, key string) (NFTAccessEntry, bool)
+	Set(ctx context.Context, key string, entry NFTAccessEntry)
+	Delete(ctx context.Context, key string)
+	DeleteByPrefix(ctx context.Context, prefix string)
 }

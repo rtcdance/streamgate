@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 func TestContentService_CreateAndRetrieve(t *testing.T) {
@@ -32,6 +32,7 @@ func TestContentService_CreateAndRetrieve(t *testing.T) {
 		Type:        "video",
 		Duration:    3600,
 		Size:        1024000,
+		OwnerID:     "test-owner",
 	}
 
 	id, err := contentService.CreateContent(context.Background(), content)
@@ -119,7 +120,7 @@ func TestContentService_DeleteContent(t *testing.T) {
 	content.ID = id
 
 	// Delete content
-	err = contentService.DeleteContent(context.Background(), content.ID)
+	err = contentService.DeleteContent(context.Background(), content.ID, content.OwnerID)
 	require.NoError(t, err)
 
 	// Verify deletion

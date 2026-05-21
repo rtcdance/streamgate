@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"streamgate/pkg/service"
-	"streamgate/test/helpers"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/test/helpers"
 
 	"github.com/google/uuid"
 )

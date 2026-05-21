@@ -54,8 +54,14 @@ help:
 	@echo "  make lint-verbose       - Run linting with verbose output"
 	@echo ""
 
-# Build all binaries
+# Build all binaries (parallel)
 build-all: build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn
+	@echo "✓ All binaries built successfully"
+
+# Build all binaries in parallel (up to 4 jobs)
+build-all-parallel:
+	@echo "Building all binaries in parallel..."
+	$(MAKE) -j4 build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn
 	@echo "✓ All binaries built successfully"
 
 # Build monolithic binary

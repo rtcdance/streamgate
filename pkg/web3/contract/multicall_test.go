@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestMulticall3DeployedAddress(t *testing.T) {
-	addr := Multicall3DeployedAddress(1) // Ethereum mainnet
+	addr := Multicall3DeployedAddress(1)
 	expected := common.HexToAddress("0xcA11bde05977b3631167028862bE2a173976CA11")
 	if addr != expected {
 		t.Errorf("expected %s, got %s", expected.Hex(), addr.Hex())

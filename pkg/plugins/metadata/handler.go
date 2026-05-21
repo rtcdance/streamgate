@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
 )
 
 // MetadataHandler handles metadata requests

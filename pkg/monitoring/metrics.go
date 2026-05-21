@@ -95,6 +95,33 @@ var (
 		},
 		[]string{"operation", "status"},
 	)
+	EventIndexerEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_event_indexer_events_total",
+			Help: "Total events indexed by contract and event type",
+		},
+		[]string{"contract", "event_type", "status"},
+	)
+	EventIndexerReorgsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "streamgate_event_indexer_reorgs_total",
+			Help: "Total reorgs detected by event indexer",
+		},
+	)
+	EventIndexerCurrentBlock = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "streamgate_event_indexer_current_block",
+			Help: "Current block being indexed",
+		},
+	)
+	EventIndexerIndexDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_event_indexer_index_duration_seconds",
+			Help:    "Duration of event indexing operations",
+			Buckets: []float64{0.1, 0.5, 1, 5, 10, 30, 60},
+		},
+		[]string{"mode"},
+	)
 )
 
 func init() {
@@ -112,6 +139,10 @@ func init() {
 		TranscodingQueueDepth,
 		TranscodingWorkersActive,
 		AuthOperationsTotal,
+		EventIndexerEventsTotal,
+		EventIndexerReorgsTotal,
+		EventIndexerCurrentBlock,
+		EventIndexerIndexDuration,
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	} {

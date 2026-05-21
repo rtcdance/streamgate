@@ -8,8 +8,8 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"go.uber.org/zap"
-	"streamgate/pkg/web3"
 )
 
 func TestNFTVerifier_VerifyNFTOwnership_Owner(t *testing.T) {

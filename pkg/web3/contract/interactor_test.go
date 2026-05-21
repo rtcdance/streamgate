@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"context"
@@ -34,13 +34,12 @@ func (m *mockEthCaller) CodeAt(ctx context.Context, contract common.Address, blo
 	return nil, nil
 }
 
-// simpleABI is a minimal ERC-20 balanceOf ABI for testing CallContractFunction.
 const simpleABI = `[{"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
 
 func TestContractInteractor_CallContractFunction_Success(t *testing.T) {
 	mock := &mockEthCaller{
 		callContractFn: func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
-			return make([]byte, 32), nil // uint256 zero
+			return make([]byte, 32), nil
 		},
 	}
 
@@ -54,7 +53,6 @@ func TestContractInteractor_CallContractFunction_ProxyRetry(t *testing.T) {
 	proxyAddr := "0x1111111111111111111111111111111111111111"
 	implAddr := "0x2222222222222222222222222222222222222222"
 
-	// Prepare the ERC-1967 slot result
 	implSlotResult := make([]byte, 32)
 	copy(implSlotResult[12:32], common.HexToAddress(implAddr).Bytes())
 
@@ -64,7 +62,6 @@ func TestContractInteractor_CallContractFunction_ProxyRetry(t *testing.T) {
 			addr := call.To.Hex()
 			idx := counter.next(addr)
 
-			// Proxy address: 1st call fails, 2nd call returns impl slot
 			if addr == proxyAddr {
 				switch idx {
 				case 0:
@@ -74,7 +71,6 @@ func TestContractInteractor_CallContractFunction_ProxyRetry(t *testing.T) {
 				}
 			}
 
-			// Implementation address: succeeds
 			if addr == implAddr {
 				return make([]byte, 32), nil
 			}
@@ -152,11 +148,10 @@ func TestContractInteractor_ResolveImplementation_Proxy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved)
 
-	// Second call should hit cache
 	resolved2, err := ci.ResolveImplementation(context.Background(), proxyAddr)
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved2)
-	assert.Equal(t, 1, callCount) // only one RPC call
+	assert.Equal(t, 1, callCount)
 }
 
 func TestContractInteractor_ResolveImplementation_NotProxy(t *testing.T) {
@@ -164,7 +159,7 @@ func TestContractInteractor_ResolveImplementation_NotProxy(t *testing.T) {
 
 	mock := &mockEthCaller{
 		callContractFn: func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
-			return make([]byte, 32), nil // all zeros — not a proxy
+			return make([]byte, 32), nil
 		},
 	}
 
@@ -191,20 +186,17 @@ func TestContractInteractor_ResolveImplementation_TTLExpiry(t *testing.T) {
 
 	ci := NewContractInteractor(mock, zap.NewNop())
 
-	// First call resolves via RPC
 	resolved, err := ci.ResolveImplementation(context.Background(), proxyAddr)
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved)
 	assert.Equal(t, 1, callCount)
 
-	// Expire the cache entry manually
 	ci.proxyMu.Lock()
 	entry := ci.proxyCache[common.HexToAddress(proxyAddr)]
 	entry.expiry = time.Now().Add(-time.Second)
 	ci.proxyCache[common.HexToAddress(proxyAddr)] = entry
 	ci.proxyMu.Unlock()
 
-	// Next call should re-resolve via RPC
 	resolved, err = ci.ResolveImplementation(context.Background(), proxyAddr)
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved)
@@ -228,16 +220,13 @@ func TestContractInteractor_InvalidateProxyCache(t *testing.T) {
 
 	ci := NewContractInteractor(mock, zap.NewNop())
 
-	// Resolve to populate cache
 	resolved, err := ci.ResolveImplementation(context.Background(), proxyAddr)
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved)
 	assert.Equal(t, 1, callCount)
 
-	// Invalidate cache
 	ci.InvalidateProxyCache(proxyAddr)
 
-	// Next call should re-resolve via RPC
 	resolved, err = ci.ResolveImplementation(context.Background(), proxyAddr)
 	require.NoError(t, err)
 	assert.Equal(t, implAddr, resolved)
@@ -253,7 +242,7 @@ func TestContractInteractor_IsContractAddress(t *testing.T) {
 			if contract == contractAddr {
 				return []byte{0x60, 0x80, 0x60, 0x40}, nil
 			}
-			return nil, nil // no code
+			return nil, nil
 		},
 	}
 
@@ -268,7 +257,6 @@ func TestContractInteractor_IsContractAddress(t *testing.T) {
 	assert.False(t, isEmpty)
 }
 
-// sequentialCallCounter tracks per-address call counts for sequential mock responses.
 type sequentialCallCounter struct {
 	counts map[string]int
 }

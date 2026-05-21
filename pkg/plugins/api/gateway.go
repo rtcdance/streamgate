@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/gateway"
-	"streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"

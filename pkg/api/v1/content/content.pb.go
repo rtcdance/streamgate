@@ -7,10 +7,10 @@
 package contentv1
 
 import (
+	common "github.com/rtcdance/streamgate/pkg/api/v1/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
-	common "streamgate/pkg/api/v1/common"
 	sync "sync"
 	unsafe "unsafe"
 )

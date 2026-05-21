@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/models"
 
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"

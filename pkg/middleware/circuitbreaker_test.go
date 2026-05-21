@@ -47,10 +47,11 @@ func TestNewCircuitBreaker(t *testing.T) {
 		cb := NewCircuitBreaker("test", config, logger)
 
 		assert.NotNil(t, cb)
-		assert.Equal(t, "test", cb.name)
-		assert.Equal(t, StateClosed, cb.state)
-		assert.Equal(t, 0, cb.failureCount)
-		assert.Equal(t, 0, cb.successCount)
+		stats := cb.Stats()
+		assert.Equal(t, "test", stats.Name)
+		assert.Equal(t, StateClosed, stats.State)
+		assert.Equal(t, 0, stats.FailureCount)
+		assert.Equal(t, 0, stats.SuccessCount)
 	})
 }
 
@@ -65,8 +66,9 @@ func TestCircuitBreaker_Execute(t *testing.T) {
 		})
 
 		assert.NoError(t, err)
-		assert.Equal(t, 0, cb.failureCount)
-		assert.Equal(t, 0, cb.successCount)
+		stats := cb.Stats()
+		assert.Equal(t, 0, stats.FailureCount)
+		assert.Equal(t, 0, stats.SuccessCount)
 	})
 
 	t.Run("failed execution", func(t *testing.T) {
@@ -79,7 +81,7 @@ func TestCircuitBreaker_Execute(t *testing.T) {
 		})
 
 		assert.Error(t, err)
-		assert.Equal(t, 1, cb.failureCount)
+		assert.Equal(t, 1, cb.Stats().FailureCount)
 	})
 }
 
@@ -304,8 +306,9 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 		cb.Reset()
 
 		assert.Equal(t, StateClosed, cb.State())
-		assert.Equal(t, 0, cb.failureCount)
-		assert.Equal(t, 0, cb.successCount)
+		stats := cb.Stats()
+		assert.Equal(t, 0, stats.FailureCount)
+		assert.Equal(t, 0, stats.SuccessCount)
 	})
 }
 
@@ -340,7 +343,7 @@ func TestNewCircuitBreakerManager(t *testing.T) {
 		manager := NewCircuitBreakerManager(logger)
 
 		assert.NotNil(t, manager)
-		assert.NotNil(t, manager.breakers)
+		assert.NotNil(t, manager.GetAll())
 	})
 }
 
@@ -353,7 +356,7 @@ func TestCircuitBreakerManager_GetOrCreate(t *testing.T) {
 		cb := manager.GetOrCreate("test", config)
 
 		assert.NotNil(t, cb)
-		assert.Equal(t, "test", cb.name)
+		assert.Equal(t, "test", cb.Stats().Name)
 	})
 
 	t.Run("returns existing breaker", func(t *testing.T) {

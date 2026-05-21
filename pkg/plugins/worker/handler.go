@@ -3,10 +3,10 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
 	"net/http"
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
 )
 
 // WorkerHandler handles worker requests

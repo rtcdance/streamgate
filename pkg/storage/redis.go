@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 
-	"streamgate/pkg/resilience"
+	"github.com/rtcdance/streamgate/pkg/resilience"
 )
 
 const (

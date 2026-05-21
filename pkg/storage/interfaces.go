@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/models"
 )
 
 var (

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

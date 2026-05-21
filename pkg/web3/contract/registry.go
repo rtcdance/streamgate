@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"sync"
@@ -7,22 +7,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// Pre-computed keccak256 event topic hashes for ContentRegistry.
-// These are computed from the Solidity event signatures at init time.
 var (
 	contentRegisteredTopic = crypto.Keccak256Hash([]byte("ContentRegistered(bytes32,address,uint256)"))
 	contentVerifiedTopic   = crypto.Keccak256Hash([]byte("ContentVerified(bytes32,bool)"))
 	contentDeletedTopic    = crypto.Keccak256Hash([]byte("ContentDeleted(bytes32,address)"))
 )
 
-// ContentRegistry represents the ContentRegistry smart contract
 type ContentRegistry struct {
 	Address string
 	ABI     string
 	Events  map[string]string
 }
 
-// NewContentRegistry creates a new ContentRegistry contract
 func NewContentRegistry(address string) *ContentRegistry {
 	return &ContentRegistry{
 		Address: address,
@@ -35,7 +31,6 @@ func NewContentRegistry(address string) *ContentRegistry {
 	}
 }
 
-// ContentRegistryABI is the ABI for the ContentRegistry contract
 const ContentRegistryABI = `[
   {
     "inputs": [
@@ -81,24 +76,19 @@ const ContentRegistryABI = `[
   }
 ]`
 
-// ContentRegistryBytecode is reserved for contract deployment tooling (Foundry/Hardhat).
-// The Go backend interacts with ContentRegistry via its ABI only, not by deploying contracts.
 const ContentRegistryBytecode = "0x"
 
-// NFTContract represents an NFT smart contract
 type NFTContract struct {
 	Address string
 	ABI     string
 	Events  map[string]string
 }
 
-// Pre-computed keccak256 event topic hashes for ERC-721.
 var (
 	transferTopic = crypto.Keccak256Hash([]byte("Transfer(address,address,uint256)"))
 	approvalTopic = crypto.Keccak256Hash([]byte("Approval(address,address,uint256)"))
 )
 
-// NewNFTContract creates a new NFT contract
 func NewNFTContract(address string) *NFTContract {
 	return &NFTContract{
 		Address: address,
@@ -110,7 +100,6 @@ func NewNFTContract(address string) *NFTContract {
 	}
 }
 
-// ERC721ABI is the ABI for ERC721 contracts
 const ERC721ABI = `[
   {
     "inputs": [
@@ -152,9 +141,8 @@ const ERC721ABI = `[
   }
 ]`
 
-const balanceOfABIJSON = `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
+const BalanceOfABIJSON = `[{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
 
-// SmartContractRegistry maintains a registry of deployed contracts
 type SmartContractRegistry struct {
 	mu        sync.RWMutex
 	contracts map[string]*SmartContractInfo
@@ -162,7 +150,6 @@ type SmartContractRegistry struct {
 	logger    *zap.Logger
 }
 
-// SmartContractInfo contains information about a smart contract
 type SmartContractInfo struct {
 	Name       string
 	Address    string
@@ -174,7 +161,6 @@ type SmartContractInfo struct {
 	SourceCode string
 }
 
-// NewSmartContractRegistry creates a new contract registry
 func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
 	return &SmartContractRegistry{
 		contracts: make(map[string]*SmartContractInfo),
@@ -183,7 +169,6 @@ func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
 	}
 }
 
-// RegisterContract registers a contract
 func (scr *SmartContractRegistry) RegisterContract(info *SmartContractInfo) {
 	scr.mu.Lock()
 	defer scr.mu.Unlock()
@@ -217,7 +202,6 @@ func (scr *SmartContractRegistry) GetAllContracts() map[string]*SmartContractInf
 	return out
 }
 
-// GetContractsByChain gets contracts on a specific chain
 func (scr *SmartContractRegistry) GetContractsByChain(chainID int64) []*SmartContractInfo {
 	scr.mu.RLock()
 	defer scr.mu.RUnlock()
