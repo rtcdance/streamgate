@@ -11,33 +11,42 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/monitoring"
-	stg "streamgate/pkg/storage"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	stg "github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gagliardetto/solana-go"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel/attribute"
 )
 
 var (
-	svcPlaybackTokenIssued = promauto.NewCounter(prometheus.CounterOpts{
+	svcPlaybackTokenIssued = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "streamgate_playback_token_issued_total",
 		Help: "Total playback tokens issued",
 	})
-	svcWalletAuthTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	svcWalletAuthTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "streamgate_wallet_auth_total",
 		Help: "Total wallet authentication operations",
 	}, []string{"operation", "status"})
-	svcWalletAuthDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	svcWalletAuthDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "streamgate_wallet_auth_duration_seconds",
 		Help:    "Wallet authentication operation latency",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"operation"})
 )
+
+func init() {
+	for _, c := range []prometheus.Collector{svcPlaybackTokenIssued, svcWalletAuthTotal, svcWalletAuthDuration} {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+}
 
 const defaultChallengeTTL = 5 * time.Minute
 
@@ -264,6 +273,24 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 	}
 	if !valid {
 		return "", ErrInvalidCredential
+	}
+
+	// For SIWE challenges, validate the parsed message against expected values.
+	// This ensures domain binding (phishing protection), nonce match, and
+	// address consistency per EIP-4361.
+	if challenge.SigningType == "siwe" {
+		parsedSIWE, parseErr := web3.ParseSIWEMessage(challenge.Message)
+		if parseErr != nil {
+			return "", fmt.Errorf("failed to parse SIWE message: %w", parseErr)
+		}
+		if validateErr := web3.ValidateSIWEMessage(parsedSIWE,
+			s.siweDomain,
+			normalizedAddress,
+			challenge.Nonce,
+			challenge.ChainID,
+		); validateErr != nil {
+			return "", fmt.Errorf("SIWE validation failed: %w", validateErr)
+		}
 	}
 
 	if err := s.challengeStore.MarkChallengeUsed(ctx, challengeID, time.Now().UTC()); err != nil {

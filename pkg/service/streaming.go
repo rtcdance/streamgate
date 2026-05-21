@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/cachetypes"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/cachetypes"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
@@ -165,7 +165,11 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 	if err != nil {
 		return nil, err
 	}
-	return v.(*StreamInfo), nil
+	si, ok := v.(*StreamInfo)
+	if !ok {
+		return nil, fmt.Errorf("unexpected cache value type: %T", v)
+	}
+	return si, nil
 }
 
 // CreateStream creates a new stream

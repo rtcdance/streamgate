@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
