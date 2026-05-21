@@ -11,8 +11,8 @@ package mocks
 
 import (
 	context "context"
+	storage "github.com/rtcdance/streamgate/pkg/storage"
 	reflect "reflect"
-	storage "streamgate/pkg/storage"
 	time "time"
 
 	gomock "go.uber.org/mock/gomock"

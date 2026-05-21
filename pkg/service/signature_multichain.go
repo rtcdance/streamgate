@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"go.uber.org/zap"
 )

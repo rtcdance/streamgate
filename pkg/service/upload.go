@@ -13,31 +13,40 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
 var (
-	svcUploadTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	svcUploadTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "streamgate_upload_total",
 		Help: "Total upload operations",
 	}, []string{"operation", "status"})
-	svcUploadDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	svcUploadDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "streamgate_upload_duration_seconds",
 		Help:    "Upload operation latency",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"operation"})
-	svcUploadBytesTotal = promauto.NewCounter(prometheus.CounterOpts{
+	svcUploadBytesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "streamgate_upload_bytes_total",
 		Help: "Total bytes uploaded",
 	})
 )
+
+func init() {
+	for _, c := range []prometheus.Collector{svcUploadTotal, svcUploadDuration, svcUploadBytesTotal} {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+}
 
 // DefaultMaxUploadSize is the default maximum upload size (5 GB)
 const DefaultMaxUploadSize int64 = 5 * 1024 * 1024 * 1024
@@ -301,7 +310,10 @@ func (s *UploadService) UploadStream(ctx context.Context, filename string, reade
 	}
 
 	if err := s.saveUploadInfo(ctx, uploadInfo); err != nil {
-		_ = s.objStore.Delete(ctx, s.bucket, storageKey)
+		if delErr := s.objStore.Delete(ctx, s.bucket, storageKey); delErr != nil {
+			s.logger.Warn("Failed to clean up orphan object after saveUploadInfo error",
+				zap.String("key", storageKey), zap.Error(delErr))
+		}
 		return "", fmt.Errorf("failed to save upload info: %w", err)
 	}
 
@@ -516,7 +528,10 @@ func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename st
 
 	url, err := s.uploadSigner.PresignedUploadURL(ctx, s.bucket, storageKey, defaultPresignedUploadExpiry)
 	if err != nil {
-		_ = s.DeleteUpload(ctx, uploadID)
+		if delErr := s.DeleteUpload(ctx, uploadID); delErr != nil {
+			s.logger.Warn("Failed to clean up upload after presigned URL generation failure",
+				zap.String("upload_id", uploadID), zap.Error(delErr))
+		}
 		return "", "", "", fmt.Errorf("failed to generate presigned upload URL: %w", err)
 	}
 

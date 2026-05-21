@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"streamgate/pkg/models"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"

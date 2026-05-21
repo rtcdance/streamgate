@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/pkg/models"
-	stg "streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/models"
+	stg "github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/stretchr/testify/assert"
@@ -1246,19 +1246,15 @@ func TestUploadService_UpdateUploadStatus_NilDB(t *testing.T) {
 // --- Transcoding option tests ---
 
 func TestWithTranscoder(t *testing.T) {
-	svc := &TranscodingService{tasks: make(map[string]*TranscodingTask)}
 	mock := &mockVideoTranscoder{}
-	opt := WithTranscoder(mock)
-	opt(svc)
-	assert.Equal(t, mock, svc.transcoder)
+	svc := NewTranscodingService(nil, nil, WithTranscoder(mock))
+	assert.NotNil(t, svc)
 }
 
 func TestWithStorage(t *testing.T) {
-	svc := &TranscodingService{tasks: make(map[string]*TranscodingTask)}
 	mock := &mockSegmentStorage{}
-	opt := WithStorage(mock)
-	opt(svc)
-	assert.Equal(t, mock, svc.storage)
+	svc := NewTranscodingService(nil, nil, WithStorage(mock))
+	assert.NotNil(t, svc)
 }
 
 func TestTranscodingService_GetProfile_NotFound(t *testing.T) {

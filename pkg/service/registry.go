@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 
 	"github.com/hashicorp/consul/api"
 	"go.uber.org/zap"

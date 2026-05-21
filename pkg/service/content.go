@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"streamgate/pkg/cachetypes"
-	"streamgate/pkg/models"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/cachetypes"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -160,7 +160,11 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 	if err != nil {
 		return nil, err
 	}
-	return v.(*Content), nil
+	content, ok := v.(*Content)
+	if !ok {
+		return nil, fmt.Errorf("unexpected cache value type: %T", v)
+	}
+	return content, nil
 }
 
 // CreateContent creates new content

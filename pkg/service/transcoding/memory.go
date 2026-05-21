@@ -1,4 +1,4 @@
-package service
+package transcoding
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/models"
 )
 
 type MemoryTranscodingQueue struct {

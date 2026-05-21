@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/pkg/models"
-	stg "streamgate/pkg/storage"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/models"
+	stg "github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"

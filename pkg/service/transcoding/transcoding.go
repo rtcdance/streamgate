@@ -1,4 +1,4 @@
-package service
+package transcoding
 
 import (
 	"context"
@@ -17,9 +17,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"streamgate/pkg/models"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -137,9 +138,7 @@ const (
 // StartWorker starts the background transcoding worker.
 // It dequeues tasks and invokes the VideoTranscoder.
 // Call StopWorker() to shut down.
-func (s *TranscodingService) StartWorker(log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) StartWorker(log *zap.Logger) {
 	if s.transcoder == nil {
 		if log != nil {
 			log.Info("TranscodingService: no transcoder configured, worker not started")
@@ -149,12 +148,23 @@ func (s *TranscodingService) StartWorker(log interface {
 
 	s.cancelMu.Lock()
 	if atomic.LoadInt32(&s.running) == 1 {
+		// Release lock before StopWorker (which acquires cancelMu internally),
+		// then re-acquire for the new worker setup. Double-check running after
+		// re-acquisition to handle concurrent StartWorker calls.
 		s.cancelMu.Unlock()
 		if log != nil {
 			log.Info("TranscodingService: worker already running, stopping previous instance")
 		}
 		s.StopWorker()
 		s.cancelMu.Lock()
+		if atomic.LoadInt32(&s.running) == 1 {
+			// Another StartWorker won the race between unlock and re-lock.
+			s.cancelMu.Unlock()
+			if log != nil {
+				log.Info("TranscodingService: worker started by concurrent call, skipping")
+			}
+			return
+		}
 	}
 	atomic.StoreInt32(&s.running, 1)
 
@@ -186,26 +196,24 @@ func (s *TranscodingService) StartWorker(log interface {
 	s.startAutoScaler(ctx, log)
 }
 
-func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *zap.Logger) {
 	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			if log != nil {
-				log.Info("TranscodingService: worker panic recovered", "worker", workerID, "panic", r)
+				log.Info("TranscodingService: worker panic recovered", zap.Int("worker", workerID), zap.Any("panic", r))
 			}
 		}
 	}()
 	if log != nil {
-		log.Info("TranscodingService: worker started", "worker", workerID)
+		log.Info("TranscodingService: worker started", zap.Int("worker", workerID))
 	}
 	for {
 		task, err := s.queue.Dequeue(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				if log != nil {
-					log.Info("TranscodingService: worker stopped", "worker", workerID)
+					log.Info("TranscodingService: worker stopped", zap.Int("worker", workerID))
 				}
 				return
 			}
@@ -221,7 +229,7 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 				if r := recover(); r != nil {
 					if log != nil {
 						log.Info("TranscodingService: task panic recovered, continuing loop",
-							"task_id", task.ID, "panic", r)
+							zap.String("task_id", task.ID), zap.Any("panic", r))
 					}
 				}
 			}()
@@ -235,15 +243,28 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log i
 				task.Status = "pending"
 				task.Error = ""
 				if log != nil {
-					log.Info("TranscodingService: re-enqueuing task for retry",
-						"task_id", task.ID, "attempt", retryCount+1, "max", defaultMaxRetries)
+					log.Info("TranscodingService: scheduling task for retry with exponential backoff",
+						zap.String("task_id", task.ID), zap.Int("attempt", retryCount+1), zap.Int("max", defaultMaxRetries))
 				}
-				_ = s.queue.Enqueue(task)
+				delay := retryDelayBase * time.Duration(1<<retryCount)
+				go func() {
+					time.Sleep(delay)
+					if err := s.queue.Enqueue(task); err != nil {
+						log.Error("Failed to re-enqueue transcoding task, task will be lost",
+							zap.String("task_id", task.ID), zap.Error(err))
+					}
+				}()
 			} else {
-				_ = s.queue.Nak(task.ID)
+				if err := s.queue.Nak(task.ID); err != nil {
+					log.Error("Failed to Nak transcoding task, it will remain in-flight",
+						zap.String("task_id", task.ID), zap.Error(err))
+				}
 			}
 		} else {
-			_ = s.queue.Ack(task.ID)
+			if err := s.queue.Ack(task.ID); err != nil {
+				log.Error("Failed to Ack transcoding task, it may be re-delivered",
+					zap.String("task_id", task.ID), zap.Error(err))
+			}
 		}
 	}
 }
@@ -298,9 +319,7 @@ func (s *TranscodingService) Close() {
 	}
 }
 
-func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID int, log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) startWorkerGoroutine(ctx context.Context, workerID int, log *zap.Logger) {
 	go s.workerLoop(ctx, workerID, log)
 }
 
@@ -309,9 +328,7 @@ const (
 	tasksPerWorker     = 2
 )
 
-func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log *zap.Logger) {
 	go func() {
 		defer s.wg.Done()
 		ticker := time.NewTicker(scaleCheckInterval)
@@ -328,9 +345,7 @@ func (s *TranscodingService) startAutoScaler(parentCtx context.Context, log inte
 	}()
 }
 
-func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *zap.Logger) {
 	depth, err := s.queue.Depth()
 	if err != nil {
 		return
@@ -363,7 +378,7 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log in
 		atomic.StoreInt32(&s.currentWorkers, int32(target))
 		s.extraMu.Unlock()
 		if log != nil {
-			log.Info("TranscodingService: scaled up workers", "from", current, "to", target, "queue_depth", depth)
+			log.Info("TranscodingService: scaled up workers", zap.Int("from", current), zap.Int("to", target), zap.Int("queue_depth", depth))
 		}
 	} else if target < current {
 		s.extraMu.Lock()
@@ -378,16 +393,14 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log in
 		atomic.StoreInt32(&s.currentWorkers, int32(target))
 		s.extraMu.Unlock()
 		if log != nil {
-			log.Info("TranscodingService: scaled down workers", "from", current, "to", target, "queue_depth", depth)
+			log.Info("TranscodingService: scaled down workers", zap.Int("from", current), zap.Int("to", target), zap.Int("queue_depth", depth))
 		}
 	}
 	monitoring.TranscodingWorkersActive.Set(float64(target))
 }
 
 // processTask executes a single transcoding task
-func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log interface {
-	Info(msg string, fields ...interface{})
-}) {
+func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log *zap.Logger) {
 	// Mark as processing
 	task.Status = "processing"
 	now := time.Now()
@@ -458,7 +471,7 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 			s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
 		}
 		if log != nil {
-			log.Info("TranscodingService: task failed", "task_id", task.ID, "error", err.Error())
+			log.Info("TranscodingService: task failed", zap.String("task_id", task.ID), zap.String("error", err.Error()))
 		}
 		return
 	}
@@ -492,7 +505,7 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	}
 
 	if log != nil {
-		log.Info("TranscodingService: task completed", "task_id", task.ID)
+		log.Info("TranscodingService: task completed", zap.String("task_id", task.ID))
 	}
 
 	// Best-effort local cleanup (output is already uploaded)
@@ -543,11 +556,18 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 	var uploadMu sync.Mutex
 	var uploadWg sync.WaitGroup
 
+	uploadCtx, uploadCancel := context.WithCancel(ctx)
+	defer uploadCancel()
+
 	for _, job := range jobs {
 		uploadWg.Add(1)
 		go func(j uploadJob) {
 			defer uploadWg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-uploadCtx.Done():
+				return
+			}
 			defer func() { <-sem }()
 
 			f, err := os.Open(j.path)
@@ -555,6 +575,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("open file %s: %w", j.path, err)
+					uploadCancel()
 				}
 				uploadMu.Unlock()
 				return
@@ -566,6 +587,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("stat file %s: %w", j.path, err)
+					uploadCancel()
 				}
 				uploadMu.Unlock()
 				return
@@ -575,6 +597,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 				uploadMu.Lock()
 				if uploadErr == nil {
 					uploadErr = fmt.Errorf("upload %s: %w", j.objectKey, err)
+					uploadCancel()
 				}
 				uploadMu.Unlock()
 				return
@@ -631,6 +654,15 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download input returned status %d", resp.StatusCode)
+	}
+
+	// Validate Content-Type to prevent non-video files from being processed
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" {
+		mediaType := strings.SplitN(contentType, ";", 2)[0]
+		if !strings.HasPrefix(mediaType, "video/") && mediaType != "application/octet-stream" {
+			return "", fmt.Errorf("unsupported content type: %s (expected video/* or application/octet-stream)", contentType)
+		}
 	}
 
 	// Create temp file with appropriate extension
@@ -809,7 +841,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("task not found %s: %w", taskID, ErrNotFound)
+		return nil, fmt.Errorf("task not found %s: %w", taskID, serviceerrors.ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query task: %w", err)
 	}
