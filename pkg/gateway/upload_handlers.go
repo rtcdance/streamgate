@@ -424,9 +424,13 @@ func handleChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.Ha
 
 		var reader io.Reader = src
 		if chunkIndex == 0 {
-			detected, combined, _ := readFileHeader(src)
+			detected, combined, err := readFileHeader(src)
 			reader = combined
-			if detected == "" {
+			if err != nil {
+			abortWithError(c, http.StatusInternalServerError, ErrUploadFailed, "failed to read file header")
+			return
+		}
+		if detected == "" {
 				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "first chunk does not match any known video format")
 				return
 			}

@@ -3,6 +3,7 @@ package worker
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 	"github.com/rtcdance/streamgate/pkg/core"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
@@ -68,7 +69,7 @@ func (h *WorkerHandler) SubmitJobHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Generate job ID
-	job.ID = fmt.Sprintf("job_%d", len(job.ID))
+	job.ID = fmt.Sprintf("job_%d", time.Now().UnixNano())
 	job.Status = "pending"
 
 	if err := h.scheduler.SubmitJob(&job); err != nil {

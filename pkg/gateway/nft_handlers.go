@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,6 +141,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			}
 			cache.Set(c.Request.Context(), cacheKey, entry)
 		}
+		if balance == nil { balance = big.NewInt(0) }
 		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
 	})
 	log.Info("NFT routes registered")
@@ -243,27 +245,22 @@ func (c *NFTAccessCache) Set(key string, entry CachedNFTAccess) {
 			}
 		}
 		if len(c.entries) > c.maxSize {
-			type kv struct {
-				k string
-				t time.Time
+			sorted := make([]string, 0, len(c.entries))
+			for k := range c.entries {
+				sorted = append(sorted, k)
 			}
-			sorted := make([]kv, 0, len(c.entries))
-			for k, v := range c.entries {
-				sorted = append(sorted, kv{k, v.ExpiresAt})
-			}
+			sort.Slice(sorted, func(i, j int) bool {
+				return c.entries[sorted[i]].ExpiresAt.Before(c.entries[sorted[j]].ExpiresAt)
+			})
 			evictCount := len(c.entries) - c.maxSize + c.maxSize/10
 			if evictCount < 1 {
 				evictCount = 1
 			}
-			for i := 0; i < evictCount && i < len(sorted); i++ {
-				oldestIdx := i
-				for j := i + 1; j < len(sorted); j++ {
-					if sorted[j].t.Before(sorted[oldestIdx].t) {
-						oldestIdx = j
-					}
-				}
-				sorted[i], sorted[oldestIdx] = sorted[oldestIdx], sorted[i]
-				delete(c.entries, sorted[i].k)
+			if evictCount > len(sorted) {
+				evictCount = len(sorted)
+			}
+			for i := 0; i < evictCount; i++ {
+				delete(c.entries, sorted[i])
 			}
 		}
 	}
