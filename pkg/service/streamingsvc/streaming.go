@@ -1,4 +1,4 @@
-package service
+package streamingsvc
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/rtcdance/streamgate/pkg/cachetypes"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -107,7 +108,7 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 
 	v, err, _ := s.sf.Do(cacheKey, func() (interface{}, error) {
 		if err := s.checkDB(); err != nil {
-			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, ErrNotFound)
+			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, serviceerrors.ErrNotFound)
 		}
 
 		query := `
@@ -135,7 +136,7 @@ func (s *StreamingService) GetStream(ctx context.Context, contentID string) (*St
 		)
 
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, ErrNotFound)
+			return nil, fmt.Errorf("stream not found for content %s: %w", contentID, serviceerrors.ErrNotFound)
 		} else if err != nil {
 			return nil, fmt.Errorf("failed to query stream: %w", err)
 		}
@@ -490,7 +491,7 @@ func (s *StreamingService) GetStreamByID(ctx context.Context, streamID string) (
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("stream not found: %s: %w", streamID, ErrNotFound)
+		return nil, fmt.Errorf("stream not found: %s: %w", streamID, serviceerrors.ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query stream: %w", err)
 	}
