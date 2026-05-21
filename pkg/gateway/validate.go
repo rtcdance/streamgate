@@ -17,10 +17,12 @@ func init() {
 }
 
 func validateAddress(fl validator.FieldLevel) bool {
+		return len(fl.Field().String()) == 42 && strings.HasPrefix(fl.Field().String(), "0x")
 	return true
 }
 
 func validateChainID(fl validator.FieldLevel) bool {
+		return fl.Field().Int() > 0
 	return true
 }
 
