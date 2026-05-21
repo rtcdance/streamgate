@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"go.uber.org/zap"
 )
@@ -27,8 +27,12 @@ type Web3Deps struct {
 
 // DefaultWeb3Deps creates default real dependencies for production use.
 func DefaultWeb3Deps(cfg *config.Config, logger *zap.Logger) Web3Deps {
+	mcm := web3.NewMultiChainManager(logger)
+	if len(cfg.Web3.Chains) > 0 {
+		web3.ApplyChainConfigs(cfg.Web3.Chains)
+	}
 	return Web3Deps{
-		ChainManager: web3.NewMultiChainManager(logger),
+		ChainManager: mcm,
 		SigVerifier:  web3.NewSignatureVerifier(logger),
 		SolanaVerif:  web3.NewSolanaVerifier(logger, cfg.Web3.SolanaRPC),
 		EIP712Verif:  web3.NewEIP712Verifier(logger.Named("eip712")),
@@ -173,11 +177,14 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 				UpdateInterval:     15 * time.Second,
 			},
 			logger,
-			cfg.Web3.EthereumWSURL,
 		)
 		if err != nil {
 			logger.Warn("Failed to create EventIndexer", zap.Error(err))
 		} else {
+			if cfg.Web3.EthereumWSURL != "" {
+				wsSub := web3.NewLogSubscriber(cfg.Web3.EthereumWSURL, logger)
+				indexer.SetSubscriber(wsSub)
+			}
 			indexer.SetReorgDetector(reorgDetector)
 			indexerCtx, indexerCancel := context.WithCancel(context.Background())
 			if err := indexer.Start(indexerCtx); err != nil {

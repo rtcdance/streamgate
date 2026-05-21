@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/cachetypes"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/cachetypes"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -130,7 +130,9 @@ func (s *NFTService) VerifyNFT(ctx context.Context, address, contractAddress, to
 	// Cache the result with TTL so stale ownership data doesn't persist indefinitely
 	// if the EventIndexer is down and Transfer events are missed.
 	if s.cacheEnabled {
-		_ = s.cache.SetWithExpiration(cacheKey, owner.Hex(), s.cacheDuration)
+		if err := s.cache.SetWithExpiration(cacheKey, owner.Hex(), s.cacheDuration); err != nil {
+			s.logger.Debug("Failed to cache NFT ownership", zap.Error(err))
+		}
 	}
 
 	// Compare addresses (case-insensitive)

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	stg "streamgate/pkg/storage"
-	"streamgate/pkg/web3"
+	stg "github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"

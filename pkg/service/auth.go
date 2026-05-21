@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
-	"streamgate/pkg/models"
-	stg "streamgate/pkg/storage"
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/models"
+	stg "github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 )
 
 // JWTVerifier validates JWT tokens using either an HMAC secret or RSA public key.
