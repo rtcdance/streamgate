@@ -1,0 +1,31 @@
+services:
+  postgres:
+    ports: []
+
+  redis:
+    ports: []
+
+  minio:
+    ports: []
+
+  nats:
+    ports: []
+
+  consul:
+    ports: []
+
+  jaeger:
+    ports: []
+
+  prometheus:
+    ports:
+      - "19091:9090"
+
+  grafana:
+    ports:
+      - "13000:3000"
+
+  streamgate:
+    ports:
+      - "18080:8080"
+      - "19090:9090"
