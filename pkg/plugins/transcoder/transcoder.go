@@ -281,11 +281,12 @@ func (tp *TranscoderPlugin) SubmitTask(task *TranscodeTask) error {
 		return err
 	}
 
-	ctx := context.Background()
-	_ = tp.eventBus.Publish(ctx, &event.Event{
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = tp.eventBus.Publish(pubCtx, &event.Event{
 		Type: "transcode.task.submitted",
 		Data: map[string]interface{}{"task": task},
 	})
+	pubCancel()
 
 	return nil
 }
@@ -604,10 +605,14 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 		t.StartedAt = &now
 	})
 
-	_ = wp.eventBus.Publish(context.Background(), &event.Event{
-		Type: "transcode.task.started",
-		Data: map[string]interface{}{"task": task},
-	})
+	{
+		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = wp.eventBus.Publish(pubCtx, &event.Event{
+			Type: "transcode.task.started",
+			Data: map[string]interface{}{"task": task},
+		})
+		pubCancel()
+	}
 
 	startTime := time.Now()
 	if err := wp.transcode(task); err != nil {
@@ -618,14 +623,21 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 			t.RetryCount++
 			if t.RetryCount < t.MaxRetries {
 				t.Status = TaskStatusPending
+			if err := wp.taskQueue.Enqueue(task); err != nil {
+				wp.logger.Error("failed to re-enqueue task for retry", zap.String("task_id", task.ID), zap.Error(err))
+			}
 			}
 		})
 
 		wp.taskQueue.metrics.TotalFailed++
-		_ = wp.eventBus.Publish(context.Background(), &event.Event{
-			Type: "transcode.task.failed",
-			Data: map[string]interface{}{"task": task},
-		})
+		{
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = wp.eventBus.Publish(pubCtx, &event.Event{
+				Type: "transcode.task.failed",
+				Data: map[string]interface{}{"task": task},
+			})
+			pubCancel()
+		}
 	} else {
 		completedAt := time.Now()
 		_ = wp.taskQueue.TransitionStatus(task.ID, func(t *TranscodeTask) {
@@ -634,10 +646,14 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 		})
 		wp.taskQueue.metrics.TotalProcessed++
 
-		_ = wp.eventBus.Publish(context.Background(), &event.Event{
-			Type: "transcode.task.completed",
-			Data: map[string]interface{}{"task": task},
-		})
+		{
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = wp.eventBus.Publish(pubCtx, &event.Event{
+				Type: "transcode.task.completed",
+				Data: map[string]interface{}{"task": task},
+			})
+			pubCancel()
+		}
 	}
 
 	worker.mu.Lock()
