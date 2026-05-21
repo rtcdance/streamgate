@@ -9,6 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -189,47 +190,40 @@ func TestNonceManager_ResetAddress(t *testing.T) {
 // --- EventIndexer Tests ---
 
 func TestNewEventIndexer(t *testing.T) {
-	ei, err := NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "ContentRegistered(bytes32,address,uint256)", zap.NewNop())
+	ei, err := event.NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "ContentRegistered(bytes32,address,uint256)", zap.NewNop())
 	require.NoError(t, err)
 	assert.NotNil(t, ei)
 }
 
 func TestNewEventIndexerWithConfig(t *testing.T) {
-	ei, err := NewEventIndexerWithConfig(nil, EventIndexerConfig{
+	ei, err := event.NewEventIndexerWithConfig(nil, event.EventIndexerConfig{
 		ContractAddresses: []string{"0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"},
 		EventSignatures:   []string{"ContentRegistered(bytes32,address,uint256)"},
 		MaxEvents:         100,
 	}, zap.NewNop())
 	require.NoError(t, err)
 	assert.NotNil(t, ei)
-	assert.Equal(t, 100, ei.maxEvents)
 }
 
 func TestEventIndexer_SetEventStore(t *testing.T) {
-	ei, _ := NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "", zap.NewNop())
-	store := &MemoryEventStore{}
+	ei, _ := event.NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "", zap.NewNop())
+	store := event.NewMemoryEventStore()
 	ei.SetEventStore(store)
-	assert.Equal(t, store, ei.store)
 }
 
 func TestEventIndexer_SetEventParser(t *testing.T) {
-	ei, _ := NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "", zap.NewNop())
-	parser := &EventParser{}
+	ei, _ := event.NewEventIndexer(nil, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "", zap.NewNop())
+	parser := event.NewEventParser(zap.NewNop())
 	ei.SetEventParser(parser)
-	assert.Equal(t, parser, ei.eventParser)
 }
 
-// --- MemoryEventStore Tests ---
-
 func TestMemoryEventStore(t *testing.T) {
-	store := NewMemoryEventStore()
+	store := event.NewMemoryEventStore()
 
-	// Store an event
-	evt := &IndexedEvent{ID: "evt-1", BlockNumber: 100}
+	evt := &event.IndexedEvent{ID: "evt-1", BlockNumber: 100}
 	err := store.SaveEvent(evt)
 	require.NoError(t, err)
 
-	// GetEventsByBlockRange should find it
 	events, err := store.GetEventsByBlockRange(0, 999999)
 	require.NoError(t, err)
 	assert.Len(t, events, 1)

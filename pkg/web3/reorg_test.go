@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"go.uber.org/zap"
 )
 
@@ -215,7 +216,7 @@ func TestReorgDetector_MarkReorgedEvents(t *testing.T) {
 	}
 	rd := NewReorgDetector(mock, zap.NewNop())
 
-	events := []*IndexedEvent{
+	events := []*event.IndexedEvent{
 		{
 			ID:          "event-100",
 			BlockNumber: 100,

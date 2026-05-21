@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"go.uber.org/zap"
 )
 
@@ -169,17 +170,6 @@ func (f *L1OutputRootFinality) IsFinalized(ctx context.Context, blockNumber uint
 	return true, nil
 }
 
-// BlockTag specifies which block the client should read state from.
-// Not all RPC providers support safe/finalized tags.
-type BlockTag string
-
-const (
-	BlockTagLatest    BlockTag = "latest"
-	BlockTagSafe      BlockTag = "safe"      // post-merge, after 4 epochs
-	BlockTagFinalized BlockTag = "finalized" // post-merge, after 2 epochs
-)
-
-// BlockHeader is a lightweight block header used for reorg detection.
 type BlockHeader struct {
 	Number     uint64
 	Hash       common.Hash
@@ -345,7 +335,7 @@ func (rd *ReorgDetector) IsFinalized(ctx context.Context, blockNumber uint64, bl
 // MarkReorgedEvents checks all stored events against the current chain state
 // and returns IDs of events whose block hash no longer matches the canonical chain.
 // This is meant to be called periodically by the EventIndexer.
-func (rd *ReorgDetector) MarkReorgedEvents(ctx context.Context, events []*IndexedEvent) []string {
+func (rd *ReorgDetector) MarkReorgedEvents(ctx context.Context, events []*event.IndexedEvent) []string {
 	var reorgedIDs []string
 
 	for _, event := range events {
