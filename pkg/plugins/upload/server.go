@@ -103,7 +103,7 @@ func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, 
 		transcodingQueue = service.NewMemoryTranscodingQueue()
 	} else {
 		log.Info("Using NATS JetStream transcoding queue", zap.String("url", cfg.NATS.URL))
-		_ = nq
+		transcodingQueue = nq
 	}
 
 	svc := service.NewTranscodingService(db, transcodingQueue,

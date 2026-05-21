@@ -57,6 +57,7 @@ func (h *bucketHeap) Pop() interface{} {
 }
 
 type RateLimiter struct {
+	stopOnce sync.Once
 	limit      float64
 	burst      int
 	buckets    sync.Map
@@ -136,7 +137,7 @@ func (r *RateLimiter) Allow(clientIP string) bool {
 	})
 
 	b := val.(*bucket)
-	b.lastAccess = now
+	
 
 	if !loaded {
 		r.cleanupMu.Lock()
@@ -149,6 +150,7 @@ func (r *RateLimiter) Allow(clientIP string) bool {
 	defer r.mu.Unlock()
 
 	b.refillTokens()
+	b.lastAccess = now
 
 	if b.tokens < 1 {
 		return false
