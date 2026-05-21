@@ -1,6 +1,6 @@
 # Full-chain acceptance test: creator upload → wallet login → watch video
 # Usage: docker-compose -f docker-compose.fullchain.yml up --build
-# H5 Demo: open h5-demo/index.html in browser, set Backend URL to http://localhost:18080
+# H5 Demo: open http://localhost:18000 in browser
 services:
   postgres:
     image: postgres:15-alpine
@@ -126,6 +126,23 @@ services:
       start_period: 30s
       retries: 5
     restart: unless-stopped
+
+  h5-demo:
+    image: nginx:alpine
+    container_name: sg-fc-h5-demo
+    ports:
+      - "18000:8080"
+    volumes:
+      - ./h5-demo:/usr/share/nginx/html:ro
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      streamgate:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   fc-postgres-data:
