@@ -218,3 +218,26 @@ func panicCodeName(code uint64) string {
 func isHexChar(c rune) bool {
 	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
+
+func formatValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case *big.Int:
+		return val.String()
+	case common.Address:
+		return val.Hex()
+	case []common.Address:
+		addrs := make([]string, len(val))
+		for i, a := range val {
+			addrs[i] = a.Hex()
+		}
+		return addrs
+	case string:
+		return val
+	case bool:
+		return val
+	case []byte:
+		return fmt.Sprintf("0x%x", val)
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}

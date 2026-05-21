@@ -10,8 +10,9 @@
 package mocks
 
 import (
+	web3 "github.com/rtcdance/streamgate/pkg/web3"
+	solana "github.com/rtcdance/streamgate/pkg/web3/solana"
 	reflect "reflect"
-	web3 "streamgate/pkg/web3"
 
 	gomock "go.uber.org/mock/gomock"
 )
@@ -110,10 +111,10 @@ func (mr *MockChainManagerInterfaceMockRecorder) GetRPCStatuses() *gomock.Call {
 }
 
 // GetSolanaClient mocks base method.
-func (m *MockChainManagerInterface) GetSolanaClient(chainID int64) (*web3.SolanaVerifier, error) {
+func (m *MockChainManagerInterface) GetSolanaClient(chainID int64) (*solana.SolanaVerifier, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSolanaClient", chainID)
-	ret0, _ := ret[0].(*web3.SolanaVerifier)
+	ret0, _ := ret[0].(*solana.SolanaVerifier)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

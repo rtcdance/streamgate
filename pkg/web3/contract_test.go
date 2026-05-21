@@ -15,6 +15,25 @@ import (
 	"go.uber.org/zap"
 )
 
+type mockEthCaller struct {
+	callContractFn func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+	codeAtFn       func(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error)
+}
+
+func (m *mockEthCaller) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	if m.callContractFn != nil {
+		return m.callContractFn(ctx, call, blockNumber)
+	}
+	return nil, fmt.Errorf("mock EthCaller: CallContract not configured")
+}
+
+func (m *mockEthCaller) CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error) {
+	if m.codeAtFn != nil {
+		return m.codeAtFn(ctx, contract, blockNumber)
+	}
+	return nil, nil
+}
+
 // simpleABI is a minimal ERC-20 balanceOf ABI for testing CallContractFunction.
 const simpleABI = `[{"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"type":"function"}]`
 

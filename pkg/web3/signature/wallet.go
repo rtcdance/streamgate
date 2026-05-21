@@ -1,0 +1,163 @@
+package signature
+
+import (
+	"crypto/ecdsa"
+	"fmt"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"go.uber.org/zap"
+)
+
+type Wallet struct {
+	Address    string
+	PrivateKey *ecdsa.PrivateKey
+	PublicKey  *ecdsa.PublicKey
+}
+
+func maskAddress(addr string) string {
+	if len(addr) > 10 {
+		return addr[:6] + "..." + addr[len(addr)-4:]
+	}
+	return addr
+}
+
+func (w *Wallet) Destroy() {
+	if w.PrivateKey != nil {
+		for i := range w.PrivateKey.D.Bits() {
+			w.PrivateKey.D.Bits()[i] = 0
+		}
+		w.PrivateKey = nil
+	}
+	w.PublicKey = nil
+}
+
+type WalletManager struct {
+	logger *zap.Logger
+}
+
+func NewWalletManager(logger *zap.Logger) *WalletManager {
+	return &WalletManager{
+		logger: logger,
+	}
+}
+
+func (wm *WalletManager) CreateWallet() (*Wallet, error) {
+	wm.logger.Debug("Creating new wallet")
+
+	privateKey, err := crypto.GenerateKey()
+	if err != nil {
+		wm.logger.Error("Failed to generate private key", zap.Error(err))
+		return nil, fmt.Errorf("failed to generate private key: %w", err)
+	}
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		wm.logger.Error("Failed to cast public key to ECDSA")
+		return nil, fmt.Errorf("failed to cast public key to ECDSA")
+	}
+
+	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	wallet := &Wallet{
+		Address:    address.Hex(),
+		PrivateKey: privateKey,
+		PublicKey:  publicKeyECDSA,
+	}
+
+	wm.logger.Info("Wallet created", zap.String("address", maskAddress(wallet.Address)))
+	return wallet, nil
+}
+
+func (wm *WalletManager) ImportWallet(privateKeyHex string) (*Wallet, error) {
+	wm.logger.Debug("Importing wallet from private key")
+
+	hex := strings.TrimPrefix(privateKeyHex, "0x")
+	if len(hex) < 64 {
+		hex = strings.Repeat("0", 64-len(hex)) + hex
+	}
+
+	privateKey, err := crypto.HexToECDSA(hex)
+	if err != nil {
+		wm.logger.Error("Failed to parse private key", zap.Error(err))
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		wm.logger.Error("Failed to cast public key to ECDSA")
+		return nil, fmt.Errorf("failed to cast public key to ECDSA")
+	}
+
+	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	wallet := &Wallet{
+		Address:    address.Hex(),
+		PrivateKey: privateKey,
+		PublicKey:  publicKeyECDSA,
+	}
+
+	wm.logger.Info("Wallet imported", zap.String("address", maskAddress(wallet.Address)))
+	return wallet, nil
+}
+
+func (wm *WalletManager) ValidateAddress(address string) bool {
+	return common.IsHexAddress(address)
+}
+
+type WalletInfo struct {
+	Address string
+	Balance string
+	ChainID int64
+	Network string
+	IsValid bool
+}
+
+func (wm *WalletManager) GetWalletInfo(address string) *WalletInfo {
+	wm.logger.Debug("Getting wallet info", zap.String("address", maskAddress(address)))
+
+	return &WalletInfo{
+		Address: address,
+		IsValid: wm.ValidateAddress(address),
+	}
+}
+
+func (wm *WalletManager) ImportFromMnemonic(mnemonic, password string, accountIndex uint32) (*Wallet, error) {
+	wm.logger.Debug("Importing wallet from mnemonic")
+
+	hdWallet, err := NewHDWalletFromMnemonic(mnemonic, password, wm.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HD wallet from mnemonic: %w", err)
+	}
+
+	path := DefaultEthereumPath(accountIndex)
+	privKeyInt, err := hdWallet.DeriveKey(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive key at path %s: %w", path, err)
+	}
+
+	privKey, err := crypto.ToECDSA(privKeyInt.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert derived key: %w", err)
+	}
+
+	publicKey := privKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("failed to cast public key to ECDSA")
+	}
+
+	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	wallet := &Wallet{
+		Address:    address.Hex(),
+		PrivateKey: privKey,
+		PublicKey:  publicKeyECDSA,
+	}
+
+	wm.logger.Info("Wallet imported from mnemonic", zap.String("address", maskAddress(wallet.Address)))
+	return wallet, nil
+}

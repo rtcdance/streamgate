@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"go.uber.org/zap"
 )
 
@@ -67,7 +68,7 @@ func (cc *ChainClient) isTxPending(ctx context.Context, txHash common.Hash) (boo
 // ParseReceiptEvents populates the Events field of a ReceiptInfo by decoding
 // the raw receipt logs using the provided EventParser. It fetches the raw
 // receipt from the chain to access the full log data.
-func (cc *ChainClient) ParseReceiptEvents(ctx context.Context, receipt *ReceiptInfo, parser *EventParser) error {
+func (cc *ChainClient) ParseReceiptEvents(ctx context.Context, receipt *ReceiptInfo, parser *event.EventParser) error {
 	hash := common.HexToHash(receipt.TransactionHash)
 	rawReceipt, err := withChainClient(ctx, cc, "TransactionReceipt", func(client *ethclient.Client) (*types.Receipt, error) {
 		return client.TransactionReceipt(ctx, hash)
@@ -77,4 +78,10 @@ func (cc *ChainClient) ParseReceiptEvents(ctx context.Context, receipt *ReceiptI
 	}
 	receipt.Events = parser.ParseLogs(rawReceipt.Logs)
 	return nil
+}
+
+func (cc *ChainClient) TransactionReceipt(ctx context.Context, hash common.Hash) (*types.Receipt, error) {
+	return withChainClient(ctx, cc, "TransactionReceipt", func(client *ethclient.Client) (*types.Receipt, error) {
+		return client.TransactionReceipt(ctx, hash)
+	})
 }

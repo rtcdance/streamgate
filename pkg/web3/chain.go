@@ -16,30 +16,26 @@ var erc721OwnerOfABI = mustParseABI("ERC721-ownerOf", `[{"constant":true,"inputs
 var erc721TokenURIABI = mustParseABI("ERC721-tokenURI", `[{"constant":true,"inputs":[{"name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"name":"","type":"string"}],"type":"function"}]`)
 
 func (cc *ChainClient) VerifyNFTOwnership(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	return withChainClient(ctx, cc, "VerifyNFTOwnership", func(client *ethclient.Client) (bool, error) {
-		v := NewNFTVerifier(client, cc.logger).WithBlockTag(cc.GetFinality().BlockTag())
-		return v.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTOwnership", func(_ *ethclient.Client) (bool, error) {
+		return cc.getNFTVerifier().VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
 	})
 }
 
 func (cc *ChainClient) GetNFTBalance(ctx context.Context, contractAddress, ownerAddress string) (*big.Int, error) {
-	return withChainClient(ctx, cc, "GetNFTBalance", func(client *ethclient.Client) (*big.Int, error) {
-		v := NewNFTVerifier(client, cc.logger).WithBlockTag(cc.GetFinality().BlockTag())
-		return v.GetNFTBalance(ctx, contractAddress, ownerAddress)
+	return withChainClient(ctx, cc, "GetNFTBalance", func(_ *ethclient.Client) (*big.Int, error) {
+		return cc.getNFTVerifier().GetNFTBalance(ctx, contractAddress, ownerAddress)
 	})
 }
 
 func (cc *ChainClient) VerifyNFTOwnershipAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	return withChainClient(ctx, cc, "VerifyNFTOwnershipAutoDetect", func(client *ethclient.Client) (bool, error) {
-		v := NewNFTVerifier(client, cc.logger).WithBlockTag(cc.GetFinality().BlockTag())
-		return v.VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTOwnershipAutoDetect", func(_ *ethclient.Client) (bool, error) {
+		return cc.getNFTVerifier().VerifyNFTOwnershipAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
 	})
 }
 
 func (cc *ChainClient) VerifyNFTCollectionAutoDetect(ctx context.Context, contractAddress, ownerAddress string) (bool, error) {
-	return withChainClient(ctx, cc, "VerifyNFTCollectionAutoDetect", func(client *ethclient.Client) (bool, error) {
-		v := NewNFTVerifier(client, cc.logger).WithBlockTag(cc.GetFinality().BlockTag())
-		return v.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
+	return withChainClient(ctx, cc, "VerifyNFTCollectionAutoDetect", func(_ *ethclient.Client) (bool, error) {
+		return cc.getNFTVerifier().VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
 	})
 }
 

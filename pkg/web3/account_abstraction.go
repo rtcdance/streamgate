@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -24,7 +26,7 @@ type IAccount interface {
 	//   - 0x00000001...: signature failure
 	//   - 0x00000002...: paymaster failure
 	// The actual call is: IAccount(userOp.sender).validateUserOp(userOp, userOpHash, missingAccountFunds)
-	ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int) ([]byte, error)
+	ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int, nonce *big.Int) ([]byte, error)
 }
 
 // UserOperation represents an ERC-4337 UserOperation struct.
@@ -50,17 +52,58 @@ type UserOperation struct {
 //   - Batch validate operations
 //   - Run validation against EntryPoint simulations
 type AAProvider struct {
-	client EthCaller
+	client     EthCaller
+	nonceCache *sync.Map // nonce -> timestamp for replay protection
+	maxAge     time.Duration
 }
 
 // NewAAProvider creates an AA provider for ERC-4337 validation.
 func NewAAProvider(client EthCaller) *AAProvider {
-	return &AAProvider{client: client}
+	return &AAProvider{
+		client:     client,
+		nonceCache: &sync.Map{},
+		maxAge:     5 * time.Minute,
+	}
+}
+
+// validateNonce checks if the nonce has been used recently (replay protection)
+func (a *AAProvider) validateNonce(nonce *big.Int) error {
+	if nonce == nil {
+		return fmt.Errorf("nonce cannot be nil")
+	}
+
+	nonceKey := nonce.String()
+	if ts, ok := a.nonceCache.Load(nonceKey); ok {
+		if time.Since(ts.(time.Time)) < a.maxAge {
+			return fmt.Errorf("nonce %s was recently used, possible replay attack", nonceKey)
+		}
+		// Clean up expired entry
+		a.nonceCache.Delete(nonceKey)
+	}
+
+	a.nonceCache.Store(nonceKey, time.Now())
+	return nil
+}
+
+// CleanupExpiredNonces removes entries older than maxAge
+func (a *AAProvider) CleanupExpiredNonces() {
+	now := time.Now()
+	a.nonceCache.Range(func(key, value interface{}) bool {
+		if now.Sub(value.(time.Time)) > a.maxAge {
+			a.nonceCache.Delete(key)
+		}
+		return true
+	})
 }
 
 // ValidateUserOp calls IAccount.validateUserOp on the sender contract.
 // This is a stub: the full ABI encoding for validateUserOp should be
 // generated from the ERC-4337 EntryPoint ABI when integrating.
-func (a *AAProvider) ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int) ([]byte, error) {
+func (a *AAProvider) ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int, nonce *big.Int) ([]byte, error) {
+	// Replay protection: check if nonce was recently used
+	if err := a.validateNonce(nonce); err != nil {
+		return nil, fmt.Errorf("replay protection check failed: %w", err)
+	}
+
 	return nil, fmt.Errorf("ERC-4337 validateUserOp not implemented: account abstraction validation is disabled until EntryPoint integration is complete")
 }

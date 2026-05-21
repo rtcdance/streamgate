@@ -10,28 +10,11 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap"
 )
 
-// erc1967ImplementationSlot is the ERC-1967 storage slot for the implementation
-// address in proxy contracts: keccak256("eip1967.proxy.implementation") - 1
 var erc1967ImplementationSlot = common.HexToHash("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
-
-var abiCache sync.Map
-
-func getOrParseABI(abiJSON string) (abi.ABI, error) {
-	if cached, ok := abiCache.Load(abiJSON); ok {
-		return cached.(abi.ABI), nil
-	}
-	parsed, err := abi.JSON(strings.NewReader(abiJSON))
-	if err != nil {
-		return abi.ABI{}, err
-	}
-	abiCache.Store(abiJSON, parsed)
-	return parsed, nil
-}
 
 // proxyCacheTTL is how long a resolved proxy implementation address stays cached.
 // This allows cache refresh when a proxy is upgraded to a new implementation.

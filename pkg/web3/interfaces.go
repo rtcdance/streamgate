@@ -2,15 +2,19 @@ package web3
 
 import (
 	"context"
+	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/rtcdance/streamgate/pkg/cachetypes"
 	"github.com/rtcdance/streamgate/pkg/web3/event"
+	"github.com/rtcdance/streamgate/pkg/web3/nft"
 	"github.com/rtcdance/streamgate/pkg/web3/signature"
 	"github.com/rtcdance/streamgate/pkg/web3/solana"
+	"github.com/rtcdance/streamgate/pkg/web3/tx"
 	"go.uber.org/zap"
 )
 
-// Type aliases for concrete types from sub-packages.
 type (
 	SolanaVerifier    = solana.SolanaVerifier
 	MetaplexMetadata  = solana.MetaplexMetadata
@@ -23,7 +27,66 @@ type (
 	SIWEMessage       = signature.SIWEMessage
 	SIWEMessageOption = signature.SIWEMessageOption
 	EIP712Verifier    = signature.EIP712Verifier
+	EthCaller         = nft.EthCaller
+	BlockTagCaller    = nft.BlockTagCaller
+	NFTVerifier       = nft.NFTVerifier
+	NFTInfo           = nft.NFTInfo
+	ApprovalInfo      = nft.ApprovalInfo
+	TokenStandard     = nft.TokenStandard
+	ERC1155Verifier   = nft.ERC1155Verifier
+	ERC20Reader       = nft.ERC20Reader
+	ERC20TokenInfo    = nft.ERC20TokenInfo
+	BlockTag            = nft.BlockTag
+	PendingTx           = tx.PendingTx
+	TrackedTx           = tx.TrackedTx
+	TxStatus            = tx.TxStatus
+	ContractWriteResult = tx.ContractWriteResult
+	ContractTxOpts      = tx.ContractTxOpts
+	ContractWriter      = tx.ContractWriter
+	KeyProvider         = tx.KeyProvider
+	NonceProvider       = tx.NonceProvider
+	NonceClient         = tx.NonceClient
+	NonceManager        = tx.NonceManager
+	TxTracker           = tx.TxTracker
+	TxLifecycleManager  = tx.TxLifecycleManager
+	TxLifecycleConfig   = tx.TxLifecycleConfig
+	TxClient            = tx.Client
 )
+
+const (
+	TokenStandardUnknown = nft.TokenStandardUnknown
+	TokenStandardERC721  = nft.TokenStandardERC721
+	TokenStandardERC1155 = nft.TokenStandardERC1155
+	BlockTagLatest       = nft.BlockTagLatest
+	BlockTagSafe         = nft.BlockTagSafe
+	BlockTagFinalized    = nft.BlockTagFinalized
+)
+
+var (
+	ERC20ABI = nft.ERC20ABI
+)
+
+const PermitABI = nft.PermitABI
+
+func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
+	return nft.NewNFTVerifier(client, logger)
+}
+
+func NewERC1155Verifier(ethClient EthCaller, logger *zap.Logger, cache cachetypes.CacheBackend) *ERC1155Verifier {
+	return nft.NewERC1155Verifier(ethClient, logger, cache)
+}
+
+func NewERC20Reader(caller EthCaller, logger *zap.Logger) *ERC20Reader {
+	return nft.NewERC20Reader(caller, logger)
+}
+
+func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress string, logger *zap.Logger) TokenStandard {
+	return nft.DetectTokenStandard(ctx, caller, contractAddress, logger)
+}
+
+func PackPermitCall(owner, spender common.Address, value, deadline *big.Int, v uint8, r, s [32]byte) ([]byte, error) {
+	return nft.PackPermitCall(owner, spender, value, deadline, v, r, s)
+}
 
 func NewSIWEMessage(domain, address, uri string, chainID int64, nonce string, issuedAt time.Time, opts ...SIWEMessageOption) *SIWEMessage {
 	return signature.NewSIWEMessage(domain, address, uri, chainID, nonce, issuedAt, opts...)
@@ -152,4 +215,21 @@ func DecodeContentRegisteredEvent(e *IndexedEvent) (*ContentRegisteredEvent, err
 
 func DecodeNFTMintedEvent(e *IndexedEvent) (*NFTMintedEvent, error) {
 	return event.DecodeNFTMintedEvent(e)
+}
+
+
+func DefaultTxLifecycleConfig() tx.TxLifecycleConfig {
+	return tx.DefaultTxLifecycleConfig()
+}
+
+func NewTxLifecycleManager(client tx.Client, keyProvider tx.KeyProvider, config tx.TxLifecycleConfig, logger *zap.Logger) *tx.TxLifecycleManager {
+	return tx.NewTxLifecycleManager(client, keyProvider, config, logger)
+}
+
+func NewNonceManager(client tx.NonceClient, logger *zap.Logger) *tx.NonceManager {
+	return tx.NewNonceManager(client, logger)
+}
+
+func NewTxTracker(client tx.Client, logger *zap.Logger) *tx.TxTracker {
+	return tx.NewTxTracker(client, logger)
 }

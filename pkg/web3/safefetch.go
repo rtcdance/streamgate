@@ -8,7 +8,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/rtcdance/streamgate/pkg/web3/solana"
 )
 
 // DefaultIPFSGateway is the default gateway for ipfs:// URI resolution.
@@ -16,6 +19,15 @@ var DefaultIPFSGateway = "https://ipfs.io/ipfs/"
 
 // DefaultArweaveGateway is the default gateway for ar:// URI resolution.
 var DefaultArweaveGateway = "https://arweave.net/"
+
+// fetchSemaphore limits concurrent safeFetchURI calls to prevent resource exhaustion.
+var fetchSemaphore = make(chan struct{}, 20) // max 20 concurrent fetches
+
+// activeFetches tracks active goroutines for monitoring
+var (
+	activeFetches int64
+	fetchMu       sync.Mutex
+)
 
 // safeHTTPClient is an HTTP client with a custom dialer that blocks private IPs.
 var safeHTTPClient = &http.Client{
@@ -45,6 +57,18 @@ var safeHTTPClient = &http.Client{
 			return dialer.DialContext(ctx, network, addr)
 		},
 	},
+}
+
+// GetActiveFetches returns the number of currently active fetch operations
+func GetActiveFetches() int64 {
+	fetchMu.Lock()
+	defer fetchMu.Unlock()
+	return activeFetches
+}
+
+// SetFetchConcurrency sets the maximum number of concurrent fetch operations
+func SetFetchConcurrency(max int) {
+	fetchSemaphore = make(chan struct{}, max)
 }
 
 // CloseSafeHTTPClient closes idle connections on the shared safe HTTP client.
@@ -107,6 +131,23 @@ func rewriteURI(uri string) (string, error) {
 // It validates the scheme, blocks private IPs, and rewrites ipfs:// and ar://
 // URIs through controlled gateways.
 func safeFetchURI(ctx context.Context, uri string, result interface{}) error {
+	// Acquire semaphore slot (blocks if limit reached)
+	select {
+	case fetchSemaphore <- struct{}{}:
+		defer func() { <-fetchSemaphore }()
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while waiting for fetch slot: %w", ctx.Err())
+	}
+
+	fetchMu.Lock()
+	activeFetches++
+	fetchMu.Unlock()
+	defer func() {
+		fetchMu.Lock()
+		activeFetches--
+		fetchMu.Unlock()
+	}()
+
 	// Handle data: URIs inline — no HTTP request needed
 	if strings.HasPrefix(uri, "data:application/json") {
 		// Format: data:application/json;utf8,{...} or data:application/json;base64,...
@@ -162,4 +203,8 @@ func safeFetchURI(ctx context.Context, uri string, result interface{}) error {
 	}
 
 	return nil
+}
+
+func init() {
+	solana.SafeURIFetch = safeFetchURI
 }
