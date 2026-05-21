@@ -42,4 +42,4 @@ AGENTS.md
 .playwright-mcp/
 
 # Docker
-docker-compose*.override.yml
+docker-compose*.override.ymlapi-gateway
