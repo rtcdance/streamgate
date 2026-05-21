@@ -34,6 +34,8 @@ type GatewayPlugin struct {
 	metricsCollector *monitoring.MetricsCollector
 	alertManager     *monitoring.AlertManager
 	resources        *gateway.AppResources
+	healthCtx        context.Context
+	healthCancel     context.CancelFunc
 }
 
 // NewGatewayPlugin creates a new API Gateway plugin
@@ -121,7 +123,8 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 		UploadService:  resources.UploadService,
 		TranscodingSvc: resources.TranscodingSvc,
 	}
-	p.grpcServer = gateway.SetupGRPCServer(p.config, p.logger, grpcServices)
+	p.healthCtx, p.healthCancel = context.WithCancel(context.Background())
+	p.grpcServer = gateway.SetupGRPCServer(p.healthCtx, p.config, p.logger, grpcServices)
 
 	go func() {
 		p.logger.Info("Starting gRPC server", zap.Int("port", grpcPort))
@@ -150,6 +153,9 @@ func (p *GatewayPlugin) Stop(ctx context.Context) error {
 			p.grpcServer.Stop()
 		}
 		p.logger.Info("gRPC server stopped")
+	}
+	if p.healthCancel != nil {
+		p.healthCancel()
 	}
 
 	if p.server != nil {

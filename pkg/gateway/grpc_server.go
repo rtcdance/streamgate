@@ -52,7 +52,7 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *grpc.Server {
+func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *grpc.Server {
 	jwtSecret := cfg.Auth.JWTSecret
 
 	opts := []grpc.ServerOption{
@@ -112,18 +112,24 @@ func SetupGRPCServer(cfg *config.Config, log *zap.Logger, svcs *GRPCServices) *g
 		go func() {
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
-			for range ticker.C {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				resp, err := healthSvc.Check(ctx, &servicev1.HealthCheckRequest{})
-				cancel()
-				if err != nil {
-					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
-					continue
-				}
-				if resp.Status == servicev1.HealthCheckResponse_SERVING {
-					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-				} else {
-					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+			for {
+				select {
+				case <-ticker.C:
+					checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					resp, err := healthSvc.Check(checkCtx, &servicev1.HealthCheckRequest{})
+					cancel()
+					if err != nil {
+						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+						continue
+					}
+					if resp.Status == servicev1.HealthCheckResponse_SERVING {
+						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+					} else {
+						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+					}
+				case <-ctx.Done():
+					log.Debug("gRPC health check stopped")
+					return
 				}
 			}
 		}()
