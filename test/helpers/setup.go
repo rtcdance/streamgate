@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/storage"
 )
 
 // TestConfig holds test configuration

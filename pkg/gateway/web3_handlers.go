@@ -3,7 +3,7 @@ package gateway
 import (
 	"time"
 
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

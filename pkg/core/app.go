@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/core/lifecycle"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/lifecycle"
-	"streamgate/pkg/middleware"
 )
 
 type AppConfig struct {

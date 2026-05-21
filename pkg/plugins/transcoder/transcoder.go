@@ -9,8 +9,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/event"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/event"
 )
 
 // TranscodeTask represents a transcoding task

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"streamgate/pkg/plugins/transcoder"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"go.uber.org/zap"
 )
@@ -90,14 +90,6 @@ func (a *ffmpegAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, 
 		}
 	}
 	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback)
-}
-
-type zapInfoLogger struct {
-	*zap.Logger
-}
-
-func (l *zapInfoLogger) Info(msg string, fields ...interface{}) {
-	l.Logger.Info(msg, zap.Any("fields", fields))
 }
 
 var _ service.VideoTranscoder = (*ffmpegAdapter)(nil)

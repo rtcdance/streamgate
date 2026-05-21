@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 
 	"go.uber.org/zap"
 )

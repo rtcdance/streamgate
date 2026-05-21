@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -22,8 +22,9 @@ import (
 )
 
 type manifestCacheEntry struct {
-	manifest  string
-	expiresAt time.Time
+	manifest   string
+	expiresAt  time.Time
+	walletAddr string // bound to issuing wallet to prevent cross-user token reuse
 }
 
 type segmentIndexEntry struct {
@@ -61,15 +62,16 @@ func newLRUCache[T any](maxSize int, ttl time.Duration) *lruCache[T] {
 }
 
 func (c *lruCache[T]) Get(key string) (T, bool) {
-	c.mu.RLock()
-	if elem, ok := c.items[key]; ok {
-		entry := elem.Value.(*lruEntry[T])
-		c.mu.RUnlock()
-		return entry.value, true
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	elem, ok := c.items[key]
+	if !ok {
+		var zero T
+		return zero, false
 	}
-	c.mu.RUnlock()
-	var zero T
-	return zero, false
+	entry := elem.Value.(*lruEntry[T])
+	c.order.MoveToFront(elem)
+	return entry.value, true
 }
 
 func (c *lruCache[T]) Set(key string, value T) {
@@ -115,15 +117,15 @@ func NewStreamingCache() *StreamingCache {
 	}
 }
 
-func (sc *StreamingCache) GetManifest(contentID string) (string, bool) {
-	if entry, ok := sc.manifests.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
+func (sc *StreamingCache) GetManifest(contentID, wallet string) (string, bool) {
+	if entry, ok := sc.manifests.Get(contentID); ok && time.Now().Before(entry.expiresAt) && entry.walletAddr == wallet {
 		return entry.manifest, true
 	}
 	return "", false
 }
 
-func (sc *StreamingCache) SetManifest(contentID, manifest string) {
-	sc.manifests.Set(contentID, manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL)})
+func (sc *StreamingCache) SetManifest(contentID, manifest, wallet string) {
+	sc.manifests.Set(contentID, manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL), walletAddr: wallet})
 }
 
 func (sc *StreamingCache) GetSegmentIndex(contentID string) (map[string][]string, bool) {
@@ -208,7 +210,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 
-		if cached, ok := cache.GetManifest(contentID); ok {
+		if cached, ok := cache.GetManifest(contentID, wallet); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
@@ -271,7 +273,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 
-		cache.SetManifest(contentID, manifest)
+		cache.SetManifest(contentID, manifest, wallet)
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
@@ -387,9 +389,12 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				prio int
 			}
 			ch := make(chan dlResult, len(candidates))
+			var wg sync.WaitGroup
 			for _, cand := range candidates {
 				cand := cand
+				wg.Add(1)
 				go func() {
+					defer wg.Done()
 					rc, dlErr := objStorage.DownloadStream(ctx, segBucket, cand.key)
 					select {
 					case ch <- dlResult{rc: rc, err: dlErr, prio: cand.prio}:
@@ -416,6 +421,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				}
 			}
 			cancel()
+			wg.Wait()
 
 			if best.rc == nil {
 				monitoring.StreamingDownloadDuration.WithLabelValues("fail").Observe(time.Since(start).Seconds())

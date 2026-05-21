@@ -11,13 +11,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/gateway"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
-	"streamgate/pkg/web3"
 )
 
 // mockNFTChecker implements middleware.NFTOwnershipChecker for E2E tests.

@@ -8,9 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/middleware"
 )
 
 func TestMiddlewareStack_Integration(t *testing.T) {

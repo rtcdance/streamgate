@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"

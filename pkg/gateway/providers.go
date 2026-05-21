@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/plugins/transcoder"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
@@ -105,6 +105,7 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		service.WithChallengeTTL(challengeTTL),
 		service.WithTokenBlacklist(tokenBlacklist),
 		service.WithJWTExpiry(jwtExpiry),
+		service.WithSIWEDomain(cfg.Auth.SIWEDomain, cfg.Auth.SIWEURI),
 	)
 }
 
@@ -213,7 +214,7 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		service.WithStorage(objStorage),
 		service.WithLogger(log),
 	)
-	svc.StartWorker(&zapRouterInfoLogger{log.Named("transcode-worker")})
+	svc.StartWorker(log.Named("transcode-worker"))
 	return svc
 }
 

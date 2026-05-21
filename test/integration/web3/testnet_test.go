@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"go.uber.org/zap"
-	"streamgate/pkg/web3"
 )
 
 // These tests require a real Sepolia RPC endpoint.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/event"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/event"
 
 	"github.com/stretchr/testify/require"
 )

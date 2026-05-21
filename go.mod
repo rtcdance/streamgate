@@ -1,4 +1,4 @@
-module streamgate
+module github.com/rtcdance/streamgate
 
 go 1.24.0
 
@@ -31,6 +31,7 @@ require (
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/ethereum/go-ethereum v1.15.5
+	github.com/go-playground/validator/v10 v10.23.0
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/ipfs/go-ipfs-api v0.7.0
 	github.com/stretchr/testify v1.11.1
@@ -42,6 +43,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.34.0
 	go.opentelemetry.io/otel/trace v1.34.0
 	go.uber.org/mock v0.6.0
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/sync v0.16.0
 	k8s.io/api v0.28.4
 	k8s.io/apimachinery v0.28.4
@@ -94,7 +96,6 @@ require (
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.23.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -178,7 +179,6 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/ratelimit v0.2.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.12.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/net v0.34.0 // indirect

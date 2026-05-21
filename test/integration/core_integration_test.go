@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/event"
-	"streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/event"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 )
 
 func TestEventBusIntegration(t *testing.T) {

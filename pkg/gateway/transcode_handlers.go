@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/plugins/transcoder"
-	"streamgate/pkg/service"
-	"streamgate/pkg/util"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/util"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -223,12 +223,4 @@ func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outpu
 		}
 	}
 	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback)
-}
-
-type zapRouterInfoLogger struct {
-	*zap.Logger
-}
-
-func (l *zapRouterInfoLogger) Info(msg string, fields ...interface{}) {
-	l.Logger.Info(msg, zap.Any("fields", fields))
 }

@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/service"
-	"streamgate/pkg/util"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/util"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -48,10 +48,10 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 			Address  string `json:"address"`
 			Wallet   string `json:"wallet"`
 			ChainID  int64  `json:"chain_id"`
-			SignType string `json:"sign_type"` // "personal_sign" or "eip712"
+			SignType string `json:"sign_type" binding:"omitempty,oneof=personal_sign eip712"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
+		if errs := BindAndValidate(c, &req); errs != nil {
+			abortWithValidationError(c, errs)
 			return
 		}
 		wallet := req.Wallet
@@ -88,12 +88,12 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		var req struct {
 			Address     string `json:"address"`
 			Wallet      string `json:"wallet"`
-			ChallengeID string `json:"challenge_id"`
-			Signature   string `json:"signature"`
+			ChallengeID string `json:"challenge_id" binding:"required"`
+			Signature   string `json:"signature" binding:"required"`
 			ChainID     int64  `json:"chain_id"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
+		if errs := BindAndValidate(c, &req); errs != nil {
+			abortWithValidationError(c, errs)
 			return
 		}
 		wallet := req.Wallet
@@ -130,28 +130,16 @@ func isValidUsername(username string) bool {
 func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-			Email    string `json:"email"`
+			Username string `json:"username" binding:"required,min=3,max=50"`
+			Password string `json:"password" binding:"required,min=8"`
+			Email    string `json:"email" binding:"omitempty,email"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
-			return
-		}
-		if req.Username == "" || req.Password == "" {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username and password are required")
-			return
-		}
-		if len(req.Username) < 3 || len(req.Username) > 50 {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username must be between 3 and 50 characters")
+		if errs := BindAndValidate(c, &req); errs != nil {
+			abortWithValidationError(c, errs)
 			return
 		}
 		if !isValidUsername(req.Username) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "username must contain only alphanumeric characters and underscores")
-			return
-		}
-		if len(req.Password) < 8 {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "password must be at least 8 characters")
 			return
 		}
 		if req.Email != "" && !util.IsValidEmail(req.Email) {
@@ -171,14 +159,10 @@ func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.H
 func handleAuthRefresh(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Token string `json:"token"`
+			Token string `json:"token" binding:"required"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
-			return
-		}
-		if req.Token == "" {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "token is required")
+		if errs := BindAndValidate(c, &req); errs != nil {
+			abortWithValidationError(c, errs)
 			return
 		}
 		// Check if token is revoked before refreshing

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -9,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/util"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/util"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -108,7 +109,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 		var cacheHit bool
 		cacheKey := fmt.Sprintf("%d:%s:%s:%s", chainID, wallet, contract, req.TokenID)
 		if cache != nil {
-			if entry, ok := cache.Get(cacheKey); ok && entry.Expires.After(time.Now()) {
+			if entry, ok := cache.Get(c.Request.Context(), cacheKey); ok && entry.Expires.After(time.Now()) {
 				hasNFT = entry.HasNFT
 				balance = entry.Balance
 				cacheHit = true
@@ -137,7 +138,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 					entry.BlockHash = header.Hash
 				}
 			}
-			cache.Set(cacheKey, entry)
+			cache.Set(c.Request.Context(), cacheKey, entry)
 		}
 		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
 	})
@@ -290,7 +291,7 @@ type NFTAccessCacheAdapter struct {
 }
 
 // Get implements middleware.NFTAccessCache.
-func (a *NFTAccessCacheAdapter) Get(key string) (middleware.NFTAccessEntry, bool) {
+func (a *NFTAccessCacheAdapter) Get(_ context.Context, key string) (middleware.NFTAccessEntry, bool) {
 	entry, ok := a.Cache.Get(key)
 	if !ok {
 		return middleware.NFTAccessEntry{}, false
@@ -305,7 +306,7 @@ func (a *NFTAccessCacheAdapter) Get(key string) (middleware.NFTAccessEntry, bool
 }
 
 // Set implements middleware.NFTAccessCache.
-func (a *NFTAccessCacheAdapter) Set(key string, entry middleware.NFTAccessEntry) {
+func (a *NFTAccessCacheAdapter) Set(_ context.Context, key string, entry middleware.NFTAccessEntry) {
 	a.Cache.Set(key, CachedNFTAccess{
 		HasNFT:      entry.HasNFT,
 		Balance:     entry.Balance,
@@ -315,10 +316,10 @@ func (a *NFTAccessCacheAdapter) Set(key string, entry middleware.NFTAccessEntry)
 	})
 }
 
-func (a *NFTAccessCacheAdapter) Delete(key string) {
+func (a *NFTAccessCacheAdapter) Delete(_ context.Context, key string) {
 	a.Cache.Delete(key)
 }
 
-func (a *NFTAccessCacheAdapter) DeleteByPrefix(prefix string) {
+func (a *NFTAccessCacheAdapter) DeleteByPrefix(_ context.Context, prefix string) {
 	a.Cache.DeleteByPrefix(prefix)
 }

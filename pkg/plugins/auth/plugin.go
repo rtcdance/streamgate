@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 
 	"go.uber.org/zap"
 )

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/test/helpers"
+	"github.com/rtcdance/streamgate/test/helpers"
 
 	"github.com/stretchr/testify/require"
 )

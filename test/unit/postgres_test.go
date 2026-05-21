@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/test/helpers"
 )
 
 func TestPostgresDB_Connect(t *testing.T) {

@@ -108,6 +108,8 @@ auth:
   jwt_expiry: 24h
   refresh_token_expiry: 168h
   nonce_expiry: 5m
+  siwe_domain: streamgate.io
+  siwe_uri: https://streamgate.io/login
 
 rate_limiting:
   enabled: true

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/models"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"github.com/gin-gonic/gin"
 )

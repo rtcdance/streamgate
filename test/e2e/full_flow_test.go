@@ -30,7 +30,7 @@ const (
 	anvilURL  = "http://localhost:18545"
 	anvilKey  = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	anvilAddr = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-	jwtSecret = "fullchain-acceptance-secret-32ch"
+	jwtSecret = "fullchain-acceptance-secret"
 )
 
 func TestFullUserFlow(t *testing.T) {
@@ -141,7 +141,6 @@ func uploadAndComplete(t *testing.T, key *ecdsa.PrivateKey, videoPath string) (s
 	require.Equal(t, "completed", uploadResp.Status)
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel2()
 	defer cancel2()
 	completeURL := fmt.Sprintf("%s/api/v1/upload/%s/complete-upload", baseURL, uploadResp.UploadID)
 	req2, _ := http.NewRequestWithContext(ctx2, "POST", completeURL, http.NoBody)
@@ -289,7 +288,6 @@ func walletLogin(t *testing.T, key *ecdsa.PrivateKey) string {
 	signature := "0x" + common.Bytes2Hex(sig)
 
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel2()
 	defer cancel2()
 	authBody := fmt.Sprintf(`{"address":"%s","challenge_id":"%s","signature":"%s"}`,
 		walletAddr, chalResp.ChallengeID, signature)

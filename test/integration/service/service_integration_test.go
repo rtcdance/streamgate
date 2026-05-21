@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/models"
-	"streamgate/pkg/service"
 )
 
 // MockServiceStorage for testing

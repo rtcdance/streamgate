@@ -6,8 +6,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/monitoring"
 )
 
 func TestMonitoring_RecordMetric(t *testing.T) {

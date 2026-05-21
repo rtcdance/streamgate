@@ -6,9 +6,9 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
 )
 
 // MonitorHandler handles monitoring requests

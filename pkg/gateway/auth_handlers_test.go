@@ -12,14 +12,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/models"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
 )
 
 // mockAuthStorage implements service.AuthStorage for gateway tests

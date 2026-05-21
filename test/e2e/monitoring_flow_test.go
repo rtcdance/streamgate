@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/monitoring"
 )
 
 func TestE2E_MonitoringFlow(t *testing.T) {

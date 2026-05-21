@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"streamgate/pkg/resilience"
+	"github.com/rtcdance/streamgate/pkg/resilience"
 	"time"
 
 	_ "github.com/lib/pq"

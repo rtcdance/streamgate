@@ -1,4 +1,4 @@
-package web3
+package tx
 
 import (
 	"context"
@@ -45,8 +45,8 @@ func TestPendingTx_EIP1559Fields(t *testing.T) {
 	pending := &PendingTx{
 		Hash:         "0xdef",
 		Nonce:        10,
-		GasTipCap:    big.NewInt(2_000_000_000),  // 2 Gwei
-		MaxFeePerGas: big.NewInt(10_000_000_000), // 10 Gwei
+		GasTipCap:    big.NewInt(2_000_000_000),
+		MaxFeePerGas: big.NewInt(10_000_000_000),
 		IsEIP1559:    true,
 		To:           "0x1234567890123456789012345678901234567890",
 		Value:        big.NewInt(0),
@@ -84,7 +84,7 @@ func TestBumpLegacyTx(t *testing.T) {
 	pending := &PendingTx{
 		Hash:      "0xabc",
 		Nonce:     5,
-		GasPrice:  big.NewInt(1_000_000_000), // 1 Gwei
+		GasPrice:  big.NewInt(1_000_000_000),
 		IsEIP1559: false,
 		To:        "0x1234567890123456789012345678901234567890",
 		Value:     big.NewInt(0),
@@ -93,13 +93,12 @@ func TestBumpLegacyTx(t *testing.T) {
 		ChainID:   1,
 	}
 
-	// Test the legacy bump calculation logic
 	bumpPercent := int64(10)
 	bumpFactor := big.NewInt(100 + bumpPercent)
 	newGasPrice := new(big.Int).Mul(pending.GasPrice, bumpFactor)
 	newGasPrice.Div(newGasPrice, big.NewInt(100))
 
-	expected := big.NewInt(1_100_000_000) // 1.1 Gwei
+	expected := big.NewInt(1_100_000_000)
 	assertEqual(t, 0, newGasPrice.Cmp(expected))
 }
 
@@ -107,8 +106,8 @@ func TestBumpEIP1559TipCalculation(t *testing.T) {
 	pending := &PendingTx{
 		Hash:         "0xdef",
 		Nonce:        10,
-		GasTipCap:    big.NewInt(2_000_000_000),  // 2 Gwei
-		MaxFeePerGas: big.NewInt(10_000_000_000), // 10 Gwei
+		GasTipCap:    big.NewInt(2_000_000_000),
+		MaxFeePerGas: big.NewInt(10_000_000_000),
 		IsEIP1559:    true,
 		To:           "0x1234567890123456789012345678901234567890",
 		Value:        big.NewInt(0),
@@ -117,16 +116,14 @@ func TestBumpEIP1559TipCalculation(t *testing.T) {
 		ChainID:      1,
 	}
 
-	// Test tip bump calculation
 	bumpPercent := int64(10)
 	bumpFactor := big.NewInt(100 + bumpPercent)
 	newTip := new(big.Int).Mul(pending.GasTipCap, bumpFactor)
 	newTip.Div(newTip, big.NewInt(100))
 
-	expectedTip := big.NewInt(2_200_000_000) // 2.2 Gwei
+	expectedTip := big.NewInt(2_200_000_000)
 	assertEqual(t, 0, newTip.Cmp(expectedTip))
 
-	// MaxFeePerGas should always be >= GasTipCap
 	if newTip.Cmp(pending.MaxFeePerGas) > 0 {
 		t.Error("bumped tip should not exceed MaxFeePerGas without also bumping MaxFeePerGas")
 	}
@@ -146,7 +143,6 @@ func TestBumpPercentValidation(t *testing.T) {
 
 	tt := &TxTracker{}
 
-	// BumpGas should reject bump percent < 10 (EIP-1559 minimum)
 	_, err := tt.BumpGas(context.TODO(), nil, pending, 5)
 	if err == nil {
 		t.Error("expected error for bump percent 5 (below minimum 10)")
@@ -162,7 +158,6 @@ func TestBumpPercentValidation(t *testing.T) {
 }
 
 func TestPendingTx_GasLimitPreserved(t *testing.T) {
-	// PendingTx with explicit GasLimit
 	pending := &PendingTx{
 		Hash:      "0xabc",
 		Nonce:     5,
@@ -176,7 +171,6 @@ func TestPendingTx_GasLimitPreserved(t *testing.T) {
 	}
 	assertEqual(t, 350000, int(pending.GasLimit))
 
-	// PendingTx with zero GasLimit (should fallback to default)
 	zeroLimit := &PendingTx{
 		Hash:      "0xdef",
 		Nonce:     6,
@@ -188,44 +182,36 @@ func TestPendingTx_GasLimitPreserved(t *testing.T) {
 }
 
 func TestBumpGasLimitCalculation(t *testing.T) {
-	// Test that bumpLegacy uses pending.GasLimit when set
 	gasLimit := uint64(350000)
 	pending := &PendingTx{
 		GasPrice: big.NewInt(1_000_000_000),
 		GasLimit: gasLimit,
 	}
 
-	// The gas limit used in the bumped tx should be pending.GasLimit
-	// (not the hardcoded 200000)
 	if pending.GasLimit != 0 {
 		usedLimit := pending.GasLimit
 		assertEqual(t, 350000, int(usedLimit))
 	}
 
-	// When GasLimit is 0, fallback to 200000
 	zeroPending := &PendingTx{GasLimit: 0}
 	usedLimit := zeroPending.GasLimit
 	if usedLimit == 0 {
-		usedLimit = 200000 // default fallback
+		usedLimit = 200000
 	}
 	assertEqual(t, 200000, int(usedLimit))
 }
 
 func TestEIP1559MinBumpRequirement(t *testing.T) {
-	// EIP-1559 requires replacement tx to have >10% higher tip
-	originalTip := big.NewInt(1_000_000_000) // 1 Gwei
+	originalTip := big.NewInt(1_000_000_000)
 
-	// 10% bump
 	bumpPercent := int64(10)
 	bumpFactor := big.NewInt(100 + bumpPercent)
 	newTip := new(big.Int).Mul(originalTip, bumpFactor)
 	newTip.Div(newTip, big.NewInt(100))
 
-	// New tip should be exactly 1.1 Gwei
 	expected := big.NewInt(1_100_000_000)
 	assertEqual(t, 0, newTip.Cmp(expected))
 
-	// Verify it's > 10% higher (required for EIP-1559 replacement)
 	tenPercentOfOriginal := new(big.Int).Div(originalTip, big.NewInt(10))
 	minRequired := new(big.Int).Add(originalTip, tenPercentOfOriginal)
 	if newTip.Cmp(minRequired) < 0 {
@@ -233,7 +219,6 @@ func TestEIP1559MinBumpRequirement(t *testing.T) {
 	}
 }
 
-// assertEqual is a simple helper for test assertions
 func assertEqual(t *testing.T, expected, actual interface{}) {
 	t.Helper()
 	switch e := expected.(type) {

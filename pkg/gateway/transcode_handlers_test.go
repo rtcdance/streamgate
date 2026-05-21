@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/service"
 )
 
 func newTestTranscodingService() *service.TranscodingService {

@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"bytes"
@@ -9,20 +9,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rtcdance/streamgate/pkg/web3/tx"
 	"go.uber.org/zap"
 )
 
-// ContentRegistryBinding provides type-safe Go methods for the ContentRegistry
-// smart contract.  All read calls go through ContractInteractor; all write
-// calls go through ContractWriter.
 type ContentRegistryBinding struct {
 	address common.Address
 	abi     abi.ABI
 	reader  *ContractInteractor
-	writer  *ContractWriter
+	writer  *tx.ContractWriter
 	logger  *zap.Logger
 
-	// Pre-computed event topic hashes for efficient log filtering.
 	contentRegisteredTopic common.Hash
 }
 
@@ -31,7 +28,6 @@ var (
 	contentRegistryABICached    abi.ABI
 )
 
-// parseContentRegistryABI parses the ContentRegistry ABI once and caches it.
 func parseContentRegistryABI() abi.ABI {
 	contentRegistryABIParseOnce.Do(func() {
 		parsed, err := abi.JSON(bytes.NewReader([]byte(ContentRegistryABI)))
@@ -43,13 +39,9 @@ func parseContentRegistryABI() abi.ABI {
 	return contentRegistryABICached
 }
 
-// NewContentRegistryBinding creates a type-safe binding for the ContentRegistry
-// contract at the given address.  writer may be nil if only read operations
-// are needed.
-func NewContentRegistryBinding(address string, reader *ContractInteractor, writer *ContractWriter, logger *zap.Logger) *ContentRegistryBinding {
+func NewContentRegistryBinding(address string, reader *ContractInteractor, writer *tx.ContractWriter, logger *zap.Logger) *ContentRegistryBinding {
 	parsedABI := parseContentRegistryABI()
 
-	// Pre-compute the ContentRegistered event topic
 	contentRegisteredEvent, ok := parsedABI.Events["ContentRegistered"]
 	var topic common.Hash
 	if ok {
@@ -66,15 +58,12 @@ func NewContentRegistryBinding(address string, reader *ContractInteractor, write
 	}
 }
 
-// RegisterContent sends a registerContent(bytes32,string) transaction on-chain.
-// It returns the tx hash and any error.  The caller should wait for receipt
-// confirmation separately.
 func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentHash [32]byte, metadata string) (string, error) {
 	if b.writer == nil {
 		return "", fmt.Errorf("content_registry_binding: writer not configured")
 	}
 
-	result, err := b.writer.SendTx(ctx, ContractTxOpts{
+	result, err := b.writer.SendTx(ctx, tx.ContractTxOpts{
 		To:        b.address.Hex(),
 		Method:    "registerContent",
 		ParsedABI: &b.abi,
@@ -91,8 +80,6 @@ func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentHas
 	return result.TxHash, nil
 }
 
-// VerifyContent calls verifyContent(bytes32) as a read-only call and returns
-// whether the content hash is registered.
 func (b *ContentRegistryBinding) VerifyContent(ctx context.Context, contentHash [32]byte) (bool, error) {
 	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "verifyContent", "", contentHash)
 	if err != nil {
@@ -117,7 +104,6 @@ func (b *ContentRegistryBinding) VerifyContent(ctx context.Context, contentHash 
 	return false, nil
 }
 
-// GetContentInfo calls getContentInfo(bytes32) and returns the on-chain record.
 func (b *ContentRegistryBinding) GetContentInfo(ctx context.Context, contentHash [32]byte) (*ContentInfo, error) {
 	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "getContentInfo", "", contentHash)
 	if err != nil {
@@ -148,8 +134,6 @@ func (b *ContentRegistryBinding) GetContentInfo(ctx context.Context, contentHash
 	}, nil
 }
 
-// ContentRegisteredTopic returns the keccak256 topic for the ContentRegistered
-// event, suitable for log filtering.
 func (b *ContentRegistryBinding) ContentRegisteredTopic() common.Hash {
 	return b.contentRegisteredTopic
 }

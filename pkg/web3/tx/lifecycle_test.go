@@ -1,4 +1,4 @@
-package web3
+package tx
 
 import (
 	"testing"
@@ -74,7 +74,6 @@ func TestTxLifecycleManager_ListPending_ExcludesFinalized(t *testing.T) {
 
 	m.Track(&PendingTx{Hash: "0x01", Nonce: 1, SentAt: time.Now(), ChainID: 1})
 
-	// Manually set status to confirmed
 	m.mu.Lock()
 	if tx, ok := m.tracked["0x01"]; ok {
 		tx.Status = TxStatusConfirmed
@@ -90,7 +89,6 @@ func TestTxLifecycleManager_ListPending_ExcludesFinalized(t *testing.T) {
 func TestTxLifecycleManager_PruneFinalized(t *testing.T) {
 	m := NewTxLifecycleManager(nil, nil, DefaultTxLifecycleConfig(), zap.NewNop())
 
-	// Add a confirmed tx sent 15 minutes ago (beyond 10-min prune cutoff)
 	m.Track(&PendingTx{Hash: "0x01", Nonce: 1, SentAt: time.Now().Add(-15 * time.Minute), ChainID: 1})
 	m.mu.Lock()
 	if tx, ok := m.tracked["0x01"]; ok {
@@ -109,7 +107,6 @@ func TestTxLifecycleManager_PruneFinalized(t *testing.T) {
 func TestTxLifecycleManager_PruneFinalized_KeepsRecent(t *testing.T) {
 	m := NewTxLifecycleManager(nil, nil, DefaultTxLifecycleConfig(), zap.NewNop())
 
-	// Add a confirmed tx sent 2 minutes ago (within 10-min cutoff)
 	m.Track(&PendingTx{Hash: "0x01", Nonce: 1, SentAt: time.Now().Add(-2 * time.Minute), ChainID: 1})
 	m.mu.Lock()
 	if tx, ok := m.tracked["0x01"]; ok {

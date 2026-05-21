@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"streamgate/pkg/models"
-	"streamgate/pkg/plugins/api"
-	"streamgate/pkg/util"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/plugins/api"
+	"github.com/rtcdance/streamgate/pkg/util"
 )
 
 type SecurityAuditResult struct {

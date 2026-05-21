@@ -245,6 +245,17 @@ type NATSConfig struct {
 	URL string
 }
 
+// ChainConfigEntry defines a single blockchain network configuration.
+type ChainConfigEntry struct {
+	ID          int64    `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	RPC         string   `yaml:"rpc_url" json:"rpc_url"`
+	RPCs        []string `yaml:"rpc_urls" json:"rpc_urls"`
+	ExplorerURL string   `yaml:"explorer_url" json:"explorer_url"`
+	Currency    string   `yaml:"currency" json:"currency"`
+	IsTestnet   bool     `yaml:"testnet" json:"testnet"`
+}
+
 // Web3Config holds Web3 configuration
 type Web3Config struct {
 	EthereumRPC   string
@@ -252,6 +263,7 @@ type Web3Config struct {
 	SolanaRPC     string
 	ChainID       int64
 	BlockTag      string // "safe" (default), "finalized", or "latest"
+	Chains        []ChainConfigEntry
 	Transaction   TransactionConfig
 	RateLimit     RPCRateLimitConfig
 }
@@ -288,6 +300,8 @@ type AuthConfig struct {
 	JWTExpiry          string
 	RefreshTokenExpiry string
 	NonceExpiry        string
+	SIWEDomain         string
+	SIWEURI            string
 }
 
 // CORSConfig holds CORS configuration
@@ -522,6 +536,8 @@ func LoadConfig() (*Config, error) {
 			JWTExpiry:          viper.GetString("auth.jwt_expiry"),
 			RefreshTokenExpiry: viper.GetString("auth.refresh_token_expiry"),
 			NonceExpiry:        viper.GetString("auth.nonce_expiry"),
+			SIWEDomain:         viper.GetString("auth.siwe_domain"),
+			SIWEURI:            viper.GetString("auth.siwe_uri"),
 		},
 
 		CORS: CORSConfig{
@@ -930,6 +946,8 @@ func DefaultConfig() *Config {
 			JWTExpiry:          "2h",
 			RefreshTokenExpiry: "168h",
 			NonceExpiry:        "5m",
+			SIWEDomain:         "streamgate.io",
+			SIWEURI:            "https://streamgate.io/login",
 		},
 
 		CORS: CORSConfig{

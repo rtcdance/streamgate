@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"context"
@@ -11,31 +11,28 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/rtcdance/streamgate/pkg/web3/internal/abiutil"
+	"github.com/rtcdance/streamgate/pkg/web3/nft"
 	"go.uber.org/zap"
 )
 
 var erc1967ImplementationSlot = common.HexToHash("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
 
-// proxyCacheTTL is how long a resolved proxy implementation address stays cached.
-// This allows cache refresh when a proxy is upgraded to a new implementation.
 const proxyCacheTTL = 5 * time.Minute
 
-// proxyCacheEntry holds a cached implementation address with an expiry time.
 type proxyCacheEntry struct {
 	implAddr string
 	expiry   time.Time
 }
 
-// ContractInteractor handles smart contract interactions
 type ContractInteractor struct {
-	client     EthCaller
+	client     nft.EthCaller
 	logger     *zap.Logger
 	proxyMu    sync.RWMutex
-	proxyCache map[common.Address]proxyCacheEntry // proxy address → implementation address + TTL
+	proxyCache map[common.Address]proxyCacheEntry
 }
 
-// NewContractInteractor creates a new contract interactor
-func NewContractInteractor(client EthCaller, logger *zap.Logger) *ContractInteractor {
+func NewContractInteractor(client nft.EthCaller, logger *zap.Logger) *ContractInteractor {
 	return &ContractInteractor{
 		client:     client,
 		logger:     logger,
@@ -43,9 +40,6 @@ func NewContractInteractor(client EthCaller, logger *zap.Logger) *ContractIntera
 	}
 }
 
-// InvalidateProxyCache removes the cached implementation address for the given
-// proxy. Call this after detecting a proxy upgrade event so subsequent calls
-// resolve the new implementation.
 func (ci *ContractInteractor) InvalidateProxyCache(proxyAddress string) {
 	proxy := common.HexToAddress(proxyAddress)
 	ci.proxyMu.Lock()
@@ -54,14 +48,9 @@ func (ci *ContractInteractor) InvalidateProxyCache(proxyAddress string) {
 	ci.logger.Debug("Invalidated proxy cache", zap.String("proxy", proxyAddress))
 }
 
-// ResolveImplementation checks if the given address is an ERC-1967 proxy contract.
-// If it is, it reads the implementation address from the proxy storage slot and
-// returns it. If not a proxy (slot is zero or unreadable), it returns the original address.
-// Results are cached to avoid repeated storage reads.
 func (ci *ContractInteractor) ResolveImplementation(ctx context.Context, proxyAddress string) (string, error) {
 	proxy := common.HexToAddress(proxyAddress)
 
-	// Check cache first (with TTL)
 	ci.proxyMu.RLock()
 	if entry, ok := ci.proxyCache[proxy]; ok && time.Now().Before(entry.expiry) {
 		ci.proxyMu.RUnlock()
@@ -69,27 +58,23 @@ func (ci *ContractInteractor) ResolveImplementation(ctx context.Context, proxyAd
 	}
 	ci.proxyMu.RUnlock()
 
-	// Read ERC-1967 implementation slot
 	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
 		To:   &proxy,
 		Data: erc1967ImplementationSlot.Bytes(),
 	}, nil)
 	if err != nil {
-		// Can't read storage — assume not a proxy
 		ci.logger.Debug("Could not read ERC-1967 slot, assuming not a proxy",
 			zap.String("address", proxyAddress),
 			zap.Error(err))
 		return proxyAddress, nil
 	}
 
-	// Parse the 32-byte storage slot value as an address
 	if len(result) < 32 {
 		return proxyAddress, nil
 	}
 
-	implAddress := common.BytesToAddress(result[12:32]) // last 20 bytes
+	implAddress := common.BytesToAddress(result[12:32])
 	if implAddress == (common.Address{}) {
-		// Zero implementation — not a proxy
 		return proxyAddress, nil
 	}
 
@@ -98,18 +83,12 @@ func (ci *ContractInteractor) ResolveImplementation(ctx context.Context, proxyAd
 		zap.String("proxy", proxyAddress),
 		zap.String("implementation", implHex))
 
-	// Cache the result with TTL
 	ci.proxyMu.Lock()
 	ci.proxyCache[proxy] = proxyCacheEntry{implAddr: implHex, expiry: time.Now().Add(proxyCacheTTL)}
 	ci.proxyMu.Unlock()
 	return implHex, nil
 }
 
-// CallContractFunction calls a read-only contract function.
-// fromAddress is optional — pass "" to leave msg.From unset (zero address),
-// or pass a hex address so that contracts reading msg.sender work correctly.
-// If the call fails, it automatically checks for an ERC-1967 proxy and retries
-// against the implementation address.
 func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contractAddress, abiJSON, functionName, fromAddress string, args ...interface{}) (interface{}, error) {
 	ci.logger.Debug("Calling contract function",
 		zap.String("contract", contractAddress),
@@ -121,10 +100,8 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 		return result, nil
 	}
 
-	// Call failed — try resolving as a proxy and retrying against the implementation
 	implAddr, resolveErr := ci.ResolveImplementation(ctx, contractAddress)
 	if resolveErr != nil || implAddr == contractAddress {
-		// Not a proxy or resolution failed — return original error
 		return nil, err
 	}
 
@@ -141,7 +118,6 @@ func (ci *ContractInteractor) CallContractFunction(ctx context.Context, contract
 	return retryResult, nil
 }
 
-// callContractFunction is the internal implementation that performs the actual contract call.
 func (ci *ContractInteractor) callContractFunction(ctx context.Context, contractAddress, abiJSON, functionName, fromAddress string, args ...interface{}) (interface{}, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
@@ -151,14 +127,12 @@ func (ci *ContractInteractor) callContractFunction(ctx context.Context, contract
 
 	contract := common.HexToAddress(contractAddress)
 
-	// Parse ABI
-	parsedABI, err := getOrParseABI(abiJSON)
+	parsedABI, err := abiutil.GetOrParseABI(abiJSON)
 	if err != nil {
 		ci.logger.Error("Failed to parse ABI", zap.Error(err))
 		return nil, fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
-	// Pack function call
 	data, err := parsedABI.Pack(functionName, args...)
 	if err != nil {
 		ci.logger.Error("Failed to pack function call",
@@ -167,13 +141,11 @@ func (ci *ContractInteractor) callContractFunction(ctx context.Context, contract
 		return nil, fmt.Errorf("failed to pack function call: %w", err)
 	}
 
-	// Execute call
 	msg := ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
 	}
 
-	// Set From address if provided (required for contracts that read msg.sender)
 	if fromAddress != "" && common.IsHexAddress(fromAddress) {
 		msg.From = common.HexToAddress(fromAddress)
 	}
@@ -181,7 +153,6 @@ func (ci *ContractInteractor) callContractFunction(ctx context.Context, contract
 	result, err := ci.client.CallContract(ctx, msg, nil)
 
 	if err != nil {
-		// Try to extract and decode revert reason for better diagnostics
 		errMsg := err.Error()
 		if revertData := ExtractRevertData(errMsg); revertData != nil {
 			if revert := ParseRevertReason(revertData); revert != nil {
@@ -201,7 +172,6 @@ func (ci *ContractInteractor) callContractFunction(ctx context.Context, contract
 	return result, nil
 }
 
-// GetContractCode gets the bytecode of a contract
 func (ci *ContractInteractor) GetContractCode(ctx context.Context, contractAddress string) (string, error) {
 	ci.logger.Debug("Getting contract code", zap.String("contract", contractAddress))
 
@@ -220,7 +190,6 @@ func (ci *ContractInteractor) GetContractCode(ctx context.Context, contractAddre
 	return fmt.Sprintf("0x%x", code), nil
 }
 
-// IsContractAddress checks if an address is a contract
 func (ci *ContractInteractor) IsContractAddress(ctx context.Context, address string) (bool, error) {
 	ci.logger.Debug("Checking if address is contract", zap.String("address", address))
 
@@ -240,22 +209,17 @@ func (ci *ContractInteractor) IsContractAddress(ctx context.Context, address str
 	return isContract, nil
 }
 
-// ContractContentRegistry represents a content registry contract
 type ContractContentRegistry struct {
 	Address string
 	ABI     string
 }
 
-// RegisterContent registers content on-chain by packing the ABI call data.
-// It returns the encoded call data; the caller is responsible for building,
-// signing, and sending the full transaction.
 func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash, owner, metadata string) ([]byte, error) {
-	parsedABI, err := getOrParseABI(cr.ABI)
+	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
 
-	// Convert hex content hash to [32]byte
 	hashBytes, err := hexToBytes32(contentHash)
 	if err != nil {
 		return nil, fmt.Errorf("invalid content hash: %w", err)
@@ -269,9 +233,8 @@ func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *Cont
 	return data, nil
 }
 
-// VerifyContent verifies content on-chain by calling verifyContent(bytes32).
 func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
-	parsedABI, err := getOrParseABI(cr.ABI)
+	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
@@ -295,7 +258,6 @@ func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *Contra
 		return false, fmt.Errorf("verifyContent call failed: %w", err)
 	}
 
-	// Unpack bool result
 	out, err := parsedABI.Unpack("verifyContent", result)
 	if err != nil {
 		return false, fmt.Errorf("failed to unpack verifyContent result: %w", err)
@@ -308,9 +270,8 @@ func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *Contra
 	return false, nil
 }
 
-// GetContentInfo gets information about registered content via getContentInfo(bytes32).
 func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
-	parsedABI, err := getOrParseABI(cr.ABI)
+	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
@@ -353,7 +314,6 @@ func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *Contr
 	}, nil
 }
 
-// hexToBytes32 converts a hex string (with or without 0x prefix) to [32]byte.
 func hexToBytes32(hexStr string) ([32]byte, error) {
 	var out [32]byte
 	if strings.HasPrefix(hexStr, "0x") || strings.HasPrefix(hexStr, "0X") {
@@ -370,7 +330,6 @@ func hexToBytes32(hexStr string) ([32]byte, error) {
 	return out, nil
 }
 
-// ContentInfo contains information about registered content
 type ContentInfo struct {
 	Hash      string
 	Owner     string
@@ -379,19 +338,16 @@ type ContentInfo struct {
 	IsValid   bool
 }
 
-// TransactionBuilder builds transactions
 type TransactionBuilder struct {
 	logger *zap.Logger
 }
 
-// NewTransactionBuilder creates a new transaction builder
 func NewTransactionBuilder(logger *zap.Logger) *TransactionBuilder {
 	return &TransactionBuilder{
 		logger: logger,
 	}
 }
 
-// BuildTransaction builds a transaction
 func (tb *TransactionBuilder) BuildTransaction(to string, value *big.Int, data string, gasLimit uint64, gasPrice *big.Int) *Transaction {
 	tb.logger.Debug("Building transaction",
 		zap.String("to", to),
@@ -407,7 +363,6 @@ func (tb *TransactionBuilder) BuildTransaction(to string, value *big.Int, data s
 	}
 }
 
-// Transaction represents a blockchain transaction
 type Transaction struct {
 	To       string
 	Value    *big.Int
@@ -417,10 +372,7 @@ type Transaction struct {
 	Nonce    uint64
 }
 
-// EstimateTransactionCost estimates the cost of a transaction
 func (tb *TransactionBuilder) EstimateTransactionCost(tx *Transaction) *big.Int {
-	//nolint:gocritic // formula comment
-	// Cost = gasLimit * gasPrice
 	cost := new(big.Int).Mul(new(big.Int).SetUint64(tx.GasLimit), tx.GasPrice)
 	return cost
 }

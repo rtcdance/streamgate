@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/logger"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/logger"
 )
 
 // RunMicroservice starts a microservice with the given name and plugin constructor.

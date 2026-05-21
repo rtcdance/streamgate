@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/service"
 )
 
 type cachedRules struct {

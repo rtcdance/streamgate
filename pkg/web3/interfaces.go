@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rtcdance/streamgate/pkg/cachetypes"
+	"github.com/rtcdance/streamgate/pkg/web3/contract"
 	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"github.com/rtcdance/streamgate/pkg/web3/nft"
 	"github.com/rtcdance/streamgate/pkg/web3/signature"
@@ -43,6 +44,7 @@ type (
 	ContractWriteResult = tx.ContractWriteResult
 	ContractTxOpts      = tx.ContractTxOpts
 	ContractWriter      = tx.ContractWriter
+	ContractWriterConfig = tx.ContractWriterConfig
 	KeyProvider         = tx.KeyProvider
 	NonceProvider       = tx.NonceProvider
 	NonceClient         = tx.NonceClient
@@ -51,6 +53,21 @@ type (
 	TxLifecycleManager  = tx.TxLifecycleManager
 	TxLifecycleConfig   = tx.TxLifecycleConfig
 	TxClient            = tx.Client
+	ContractInteractor      = contract.ContractInteractor
+	ContractContentRegistry = contract.ContractContentRegistry
+	ContentInfo             = contract.ContentInfo
+	TransactionBuilder      = contract.TransactionBuilder
+	Transaction             = contract.Transaction
+	ContentRegistryBinding  = contract.ContentRegistryBinding
+	ContentRegistry         = contract.ContentRegistry
+	NFTContract             = contract.NFTContract
+	SmartContractRegistry   = contract.SmartContractRegistry
+	SmartContractInfo       = contract.SmartContractInfo
+	MulticallCaller         = contract.MulticallCaller
+	MulticallCall3          = contract.MulticallCall3
+	MulticallResult         = contract.MulticallResult
+	RevertError             = contract.RevertError
+	DualError               = contract.DualError
 )
 
 const (
@@ -60,10 +77,15 @@ const (
 	BlockTagLatest       = nft.BlockTagLatest
 	BlockTagSafe         = nft.BlockTagSafe
 	BlockTagFinalized    = nft.BlockTagFinalized
+	ContentRegistryABI   = contract.ContentRegistryABI
+	ContentRegistryBytecode = contract.ContentRegistryBytecode
+	ERC721ABI            = contract.ERC721ABI
+	Multicall3ABI        = contract.Multicall3ABI
 )
 
 var (
-	ERC20ABI = nft.ERC20ABI
+	ERC20ABI          = nft.ERC20ABI
+	BalanceOfABIJSON  = contract.BalanceOfABIJSON
 )
 
 const PermitABI = nft.PermitABI
@@ -160,7 +182,6 @@ type EIP712VerifierInterface interface {
 	VerifyTypedData(address string, typedData *EIP712TypedData, signature string) (bool, error)
 }
 
-// SolanaSigner verifies Solana ed25519 signatures (purely local crypto, no RPC).
 type SolanaSigner interface {
 	VerifySignature(address, message, signature string) (bool, error)
 	VerifyOffchainMessage(address, message, signature string) (bool, error)
@@ -217,19 +238,70 @@ func DecodeNFTMintedEvent(e *IndexedEvent) (*NFTMintedEvent, error) {
 	return event.DecodeNFTMintedEvent(e)
 }
 
-
-func DefaultTxLifecycleConfig() tx.TxLifecycleConfig {
+func DefaultTxLifecycleConfig() TxLifecycleConfig {
 	return tx.DefaultTxLifecycleConfig()
 }
 
-func NewTxLifecycleManager(client tx.Client, keyProvider tx.KeyProvider, config tx.TxLifecycleConfig, logger *zap.Logger) *tx.TxLifecycleManager {
+func NewTxLifecycleManager(client TxClient, keyProvider KeyProvider, config TxLifecycleConfig, logger *zap.Logger) *TxLifecycleManager {
 	return tx.NewTxLifecycleManager(client, keyProvider, config, logger)
 }
 
-func NewNonceManager(client tx.NonceClient, logger *zap.Logger) *tx.NonceManager {
+func NewNonceManager(client NonceClient, logger *zap.Logger) *NonceManager {
 	return tx.NewNonceManager(client, logger)
 }
 
-func NewTxTracker(client tx.Client, logger *zap.Logger) *tx.TxTracker {
+func NewTxTracker(client TxClient, logger *zap.Logger) *TxTracker {
 	return tx.NewTxTracker(client, logger)
+}
+
+func NewContractWriter(cfg ContractWriterConfig) *ContractWriter {
+	return tx.NewContractWriter(cfg)
+}
+
+func IsStuck(pending *PendingTx, threshold time.Duration) bool {
+	return tx.IsStuck(pending, threshold)
+}
+
+func NewContractInteractor(client EthCaller, logger *zap.Logger) *ContractInteractor {
+	return contract.NewContractInteractor(client, logger)
+}
+
+func NewContentRegistryBinding(address string, reader *ContractInteractor, writer *ContractWriter, logger *zap.Logger) *ContentRegistryBinding {
+	return contract.NewContentRegistryBinding(address, reader, writer, logger)
+}
+
+func NewContentRegistry(address string) *ContentRegistry {
+	return contract.NewContentRegistry(address)
+}
+
+func NewNFTContract(address string) *NFTContract {
+	return contract.NewNFTContract(address)
+}
+
+func NewSmartContractRegistry(logger *zap.Logger) *SmartContractRegistry {
+	return contract.NewSmartContractRegistry(logger)
+}
+
+func NewTransactionBuilder(logger *zap.Logger) *TransactionBuilder {
+	return contract.NewTransactionBuilder(logger)
+}
+
+func NewMulticallCaller(client EthCaller, chainID int64, logger *zap.Logger) (*MulticallCaller, error) {
+	return contract.NewMulticallCaller(client, chainID, logger)
+}
+
+func Multicall3DeployedAddress(chainID int64) common.Address {
+	return contract.Multicall3DeployedAddress(chainID)
+}
+
+func ParseRevertReason(data []byte) *RevertError {
+	return contract.ParseRevertReason(data)
+}
+
+func ExtractRevertData(errMsg string) []byte {
+	return contract.ExtractRevertData(errMsg)
+}
+
+func DecodeCustomError(data []byte, abis ...interface{}) (string, map[string]interface{}, bool) {
+	return contract.DecodeCustomError(data)
 }

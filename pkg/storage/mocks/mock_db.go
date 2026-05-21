@@ -14,7 +14,7 @@ import (
 	sql "database/sql"
 	reflect "reflect"
 
-	storage "streamgate/pkg/storage"
+	storage "github.com/rtcdance/streamgate/pkg/storage"
 
 	gomock "go.uber.org/mock/gomock"
 )

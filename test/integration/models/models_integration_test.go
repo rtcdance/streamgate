@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/models"
-	"streamgate/test/helpers"
 )
 
 func TestModels_UserPersistence(t *testing.T) {

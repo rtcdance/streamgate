@@ -21,15 +21,15 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	authv1 "streamgate/pkg/api/v1/auth"
-	contentv1 "streamgate/pkg/api/v1/content"
-	nftv1 "streamgate/pkg/api/v1/nft"
-	servicev1 "streamgate/pkg/api/v1/service"
-	streamingv1 "streamgate/pkg/api/v1/streaming"
-	uploadv1 "streamgate/pkg/api/v1/upload"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/middleware"
-	"streamgate/pkg/service"
+	authv1 "github.com/rtcdance/streamgate/pkg/api/v1/auth"
+	contentv1 "github.com/rtcdance/streamgate/pkg/api/v1/content"
+	nftv1 "github.com/rtcdance/streamgate/pkg/api/v1/nft"
+	servicev1 "github.com/rtcdance/streamgate/pkg/api/v1/service"
+	streamingv1 "github.com/rtcdance/streamgate/pkg/api/v1/streaming"
+	uploadv1 "github.com/rtcdance/streamgate/pkg/api/v1/upload"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	jwt "github.com/golang-jwt/jwt/v4"
 )
@@ -781,7 +781,14 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 
 	var manifest string
 	segments := make([]*streamingv1.SegmentInfo, 0)
-	manifest, _ = s.streamingSvc.GenerateHLSPlaylist(req.ContentId, qualitySegments, playbackToken)
+	manifest, err = s.streamingSvc.GenerateHLSPlaylist(req.ContentId, qualitySegments, playbackToken)
+	if err != nil {
+		s.log.Error("failed to generate HLS playlist",
+			zap.String("content_id", req.ContentId),
+			zap.String("wallet", wallet),
+			zap.Error(err))
+		return nil, status.Error(codes.Internal, "failed to generate stream manifest")
+	}
 	for q, segs := range qualitySegments {
 		for _, seg := range segs {
 			name := seg

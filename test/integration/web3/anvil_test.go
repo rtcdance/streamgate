@@ -20,8 +20,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"go.uber.org/zap"
-	"streamgate/pkg/web3"
 )
 
 // setupAnvil starts an Anvil instance and returns the RPC URL, a funded

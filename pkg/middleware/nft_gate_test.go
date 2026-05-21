@@ -61,20 +61,20 @@ type mockNFTAccessCache struct {
 	entries map[string]NFTAccessEntry
 }
 
-func (m *mockNFTAccessCache) Get(key string) (NFTAccessEntry, bool) {
+func (m *mockNFTAccessCache) Get(_ context.Context, key string) (NFTAccessEntry, bool) {
 	e, ok := m.entries[key]
 	return e, ok
 }
 
-func (m *mockNFTAccessCache) Set(key string, entry NFTAccessEntry) {
+func (m *mockNFTAccessCache) Set(_ context.Context, key string, entry NFTAccessEntry) {
 	m.entries[key] = entry
 }
 
-func (m *mockNFTAccessCache) Delete(key string) {
+func (m *mockNFTAccessCache) Delete(_ context.Context, key string) {
 	delete(m.entries, key)
 }
 
-func (m *mockNFTAccessCache) DeleteByPrefix(prefix string) {
+func (m *mockNFTAccessCache) DeleteByPrefix(_ context.Context, prefix string) {
 	for k := range m.entries {
 		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
 			delete(m.entries, k)

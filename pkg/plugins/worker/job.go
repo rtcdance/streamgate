@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"go.uber.org/zap"
-	"streamgate/pkg/web3"
 )
 
 // JobStatus represents the status of a job

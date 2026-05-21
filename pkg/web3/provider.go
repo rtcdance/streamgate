@@ -428,7 +428,7 @@ func (cc *ChainClient) fetchMetadataFromURI(ctx context.Context, uri string) (*N
 
 // getNFTBalance gets the balance of NFTs for a wallet (internal helper)
 func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract common.Address) (*big.Int, error) {
-	parsedABI, err := getOrParseABI(balanceOfABIJSON)
+	parsedABI, err := getOrParseABI(BalanceOfABIJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}
@@ -467,7 +467,7 @@ func (cc *ChainClient) getNFTBalance(ctx context.Context, wallet, contract commo
 // getNFTBalanceAtBlock calls balanceOf at a specific block tag (e.g. BlockTagSafe)
 // to protect against reorgs. Falls back to getNFTBalance (latest) on error.
 func (cc *ChainClient) getNFTBalanceAtBlock(ctx context.Context, wallet, contract common.Address, blockTag BlockTag) (*big.Int, error) {
-	parsedABI, err := getOrParseABI(balanceOfABIJSON)
+	parsedABI, err := getOrParseABI(BalanceOfABIJSON)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}

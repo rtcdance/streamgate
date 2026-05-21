@@ -3,8 +3,8 @@ package e2e_test
 import (
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/models"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/models"
 )
 
 func TestE2E_UserModelValidation(t *testing.T) {

@@ -9,10 +9,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/logger"
-	"streamgate/pkg/plugins/monitor"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/logger"
+	"github.com/rtcdance/streamgate/pkg/plugins/monitor"
 )
 
 func main() {

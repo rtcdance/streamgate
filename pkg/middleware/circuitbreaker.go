@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"streamgate/pkg/resilience"
+	"github.com/rtcdance/streamgate/pkg/resilience"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"streamgate/pkg/models"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service"
 )
 
 func BenchmarkAuthService_Register(b *testing.B) {

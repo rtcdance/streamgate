@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 func TestE2E_NFTCreationAndVerification(t *testing.T) {

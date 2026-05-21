@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
-	"streamgate/pkg/service"
 )
 
 func TestContentHandlers_NilService(t *testing.T) {

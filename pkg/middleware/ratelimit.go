@@ -11,20 +11,29 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	rateLimitTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	rateLimitTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "streamgate_ratelimit_total",
 		Help: "Total rate limit checks",
 	}, []string{"result", "backend"})
 
-	rateLimitFallback = promauto.NewCounter(prometheus.CounterOpts{
+	rateLimitFallback = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "streamgate_ratelimit_fallback_total",
 		Help: "Rate limiter fallbacks to memory backend",
 	})
 )
+
+func init() {
+	for _, c := range []prometheus.Collector{rateLimitTotal, rateLimitFallback} {
+		if err := prometheus.Register(c); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				panic(err)
+			}
+		}
+	}
+}
 
 type RateLimitConfig struct {
 	RequestsPerMinute int

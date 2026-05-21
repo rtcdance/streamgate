@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -57,12 +57,12 @@ func (m *mockNFTOwnershipChecker) GetNFTInfo(ctx context.Context, chainID int64,
 // mockNFTAccessCache implements middleware.NFTAccessCache
 type mockNFTAccessCache struct{}
 
-func (m *mockNFTAccessCache) Get(key string) (middleware.NFTAccessEntry, bool) {
+func (m *mockNFTAccessCache) Get(_ context.Context, key string) (middleware.NFTAccessEntry, bool) {
 	return middleware.NFTAccessEntry{}, false
 }
-func (m *mockNFTAccessCache) Set(key string, entry middleware.NFTAccessEntry) {}
-func (m *mockNFTAccessCache) Delete(key string)                               {}
-func (m *mockNFTAccessCache) DeleteByPrefix(prefix string)                    {}
+func (m *mockNFTAccessCache) Set(_ context.Context, key string, entry middleware.NFTAccessEntry) {}
+func (m *mockNFTAccessCache) Delete(_ context.Context, key string)                               {}
+func (m *mockNFTAccessCache) DeleteByPrefix(_ context.Context, prefix string)                    {}
 
 func setupNFTRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)

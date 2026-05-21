@@ -3,9 +3,9 @@ package e2e_test
 import (
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/util"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/util"
-	"streamgate/test/helpers"
 )
 
 func TestE2E_CryptoOperations(t *testing.T) {

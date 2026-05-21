@@ -10,8 +10,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"streamgate/pkg/monitoring"
-	"streamgate/pkg/plugins/api"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/plugins/api"
 )
 
 // PerformanceMetrics tracks performance test results
