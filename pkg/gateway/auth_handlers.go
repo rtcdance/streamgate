@@ -54,9 +54,9 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 			abortWithValidationError(c, errs)
 			return
 		}
-		wallet := req.Wallet
+		wallet := req.Address
 		if wallet == "" {
-			wallet = req.Address
+			wallet = req.Wallet
 		}
 		// Validate wallet address format (Ethereum or Solana)
 		if wallet != "" && !util.IsValidAddress(wallet) && !service.IsValidSolanaAddress(wallet) {
@@ -77,6 +77,7 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 			"nonce":      challenge.Nonce,
 			"issued_at":  challenge.IssuedAt.Format(time.RFC3339),
 			"expires_at": challenge.ExpiresAt.Format(time.RFC3339),
+			"address":    challenge.WalletAddress,
 			"wallet":     challenge.WalletAddress, "chain_id": challenge.ChainID,
 			"signing_type": challenge.SigningType,
 		})
@@ -96,9 +97,9 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 			abortWithValidationError(c, errs)
 			return
 		}
-		wallet := req.Wallet
+		wallet := req.Address
 		if wallet == "" {
-			wallet = req.Address
+			wallet = req.Wallet
 		}
 		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature, req.ChainID)
 		if err != nil {
@@ -114,7 +115,7 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		}
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		c.Header("Pragma", "no-cache")
-		respondOK(c, gin.H{"token": token, "wallet_address": wallet, "expires_at": expiresAt})
+		respondOK(c, gin.H{"token": token, "address": wallet, "wallet_address": wallet, "expires_at": expiresAt})
 	}
 }
 
