@@ -720,10 +720,61 @@ type ValidationError struct {
 }
 
 func (e *ValidationError) Error() string {
-	var all []string
-	all = append(all, e.Critical...)
-	all = append(all, e.Warnings...)
-	return fmt.Sprintf("production config validation failed — insecure defaults: %s", strings.Join(all, "; "))
+	var lines []string
+	lines = append(lines, "production config validation failed — insecure defaults:")
+	for _, c := range e.Critical {
+		lines = append(lines, "  CRITICAL: "+c)
+	}
+	for _, w := range e.Warnings {
+		lines = append(lines, "  WARNING:  "+w)
+	}
+
+	// Append actionable hints
+	hasStorageCreds := false
+	hasSSL := false
+	hasJWT := false
+	hasDBPass := false
+	hasYOURKey := false
+	for _, c := range e.Critical {
+		if strings.Contains(c, "jwt_secret") {
+			hasJWT = true
+		}
+		if strings.Contains(c, "database.password") {
+			hasDBPass = true
+		}
+	}
+	for _, w := range e.Warnings {
+		if strings.Contains(w, "minioadmin") {
+			hasStorageCreds = true
+		}
+		if strings.Contains(w, "use_ssl") {
+			hasSSL = true
+		}
+		if strings.Contains(w, "YOUR_KEY") {
+			hasYOURKey = true
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, "Fix hints:")
+	if hasJWT {
+		lines = append(lines, "  • Set STREAMGATE_JWT_SECRET to a 32+ character secret")
+	}
+	if hasDBPass {
+		lines = append(lines, "  • Set STREAMGATE_DB_PASSWORD to a strong password")
+	}
+	if hasStorageCreds {
+		lines = append(lines, "  • Set STREAMGATE_STORAGE_ACCESS_KEY / STREAMGATE_STORAGE_SECRET_KEY")
+	}
+	if hasSSL {
+		lines = append(lines, "  • Set STREAMGATE_STORAGE_USE_SSL=true (or add APP_DEBUG=true to bypass)")
+	}
+	if hasYOURKey {
+		lines = append(lines, "  • Set WEB3_ETHEREUM_RPC to a real Infura/Alchemy endpoint")
+	}
+	lines = append(lines, "")
+	lines = append(lines, "For local development, add APP_DEBUG=true to bypass these checks.")
+
+	return strings.Join(lines, "\n")
 }
 
 func (e *ValidationError) HasCritical() bool {
