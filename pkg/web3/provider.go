@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	"go.uber.org/zap"
 )
 
@@ -67,14 +68,14 @@ type TransactionInfo struct {
 
 // ReceiptInfo contains transaction receipt information
 type ReceiptInfo struct {
-	TransactionHash string        `json:"transaction_hash"`
-	BlockNumber     uint64        `json:"block_number"`
-	BlockHash       string        `json:"block_hash"`
-	GasUsed         uint64        `json:"gas_used"`
-	Status          uint64        `json:"status"`
-	ContractAddress string        `json:"contract_address"`
-	LogCount        uint64        `json:"log_count"`
-	Events          []ParsedEvent `json:"events,omitempty"`
+	TransactionHash string              `json:"transaction_hash"`
+	BlockNumber     uint64              `json:"block_number"`
+	BlockHash       string              `json:"block_hash"`
+	GasUsed         uint64              `json:"gas_used"`
+	Status          uint64              `json:"status"`
+	ContractAddress string              `json:"contract_address"`
+	LogCount        uint64              `json:"log_count"`
+	Events          []event.ParsedEvent `json:"events,omitempty"`
 }
 
 // NFTMetadata contains NFT metadata information

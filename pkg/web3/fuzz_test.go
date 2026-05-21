@@ -58,3 +58,14 @@ func FuzzParseRevertReason(f *testing.F) {
 		_ = ParseRevertReason(data)
 	})
 }
+
+func FuzzParseSIWEMessage(f *testing.F) {
+	f.Add("streamgate.io wants you to sign in with your Ethereum account:\n0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18\n\nSign in to StreamGate\n\nURI: https://streamgate.io/login\nVersion: 1\nChain ID: 11155111\nNonce: abc123\nIssued At: 2024-01-01T00:00:00Z")
+	f.Add("")
+	f.Add("random gibberish that is not a SIWE message")
+	f.Add("streamgate.io\n\n\n\nURI: invalid")
+
+	f.Fuzz(func(t *testing.T, message string) {
+		_, _ = ParseSIWEMessage(message)
+	})
+}

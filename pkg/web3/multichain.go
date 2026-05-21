@@ -5,6 +5,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/web3/solana"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +22,11 @@ type ChainConfig struct {
 	Currency  string
 	IsTestnet bool
 	Finality  FinalityFactory
+}
+
+func init() {
+	// supportedChains is populated during init; ApplyChainConfigs can override
+	// entries at runtime from configuration.
 }
 
 var supportedChains = map[int64]*ChainConfig{
@@ -149,11 +156,32 @@ var supportedChains = map[int64]*ChainConfig{
 	},
 }
 
+// ApplyChainConfigs merges external chain configurations into supportedChains.
+// Config entries matching existing chain IDs override the built-in defaults
+// (RPC endpoints, explorer URL, etc.). Unknown chain IDs are added.
+func ApplyChainConfigs(entries []config.ChainConfigEntry) {
+	for _, entry := range entries {
+		cfg := &ChainConfig{
+			ID:        entry.ID,
+			Name:      entry.Name,
+			RPC:       entry.RPC,
+			RPCs:      entry.RPCs,
+			Explorer:  entry.ExplorerURL,
+			Currency:  entry.Currency,
+			IsTestnet: entry.IsTestnet,
+		}
+		if len(cfg.RPCs) == 0 && cfg.RPC != "" {
+			cfg.RPCs = []string{cfg.RPC}
+		}
+		supportedChains[entry.ID] = cfg
+	}
+}
+
 // MultiChainManager manages multiple blockchain connections
 type MultiChainManager struct {
 	mu            sync.RWMutex
 	clients       map[int64]*ChainClient
-	solanaClients map[int64]*SolanaVerifier
+	solanaClients map[int64]*solana.SolanaVerifier
 	rateLimiter   *RPCRateLimiter
 	logger        *zap.Logger
 }
@@ -162,7 +190,7 @@ type MultiChainManager struct {
 func NewMultiChainManager(logger *zap.Logger) *MultiChainManager {
 	return &MultiChainManager{
 		clients:       make(map[int64]*ChainClient),
-		solanaClients: make(map[int64]*SolanaVerifier),
+		solanaClients: make(map[int64]*solana.SolanaVerifier),
 		logger:        logger,
 	}
 }
@@ -180,7 +208,7 @@ func (mcm *MultiChainManager) AddChain(chainID int64) error {
 	}
 
 	if chainID < 0 {
-		verifier := NewSolanaVerifier(mcm.logger, config.RPC)
+		verifier := solana.NewSolanaVerifier(mcm.logger, config.RPC)
 		mcm.mu.Lock()
 		mcm.solanaClients[chainID] = verifier
 		mcm.mu.Unlock()
@@ -263,7 +291,7 @@ func (mcm *MultiChainManager) GetClient(chainID int64) (*ChainClient, error) {
 }
 
 // GetSolanaClient returns the Solana verifier for the given chain ID.
-func (mcm *MultiChainManager) GetSolanaClient(chainID int64) (*SolanaVerifier, error) {
+func (mcm *MultiChainManager) GetSolanaClient(chainID int64) (*solana.SolanaVerifier, error) {
 	mcm.mu.RLock()
 	defer mcm.mu.RUnlock()
 
@@ -366,5 +394,5 @@ func (mcm *MultiChainManager) Close() {
 	}
 
 	mcm.clients = make(map[int64]*ChainClient)
-	mcm.solanaClients = make(map[int64]*SolanaVerifier)
+	mcm.solanaClients = make(map[int64]*solana.SolanaVerifier)
 }

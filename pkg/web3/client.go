@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/zap"
@@ -31,6 +32,42 @@ type ChainClient struct {
 	finality    FinalityStrategy
 	wg          sync.WaitGroup
 	closed      atomic.Bool
+
+	nftVerifier   atomic.Pointer[NFTVerifier]
+	nftVerifierMu sync.Mutex
+}
+
+// CallContract implements EthCaller, delegating to the active RPC client.
+// This allows ChainClient to be used directly as an NFTVerifier client,
+// enabling verifier reuse and proper block tag support.
+func (cc *ChainClient) CallContract(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	return withChainClient(ctx, cc, "ChainClient.CallContract", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, msg, blockNumber)
+	})
+}
+
+// CodeAt implements EthCaller, delegating to the active RPC client.
+func (cc *ChainClient) CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error) {
+	return withChainClient(ctx, cc, "ChainClient.CodeAt", func(client *ethclient.Client) ([]byte, error) {
+		return client.CodeAt(ctx, contract, blockNumber)
+	})
+}
+
+// getNFTVerifier returns a cached NFTVerifier that uses ChainClient as its
+// EthCaller. Since ChainClient handles RPC failover internally, the verifier
+// remains valid across connection changes and its standard cache is preserved.
+func (cc *ChainClient) getNFTVerifier() *NFTVerifier {
+	if v := cc.nftVerifier.Load(); v != nil {
+		return v
+	}
+	cc.nftVerifierMu.Lock()
+	defer cc.nftVerifierMu.Unlock()
+	if v := cc.nftVerifier.Load(); v != nil {
+		return v
+	}
+	v := NewNFTVerifier(cc, cc.logger).WithBlockTag(cc.GetFinality().BlockTag())
+	cc.nftVerifier.Store(v)
+	return v
 }
 
 type rpcEndpointState struct {
@@ -359,10 +396,10 @@ func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetF
 	cc.mu.Unlock()
 
 	if oldClient != nil {
-		go func() {
+		go func(cl *ethclient.Client) {
 			time.Sleep(30 * time.Second)
-			oldClient.Close()
-		}()
+			cl.Close()
+		}(oldClient)
 	}
 }
 
