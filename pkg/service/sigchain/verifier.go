@@ -1,8 +1,9 @@
-package service
+package sigchain
 
 import (
 	"context"
 
+	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 	"github.com/rtcdance/streamgate/pkg/web3"
 
 	"go.uber.org/zap"
@@ -31,7 +32,7 @@ func (v *MultiChainSignatureVerifier) VerifySignature(ctx context.Context, addre
 // VerifySolanaSignature verifies a Solana (ed25519) signature.
 func (v *MultiChainSignatureVerifier) VerifySolanaSignature(ctx context.Context, address, message, signature string) (bool, error) {
 	if v.solanaVerifier == nil {
-		return false, ErrSolanaNotConfigured
+		return false, serviceerrors.ErrSolanaNotConfigured
 	}
 	return v.solanaVerifier.VerifySignature(address, message, signature)
 }
@@ -39,7 +40,7 @@ func (v *MultiChainSignatureVerifier) VerifySolanaSignature(ctx context.Context,
 // VerifyOffchainMessage verifies a Solana off-chain message with standard prefix.
 func (v *MultiChainSignatureVerifier) VerifyOffchainMessage(ctx context.Context, address, message, signature string) (bool, error) {
 	if v.solanaVerifier == nil {
-		return false, ErrSolanaNotConfigured
+		return false, serviceerrors.ErrSolanaNotConfigured
 	}
 	return v.solanaVerifier.VerifyOffchainMessage(address, message, signature)
 }
