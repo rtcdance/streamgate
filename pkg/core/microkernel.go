@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/event"
-	"streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/event"
+	"github.com/rtcdance/streamgate/pkg/service"
 
 	"go.uber.org/zap"
 )

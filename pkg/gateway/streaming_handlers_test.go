@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 )
 
 type mockSegmentStorage struct {

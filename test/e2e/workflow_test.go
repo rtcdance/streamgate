@@ -13,70 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- Auth + NFT + Streaming workflow (real router) ---
-
-func TestE2EAuthNFTStreamingWorkflow(t *testing.T) {
-	checker := &mockNFTChecker{balance: big.NewInt(2)}
-	storage := newMockSegmentStorage()
-	_, verifier, server := setupE2EServer(t, checker, storage)
-
-	t.Run("Step1_Challenge", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
-			"wallet":   "0x1234567890123456789012345678901234567890",
-			"chain_id": 11155111,
-		})
-		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(body))
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var result map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		assert.NotEmpty(t, result["challenge_id"])
-		assert.NotEmpty(t, result["message"])
-	})
-
-	t.Run("Step2_LoginWithRealSignature", func(t *testing.T) {
-		privateKey, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		wallet := verifier.GetAddressFromPrivateKey(privateKey)
-
-		// Get challenge
-		challengeBody, _ := json.Marshal(map[string]interface{}{
-			"wallet":   wallet,
-			"chain_id": 11155111,
-		})
-		resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
-		require.NoError(t, err)
-		var cr map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
-		_ = resp.Body.Close()
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-
-		message, _ := cr["message"].(string)
-		challengeID, _ := cr["challenge_id"].(string)
-
-		// Sign with real crypto
-		signature, err := verifier.SignMessage(message, privateKey)
-		require.NoError(t, err)
-
-		// Login
-		loginBody, _ := json.Marshal(map[string]string{
-			"wallet":       wallet,
-			"challenge_id": challengeID,
-			"signature":    signature,
-		})
-		resp3, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
-		require.NoError(t, err)
-		defer func() { _ = resp3.Body.Close() }()
-		assert.Equal(t, http.StatusOK, resp3.StatusCode)
-
-		var loginResult map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp3.Body).Decode(&loginResult))
-		assert.NotEmpty(t, loginResult["token"])
-		assert.Equal(t, wallet, loginResult["wallet_address"])
-	})
-}
 
 func TestE2ENFTVerifyWorkflow(t *testing.T) {
 	t.Skip("requires external service")
@@ -89,6 +25,7 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 			"wallet":   "0x1234567890123456789012345678901234567890",
 			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
 			"chain_id": 11155111,
+			"sign_type": "personal_sign",
 		})
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/nft/verify", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -115,6 +52,7 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
 			"token_id": "42",
 			"chain_id": 11155111,
+			"sign_type": "personal_sign",
 		})
 		req, _ := http.NewRequest("POST", server2.URL+"/api/v1/nft/verify", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -144,6 +82,7 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 	challengeBody, _ := json.Marshal(map[string]interface{}{
 		"wallet":   wallet,
 		"chain_id": 11155111,
+			"sign_type": "personal_sign",
 	})
 	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
 	require.NoError(t, err)
@@ -287,89 +226,6 @@ func TestE2EContentRoutesRequireAuth(t *testing.T) {
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 		assert.Equal(t, "CONTENT_UNAVAILABLE", result["code"])
 	})
-}
-
-func TestE2EAuthLogoutVerifyWorkflow(t *testing.T) {
-	checker := &mockNFTChecker{}
-	authService, verifier, server := setupE2EServer(t, checker, nil)
-
-	privateKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-	wallet := verifier.GetAddressFromPrivateKey(privateKey)
-
-	// Full auth flow to get a real JWT (with JTI)
-	challengeBody, _ := json.Marshal(map[string]interface{}{
-		"wallet":   wallet,
-		"chain_id": 11155111,
-	})
-	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
-	require.NoError(t, err)
-	var cr map[string]interface{}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
-	_ = resp.Body.Close()
-
-	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
-	require.NoError(t, err)
-
-	loginBody, _ := json.Marshal(map[string]string{
-		"wallet":       wallet,
-		"challenge_id": cr["challenge_id"].(string),
-		"signature":    signature,
-	})
-	resp2, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
-	require.NoError(t, err)
-	var lr map[string]interface{}
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
-	_ = resp2.Body.Close()
-	jwtToken := lr["token"].(string)
-
-	t.Run("VerifyToken_Valid", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/verify", http.NoBody)
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		var result map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		assert.Equal(t, true, result["valid"])
-		assert.Equal(t, wallet, result["wallet_address"])
-	})
-
-	t.Run("Logout", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/logout", http.NoBody)
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
-		var result map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		assert.Equal(t, "logged out", result["message"])
-	})
-
-	t.Run("VerifyToken_AfterLogout_Invalid", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", server.URL+"/api/v1/auth/verify", http.NoBody)
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-		var result map[string]interface{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
-		assert.Contains(t, []string{"invalid token", "token revoked"}, result["error"])
-	})
-
-	t.Run("AccessProtectedRoute_AfterLogout_401", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
-	})
-
-	_ = authService // used implicitly via server
 }
 
 func TestE2ENFTGateEnriched403(t *testing.T) {

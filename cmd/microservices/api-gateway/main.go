@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/logger"
-	"streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/logger"
+	"github.com/rtcdance/streamgate/pkg/gateway"
 
 	"go.uber.org/zap"
 )

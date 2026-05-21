@@ -11,8 +11,8 @@ package mocks
 
 import (
 	context "context"
+	models "github.com/rtcdance/streamgate/pkg/models"
 	reflect "reflect"
-	models "streamgate/pkg/models"
 
 	gomock "go.uber.org/mock/gomock"
 )

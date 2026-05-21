@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 
 	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"

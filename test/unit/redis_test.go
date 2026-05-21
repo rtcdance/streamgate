@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/test/helpers"
 )
 
 func TestRedisCache_Connect(t *testing.T) {

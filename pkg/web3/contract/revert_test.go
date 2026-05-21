@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"encoding/hex"
@@ -6,8 +6,6 @@ import (
 )
 
 func TestParseRevertReason_ErrorString(t *testing.T) {
-	// Error(string) = 0x08c379a0 + ABI-encoded "insufficient balance"
-	// ABI encoding: offset(32) + length(32) + utf8 bytes(padded to 32)
 	reason := "insufficient balance"
 	encoded := encodeABIString(reason)
 	data := append([]byte{0x08, 0xc3, 0x79, 0xa0}, encoded...)
@@ -25,9 +23,8 @@ func TestParseRevertReason_ErrorString(t *testing.T) {
 }
 
 func TestParseRevertReason_Panic(t *testing.T) {
-	// Panic(uint256) = 0x4e487b71 + uint256(0x11) = arithmetic overflow
 	panicCode := make([]byte, 32)
-	panicCode[31] = 0x11 // overflow
+	panicCode[31] = 0x11
 	data := append([]byte{0x4e, 0x48, 0x7b, 0x71}, panicCode...)
 
 	revert := ParseRevertReason(data)
@@ -79,7 +76,6 @@ func TestParseRevertReason_TooShort(t *testing.T) {
 }
 
 func TestExtractRevertData_HexInMessage(t *testing.T) {
-	// Simulate a go-ethereum error with hex revert data
 	reason := "not owner"
 	encoded := encodeABIString(reason)
 	fullData := append([]byte{0x08, 0xc3, 0x79, 0xa0}, encoded...)
@@ -120,17 +116,13 @@ func TestRevertError_PanicString(t *testing.T) {
 	}
 }
 
-// encodeABIString encodes a string in ABI format (offset + length + utf8 padded to 32 bytes).
 func encodeABIString(s string) []byte {
-	// offset = 32 (data starts right after offset word)
 	offset := make([]byte, 32)
-	offset[31] = 32 // offset = 0x20
+	offset[31] = 32
 
-	// length
 	length := make([]byte, 32)
 	length[31] = byte(len(s))
 
-	// utf8 bytes padded to 32-byte boundary
 	paddedLen := ((len(s) + 31) / 32) * 32
 	if paddedLen == 0 {
 		paddedLen = 32

@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
-	"streamgate/test/helpers"
 )
 
 // MockContentStorage for testing
@@ -191,7 +191,7 @@ func TestContentManagement_DeleteContent(t *testing.T) {
 	require.NoError(t, err)
 
 	// Delete content
-	err = contentService.DeleteContent(context.Background(), contentID)
+	err = contentService.DeleteContent(context.Background(), contentID, content.OwnerID)
 	require.NoError(t, err)
 
 	// Verify deletion

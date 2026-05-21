@@ -10,19 +10,19 @@ import (
 
 	"go.uber.org/zap"
 
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/core/logger"
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/logger"
 
-	_ "streamgate/pkg/plugins/api"
-	_ "streamgate/pkg/plugins/auth"
-	_ "streamgate/pkg/plugins/cache"
-	_ "streamgate/pkg/plugins/metadata"
-	_ "streamgate/pkg/plugins/monitor"
-	_ "streamgate/pkg/plugins/streaming"
-	_ "streamgate/pkg/plugins/transcoder"
-	_ "streamgate/pkg/plugins/upload"
-	_ "streamgate/pkg/plugins/worker"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/api"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/auth"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/cache"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/metadata"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/monitor"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/streaming"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/transcoder"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/upload"
+	_ "github.com/rtcdance/streamgate/pkg/plugins/worker"
 )
 
 func main() {

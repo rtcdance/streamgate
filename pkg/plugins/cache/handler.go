@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
-	"streamgate/pkg/core"
-	"streamgate/pkg/monitoring"
 )
 
 // CacheHandler handles cache requests

@@ -80,15 +80,84 @@ web3:
     - id: 1
       name: "ethereum"
       rpc_url: "https://eth.llamarpc.com"
+      rpc_urls:
+        - "https://eth.llamarpc.com"
+        - "https://ethereum-rpc.publicnode.com"
       explorer_url: "https://etherscan.io"
+      currency: "ETH"
+    - id: 11155111
+      name: "ethereum-sepolia"
+      rpc_url: "https://rpc.sepolia.org"
+      rpc_urls:
+        - "https://rpc.sepolia.org"
+        - "https://ethereum-sepolia-rpc.publicnode.com"
+      explorer_url: "https://sepolia.etherscan.io"
+      currency: "ETH"
+      testnet: true
     - id: 137
       name: "polygon"
       rpc_url: "https://polygon-rpc.com"
+      rpc_urls:
+        - "https://polygon-rpc.com"
+        - "https://polygon-bor-rpc.publicnode.com"
       explorer_url: "https://polygonscan.com"
+      currency: "MATIC"
+    - id: 80002
+      name: "polygon-amoy"
+      rpc_url: "https://rpc-amoy.polygon.technology"
+      rpc_urls:
+        - "https://rpc-amoy.polygon.technology"
+      explorer_url: "https://amoy.polygonscan.com"
+      currency: "MATIC"
+      testnet: true
     - id: 56
       name: "bsc"
       rpc_url: "https://bsc-dataseed1.binance.org:8545"
+      rpc_urls:
+        - "https://bsc-dataseed1.binance.org:8545"
+        - "https://bsc-rpc.publicnode.com"
       explorer_url: "https://bscscan.com"
+      currency: "BNB"
+    - id: 97
+      name: "bsc-testnet"
+      rpc_url: "https://data-seed-prebsc-1-1-s1.binance.org:8545"
+      rpc_urls:
+        - "https://data-seed-prebsc-1-1-s1.binance.org:8545"
+      explorer_url: "https://testnet.bscscan.com"
+      currency: "BNB"
+      testnet: true
+    - id: 42161
+      name: "arbitrum"
+      rpc_url: "https://arb1.arbitrum.io/rpc"
+      rpc_urls:
+        - "https://arb1.arbitrum.io/rpc"
+        - "https://arbitrum-one-rpc.publicnode.com"
+      explorer_url: "https://arbiscan.io"
+      currency: "ETH"
+    - id: 421614
+      name: "arbitrum-sepolia"
+      rpc_url: "https://sepolia-rollup.arbitrum.io/rpc"
+      rpc_urls:
+        - "https://sepolia-rollup.arbitrum.io/rpc"
+      explorer_url: "https://sepolia.arbiscan.io"
+      currency: "ETH"
+      testnet: true
+    - id: 10
+      name: "optimism"
+      rpc_url: "https://mainnet.optimism.io"
+      rpc_urls:
+        - "https://mainnet.optimism.io"
+        - "https://optimism-rpc.publicnode.com"
+      explorer_url: "https://optimistic.etherscan.io"
+      currency: "ETH"
+    - id: 11155420
+      name: "optimism-sepolia"
+      rpc_url: "https://sepolia.optimism.io"
+      rpc_urls:
+        - "https://sepolia.optimism.io"
+      explorer_url: "https://sepolia-optimistic.etherscan.io"
+      currency: "ETH"
+      testnet: true
   chain_id: 1
   rate_limit:
     enabled: true
@@ -100,6 +169,8 @@ auth:
   jwt_expiry: 2h
   refresh_token_expiry: 168h
   nonce_expiry: 5m
+  siwe_domain: streamgate.io
+  siwe_uri: https://streamgate.io/login
 
 rate_limiting:
   enabled: true

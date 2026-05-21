@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 
 	"go.uber.org/zap"
 )

@@ -1,4 +1,4 @@
-package web3
+package contract
 
 import (
 	"encoding/hex"
@@ -10,12 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// RevertError represents a decoded contract revert reason.
 type RevertError struct {
-	Reason    string // decoded human-readable reason
-	RawData   []byte // raw ABI-encoded revert data
-	IsPanic   bool   // true for Panic(uint256), false for Error(string)
-	PanicCode uint64 // panic code if IsPanic
+	Reason    string
+	RawData   []byte
+	IsPanic   bool
+	PanicCode uint64
 }
 
 func (e *RevertError) Error() string {
@@ -27,15 +26,6 @@ func (e *RevertError) Error() string {
 
 func (e *RevertError) IsRetryable() bool { return false }
 
-// ParseRevertReason attempts to decode an ABI-encoded revert reason from
-// the data returned by a failed contract call or transaction receipt.
-//
-// It handles two standard patterns:
-//   - Error(string): selector 0x08c379a0
-//   - Panic(uint256): selector 0x4e487b71
-//
-// Returns a RevertError with the decoded reason, or nil if the data
-// doesn't match either pattern.
 func ParseRevertReason(data []byte) *RevertError {
 	if len(data) < 4 {
 		return nil
@@ -44,15 +34,14 @@ func ParseRevertReason(data []byte) *RevertError {
 	selector := common.Bytes2Hex(data[:4])
 
 	switch selector {
-	case "08c379a0": // Error(string)
+	case "08c379a0":
 		reason, err := decodeString(data[4:])
 		if err != nil {
 			return &RevertError{Reason: hex.EncodeToString(data), RawData: data}
 		}
 		return &RevertError{Reason: reason, RawData: data}
 
-	//nolint:gocritic // Solidity error selector
-	case "4e487b71": // Panic(uint256)
+	case "4e487b71":
 		code, err := decodeUint256(data[4:])
 		if err != nil {
 			return &RevertError{Reason: hex.EncodeToString(data), RawData: data, IsPanic: true}
@@ -67,9 +56,6 @@ func ParseRevertReason(data []byte) *RevertError {
 	return nil
 }
 
-// DecodeCustomError attempts to match the error data selector against known
-// ABI custom error definitions. Returns the error name and decoded args if
-// a match is found.
 func DecodeCustomError(data []byte, abis ...abi.ABI) (name string, args map[string]interface{}, ok bool) {
 	if len(data) < 4 {
 		return "", nil, false
@@ -79,7 +65,6 @@ func DecodeCustomError(data []byte, abis ...abi.ABI) (name string, args map[stri
 	for _, parsedABI := range abis {
 		for _, errDef := range parsedABI.Errors {
 			if len(errDef.ID) == 32 {
-				// Compare first 4 bytes of the error ID (selector)
 				errSelector := errDef.ID[:4]
 				if common.Bytes2Hex(errSelector) == common.Bytes2Hex(selector) {
 					args := make(map[string]interface{})
@@ -103,21 +88,11 @@ func DecodeCustomError(data []byte, abis ...abi.ABI) (name string, args map[stri
 	return "", nil, false
 }
 
-// ExtractRevertData extracts the revert data from an error message.
-// go-ethereum wraps revert data in errors like:
-//
-//	"execution reverted: 0x..."
-//
-// or
-//
-//	"0x08c379a000000000000000000000000000000000000000000000000000000000000000200..."
 func ExtractRevertData(errMsg string) []byte {
-	// Try to find hex data in the error message
 	for _, prefix := range []string{"0x", "0X"} {
 		idx := strings.Index(errMsg, prefix)
 		if idx >= 0 {
 			hexStr := errMsg[idx+2:]
-			// Remove any trailing non-hex chars
 			end := len(hexStr)
 			for i, c := range hexStr {
 				if !isHexChar(c) {
@@ -133,20 +108,17 @@ func ExtractRevertData(errMsg string) []byte {
 	return nil
 }
 
-// decodeString decodes an ABI-encoded string (offset + length + utf8 bytes).
 func decodeString(data []byte) (string, error) {
 	if len(data) < 64 {
 		return "", fmt.Errorf("insufficient data for string offset")
 	}
 
-	// Read offset (first 32 bytes)
 	offset := new(bigIntFromBytes)
 	offset.SetBytes(data[:32])
 	if offset.Uint64() > uint64(len(data)) {
 		return "", fmt.Errorf("string offset out of range")
 	}
 
-	// Read length at offset
 	start := offset.Uint64()
 	if start+32 > uint64(len(data)) {
 		return "", fmt.Errorf("insufficient data for string length")
@@ -161,7 +133,6 @@ func decodeString(data []byte) (string, error) {
 	return string(data[start+32 : start+32+length.Uint64()]), nil
 }
 
-// decodeUint256 decodes an ABI-encoded uint256.
 func decodeUint256(data []byte) (uint64, error) {
 	if len(data) < 32 {
 		return 0, fmt.Errorf("insufficient data for uint256")
@@ -171,7 +142,6 @@ func decodeUint256(data []byte) (uint64, error) {
 	return val.Uint64(), nil
 }
 
-// bigIntFromBytes is a helper type for decoding ABI integers.
 type bigIntFromBytes struct {
 	value []byte
 }
@@ -189,7 +159,6 @@ func (b *bigIntFromBytes) Uint64() uint64 {
 	return v.Uint64()
 }
 
-// panicCodeName returns a human-readable name for Solidity panic codes.
 func panicCodeName(code uint64) string {
 	switch code {
 	case 0x01:

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 	"go.uber.org/zap"
-	"streamgate/pkg/gateway"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
 )
 
 // uploadMockDB implements storage.DB with in-memory upload records.

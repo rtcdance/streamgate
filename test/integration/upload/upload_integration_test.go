@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/service"
-	"streamgate/test/helpers"
 )
 
 func TestUploadService_SingleFileUpload(t *testing.T) {

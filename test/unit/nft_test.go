@@ -3,8 +3,8 @@ package unit_test
 import (
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/util"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/util"
 )
 
 func TestNFT_ValidateAddress(t *testing.T) {

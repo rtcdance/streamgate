@@ -132,7 +132,10 @@ func (s *Scheduler) Stop() error {
 	}
 	s.mu.RUnlock()
 	for _, jobID := range jobIDs {
-		_ = s.CancelJob(jobID)
+		if err := s.CancelJob(jobID); err != nil {
+			s.logger.Warn("Failed to cancel job during shutdown",
+				zap.String("job_id", jobID), zap.Error(err))
+		}
 	}
 
 	// Wait for all workers to finish
@@ -246,7 +249,10 @@ func (s *Scheduler) ScheduleJob(job *Job, scheduledAt time.Time) error {
 				// Submit to queue
 				s.mu.Lock()
 				job.Status = JobStatusQueued
-				_ = s.queue.Enqueue(job)
+				if err := s.queue.Enqueue(job); err != nil {
+					s.logger.Error("Failed to enqueue scheduled job",
+						zap.String("job_id", job.ID), zap.Error(err))
+				}
 				s.mu.Unlock()
 				s.emitEvent("job.scheduled", job)
 			case <-s.ctx.Done():
@@ -256,7 +262,10 @@ func (s *Scheduler) ScheduleJob(job *Job, scheduledAt time.Time) error {
 			// Submit immediately
 			s.mu.Lock()
 			job.Status = JobStatusQueued
-			_ = s.queue.Enqueue(job)
+			if err := s.queue.Enqueue(job); err != nil {
+				s.logger.Error("Failed to enqueue job",
+					zap.String("job_id", job.ID), zap.Error(err))
+			}
 			s.mu.Unlock()
 			s.emitEvent("job.scheduled", job)
 		}
@@ -561,7 +570,10 @@ func (s *Scheduler) failJob(job *Job, err error) {
 		job.Error = ""
 		job.Progress = 0
 
-		_ = s.queue.Enqueue(job)
+		if err := s.queue.Enqueue(job); err != nil {
+			s.logger.Error("Failed to enqueue retry job, retry will be lost",
+				zap.String("job_id", job.ID), zap.Error(err))
+		}
 		s.emitEvent("job.retried", job)
 
 		s.logger.Debug("Job failed, retrying",

@@ -70,29 +70,3 @@ func NewRetryableError(msg string, cause error) *RetryableError {
 func NewPermanentError(msg string, cause error) *PermanentError {
 	return &PermanentError{Message: msg, Cause: cause}
 }
-
-// DualError.Unwrap() []error requires Go 1.20+ for correct errors.Is/errors.As traversal.
-type DualError struct {
-	Primary   error
-	Secondary error
-}
-
-func (e *DualError) Error() string {
-	return fmt.Sprintf("call failed on both proxy (%v) and implementation (%v)", e.Primary, e.Secondary)
-}
-
-func (e *DualError) Unwrap() []error { return []error{e.Primary, e.Secondary} }
-
-func (e *DualError) IsRetryable() bool {
-	var r Retryable
-	if errors.As(e.Primary, &r) && !r.IsRetryable() {
-		return false
-	}
-	if errors.As(e.Secondary, &r) && !r.IsRetryable() {
-		return false
-	}
-	if errors.As(e.Primary, &r) || errors.As(e.Secondary, &r) {
-		return true
-	}
-	return false
-}

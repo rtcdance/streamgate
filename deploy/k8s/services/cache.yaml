@@ -35,6 +35,8 @@ spec:
         envFrom:
         - configMapRef:
             name: streamgate-config
+        - secretRef:
+            name: streamgate-secrets
         livenessProbe:
           httpGet:
             path: /health/live

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"streamgate/pkg/models"
-	"streamgate/pkg/service"
-	"streamgate/pkg/storage"
-	"streamgate/test/helpers"
+	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/test/helpers"
 
 	"github.com/stretchr/testify/require"
 )

@@ -64,30 +64,35 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		claims := jwt.MapClaims{}
+		// Parse without claims validation — signature IS verified, but exp/nbf/iat
+		// are checked manually below. This is necessary for key rotation: tokens
+		// signed with old (previous) secrets may appear "expired" from the current
+		// key's perspective, but we must still attempt verification against prevSecrets.
 		parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-		_, err := parser.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-			if config.PublicKey != nil {
-				if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+
+		buildKeyFunc := func(k interface{}) jwt.Keyfunc {
+			return func(t *jwt.Token) (interface{}, error) {
+				if config.PublicKey != nil {
+					if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+					}
+					return config.PublicKey, nil
+				}
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 				}
-				return config.PublicKey, nil
+				return k, nil
 			}
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-			}
-			return secret, nil
-		})
+		}
 
+		claims := jwt.MapClaims{}
+		_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc(secret))
+
+		// Try previous secrets if current key fails and no public key is configured.
 		if err != nil && config.PublicKey == nil && len(prevSecrets) > 0 {
 			for _, ps := range prevSecrets {
 				claims = jwt.MapClaims{}
-				_, err = parser.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-					if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-					}
-					return ps, nil
-				})
+				_, err = jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tokenStr, claims, buildKeyFunc(ps))
 				if err == nil {
 					break
 				}
@@ -100,7 +105,10 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		// Manual 30s leeway for clock skew
+		// Manual claims validation with 30s leeway for clock skew.
+		// Covers exp, nbf, and iat — the last is not validated by the library
+		// when WithoutClaimsValidation is used and prevents tokens from being
+		// accepted before their stated issuance time.
 		now := time.Now()
 		if exp, ok := claims["exp"].(float64); ok && now.After(time.Unix(int64(exp), 0).Add(30*time.Second)) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired", "code": "UNAUTHORIZED"})
@@ -108,6 +116,11 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 		}
 		if nbf, ok := claims["nbf"].(float64); ok && now.Before(time.Unix(int64(nbf), 0).Add(-30*time.Second)) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token not yet valid", "code": "UNAUTHORIZED"})
+			return
+		}
+		if iat, ok := claims["iat"].(float64); ok && now.Add(30*time.Second).Before(time.Unix(int64(iat), 0)) {
+			// iat must not be in the future beyond leeway window.
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token issued in the future", "code": "UNAUTHORIZED"})
 			return
 		}
 

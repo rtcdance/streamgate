@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rtcdance/streamgate/pkg/core"
+	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/plugins/api"
 	"github.com/stretchr/testify/require"
-	"streamgate/pkg/core"
-	"streamgate/pkg/core/config"
-	"streamgate/pkg/plugins/api"
 )
 
 type testPlugin struct {

@@ -7,10 +7,10 @@
 package streamingv1
 
 import (
+	_ "github.com/rtcdance/streamgate/pkg/api/v1/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
-	_ "streamgate/pkg/api/v1/common"
 	sync "sync"
 	unsafe "unsafe"
 )

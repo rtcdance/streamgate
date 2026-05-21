@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

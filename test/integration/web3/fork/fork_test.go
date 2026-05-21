@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/web3"
 )
 
 const forkRPCURL = "http://localhost:8545"
