@@ -133,7 +133,7 @@ jobs:
           tags: streamgate-monolith:scan
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: streamgate-monolith:scan
           format: 'table'
@@ -141,7 +141,7 @@ jobs:
           exit-code: '0'
 
       - name: Generate SBOM
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: streamgate-monolith:scan
           format: 'spdx'
