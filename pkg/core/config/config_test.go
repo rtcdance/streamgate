@@ -104,13 +104,13 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("load config with environment variables", func(t *testing.T) {
-		_ = os.Setenv("DATABASE_HOST", "custom-host")
-		_ = os.Setenv("DATABASE_PORT", "5433")
-		_ = os.Setenv("DATABASE_USER", "custom-user")
-		_ = os.Setenv("DATABASE_PASSWORD", "custom-pass")
-		_ = os.Setenv("DATABASE_NAME", "custom-db")
-		_ = os.Setenv("DATABASE_SSLMODE", "require")
-		_ = os.Setenv("DATABASE_MAXCONNS", "50")
+		_ = os.Setenv("STREAMGATE_DB_HOST", "custom-host")
+		_ = os.Setenv("STREAMGATE_DB_PORT", "5433")
+		_ = os.Setenv("STREAMGATE_DB_USER", "custom-user")
+		_ = os.Setenv("STREAMGATE_DB_PASSWORD", "custom-pass")
+		_ = os.Setenv("STREAMGATE_DB_NAME", "custom-db")
+		_ = os.Setenv("STREAMGATE_DB_SSLMODE", "require")
+		_ = os.Setenv("STREAMGATE_DB_MAXCONNS", "50")
 
 		cfg, err := LoadConfig()
 		require.NoError(t, err)
@@ -123,13 +123,13 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, "require", cfg.Database.SSLMode)
 		assert.Equal(t, 50, cfg.Database.MaxConns)
 
-		_ = os.Unsetenv("DATABASE_HOST")
-		_ = os.Unsetenv("DATABASE_PORT")
-		_ = os.Unsetenv("DATABASE_USER")
-		_ = os.Unsetenv("DATABASE_PASSWORD")
-		_ = os.Unsetenv("DATABASE_NAME")
-		_ = os.Unsetenv("DATABASE_SSLMODE")
-		_ = os.Unsetenv("DATABASE_MAXCONNS")
+		_ = os.Unsetenv("STREAMGATE_DB_HOST")
+		_ = os.Unsetenv("STREAMGATE_DB_PORT")
+		_ = os.Unsetenv("STREAMGATE_DB_USER")
+		_ = os.Unsetenv("STREAMGATE_DB_PASSWORD")
+		_ = os.Unsetenv("STREAMGATE_DB_NAME")
+		_ = os.Unsetenv("STREAMGATE_DB_SSLMODE")
+		_ = os.Unsetenv("STREAMGATE_DB_MAXCONNS")
 	})
 }
 
@@ -219,7 +219,7 @@ func TestValidateProduction_InsecureDBPassword(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{
 				Mode:     "microservice",
-				Auth:     AuthConfig{JWTSecret: "a-real-secret-32chars!!"},
+				Auth:     AuthConfig{JWTSecret: "a-real-secret-that-is-at-least-32-chars"},
 				Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 				Database: DatabaseConfig{SSLMode: "require", Password: tt.password},
 				Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},

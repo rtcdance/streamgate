@@ -15,9 +15,9 @@ import (
 	"go.uber.org/zap"
 )
 
-func RunEmbeddedMigrations(db *sql.DB, migrationFS embed.FS, dir string) error {
+func RunEmbeddedMigrations(ctx context.Context, db *sql.DB, migrationFS embed.FS, dir string) error {
 	m := NewMigrator(db, zap.NewNop(), migrationFS, dir)
-	return m.Up(context.Background())
+	return m.Up(ctx)
 }
 
 type Migrator struct {
@@ -169,8 +169,7 @@ func (m *Migrator) Down(ctx context.Context, targetVersion int) error {
 	return nil
 }
 
-func (m *Migrator) Force(version int) error {
-	ctx := context.Background()
+func (m *Migrator) Force(ctx context.Context, version int) error {
 	if err := m.ensureMigrationsTable(ctx); err != nil {
 		return fmt.Errorf("ensure migrations table: %w", err)
 	}

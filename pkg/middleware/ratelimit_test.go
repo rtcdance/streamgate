@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,11 +23,11 @@ func TestMemoryRateLimiter_Allow(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < cfg.RequestsPerMinute; i++ {
-		assert.True(t, rl.Allow("test-key"), "request %d should be allowed", i+1)
+		assert.True(t, rl.Allow(context.Background(), "test-key"), "request %d should be allowed", i+1)
 	}
 
-	assert.False(t, rl.Allow("test-key"), "request should be denied after exceeding limit")
-	assert.False(t, rl.Allow("test-key"), "subsequent request should also be denied")
+	assert.False(t, rl.Allow(context.Background(), "test-key"), "request should be denied after exceeding limit")
+	assert.False(t, rl.Allow(context.Background(), "test-key"), "subsequent request should also be denied")
 }
 
 func TestMemoryRateLimiter_DifferentKeys(t *testing.T) {
@@ -39,14 +40,14 @@ func TestMemoryRateLimiter_DifferentKeys(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < cfg.RequestsPerMinute; i++ {
-		assert.True(t, rl.Allow("key-a"), "key-a request %d should be allowed", i+1)
+		assert.True(t, rl.Allow(context.Background(), "key-a"), "key-a request %d should be allowed", i+1)
 	}
-	assert.False(t, rl.Allow("key-a"), "key-a should be denied after limit")
+	assert.False(t, rl.Allow(context.Background(), "key-a"), "key-a should be denied after limit")
 
 	for i := 0; i < cfg.RequestsPerMinute; i++ {
-		assert.True(t, rl.Allow("key-b"), "key-b request %d should be allowed", i+1)
+		assert.True(t, rl.Allow(context.Background(), "key-b"), "key-b request %d should be allowed", i+1)
 	}
-	assert.False(t, rl.Allow("key-b"), "key-b should be denied after limit")
+	assert.False(t, rl.Allow(context.Background(), "key-b"), "key-b should be denied after limit")
 }
 
 func TestMemoryRateLimiter_WindowReset(t *testing.T) {
@@ -59,13 +60,13 @@ func TestMemoryRateLimiter_WindowReset(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < cfg.RequestsPerMinute; i++ {
-		assert.True(t, rl.Allow("test-key"), "request %d should be allowed", i+1)
+		assert.True(t, rl.Allow(context.Background(), "test-key"), "request %d should be allowed", i+1)
 	}
-	assert.False(t, rl.Allow("test-key"), "should be denied at limit")
+	assert.False(t, rl.Allow(context.Background(), "test-key"), "should be denied at limit")
 
 	time.Sleep(100 * time.Millisecond)
 
-	assert.True(t, rl.Allow("test-key"), "should be allowed after window reset")
+	assert.True(t, rl.Allow(context.Background(), "test-key"), "should be allowed after window reset")
 }
 
 func TestMemoryRateLimiter_ConcurrentAccess(t *testing.T) {
@@ -84,7 +85,7 @@ func TestMemoryRateLimiter_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results <- rl.Allow("concurrent-key")
+			results <- rl.Allow(context.Background(), "concurrent-key")
 		}()
 	}
 	wg.Wait()
@@ -103,8 +104,8 @@ func TestMemoryRateLimiter_ConcurrentAccess(t *testing.T) {
 func TestMemoryRateLimiter_Stop(t *testing.T) {
 	rl := newMemoryRateLimiter(DefaultRateLimitConfig())
 	rl.Stop()
-	assert.True(t, rl.Allow("after-stop-1"), "allow should still work after stop (cleanup goroutine stopped)")
-	assert.True(t, rl.Allow("after-stop-2"), "allow should still work after stop")
+	assert.True(t, rl.Allow(context.Background(), "after-stop-1"), "allow should still work after stop (cleanup goroutine stopped)")
+	assert.True(t, rl.Allow(context.Background(), "after-stop-2"), "allow should still work after stop")
 
 	rl.Stop()
 }
@@ -118,9 +119,9 @@ func TestRateLimiter_CustomConfig(t *testing.T) {
 	rl := NewRateLimiter(cfg, nil)
 	defer rl.Stop()
 
-	assert.True(t, rl.Allow("k1"))
-	assert.True(t, rl.Allow("k1"))
-	assert.False(t, rl.Allow("k1"))
+	assert.True(t, rl.Allow(context.Background(), "k1"))
+	assert.True(t, rl.Allow(context.Background(), "k1"))
+	assert.False(t, rl.Allow(context.Background(), "k1"))
 }
 
 func TestRateLimiter_ZeroConfigDefaults(t *testing.T) {
@@ -133,9 +134,9 @@ func TestRateLimiter_ZeroConfigDefaults(t *testing.T) {
 	defer rl.Stop()
 
 	for i := 0; i < 100; i++ {
-		assert.True(t, rl.Allow("test-key"), "default config allows 100 requests")
+		assert.True(t, rl.Allow(context.Background(), "test-key"), "default config allows 100 requests")
 	}
-	assert.False(t, rl.Allow("test-key"), "default config denies request 101")
+	assert.False(t, rl.Allow(context.Background(), "test-key"), "default config denies request 101")
 }
 
 func TestRateLimitMiddleware_Integration(t *testing.T) {
@@ -197,7 +198,7 @@ func BenchmarkMemoryRateLimiter_Allow(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rl.Allow(keys[i%len(keys)])
+		rl.Allow(context.Background(), keys[i%len(keys)])
 	}
 }
 
@@ -209,7 +210,7 @@ func BenchmarkMemoryRateLimiter_AllowConcurrent(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			rl.Allow(fmt.Sprintf("key-%d", i%100))
+			rl.Allow(context.Background(), fmt.Sprintf("key-%d", i%100))
 			i++
 		}
 	})

@@ -1058,17 +1058,29 @@ func (cm *ConfigManager) Load() error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	cfg, err := LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config via viper: %w", err)
+	var cfg *Config
+
+	if info, err := os.Stat(cm.configPath); err == nil && !info.IsDir() {
+		data, err := os.ReadFile(cm.configPath)
+		if err != nil {
+			return fmt.Errorf("failed to read config file %s: %w", cm.configPath, err)
+		}
+
+		cfg = &Config{}
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return fmt.Errorf("failed to parse config file %s: %w", cm.configPath, err)
+		}
+		cm.lastModified = info.ModTime()
+	} else {
+		var err error
+		cfg, err = LoadConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config via viper: %w", err)
+		}
 	}
 
 	oldConfig := cm.config
 	cm.config = cfg
-
-	if info, err := os.Stat(cm.configPath); err == nil {
-		cm.lastModified = info.ModTime()
-	}
 
 	if oldConfig != nil && len(cm.handlers) > 0 {
 		for _, handler := range cm.handlers {

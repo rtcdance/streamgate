@@ -81,7 +81,7 @@ func main() {
 		UploadService:  resources.UploadService,
 		TranscodingSvc: resources.TranscodingSvc,
 	}
-	grpcServer := gateway.SetupGRPCServer(cfg, log, grpcServices)
+	grpcServer := gateway.SetupGRPCServer(context.Background(), cfg, log, grpcServices)
 
 	go func() {
 		log.Info("Starting HTTP server", zap.Int("port", cfg.Server.Port))

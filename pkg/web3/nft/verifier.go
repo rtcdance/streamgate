@@ -552,8 +552,8 @@ const (
 )
 
 var (
-	erc165InterfaceID  = common.HexToHash("0x01ffc9a7")
-	erc721InterfaceID  = common.HexToHash("0x80ac58cd")
+	erc165InterfaceID = common.HexToHash("0x01ffc9a7")
+	erc721InterfaceID = common.HexToHash("0x80ac58cd")
 	erc1155InterfaceID = common.HexToHash("0xd9b67a26")
 )
 

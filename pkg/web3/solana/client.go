@@ -94,7 +94,7 @@ func (c *SolanaMultiClient) GetClient(ctx context.Context) (*rpc.Client, error) 
 		return best.client, nil
 	}
 
-	if err := c.connectAnyLocked(); err != nil {
+	if err := c.connectAnyLocked(ctx); err != nil {
 		return nil, err
 	}
 	best = c.bestEndpoint()
@@ -144,16 +144,16 @@ func (c *SolanaMultiClient) bestEndpoint() *solanaEndpointState {
 }
 
 func (c *SolanaMultiClient) connectAny() error {
-	return c.connectAnyLocked()
+	return c.connectAnyLocked(context.Background())
 }
 
-func (c *SolanaMultiClient) connectAnyLocked() error {
+func (c *SolanaMultiClient) connectAnyLocked(ctx context.Context) error {
 	indices := rand.Perm(len(c.endpoints))
 
 	var lastErr error
 	for _, idx := range indices {
 		ep := c.endpoints[idx]
-		pingCtx, cancel := context.WithTimeout(context.Background(), solRPCConnectTimeout)
+		pingCtx, cancel := context.WithTimeout(ctx, solRPCConnectTimeout)
 		_, err := ep.client.GetRecentBlockhash(pingCtx, rpc.CommitmentFinalized)
 		cancel()
 		if err == nil {

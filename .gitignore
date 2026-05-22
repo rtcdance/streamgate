@@ -8,13 +8,18 @@
 *.out
 bin/
 dist/
+api-gateway
 
 # Go workspace
 go.work
 
-# IDE
+# IDE & AI tooling
 .idea/
+.claude/
+.codex/
 .vscode/
+
+# Editor swap files
 *.swp
 *.swo
 *~
@@ -28,13 +33,12 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Temporary
+# Temporary & logs
 tmp/
 temp/
 *.log
 
-# Codex/Claude
-.codex/
+# Generated AI context (from AGENTS.md source of truth)
 CLAUDE.md
 AGENTS.md
 
@@ -42,5 +46,4 @@ AGENTS.md
 .playwright-mcp/
 
 # Docker
-docker-compose*.override.ymlapi-gateway
-api-gateway
+docker-compose*.override.yml
