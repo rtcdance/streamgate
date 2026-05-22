@@ -39,6 +39,8 @@ func GzipCompress(data []byte) ([]byte, error) {
 }
 
 // GzipDecompress decompresses gzip data
+const maxDecompressSize = 64 * 1024 * 1024
+
 func GzipDecompress(data []byte) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -46,5 +48,5 @@ func GzipDecompress(data []byte) ([]byte, error) {
 	}
 	defer func() { _ = reader.Close() }()
 
-	return io.ReadAll(reader)
+	return io.ReadAll(io.LimitReader(reader, maxDecompressSize))
 }

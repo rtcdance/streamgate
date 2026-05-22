@@ -144,7 +144,11 @@ func (m *Migrator) Down(ctx context.Context, targetVersion int) error {
 
 	for i := len(files) - 1; i >= 0; i-- {
 		f := files[i]
-		versionNum, _ := strconv.Atoi(f.Version)
+		versionNum, err := strconv.Atoi(f.Version)
+	if err != nil {
+		m.log.Warn("invalid migration version, skipping", zap.String("version", f.Version))
+		continue
+	}
 		if versionNum <= targetVersion {
 			break
 		}
