@@ -99,7 +99,7 @@ func (a *AAProvider) CleanupExpiredNonces() {
 // ValidateUserOp calls IAccount.validateUserOp on the sender contract.
 // This is a stub: the full ABI encoding for validateUserOp should be
 // generated from the ERC-4337 EntryPoint ABI when integrating.
-func (a *AAProvider) ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds *big.Int, nonce *big.Int) ([]byte, error) {
+func (a *AAProvider) ValidateUserOp(ctx context.Context, sender common.Address, userOpHash [32]byte, missingAccountFunds, nonce *big.Int) ([]byte, error) {
 	// Replay protection: check if nonce was recently used
 	if err := a.validateNonce(nonce); err != nil {
 		return nil, fmt.Errorf("replay protection check failed: %w", err)

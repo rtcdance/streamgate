@@ -228,7 +228,7 @@ func BuildSimplePlaylist(contentID string, segments []string, playbackToken stri
 		if idx := strings.LastIndex(seg, "/"); idx >= 0 {
 			name = seg[idx+1:]
 		}
-		b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?playback_token=%s\n", contentID, name, playbackToken))
+		fmt.Fprintf(&b, "#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?playback_token=%s\n", contentID, name, playbackToken)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String()
@@ -243,13 +243,13 @@ func BuildMasterPlaylist(contentID string, qualitySegments map[string][]string, 
 			bw = 1500
 		}
 		resolution := qualityToResolution(quality)
-		b.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bw*1000, resolution))
-		b.WriteString(fmt.Sprintf("/api/v1/streaming/%s/manifest.m3u8?quality=%s&playback_token=%s\n", contentID, quality, playbackToken))
+		fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bw*1000, resolution)
+		fmt.Fprintf(&b, "/api/v1/streaming/%s/manifest.m3u8?quality=%s&playback_token=%s\n", contentID, quality, playbackToken)
 	}
 	return b.String()
 }
 
-func BuildMediaPlaylist(contentID string, quality string, segments []string, playbackToken string) string {
+func BuildMediaPlaylist(contentID, quality string, segments []string, playbackToken string) string {
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n")
 	for _, seg := range segments {
@@ -257,7 +257,7 @@ func BuildMediaPlaylist(contentID string, quality string, segments []string, pla
 		if idx := strings.LastIndex(seg, "/"); idx >= 0 {
 			name = seg[idx+1:]
 		}
-		b.WriteString(fmt.Sprintf("#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s\n", contentID, name, quality, playbackToken))
+		fmt.Fprintf(&b, "#EXTINF:6.0,\n/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s\n", contentID, name, quality, playbackToken)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return b.String()
@@ -292,11 +292,11 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 	manifest.WriteString("\n")
 
 	for _, quality := range qualities {
-		manifest.WriteString(fmt.Sprintf(`      <Representation bandwidth="%d" width=%q>`, //nolint:gocritic // "%s" is XML attribute syntax, not Go quoting
-			quality.Bitrate*1000, strings.Split(quality.Resolution, "x")[0]))
+		fmt.Fprintf(&manifest, `      <Representation bandwidth="%d" width=%q>`, //nolint:gocritic // "%s" is XML attribute syntax, not Go quoting
+			quality.Bitrate*1000, strings.Split(quality.Resolution, "x")[0])
 		manifest.WriteString("\n")
-		manifest.WriteString(fmt.Sprintf(`        <BaseURL>%s/%s/%s.mp4?playback_token=%s</BaseURL>`,
-			s.baseURL, contentID, quality.Name, playbackToken))
+		fmt.Fprintf(&manifest, `        <BaseURL>%s/%s/%s.mp4?playback_token=%s</BaseURL>`,
+			s.baseURL, contentID, quality.Name, playbackToken)
 		manifest.WriteString("\n")
 		manifest.WriteString(`      </Representation>`)
 		manifest.WriteString("\n")

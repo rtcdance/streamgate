@@ -40,7 +40,7 @@ func NewMigrator(db *sql.DB, log *zap.Logger, migrationFS embed.FS, dir string) 
 
 func (m *Migrator) SetTableName(name string) error {
 	for _, r := range name {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 			return fmt.Errorf("invalid table name %q: only alphanumeric and underscore characters allowed", name)
 		}
 	}

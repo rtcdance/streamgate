@@ -50,8 +50,7 @@ func validationError(err error) map[string]string {
 }
 
 func asValidationErrors(err error, target *validator.ValidationErrors) bool {
-	switch e := err.(type) {
-	case validator.ValidationErrors:
+	if e, ok := err.(validator.ValidationErrors); ok {
 		*target = e
 		return true
 	}

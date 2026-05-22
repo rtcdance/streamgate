@@ -36,7 +36,7 @@ func FuzzLoadYAMLConfig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
 			return
 		}
 		v := viper.New()

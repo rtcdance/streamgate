@@ -787,7 +787,7 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	if c.Auth.JWTSecret == "" {
 		ve.Critical = append(ve.Critical, "auth.jwt_secret is empty — set via STREAMGATE_JWT_SECRET env var")
 	}
-	if len(c.Auth.JWTSecret) > 0 && len(c.Auth.JWTSecret) < 32 {
+	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < 32 {
 		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret is only %d bytes — minimum 32 bytes required for HS256", len(c.Auth.JWTSecret)))
 	}
 	insecureSecrets := []string{
