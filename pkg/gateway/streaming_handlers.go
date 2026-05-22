@@ -326,57 +326,12 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		}
 		quality := c.Query("quality")
 		segName := c.Param("num")
-		// Normalize path to prevent directory traversal attacks (including Windows-style backslashes)
-		if strings.Contains(segName, "\\") || strings.Contains(segName, "..") {
+		if !validateSegmentName(segName) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
-			return
-		}
-		cleaned := path.Clean(segName)
-		if cleaned != segName || path.IsAbs(cleaned) {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
-			return
-		}
-		if !strings.HasSuffix(segName, ".ts") {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment format")
 			return
 		}
 		if objStorage != nil {
-			type segTry struct {
-				key  string
-				prio int
-			}
-			candidates := []segTry{
-				{key: fmt.Sprintf("%s/%s", contentID, segName), prio: 0},
-			}
-			// Use segment index cache to find available quality levels,
-			// avoiding wasted MinIO requests to non-existent profiles.
-			var qlist map[string][]string
-			if cached, ok := cache.GetSegmentIndex(contentID); ok {
-				qlist = cached
-			}
-			if len(qlist) > 0 {
-				for q := range qlist {
-					prio := 1
-					if q == quality {
-						prio = 2
-					}
-					candidates = append(candidates, segTry{
-						key:  fmt.Sprintf("streams/%s/%s/%s", contentID, q, segName),
-						prio: prio,
-					})
-				}
-			} else {
-				if quality != "" {
-					candidates = append(candidates, segTry{
-						key:  fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName),
-						prio: 2,
-					})
-				}
-				candidates = append(candidates, segTry{
-					key:  fmt.Sprintf("streams/%s/720p/%s", contentID, segName),
-					prio: 1,
-				})
-			}
+			candidates := buildSegmentCandidates(contentID, segName, quality, cache)
 
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 			defer cancel()
@@ -487,9 +442,62 @@ func isValidContentID(id string) bool {
 		return false
 	}
 	for _, ch := range id {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_') {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' && ch != '_' {
 			return false
 		}
 	}
 	return true
+}
+
+type segmentCandidate struct {
+	key  string
+	prio int
+}
+
+func validateSegmentName(segName string) bool {
+	if strings.Contains(segName, "\\") || strings.Contains(segName, "..") {
+		return false
+	}
+	cleaned := path.Clean(segName)
+	if cleaned != segName || path.IsAbs(cleaned) {
+		return false
+	}
+	if !strings.HasSuffix(segName, ".ts") {
+		return false
+	}
+	return true
+}
+
+func buildSegmentCandidates(contentID, segName, quality string, cache *StreamingCache) []segmentCandidate {
+	candidates := []segmentCandidate{
+		{key: fmt.Sprintf("%s/%s", contentID, segName), prio: 0},
+	}
+	var qlist map[string][]string
+	if cached, ok := cache.GetSegmentIndex(contentID); ok {
+		qlist = cached
+	}
+	if len(qlist) > 0 {
+		for q := range qlist {
+			prio := 1
+			if q == quality {
+				prio = 2
+			}
+			candidates = append(candidates, segmentCandidate{
+				key:  fmt.Sprintf("streams/%s/%s/%s", contentID, q, segName),
+				prio: prio,
+			})
+		}
+	} else {
+		if quality != "" {
+			candidates = append(candidates, segmentCandidate{
+				key:  fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName),
+				prio: 2,
+			})
+		}
+		candidates = append(candidates, segmentCandidate{
+			key:  fmt.Sprintf("streams/%s/720p/%s", contentID, segName),
+			prio: 1,
+		})
+	}
+	return candidates
 }

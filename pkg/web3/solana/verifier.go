@@ -39,14 +39,6 @@ func NewSolanaVerifier(logger *zap.Logger, rpcEndpoint ...string) *SolanaVerifie
 	}
 }
 
-func (sv *SolanaVerifier) getRPCClient() *rpc.Client {
-	if len(sv.clients) == 0 {
-		return nil
-	}
-	idx := sv.currentIdx.Load() % uint32(len(sv.clients))
-	return sv.clients[idx]
-}
-
 func (sv *SolanaVerifier) switchToNextRPC() {
 	if len(sv.clients) <= 1 {
 		return

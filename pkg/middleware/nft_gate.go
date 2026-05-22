@@ -312,7 +312,7 @@ func resolveAutoDetect(c *gin.Context, config *NFTGateConfig, contract string, r
 	return autoDetect
 }
 
-func tryFallbackGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, walletAddress, contract, tokenID string, chainID int64) (bool, string, string, int64) {
+func tryFallbackGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, walletAddress, contract, tokenID string, chainID int64) (allowed bool, outContract, outTokenID string, outChainID int64) {
 	if config.RuleResolver == nil {
 		return false, contract, tokenID, chainID
 	}

@@ -214,8 +214,8 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 	return router
 }
 
-func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
-	verifier := web3.NewSignatureVerifier(zap.NewNop())
+func newTestAuthService() (svc *service.AuthService, verifier *web3.SignatureVerifier) {
+	verifier = web3.NewSignatureVerifier(zap.NewNop())
 	return service.NewAuthServiceWithDeps(
 		"test-secret-that-is-at-least-32-chars",
 		nil,
