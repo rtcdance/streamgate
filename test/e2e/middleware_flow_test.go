@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e_test
 
 import (
@@ -13,8 +15,8 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 	// Use the real router which has the full middleware stack:
 	// Recovery → CORS → RateLimit → Logging → JWT → NFTGate
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
-	jwtToken := e2eTestJWT("0x1234567890123456789012345678901234567890")
+	_, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	// Public route (no JWT required) — health may be 200 or 503 depending on DB availability
 	resp, err := http.Get(server.URL + "/health")
@@ -33,7 +35,7 @@ func TestE2E_MiddlewareStack(t *testing.T) {
 
 func TestE2E_AuthenticationFlow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
+	_, _, server := setupE2EServer(t, checker, nil)
 
 	// Request without token → 401
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
@@ -43,7 +45,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// Request with valid JWT → 503 (no ContentService/DB in test)
-	jwtToken := e2eTestJWT("0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req2.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req2)
@@ -62,7 +64,7 @@ func TestE2E_AuthenticationFlow(t *testing.T) {
 
 func TestE2E_CORSFlow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
+	_, _, server := setupE2EServer(t, checker, nil)
 
 	// CORS preflight on public route
 	req, _ := http.NewRequest("OPTIONS", server.URL+"/health", http.NoBody)
@@ -76,7 +78,7 @@ func TestE2E_CORSFlow(t *testing.T) {
 
 func TestE2E_LoggingFlow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
+	_, _, server := setupE2EServer(t, checker, nil)
 
 	// Make request — logging middleware is part of the stack
 	resp, err := http.Get(server.URL + "/health")
@@ -87,7 +89,7 @@ func TestE2E_LoggingFlow(t *testing.T) {
 
 func TestE2E_ErrorRecoveryFlow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
+	_, _, server := setupE2EServer(t, checker, nil)
 
 	// Request to a non-existent route — recovery middleware handles it
 	resp, err := http.Get(server.URL + "/api/v1/nonexistent")
@@ -103,7 +105,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	// 2. 401 returned without JWT (JWT middleware ran)
 	// 3. 200 returned with JWT on auth-protected route (JWT passed)
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := e2eSetupServer(t, checker, nil)
+	_, _, server := setupE2EServer(t, checker, nil)
 
 	// 1. CORS
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
@@ -122,7 +124,7 @@ func TestE2E_MiddlewareOrdering(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp2.StatusCode)
 
 	// 3. JWT acceptance with valid token → 503 (no ContentService/DB)
-	jwtToken := e2eTestJWT("0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 	req3, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req3.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp3, err := http.DefaultClient.Do(req3)
