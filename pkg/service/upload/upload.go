@@ -276,7 +276,7 @@ func (s *UploadService) CheckStorageQuota(ctx context.Context, ownerID string, n
 
 // Upload uploads file from a byte slice (legacy convenience wrapper).
 func (s *UploadService) Upload(ctx context.Context, filename string, data []byte, ownerID string) (string, error) {
-	return s.UploadStream(ctx, filename, bytesReader(data), int64(len(data)), ownerID)
+	return s.UploadStream(ctx, filename, BytesReader(data), int64(len(data)), ownerID)
 }
 
 // UploadStream uploads a file from an io.Reader without buffering the entire
@@ -302,7 +302,7 @@ func (s *UploadService) UploadStream(ctx context.Context, filename string, reade
 		ID:          uploadID,
 		Filename:    filename,
 		Size:        size,
-		ContentType: detectContentType(filename),
+		ContentType: DetectContentType(filename),
 		Hash:        hash,
 		Status:      "completed",
 		URL:         fmt.Sprintf("/%s/%s", s.bucket, storageKey),
@@ -324,16 +324,16 @@ func (s *UploadService) UploadStream(ctx context.Context, filename string, reade
 
 // bytesReader is a helper to create an io.Reader from []byte for the legacy
 // Upload method. Defined at package level to avoid allocation in hot paths.
-type bytesSliceReader struct {
+type BytesSliceReader struct {
 	data []byte
 	pos  int
 }
 
-func bytesReader(data []byte) *bytesSliceReader {
-	return &bytesSliceReader{data: data}
+func BytesReader(data []byte) *BytesSliceReader {
+	return &BytesSliceReader{data: data}
 }
 
-func (r *bytesSliceReader) Read(p []byte) (n int, err error) {
+func (r *BytesSliceReader) Read(p []byte) (n int, err error) {
 	if r.pos >= len(r.data) {
 		return 0, io.EOF
 	}
@@ -474,7 +474,7 @@ func (s *UploadService) InitiateChunkedUpload(ctx context.Context, filename stri
 		ID:          uploadID,
 		Filename:    filename,
 		Size:        totalSize,
-		ContentType: detectContentType(filename),
+		ContentType: DetectContentType(filename),
 		Status:      "uploading",
 		OwnerID:     ownerID,
 		CreatedAt:   time.Now(),
@@ -509,7 +509,7 @@ func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename st
 	storageKey = fmt.Sprintf("%s/%s%s", ownerID, uploadID, ext)
 
 	if contentType == "" {
-		contentType = detectContentType(filename)
+		contentType = DetectContentType(filename)
 	}
 
 	uploadInfo := &UploadInfo{
@@ -542,7 +542,7 @@ func (s *UploadService) InitiatePresignedUpload(ctx context.Context, filename st
 
 // UploadChunk uploads a single chunk from a byte slice (legacy).
 func (s *UploadService) UploadChunk(ctx context.Context, uploadID string, chunkIndex int, data []byte, ownerID string) error {
-	return s.UploadChunkStream(ctx, uploadID, chunkIndex, bytesReader(data), int64(len(data)), ownerID)
+	return s.UploadChunkStream(ctx, uploadID, chunkIndex, BytesReader(data), int64(len(data)), ownerID)
 }
 
 func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, chunkIndex int, reader io.Reader, size int64, ownerID string) (err error) {
@@ -605,7 +605,7 @@ func (s *UploadService) UploadChunkStream(ctx context.Context, uploadID string, 
 		s.logger.Warn("failed to record chunk in upload_chunks", zap.String("upload_id", uploadID), zap.Int("chunk_index", chunkIndex), zap.Error(err))
 	}
 
-	if err := s.updateUploadStatus(ctx, uploadID, "uploading"); err != nil {
+	if err := s.UpdateUploadStatus(ctx, uploadID, "uploading"); err != nil {
 		return fmt.Errorf("failed to update upload status: %w", err)
 	}
 
@@ -906,7 +906,7 @@ func (s *UploadService) saveUploadInfo(ctx context.Context, info *UploadInfo) er
 }
 
 // updateUploadStatus updates upload status
-func (s *UploadService) updateUploadStatus(ctx context.Context, uploadID, status string) error {
+func (s *UploadService) UpdateUploadStatus(ctx context.Context, uploadID, status string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
 	}
@@ -916,7 +916,7 @@ func (s *UploadService) updateUploadStatus(ctx context.Context, uploadID, status
 }
 
 // detectContentType detects content type from filename
-func detectContentType(filename string) string {
+func DetectContentType(filename string) string {
 	ext := filepath.Ext(filename)
 	switch ext {
 	case ".mp4":
@@ -977,7 +977,7 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO contents (id, title, type, size, status, owner_id, url, thumbnail_url, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, contentID, upload.Filename, contentTypeToType(upload.ContentType), upload.Size, "pending",
+		`, contentID, upload.Filename, ContentTypeToType(upload.ContentType), upload.Size, "pending",
 			upload.OwnerID, upload.URL, thumbnailURL, time.Now(), time.Now()); err != nil {
 			return fmt.Errorf("insert content: %w", err)
 		}
@@ -1019,7 +1019,7 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 }
 
 // contentTypeToType maps a MIME content type to a content type string.
-func contentTypeToType(mime string) string {
+func ContentTypeToType(mime string) string {
 	switch {
 	case len(mime) >= 5 && mime[:5] == "video":
 		return "video"

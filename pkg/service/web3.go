@@ -181,14 +181,18 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 		if err != nil {
 			logger.Warn("Failed to create EventIndexer", zap.Error(err))
 		} else {
+			var wsSub *web3.LogSubscriber
 			if cfg.Web3.EthereumWSURL != "" {
-				wsSub := web3.NewLogSubscriber(cfg.Web3.EthereumWSURL, logger)
+				wsSub = web3.NewLogSubscriber(cfg.Web3.EthereumWSURL, logger)
 				indexer.SetSubscriber(wsSub)
 			}
 			indexer.SetReorgDetector(reorgDetector)
 			indexerCtx, indexerCancel := context.WithCancel(context.Background())
 			if err := indexer.Start(indexerCtx); err != nil {
 				indexerCancel()
+				if wsSub != nil {
+					wsSub.Unsubscribe()
+				}
 				logger.Warn("EventIndexer failed to start", zap.Error(err))
 			} else {
 				service.eventIndexer = indexer

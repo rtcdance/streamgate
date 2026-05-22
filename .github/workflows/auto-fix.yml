@@ -39,7 +39,7 @@ jobs:
       - name: Check if auto-fix should run
         id: check
         env:
-          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
@@ -75,11 +75,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.check-eligibility.outputs.head_sha }}
-          token: ${{ secrets.AI_BOT_PAT }}
 
       - name: Fetch failed run details
         env:
-          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
           gh run view "$RUN_ID" --repo ${{ github.repository }} --json jobs > /tmp/run-jobs.json
@@ -93,7 +92,7 @@ jobs:
 
       - name: Fetch failed logs
         env:
-          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
           gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
@@ -110,16 +109,6 @@ jobs:
             FIX_REQUIRED="true"
           fi
 
-          if grep -q "coverage.*is below" /tmp/failed-logs.txt 2>/dev/null; then
-            SUMMARY="${SUMMARY}Coverage below threshold. "
-            FIX_REQUIRED="true"
-          fi
-
-          if grep -qi "docker.*build.*failed\|Dockerfile.*error" /tmp/failed-logs.txt 2>/dev/null; then
-            SUMMARY="${SUMMARY}Docker build failure. "
-            FIX_REQUIRED="true"
-          fi
-
           if grep -qi "golangci-lint\|lint.*error\|SA\d\{4\}" /tmp/failed-logs.txt 2>/dev/null; then
             SUMMARY="${SUMMARY}Lint errors detected. "
             FIX_REQUIRED="true"
@@ -127,11 +116,6 @@ jobs:
 
           if grep -qi "undefined\|cannot find package\|missing go.sum" /tmp/failed-logs.txt 2>/dev/null; then
             SUMMARY="${SUMMARY}Go compilation error. "
-            FIX_REQUIRED="true"
-          fi
-
-          if grep -qi "test.*FAIL\|panic" /tmp/failed-logs.txt 2>/dev/null; then
-            SUMMARY="${SUMMARY}Test failure. "
             FIX_REQUIRED="true"
           fi
 
@@ -155,7 +139,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.check-eligibility.outputs.head_sha }}
-          token: ${{ secrets.AI_BOT_PAT }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -165,7 +148,7 @@ jobs:
 
       - name: Fetch failed logs
         env:
-          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
           gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
@@ -205,15 +188,15 @@ jobs:
       - name: Create fix branch and PR
         if: steps.changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ secrets.AI_BOT_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
           RUN_NAME: ${{ needs.check-eligibility.outputs.run_name }}
           FAILURE_SUMMARY: ${{ needs.analyze-failure.outputs.failure_summary }}
           HEAD_BRANCH: ${{ needs.check-eligibility.outputs.head_branch }}
         run: |
           BRANCH_NAME="${FIX_BRANCH_PREFIX}-${RUN_ID}"
-          git config user.name "streamgate-bot"
-          git config user.email "bot@streamgate.dev"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH_NAME"
           git commit -m "fix(ci): auto-fix for ${RUN_NAME} failure
 
@@ -229,7 +212,7 @@ jobs:
             --base "$HEAD_BRANCH" \
             --head "$BRANCH_NAME" \
             --title "fix(ci): auto-fix for ${RUN_NAME} failure (#${RUN_ID})" \
-            --body "## 🤖 AI Auto-Fix
+            --body "## AI Auto-Fix
 
           This PR was automatically generated to fix a CI failure.
 
@@ -240,8 +223,8 @@ jobs:
           ### Changed Files
           $(git diff --name-only HEAD~1)
 
-          ### ⚠️ Review Required
-          This automated fix should be reviewed before merging. The AI bot only modifies:
+          ### Review Required
+          This automated fix should be reviewed before merging. The bot only modifies:
           - CI/CD configuration files
           - go.mod / go.sum
           - Auto-fixable lint issues
@@ -274,7 +257,7 @@ jobs:
               **Run ID:** ${process.env.RUN_ID}
               **Analysis:** ${process.env.FAILURE_SUMMARY}
 
-              The AI auto-fix workflow could not automatically resolve this failure.
+              The auto-fix workflow could not automatically resolve this failure.
               Please investigate the [workflow run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.RUN_ID}) manually.
 
               ${process.env.RUN_ID}`,

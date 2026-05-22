@@ -17,13 +17,11 @@ func init() {
 }
 
 func validateAddress(fl validator.FieldLevel) bool {
-		return len(fl.Field().String()) == 42 && strings.HasPrefix(fl.Field().String(), "0x")
-	return true
+	return len(fl.Field().String()) == 42 && strings.HasPrefix(fl.Field().String(), "0x")
 }
 
 func validateChainID(fl validator.FieldLevel) bool {
-		return fl.Field().Int() > 0
-	return true
+	return fl.Field().Int() > 0
 }
 
 // BindAndValidate binds JSON request body and validates struct tags in one call.
