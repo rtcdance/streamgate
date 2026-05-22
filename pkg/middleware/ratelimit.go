@@ -50,7 +50,7 @@ func DefaultRateLimitConfig() RateLimitConfig {
 }
 
 type RateLimiter interface {
-	Allow(key string) bool
+	Allow(ctx context.Context, key string) bool
 	Stop()
 }
 
@@ -131,7 +131,7 @@ func newMemoryRateLimiter(cfg RateLimitConfig) *memoryRateLimiter {
 	return rl
 }
 
-func (rl *memoryRateLimiter) Allow(key string) bool {
+func (rl *memoryRateLimiter) Allow(ctx context.Context, key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -250,11 +250,7 @@ func newRedisRateLimiter(cfg RateLimitConfig, client RedisClient, fallback RateL
 	}
 }
 
-func (rl *redisRateLimiter) Allow(key string) bool {
-	return rl.AllowWithContext(context.Background(), key)
-}
-
-func (rl *redisRateLimiter) AllowWithContext(ctx context.Context, key string) bool {
+func (rl *redisRateLimiter) Allow(ctx context.Context, key string) bool {
 	evalCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -269,13 +265,13 @@ func (rl *redisRateLimiter) AllowWithContext(ctx context.Context, key string) bo
 
 	if err != nil {
 		rateLimitFallback.Inc()
-		return rl.fallback.Allow(key)
+		return rl.fallback.Allow(ctx, key)
 	}
 
 	allowed, ok := result.(int64)
 	if !ok {
 		rateLimitFallback.Inc()
-		return rl.fallback.Allow(key)
+		return rl.fallback.Allow(ctx, key)
 	}
 
 	if allowed == 1 {
@@ -295,7 +291,7 @@ func (s *Service) RateLimitMiddleware() gin.HandlerFunc {
 		if wallet := GetWalletAddress(c); wallet != "" {
 			key = key + ":" + wallet
 		}
-		if !limiter.Allow(key) {
+		if !limiter.Allow(c.Request.Context(), key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",
@@ -314,7 +310,7 @@ func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimite
 		if wallet := GetWalletAddress(c); wallet != "" {
 			key = key + ":" + wallet
 		}
-		if !rl.Allow(key) {
+		if !rl.Allow(c.Request.Context(), key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",

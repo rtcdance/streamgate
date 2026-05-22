@@ -324,7 +324,7 @@ func (cc *ChainClient) connectAny() error {
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(idx)
+		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -338,7 +338,7 @@ func (cc *ChainClient) connectAny() error {
 		return nil
 	}
 	for _, idx := range cc.sortedRPCScores() {
-		client, chainIDFromRPC, err := cc.connectAt(idx)
+		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -358,7 +358,7 @@ func (cc *ChainClient) connectAny() error {
 	return fmt.Errorf("failed to connect to blockchain: %w", lastErr)
 }
 
-func (cc *ChainClient) connectAt(idx int) (*ethclient.Client, *big.Int, error) {
+func (cc *ChainClient) connectAt(ctx context.Context, idx int) (*ethclient.Client, *big.Int, error) {
 	rpcURL := cc.rpcURLs[idx]
 	cc.logger.Info("Connecting to blockchain",
 		zap.String("rpc_url", rpcURL),
@@ -369,10 +369,10 @@ func (cc *ChainClient) connectAt(idx int) (*ethclient.Client, *big.Int, error) {
 		return nil, nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	chainIDFromRPC, err := client.ChainID(ctx)
+	chainIDFromRPC, err := client.ChainID(verifyCtx)
 	if err != nil {
 		client.Close()
 		return nil, nil, err
@@ -413,7 +413,7 @@ func (cc *ChainClient) failover() error {
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(idx)
+		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -429,7 +429,7 @@ func (cc *ChainClient) failover() error {
 		if idx == active {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(idx)
+		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err

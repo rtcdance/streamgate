@@ -303,14 +303,7 @@ func resolveAutoDetect(c *gin.Context, config *NFTGateConfig, contract string, r
 	if config.RuleResolver == nil {
 		return autoDetect
 	}
-	if len(resolvedRules) == 0 {
-		if contentID := c.Param("id"); contentID != "" {
-			rules, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
-			if err == nil {
-				resolvedRules = rules
-			}
-		}
-	}
+	// resolvedRules already fetched by resolveNFTGateRules — no need to re-fetch
 	for _, r := range resolvedRules {
 		if r.ContractAddress == contract && r.Standard != "" && r.Standard != "erc721" {
 			return true

@@ -266,7 +266,7 @@ func (m *Microkernel) Start(ctx context.Context) error {
 				"mode":    "microservice",
 			},
 			Check: &service.HealthCheck{
-				HTTP:     fmt.Sprintf("http://localhost:%d/health/live", m.config.Server.Port),
+				HTTP:     fmt.Sprintf("http://%s:%d/health/live", address, m.config.Server.Port),
 				Interval: "10s",
 				Timeout:  "5s",
 			},

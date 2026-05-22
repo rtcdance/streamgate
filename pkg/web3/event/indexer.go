@@ -379,7 +379,9 @@ func (ei *EventIndexer) processLog(ctx context.Context, log types.Log) {
 		}
 	}
 
-	ei.addEvent(context.Background(), event)
+	storeCtx, storeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ei.addEvent(storeCtx, event)
+	storeCancel()
 
 	ei.logger.Debug("WebSocket event received",
 		zap.String("tx_hash", event.TransactionHash),

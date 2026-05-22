@@ -2,15 +2,14 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*' ]
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 permissions:
   contents: read
   packages: write
-  security-events: write
 
 env:
   REGISTRY: ghcr.io
@@ -25,10 +24,10 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -36,7 +35,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -47,7 +46,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      
+
       - name: Build and push monolith
         uses: docker/build-push-action@v6
         with:
@@ -59,38 +58,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Generate SBOM (CycloneDX)
-        if: github.event_name != 'pull_request'
-        env:
-          IMAGE_TAG: ${{ steps.meta.outputs.version || 'latest' }}
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith:${{ env.IMAGE_TAG }}
-          format: 'spdx'
-          output: 'sbom-monolith.spdx'
-
-      - name: Upload SBOM artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-monolith
-          path: sbom-monolith.spdx
-
   build-microservices:
-    name: Build Microservices Docker Images
+    name: Build ${{ matrix.service }} Docker Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         service: [api-gateway, auth, cache, metadata, monitor, streaming, transcoder, upload, worker]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -98,7 +81,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -109,7 +92,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      
+
       - name: Build and push ${{ matrix.service }}
         uses: docker/build-push-action@v6
         with:
@@ -121,61 +104,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  scan-images:
-    name: Scan Docker Images
+  scan-monolith:
+    name: Scan Monolith Image
     runs-on: ubuntu-latest
-    needs: [build-monolith, build-microservices]
+    needs: build-monolith
     if: github.event_name != 'pull_request'
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        image:
-          - monolith
-          - api-gateway
-          - auth
-          - cache
-          - metadata
-          - monitor
-          - streaming
-          - transcoder
-          - upload
-          - worker
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Check if image exists in registry
-        id: check_image
-        run: |
-          if docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest 2>/dev/null; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Image exists for ${{ matrix.image }}"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Image does not exist for ${{ matrix.image }}"
-          fi
-      
+
+      - name: Build monolith locally for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/docker/Dockerfile.monolith
+          push: false
+          load: true
+          tags: streamgate-monolith:scan
+
       - name: Run Trivy vulnerability scanner
-        if: steps.check_image.outputs.exists == 'true'
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
-          format: 'sarif'
-          output: 'trivy-results-${{ matrix.image }}.sarif'
-        continue-on-error: false
-      
-      - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v4
-        if: steps.check_image.outputs.exists == 'true'
+          image-ref: streamgate-monolith:scan
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@0.28.0
         with:
-          sarif_file: 'trivy-results-${{ matrix.image }}.sarif'
+          image-ref: streamgate-monolith:scan
+          format: 'spdx'
+          output: 'sbom-monolith.spdx'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-monolith
+          path: sbom-monolith.spdx

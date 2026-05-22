@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ type NFTService struct {
 	cacheEnabled  bool
 	cacheDuration time.Duration
 	parsedABI     abi.ABI // pre-parsed at construction
+	closer        io.Closer
 	logger        *zap.Logger
 }
 
@@ -57,7 +59,7 @@ func NewNFTService(rpcURL string, cache cachetypes.CacheBackend) (*NFTService, e
 		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}
 
-	return &NFTService{
+	nftSvc := &NFTService{
 		ethClient:     client,
 		cache:         cache,
 		rpcURL:        rpcURL,
@@ -65,7 +67,11 @@ func NewNFTService(rpcURL string, cache cachetypes.CacheBackend) (*NFTService, e
 		cacheDuration: 1 * time.Hour,
 		parsedABI:     parsedABI,
 		logger:        zap.NewNop(),
-	}, nil
+	}
+	if c, ok := any(client).(io.Closer); ok {
+		nftSvc.closer = c
+	}
+	return nftSvc, nil
 }
 
 // NewNFTServiceWithCaller creates a new NFT service with a custom EthCaller.
@@ -76,7 +82,7 @@ func NewNFTServiceWithCaller(caller web3.EthCaller, rpcURL string, cache cachety
 		return nil, fmt.Errorf("failed to parse ERC-721 ABI: %w", err)
 	}
 
-	return &NFTService{
+	nftSvc := &NFTService{
 		ethClient:     caller,
 		cache:         cache,
 		rpcURL:        rpcURL,
@@ -84,7 +90,11 @@ func NewNFTServiceWithCaller(caller web3.EthCaller, rpcURL string, cache cachety
 		cacheDuration: 1 * time.Hour,
 		parsedABI:     parsedABI,
 		logger:        zap.NewNop(),
-	}, nil
+	}
+	if closer, ok := caller.(io.Closer); ok {
+		nftSvc.closer = closer
+	}
+	return nftSvc, nil
 }
 
 // VerifyNFT verifies NFT ownership
@@ -171,22 +181,26 @@ func (s *NFTService) GetNFTMetadata(ctx context.Context, contractAddress, tokenI
 		return nil, fmt.Errorf("failed to get token URI: %w", err)
 	}
 
-	// Fetch metadata from URI
-	// Note: In production, you would fetch from IPFS or HTTP
-	// For now, return a basic structure
-	metadata := &NFTMetadata{
-		Name:        fmt.Sprintf("NFT #%s", tokenID),
-		Description: "NFT from contract " + contractAddress,
-		Image:       tokenURI,
-		Attributes:  []NFTAttribute{},
+	// Fetch metadata from URI with SSRF protection (supports https://, ipfs://, ar://)
+	var metadata NFTMetadata
+	if err := web3.SafeFetchURI(ctx, tokenURI, &metadata); err != nil {
+		s.logger.Debug("Failed to fetch NFT metadata from URI, using fallback",
+			zap.String("token_uri", tokenURI),
+			zap.Error(err))
+		metadata = NFTMetadata{
+			Name:        fmt.Sprintf("NFT #%s", tokenID),
+			Description: "NFT from contract " + contractAddress,
+			Image:       tokenURI,
+			Attributes:  []NFTAttribute{},
+		}
 	}
 
 	// Cache the result
 	if s.cacheEnabled {
-		_ = s.cache.SetWithExpiration(cacheKey, metadata, s.cacheDuration)
+		_ = s.cache.SetWithExpiration(cacheKey, &metadata, s.cacheDuration)
 	}
 
-	return metadata, nil
+	return &metadata, nil
 }
 
 // getOwnerOf calls the ownerOf function on an ERC-721 contract
@@ -317,8 +331,8 @@ func (s *NFTService) SetLogger(logger *zap.Logger) {
 
 // Close closes the Ethereum client connection
 func (s *NFTService) Close() {
-	if closer, ok := s.ethClient.(interface{ Close() }); ok {
-		closer.Close()
+	if s.closer != nil {
+		s.closer.Close()
 	}
 }
 

@@ -470,11 +470,14 @@ func extractSegmentNumber(segName string) int {
 		base = segName[idx+1:]
 	}
 	base = strings.TrimSuffix(base, ".ts")
+	// Extract only the trailing number to avoid false digits in quality labels (e.g. "720p")
+	end := len(base)
+	for end > 0 && base[end-1] >= '0' && base[end-1] <= '9' {
+		end--
+	}
 	n := 0
-	for _, ch := range base {
-		if ch >= '0' && ch <= '9' {
-			n = n*10 + int(ch-'0')
-		}
+	for _, ch := range base[end:] {
+		n = n*10 + int(ch-'0')
 	}
 	return n
 }

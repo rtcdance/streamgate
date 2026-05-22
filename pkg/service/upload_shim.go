@@ -11,8 +11,12 @@ type (
 	UploadObjectStorage    = upload.UploadObjectStorage
 	AutoTranscodeHookDeps  = upload.AutoTranscodeHookDeps
 	PostUploadHook         = upload.PostUploadHook
+	BytesSliceReader       = upload.BytesSliceReader
 )
 
 var (
-	NewUploadService = upload.NewUploadService
+	NewUploadService  = upload.NewUploadService
+	ContentTypeToType = upload.ContentTypeToType
+	DetectContentType = upload.DetectContentType
+	BytesReader       = upload.BytesReader
 )

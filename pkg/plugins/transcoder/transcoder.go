@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -407,7 +408,7 @@ func (tq *TaskQueue) Enqueue(task *TranscodeTask) error {
 	queueCopy := *task
 	tq.tasks[mapCopy.ID] = &mapCopy
 	tq.queue <- &queueCopy
-	tq.metrics.TotalEnqueued++
+	atomic.AddInt64(&tq.metrics.TotalEnqueued, 1)
 
 	return nil
 }
@@ -617,19 +618,24 @@ func (wp *WorkerPool) processTask(worker *Worker, task *TranscodeTask) {
 	startTime := time.Now()
 	if err := wp.transcode(task); err != nil {
 		errMsg := err.Error()
+		shouldRetry := false
 		_ = wp.taskQueue.TransitionStatus(task.ID, func(t *TranscodeTask) {
 			t.Status = TaskStatusFailed
 			t.Error = errMsg
 			t.RetryCount++
 			if t.RetryCount < t.MaxRetries {
 				t.Status = TaskStatusPending
-			if err := wp.taskQueue.Enqueue(task); err != nil {
-				wp.logger.Error("failed to re-enqueue task for retry", zap.String("task_id", task.ID), zap.Error(err))
-			}
+				shouldRetry = true
 			}
 		})
 
-		wp.taskQueue.metrics.TotalFailed++
+		if shouldRetry {
+			if err := wp.taskQueue.Enqueue(task); err != nil {
+				wp.logger.Error("failed to re-enqueue task for retry", zap.String("task_id", task.ID), zap.Error(err))
+			}
+		}
+
+		atomic.AddInt64(&wp.taskQueue.metrics.TotalFailed, 1)
 		{
 			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = wp.eventBus.Publish(pubCtx, &event.Event{
@@ -736,8 +742,8 @@ func (wp *WorkerPool) collectMetricsLocked() *WorkerMetrics {
 		worker.mu.RUnlock()
 	}
 
-	metrics.TotalTasksProcessed = wp.taskQueue.metrics.TotalProcessed
-	metrics.TotalTasksFailed = wp.taskQueue.metrics.TotalFailed
+	metrics.TotalTasksProcessed = atomic.LoadInt64(&wp.taskQueue.metrics.TotalProcessed)
+	metrics.TotalTasksFailed = atomic.LoadInt64(&wp.taskQueue.metrics.TotalFailed)
 
 	return metrics
 }

@@ -52,22 +52,30 @@ func WithRSAPublicKey(key *rsa.PublicKey) JWTVerifierOption {
 	}
 }
 
-// ParseToken parses and validates a JWT without issuing capability.
+// ParseToken parses and validates a JWT with 30s clock skew leeway on exp/nbf,
+// matching AuthService.ParseToken to prevent false rejections in distributed deployments.
 func (v *JWTVerifier) ParseToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 	validMethods := []string{"HS256"}
 	if v.signingType == JWTRS256 {
 		validMethods = []string{"RS256"}
 	}
-	parsed, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+
+	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return v.keyFunc(token)
-	}, jwt.WithValidMethods(validMethods))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("token verification failed: %w", err)
 	}
-	if !parsed.Valid {
-		return nil, ErrInvalidToken
+
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+		return nil, ErrTokenExpired
 	}
+	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+		return nil, fmt.Errorf("token not yet valid")
+	}
+
 	return claims, nil
 }
 

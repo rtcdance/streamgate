@@ -23,7 +23,7 @@ func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config,
 		if wallet := c.GetHeader("X-Wallet-Address"); wallet != "" {
 			key = key + ":" + wallet
 		}
-		if !rateLimiter.Allow(key) {
+		if !rateLimiter.Allow(c.Request.Context(), key) {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": "Rate limit exceeded",
 				"code":  "RATE_LIMITED",

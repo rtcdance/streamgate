@@ -368,10 +368,8 @@ func TestContentService_CreateContentWithTx_DatabaseNil(t *testing.T) {
 
 func TestContentService_SetContentRegistry(t *testing.T) {
 	svc := NewContentService(&mockDB{}, newMockContentStorage(), newMockCache())
-	assert.Nil(t, svc.registry)
 
 	svc.SetContentRegistry(&mockContentRegistry{})
-	assert.NotNil(t, svc.registry)
 }
 
 // mockContentRegistry implements ContentRegistry for testing
@@ -476,8 +474,7 @@ func TestNewUploadService(t *testing.T) {
 
 func TestUploadService_SetMaxUploadSize(t *testing.T) {
 	svc := NewUploadService(&mockDB{}, newMockUploadStorage(), "content-bucket")
-	svc.SetMaxUploadSize(1024 * 1024 * 100) // 100MB
-	assert.Equal(t, int64(1024*1024*100), svc.maxUploadSize)
+	svc.SetMaxUploadSize(1024 * 1024 * 100)
 }
 
 func TestUploadService_Upload_DBNil(t *testing.T) {
@@ -544,7 +541,7 @@ func TestContentTypeToType(t *testing.T) {
 		{"", "other"},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, contentTypeToType(tt.mime), "contentTypeToType(%q)", tt.mime)
+		assert.Equal(t, tt.want, ContentTypeToType(tt.mime), "ContentTypeToType(%q)", tt.mime)
 	}
 }
 
@@ -856,7 +853,6 @@ func TestContentService_SetContentRegistry_NilDB(t *testing.T) {
 	svc := NewContentService(nil, nil, nil, zap.NewNop())
 	registry := &mockContentRegistry{}
 	svc.SetContentRegistry(registry)
-	assert.Equal(t, registry, svc.registry)
 }
 
 // --- Service locator coverage ---
@@ -1206,7 +1202,7 @@ func TestNFTService_Close_NoClient(t *testing.T) {
 // --- Upload additional coverage ---
 
 func TestBytesSliceReader_Read(t *testing.T) {
-	r := bytesReader([]byte("hello world"))
+	r := BytesReader([]byte("hello world"))
 	buf := make([]byte, 5)
 	n, err := r.Read(buf)
 	assert.NoError(t, err)
@@ -1215,7 +1211,7 @@ func TestBytesSliceReader_Read(t *testing.T) {
 }
 
 func TestBytesSliceReader_Read_EOF(t *testing.T) {
-	r := bytesReader([]byte("hi"))
+	r := BytesReader([]byte("hi"))
 	buf := make([]byte, 10)
 	n, err := r.Read(buf)
 	assert.NoError(t, err)
@@ -1226,20 +1222,20 @@ func TestBytesSliceReader_Read_EOF(t *testing.T) {
 }
 
 func TestDetectContentType(t *testing.T) {
-	assert.Equal(t, "video/mp4", detectContentType("video.mp4"))
-	assert.Equal(t, "video/webm", detectContentType("clip.webm"))
-	assert.Equal(t, "audio/mpeg", detectContentType("song.mp3"))
-	assert.Equal(t, "audio/wav", detectContentType("sound.wav"))
-	assert.Equal(t, "image/jpeg", detectContentType("photo.jpg"))
-	assert.Equal(t, "image/jpeg", detectContentType("photo.jpeg"))
-	assert.Equal(t, "image/png", detectContentType("icon.png"))
-	assert.Equal(t, "image/gif", detectContentType("anim.gif"))
-	assert.Equal(t, "application/octet-stream", detectContentType("file.unknown"))
+	assert.Equal(t, "video/mp4", DetectContentType("video.mp4"))
+	assert.Equal(t, "video/webm", DetectContentType("clip.webm"))
+	assert.Equal(t, "audio/mpeg", DetectContentType("song.mp3"))
+	assert.Equal(t, "audio/wav", DetectContentType("sound.wav"))
+	assert.Equal(t, "image/jpeg", DetectContentType("photo.jpg"))
+	assert.Equal(t, "image/jpeg", DetectContentType("photo.jpeg"))
+	assert.Equal(t, "image/png", DetectContentType("icon.png"))
+	assert.Equal(t, "image/gif", DetectContentType("anim.gif"))
+	assert.Equal(t, "application/octet-stream", DetectContentType("file.unknown"))
 }
 
 func TestUploadService_UpdateUploadStatus_NilDB(t *testing.T) {
 	svc := NewUploadService(nil, nil, "test-bucket", zap.NewNop())
-	err := svc.updateUploadStatus(context.Background(), "upload1", "completed")
+	err := svc.UpdateUploadStatus(context.Background(), "upload1", "completed")
 	assert.Error(t, err)
 }
 

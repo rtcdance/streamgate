@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -140,7 +141,14 @@ func abortWithErrorDetail(c *gin.Context, status int, code, msg, detail string) 
 func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		b := make([]byte, 16)
-		_, _ = rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			// crypto/rand failure is extremely rare; fall back to timestamp-based ID
+			requestID := fmt.Sprintf("req-fallback-%d", time.Now().UnixNano())
+			c.Set("request_id", requestID)
+			c.Header("X-Request-ID", requestID)
+			c.Next()
+			return
+		}
 		requestID := fmt.Sprintf("req-%x-%x", b[:8], b[8:])
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)

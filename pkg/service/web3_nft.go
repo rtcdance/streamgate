@@ -117,29 +117,15 @@ func (ws *Web3Service) GetNFTBalance(ctx context.Context, chainID int64, contrac
 
 	ethCaller := client.GetEthClient()
 
-	// Detect token standard and route to the appropriate verifier
-	standard := web3.DetectTokenStandard(ctx, ethCaller, contractAddress, ws.logger)
-	switch standard {
-	case web3.TokenStandardERC1155:
-		verifier := web3.NewERC1155Verifier(ethCaller, ws.logger, nil)
-		// For balance checks, use tokenID "0" as default — the caller can
-		// specify a specific token via VerifyNFTOwnership if needed.
-		owned, err := verifier.VerifyNFTOwnership(ctx, contractAddress, "0", ownerAddress)
-		if err != nil {
-			return nil, err
-		}
-		if owned {
-			return big.NewInt(1), nil
-		}
-		return big.NewInt(0), nil
-	default:
-		nftVerifier := web3.NewNFTVerifier(ethCaller, ws.logger).WithBlockTag(client.GetFinality().BlockTag())
-		balance, err := nftVerifier.GetNFTBalance(ctx, contractAddress, ownerAddress)
-		if err != nil {
-			return nil, err
-		}
-		return balance, nil
+	// Use auto-detect verifier which handles both ERC-721 and ERC-1155.
+	// For ERC-1155, GetNFTBalanceAutoDetect requires a tokenID parameter;
+	// callers must use VerifyNFTOwnership with a specific tokenID instead.
+	nftVerifier := web3.NewNFTVerifier(ethCaller, ws.logger).WithBlockTag(client.GetFinality().BlockTag())
+	balance, err := nftVerifier.GetNFTBalanceAutoDetect(ctx, contractAddress, ownerAddress)
+	if err != nil {
+		return nil, err
 	}
+	return balance, nil
 }
 
 // VerifyNFTOwnershipAutoDetect detects the token standard and routes to the

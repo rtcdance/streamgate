@@ -53,7 +53,7 @@ func (h *NFTEventHandler) HandleTransfer(ctx context.Context, evt *event.Indexed
 	h.nftService.InvalidateOwnershipCache(ctx, contractAddress, tokenID)
 
 	if h.middlewareCache != nil {
-		h.invalidateMiddlewareCache(contractAddress, tokenID, evt)
+		h.invalidateMiddlewareCache(ctx, contractAddress, tokenID, evt)
 	}
 
 	return nil
@@ -77,15 +77,14 @@ func (h *NFTEventHandler) HandleTransferSingle(ctx context.Context, evt *event.I
 	h.nftService.InvalidateOwnershipCache(ctx, contractAddress, tokenID)
 
 	if h.middlewareCache != nil {
-		h.invalidateMiddlewareCache(contractAddress, tokenID, evt)
+		h.invalidateMiddlewareCache(ctx, contractAddress, tokenID, evt)
 	}
 
 	return nil
 }
 
-func (h *NFTEventHandler) invalidateMiddlewareCache(contractAddress, tokenID string, evt *event.IndexedEvent) {
+func (h *NFTEventHandler) invalidateMiddlewareCache(ctx context.Context, contractAddress, tokenID string, evt *event.IndexedEvent) {
 	from, to := h.extractAddresses(evt)
-	ctx := context.Background()
 
 	if from != "" {
 		key := fmt.Sprintf("%d:%s:%s:%s", h.defaultChainID, from, contractAddress, tokenID)

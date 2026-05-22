@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/web3/solana"
@@ -24,10 +24,7 @@ var DefaultArweaveGateway = "https://arweave.net/"
 var fetchSemaphore = make(chan struct{}, 20) // max 20 concurrent fetches
 
 // activeFetches tracks active goroutines for monitoring
-var (
-	activeFetches int64
-	fetchMu       sync.Mutex
-)
+var activeFetches atomic.Int64
 
 // safeHTTPClient is an HTTP client with a custom dialer that blocks private IPs.
 var safeHTTPClient = &http.Client{
@@ -61,9 +58,7 @@ var safeHTTPClient = &http.Client{
 
 // GetActiveFetches returns the number of currently active fetch operations
 func GetActiveFetches() int64 {
-	fetchMu.Lock()
-	defer fetchMu.Unlock()
-	return activeFetches
+	return activeFetches.Load()
 }
 
 // SetFetchConcurrency sets the maximum number of concurrent fetch operations
@@ -139,13 +134,9 @@ func safeFetchURI(ctx context.Context, uri string, result interface{}) error {
 		return fmt.Errorf("context cancelled while waiting for fetch slot: %w", ctx.Err())
 	}
 
-	fetchMu.Lock()
-	activeFetches++
-	fetchMu.Unlock()
+	activeFetches.Add(1)
 	defer func() {
-		fetchMu.Lock()
-		activeFetches--
-		fetchMu.Unlock()
+		activeFetches.Add(-1)
 	}()
 
 	// Handle data: URIs inline — no HTTP request needed
@@ -203,6 +194,13 @@ func safeFetchURI(ctx context.Context, uri string, result interface{}) error {
 	}
 
 	return nil
+}
+
+// SafeFetchURI fetches JSON metadata from a URI with SSRF protection.
+// Supports https://, ipfs://, ar://, and data:application/json URIs.
+// Private IPs are blocked. Concurrency is limited by the fetch semaphore.
+func SafeFetchURI(ctx context.Context, uri string, result interface{}) error {
+	return safeFetchURI(ctx, uri, result)
 }
 
 func init() {

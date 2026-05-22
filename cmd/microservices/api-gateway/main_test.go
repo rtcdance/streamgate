@@ -267,10 +267,11 @@ func TestRegisterAuthRoutes_ChallengeAndLogin(t *testing.T) {
 	signature, err := verifier.SignMessage(challengeResp.Message, privateKey)
 	require.NoError(t, err)
 
-	loginBody, _ := json.Marshal(map[string]string{
+	loginBody, _ := json.Marshal(map[string]interface{}{
 		"wallet":       wallet,
 		"challenge_id": challengeResp.ChallengeID,
 		"signature":    signature,
+		"chain_id":     int64(11155111),
 	})
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
 	loginRec := httptest.NewRecorder()
@@ -294,10 +295,11 @@ func TestRegisterAuthRoutes_LoginRejectsReplay(t *testing.T) {
 	signature, err := verifier.SignMessage(challenge.Message, privateKey)
 	require.NoError(t, err)
 
-	loginBody, _ := json.Marshal(map[string]string{
+	loginBody, _ := json.Marshal(map[string]interface{}{
 		"wallet":       wallet,
 		"challenge_id": challenge.ID,
 		"signature":    signature,
+		"chain_id":     int64(11155111),
 	})
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))

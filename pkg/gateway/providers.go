@@ -141,7 +141,10 @@ func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db
 	}
 	res.DB = d
 	log.Info("Database connected", zap.String("host", cfg.Database.Host))
-	if err := storage.RunEmbeddedMigrations(d, migrationFS, "migrations"); err != nil {
+	migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	err = storage.RunEmbeddedMigrations(migCtx, d, migrationFS, "migrations")
+	migCancel()
+	if err != nil {
 		log.Warn("Database migration failed, continuing with current schema", zap.Error(err))
 	} else {
 		log.Info("Database migrations applied")
