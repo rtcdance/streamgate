@@ -52,7 +52,7 @@ func (nm *NonceManager) NextNonce(ctx context.Context, address string) (uint64, 
 	nm.mu.Lock()
 	nm.evictStaleLocked()
 
-	st, ok := nm.states[address]
+	_, ok := nm.states[address]
 	needSync := !ok || (nm.lastSync[address].Before(time.Now().Add(-nm.syncInterval)))
 	nm.mu.Unlock()
 
@@ -97,7 +97,7 @@ func (nm *NonceManager) NextNonce(ctx context.Context, address string) (uint64, 
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
 
-	st = nm.states[address]
+	st := nm.states[address]
 	if st == nil {
 		netNonce, err := nm.client.GetNonce(ctx, address)
 		if err != nil {

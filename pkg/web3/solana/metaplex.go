@@ -598,7 +598,7 @@ var (
 )
 
 func basicFetchURI(ctx context.Context, uri string, result interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}

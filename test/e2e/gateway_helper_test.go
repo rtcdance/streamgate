@@ -156,8 +156,8 @@ func testConfig() *config.Config {
 }
 
 // newTestAuthService creates a real AuthService with in-memory challenge store and blacklist.
-func newTestAuthService() (*service.AuthService, *web3.SignatureVerifier) {
-	verifier := web3.NewSignatureVerifier(zap.NewNop())
+func newTestAuthService() (svc *service.AuthService, verifier *web3.SignatureVerifier) {
+	verifier = web3.NewSignatureVerifier(zap.NewNop())
 	return service.NewAuthServiceWithDeps(
 		"test-secret-that-is-at-least-32-chars",
 		nil,
@@ -209,13 +209,13 @@ func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, segSto
 }
 
 // generateWallet creates a random Ethereum private key and returns the key and its address.
-func generateWallet(t *testing.T) (string, *web3.SignatureVerifier) {
+func generateWallet(t *testing.T) (wallet string, verifier *web3.SignatureVerifier) {
 	t.Helper()
-	verifier := web3.NewSignatureVerifier(zap.NewNop())
+	verifier = web3.NewSignatureVerifier(zap.NewNop())
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wallet := verifier.GetAddressFromPrivateKey(privateKey)
+	wallet = verifier.GetAddressFromPrivateKey(privateKey)
 	return wallet, verifier
 }

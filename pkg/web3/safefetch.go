@@ -62,8 +62,8 @@ func GetActiveFetches() int64 {
 }
 
 // SetFetchConcurrency sets the maximum number of concurrent fetch operations
-func SetFetchConcurrency(max int) {
-	fetchSemaphore = make(chan struct{}, max)
+func SetFetchConcurrency(n int) {
+	fetchSemaphore = make(chan struct{}, n)
 }
 
 // CloseSafeHTTPClient closes idle connections on the shared safe HTTP client.

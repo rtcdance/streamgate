@@ -302,6 +302,6 @@ func ExtractRevertData(errMsg string) []byte {
 	return contract.ExtractRevertData(errMsg)
 }
 
-func DecodeCustomError(data []byte, abis ...interface{}) (string, map[string]interface{}, bool) {
+func DecodeCustomError(data []byte, abis ...interface{}) (name string, params map[string]interface{}, ok bool) {
 	return contract.DecodeCustomError(data)
 }

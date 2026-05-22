@@ -108,7 +108,7 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 	grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, grpcHealthSvc)
 
-	if healthSvc != nil {
+	{
 		go func() {
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
@@ -1117,7 +1117,7 @@ func grpcStreamAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlack
 	}
 }
 
-func verifyGRPCJWT(ctx context.Context, fullMethod string, jwtSecret string, blacklist middleware.TokenBlacklistChecker) (context.Context, error) {
+func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, blacklist middleware.TokenBlacklistChecker) (context.Context, error) {
 	if grpcNoAuthMethods[fullMethod] {
 		return ctx, nil
 	}

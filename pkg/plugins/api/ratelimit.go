@@ -18,7 +18,6 @@ type bucket struct {
 	refill     float64
 	lastRefill time.Time
 	lastAccess time.Time
-	index      int
 }
 
 func (b *bucket) refillTokens() {
@@ -57,7 +56,6 @@ func (h *bucketHeap) Pop() interface{} {
 }
 
 type RateLimiter struct {
-	stopOnce sync.Once
 	limit      float64
 	burst      int
 	buckets    sync.Map
@@ -117,10 +115,7 @@ func (r *RateLimiter) cleanup() {
 
 	if removed > 0 {
 		r.buckets.Range(func(key, _ interface{}) bool {
-			if r.bucketHeap.Len() >= r.maxBuckets {
-				return false
-			}
-			return true
+			return r.bucketHeap.Len() < r.maxBuckets
 		})
 	}
 }

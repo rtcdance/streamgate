@@ -8,9 +8,7 @@ import (
 )
 
 func init() {
-	core.RegisterPluginFactory("auth", func(cfg *config.Config, logger *zap.Logger) core.Plugin {
-		return NewAuthPlugin(cfg, logger)
-	})
+	core.RegisterPluginFactory("auth", NewAuthPlugin)
 }
 
 func NewAuthPlugin(cfg *config.Config, logger *zap.Logger) core.Plugin {
