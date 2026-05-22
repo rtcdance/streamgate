@@ -12,6 +12,9 @@ concurrency:
 
 env:
   GO_VERSION: "1.24"
+  GOPROXY: "https://proxy.golang.org,https://goproxy.io,direct"
+  GONOSUMDB: "gonum.org/*"
+  GONOSUMCHECK: "gonum.org/*"
 
 jobs:
   lint:
@@ -28,7 +31,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64
+          version: v2.12.2
           args: --timeout=5m
 
       - name: Run go vet
@@ -171,11 +174,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec
-        uses: securego/gosec@v2.21.4
-        with:
-          args: -exclude-dir=examples -exclude-dir=test -exclude-dir=pkg/api -exclude=G103,G104,G115,G204,G301,G304,G306 ./...
+        run: |
+          gosec -exclude-dir=examples -exclude-dir=test -exclude-dir=pkg/api -exclude=G103,G104,G115,G204,G301,G304,G306 ./...
 
       - uses: foundry-rs/foundry-toolchain@v1
 
