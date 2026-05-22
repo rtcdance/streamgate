@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>StreamGate - NFT-Gated Video Streaming</title>
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5/dist/ethers.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 </head>
 <body>
@@ -76,6 +77,9 @@
                     <button id="connect-wallet" class="btn btn-primary">
                         Connect Wallet
                     </button>
+                    <button id="demo-mode-btn" class="btn btn-secondary" style="margin-top:8px">
+                        Demo Mode (No MetaMask)
+                    </button>
                     <div id="wallet-address" class="address-display hidden">
                         <span class="label">Address:</span>
                         <span id="address-value" class="value"></span>
@@ -116,6 +120,9 @@
                     </div>
                     <button id="verify-nft" class="btn btn-primary">
                         Verify NFT Ownership
+                    </button>
+                    <button id="mint-nft-btn" class="btn btn-secondary" style="margin-top:8px">
+                        Mint Demo NFT (Anvil)
                     </button>
                     <div id="nft-result" class="result hidden">
                         <div class="nft-status">
@@ -338,6 +345,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="js/api.js"></script>
+    <script src="js/demo.js"></script>
     <script src="js/wallet.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/player.js"></script>

@@ -78,8 +78,10 @@ class StreamGateApp {
 
     bindEvents() {
         document.getElementById('connect-wallet').addEventListener('click', () => this.connectWallet());
+        document.getElementById('demo-mode-btn').addEventListener('click', () => this.connectDemoWallet());
         document.getElementById('login-btn').addEventListener('click', () => this.doLogin());
         document.getElementById('verify-nft').addEventListener('click', () => this.verifyNFT());
+        document.getElementById('mint-nft-btn').addEventListener('click', () => this.mintDemoNFT());
         document.getElementById('play-video').addEventListener('click', () => this.playVideo());
         document.getElementById('save-backend').addEventListener('click', () => this.saveBackendUrl());
         document.getElementById('check-rpc').addEventListener('click', () => this.loadRPCStatus());
@@ -146,6 +148,66 @@ class StreamGateApp {
         this.api.setBaseUrl(value);
         await this.checkBackend();
         this.showToast('Backend URL updated', 'success');
+    }
+
+    async connectDemoWallet() {
+        demoWallet.setDemoMode(true);
+        this.showLoading(true);
+        try {
+            await demoWallet.connect();
+            this._walletAddress = demoWallet.address;
+            this._chainId = demoWallet.chainId;
+            this.updateWalletUI(demoWallet.address);
+            document.getElementById('connect-wallet').disabled = true;
+            document.getElementById('demo-mode-btn').textContent = 'Demo: Connected (Anvil)';
+            document.getElementById('demo-mode-btn').className = 'btn btn-success';
+            this.showToast('Demo wallet connected (Anvil account #0)', 'success');
+            this.updateAcceptance('wallet');
+        } catch (err) {
+            this.showToast('Demo wallet failed: ' + err.message, 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    }
+
+    async mintDemoNFT() {
+        const contractAddr = document.getElementById('nft-contract').value;
+        if (!contractAddr || contractAddr === '0x...') {
+            this.showToast('Enter an NFT contract address first', 'warning');
+            return;
+        }
+        if (!demoWallet.isDemoMode && !walletService.isConnected()) {
+            this.showToast('Connect a wallet first', 'warning');
+            return;
+        }
+        this.showLoading(true);
+        try {
+            const provider = demoWallet.isDemoMode
+                ? new ethers.providers.JsonRpcProvider('http://localhost:8545')
+                : walletService.provider;
+            const signer = demoWallet.isDemoMode
+                ? new ethers.Wallet(DEMO_ANVIL_KEY, provider)
+                : provider.getSigner();
+            const abi = ['function mint(address to) returns (uint256)',
+                         'function safeMint(address to, uint256 tokenId)',
+                         'function ownerOf(uint256 tokenId) view returns (address)'];
+            const contract = new ethers.Contract(contractAddr, abi, signer);
+            const addr = demoWallet.isDemoMode ? demoWallet.address : walletService.getAddress();
+
+            let tx;
+            try {
+                tx = await contract.mint(addr);
+            } catch {
+                const tokenId = Math.floor(Math.random() * 1000000);
+                tx = await contract.safeMint(addr, tokenId);
+            }
+            const receipt = await tx.wait();
+            this.showToast('NFT minted! Tx: ' + receipt.transactionHash.slice(0, 10) + '...', 'success');
+        } catch (err) {
+            this.showToast('Mint failed: ' + err.message, 'error');
+        } finally {
+            this.showLoading(false);
+        }
     }
 
     async connectWallet() {
