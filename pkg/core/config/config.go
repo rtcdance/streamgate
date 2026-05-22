@@ -618,8 +618,8 @@ func setDefaults() {
 	// Storage defaults
 	viper.SetDefault("storage.type", "minio")
 	viper.SetDefault("storage.endpoint", "localhost:9000")
-	viper.SetDefault("storage.accesskey", "minioadmin")
-	viper.SetDefault("storage.secretkey", "minioadmin")
+	viper.SetDefault("storage.accesskey", "minioadmin") // #nosec G101 -- dev default, ValidateProduction() warns
+	viper.SetDefault("storage.secretkey", "minioadmin") // #nosec G101 -- dev default, ValidateProduction() warns
 	viper.SetDefault("storage.bucket", "streamgate")
 	viper.SetDefault("storage.region", "us-east-1")
 	viper.SetDefault("storage.use_ssl", false)
@@ -803,7 +803,7 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		}
 	}
 
-	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" {
+	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" { // #nosec G101 -- checking for insecure default
 		ve.Warnings = append(ve.Warnings, "storage credentials use dev default 'minioadmin'")
 	}
 	if !c.Storage.UseSSL {
@@ -905,8 +905,8 @@ func DefaultConfig() *Config {
 		Storage: StorageConfig{
 			Type:      "minio",
 			Endpoint:  "localhost:9000",
-			AccessKey: envOr("STREAMGATE_STORAGE_ACCESS_KEY", "minioadmin"),
-			SecretKey: envOr("STREAMGATE_STORAGE_SECRET_KEY", "minioadmin"),
+			AccessKey: envOr("STREAMGATE_STORAGE_ACCESS_KEY", "minioadmin"), // #nosec G101 -- dev default
+			SecretKey: envOr("STREAMGATE_STORAGE_SECRET_KEY", "minioadmin"), // #nosec G101 -- dev default
 			Bucket:    "streamgate",
 			Region:    "us-east-1",
 			UseSSL:    false,

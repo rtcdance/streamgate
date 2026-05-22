@@ -108,32 +108,30 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 	grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, grpcHealthSvc)
 
-	{
-		go func() {
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-					resp, err := healthSvc.Check(checkCtx, &servicev1.HealthCheckRequest{})
-					cancel()
-					if err != nil {
-						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
-						continue
-					}
-					if resp.Status == servicev1.HealthCheckResponse_SERVING {
-						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-					} else {
-						grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
-					}
-				case <-ctx.Done():
-					log.Debug("gRPC health check stopped")
-					return
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				resp, err := healthSvc.Check(checkCtx, &servicev1.HealthCheckRequest{})
+				cancel()
+				if err != nil {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+					continue
 				}
+				if resp.Status == servicev1.HealthCheckResponse_SERVING {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+				} else {
+					grpcHealthSvc.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+				}
+			case <-ctx.Done():
+				log.Debug("gRPC health check stopped")
+				return
 			}
-		}()
-	}
+		}
+	}()
 
 	if svcs.AuthService != nil && svcs.Web3Service != nil {
 		authSrv := &authGrpcServer{

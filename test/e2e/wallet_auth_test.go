@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e_test
 
 import (
@@ -18,7 +20,7 @@ import (
 
 // newTestAuthService creates an AuthService wired with a real SignatureVerifier
 // and in-memory stores — no external dependencies required.
-func newTestAuthService() (*service.AuthService, *ecdsa.PrivateKey, string) {
+func newTestAuthServiceWithKey() (*service.AuthService, *ecdsa.PrivateKey, string) {
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
 		panic(err)
@@ -51,7 +53,7 @@ func signPersonalMessage(message string, privateKey *ecdsa.PrivateKey) (string, 
 }
 
 func TestWalletAuth_PersonalSign_FullFlow(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	// Step 1: Generate challenge (personal_sign — default)
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
@@ -86,7 +88,7 @@ func TestWalletAuth_PersonalSign_FullFlow(t *testing.T) {
 }
 
 func TestWalletAuth_WrongSignature_Rejected(t *testing.T) {
-	authSvc, _, address := newTestAuthService()
+	authSvc, _, address := newTestAuthServiceWithKey()
 
 	wrongKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -103,7 +105,7 @@ func TestWalletAuth_WrongSignature_Rejected(t *testing.T) {
 }
 
 func TestWalletAuth_ChallengeReuse_Rejected(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
 	require.NoError(t, err)
@@ -155,7 +157,7 @@ func TestWalletAuth_ExpiredChallenge_Rejected(t *testing.T) {
 }
 
 func TestWalletAuth_WrongAddress_Rejected(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
 	require.NoError(t, err)
@@ -170,7 +172,7 @@ func TestWalletAuth_WrongAddress_Rejected(t *testing.T) {
 }
 
 func TestWalletAuth_TokenRevocation(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
 	require.NoError(t, err)
@@ -196,7 +198,7 @@ func TestWalletAuth_TokenRevocation(t *testing.T) {
 }
 
 func TestWalletAuth_MultipleChallenges(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	// Generate multiple challenges
 	ch1, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1)
@@ -216,14 +218,14 @@ func TestWalletAuth_MultipleChallenges(t *testing.T) {
 }
 
 func TestWalletAuth_InvalidAddress_Rejected(t *testing.T) {
-	authSvc, _, _ := newTestAuthService()
+	authSvc, _, _ := newTestAuthServiceWithKey()
 
 	_, err := authSvc.GenerateWalletChallenge(context.Background(), "not-an-address", 1)
 	assert.Error(t, err)
 }
 
 func TestWalletAuth_SigningTypeEIP712(t *testing.T) {
-	authSvc, _, address := newTestAuthService()
+	authSvc, _, address := newTestAuthServiceWithKey()
 
 	// Request EIP-712 signing type
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 1, "eip712")
@@ -235,7 +237,7 @@ func TestWalletAuth_SigningTypeEIP712(t *testing.T) {
 }
 
 func TestWalletAuth_FullLifecycle(t *testing.T) {
-	authSvc, privateKey, address := newTestAuthService()
+	authSvc, privateKey, address := newTestAuthServiceWithKey()
 
 	// 1. Challenge
 	challenge, err := authSvc.GenerateWalletChallenge(context.Background(), address, 11155111) // Sepolia

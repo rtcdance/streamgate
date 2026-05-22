@@ -440,6 +440,9 @@ func parseSize(typeName string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if size <= 0 || size > 256 || size%8 != 0 {
+			return 0, fmt.Errorf("invalid uint size: %d", size)
+		}
 		return size, nil
 	}
 
@@ -449,6 +452,9 @@ func parseSize(typeName string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if size <= 0 || size > 256 || size%8 != 0 {
+			return 0, fmt.Errorf("invalid int size: %d", size)
+		}
 		return size, nil
 	}
 
@@ -457,6 +463,9 @@ func parseSize(typeName string) (int, error) {
 		size, err := strconv.Atoi(parts[1])
 		if err != nil {
 			return 0, err
+		}
+		if size <= 0 || size > 32 {
+			return 0, fmt.Errorf("invalid bytes size: %d", size)
 		}
 		return size, nil
 	}

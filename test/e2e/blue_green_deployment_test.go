@@ -1,6 +1,6 @@
 //go:build k8s
 
-package e2e
+package e2e_test
 
 import (
 	"context"

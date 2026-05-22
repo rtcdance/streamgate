@@ -15,8 +15,6 @@ linters:
       disabled-checks:
         - exitAfterDefer
         - ifElseChain
-        - hugeParam
-        - rangeValCopy
         - deprecatedComment
         - unslice
         - wrapperFunc

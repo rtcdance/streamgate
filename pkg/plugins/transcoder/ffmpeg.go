@@ -554,9 +554,18 @@ func parseTime(timeStr string) time.Duration {
 		return 0
 	}
 
-	hours, _ := strconv.Atoi(parts[0])
-	minutes, _ := strconv.Atoi(parts[1])
-	seconds, _ := strconv.ParseFloat(parts[2], 64)
+	hours, err := strconv.Atoi(parts[0])
+	if err != nil || hours < 0 {
+		return 0
+	}
+	minutes, err := strconv.Atoi(parts[1])
+	if err != nil || minutes < 0 || minutes > 59 {
+		return 0
+	}
+	seconds, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil || seconds < 0 || seconds > 60 {
+		return 0
+	}
 
 	duration := time.Duration(hours)*time.Hour +
 		time.Duration(minutes)*time.Minute +

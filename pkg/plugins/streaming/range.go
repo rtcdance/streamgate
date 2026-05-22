@@ -65,6 +65,12 @@ func (rh *RangeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	filePath = filepath.Join(rh.storageDir, strings.TrimPrefix(filePath, "/"))
 
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(rh.storageDir)+string(filepath.Separator)) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
 	rh.logger.Debug("Handling range request",
 		zap.String("path", filePath),
 		zap.String("method", r.Method),
@@ -378,6 +384,11 @@ func (rh *RangeHandler) ServeRange(ctx context.Context, filePath string, start, 
 
 	filePath = filepath.Join(rh.storageDir, filePath)
 
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(rh.storageDir)+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path traversal denied")
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -417,6 +428,11 @@ func (rh *RangeHandler) ServeRange(ctx context.Context, filePath string, start, 
 func (rh *RangeHandler) GetFileInfo(ctx context.Context, filePath string) (*FileInfo, error) {
 	filePath = filepath.Join(rh.storageDir, filePath)
 
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(rh.storageDir)+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path traversal denied")
+	}
+
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
@@ -443,6 +459,11 @@ type FileInfo struct {
 // ValidateRange validates a byte range
 func (rh *RangeHandler) ValidateRange(ctx context.Context, filePath string, start, end int64) (bool, error) {
 	filePath = filepath.Join(rh.storageDir, filePath)
+
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(rh.storageDir)+string(filepath.Separator)) {
+		return false, fmt.Errorf("path traversal denied")
+	}
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
