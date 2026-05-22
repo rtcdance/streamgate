@@ -385,8 +385,8 @@ func (ft *FFmpegTranscoder) generateHLSMasterPlaylist(outputDir string, profiles
 		variantPath := fmt.Sprintf("%s.m3u8", profile.Resolution)
 		bandwidth := parseBitrate(profile.Bitrate) * 1000
 
-		builder.WriteString(fmt.Sprintf("#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bandwidth, profile.Resolution))
-		builder.WriteString(fmt.Sprintf("%s\n", variantPath))
+		fmt.Fprintf(&builder, "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bandwidth, profile.Resolution)
+		fmt.Fprintf(&builder, "%s\n", variantPath)
 	}
 
 	return os.WriteFile(masterPath, []byte(builder.String()), 0o644)
@@ -464,7 +464,7 @@ func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []strin
 	var listContent strings.Builder
 	for _, path := range inputPaths {
 		escaped := strings.ReplaceAll(path, `'`, `'\''`)
-		listContent.WriteString(fmt.Sprintf("file '%s'\n", escaped))
+		fmt.Fprintf(&listContent, "file '%s'\n", escaped)
 	}
 
 	if err := os.WriteFile(listFile, []byte(listContent.String()), 0o644); err != nil {
