@@ -1,4 +1,4 @@
-//go:build e2e
+//go:build fullchain
 
 package e2e_test
 

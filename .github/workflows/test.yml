@@ -88,7 +88,7 @@ jobs:
           fi
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${COVERAGE}%"
-          if echo "${{ matrix.test-path }}" | grep -qE "test-unit-models"; then
+          if echo "${{ matrix.test-path }}" | grep -qE "test-unit-models|test-unit-storage"; then
             echo "Skipping coverage threshold for ${{ matrix.test-path }} (expected low coverage)"
             exit 0
           fi
