@@ -58,34 +58,34 @@ func ValidateSIWEMessage(msg *SIWEMessage, expectedDomain, expectedAddress, expe
 func BuildSIWEMessage(msg *SIWEMessage) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("%s wants you to sign in with your Ethereum account:\n", msg.Domain))
-	sb.WriteString(fmt.Sprintf("%s\n\n", msg.Address))
+	fmt.Fprintf(&sb, "%s wants you to sign in with your Ethereum account:\n", msg.Domain)
+	fmt.Fprintf(&sb, "%s\n\n", msg.Address)
 
 	sb.WriteString("Sign in to StreamGate\n\n")
 
-	sb.WriteString(fmt.Sprintf("URI: %s\n", msg.URI))
-	sb.WriteString(fmt.Sprintf("Version: %s\n", msg.Version))
+	fmt.Fprintf(&sb, "URI: %s\n", msg.URI)
+	fmt.Fprintf(&sb, "Version: %s\n", msg.Version)
 
-	sb.WriteString(fmt.Sprintf("Chain ID: %d\n", msg.ChainID))
+	fmt.Fprintf(&sb, "Chain ID: %d\n", msg.ChainID)
 
-	sb.WriteString(fmt.Sprintf("Nonce: %s\n", msg.Nonce))
+	fmt.Fprintf(&sb, "Nonce: %s\n", msg.Nonce)
 
-	sb.WriteString(fmt.Sprintf("Issued At: %s", msg.IssuedAt))
+	fmt.Fprintf(&sb, "Issued At: %s", msg.IssuedAt)
 
 	if msg.ExpirationTime != "" {
-		sb.WriteString(fmt.Sprintf("\nExpiration Time: %s", msg.ExpirationTime))
+		fmt.Fprintf(&sb, "\nExpiration Time: %s", msg.ExpirationTime)
 	}
 	if msg.NotBefore != "" {
-		sb.WriteString(fmt.Sprintf("\nNot Before: %s", msg.NotBefore))
+		fmt.Fprintf(&sb, "\nNot Before: %s", msg.NotBefore)
 	}
 	if msg.RequestID != "" {
-		sb.WriteString(fmt.Sprintf("\nRequest ID: %s", msg.RequestID))
+		fmt.Fprintf(&sb, "\nRequest ID: %s", msg.RequestID)
 	}
 
 	if len(msg.Resources) > 0 {
 		sb.WriteString("\nResources:")
 		for _, r := range msg.Resources {
-			sb.WriteString(fmt.Sprintf("\n- %s", r))
+			fmt.Fprintf(&sb, "\n- %s", r)
 		}
 	}
 
