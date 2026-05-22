@@ -18,31 +18,26 @@ class AuthService {
         return response;
     }
 
-    async login() {
-        if (!this.wallet.isConnected()) {
-            throw new Error('Wallet not connected');
+async login() {
+        if (!this.currentChallenge) {
+            throw new Error('No challenge. Call requestChallenge() first.');
         }
 
-        if (!this.currentChallenge) {
-            await this.requestChallenge();
-        }
+        // Use demo wallet if in demo mode, otherwise use MetaMask wallet
+        const w = demoWallet.isDemoMode ? demoWallet : this.wallet;
 
         let signature;
-        const signingType = this.currentChallenge.signing_type;
-
-        if (signingType === 'eip712') {
-            // EIP-712 typed data signing: wallet shows a structured message
-            // instead of a raw hex string — better UX and security
+        if (this.currentChallenge.signing_type === 'eip712') {
             const typedData = this.buildEIP712TypedData(this.currentChallenge);
-            signature = await this.wallet.signTypedData(typedData);
+            signature = await w.signTypedData(typedData);
         } else {
             // Fallback to personal_sign (EIP-191)
             const message = this.currentChallenge.message;
-            signature = await this.wallet.signMessage(message);
+            signature = await w.signMessage(message);
         }
 
         const response = await this.api.loginWithChallenge(
-            this.wallet.getAddress(),
+            w.getAddress(),
             this.currentChallenge.challenge_id,
             signature
         );
