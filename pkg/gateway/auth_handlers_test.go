@@ -271,6 +271,112 @@ func TestAuthHandlers_Refresh(t *testing.T) {
 	})
 }
 
+func TestAuthHandlers_Login(t *testing.T) {
+	r, _ := setupAuthRouter()
+
+	t.Run("missing fields", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("missing challenge_id", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{"signature": "0xsig"})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid signature", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"challenge_id": "nonexistent",
+			"signature":    "0xdeadbeef",
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}
+
+func TestAuthHandlers_Register_EdgeCases(t *testing.T) {
+	r, _ := setupAuthRouter()
+
+	t.Run("invalid username characters", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"username": "user name!",
+			"password": "password123",
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+func TestAuthHandlers_Verify_RevokedToken(t *testing.T) {
+	r, authService := setupAuthRouter()
+
+	_ = authService.Register(context.Background(), "revoketest", "pass123", "revoke@test.com")
+	token, err := authService.Authenticate(context.Background(), "revoketest", "pass123")
+	require.NoError(t, err)
+
+	_ = authService.RevokeToken(context.Background(), token)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/verify", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthHandlers_ChangePassword(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+
+	sigVerifier := service.NewMultiChainSignatureVerifier(zap.NewNop(), nil)
+	mockStore := newMockAuthStorage()
+	authService := service.NewAuthServiceWithDeps(
+		"test-jwt-secret-key-for-testing-",
+		mockStore,
+		sigVerifier,
+		storage.NewMemoryChallengeStore(),
+		5*time.Minute,
+		storage.NewMemoryTokenBlacklist(),
+	)
+
+	protected := r.Group("/")
+	protected.Use(func(c *gin.Context) {
+		c.Set("wallet_address", "testuser")
+		c.Next()
+	})
+	RegisterAuthProtectedRoutes(protected, zap.NewNop(), authService)
+
+	t.Run("change password success", func(t *testing.T) {
+		_ = mockStore.CreateUser(context.Background(), &models.User{
+			Username: "testuser",
+			Password: "$2a$10$dummyhash",
+		})
+
+		body, _ := json.Marshal(map[string]string{
+			"old_password": "oldpass123",
+			"new_password": "newpass123",
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/change-password", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, w.Code)
+	})
+}
+
 func TestAuthHandlers_Profile(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -1,0 +1,6 @@
+CREATE TABLE content (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    owner_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);

@@ -137,4 +137,47 @@ func TestPublisher_Publish(t *testing.T) {
 		assert.True(t, testReceived)
 		assert.False(t, otherReceived)
 	})
+
+	t.Run("publish returns context.Canceled when context cancelled and semaphore full", func(t *testing.T) {
+		p := NewPublisher()
+		p.maxConcurrency = 1
+		p.sem = make(chan struct{}, 1)
+		p.sem <- struct{}{}
+
+		p.Subscribe("test", func(e Event) {})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := p.Publish(ctx, Event{Type: "test"})
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("publish returns context.DeadlineExceeded when context times out and semaphore full", func(t *testing.T) {
+		p := NewPublisher()
+		p.maxConcurrency = 1
+		p.sem = make(chan struct{}, 1)
+		p.sem <- struct{}{}
+
+		p.Subscribe("test", func(e Event) {})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+
+		err := p.Publish(ctx, Event{Type: "test"})
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+
+	t.Run("publish recovers from handler panic", func(t *testing.T) {
+		p := NewPublisher()
+
+		p.Subscribe("test", func(e Event) {
+			panic("simulated panic")
+		})
+
+		err := p.Publish(context.Background(), Event{Type: "test"})
+		assert.NoError(t, err)
+
+		p.Close()
+	})
 }

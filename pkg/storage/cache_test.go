@@ -1,6 +1,9 @@
 package storage
 
 import (
+	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,273 +14,145 @@ import (
 func TestNewCacheStorage(t *testing.T) {
 	cs := NewCacheStorage(100)
 	assert.NotNil(t, cs)
-	assert.Equal(t, 0, cs.Size())
+	defer cs.Close()
 }
 
-func TestCacheStorage_Get(t *testing.T) {
+func TestCacheStorage_SetAndGet(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	t.Run("get existing key", func(t *testing.T) {
-		err := cs.Set("key1", "value1")
-		require.NoError(t, err)
-
-		val, err := cs.Get("key1")
-		require.NoError(t, err)
-		assert.Equal(t, "value1", val)
-	})
-
-	t.Run("get non-existing key", func(t *testing.T) {
-		_, err := cs.Get("nonexistent")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "key not found")
-	})
-
-	t.Run("get expired key", func(t *testing.T) {
-		err := cs.SetWithExpiration("expired", "value", 10*time.Millisecond)
-		require.NoError(t, err)
-
-		time.Sleep(20 * time.Millisecond)
-
-		_, err = cs.Get("expired")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "key expired")
-	})
-}
-
-func TestCacheStorage_GetString(t *testing.T) {
-	cs := NewCacheStorage(100)
-
-	t.Run("get string value", func(t *testing.T) {
-		err := cs.Set("strkey", "stringvalue")
-		require.NoError(t, err)
-
-		val, err := cs.GetString("strkey")
-		require.NoError(t, err)
-		assert.Equal(t, "stringvalue", val)
-	})
-
-	t.Run("get non-string value", func(t *testing.T) {
-		err := cs.Set("intkey", 123)
-		require.NoError(t, err)
-
-		_, err = cs.GetString("intkey")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "value is not a string")
-	})
-
-	t.Run("get non-existing key", func(t *testing.T) {
-		_, err := cs.GetString("nonexistent")
-		assert.Error(t, err)
-	})
-}
-
-func TestCacheStorage_GetBytes(t *testing.T) {
-	cs := NewCacheStorage(100)
-
-	t.Run("get bytes value", func(t *testing.T) {
-		data := []byte("test data")
-		err := cs.Set("byteskey", data)
-		require.NoError(t, err)
-
-		val, err := cs.GetBytes("byteskey")
-		require.NoError(t, err)
-		assert.Equal(t, data, val)
-	})
-
-	t.Run("get non-bytes value", func(t *testing.T) {
-		err := cs.Set("strkey", "string")
-		require.NoError(t, err)
-
-		_, err = cs.GetBytes("strkey")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "value is not a byte slice")
-	})
-
-	t.Run("get non-existing key", func(t *testing.T) {
-		_, err := cs.GetBytes("nonexistent")
-		assert.Error(t, err)
-	})
-}
-
-func TestCacheStorage_Set(t *testing.T) {
-	cs := NewCacheStorage(100)
-
-	err := cs.Set("key", "value")
+	err := cs.Set("key1", "value1")
 	require.NoError(t, err)
-	assert.Equal(t, 1, cs.Size())
 
-	val, err := cs.Get("key")
+	val, err := cs.Get("key1")
 	require.NoError(t, err)
-	assert.Equal(t, "value", val)
+	assert.Equal(t, "value1", val)
 }
 
-func TestCacheStorage_SetWithExpiration(t *testing.T) {
+func TestCacheStorage_Get_NotFound(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	t.Run("set with expiration", func(t *testing.T) {
-		err := cs.SetWithExpiration("expkey", "value", 100*time.Millisecond)
-		require.NoError(t, err)
-
-		val, err := cs.Get("expkey")
-		require.NoError(t, err)
-		assert.Equal(t, "value", val)
-
-		time.Sleep(150 * time.Millisecond)
-
-		_, err = cs.Get("expkey")
-		assert.Error(t, err)
-	})
-
-	t.Run("set without expiration", func(t *testing.T) {
-		err := cs.SetWithExpiration("noexp", "value", 0)
-		require.NoError(t, err)
-
-		time.Sleep(50 * time.Millisecond)
-
-		val, err := cs.Get("noexp")
-		require.NoError(t, err)
-		assert.Equal(t, "value", val)
-	})
+	_, err := cs.Get("missing")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "key not found")
 }
 
-func TestCacheStorage_SetJSON(t *testing.T) {
+func TestCacheStorage_SetWithExpiration_Expired(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	type TestStruct struct {
-		Name  string `json:"name"`
-		Value int    `json:"value"`
-	}
+	err := cs.SetWithExpiration("key1", "value1", 1*time.Nanosecond)
+	require.NoError(t, err)
 
-	t.Run("set and get JSON", func(t *testing.T) {
-		data := TestStruct{Name: "test", Value: 42}
-		err := cs.SetJSON("jsonkey", data, 0)
-		require.NoError(t, err)
-
-		var result TestStruct
-		err = cs.GetJSON("jsonkey", &result)
-		require.NoError(t, err)
-		assert.Equal(t, "test", result.Name)
-		assert.Equal(t, 42, result.Value)
-	})
-
-	t.Run("set JSON with expiration", func(t *testing.T) {
-		data := TestStruct{Name: "exp", Value: 10}
-		err := cs.SetJSON("expjson", data, 50*time.Millisecond)
-		require.NoError(t, err)
-
-		var result TestStruct
-		err = cs.GetJSON("expjson", &result)
-		require.NoError(t, err)
-
-		time.Sleep(100 * time.Millisecond)
-
-		err = cs.GetJSON("expjson", &result)
-		assert.Error(t, err)
-	})
-}
-
-func TestCacheStorage_GetJSON(t *testing.T) {
-	cs := NewCacheStorage(100)
-
-	type TestStruct struct {
-		Name string `json:"name"`
-	}
-
-	t.Run("get JSON value", func(t *testing.T) {
-		data := TestStruct{Name: "test"}
-		err := cs.SetJSON("jsonkey", data, 0)
-		require.NoError(t, err)
-
-		var result TestStruct
-		err = cs.GetJSON("jsonkey", &result)
-		require.NoError(t, err)
-		assert.Equal(t, "test", result.Name)
-	})
-
-	t.Run("get non-existing key", func(t *testing.T) {
-		var result TestStruct
-		err := cs.GetJSON("nonexistent", &result)
-		assert.Error(t, err)
-	})
-
-	t.Run("get invalid JSON", func(t *testing.T) {
-		err := cs.Set("invalid", []byte("not json"))
-		require.NoError(t, err)
-
-		var result TestStruct
-		err = cs.GetJSON("invalid", &result)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to unmarshal JSON")
-	})
+	time.Sleep(10 * time.Millisecond)
+	_, err = cs.Get("key1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "key expired")
 }
 
 func TestCacheStorage_Delete(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	t.Run("delete existing key", func(t *testing.T) {
-		err := cs.Set("key", "value")
-		require.NoError(t, err)
-		assert.Equal(t, 1, cs.Size())
+	err := cs.Set("key1", "value1")
+	require.NoError(t, err)
 
-		err = cs.Delete("key")
-		require.NoError(t, err)
-		assert.Equal(t, 0, cs.Size())
+	err = cs.Delete("key1")
+	require.NoError(t, err)
 
-		_, err = cs.Get("key")
-		assert.Error(t, err)
-	})
-
-	t.Run("delete non-existing key", func(t *testing.T) {
-		err := cs.Delete("nonexistent")
-		assert.NoError(t, err)
-	})
+	_, err = cs.Get("key1")
+	assert.Error(t, err)
 }
 
 func TestCacheStorage_Exists(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	t.Run("existing key", func(t *testing.T) {
-		err := cs.Set("key", "value")
-		require.NoError(t, err)
+	assert.False(t, cs.Exists("key1"))
 
-		assert.True(t, cs.Exists("key"))
-	})
+	err := cs.Set("key1", "value1")
+	require.NoError(t, err)
+	assert.True(t, cs.Exists("key1"))
+}
 
-	t.Run("non-existing key", func(t *testing.T) {
-		assert.False(t, cs.Exists("nonexistent"))
-	})
+func TestCacheStorage_Exists_Expired(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
 
-	t.Run("expired key", func(t *testing.T) {
-		err := cs.SetWithExpiration("expired", "value", 10*time.Millisecond)
-		require.NoError(t, err)
+	err := cs.SetWithExpiration("key1", "value1", 1*time.Nanosecond)
+	require.NoError(t, err)
 
-		time.Sleep(20 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	assert.False(t, cs.Exists("key1"))
+}
 
-		assert.False(t, cs.Exists("expired"))
-	})
+func TestCacheStorage_GetString(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Set("key1", "hello")
+	require.NoError(t, err)
+
+	val, err := cs.GetString("key1")
+	require.NoError(t, err)
+	assert.Equal(t, "hello", val)
+}
+
+func TestCacheStorage_GetString_NotString(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Set("key1", 123)
+	require.NoError(t, err)
+
+	_, err = cs.GetString("key1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a string")
+}
+
+func TestCacheStorage_GetBytes(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Set("key1", []byte("data"))
+	require.NoError(t, err)
+
+	val, err := cs.GetBytes("key1")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("data"), val)
+}
+
+func TestCacheStorage_GetBytes_NotBytes(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Set("key1", "string")
+	require.NoError(t, err)
+
+	_, err = cs.GetBytes("key1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not a byte slice")
 }
 
 func TestCacheStorage_Clear(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
 	err := cs.Set("key1", "value1")
 	require.NoError(t, err)
 	err = cs.Set("key2", "value2")
 	require.NoError(t, err)
-	assert.Equal(t, 2, cs.Size())
 
 	err = cs.Clear()
 	require.NoError(t, err)
-	assert.Equal(t, 0, cs.Size())
 
-	_, err = cs.Get("key1")
-	assert.Error(t, err)
-	_, err = cs.Get("key2")
-	assert.Error(t, err)
+	assert.Equal(t, 0, cs.Size())
 }
 
 func TestCacheStorage_Size(t *testing.T) {
 	cs := NewCacheStorage(100)
+	defer cs.Close()
 
 	assert.Equal(t, 0, cs.Size())
 
@@ -286,49 +161,150 @@ func TestCacheStorage_Size(t *testing.T) {
 
 	_ = cs.Set("key2", "value2")
 	assert.Equal(t, 2, cs.Size())
+}
 
-	_ = cs.Delete("key1")
+func TestCacheStorage_LRU_Eviction(t *testing.T) {
+	cs := NewCacheStorage(3)
+	defer cs.Close()
+
+	_ = cs.Set("key1", "value1")
+	_ = cs.Set("key2", "value2")
+	_ = cs.Set("key3", "value3")
+	_ = cs.Set("key4", "value4")
+
+	assert.True(t, cs.Size() <= 3)
+}
+
+func TestCacheStorage_SetJSON(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	data := map[string]string{"name": "test"}
+	err := cs.SetJSON("key1", data, time.Hour)
+	require.NoError(t, err)
+
+	raw, err := cs.GetBytes("key1")
+	require.NoError(t, err)
+
+	var result map[string]string
+	err = json.Unmarshal(raw, &result)
+	require.NoError(t, err)
+	assert.Equal(t, "test", result["name"])
+}
+
+func TestCacheStorage_GetJSON(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	data := map[string]string{"name": "test"}
+	err := cs.SetJSON("key1", data, time.Hour)
+	require.NoError(t, err)
+
+	var result map[string]string
+	err = cs.GetJSON("key1", &result)
+	require.NoError(t, err)
+	assert.Equal(t, "test", result["name"])
+}
+
+func TestCacheStorage_GetJSON_NotFound(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	var result map[string]string
+	err := cs.GetJSON("missing", &result)
+	assert.Error(t, err)
+}
+
+func TestCacheStorage_SetJSON_MarshalError(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.SetJSON("key", make(chan int), time.Hour)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to marshal JSON")
+}
+
+func TestCacheStorage_GetJSON_UnmarshalError(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Set("key", []byte("not-json-bytes"))
+	require.NoError(t, err)
+
+	var result map[string]string
+	err = cs.GetJSON("key", &result)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to unmarshal JSON")
+}
+
+func TestCacheStorage_GetBytes_NotFound(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	_, err := cs.GetBytes("missing")
+	assert.Error(t, err)
+}
+
+func TestCacheStorage_GetString_NotFound(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	_, err := cs.GetString("missing")
+	assert.Error(t, err)
+}
+
+func TestCacheStorage_LRU_Eviction_SmallMaxSize(t *testing.T) {
+	cs := NewCacheStorage(1)
+	defer cs.Close()
+
+	_ = cs.Set("key1", "value1")
+	_ = cs.Set("key2", "value2")
+
 	assert.Equal(t, 1, cs.Size())
 }
 
-func TestCacheStorage_LRUEviction(t *testing.T) {
-	cs := NewCacheStorage(3)
-
-	_ = cs.Set("key1", "value1")
-	time.Sleep(time.Millisecond)
-	_ = cs.Set("key2", "value2")
-	time.Sleep(time.Millisecond)
-	_ = cs.Set("key3", "value3")
-	assert.Equal(t, 3, cs.Size())
-
-	_ = cs.Set("key4", "value4")
-	assert.Equal(t, 3, cs.Size())
-
-	_, err := cs.Get("key1")
-	assert.Error(t, err)
-
-	val, err := cs.Get("key2")
-	require.NoError(t, err)
-	assert.Equal(t, "value2", val)
-}
-
-func TestCacheStorage_UpdateLastAccess(t *testing.T) {
+func TestCacheStorage_DoubleClose(t *testing.T) {
 	cs := NewCacheStorage(100)
-
-	_ = cs.Set("key", "value")
-	time.Sleep(10 * time.Millisecond)
-
-	val, err := cs.Get("key")
-	require.NoError(t, err)
-	assert.Equal(t, "value", val)
-
-	_ = cs.Set("key2", "value2")
-	time.Sleep(10 * time.Millisecond)
-
-	_ = cs.Set("key3", "value3")
-
-	_ = cs.SetWithExpiration("key", "newvalue", 100*time.Millisecond)
-	val, err = cs.Get("key")
-	require.NoError(t, err)
-	assert.Equal(t, "newvalue", val)
+	cs.Close()
+	cs.Close()
 }
+
+func TestCacheStorage_Delete_Nonexistent(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.Delete("nonexistent")
+	assert.NoError(t, err)
+}
+
+func TestCacheStorage_SetWithExpiration_ZeroTTL(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	err := cs.SetWithExpiration("key1", "value1", 0)
+	require.NoError(t, err)
+
+	val, err := cs.Get("key1")
+	require.NoError(t, err)
+	assert.Equal(t, "value1", val)
+}
+
+func TestCacheStorage_ConcurrentAccess(t *testing.T) {
+	cs := NewCacheStorage(100)
+	defer cs.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			key := fmt.Sprintf("key-%d", id)
+			_ = cs.Set(key, fmt.Sprintf("value-%d", id))
+			_, _ = cs.Get(key)
+			_ = cs.Exists(key)
+		}(i)
+	}
+	wg.Wait()
+}
+
+

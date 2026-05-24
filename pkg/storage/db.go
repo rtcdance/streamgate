@@ -8,12 +8,19 @@ import (
 	"github.com/rtcdance/streamgate/pkg/models"
 )
 
+type Rows interface {
+	Next() bool
+	Scan(dest ...interface{}) error
+	Close() error
+	Err() error
+}
+
 // DB abstracts SQL database operations.
 // Both *PostgresDB and *Database satisfy this interface.
 //
 //go:generate mockgen -destination=mocks/mock_db.go -package=mocks streamgate/pkg/storage DB
 type DB interface {
-	Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	Query(ctx context.Context, query string, args ...interface{}) (Rows, error)
 	QueryRow(ctx context.Context, query string, args ...interface{}) *CancelRow
 	Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	Begin(ctx context.Context) (*sql.Tx, error)
@@ -54,8 +61,7 @@ func NewDatabaseWithImpl(impl DB, dbType string) *Database {
 	return &Database{impl: impl, dbType: dbType}
 }
 
-// Query executes a query that returns rows
-func (db *Database) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (db *Database) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	return db.impl.Query(ctx, query, args...)
 }
 

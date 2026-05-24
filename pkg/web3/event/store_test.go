@@ -165,3 +165,32 @@ func TestEventIndexer_ResumeFromCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(500), checkpoint)
 }
+
+func TestMemoryEventStore_EventCount(t *testing.T) {
+	store := NewMemoryEventStore()
+	defer func() { _ = store.Close() }()
+
+	assert.Equal(t, 0, store.EventCount())
+
+	_ = store.SaveEvent(&IndexedEvent{ID: "e1", BlockNumber: 100})
+	assert.Equal(t, 1, store.EventCount())
+
+	_ = store.SaveEvent(&IndexedEvent{ID: "e2", BlockNumber: 101})
+	_ = store.SaveEvent(&IndexedEvent{ID: "e3", BlockNumber: 102})
+	assert.Equal(t, 3, store.EventCount())
+}
+
+func TestMemoryEventStore_GetCheckpointTimestamp(t *testing.T) {
+	store := NewMemoryEventStore()
+	defer func() { _ = store.Close() }()
+
+	ts := store.GetCheckpointTimestamp("0x1234")
+	assert.True(t, ts.IsZero())
+
+	_ = store.SaveCheckpoint("0x1234", 500)
+	ts = store.GetCheckpointTimestamp("0x1234")
+	assert.True(t, ts.IsZero())
+
+	ts = store.GetCheckpointTimestamp("nonexistent")
+	assert.True(t, ts.IsZero())
+}

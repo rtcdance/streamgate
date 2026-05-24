@@ -6,21 +6,21 @@ import (
 )
 
 type (
-	TranscodingService    = transcoding.TranscodingService
-	TranscodingTask       = transcoding.TranscodingTask
-	TranscodingQueue      = transcoding.TranscodingQueue
-	VideoTranscoder       = transcoding.VideoTranscoder
-	SegmentStorage        = transcoding.SegmentStorage
-	PostTranscodeHook     = transcoding.PostTranscodeHook
-	TranscodingOption     = transcoding.TranscodingOption
-	TranscodingProfile    = transcoding.TranscodingProfile
+	TranscodingService     = transcoding.TranscodingService
+	TranscodingTask        = transcoding.TranscodingTask
+	TranscodingQueue       = transcoding.TranscodingQueue
+	VideoTranscoder        = transcoding.VideoTranscoder
+	SegmentStorage         = transcoding.SegmentStorage
+	PostTranscodeHook      = transcoding.PostTranscodeHook
+	TranscodingOption      = transcoding.TranscodingOption
+	TranscodingProfile     = transcoding.TranscodingProfile
 	MemoryTranscodingQueue = transcoding.MemoryTranscodingQueue
 )
 
 var (
-	NewTranscodingService    = transcoding.NewTranscodingService
+	NewTranscodingService     = transcoding.NewTranscodingService
 	NewMemoryTranscodingQueue = transcoding.NewMemoryTranscodingQueue
-	DefaultProfiles          = transcoding.DefaultProfiles
+	DefaultProfiles           = transcoding.DefaultProfiles
 )
 
 func WithTranscoder(t VideoTranscoder) TranscodingOption {

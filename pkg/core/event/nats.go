@@ -1,3 +1,5 @@
+//go:build nats_integration
+
 package event
 
 import (

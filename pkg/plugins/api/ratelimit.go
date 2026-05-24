@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const (
+var (
 	defaultMaxBuckets   = 100000
 	defaultCleanupEvery = 5 * time.Minute
 	defaultBucketMaxAge = 30 * time.Minute

@@ -233,3 +233,224 @@ func TestMemoryChallengeStore_NotFound(t *testing.T) {
 	err = store.MarkChallengeUsed(ctx, "nonexistent", time.Now().UTC())
 	assert.EqualError(t, err, "challenge not found")
 }
+
+func TestWithRedisPassword(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisPassword("mypassword")
+	opt(&cfg)
+	assert.Equal(t, "mypassword", cfg.password)
+}
+
+func TestWithRedisDB(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisDB(2)
+	opt(&cfg)
+	assert.Equal(t, 2, cfg.db)
+}
+
+func TestWithRedisPoolSize(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisPoolSize(50)
+	opt(&cfg)
+	assert.Equal(t, 50, cfg.poolSize)
+}
+
+func TestWithRedisDialTimeout(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisDialTimeout(10 * time.Second)
+	opt(&cfg)
+	assert.Equal(t, 10*time.Second, cfg.dialTimeout)
+}
+
+func TestWithRedisReadTimeout(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisReadTimeout(5 * time.Second)
+	opt(&cfg)
+	assert.Equal(t, 5*time.Second, cfg.readTimeout)
+}
+
+func TestWithRedisWriteTimeout(t *testing.T) {
+	cfg := redisChallengeStoreConfig{}
+	opt := WithRedisWriteTimeout(5 * time.Second)
+	opt(&cfg)
+	assert.Equal(t, 5*time.Second, cfg.writeTimeout)
+}
+
+func TestNewRedisChallengeStore_ConnectionFailed(t *testing.T) {
+	_, err := NewRedisChallengeStore("localhost:0", 5*time.Minute)
+	assert.Error(t, err)
+}
+
+func TestNewRedisChallengeStore_WithOptions(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	store, err := NewRedisChallengeStore(mr.Addr(), 5*time.Minute,
+		WithRedisPassword(""),
+		WithRedisDB(0),
+		WithRedisPoolSize(10),
+		WithRedisDialTimeout(2*time.Second),
+		WithRedisReadTimeout(1*time.Second),
+		WithRedisWriteTimeout(1*time.Second),
+	)
+	require.NoError(t, err)
+	defer store.Close()
+}
+
+func TestNewRedisChallengeStoreWithClient(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := NewRedisChallengeStoreWithClient(client, 5*time.Minute)
+	require.NotNil(t, store)
+	defer store.Close()
+}
+
+func TestRedisChallengeStore_Close_NilClient(t *testing.T) {
+	store := &RedisChallengeStore{client: nil}
+	err := store.Close()
+	assert.NoError(t, err)
+}
+
+func TestRedisChallengeStore_SaveChallenge_NilClient(t *testing.T) {
+	store := &RedisChallengeStore{client: nil, ttl: 5 * time.Minute}
+	ctx := context.Background()
+	ch := &WalletChallenge{ID: "test"}
+	assert.Panics(t, func() {
+		_ = store.SaveChallenge(ctx, ch)
+	})
+}
+
+func TestRedisChallengeStore_GetChallenge_InvalidJSON(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := NewRedisChallengeStoreWithClient(client, 5*time.Minute)
+	defer store.Close()
+
+	ctx := context.Background()
+	client.Set(ctx, "bad-json", "not-json-at-all", 5*time.Minute)
+
+	_, err = store.GetChallenge(ctx, "bad-json")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode challenge")
+}
+
+func TestRedisChallengeStore_MarkChallengeUsed_UnexpectedResult(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := NewRedisChallengeStoreWithClient(client, 5*time.Minute)
+	defer store.Close()
+
+	ctx := context.Background()
+	ch := &WalletChallenge{
+		ID:        "unexpected-result",
+		Nonce:     "n",
+		Message:   "m",
+		IssuedAt:  time.Now().UTC(),
+		ExpiresAt: time.Now().UTC().Add(5 * time.Minute),
+	}
+	require.NoError(t, store.SaveChallenge(ctx, ch))
+
+	mr.Close()
+
+	err = store.MarkChallengeUsed(ctx, ch.ID, time.Now().UTC())
+	assert.Error(t, err)
+}
+
+func TestMemoryChallengeStore_Close(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	err := store.Close()
+	assert.NoError(t, err)
+}
+
+func TestMemoryChallengeStore_Close_DoubleClose(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	err := store.Close()
+	require.NoError(t, err)
+	err = store.Close()
+	assert.NoError(t, err)
+}
+
+func TestMemoryChallengeStore_EvictExpired(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	defer store.Close()
+
+	store.mu.Lock()
+	store.challenges["expired-1"] = &WalletChallenge{
+		ID:        "expired-1",
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	store.challenges["valid-1"] = &WalletChallenge{
+		ID:        "valid-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	store.mu.Unlock()
+
+	store.evictExpired()
+
+	store.mu.RLock()
+	_, hasExpired := store.challenges["expired-1"]
+	_, hasValid := store.challenges["valid-1"]
+	store.mu.RUnlock()
+
+	assert.False(t, hasExpired)
+	assert.True(t, hasValid)
+}
+
+func TestMemoryChallengeStore_EvictExpired_AllValid(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	defer store.Close()
+
+	store.mu.Lock()
+	store.challenges["valid-1"] = &WalletChallenge{
+		ID:        "valid-1",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	store.mu.Unlock()
+
+	store.evictExpired()
+
+	store.mu.RLock()
+	count := len(store.challenges)
+	store.mu.RUnlock()
+
+	assert.Equal(t, 1, count)
+}
+
+func TestMemoryChallengeStore_EvictExpired_Empty(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	defer store.Close()
+
+	assert.NotPanics(t, store.evictExpired)
+}
+
+func TestMemoryChallengeStore_SaveChallenge_ReturnsCopy(t *testing.T) {
+	store := NewMemoryChallengeStore()
+	defer store.Close()
+
+	ctx := context.Background()
+	ch := &WalletChallenge{
+		ID:        "copy-test",
+		Nonce:     "original",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+
+	require.NoError(t, store.SaveChallenge(ctx, ch))
+
+	got, err := store.GetChallenge(ctx, ch.ID)
+	require.NoError(t, err)
+	got.Nonce = "modified"
+
+	original, err := store.GetChallenge(ctx, ch.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", original.Nonce)
+}

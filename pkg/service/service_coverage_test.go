@@ -24,7 +24,7 @@ import (
 
 // mockDB implements storage.DB
 type mockDB struct {
-	queryFn    func(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	queryFn    func(ctx context.Context, query string, args ...interface{}) (stg.Rows, error)
 	queryRowFn func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow
 	execFn     func(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 	beginFn    func(ctx context.Context) (*sql.Tx, error)
@@ -32,7 +32,7 @@ type mockDB struct {
 	closeFn    func() error
 }
 
-func (m *mockDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (m *mockDB) Query(ctx context.Context, query string, args ...interface{}) (stg.Rows, error) {
 	if m.queryFn != nil {
 		return m.queryFn(ctx, query, args...)
 	}

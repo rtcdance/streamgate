@@ -24,7 +24,10 @@ import (
 func (ws *Web3Service) GetGasPrice(ctx context.Context, chainID int64) (string, error) {
 	ws.logger.Debug("Getting gas price", zap.Int64("chain_id", chainID))
 
-	// Get chain client
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found: multiChainManager not initialized")
+	}
+
 	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return "", err
@@ -81,6 +84,10 @@ func (ws *Web3Service) DownloadFromIPFS(ctx context.Context, cid string) ([]byte
 func (ws *Web3Service) SendTransaction(ctx context.Context, chainID int64, to string, value *big.Int, data []byte) (string, error) {
 	if ws.secureKey == nil {
 		return "", fmt.Errorf("transaction private key not configured")
+	}
+
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
 	}
 
 	// Apply a default timeout so a hung RPC doesn't block indefinitely.
@@ -292,6 +299,9 @@ func (ws *Web3Service) SendTransaction(ctx context.Context, chainID int64, to st
 // WaitForReceipt polls for a transaction receipt until it is mined or the
 // context deadline is exceeded. It optionally waits for N block confirmations.
 func (ws *Web3Service) WaitForReceipt(ctx context.Context, chainID int64, txHash string, confirmations uint64) (*web3.ReceiptInfo, error) {
+	if ws.multiChainManager == nil {
+		return nil, fmt.Errorf("chain client not found: multiChainManager not initialized")
+	}
 	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return nil, fmt.Errorf("chain client not found: %w", err)
@@ -405,6 +415,10 @@ func gweiToWei(gwei float64) *big.Int {
 // The caller provides the signed permit parameters (v, r, s from EIP-712 signing).
 // This completes the gasless approval flow: sign off-chain to submit on-chain.
 func (ws *Web3Service) SubmitPermit(ctx context.Context, chainID int64, contractAddress, owner, spender string, value, deadline *big.Int, v uint8, r, s [32]byte) (string, error) {
+	if value == nil || deadline == nil {
+		return "", fmt.Errorf("value and deadline must not be nil")
+	}
+
 	ownerAddr := common.HexToAddress(owner)
 	spenderAddr := common.HexToAddress(spender)
 
@@ -422,6 +436,10 @@ func (ws *Web3Service) SubmitPermit(ctx context.Context, chainID int64, contract
 func (ws *Web3Service) ReplaceStuckTransaction(ctx context.Context, chainID int64, pending *web3.PendingTx, bumpPercent int64) (string, error) {
 	if ws.secureKey == nil {
 		return "", fmt.Errorf("transaction private key not configured")
+	}
+
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
 	}
 
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -451,6 +469,10 @@ func (ws *Web3Service) ReplaceStuckTransaction(ctx context.Context, chainID int6
 func (ws *Web3Service) CancelPendingTransaction(ctx context.Context, chainID int64, pending *web3.PendingTx, bumpPercent int64) (string, error) {
 	if ws.secureKey == nil {
 		return "", fmt.Errorf("transaction private key not configured")
+	}
+
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
 	}
 
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -542,6 +564,9 @@ func (ws *Web3Service) VerifySolanaMetaplexNFTOwnership(ctx context.Context, min
 
 // GetTokenBalance returns the ERC-20 token balance for an address on the given chain.
 func (ws *Web3Service) GetTokenBalance(ctx context.Context, chainID int64, contractAddress, accountAddress string) (string, error) {
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
+	}
 	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return "", fmt.Errorf("chain client not found for chain %d: %w", chainID, err)
@@ -557,6 +582,9 @@ func (ws *Web3Service) GetTokenBalance(ctx context.Context, chainID int64, contr
 
 // GetTokenAllowance returns the ERC-20 allowance from owner to spender.
 func (ws *Web3Service) GetTokenAllowance(ctx context.Context, chainID int64, contractAddress, ownerAddress, spenderAddress string) (string, error) {
+	if ws.multiChainManager == nil {
+		return "", fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
+	}
 	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return "", fmt.Errorf("chain client not found for chain %d: %w", chainID, err)
@@ -572,6 +600,9 @@ func (ws *Web3Service) GetTokenAllowance(ctx context.Context, chainID int64, con
 
 // GetTokenInfo returns ERC-20 token metadata (name, symbol, decimals, totalSupply).
 func (ws *Web3Service) GetTokenInfo(ctx context.Context, chainID int64, contractAddress string) (*web3.ERC20TokenInfo, error) {
+	if ws.multiChainManager == nil {
+		return nil, fmt.Errorf("chain client not found for chain %d: multiChainManager not initialized", chainID)
+	}
 	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return nil, fmt.Errorf("chain client not found for chain %d: %w", chainID, err)

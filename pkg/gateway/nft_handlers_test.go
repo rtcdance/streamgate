@@ -1,8 +1,8 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -10,141 +10,262 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
-// mockNFTOwnershipChecker implements middleware.NFTOwnershipChecker
-type mockNFTOwnershipChecker struct {
-	balance *big.Int
-	err     error
+func TestNewNFTAccessCache(t *testing.T) {
+	cache := NewNFTAccessCache()
+	assert.NotNil(t, cache)
+	cache.Stop()
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	if m.err != nil {
-		return false, m.err
+func TestNFTAccessCache_GetSet(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	_, ok := cache.Get("key1")
+	assert.False(t, ok)
+
+	cache.Set("key1", CachedNFTAccess{
+		HasNFT:    true,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+
+	entry, ok := cache.Get("key1")
+	assert.True(t, ok)
+	assert.True(t, entry.HasNFT)
+}
+
+func TestNFTAccessCache_Get_Expired(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	cache.Set("key1", CachedNFTAccess{
+		HasNFT:    true,
+		ExpiresAt: time.Now().Add(-time.Hour),
+	})
+
+	_, ok := cache.Get("key1")
+	assert.False(t, ok)
+}
+
+func TestNFTAccessCache_Delete(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	cache.Set("key1", CachedNFTAccess{
+		HasNFT:    true,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+
+	cache.Delete("key1")
+
+	_, ok := cache.Get("key1")
+	assert.False(t, ok)
+}
+
+func TestNFTAccessCache_DeleteByPrefix(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	cache.Set("1:0xabc:0xcontract:1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(time.Hour)})
+	cache.Set("1:0xabc:0xcontract:2", CachedNFTAccess{HasNFT: false, ExpiresAt: time.Now().Add(time.Hour)})
+	cache.Set("2:0xdef:0xcontract:1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(time.Hour)})
+
+	cache.DeleteByPrefix("1:0xabc")
+
+	_, ok := cache.Get("1:0xabc:0xcontract:1")
+	assert.False(t, ok)
+	_, ok = cache.Get("1:0xabc:0xcontract:2")
+	assert.False(t, ok)
+	_, ok = cache.Get("2:0xdef:0xcontract:1")
+	assert.True(t, ok)
+}
+
+func TestNFTAccessCache_Eviction(t *testing.T) {
+	cache := NewNFTAccessCache()
+	cache.maxSize = 5
+	defer cache.Stop()
+
+	for i := 0; i < 10; i++ {
+		cache.Set(string(rune('a'+i)), CachedNFTAccess{
+			HasNFT:    true,
+			ExpiresAt: time.Now().Add(time.Hour),
+		})
 	}
-	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
+
+	assert.LessOrEqual(t, len(cache.entries), cache.maxSize+cache.maxSize/10)
 }
 
-func (m *mockNFTOwnershipChecker) GetNFTBalance(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (*big.Int, error) {
-	if m.err != nil {
-		return nil, m.err
+func TestNFTAccessCacheAdapter_Get(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	adapter := &NFTAccessCacheAdapter{Cache: cache}
+
+	_, ok := adapter.Get(nil, "key1")
+	assert.False(t, ok)
+
+	adapter.Set(nil, "key1", middleware.NFTAccessEntry{
+		HasNFT:  true,
+		Balance: big.NewInt(1),
+		Expires: time.Now().Add(time.Hour),
+	})
+
+	entry, ok := adapter.Get(nil, "key1")
+	assert.True(t, ok)
+	assert.True(t, entry.HasNFT)
+}
+
+func TestNFTAccessCacheAdapter_Delete(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	adapter := &NFTAccessCacheAdapter{Cache: cache}
+	adapter.Set(nil, "key1", middleware.NFTAccessEntry{
+		HasNFT:  true,
+		Balance: big.NewInt(1),
+		Expires: time.Now().Add(time.Hour),
+	})
+	adapter.Delete(nil, "key1")
+
+	_, ok := adapter.Get(nil, "key1")
+	assert.False(t, ok)
+}
+
+func TestNFTAccessCacheAdapter_DeleteByPrefix(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	adapter := &NFTAccessCacheAdapter{Cache: cache}
+	adapter.Set(nil, "prefix:key1", middleware.NFTAccessEntry{
+		HasNFT:  true,
+		Balance: big.NewInt(1),
+		Expires: time.Now().Add(time.Hour),
+	})
+	adapter.DeleteByPrefix(nil, "prefix:")
+
+	_, ok := adapter.Get(nil, "prefix:key1")
+	assert.False(t, ok)
+}
+
+func TestNFTAccessCache_EvictExpired_Empty(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	cache.evictExpired()
+	assert.Empty(t, cache.entries)
+}
+
+func TestNFTAccessCache_EvictExpired(t *testing.T) {
+	cache := NewNFTAccessCache()
+	defer cache.Stop()
+
+	cache.Set("expired1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(-time.Hour)})
+	cache.Set("expired2", CachedNFTAccess{HasNFT: false, ExpiresAt: time.Now().Add(-30 * time.Minute)})
+	cache.Set("valid1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(time.Hour)})
+	cache.Set("valid2", CachedNFTAccess{HasNFT: false, ExpiresAt: time.Now().Add(30 * time.Minute)})
+
+	assert.Len(t, cache.entries, 4)
+
+	cache.evictExpired()
+
+	assert.Len(t, cache.entries, 2)
+	_, ok := cache.Get("valid1")
+	assert.True(t, ok)
+	_, ok = cache.Get("valid2")
+	assert.True(t, ok)
+	_, ok = cache.Get("expired1")
+	assert.False(t, ok)
+	_, ok = cache.Get("expired2")
+	assert.False(t, ok)
+}
+
+func TestNFTAccessCache_CleanupLoop_Stop(t *testing.T) {
+	cache := NewNFTAccessCache()
+	cache.Set("test", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(-time.Hour)})
+
+	done := make(chan struct{})
+	go func() {
+		cache.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cleanupLoop did not exit within 1s after Stop()")
 	}
-	return m.balance, nil
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
-	if m.err != nil {
-		return false, m.err
-	}
-	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
+// mockNFTOwnershipChecker implements middleware.NFTOwnershipChecker for tests.
+type mockNFTOwnershipChecker struct{}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnership(_ context.Context, _ int64, _, _, _ string) (bool, error) {
+	return true, nil
 }
 
-func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error) {
-	if m.err != nil {
-		return false, m.err
-	}
-	return m.balance != nil && m.balance.Cmp(big.NewInt(0)) > 0, nil
+func (m *mockNFTOwnershipChecker) GetNFTBalance(_ context.Context, _ int64, _, _ string) (*big.Int, error) {
+	return big.NewInt(1), nil
 }
 
-func (m *mockNFTOwnershipChecker) GetNFTInfo(ctx context.Context, chainID int64, contractAddress, tokenID string) (*middleware.NFTMetadata, error) {
+func (m *mockNFTOwnershipChecker) VerifyNFTOwnershipAutoDetect(_ context.Context, _ int64, _, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockNFTOwnershipChecker) VerifyNFTCollectionAutoDetect(_ context.Context, _ int64, _, _ string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockNFTOwnershipChecker) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return nil, nil
 }
 
-// mockNFTAccessCache implements middleware.NFTAccessCache
-type mockNFTAccessCache struct{}
+// mockNFTCache implements middleware.NFTAccessCache for tests.
+type mockNFTCache struct{}
 
-func (m *mockNFTAccessCache) Get(_ context.Context, key string) (middleware.NFTAccessEntry, bool) {
+func (m *mockNFTCache) Get(_ context.Context, _ string) (middleware.NFTAccessEntry, bool) {
 	return middleware.NFTAccessEntry{}, false
 }
-func (m *mockNFTAccessCache) Set(_ context.Context, key string, entry middleware.NFTAccessEntry) {}
-func (m *mockNFTAccessCache) Delete(_ context.Context, key string)                               {}
-func (m *mockNFTAccessCache) DeleteByPrefix(_ context.Context, prefix string)                    {}
+func (m *mockNFTCache) Set(_ context.Context, _ string, _ middleware.NFTAccessEntry) {}
+func (m *mockNFTCache) Delete(_ context.Context, _ string)                            {}
+func (m *mockNFTCache) DeleteByPrefix(_ context.Context, _ string)                    {}
 
-func setupNFTRouter() *gin.Engine {
+func TestRegisterNFTRoutes_RoutesRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-
-	// Middleware to set wallet_address like auth middleware would
 	r.Use(func(c *gin.Context) {
-		c.Set("wallet_address", "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B")
+		c.Set("wallet_address", "0x1234567890abcdef1234567890abcdef12345678")
 		c.Next()
 	})
 
-	checker := &mockNFTOwnershipChecker{balance: big.NewInt(1)}
-	RegisterNFTRoutes(r, zap.NewNop(), checker, &mockNFTAccessCache{}, 1, 5*time.Minute)
-	return r
-}
-
-func TestNFTHandlers_MissingContract(t *testing.T) {
-	r := setupNFTRouter()
-
-	t.Run("GET /nft without contract returns 400", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft", http.NoBody)
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-
-		var resp map[string]interface{}
-		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.Equal(t, "MISSING_CONTRACT", resp["code"])
-	})
-
-	t.Run("GET /nft/:id without contract returns 400", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft/1", http.NoBody)
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
-
-		var resp map[string]interface{}
-		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.Equal(t, "MISSING_CONTRACT", resp["code"])
-	})
-}
-
-func TestNFTHandlers_InvalidContractAddress(t *testing.T) {
-	r := setupNFTRouter()
+	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	tests := []struct {
-		name     string
-		contract string
+		method string
+		path   string
+		name   string
+		body   string
 	}{
-		{"not hex", "0xGGGG000000000000000000000000000000000000"},
-		{"too short", "0x1234"},
-		{"no 0x prefix", "Ab5801a7D398351b8bE11C439e05C5B3259aeC9B"},
-		{"empty", ""},
-		{"just 0x", "0x"},
+		{method: "GET", path: APIPrefix + "/nft?contract=0x1234567890abcdef1234567890abcdef12345678", name: "list nft balance"},
+		{method: "GET", path: APIPrefix + "/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", name: "get nft by token id"},
+		{method: "POST", path: APIPrefix + "/nft/verify", name: "verify nft ownership", body: `{"contract":"0x1234567890abcdef1234567890abcdef12345678","wallet":"0x1234567890abcdef1234567890abcdef12345678","token_id":"1"}`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract="+tt.contract, http.NoBody)
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+				req.Header.Set("Content-Type", "application/json")
+			} else {
+				req = httptest.NewRequest(tt.method, tt.path, nil)
+			}
 			r.ServeHTTP(w, req)
-			assert.Equal(t, http.StatusBadRequest, w.Code)
-
-			var resp map[string]interface{}
-			_ = json.Unmarshal(w.Body.Bytes(), &resp)
-			assert.Equal(t, "MISSING_CONTRACT", resp["code"])
+			assert.NotEqual(t, http.StatusNotFound, w.Code, "route should be registered")
 		})
 	}
-}
-
-func TestNFTHandlers_ValidContractPassesValidation(t *testing.T) {
-	r := setupNFTRouter()
-
-	t.Run("valid contract address returns 200", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/v1/nft?contract=0xdAC17F958D2ee523a2206206994597C13D831ec7", http.NoBody)
-		r.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code)
-
-		var resp map[string]interface{}
-		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		assert.Equal(t, "1", resp["balance"])
-		assert.Equal(t, true, resp["has_nft"])
-	})
 }

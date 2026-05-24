@@ -10,12 +10,11 @@
 package mocks
 
 import (
-	context "context"
-	sql "database/sql"
-	reflect "reflect"
+	"context"
+	"database/sql"
+	"reflect"
 
-	storage "github.com/rtcdance/streamgate/pkg/storage"
-
+	"github.com/rtcdance/streamgate/pkg/storage"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -107,14 +106,14 @@ func (mr *MockDBMockRecorder) Ping(ctx any) *gomock.Call {
 }
 
 // Query mocks base method.
-func (m *MockDB) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+func (m *MockDB) Query(ctx context.Context, query string, args ...any) (storage.Rows, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, query}
 	for _, a := range args {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Query", varargs...)
-	ret0, _ := ret[0].(*sql.Rows)
+	ret0, _ := ret[0].(storage.Rows)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
