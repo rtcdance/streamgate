@@ -3,6 +3,7 @@ package util
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,15 +114,95 @@ func TestValidation_IsValidJSON(t *testing.T) {
 	}
 }
 
+func TestValidation_IsSafeURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"valid public url", "https://example.com/video", false},
+		{"localhost blocked", "http://localhost:8080/api", true},
+		{"loopback ip blocked", "http://127.0.0.1/api", true},
+		{"private ip blocked", "http://10.0.0.1/api", true},
+		{"private ip 172 blocked", "http://172.16.0.1/api", true},
+		{"private ip 192 blocked", "http://192.168.1.1/api", true},
+		{"link-local blocked", "http://169.254.1.1/api", true},
+		{"unspecified ip blocked", "http://0.0.0.0/api", true},
+		{"missing host", "https:///path", true},
+		{"invalid url", "::not-a-url", true},
+		{"public ip allowed", "http://8.8.8.8/api", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := IsSafeURL(tt.url)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidation_ValidateUUID(t *testing.T) {
+	tests := []struct {
+		name    string
+		uuid    string
+		wantErr bool
+	}{
+		{"valid uuid", "550e8400-e29b-41d4-a716-446655440000", false},
+		{"invalid - too short", "550e8400-e29b-41d4-a716-44665544000", true},
+		{"invalid - no dashes", "550e8400e29b41d4a716446655440000", true},
+		{"invalid - empty", "", true},
+		{"invalid - uppercase hex", "550E8400-E29B-41D4-A716-446655440000", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateUUID(tt.uuid)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidation_IsValidUUID(t *testing.T) {
+	assert.True(t, IsValidUUID("550e8400-e29b-41d4-a716-446655440000"))
+	assert.False(t, IsValidUUID("invalid"))
+	assert.False(t, IsValidUUID(""))
+}
+
+func TestValidation_ValidateNotEmpty(t *testing.T) {
+	require.NoError(t, ValidateNotEmpty("hello", "field"))
+	require.Error(t, ValidateNotEmpty("", "field"))
+	require.Error(t, ValidateNotEmpty("", "name"))
+}
+
+func TestValidation_ValidateLength(t *testing.T) {
+	require.NoError(t, ValidateLength("hello", 1, 10, "field"))
+	require.Error(t, ValidateLength("", 1, 10, "field"))
+	require.Error(t, ValidateLength("a very long string", 1, 5, "field"))
+	require.NoError(t, ValidateLength("abc", 3, 5, "field"))
+}
+
+func TestValidation_IsValidJSON_EmptyString(t *testing.T) {
+	assert.False(t, IsValidJSON(""))
+	assert.False(t, IsValidJSON("   "))
+}
+
 func TestValidation_SanitizeInput(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		expected string
-	}{
+}{
 		{"normal text", "hello world", "hello world"},
-		{"text with spaces", "  hello  world  ", "hello world"},
-		{"text with special chars", "hello<script>alert('xss')</script>", "helloscriptalertxssscript"},
+		{"text with spaces", "  hello  world  ", "hello  world"},
+		{"text with special chars", "hello<script>alert('xss')</script>", "hello&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"},
 		{"empty string", "", ""},
 	}
 

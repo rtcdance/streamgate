@@ -153,7 +153,7 @@ func (pdb *PostgresDB) ConnectWithConfig(dsn string, poolCfg PoolConfig) error {
 // unbounded queries. Callers should pass a context with an appropriate
 // timeout for fine-grained control; the returned *sql.Rows is lazy and
 // requires the context to remain valid during iteration.
-func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {
 	if pdb.db == nil {
 		return nil, fmt.Errorf("database not connected")
 	}
@@ -183,18 +183,26 @@ func (pdb *PostgresDB) Query(ctx context.Context, query string, args ...interfac
 	return rows, nil
 }
 
+type RowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
 type CancelRow struct {
-	*sql.Row
+	row    RowScanner
 	cancel context.CancelFunc
 	err    error
 }
 
 func NewCancelRow(row *sql.Row, cancel context.CancelFunc) *CancelRow {
-	return &CancelRow{Row: row, cancel: cancel}
+	return &CancelRow{row: row, cancel: cancel}
 }
 
 func NewErrorCancelRow(err error) *CancelRow {
 	return &CancelRow{err: err, cancel: func() {}}
+}
+
+func NewTestCancelRow(scanner RowScanner) *CancelRow {
+	return &CancelRow{row: scanner, cancel: func() {}}
 }
 
 func (cr *CancelRow) Scan(dest ...interface{}) error {
@@ -202,7 +210,7 @@ func (cr *CancelRow) Scan(dest ...interface{}) error {
 	if cr.err != nil {
 		return cr.err
 	}
-	return cr.Row.Scan(dest...)
+	return cr.row.Scan(dest...)
 }
 
 func (pdb *PostgresDB) QueryRow(ctx context.Context, query string, args ...interface{}) *CancelRow {
@@ -217,10 +225,10 @@ func (pdb *PostgresDB) QueryRow(ctx context.Context, query string, args ...inter
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 		row := pdb.db.QueryRowContext(ctx, query, args...)
-		return &CancelRow{Row: row, cancel: cancel}
+		return &CancelRow{row: row, cancel: cancel}
 	}
 
-	return &CancelRow{Row: pdb.db.QueryRowContext(ctx, query, args...), cancel: func() {}}
+	return &CancelRow{row: pdb.db.QueryRowContext(ctx, query, args...), cancel: func() {}}
 }
 
 // Exec executes a query without returning rows. Derives a 30s timeout from ctx.

@@ -91,6 +91,9 @@ type Microkernel struct {
 
 // NewMicrokernel creates a new microkernel instance
 func NewMicrokernel(cfg *config.Config, logger *zap.Logger) (*Microkernel, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if logger == nil {

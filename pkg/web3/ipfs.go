@@ -264,7 +264,9 @@ func (hs *HybridStorage) Store(ctx context.Context, filename string, data []byte
 
 	// Check if file should go to IPFS
 	if int64(len(data)) > hs.threshold {
-		// Upload to IPFS
+		if hs.ipfsClient == nil {
+			return nil, fmt.Errorf("IPFS client not configured")
+		}
 		cid, err := hs.ipfsClient.UploadFile(ctx, filename, data)
 		if err != nil {
 			hs.logger.Error("Failed to upload file to IPFS",
