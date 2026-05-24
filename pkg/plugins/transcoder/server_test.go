@@ -18,7 +18,7 @@ import (
 func newTestTranscoderServer(t *testing.T) *TranscoderServer {
 	t.Helper()
 
-	cfg := &config.Config{}
+	cfg := &config.Config{Mode: "monolith"}
 	cfg.Server.Port = 0
 	cfg.Server.ReadTimeout = 1
 	cfg.Server.WriteTimeout = 1

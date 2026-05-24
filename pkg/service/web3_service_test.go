@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/web3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -312,3 +313,159 @@ func TestWeb3Service_WalletManager(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, wallet.Address)
 }
+
+func TestWeb3Service_IsChainSupported(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+	_ = mgr.AddChain(1)
+	_ = mgr.AddChain(137)
+
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	supported, err := ws.IsChainSupported(context.Background(), 1)
+	require.NoError(t, err)
+	assert.True(t, supported)
+
+	supported, err = ws.IsChainSupported(context.Background(), 137)
+	require.NoError(t, err)
+	assert.True(t, supported)
+
+	supported, err = ws.IsChainSupported(context.Background(), 99999)
+	require.NoError(t, err)
+	assert.False(t, supported)
+}
+
+func TestWeb3Service_GetSupportedChains(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+	_ = mgr.AddChain(1)
+
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	chains := ws.GetSupportedChains()
+	assert.NotEmpty(t, chains)
+}
+
+func TestWeb3Service_GetRPCStatuses(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	statuses := ws.GetRPCStatuses()
+	assert.NotNil(t, statuses)
+}
+
+func TestWeb3Service_GetTestnetChains(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	chains := ws.GetTestnetChains()
+	assert.NotNil(t, chains)
+}
+
+func TestWeb3Service_GetMainnetChains(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	chains := ws.GetMainnetChains()
+	assert.NotNil(t, chains)
+}
+
+func TestWeb3Service_GetMultiChainManager(t *testing.T) {
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		signatureVerifier: web3.NewSignatureVerifier(zap.NewNop()),
+	}
+
+	assert.Equal(t, mgr, ws.GetMultiChainManager())
+}
+
+func TestWeb3Service_GetSignatureVerifier(t *testing.T) {
+	sv := web3.NewSignatureVerifier(zap.NewNop())
+	ws := &Web3Service{
+		logger:            zap.NewNop(),
+		signatureVerifier: sv,
+	}
+
+	assert.Equal(t, sv, ws.GetSignatureVerifier())
+}
+
+func TestWeb3Service_GetWalletManager(t *testing.T) {
+	wm := web3.NewWalletManager(zap.NewNop())
+	ws := &Web3Service{
+		logger:        zap.NewNop(),
+		walletManager: wm,
+	}
+
+	assert.Equal(t, wm, ws.GetWalletManager())
+}
+
+func TestWeb3Service_GetGasMonitor_Nil(t *testing.T) {
+	ws := &Web3Service{logger: zap.NewNop()}
+	assert.Nil(t, ws.GetGasMonitor())
+}
+
+func TestWeb3Service_GetTransactionQueue(t *testing.T) {
+	ws := &Web3Service{
+		logger:           zap.NewNop(),
+		transactionQueue: web3.NewTransactionQueue(100),
+	}
+	assert.NotNil(t, ws.GetTransactionQueue())
+}
+
+func TestWeb3Service_GetEIP712Verifier(t *testing.T) {
+	ev := web3.NewEIP712Verifier(zap.NewNop())
+	ws := &Web3Service{
+		logger:         zap.NewNop(),
+		eip712Verifier: ev,
+	}
+	assert.Equal(t, ev, ws.GetEIP712Verifier())
+}
+
+func TestWeb3Service_GetSolanaSigner_Nil(t *testing.T) {
+	ws := &Web3Service{logger: zap.NewNop()}
+	assert.Nil(t, ws.GetSolanaSigner())
+}
+
+func TestWeb3Service_SetNFTAccessCache(t *testing.T) {
+	ws := &Web3Service{logger: zap.NewNop()}
+	cache := &mockNFTAccessCacheForWeb3{}
+	ws.SetNFTAccessCache(cache)
+	assert.Equal(t, cache, ws.nftAccessCache)
+}
+
+func TestWeb3Service_GetEventIndexer_Nil(t *testing.T) {
+	ws := &Web3Service{logger: zap.NewNop()}
+	assert.Nil(t, ws.GetEventIndexer())
+}
+
+type mockNFTAccessCacheForWeb3 struct{}
+
+func (m *mockNFTAccessCacheForWeb3) Get(_ context.Context, _ string) (middleware.NFTAccessEntry, bool) {
+	return middleware.NFTAccessEntry{}, false
+}
+func (m *mockNFTAccessCacheForWeb3) Set(_ context.Context, _ string, _ middleware.NFTAccessEntry) {}
+func (m *mockNFTAccessCacheForWeb3) Delete(_ context.Context, _ string)                           {}
+func (m *mockNFTAccessCacheForWeb3) DeleteByPrefix(_ context.Context, _ string)                   {}

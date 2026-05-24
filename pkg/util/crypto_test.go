@@ -78,16 +78,39 @@ func TestCrypto_EncryptDecrypt(t *testing.T) {
 	require.Equal(t, plaintext, string(decrypted))
 }
 
-func TestCrypto_EncryptDecrypt_WrongKey(t *testing.T) {
-	plaintext := "sensitive data"
-	key1 := "12345678901234567890123456789012"
-	key2 := "98765432109876543210987654321098"
+func TestCrypto_EncryptAES_BadKeyLength(t *testing.T) {
+	_, err := EncryptAES([]byte("data"), []byte("short"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "key must be 32 bytes")
+}
 
-	// Encrypt with key1
-	ciphertext, err := Encrypt([]byte(plaintext), []byte(key1))
+func TestCrypto_DecryptAES_BadKeyLength(t *testing.T) {
+	_, err := DecryptAES("ciphertext", []byte("short"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "key must be 32 bytes")
+}
+
+func TestCrypto_DecryptAES_BadHex(t *testing.T) {
+	key := []byte("12345678901234567890123456789012")
+	_, err := DecryptAES("not-valid-hex!@#", key)
+	require.Error(t, err)
+}
+
+func TestCrypto_DecryptAES_CiphertextTooShort(t *testing.T) {
+	key := []byte("12345678901234567890123456789012")
+	_, err := DecryptAES("ab", key)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ciphertext too short")
+}
+
+func TestCrypto_EncryptAES_DecryptAES_RoundTrip(t *testing.T) {
+	key := []byte("12345678901234567890123456789012")
+	plaintext := []byte("round trip test data")
+
+	ciphertext, err := EncryptAES(plaintext, key)
 	require.NoError(t, err)
 
-	// Try to decrypt with key2
-	_, err = Decrypt(ciphertext, []byte(key2))
-	require.Error(t, err)
+	decrypted, err := DecryptAES(ciphertext, key)
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
 }

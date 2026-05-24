@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -173,6 +174,182 @@ func TestRateLimitMiddleware_Integration(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, makeRequest("10.0.0.2"),
 		"request from different IP should succeed")
+}
+
+func TestRateLimitMiddleware_ServiceHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	cfg := RateLimitConfig{
+		RequestsPerMinute: 2,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}
+	rl := NewRateLimiter(cfg, nil)
+	defer rl.Stop()
+
+	svc := &Service{rateLimiter: rl}
+	router.Use(svc.RateLimitMiddleware())
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req.RemoteAddr = "10.0.0.1:8080"
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req2.RemoteAddr = "10.0.0.1:8080"
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusOK, w2.Code)
+
+	req3 := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	req3.RemoteAddr = "10.0.0.1:8080"
+	w3 := httptest.NewRecorder()
+	router.ServeHTTP(w3, req3)
+	assert.Equal(t, http.StatusTooManyRequests, w3.Code)
+}
+
+func TestRateLimitMiddleware_WithWalletAddress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+
+	cfg := RateLimitConfig{
+		RequestsPerMinute: 2,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}
+	rl := NewRateLimiter(cfg, nil)
+	defer rl.Stop()
+
+	svc := &Service{rateLimiter: rl}
+	router.Use(func(c *gin.Context) {
+		c.Set("wallet_address", "0xWallet123")
+		c.Next()
+	})
+	router.Use(svc.RateLimitMiddleware())
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+}
+
+type mockRedisClient struct {
+	evalFn func(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
+}
+
+func (m *mockRedisClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd {
+	return m.evalFn(ctx, script, keys, args...)
+}
+
+func TestRedisRateLimiter_Allow_Success(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	fallback := newMemoryRateLimiter(cfg)
+	defer fallback.Stop()
+
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			cmd := redis.NewCmdResult(int64(1), nil)
+			return cmd
+		},
+	}
+
+	rl := newRedisRateLimiter(cfg, client, fallback)
+	assert.True(t, rl.Allow(context.Background(), "test-key"))
+	rl.Stop()
+}
+
+func TestRedisRateLimiter_Allow_Denied(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	fallback := newMemoryRateLimiter(cfg)
+	defer fallback.Stop()
+
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			cmd := redis.NewCmdResult(int64(0), nil)
+			return cmd
+		},
+	}
+
+	rl := newRedisRateLimiter(cfg, client, fallback)
+	assert.False(t, rl.Allow(context.Background(), "test-key"))
+	rl.Stop()
+}
+
+func TestRedisRateLimiter_Allow_ErrorFallsBack(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	fallback := newMemoryRateLimiter(cfg)
+	defer fallback.Stop()
+
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			cmd := redis.NewCmdResult(nil, context.DeadlineExceeded)
+			return cmd
+		},
+	}
+
+	rl := newRedisRateLimiter(cfg, client, fallback)
+	assert.True(t, rl.Allow(context.Background(), "test-key"))
+	rl.Stop()
+}
+
+func TestRedisRateLimiter_Allow_WrongTypeFallsBack(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	fallback := newMemoryRateLimiter(cfg)
+	defer fallback.Stop()
+
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			cmd := redis.NewCmdResult("not-int64", nil)
+			return cmd
+		},
+	}
+
+	rl := newRedisRateLimiter(cfg, client, fallback)
+	assert.True(t, rl.Allow(context.Background(), "test-key"))
+	rl.Stop()
+}
+
+func TestMemoryRateLimiter_Eviction(t *testing.T) {
+	cfg := RateLimitConfig{
+		RequestsPerMinute: 100,
+		WindowSize:        time.Minute,
+		CleanupInterval:   5 * time.Minute,
+	}
+	rl := newMemoryRateLimiter(cfg)
+	rl.maxClients = 3
+	defer rl.Stop()
+
+	for i := 0; i < 5; i++ {
+		assert.True(t, rl.Allow(context.Background(), fmt.Sprintf("key-%d", i)))
+	}
+	assert.LessOrEqual(t, len(rl.clients), rl.maxClients)
+}
+
+func TestNewRateLimiter_WithRedis(t *testing.T) {
+	cfg := DefaultRateLimitConfig()
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			return redis.NewCmdResult(int64(1), nil)
+		},
+	}
+	rl := NewRateLimiter(cfg, client)
+	assert.NotNil(t, rl)
+	rl.Stop()
 }
 
 func TestNewRateLimiter_NilRedis(t *testing.T) {

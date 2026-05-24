@@ -552,9 +552,9 @@ const (
 )
 
 var (
-	erc165InterfaceID = common.HexToHash("0x01ffc9a7")
-	erc721InterfaceID = common.HexToHash("0x80ac58cd")
-	erc1155InterfaceID = common.HexToHash("0xd9b67a26")
+	erc165InterfaceID  = [4]byte{0x01, 0xff, 0xc9, 0xa7}
+	erc721InterfaceID  = [4]byte{0x80, 0xac, 0x58, 0xcd}
+	erc1155InterfaceID = [4]byte{0xd9, 0xb6, 0x7a, 0x26}
 )
 
 const erc165ABI = `[{"constant":true,"inputs":[{"name":"interfaceID","type":"bytes4"}],"name":"supportsInterface","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"view","type":"function"}]`
@@ -595,8 +595,8 @@ func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress 
 	return TokenStandardUnknown
 }
 
-func callSupportsInterface(ctx context.Context, caller EthCaller, parsedABI abi.ABI, contract common.Address, interfaceID common.Hash) (bool, error) {
-	data, err := parsedABI.Pack("supportsInterface", [4]byte(interfaceID[:4]))
+func callSupportsInterface(ctx context.Context, caller EthCaller, parsedABI abi.ABI, contract common.Address, interfaceID [4]byte) (bool, error) {
+	data, err := parsedABI.Pack("supportsInterface", interfaceID)
 	if err != nil {
 		return false, err
 	}

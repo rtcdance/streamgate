@@ -35,7 +35,7 @@ func newUploadMockDB() *uploadMockDB {
 	return &uploadMockDB{uploads: make(map[string]*service.UploadInfo)}
 }
 
-func (d *uploadMockDB) Query(_ context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (d *uploadMockDB) Query(_ context.Context, query string, args ...interface{}) (storage.Rows, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
