@@ -31,6 +31,7 @@ require (
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/ethereum/go-ethereum v1.15.5
+	github.com/go-playground/universal-translator v0.18.1
 	github.com/go-playground/validator/v10 v10.23.0
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/ipfs/go-ipfs-api v0.7.0
@@ -95,7 +96,6 @@ require (
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
-	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
