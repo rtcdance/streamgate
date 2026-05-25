@@ -107,21 +107,14 @@ jobs:
           fi
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: ${COVERAGE}%"
-          # Write per-package coverage to job summary
-          {
-            echo "## Coverage Report"
-            echo ""
-            echo "| Package | Coverage |"
-            echo "|---------|----------|"
-            echo "| **Total** | **${COVERAGE}%** |"
-            go tool cover -func=coverage.out 2>/dev/null | grep "^total:" -v | \
-              awk -F'/' 'NR>0 {pkg=$2; if(pkg != prev) {print pkg; prev=pkg}}' | sort -u | \
-              while IFS= read -r pkg; do
-                cov=$(go tool cover -func=coverage.out 2>/dev/null | \
-                  awk -v pkg="$pkg" -F/ '$2==pkg{c++; s+=$(NF-1)} END {if(c>0) printf "%.1f", s/c}' 2>/dev/null)
-                [ -n "$cov" ] && echo "| \`$pkg\` | ${cov}% |"
-              done
-          } >> "$GITHUB_STEP_SUMMARY"
+          # Write coverage to job summary (visible at bottom of workflow page)
+          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Total coverage: ${COVERAGE}%**" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           if [ "$(echo "$COVERAGE < 10" | bc -l)" = "1" ]; then
             echo "Coverage ${COVERAGE}% is below 10% threshold"
             exit 1
