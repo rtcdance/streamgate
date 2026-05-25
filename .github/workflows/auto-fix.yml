@@ -20,6 +20,7 @@ permissions:
   pull-requests: write
   actions: read
   checks: read
+  issues: write
 
 env:
   MAX_FIX_ATTEMPTS: 3
