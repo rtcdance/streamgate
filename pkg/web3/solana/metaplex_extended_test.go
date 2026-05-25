@@ -1,6 +1,7 @@
 package solana
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -215,54 +216,54 @@ func TestTokenInfo_Fields(t *testing.T) {
 
 func TestMetaplexVerifier_VerifyNFTOwnership_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.VerifyNFTOwnership(nil, "invalid-mint!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
+	_, err := mv.VerifyNFTOwnership(context.TODO(), "invalid-mint!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mint address")
 }
 
 func TestMetaplexVerifier_VerifyNFTOwnership_InvalidOwner(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.VerifyNFTOwnership(nil, "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "invalid-owner!")
+	_, err := mv.VerifyNFTOwnership(context.TODO(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "invalid-owner!")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid owner address")
 }
 
 func TestMetaplexVerifier_GetMetadata_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.GetMetadata(nil, "invalid!")
+	_, err := mv.GetMetadata(context.TODO(), "invalid!")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mint address")
 }
 
 func TestMetaplexVerifier_IsMetaplexNFT_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.IsMetaplexNFT(nil, "invalid!")
+	_, err := mv.IsMetaplexNFT(context.TODO(), "invalid!")
 	require.Error(t, err)
 }
 
 func TestMetaplexVerifier_VerifyCreator_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.VerifyCreator(nil, "invalid!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
+	_, err := mv.VerifyCreator(context.TODO(), "invalid!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mint address")
 }
 
 func TestMetaplexVerifier_VerifyCreator_InvalidCreator(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.VerifyCreator(nil, "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "invalid!")
+	_, err := mv.VerifyCreator(context.TODO(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "invalid!")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid creator address")
 }
 
 func TestMetaplexVerifier_VerifyCollection_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.VerifyCollection(nil, "invalid!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
+	_, err := mv.VerifyCollection(context.TODO(), "invalid!", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
 	require.Error(t, err)
 }
 
 func TestMetaplexVerifier_GetTokenInfo_InvalidMint(t *testing.T) {
 	mv := NewMetaplexVerifier(nil, zap.NewNop(), nil)
-	_, err := mv.GetTokenInfo(nil, "invalid!")
+	_, err := mv.GetTokenInfo(context.TODO(), "invalid!")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mint address")
 }

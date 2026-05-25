@@ -102,7 +102,10 @@ func TestDatabase_Query_WithMockFn(t *testing.T) {
 		},
 	}
 	db := NewDatabaseWithImpl(mock, "mock")
-	_, err := db.Query(context.Background(), "SELECT 1")
+	rows, err := db.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.EqualError(t, err, "query error")
 }
 

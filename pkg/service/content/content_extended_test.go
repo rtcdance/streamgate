@@ -148,14 +148,14 @@ func contentColumnsWithCount() []string {
 	}
 }
 
-func makeContentRow(id, title, desc, ctype, url, thumbURL string, duration int64, size int64, status, ownerID string, createdAt, updatedAt time.Time, metadata map[string]interface{}) [][]driver.Value {
+func makeContentRow(id, title, desc, ctype, url, thumbURL string, duration, size int64, status, ownerID string, createdAt, updatedAt time.Time, metadata map[string]interface{}) [][]driver.Value {
 	metaJSON, _ := json.Marshal(metadata)
 	return [][]driver.Value{
 		{id, title, desc, ctype, url, thumbURL, duration, size, status, ownerID, createdAt, updatedAt, metaJSON},
 	}
 }
 
-func makeContentRowWithCount(totalCount int, id, title, desc, ctype, url, thumbURL string, duration int64, size int64, status, ownerID string, createdAt, updatedAt time.Time, metadata map[string]interface{}) [][]driver.Value {
+func makeContentRowWithCount(totalCount int, id, title, desc, ctype, url, thumbURL string, duration, size int64, status, ownerID string, createdAt, updatedAt time.Time, metadata map[string]interface{}) [][]driver.Value {
 	metaJSON, _ := json.Marshal(metadata)
 	return [][]driver.Value{
 		{totalCount, id, title, desc, ctype, url, thumbURL, duration, size, status, ownerID, createdAt, updatedAt, metaJSON},
@@ -475,7 +475,7 @@ func TestContentService_DeleteContent_SuccessWithInTx(t *testing.T) {
 	_ = cache.Set("content:c1", &Content{ID: "c1", URL: "/content/c1", OwnerID: "owner1"})
 
 	objStore := newMockObjStore()
-	objStore.Upload(context.Background(), "content", "c1", []byte("video data"))
+	_ = objStore.Upload(context.Background(), "content", "c1", []byte("video data"))
 
 	db := &mockDB{
 		queryRowFn: func(_ context.Context, _ string, _ ...interface{}) *stg.CancelRow {
@@ -484,7 +484,7 @@ func TestContentService_DeleteContent_SuccessWithInTx(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -511,7 +511,7 @@ func TestContentService_DeleteContent_NotFoundInTx(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -540,7 +540,7 @@ func TestContentService_DeleteContent_ObjStoreDeleteError(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -579,7 +579,7 @@ func TestContentService_DeleteContent_NilObjStore(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -603,7 +603,7 @@ func TestContentService_DeleteContent_EmptyURL(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -628,7 +628,7 @@ func TestContentService_DeleteContent_CacheDeleteErrorOnDelete(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}
@@ -965,7 +965,7 @@ func TestContentService_DeleteContent_NilCacheDelete(t *testing.T) {
 		},
 		inTxFn: func(ctx context.Context, fn func(tx *sql.Tx) error) error {
 			tx, _ := scanDB.Begin()
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			return fn(tx)
 		},
 	}

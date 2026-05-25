@@ -71,9 +71,9 @@ func (m *testMockRegistry) Health(_ context.Context) error {
 
 func TestSvcClient_GetServiceAddress_RoundRobinDistribution(t *testing.T) {
 	reg := newTestMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8080})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s3", Name: "svc", Address: "10.0.0.3", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s3", Name: "svc", Address: "10.0.0.3", Port: 8080})
 
 	client := NewServiceClient(reg, zap.NewNop())
 	addrs := make(map[string]bool)
@@ -108,8 +108,8 @@ func TestSvcClient_GetServiceAddress_RegistryError(t *testing.T) {
 
 func TestSvcClient_GetAllServiceAddresses_MultipleInstances(t *testing.T) {
 	reg := newTestMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8081})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8081})
 
 	client := NewServiceClient(reg, zap.NewNop())
 	addrs, err := client.GetAllServiceAddresses(context.Background(), "svc")
@@ -260,14 +260,14 @@ func TestCB_ExactlyMaxFailuresOpens(t *testing.T) {
 
 func TestSvcLocator_AllServiceMethods(t *testing.T) {
 	reg := newTestMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "u1", Name: ServiceUpload, Address: "10.0.0.1", Port: 9091})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: ServiceStreaming, Address: "10.0.0.2", Port: 9093})
-	reg.Register(context.Background(), &ServiceInfo{ID: "m1", Name: ServiceMetadata, Address: "10.0.0.3", Port: 9005})
-	reg.Register(context.Background(), &ServiceInfo{ID: "a1", Name: ServiceAuth, Address: "10.0.0.4", Port: 9007})
-	reg.Register(context.Background(), &ServiceInfo{ID: "c1", Name: ServiceCache, Address: "10.0.0.5", Port: 9006})
-	reg.Register(context.Background(), &ServiceInfo{ID: "t1", Name: ServiceTranscoder, Address: "10.0.0.6", Port: 9092})
-	reg.Register(context.Background(), &ServiceInfo{ID: "w1", Name: ServiceWorker, Address: "10.0.0.7", Port: 9008})
-	reg.Register(context.Background(), &ServiceInfo{ID: "mo1", Name: ServiceMonitor, Address: "10.0.0.8", Port: 9009})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "u1", Name: ServiceUpload, Address: "10.0.0.1", Port: 9091})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: ServiceStreaming, Address: "10.0.0.2", Port: 9093})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "m1", Name: ServiceMetadata, Address: "10.0.0.3", Port: 9005})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "a1", Name: ServiceAuth, Address: "10.0.0.4", Port: 9007})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "c1", Name: ServiceCache, Address: "10.0.0.5", Port: 9006})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "t1", Name: ServiceTranscoder, Address: "10.0.0.6", Port: 9092})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "w1", Name: ServiceWorker, Address: "10.0.0.7", Port: 9008})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "mo1", Name: ServiceMonitor, Address: "10.0.0.8", Port: 9009})
 
 	loc := NewServiceLocator(reg, zap.NewNop())
 
@@ -308,8 +308,8 @@ func TestSvcLocator_RegistryUnavailable(t *testing.T) {
 
 func TestSvcLocator_RoundRobinDistribution(t *testing.T) {
 	reg := newTestMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: ServiceUpload, Address: "10.0.0.1", Port: 9091})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: ServiceUpload, Address: "10.0.0.2", Port: 9091})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: ServiceUpload, Address: "10.0.0.1", Port: 9091})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: ServiceUpload, Address: "10.0.0.2", Port: 9091})
 
 	loc := NewServiceLocator(reg, zap.NewNop())
 	addrs := make(map[string]bool)

@@ -131,7 +131,7 @@ func TestGwCov_NFTRoutes_BalanceSuccess(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 1, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -147,7 +147,7 @@ func TestGwCov_NFTRoutes_BalanceError(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 1, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -162,7 +162,7 @@ func TestGwCov_NFTRoutes_OwnershipSuccess(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 1, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -178,7 +178,7 @@ func TestGwCov_NFTRoutes_OwnershipError(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 1, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -322,7 +322,7 @@ func TestGwCov_NFTRoutes_ChainIDOverride(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 1, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678&chain_id=137", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678&chain_id=137", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -340,7 +340,7 @@ func TestGwCov_NFTRoutes_DefaultChainID(t *testing.T) {
 	r := gin.New()
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, nil, 42, 60*time.Second)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	req.Header.Set("X-Wallet-Address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -354,7 +354,7 @@ func TestGwCov_StreamingRoutes_InvalidContentID(t *testing.T) {
 	limiter := newStreamLimiter(100)
 	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, nil, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/manifest.m3u8", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/manifest.m3u8", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -367,7 +367,7 @@ func TestGwCov_StreamingRoutes_LimiterFull(t *testing.T) {
 	cache := NewStreamingCache()
 	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, nil, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/manifest.m3u8", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/manifest.m3u8", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
@@ -379,7 +379,7 @@ func TestGwCov_StreamingSegmentRoute_NoToken(t *testing.T) {
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test/segment/seg0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test/segment/seg0.ts", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
@@ -391,7 +391,7 @@ func TestGwCov_StreamingSegmentRoute_InvalidContentID(t *testing.T) {
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/segment/seg0.ts?playback_token=test", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/segment/seg0.ts?playback_token=test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -405,7 +405,7 @@ func TestGwCov_StreamingSegmentRoute_InvalidSegmentName(t *testing.T) {
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.txt?playback_token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.txt?playback_token="+token, http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -419,7 +419,7 @@ func TestGwCov_StreamingSegmentRoute_NoObjStorage(t *testing.T) {
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.ts?playback_token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.ts?playback_token="+token, http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -521,7 +521,7 @@ func TestGwCov_AbortWithErrorDetail_5xx(t *testing.T) {
 		abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "internal error", "sensitive detail")
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "internal error")
@@ -534,7 +534,7 @@ func TestGwCov_AbortWithErrorDetail_4xx(t *testing.T) {
 		abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "bad request", "field X is invalid")
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "bad request")
@@ -547,7 +547,7 @@ func TestGwCov_AbortWithValidationError(t *testing.T) {
 		abortWithValidationError(c, map[string]string{"field": "required"})
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "validation")
@@ -559,7 +559,7 @@ func TestGwCov_AbortWithValidationError_WithErrorMessage(t *testing.T) {
 		abortWithValidationError(c, map[string]string{"_error": "custom error", "field": "required"})
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "custom error")
@@ -572,7 +572,7 @@ func TestGwCov_Respond_WithRequestID(t *testing.T) {
 		respond(c, http.StatusOK, gin.H{"data": "test"})
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "request_id")
@@ -586,7 +586,7 @@ func TestGwCov_Respond_NonMapData(t *testing.T) {
 		respond(c, http.StatusOK, "just a string")
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -599,7 +599,7 @@ func TestGwCov_InternalErrMsg_NilError(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 }
 
@@ -672,12 +672,12 @@ func TestGwCov_ExtractPlaybackToken(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test?playback_token=query-token", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test?playback_token=query-token", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, "query-token", w.Body.String())
 
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/test", nil)
+	req = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer bearer-token")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, "bearer-token", w.Body.String())
@@ -751,31 +751,31 @@ func TestGwCov_NFTAccessCache_DeleteByPrefix(t *testing.T) {
 
 type mockSegmentStorage struct{}
 
-func (m *mockSegmentStorage) Upload(_ context.Context, _ string, _ string, _ []byte) error {
+func (m *mockSegmentStorage) Upload(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
-func (m *mockSegmentStorage) UploadStream(_ context.Context, _ string, _ string, _ io.Reader, _ int64) error {
+func (m *mockSegmentStorage) UploadStream(_ context.Context, _, _ string, _ io.Reader, _ int64) error {
 	return nil
 }
-func (m *mockSegmentStorage) UploadWithContentType(_ context.Context, _ string, _ string, _ []byte, _ string) error {
+func (m *mockSegmentStorage) UploadWithContentType(_ context.Context, _, _ string, _ []byte, _ string) error {
 	return nil
 }
-func (m *mockSegmentStorage) UploadStreamWithContentType(_ context.Context, _ string, _ string, _ io.Reader, _ int64, _ string) error {
+func (m *mockSegmentStorage) UploadStreamWithContentType(_ context.Context, _, _ string, _ io.Reader, _ int64, _ string) error {
 	return nil
 }
-func (m *mockSegmentStorage) Download(_ context.Context, _ string, _ string) ([]byte, error) {
+func (m *mockSegmentStorage) Download(_ context.Context, _, _ string) ([]byte, error) {
 	return nil, nil
 }
-func (m *mockSegmentStorage) DownloadStream(_ context.Context, _ string, _ string) (io.ReadCloser, error) {
+func (m *mockSegmentStorage) DownloadStream(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, nil
 }
-func (m *mockSegmentStorage) Delete(_ context.Context, _ string, _ string) error {
+func (m *mockSegmentStorage) Delete(_ context.Context, _, _ string) error {
 	return nil
 }
-func (m *mockSegmentStorage) ListObjects(_ context.Context, _ string, _ string) ([]string, error) {
+func (m *mockSegmentStorage) ListObjects(_ context.Context, _, _ string) ([]string, error) {
 	return nil, nil
 }
-func (m *mockSegmentStorage) Exists(_ context.Context, _ string, _ string) (bool, error) {
+func (m *mockSegmentStorage) Exists(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
 

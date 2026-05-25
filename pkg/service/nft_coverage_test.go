@@ -132,7 +132,7 @@ func TestNFTCov_VerifyNFT_InvalidTokenID(t *testing.T) {
 
 func TestNFTCov_VerifyNFT_CacheHit(t *testing.T) {
 	cache := newNftCovCache()
-	cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
+	_ = cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	caller := &nftCovEthCaller{}
 	svc, err := NewNFTServiceWithCaller(caller, "http://rpc", cache)
 	require.NoError(t, err)
@@ -143,7 +143,7 @@ func TestNFTCov_VerifyNFT_CacheHit(t *testing.T) {
 
 func TestNFTCov_VerifyNFT_CacheHitDifferentOwner(t *testing.T) {
 	cache := newNftCovCache()
-	cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "0x0000000000000000000000000000000000000001")
+	_ = cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "0x0000000000000000000000000000000000000001")
 	caller := &nftCovEthCaller{}
 	svc, err := NewNFTServiceWithCaller(caller, "http://rpc", cache)
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestNFTCov_GetNFTMetadata_InvalidTokenID(t *testing.T) {
 func TestNFTCov_GetNFTMetadata_CacheHit(t *testing.T) {
 	cache := newNftCovCache()
 	meta := &NFTMetadata{Name: "Cached NFT"}
-	cache.Set("nft:metadata:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", meta)
+	_ = cache.Set("nft:metadata:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", meta)
 	caller := &nftCovEthCaller{}
 	svc, err := NewNFTServiceWithCaller(caller, "http://rpc", cache)
 	require.NoError(t, err)
@@ -326,7 +326,7 @@ func TestNFTCov_InvalidateOwnershipCache_NoCache(t *testing.T) {
 
 func TestNFTCov_InvalidateOwnershipCache_WithCache(t *testing.T) {
 	cache := newNftCovCache()
-	cache.Set("nft:owner:0xcontract:1", "0xowner")
+	_ = cache.Set("nft:owner:0xcontract:1", "0xowner")
 	caller := &nftCovEthCaller{}
 	svc, err := NewNFTServiceWithCaller(caller, "http://rpc", cache)
 	require.NoError(t, err)
@@ -432,7 +432,7 @@ func TestNFTCov_VerifyNFT_CacheGetError(t *testing.T) {
 
 func TestNFTCov_VerifyNFT_CacheGetNonString(t *testing.T) {
 	cache := newNftCovCache()
-	cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", 12345)
+	_ = cache.Set("nft:owner:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", 12345)
 	ownerAddr := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	padded := common.LeftPadBytes(ownerAddr.Bytes(), 32)
 	caller := &nftCovEthCaller{
@@ -449,7 +449,7 @@ func TestNFTCov_VerifyNFT_CacheGetNonString(t *testing.T) {
 
 func TestNFTCov_GetNFTMetadata_CacheGetNonMetadata(t *testing.T) {
 	cache := newNftCovCache()
-	cache.Set("nft:metadata:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "not-a-metadata")
+	_ = cache.Set("nft:metadata:0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18:1", "not-a-metadata")
 	caller := &nftCovEthCaller{
 		callContractFn: func(_ context.Context, _ ethereum.CallMsg, _ *big.Int) ([]byte, error) {
 			return nil, errors.New("RPC error")

@@ -645,7 +645,7 @@ func TestContentService_UpdateContent_RowsAffectedError(t *testing.T) {
 func TestContentService_DeleteContent_WithObjectDeletion(t *testing.T) {
 	cache := newMockCache()
 	objStore := newMockObjStore()
-	objStore.Upload(context.Background(), "content", "c1", []byte("video data"))
+	_ = objStore.Upload(context.Background(), "content", "c1", []byte("video data"))
 
 	db := &mockDB{
 		queryRowFn: func(_ context.Context, _ string, _ ...interface{}) *stg.CancelRow {

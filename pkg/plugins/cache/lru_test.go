@@ -221,13 +221,13 @@ func TestLRU_SetOnEvict(t *testing.T) {
 func TestLRU_GetOldest(t *testing.T) {
 	lru := NewLRU(10)
 
-	key, _, ok := lru.GetOldest()
+	_, _, ok := lru.GetOldest()
 	assert.False(t, ok)
 
 	lru.Set("key1", "value1")
 	lru.Set("key2", "value2")
 
-	key, _, ok = lru.GetOldest()
+	key, _, ok := lru.GetOldest()
 	assert.True(t, ok)
 	assert.Equal(t, "key1", key)
 }

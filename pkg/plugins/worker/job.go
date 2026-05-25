@@ -351,7 +351,11 @@ func (rp *RetryPolicy) GetDelay(retryCount int) time.Duration {
 	delay := rp.InitialDelay
 
 	for i := 0; i < retryCount; i++ {
-		delay = time.Duration(float64(delay) * rp.BackoffFactor)
+		next := time.Duration(float64(delay) * rp.BackoffFactor)
+		if next <= delay || next > rp.MaxDelay {
+			return rp.MaxDelay
+		}
+		delay = next
 	}
 
 	if delay > rp.MaxDelay {

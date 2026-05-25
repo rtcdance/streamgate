@@ -616,7 +616,7 @@ func TestSvcCov_Web3Service_VerifySignature_NilVerifier_Panics(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	func() {
 		defer func() { _ = recover() }()
-		svc.VerifySignature(context.Background(), "0xaddr", "msg", "sig")
+		_, _ = svc.VerifySignature(context.Background(), "0xaddr", "msg", "sig")
 	}()
 }
 

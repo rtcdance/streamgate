@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func blockHeaderResult(number int64, gasUsed, gasLimit int64) map[string]interface{} {
+func blockHeaderResult(number, gasUsed, gasLimit int64) map[string]interface{} {
 	zeroHash := "0x" + strings.Repeat("00", 32)
 	emptyUnclesHash := "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
 	emptyTxRootHash := "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"

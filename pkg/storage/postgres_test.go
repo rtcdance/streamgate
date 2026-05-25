@@ -37,7 +37,10 @@ func TestNewPostgresDBFromDB_RealDB(t *testing.T) {
 
 func TestPostgresDB_Query_NotConnected(t *testing.T) {
 	pdb := NewPostgresDB()
-	_, err := pdb.Query(context.Background(), "SELECT 1")
+	rows, err := pdb.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database not connected")
 }
@@ -156,7 +159,10 @@ func TestPostgresDB_CircuitBreaker_Open_BlocksQuery(t *testing.T) {
 	pdb := NewPostgresDBFromDB(db)
 	pdb.SetCircuitBreaker(newOpenCircuitBreaker())
 
-	_, err = pdb.Query(context.Background(), "SELECT 1")
+	rows, err := pdb.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "circuit breaker is open")
 }
@@ -330,7 +336,10 @@ func TestPostgresDB_Query_WithContextDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = pdb.Query(ctx, "SELECT 1")
+	rows, err := pdb.Query(ctx, "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.Error(t, err)
 }
 
@@ -441,7 +450,10 @@ func TestPostgresDB_Query_NoDeadline(t *testing.T) {
 	defer db.Close()
 
 	pdb := NewPostgresDBFromDB(db)
-	_, err = pdb.Query(context.Background(), "SELECT 1")
+	rows, err := pdb.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.Error(t, err)
 }
 
@@ -522,7 +534,10 @@ func TestPostgresDB_Query_RecordsFailure(t *testing.T) {
 	cb := resilience.NewCircuitBreaker("test", resilience.DefaultCircuitBreakerConfig(), zap.NewNop())
 	pdb.SetCircuitBreaker(cb)
 
-	_, _ = pdb.Query(context.Background(), "SELECT 1")
+	rows, _ := pdb.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 
 	stats := cb.Stats()
 	assert.GreaterOrEqual(t, stats.FailureCount, 1)
@@ -675,7 +690,10 @@ func TestPostgresDB_Query_CircuitBreakerRecordsSuccess(t *testing.T) {
 	cb := resilience.NewCircuitBreaker("test", resilience.DefaultCircuitBreakerConfig(), zap.NewNop())
 	pdb.SetCircuitBreaker(cb)
 
-	_, _ = pdb.Query(context.Background(), "SELECT 1")
+	rows, _ := pdb.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 
 	stats := cb.Stats()
 	assert.Equal(t, 0, stats.SuccessCount)
