@@ -951,6 +951,7 @@ func TestFFmpegAdapter_SelectProfiles_Sub360p_FallsBackTo360p(t *testing.T) {
 }
 
 func TestFFmpegAdapter_TranscodeHLS_SelectProfilesWithVideo(t *testing.T) {
+	t.Skip("requires ffmpeg binary")
 	requireFFprobe(t)
 	adapter := newFFmpegAdapter(t)
 	videoPath := generateTestVideo(t, 1920, 1080)
@@ -962,6 +963,7 @@ func TestFFmpegAdapter_TranscodeHLS_SelectProfilesWithVideo(t *testing.T) {
 }
 
 func TestFFmpegAdapter_TranscodeHLS_WithVideoAndProgress(t *testing.T) {
+	t.Skip("requires ffmpeg binary")
 	requireFFprobe(t)
 	adapter := newFFmpegAdapter(t)
 	videoPath := generateTestVideo(t, 640, 360)
