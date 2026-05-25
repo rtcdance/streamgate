@@ -54,7 +54,7 @@ func TestNewConnectionPool(t *testing.T) {
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5}, factory, zap.NewNop())
 	assert.NotNil(t, pool)
-	defer pool.Shutdown()
+	_ = pool.Shutdown()
 }
 
 func TestNewConnectionPool_DefaultMaxOpen(t *testing.T) {
@@ -63,7 +63,7 @@ func TestNewConnectionPool_DefaultMaxOpen(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	stats := pool.Stats()
 	assert.Equal(t, 25, stats.MaxOpen)
@@ -75,7 +75,7 @@ func TestConnectionPool_GetAndPut(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, MaxIdle: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn, err := pool.Get(context.Background())
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestConnectionPool_Get_UnhealthyIdleConn(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, MaxIdle: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn1, err := pool.Get(context.Background())
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestConnectionPool_Put_Unhealthy(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, MaxIdle: 2, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn, _ := pool.Get(context.Background())
 	mc := conn.(*mockConnection)
@@ -138,7 +138,7 @@ func TestConnectionPool_Put_ExceedsMaxIdle(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, MaxIdle: 1, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn1, _ := pool.Get(context.Background())
 	conn2, _ := pool.Get(context.Background())
@@ -156,7 +156,7 @@ func TestConnectionPool_FactoryError(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn, err := pool.Get(context.Background())
 	assert.Error(t, err)
@@ -172,7 +172,7 @@ func TestConnectionPool_Get_ClosedPool(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, HealthCheck: 0}, factory, zap.NewNop())
-	pool.Shutdown()
+	_ = pool.Shutdown()
 
 	conn, err := pool.Get(context.Background())
 	assert.Error(t, err)
@@ -187,7 +187,7 @@ func TestConnectionPool_Put_ClosedPool(t *testing.T) {
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, HealthCheck: 0}, factory, zap.NewNop())
 	conn, _ := pool.Get(context.Background())
 
-	pool.Shutdown()
+	_ = pool.Shutdown()
 
 	err := pool.Put(conn)
 	assert.NoError(t, err)
@@ -213,7 +213,7 @@ func TestConnectionPool_Ping(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	err := pool.Ping(context.Background())
 	assert.NoError(t, err)
@@ -225,7 +225,7 @@ func TestConnectionPool_Stats(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, MaxIdle: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn, _ := pool.Get(context.Background())
 	_ = pool.Put(conn)
@@ -280,7 +280,7 @@ func TestPoolManager_GetAllStats(t *testing.T) {
 	pm := NewPoolManager(zap.NewNop())
 	factory := func() (Connection, error) { return newMockConn(true), nil }
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 5, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	pm.RegisterPool("test", pool)
 
@@ -307,7 +307,7 @@ func TestConnectionPool_MaxConcurrent(t *testing.T) {
 	}
 
 	pool := NewConnectionPool(PoolConfig{MaxOpen: 2, HealthCheck: 0}, factory, zap.NewNop())
-	defer pool.Shutdown()
+	defer func() { _ = pool.Shutdown() }()
 
 	conn1, err := pool.Get(context.Background())
 	require.NoError(t, err)

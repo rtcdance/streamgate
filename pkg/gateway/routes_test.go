@@ -103,7 +103,7 @@ func TestRegisterInfrastructureRoutes_HealthEndpoint(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -123,7 +123,7 @@ func TestRegisterInfrastructureRoutes_HealthWithDBCheck(t *testing.T) {
 	registerInfrastructureRoutes(router, log, mockDB, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -138,7 +138,7 @@ func TestRegisterInfrastructureRoutes_HealthWithDBFailure(t *testing.T) {
 	registerInfrastructureRoutes(router, log, mockDB, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -161,7 +161,7 @@ func TestRegisterInfrastructureRoutes_HealthWithCBEnabled(t *testing.T) {
 	registerInfrastructureRoutes(router, log, mockDB, nil, mwSvc, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -175,7 +175,7 @@ func TestRegisterInfrastructureRoutes_ReadyEndpoint(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -195,7 +195,7 @@ func TestRegisterInfrastructureRoutes_ReadyNotReady(t *testing.T) {
 	registerInfrastructureRoutes(router, log, mockDB, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -214,7 +214,7 @@ func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_NoService(t *testi
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -238,7 +238,7 @@ func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_WithService(t *tes
 	registerInfrastructureRoutes(router, log, nil, nil, mwSvc, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -258,7 +258,7 @@ func TestRegisterInfrastructureRoutes_DocsEndpoint(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
@@ -274,7 +274,7 @@ func TestRegisterInfrastructureRoutes_MetricsEndpoint(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -289,7 +289,7 @@ func TestRegisterInfrastructureRoutes_StorageCheckSuccess(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, mockStorage, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -304,7 +304,7 @@ func TestRegisterInfrastructureRoutes_StorageCheckFailure(t *testing.T) {
 	registerInfrastructureRoutes(router, log, nil, mockStorage, nil, cfg)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -356,7 +356,7 @@ func TestRegisterRoutes_RegistersAllInfrastructureEndpoints(t *testing.T) {
 	}
 	for _, r := range infraRoutes {
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(r.method, r.path, nil)
+		req := httptest.NewRequest(r.method, r.path, http.NoBody)
 		router.ServeHTTP(w, req)
 		assert.NotEqual(t, http.StatusNotFound, w.Code, "route %s %s should be registered", r.method, r.path)
 	}
@@ -398,7 +398,7 @@ func TestRegisterRoutes_AuthRoutesRegistered(t *testing.T) {
 	}
 	for _, r := range authRoutes {
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(r.method, r.path, nil)
+		req := httptest.NewRequest(r.method, r.path, http.NoBody)
 		router.ServeHTTP(w, req)
 		assert.NotEqual(t, http.StatusNotFound, w.Code, "route %s %s should be registered", r.method, r.path)
 	}
@@ -416,7 +416,7 @@ func TestRegisterRoutes_Web3RoutesRegistered(t *testing.T) {
 	RegisterWeb3Routes(router, log, provider)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -443,7 +443,7 @@ func TestRegisterRoutes_StreamingSegmentRouteRegistered(t *testing.T) {
 	RegisterStreamingSegmentRoute(router, log, authService, nil, streamLim, streamCache, "streamgate")
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/test-content/segment/00001.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/streaming/test-content/segment/00001.ts", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
@@ -929,42 +929,42 @@ type routesMockSegmentStorage struct {
 	listErr error
 }
 
-func (m *routesMockSegmentStorage) Upload(_ context.Context, _ string, _ string, _ []byte) error {
+func (m *routesMockSegmentStorage) Upload(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
 
-func (m *routesMockSegmentStorage) UploadStream(_ context.Context, _ string, _ string, _ io.Reader, _ int64) error {
+func (m *routesMockSegmentStorage) UploadStream(_ context.Context, _, _ string, _ io.Reader, _ int64) error {
 	return nil
 }
 
-func (m *routesMockSegmentStorage) UploadWithContentType(_ context.Context, _ string, _ string, _ []byte, _ string) error {
+func (m *routesMockSegmentStorage) UploadWithContentType(_ context.Context, _, _ string, _ []byte, _ string) error {
 	return nil
 }
 
-func (m *routesMockSegmentStorage) UploadStreamWithContentType(_ context.Context, _ string, _ string, _ io.Reader, _ int64, _ string) error {
+func (m *routesMockSegmentStorage) UploadStreamWithContentType(_ context.Context, _, _ string, _ io.Reader, _ int64, _ string) error {
 	return nil
 }
 
-func (m *routesMockSegmentStorage) Download(_ context.Context, _ string, _ string) ([]byte, error) {
+func (m *routesMockSegmentStorage) Download(_ context.Context, _, _ string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *routesMockSegmentStorage) DownloadStream(_ context.Context, _ string, _ string) (io.ReadCloser, error) {
+func (m *routesMockSegmentStorage) DownloadStream(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, nil
 }
 
-func (m *routesMockSegmentStorage) Delete(_ context.Context, _ string, _ string) error {
+func (m *routesMockSegmentStorage) Delete(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *routesMockSegmentStorage) ListObjects(_ context.Context, _ string, _ string) ([]string, error) {
+func (m *routesMockSegmentStorage) ListObjects(_ context.Context, _, _ string) ([]string, error) {
 	if m.listErr != nil {
 		return nil, m.listErr
 	}
 	return []string{}, nil
 }
 
-func (m *routesMockSegmentStorage) Exists(_ context.Context, _ string, _ string) (bool, error) {
+func (m *routesMockSegmentStorage) Exists(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
 
@@ -974,23 +974,23 @@ func (m *routesMockSegmentStorage) CreateBucket(_ context.Context, _ string) err
 
 type routesMockNFTVerifier struct{}
 
-func (m *routesMockNFTVerifier) VerifyNFTOwnership(_ context.Context, _ int64, _ string, _ string, _ string) (bool, error) {
+func (m *routesMockNFTVerifier) VerifyNFTOwnership(_ context.Context, _ int64, _, _, _ string) (bool, error) {
 	return true, nil
 }
 
-func (m *routesMockNFTVerifier) VerifyNFTOwnershipAutoDetect(_ context.Context, _ int64, _ string, _ string, _ string) (bool, error) {
+func (m *routesMockNFTVerifier) VerifyNFTOwnershipAutoDetect(_ context.Context, _ int64, _, _, _ string) (bool, error) {
 	return true, nil
 }
 
-func (m *routesMockNFTVerifier) VerifyNFTCollectionAutoDetect(_ context.Context, _ int64, _ string, _ string) (bool, error) {
+func (m *routesMockNFTVerifier) VerifyNFTCollectionAutoDetect(_ context.Context, _ int64, _, _ string) (bool, error) {
 	return true, nil
 }
 
-func (m *routesMockNFTVerifier) GetNFTBalance(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
+func (m *routesMockNFTVerifier) GetNFTBalance(_ context.Context, _ int64, _, _ string) (*big.Int, error) {
 	return big.NewInt(1), nil
 }
 
-func (m *routesMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _ string, _ string) (*middleware.NFTMetadata, error) {
+func (m *routesMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return &middleware.NFTMetadata{}, nil
 }
 

@@ -73,7 +73,7 @@ func TestApp_RegisterMiddleware_WithJWT(t *testing.T) {
 	assert.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.ServeHTTP(w, req)
 	assert.True(t, called)
@@ -98,7 +98,7 @@ func TestApp_RegisterMiddleware_WithNFTGate(t *testing.T) {
 	assert.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.ServeHTTP(w, req)
 	assert.True(t, called)
@@ -127,7 +127,7 @@ func TestApp_RegisterMiddleware_BothMiddlewares(t *testing.T) {
 	assert.NoError(t, err)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.ServeHTTP(w, req)
 	assert.True(t, jwtCalled)
@@ -254,7 +254,7 @@ func TestDrainMiddleware_NotDraining(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -271,7 +271,7 @@ func TestDrainMiddleware_Draining(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
@@ -299,7 +299,7 @@ func TestDrainMiddleware_TableDriven(t *testing.T) {
 			})
 
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 			r.ServeHTTP(w, req)
 			assert.Equal(t, tt.wantStatus, w.Code)
 		})

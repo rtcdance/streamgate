@@ -17,6 +17,6 @@ func httptestNewRecorder() *httptest.ResponseRecorder {
 
 func newTestContext(w *httptest.ResponseRecorder) *gin.Context {
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	return c
 }

@@ -133,24 +133,24 @@ func setupUploadRouter(uploadSvc *service.UploadService, wallet string) *gin.Eng
 	return r
 }
 
-func createMultipartUpload(filename string, content []byte) (*bytes.Buffer, string) {
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
+func createMultipartUpload(filename string, content []byte) (buf *bytes.Buffer, contentType string) {
+	buf = &bytes.Buffer{}
+	writer := multipart.NewWriter(buf)
 	part, _ := writer.CreateFormFile("file", filename)
 	_, _ = part.Write(content)
 	_ = writer.Close()
-	return &buf, writer.FormDataContentType()
+	return buf, writer.FormDataContentType()
 }
 
-func createMultipartChunk(uploadID string, chunkIndex int, content []byte) (*bytes.Buffer, string) {
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
+func createMultipartChunk(uploadID string, chunkIndex int, content []byte) (buf *bytes.Buffer, contentType string) {
+	buf = &bytes.Buffer{}
+	writer := multipart.NewWriter(buf)
 	_ = writer.WriteField("upload_id", uploadID)
 	_ = writer.WriteField("chunk_index", fmt.Sprintf("%d", chunkIndex))
 	part, _ := writer.CreateFormFile("chunk", fmt.Sprintf("chunk_%d", chunkIndex))
 	_, _ = part.Write(content)
 	_ = writer.Close()
-	return &buf, writer.FormDataContentType()
+	return buf, writer.FormDataContentType()
 }
 
 func TestUploadHandlers_NilService(t *testing.T) {

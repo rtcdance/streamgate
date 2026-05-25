@@ -1158,7 +1158,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		}))
 		segStore := newGrpcMockSegmentStorage()
 		segData := []byte("fake-ts-data")
-		segStore.Upload(context.Background(), "streamgate", "streams/c1/seg1.ts", segData)
+		_ = segStore.Upload(context.Background(), "streamgate", "streams/c1/seg1.ts", segData)
 		srv := &streamingGrpcServer{authSvc: authSvc, segStore: segStore, log: log}
 		resp, err := srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{
 			ContentId: "c1", SegmentId: "seg1.ts",

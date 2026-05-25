@@ -319,7 +319,7 @@ func (ei *EventIndexer) reconnectWithBackoff(ctx context.Context) (<-chan types.
 
 		ei.mu.RLock()
 		sub := ei.subscriber
-		ei.mu.Unlock()
+		ei.mu.RUnlock()
 
 		if sub == nil {
 			return nil, false
@@ -361,7 +361,7 @@ func (ei *EventIndexer) processLog(ctx context.Context, log types.Log) {
 	rd := ei.reorgDetector
 	ei.mu.RUnlock()
 
-	if rd != nil && event.BlockHash != "" {
+	if rd != nil && event.BlockHash != "" && event.BlockHash != "0x0000000000000000000000000000000000000000000000000000000000000000" {
 		reorged, err := rd.CheckReorg(ctx, event.BlockNumber, common.HexToHash(event.BlockHash))
 		if err != nil {
 			ei.logger.Warn("Reorg check failed for WebSocket event, skipping event",

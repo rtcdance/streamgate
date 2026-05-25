@@ -229,7 +229,7 @@ func TestExtractBearerToken_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	c.Request.Header.Set("Authorization", "Bearer mytoken123")
 
 	token := extractBearerToken(c)
@@ -240,7 +240,7 @@ func TestExtractBearerToken_NoHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	token := extractBearerToken(c)
 	assert.Equal(t, "", token)
@@ -250,7 +250,7 @@ func TestExtractBearerToken_WrongScheme(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	c.Request.Header.Set("Authorization", "Basic abc123")
 
 	token := extractBearerToken(c)

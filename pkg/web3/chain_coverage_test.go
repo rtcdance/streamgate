@@ -2,7 +2,6 @@ package web3
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -433,7 +432,7 @@ func TestChainClient_GetNFTBalanceAtBlock_RPCError(t *testing.T) {
 			return rpcResponse{
 				JSONRPC: "2.0",
 				ID:      req.ID,
-				Error:   map[string]interface{}{"code": -32000, "message": fmt.Sprintf("block tag error")},
+				Error:   map[string]interface{}{"code": -32000, "message": "block tag error"},
 			}
 		},
 	})

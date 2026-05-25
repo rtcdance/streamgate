@@ -45,7 +45,7 @@ func TestRequestIDMiddleware_SetsRequestID(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -59,7 +59,7 @@ func TestRequestIDMiddleware_SetsHeader(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest("GET", "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.NotEmpty(t, w.Header().Get("X-Request-ID"))
 }
@@ -77,7 +77,7 @@ func TestRequestIDMiddleware_UniquePerRequest(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req, _ := http.NewRequest("GET", "/test", http.NoBody)
 		r.ServeHTTP(w, req)
 	}
 
@@ -92,7 +92,7 @@ func TestAbortWithError_IncludesRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("request_id", "req-test-123")
 
 	abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "bad request")
@@ -109,7 +109,7 @@ func TestAbortWithError_NoRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "bad request")
 
@@ -123,7 +123,7 @@ func TestAbortWithErrorDetail_5xx_HidesDetail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("request_id", "req-500")
 
 	abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "internal error", "secret db connection string")
@@ -139,7 +139,7 @@ func TestAbortWithErrorDetail_4xx_ShowsDetail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "bad request", "field X is required")
 
@@ -153,7 +153,7 @@ func TestAbortWithValidationError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("request_id", "req-val")
 
 	abortWithValidationError(c, map[string]string{

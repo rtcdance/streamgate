@@ -108,7 +108,7 @@ func TestTranscodeExt_ProfilesEndpoint(t *testing.T) {
 	RegisterTranscodingRoutes(r, zap.NewNop(), svc)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -129,7 +129,7 @@ func TestTranscodeExt_CancelNilService(t *testing.T) {
 	RegisterTranscodingRoutes(r, zap.NewNop(), nil)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodPost, "/api/v1/transcode/cancel/some-id", nil)
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/transcode/cancel/some-id", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
@@ -161,7 +161,7 @@ func TestTranscodeExt_ProfilesNilService(t *testing.T) {
 	RegisterTranscodingRoutes(r, zap.NewNop(), nil)
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/transcode/profiles", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
@@ -209,7 +209,7 @@ func TestNFTExt_BalanceError(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -226,7 +226,7 @@ func TestNFTExt_VerifyError(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), verifier, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -242,7 +242,7 @@ func TestNFTExt_MissingContract(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -258,7 +258,7 @@ func TestNFTExt_InvalidContract(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=invalid", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=invalid", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -421,7 +421,7 @@ func TestNFTExt_BalanceSuccess(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -442,7 +442,7 @@ func TestNFTExt_TokenIDSuccess(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft/1?contract=0x1234567890abcdef1234567890abcdef12345678", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -500,7 +500,7 @@ func TestNFTExt_ChainIDOverride(t *testing.T) {
 	RegisterNFTRoutes(r, zap.NewNop(), &mockNFTOwnershipChecker{}, &mockNFTCache{}, 1, time.Minute)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678&chain_id=137", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/nft?contract=0x1234567890abcdef1234567890abcdef12345678&chain_id=137", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -564,7 +564,7 @@ func TestStreamingExt_SegmentRoute_NoToken(t *testing.T) {
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/segment/seg0.ts", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
@@ -584,7 +584,7 @@ func TestStreamingExt_SegmentRoute_InvalidContentID(t *testing.T) {
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/segment/seg0.ts?playback_token=test", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/segment/seg0.ts?playback_token=test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -613,7 +613,7 @@ func TestStreamingExt_SegmentRoute_NoObjStorage(t *testing.T) {
 
 	token, _ := authSvc.GeneratePlaybackToken(context.Background(), "0x1234567890abcdef1234567890abcdef12345678", "content1", "", "", 1, 5*time.Minute, "")
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/segment/seg0.ts?playback_token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/segment/seg0.ts?playback_token="+token, http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -634,7 +634,7 @@ func TestStreamingExt_ManifestRoute_InvalidContentID(t *testing.T) {
 	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/manifest.m3u8", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/manifest.m3u8", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
@@ -656,7 +656,7 @@ func TestStreamingExt_ManifestRoute_LimiterFull(t *testing.T) {
 	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/manifest.m3u8", nil)
+	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/manifest.m3u8", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	limiter.release()
@@ -666,7 +666,7 @@ func TestGatewayExt_RespondNoContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	respondNoContent(c)
 	assert.Equal(t, http.StatusNoContent, w.Code)
@@ -677,7 +677,7 @@ func TestGatewayExt_AbortWithErrorDetail_5xx(t *testing.T) {
 	SetErrorLogger(zap.NewNop())
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "internal error", "sensitive detail")
 
@@ -692,7 +692,7 @@ func TestGatewayExt_AbortWithErrorDetail_4xx(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	abortWithErrorDetail(c, http.StatusBadRequest, ErrInvalidRequest, "bad request", "field detail")
 
@@ -706,7 +706,7 @@ func TestGatewayExt_RespondWithRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	c.Set("request_id", "req-test-123")
 
 	respondOK(c, gin.H{"status": "ok"})
@@ -721,7 +721,7 @@ func TestGatewayExt_RespondWithoutRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	respondOK(c, gin.H{"status": "ok"})
 
@@ -742,7 +742,7 @@ func TestGatewayExt_RequestIDMiddleware(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, strings.HasPrefix(w.Body.String(), "req-"))

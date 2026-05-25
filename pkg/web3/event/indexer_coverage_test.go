@@ -153,7 +153,7 @@ func TestEventIndexer_Start_WithStoreCheckpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	store := NewMemoryEventStore()
-	_ = store.SaveCheckpoint("0x0000000000000000000000000000000000000abc", 150)
+	_ = store.SaveCheckpoint("0x0000000000000000000000000000000000000aBc", 150)
 	indexer.SetEventStore(store)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -161,10 +161,13 @@ func TestEventIndexer_Start_WithStoreCheckpoint(t *testing.T) {
 
 	err = indexer.Start(ctx)
 	require.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
-	indexer.Stop()
 
-	assert.Equal(t, uint64(150), indexer.GetCurrentBlock())
+	indexer.mu.RLock()
+	startBlock := indexer.startBlock
+	indexer.mu.RUnlock()
+	assert.Equal(t, uint64(150), startBlock)
+
+	indexer.Stop()
 }
 
 func TestEventIndexer_Start_WithStartBlock(t *testing.T) {
@@ -184,10 +187,13 @@ func TestEventIndexer_Start_WithStartBlock(t *testing.T) {
 
 	err = indexer.Start(ctx)
 	require.NoError(t, err)
-	time.Sleep(50 * time.Millisecond)
-	indexer.Stop()
 
-	assert.Equal(t, uint64(50), indexer.GetCurrentBlock())
+	indexer.mu.RLock()
+	startBlock := indexer.startBlock
+	indexer.mu.RUnlock()
+	assert.Equal(t, uint64(50), startBlock)
+
+	indexer.Stop()
 }
 
 func TestEventIndexer_Start_WithSubscriber(t *testing.T) {
@@ -377,7 +383,7 @@ func TestIndexEvents_StoreSaveCheckpoint(t *testing.T) {
 
 	indexer.indexEvents(context.Background())
 
-	checkpoint, err := store.LoadCheckpoint("0x0000000000000000000000000000000000000abc")
+	checkpoint, err := store.LoadCheckpoint("0x0000000000000000000000000000000000000aBc")
 	require.NoError(t, err)
 	assert.Greater(t, checkpoint, uint64(0))
 }

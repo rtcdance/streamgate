@@ -1,6 +1,7 @@
 package web3
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func TestNewHybridStorage(t *testing.T) {
 func TestHybridStorage_Store_Local(t *testing.T) {
 	hs := NewHybridStorage(nil, zap.NewNop(), 1024)
 
-	location, err := hs.Store(nil, "test.txt", make([]byte, 100))
+	location, err := hs.Store(context.TODO(), "test.txt", make([]byte, 100))
 	assert.NoError(t, err)
 	assert.Equal(t, "local", location.Storage)
 	assert.Equal(t, "/files/test.txt", location.URL)
@@ -42,7 +43,7 @@ func TestHybridStorage_Store_Local(t *testing.T) {
 func TestHybridStorage_Store_IPFS(t *testing.T) {
 	hs := NewHybridStorage(nil, zap.NewNop(), 10)
 
-	location, err := hs.Store(nil, "big.txt", make([]byte, 100))
+	location, err := hs.Store(context.TODO(), "big.txt", make([]byte, 100))
 	assert.Error(t, err)
 	assert.Nil(t, location)
 }

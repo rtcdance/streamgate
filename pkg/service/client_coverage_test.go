@@ -64,8 +64,8 @@ func (m *threadSafeMockRegistry) Health(_ context.Context) error {
 
 func TestServiceClient_GetServiceAddress_RoundRobin(t *testing.T) {
 	reg := newThreadSafeMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8080})
 
 	client := NewServiceClient(reg, zap.NewNop())
 	addr1, err := client.GetServiceAddress(context.Background(), "svc")
@@ -93,8 +93,8 @@ func TestServiceClient_GetServiceAddress_NoInstances(t *testing.T) {
 
 func TestServiceClient_GetAllServiceAddresses_Multiple(t *testing.T) {
 	reg := newThreadSafeMockRegistry()
-	reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
-	reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8081})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s1", Name: "svc", Address: "10.0.0.1", Port: 8080})
+	_ = reg.Register(context.Background(), &ServiceInfo{ID: "s2", Name: "svc", Address: "10.0.0.2", Port: 8081})
 
 	client := NewServiceClient(reg, zap.NewNop())
 	addrs, err := client.GetAllServiceAddresses(context.Background(), "svc")

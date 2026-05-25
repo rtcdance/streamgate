@@ -2,7 +2,6 @@ package web3
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -158,11 +156,6 @@ func TestChainClient_SendTransaction_RPCError(t *testing.T) {
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	require.Error(t, err)
-}
-
-func TestEthClient_Interface(t *testing.T) {
-	var _ ethclient.Client = ethclient.Client{}
-	_ = fmt.Sprintf
 }
 
 func TestReceiptInfo_Fields(t *testing.T) {

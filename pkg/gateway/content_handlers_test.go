@@ -315,7 +315,7 @@ func TestHandleCreateContent_TitleTooLong(t *testing.T) {
 	svc := service.NewContentService(db, newContentMockObjStore(), newContentMockCache())
 	r := setupContentRouter(svc, "0xOwner")
 	longTitle := strings.Repeat("a", 256)
-	body := fmt.Sprintf(`{"title":"%s","type":"video"}`, longTitle)
+	body := fmt.Sprintf(`{"title":%q,"type":"video"}`, longTitle)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -392,7 +392,7 @@ func TestHandleCreateContent_ValidTypes(t *testing.T) {
 			}
 			svc := service.NewContentService(db, newContentMockObjStore(), newContentMockCache())
 			r := setupContentRouter(svc, "0xOwner")
-			body := fmt.Sprintf(`{"title":"test","type":"%s"}`, tt.typ)
+			body := fmt.Sprintf(`{"title":"test","type":%q}`, tt.typ)
 			w := httptest.NewRecorder()
 			req, _ := http.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -539,7 +539,7 @@ func TestHandleUpdateContent_MetadataTooLarge(t *testing.T) {
 	db := &contentMockDB{}
 	svc := service.NewContentService(db, newContentMockObjStore(), cache)
 	r := setupContentRouter(svc, "0xOwner")
-	largeMeta := fmt.Sprintf(`{"metadata":{"key":"%s"}}`, strings.Repeat("a", 65537))
+	largeMeta := fmt.Sprintf(`{"metadata":{"key":%q}}`, strings.Repeat("a", 65537))
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPut, "/api/v1/content/c1", strings.NewReader(largeMeta))
 	req.Header.Set("Content-Type", "application/json")
@@ -708,7 +708,7 @@ func TestRequireContentOwner_CopyMetadata(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "id", Value: "c1"}}
-	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	c.Set("wallet_address", "0xOwner")
 
 	cache := newContentMockCache()

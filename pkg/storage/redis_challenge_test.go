@@ -295,7 +295,7 @@ func TestNewRedisChallengeStore_WithOptions(t *testing.T) {
 		WithRedisWriteTimeout(1*time.Second),
 	)
 	require.NoError(t, err)
-	defer store.Close()
+	store.Close()
 }
 
 func TestNewRedisChallengeStoreWithClient(t *testing.T) {
@@ -306,7 +306,7 @@ func TestNewRedisChallengeStoreWithClient(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := NewRedisChallengeStoreWithClient(client, 5*time.Minute)
 	require.NotNil(t, store)
-	defer store.Close()
+	store.Close()
 }
 
 func TestRedisChallengeStore_Close_NilClient(t *testing.T) {

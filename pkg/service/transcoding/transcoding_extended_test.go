@@ -124,7 +124,7 @@ func TestTranscodingService_downloadInputFile_ValidContentType(t *testing.T) {
 	svc := NewTranscodingService(nil, nil, WithLogger(zap.NewNop()))
 	path, err := svc.downloadInputFile(context.Background(), srv.URL+"/video.mp4")
 	require.NoError(t, err)
-	defer os.Remove(path)
+	os.Remove(path)
 
 	_, err = os.Stat(path)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestTranscodingService_downloadInputFile_OctetStreamContentType(t *testing.
 	svc := NewTranscodingService(nil, nil, WithLogger(zap.NewNop()))
 	path, err := svc.downloadInputFile(context.Background(), srv.URL+"/file.bin")
 	require.NoError(t, err)
-	defer os.Remove(path)
+	os.Remove(path)
 }
 
 func TestTranscodingService_downloadInputFile_UnsupportedContentType(t *testing.T) {
@@ -169,7 +169,7 @@ func TestTranscodingService_downloadInputFile_ContentTypeWithCharset(t *testing.
 	svc := NewTranscodingService(nil, nil, WithLogger(zap.NewNop()))
 	path, err := svc.downloadInputFile(context.Background(), srv.URL+"/video.mp4")
 	require.NoError(t, err)
-	defer os.Remove(path)
+	os.Remove(path)
 }
 
 func TestTranscodingService_downloadInputFile_NoExtension(t *testing.T) {
@@ -351,8 +351,8 @@ func (m *mockTranscoderWithFiles) TranscodeHLS(_ context.Context, _, outputDir, 
 	if m.transcodeErr != nil {
 		return m.transcodeErr
 	}
-	_ = os.WriteFile(filepath.Join(outputDir, "index.m3u8"), []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nseg000.ts\n"), 0644)
-	_ = os.WriteFile(filepath.Join(outputDir, "seg000.ts"), []byte("ts-data"), 0644)
+	_ = os.WriteFile(filepath.Join(outputDir, "index.m3u8"), []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nseg000.ts\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(outputDir, "seg000.ts"), []byte("ts-data"), 0o644)
 	for _, p := range m.progressCalls {
 		progressFn(p)
 	}
@@ -421,9 +421,9 @@ func TestTranscodingService_ListTasks_WithOwnerFilter(t *testing.T) {
 	queue := NewMemoryTranscodingQueue()
 	svc := NewTranscodingService(nil, queue)
 
-	svc.Transcode(context.Background(), "content-a", "720p", "https://example.com/a.mp4", 1, "0xOwner1")
-	svc.Transcode(context.Background(), "content-a", "480p", "https://example.com/a2.mp4", 2, "0xOwner2")
-	svc.Transcode(context.Background(), "content-b", "1080p", "https://example.com/b.mp4", 3, "0xOwner1")
+	_, _ = svc.Transcode(context.Background(), "content-a", "720p", "https://example.com/a.mp4", 1, "0xOwner1")
+	_, _ = svc.Transcode(context.Background(), "content-a", "480p", "https://example.com/a2.mp4", 2, "0xOwner2")
+	_, _ = svc.Transcode(context.Background(), "content-b", "1080p", "https://example.com/b.mp4", 3, "0xOwner1")
 
 	filtered, err := svc.ListTasks(context.Background(), "", "0xOwner1", 10, 0)
 	require.NoError(t, err)
@@ -457,9 +457,9 @@ func TestTranscodingService_uploadSegments_WithConcurrency(t *testing.T) {
 	)
 	dir := t.TempDir()
 	for i := 0; i < 5; i++ {
-		require.NoError(t, os.WriteFile(fmt.Sprintf("%s/seg%03d.ts", dir, i), []byte("ts-data"), 0644))
+		require.NoError(t, os.WriteFile(fmt.Sprintf("%s/seg%03d.ts", dir, i), []byte("ts-data"), 0o644))
 	}
-	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0644))
+	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0o644))
 
 	err := svc.uploadSegments(context.Background(), dir, "content-conc", "720p")
 	require.NoError(t, err)

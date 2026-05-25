@@ -145,7 +145,7 @@ func TestRedisNFTAccessCache_Get_RedisHit(t *testing.T) {
 		Expires: time.Now().Add(time.Hour),
 	}
 	data, _ := json.Marshal(entry)
-	mr.Set("nft_cache:key1", string(data))
+	_ = mr.Set("nft_cache:key1", string(data))
 
 	result, ok := cache.Get(context.Background(), "key1")
 	assert.True(t, ok)
@@ -176,7 +176,7 @@ func TestRedisNFTAccessCache_Get_RedisExpired(t *testing.T) {
 		Expires: time.Now().Add(-time.Hour),
 	}
 	data, _ := json.Marshal(expiredEntry)
-	mr.Set("nft_cache:key1", string(data))
+	_ = mr.Set("nft_cache:key1", string(data))
 
 	_, ok := cache.Get(context.Background(), "key1")
 	assert.False(t, ok)
@@ -195,7 +195,7 @@ func TestRedisNFTAccessCache_Get_RedisCorruptData(t *testing.T) {
 
 	cache := NewRedisNFTAccessCache(local, rdb)
 
-	mr.Set("nft_cache:key1", "not-valid-json")
+	_ = mr.Set("nft_cache:key1", "not-valid-json")
 
 	_, ok := cache.Get(context.Background(), "key1")
 	assert.False(t, ok)
@@ -269,7 +269,7 @@ func TestRedisNFTAccessCache_Delete_WithRedis(t *testing.T) {
 
 	cache := NewRedisNFTAccessCache(local, rdb)
 
-	mr.Set("nft_cache:key1", "some-data")
+	_ = mr.Set("nft_cache:key1", "some-data")
 	local.Set("key1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(time.Hour)})
 
 	cache.Delete(context.Background(), "key1")
@@ -294,9 +294,9 @@ func TestRedisNFTAccessCache_DeleteByPrefix_WithRedis(t *testing.T) {
 
 	cache := NewRedisNFTAccessCache(local, rdb)
 
-	mr.Set("nft_cache:1:0xA:0xB:1", `{"HasNFT":true}`)
-	mr.Set("nft_cache:1:0xA:0xB:2", `{"HasNFT":false}`)
-	mr.Set("nft_cache:2:0xC:0xD:1", `{"HasNFT":true}`)
+	_ = mr.Set("nft_cache:1:0xA:0xB:1", `{"HasNFT":true}`)
+	_ = mr.Set("nft_cache:1:0xA:0xB:2", `{"HasNFT":false}`)
+	_ = mr.Set("nft_cache:2:0xC:0xD:1", `{"HasNFT":true}`)
 
 	local.Set("1:0xA:0xB:1", CachedNFTAccess{HasNFT: true, ExpiresAt: time.Now().Add(time.Hour)})
 	local.Set("1:0xA:0xB:2", CachedNFTAccess{HasNFT: false, ExpiresAt: time.Now().Add(time.Hour)})

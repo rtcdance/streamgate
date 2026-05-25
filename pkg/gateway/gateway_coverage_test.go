@@ -33,7 +33,7 @@ func TestPrometheusMiddleware_RecordsMetrics(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -47,7 +47,7 @@ func TestPrometheusMiddleware_Records404(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
@@ -97,7 +97,7 @@ func TestSetupRouter_WithInjectedServices(t *testing.T) {
 	defer resources.Close()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Contains(t, []int{http.StatusOK, http.StatusServiceUnavailable}, w.Code)
 }
@@ -342,7 +342,7 @@ func TestAuthGrpcServer_RevokeToken_Error(t *testing.T) {
 	srv := &authGrpcServer{authSvc: nil, log: log}
 
 	assert.Panics(t, func() {
-		srv.RevokeToken(context.Background(), &authv1.RevokeTokenRequest{
+		_, _ = srv.RevokeToken(context.Background(), &authv1.RevokeTokenRequest{
 			Token: "some-token",
 		})
 	})
@@ -401,7 +401,7 @@ func (m *gwCovMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ strin
 func TestGatingRuleResolverAdapter_NilSvc(t *testing.T) {
 	adapter := NewGatingRuleResolverAdapter(nil)
 	assert.Panics(t, func() {
-		adapter.GetActiveRulesForContent(context.Background(), "content-1")
+		_, _ = adapter.GetActiveRulesForContent(context.Background(), "content-1")
 	})
 }
 
@@ -493,7 +493,7 @@ func TestRegisterRoutes_WithInjectedWeb3(t *testing.T) {
 	defer resources.Close()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", http.NoBody)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -525,7 +525,7 @@ func TestSetupMiddleware_WithNilRedis(t *testing.T) {
 	assert.NotNil(t, res.MiddlewareSvc)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	router.ServeHTTP(w, req)
 }
 
@@ -679,7 +679,7 @@ func TestSetupRouter_HealthEndpointWorks(t *testing.T) {
 	for _, ep := range endpoints {
 		t.Run(ep.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := httptest.NewRequest(ep.method, ep.path, nil)
+			req := httptest.NewRequest(ep.method, ep.path, http.NoBody)
 			router.ServeHTTP(w, req)
 			assert.Contains(t, ep.codes, w.Code)
 		})

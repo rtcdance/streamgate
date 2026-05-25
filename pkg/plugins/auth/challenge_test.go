@@ -102,7 +102,7 @@ func TestChallengeResponseAuth_VerifyResponse_ChallengeAlreadyUsed(t *testing.T)
 	require.NoError(t, err)
 	assert.True(t, valid)
 
-	valid, err = cra.VerifyResponse(ctx, challenge.ID, expectedResponse, verifier)
+	_, err = cra.VerifyResponse(ctx, challenge.ID, expectedResponse, verifier)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already used")
 }

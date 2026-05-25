@@ -14,7 +14,7 @@ import (
 func TestNewCacheStorage(t *testing.T) {
 	cs := NewCacheStorage(100)
 	assert.NotNil(t, cs)
-	defer cs.Close()
+	cs.Close()
 }
 
 func TestCacheStorage_SetAndGet(t *testing.T) {

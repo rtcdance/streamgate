@@ -127,7 +127,7 @@ func TestTxLifecycleManager_Stop_Idempotent(t *testing.T) {
 }
 
 func TestTxLifecycleManager_checkTx_Confirmed(t *testing.T) {
-	crypto.GenerateKey()
+	_, _ = crypto.GenerateKey()
 
 	client := &mockTxClient{
 		receiptFn: func(ctx context.Context, hash common.Hash) (*types.Receipt, error) {

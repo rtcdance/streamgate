@@ -87,7 +87,7 @@ func newMockRPCServer() *mockRPCServer {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	return m
 }
@@ -224,12 +224,8 @@ func TestSolanaVerifier_VerifyTokenAccount_MockRPC_DataTooShort(t *testing.T) {
 	sv := NewSolanaVerifier(zap.NewNop(), mockSrv.URL())
 	defer sv.Close()
 
-	result, err := sv.VerifyTokenAccount(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-	if err != nil {
-		assert.False(t, result)
-	} else {
-		assert.False(t, result)
-	}
+	result, _ := sv.VerifyTokenAccount(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	assert.False(t, result)
 }
 
 func TestSolanaVerifier_VerifyTokenAccount_MockRPC_InvalidOwner(t *testing.T) {
@@ -244,12 +240,8 @@ func TestSolanaVerifier_VerifyTokenAccount_MockRPC_InvalidOwner(t *testing.T) {
 	sv := NewSolanaVerifier(zap.NewNop(), mockSrv.URL())
 	defer sv.Close()
 
-	result, err := sv.VerifyTokenAccount(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-	if err != nil {
-		assert.False(t, result)
-	} else {
-		assert.False(t, result)
-	}
+	result, _ := sv.VerifyTokenAccount(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	assert.False(t, result)
 }
 
 func TestSolanaVerifier_VerifyMintAuthority_NoClients(t *testing.T) {
@@ -349,12 +341,8 @@ func TestSolanaVerifier_VerifyMintAuthority_MockRPC_DataTooShort(t *testing.T) {
 	sv := NewSolanaVerifier(zap.NewNop(), mockSrv.URL())
 	defer sv.Close()
 
-	result, err := sv.VerifyMintAuthority(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-	if err != nil {
-		assert.False(t, result)
-	} else {
-		assert.False(t, result)
-	}
+	result, _ := sv.VerifyMintAuthority(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	assert.False(t, result)
 }
 
 func TestSolanaVerifier_VerifyMintAuthority_MockRPC_InvalidAuthority(t *testing.T) {
@@ -372,12 +360,8 @@ func TestSolanaVerifier_VerifyMintAuthority_MockRPC_InvalidAuthority(t *testing.
 	sv := NewSolanaVerifier(zap.NewNop(), mockSrv.URL())
 	defer sv.Close()
 
-	result, err := sv.VerifyMintAuthority(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-	if err != nil {
-		assert.False(t, result)
-	} else {
-		assert.False(t, result)
-	}
+	result, _ := sv.VerifyMintAuthority(context.Background(), "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	assert.False(t, result)
 }
 
 func TestSolanaVerifier_VerifyMetaplexNFTOwnership_NoClients(t *testing.T) {
@@ -578,7 +562,7 @@ func TestBasicFetchURI(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(expectedMetadata)
+		_ = json.NewEncoder(w).Encode(expectedMetadata)
 	}))
 	defer server.Close()
 
@@ -603,7 +587,7 @@ func TestBasicFetchURI_Non200Status(t *testing.T) {
 
 func TestBasicFetchURI_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
 
@@ -670,7 +654,7 @@ func TestMetaplexVerifier_FetchMetadataFromURI_BasicFetch(t *testing.T) {
 
 	expectedMetadata := MetaplexMetadata{Name: "BasicNFT", Symbol: "BNFT"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(expectedMetadata)
+		_ = json.NewEncoder(w).Encode(expectedMetadata)
 	}))
 	defer server.Close()
 
@@ -687,7 +671,7 @@ func TestMetaplexVerifier_VerifyNFTOwnership_CacheHit(t *testing.T) {
 	mintAddress := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
 	ownerAddress := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 	cacheKey := fmt.Sprintf("metaplex:owner:%s:%s", mintAddress, ownerAddress)
-	cache.Set(cacheKey, true)
+	_ = cache.Set(cacheKey, true)
 
 	owned, err := mv.VerifyNFTOwnership(context.Background(), mintAddress, ownerAddress)
 	require.NoError(t, err)
@@ -702,7 +686,7 @@ func TestMetaplexVerifier_VerifyNFTOwnership_CacheHitFalse(t *testing.T) {
 	mintAddress := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
 	ownerAddress := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 	cacheKey := fmt.Sprintf("metaplex:owner:%s:%s", mintAddress, ownerAddress)
-	cache.Set(cacheKey, false)
+	_ = cache.Set(cacheKey, false)
 
 	owned, err := mv.VerifyNFTOwnership(context.Background(), mintAddress, ownerAddress)
 	require.NoError(t, err)
@@ -750,7 +734,7 @@ func TestMetaplexVerifier_GetMetadata_CacheHit(t *testing.T) {
 	mintAddress := "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
 	cacheKey := fmt.Sprintf("metaplex:metadata:%s", mintAddress)
 	cachedMeta := &MetaplexMetadata{Name: "CachedNFT", Symbol: "CNFT"}
-	cache.Set(cacheKey, cachedMeta)
+	_ = cache.Set(cacheKey, cachedMeta)
 
 	metadata, err := mv.GetMetadata(context.Background(), mintAddress)
 	require.NoError(t, err)
@@ -788,7 +772,7 @@ func TestMetaplexVerifier_GetMetadata_MockRPC(t *testing.T) {
 
 	metadataURI := ""
 	metadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(MetaplexMetadata{
+		_ = json.NewEncoder(w).Encode(MetaplexMetadata{
 			Name:   "MockNFT",
 			Symbol: "MNFT",
 			Image:  "https://example.com/img.png",
@@ -821,7 +805,7 @@ func TestMetaplexVerifier_GetMetadata_MockRPC_WithCache(t *testing.T) {
 	defer mockSrv.Close()
 
 	metadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(MetaplexMetadata{
+		_ = json.NewEncoder(w).Encode(MetaplexMetadata{
 			Name:   "CachedMockNFT",
 			Symbol: "CMNFT",
 		})
@@ -862,7 +846,7 @@ func TestMetaplexVerifier_VerifyMetadata_CacheHit(t *testing.T) {
 		Name:   "TestNFT",
 		Symbol: "TNFT",
 	}
-	cache.Set(cacheKey, cachedMeta)
+	_ = cache.Set(cacheKey, cachedMeta)
 
 	expected := &MetaplexMetadata{
 		Name:   "TestNFT",
@@ -885,7 +869,7 @@ func TestMetaplexVerifier_VerifyMetadata_CacheHit_Mismatch(t *testing.T) {
 		Name:   "TestNFT",
 		Symbol: "TNFT",
 	}
-	cache.Set(cacheKey, cachedMeta)
+	_ = cache.Set(cacheKey, cachedMeta)
 
 	expected := &MetaplexMetadata{
 		Name:   "DifferentNFT",
@@ -1017,7 +1001,7 @@ func TestMetaplexVerifier_VerifyCollection_InvalidCollectionAddress(t *testing.T
 			Family: "TestFamily",
 		},
 	}
-	cache.Set(cacheKey, cachedMeta)
+	_ = cache.Set(cacheKey, cachedMeta)
 
 	_, err := mv.VerifyCollection(context.Background(), mintAddress, "invalid_collection")
 	require.Error(t, err)
@@ -1035,7 +1019,7 @@ func TestMetaplexVerifier_VerifyCollection_CacheHit_NilCollection(t *testing.T) 
 		Name:       "TestNFT",
 		Collection: nil,
 	}
-	cache.Set(cacheKey, cachedMeta)
+	_ = cache.Set(cacheKey, cachedMeta)
 
 	valid, err := mv.VerifyCollection(context.Background(), mintAddress, "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
 	require.NoError(t, err)
@@ -1138,9 +1122,7 @@ func TestMetaplexVerifier_getMetadataAccount_NullAccount(t *testing.T) {
 	mockSrv := newMockRPCServer()
 	defer mockSrv.Close()
 
-	mockSrv.RegisterHandler("getAccountInfo", func() json.RawMessage {
-		return makeNullAccountInfoResult()
-	})
+	mockSrv.RegisterHandler("getAccountInfo", makeNullAccountInfoResult)
 
 	mv := NewMetaplexVerifier(mockSrv.Client(), zap.NewNop(), nil)
 	defer mv.Close()

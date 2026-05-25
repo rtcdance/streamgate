@@ -105,16 +105,16 @@ func TestNFTAccessCacheAdapter_Get(t *testing.T) {
 
 	adapter := &NFTAccessCacheAdapter{Cache: cache}
 
-	_, ok := adapter.Get(nil, "key1")
+	_, ok := adapter.Get(context.TODO(), "key1")
 	assert.False(t, ok)
 
-	adapter.Set(nil, "key1", middleware.NFTAccessEntry{
+	adapter.Set(context.TODO(), "key1", middleware.NFTAccessEntry{
 		HasNFT:  true,
 		Balance: big.NewInt(1),
 		Expires: time.Now().Add(time.Hour),
 	})
 
-	entry, ok := adapter.Get(nil, "key1")
+	entry, ok := adapter.Get(context.TODO(), "key1")
 	assert.True(t, ok)
 	assert.True(t, entry.HasNFT)
 }
@@ -124,14 +124,14 @@ func TestNFTAccessCacheAdapter_Delete(t *testing.T) {
 	defer cache.Stop()
 
 	adapter := &NFTAccessCacheAdapter{Cache: cache}
-	adapter.Set(nil, "key1", middleware.NFTAccessEntry{
+	adapter.Set(context.TODO(), "key1", middleware.NFTAccessEntry{
 		HasNFT:  true,
 		Balance: big.NewInt(1),
 		Expires: time.Now().Add(time.Hour),
 	})
-	adapter.Delete(nil, "key1")
+	adapter.Delete(context.TODO(), "key1")
 
-	_, ok := adapter.Get(nil, "key1")
+	_, ok := adapter.Get(context.TODO(), "key1")
 	assert.False(t, ok)
 }
 
@@ -140,14 +140,14 @@ func TestNFTAccessCacheAdapter_DeleteByPrefix(t *testing.T) {
 	defer cache.Stop()
 
 	adapter := &NFTAccessCacheAdapter{Cache: cache}
-	adapter.Set(nil, "prefix:key1", middleware.NFTAccessEntry{
+	adapter.Set(context.TODO(), "prefix:key1", middleware.NFTAccessEntry{
 		HasNFT:  true,
 		Balance: big.NewInt(1),
 		Expires: time.Now().Add(time.Hour),
 	})
-	adapter.DeleteByPrefix(nil, "prefix:")
+	adapter.DeleteByPrefix(context.TODO(), "prefix:")
 
-	_, ok := adapter.Get(nil, "prefix:key1")
+	_, ok := adapter.Get(context.TODO(), "prefix:key1")
 	assert.False(t, ok)
 }
 
@@ -262,7 +262,7 @@ func TestRegisterNFTRoutes_RoutesRegistered(t *testing.T) {
 				req = httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
 				req.Header.Set("Content-Type", "application/json")
 			} else {
-				req = httptest.NewRequest(tt.method, tt.path, nil)
+				req = httptest.NewRequest(tt.method, tt.path, http.NoBody)
 			}
 			r.ServeHTTP(w, req)
 			assert.NotEqual(t, http.StatusNotFound, w.Code, "route should be registered")

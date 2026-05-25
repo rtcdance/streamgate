@@ -394,7 +394,7 @@ func TestRedisCache_Connect_WithPassword(t *testing.T) {
 		Password: "secret",
 	})
 	require.NoError(t, err)
-	defer rc.Close()
+	rc.Close()
 }
 
 func TestRedisCache_Connect_WithDB(t *testing.T) {
@@ -408,7 +408,7 @@ func TestRedisCache_Connect_WithDB(t *testing.T) {
 		DB:   1,
 	})
 	require.NoError(t, err)
-	defer rc.Close()
+	rc.Close()
 }
 
 func TestRedisCache_ImplementsCacheInterface(t *testing.T) {

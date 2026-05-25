@@ -468,7 +468,7 @@ func TestJWTVerifier_ParseToken_HS256(t *testing.T) {
 		token, err := auth.Authenticate(context.Background(), "testuser", "password123")
 		if err != nil {
 			hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
-			auth.storage.CreateUser(context.Background(), &models.User{
+			_ = auth.storage.CreateUser(context.Background(), &models.User{
 				ID:        "1",
 				Username:  "testuser",
 				Password:  string(hashedPassword),
