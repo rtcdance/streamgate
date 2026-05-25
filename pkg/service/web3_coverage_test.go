@@ -99,7 +99,7 @@ func TestWeb3Service_Coverage_DetectContractType_NoChain(t *testing.T) {
 func TestWeb3Service_Coverage_VerifySignature_NilVerifier(t *testing.T) {
 	ws := &Web3Service{logger: zap.NewNop()}
 	assert.Panics(t, func() {
-		ws.VerifySignature(context.Background(), "0x1", "msg", "sig")
+		_, _ = ws.VerifySignature(context.Background(), "0x1", "msg", "sig")
 	})
 }
 

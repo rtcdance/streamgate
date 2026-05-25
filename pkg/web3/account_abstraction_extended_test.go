@@ -158,6 +158,6 @@ func TestIAccount_Interface(t *testing.T) {
 
 type mockIAccount struct{}
 
-func (m *mockIAccount) ValidateUserOp(_ context.Context, _ common.Address, _ [32]byte, _ *big.Int, _ *big.Int) ([]byte, error) {
+func (m *mockIAccount) ValidateUserOp(_ context.Context, _ common.Address, _ [32]byte, _, _ *big.Int) ([]byte, error) {
 	return nil, nil
 }

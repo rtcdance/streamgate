@@ -387,7 +387,7 @@ func TestTranscodingService_CancelTask_CannotCancelCompleted(t *testing.T) {
 	svc := NewTranscodingService(nil, queue)
 
 	taskID, _ := svc.Transcode(context.Background(), "content-x", "720p", "https://example.com/input.mp4", 1, "")
-	svc.CompleteTask(context.Background(), taskID, "out")
+	_ = svc.CompleteTask(context.Background(), taskID, "out")
 
 	err := svc.CancelTask(context.Background(), taskID)
 	require.NoError(t, err)
@@ -470,9 +470,9 @@ func TestTranscodingService_GetPendingTasks(t *testing.T) {
 	queue := NewMemoryTranscodingQueue()
 	svc := NewTranscodingService(nil, queue)
 
-	svc.Transcode(context.Background(), "content-p1", "720p", "https://example.com/p1.mp4", 1, "")
+	_, _ = svc.Transcode(context.Background(), "content-p1", "720p", "https://example.com/p1.mp4", 1, "")
 	taskID, _ := svc.Transcode(context.Background(), "content-p2", "480p", "https://example.com/p2.mp4", 2, "")
-	svc.CompleteTask(context.Background(), taskID, "out")
+	_ = svc.CompleteTask(context.Background(), taskID, "out")
 
 	pending, err := svc.GetPendingTasks(context.Background(), 10)
 	require.NoError(t, err)
@@ -634,7 +634,7 @@ func TestMemoryTranscodingQueue_GetStatus(t *testing.T) {
 	require.Error(t, err)
 
 	task := &models.TranscodingTask{ID: "task-1", Status: "pending"}
-	q.Enqueue(task)
+	_ = q.Enqueue(task)
 
 	status, err := q.GetStatus("task-1")
 	require.NoError(t, err)
@@ -653,7 +653,7 @@ func TestMemoryTranscodingQueue_Depth(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, depth)
 
-	q.Enqueue(&models.TranscodingTask{ID: "t1", Status: "pending"})
+	_ = q.Enqueue(&models.TranscodingTask{ID: "t1", Status: "pending"})
 	depth, _ = q.Depth()
 	assert.Equal(t, 1, depth)
 }
@@ -868,7 +868,7 @@ func TestTranscodingService_uploadSegments_StorageError(t *testing.T) {
 		WithLogger(zap.NewNop()),
 	)
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(dir+"/test.ts", []byte("data"), 0644))
+	require.NoError(t, os.WriteFile(dir+"/test.ts", []byte("data"), 0o644))
 	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p")
 	require.Error(t, err)
 }
@@ -890,8 +890,8 @@ func TestTranscodingService_uploadSegments_SuccessWithFiles(t *testing.T) {
 		WithUploadConcurrency(2),
 	)
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0644))
-	require.NoError(t, os.WriteFile(dir+"/segment0.ts", []byte("ts-data"), 0644))
+	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0o644))
+	require.NoError(t, os.WriteFile(dir+"/segment0.ts", []byte("ts-data"), 0o644))
 
 	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p")
 	require.NoError(t, err)

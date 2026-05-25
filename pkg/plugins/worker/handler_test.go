@@ -248,7 +248,8 @@ func TestNewJobScheduler(t *testing.T) {
 func TestJobScheduler_StartAndStop(t *testing.T) {
 	scheduler := NewJobScheduler(zap.NewNop())
 
-	ctx, _ := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	scheduler.Start(ctx)
 	assert.True(t, scheduler.running)
 

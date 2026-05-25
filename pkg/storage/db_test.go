@@ -115,7 +115,10 @@ func TestDatabase_Ping_Error(t *testing.T) {
 
 func TestDatabase_Query(t *testing.T) {
 	db := NewDatabaseWithImpl(&mockDB{}, "mock")
-	_, err := db.Query(context.Background(), "SELECT 1")
+	rows, err := db.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.NoError(t, err)
 }
 
@@ -272,7 +275,10 @@ func TestDatabase_Query_DelegatesToImpl(t *testing.T) {
 		},
 	}
 	db := NewDatabaseWithImpl(impl, "mock")
-	_, _ = db.Query(context.Background(), "SELECT 1")
+	rows, _ := db.Query(context.Background(), "SELECT 1")
+	if rows != nil {
+		rows.Close()
+	}
 	assert.True(t, called)
 }
 

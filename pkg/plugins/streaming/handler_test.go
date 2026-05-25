@@ -368,7 +368,7 @@ func TestAdaptiveBitrate_SelectBitrate_Table(t *testing.T) {
 	}
 }
 
-func makeTestJWT(t *testing.T, secret string, wallet string) string {
+func makeTestJWT(t *testing.T, secret, wallet string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"wallet_address": wallet,

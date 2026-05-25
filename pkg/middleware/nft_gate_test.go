@@ -450,7 +450,7 @@ type mockAuditLogger struct {
 	logs []string
 }
 
-func (m *mockAuditLogger) Log(_ context.Context, event string, _ string, _ string, _ string, _ bool, _ string, _ string) {
+func (m *mockAuditLogger) Log(_ context.Context, event, _, _, _ string, _ bool, _, _ string) {
 	m.logs = append(m.logs, event)
 }
 

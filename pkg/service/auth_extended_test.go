@@ -301,7 +301,7 @@ func TestAuthService_RefreshToken_WithBlacklist(t *testing.T) {
 
 func TestAuthService_RefreshToken_RevokedToken(t *testing.T) {
 	bl := newMockTokenBlacklist()
-	bl.Revoke(context.Background(), "revoked-jti", time.Now().Add(time.Hour))
+	_ = bl.Revoke(context.Background(), "revoked-jti", time.Now().Add(time.Hour))
 
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage(),
 		WithTokenBlacklist(bl),
@@ -395,7 +395,7 @@ func TestAuthService_VerifyToken_WithBlacklist(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Valid)
 
-	bl.Revoke(context.Background(), "verify-jti", time.Now().Add(time.Hour))
+	_ = bl.Revoke(context.Background(), "verify-jti", time.Now().Add(time.Hour))
 	result, err = auth.VerifyToken(context.Background(), token)
 	assert.ErrorIs(t, err, ErrTokenRevoked)
 	assert.False(t, result.Valid)
@@ -408,7 +408,7 @@ func TestAuthService_IsTokenRevoked_WithBlacklist(t *testing.T) {
 	)
 
 	assert.False(t, auth.IsTokenRevoked(context.Background(), "unknown-jti"))
-	bl.Revoke(context.Background(), "known-jti", time.Now().Add(time.Hour))
+	_ = bl.Revoke(context.Background(), "known-jti", time.Now().Add(time.Hour))
 	assert.True(t, auth.IsTokenRevoked(context.Background(), "known-jti"))
 }
 
@@ -558,7 +558,7 @@ func TestAuthService_ValidatePlaybackToken_WithBlacklist(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
 
-	bl.Revoke(context.Background(), claims.JTI, time.Now().Add(time.Hour))
+	_ = bl.Revoke(context.Background(), claims.JTI, time.Now().Add(time.Hour))
 	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc")
 	if err == nil {
 		t.Log("blacklist check skipped: claims.ID (RegisteredClaims.ID) is empty, JTI is set on custom field")
