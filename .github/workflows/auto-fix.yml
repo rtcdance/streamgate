@@ -1,6 +1,7 @@
 name: AI Auto-Fix
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows:
       - "CI"
@@ -11,7 +12,7 @@ on:
       - completed
 
 concurrency:
-  group: auto-fix-${{ github.event.workflow_run.id }}
+  group: auto-fix-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.workflow_run.id }}
   cancel-in-progress: true
 
 permissions:
@@ -28,21 +29,41 @@ jobs:
   check-eligibility:
     name: Check Fix Eligibility
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event_name == 'workflow_dispatch' }}
     outputs:
       should_fix: ${{ steps.check.outputs.should_fix }}
-      run_id: ${{ github.event.workflow_run.id }}
-      run_name: ${{ github.event.workflow_run.name }}
-      head_branch: ${{ github.event.workflow_run.head_branch }}
-      head_sha: ${{ github.event.workflow_run.head_sha }}
+      run_id: ${{ steps.defaults.outputs.run_id }}
+      run_name: ${{ steps.defaults.outputs.run_name }}
+      head_branch: ${{ steps.defaults.outputs.head_branch }}
+      head_sha: ${{ steps.defaults.outputs.head_sha }}
     steps:
+      - name: Set defaults for workflow_dispatch
+        id: defaults
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run_id=${{ github.run_id }}" >> $GITHUB_OUTPUT
+            echo "run_name=AI Auto-Fix (manual trigger)" >> $GITHUB_OUTPUT
+            echo "head_branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "head_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "run_id=${{ github.event.workflow_run.id }}" >> $GITHUB_OUTPUT
+            echo "run_name=${{ github.event.workflow_run.name }}" >> $GITHUB_OUTPUT
+            echo "head_branch=${{ github.event.workflow_run.head_branch }}" >> $GITHUB_OUTPUT
+            echo "head_sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check if auto-fix should run
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_BRANCH: ${{ steps.defaults.outputs.head_branch }}
+          RUN_ID: ${{ steps.defaults.outputs.run_id }}
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_fix=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           if [ "$HEAD_BRANCH" = "master" ] || [ "$HEAD_BRANCH" = "main" ]; then
             echo "Skipping auto-fix for default branch failures - requires manual intervention"
             echo "should_fix=false" >> $GITHUB_OUTPUT
@@ -81,9 +102,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
-          gh run view "$RUN_ID" --repo ${{ github.repository }} --json jobs > /tmp/run-jobs.json
-          jq -r '.jobs[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-jobs.txt
-          jq -r '.jobs[] | select(.conclusion=="failure") | .steps[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-steps.txt
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo '{"jobs":[]}' > /tmp/run-jobs.json
+            echo "(manual trigger - no failed jobs)" > /tmp/failed-jobs.txt
+            echo "(manual trigger - no failed steps)" > /tmp/failed-steps.txt
+          else
+            gh run view "$RUN_ID" --repo ${{ github.repository }} --json jobs > /tmp/run-jobs.json
+            jq -r '.jobs[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-jobs.txt
+            jq -r '.jobs[] | select(.conclusion=="failure") | .steps[] | select(.conclusion=="failure") | .name' /tmp/run-jobs.json > /tmp/failed-steps.txt
+          fi
 
           echo "=== Failed Jobs ==="
           cat /tmp/failed-jobs.txt
@@ -95,7 +122,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
-          gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "(manual trigger - no failed logs)" > /tmp/failed-logs.txt
+          else
+            gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+          fi
           echo "Log size: $(wc -c < /tmp/failed-logs.txt) bytes"
 
       - name: Analyze failure type
@@ -151,7 +182,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_ID: ${{ needs.check-eligibility.outputs.run_id }}
         run: |
-          gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "(manual trigger - no failed logs)" > /tmp/failed-logs.txt
+          else
+            gh run view "$RUN_ID" --repo ${{ github.repository }} --log-failed > /tmp/failed-logs.txt 2>&1 || true
+          fi
 
       - name: Attempt go mod tidy fix
         if: contains(needs.analyze-failure.outputs.failure_summary, 'go.mod/go.sum not tidy')
