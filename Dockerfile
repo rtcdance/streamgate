@@ -74,6 +74,7 @@ WORKDIR /app
 # Binary + runtime config only
 COPY --from=builder /app/streamgate .
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/h5-demo ./h5-demo
 
 RUN chown -R appuser:appgroup /app
 USER appuser
@@ -100,6 +101,7 @@ WORKDIR /app
 
 COPY --from=builder /app/streamgate .
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/h5-demo ./h5-demo
 
 # Non-root user built into distroless base
 USER 65532:65532
