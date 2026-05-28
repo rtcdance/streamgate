@@ -96,8 +96,14 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 		MaxHeaderBytes:    1 << 20,
 	}
 
+	// Pre-bind to avoid port race with concurrent plugin Starts
+	listener, err := net.Listen("tcp", p.server.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to bind API Gateway port: %w", err)
+	}
+
 	go func() {
-		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := p.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			p.logger.Error("API Gateway server error", zap.Error(err))
 		}
 	}()

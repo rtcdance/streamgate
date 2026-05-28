@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -25,6 +24,24 @@ import (
 
 func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, res *AppResources) {
 	registerInfrastructureRoutes(router, log, svc.DB, svc.SegmentStorage, res.MiddlewareSvc, cfg)
+
+	/* Global JWT middleware for all /api/v1/ routes.
+	   Public endpoints are excluded via SkipPaths so we don't need
+	   router.Group("/") which has path-matching issues. */
+	jwtConfig := middleware.JWTAuthConfig{
+		Secret:    cfg.Auth.JWTSecret,
+		Blacklist: svc.AuthService,
+		SkipPaths: []string{
+			APIPrefix + "/auth/challenge",
+			APIPrefix + "/auth/login",
+			APIPrefix + "/auth/register",
+			APIPrefix + "/auth/refresh",
+			APIPrefix + "/web3/rpc-status",
+			APIPrefix + "/web3/supported-chains",
+			"/health", "/ready", "/metrics", "/docs",
+		},
+	}
+	router.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
 
 	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
 		RequestsPerMinute: 10,
@@ -154,76 +171,55 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(docs.SwaggerUIHTML))
 	})
 	router.StaticFile("/docs/openapi.yaml", filepath.Join(".", "docs", "api", "openapi.yaml"))
-
-	if _, err := os.Stat("./h5-demo"); err == nil {
-		router.Static("/demo", "./h5-demo")
-		log.Info("H5 Demo served at /demo/")
-	}
 }
 
 func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache) {
-	jwtConfig := middleware.JWTAuthConfig{
-		Secret:    cfg.Auth.JWTSecret,
-		Blacklist: svc.AuthService,
-		SkipPaths: []string{
-			APIPrefix + "/auth/challenge",
-			APIPrefix + "/auth/login",
-			APIPrefix + "/auth/register",
-			APIPrefix + "/auth/refresh",
-			APIPrefix + "/web3/rpc-status",
-			APIPrefix + "/web3/supported-chains",
-		},
+	RegisterAuthProtectedRoutes(router, log, svc.AuthService)
+
+	cbSvc := middleware.NewService(log)
+	nftGroup := router.Group(APIPrefix + "/nft")
+	nftGroup.Use(cbSvc.CircuitBreakerMiddleware("nft-verify", middleware.CircuitBreakerConfig{
+		FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
+	}))
+	RegisterNFTRoutes(nftGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
+
+	RegisterUploadRoutes(router, log, svc.UploadService)
+
+	nftGateConfig := middleware.NFTGateConfig{
+		Verifier:       svc.NFTVerifier,
+		BlockProver:    svc.Web3Service,
+		Cache:          svc.NFTCacheBackend,
+		RuleResolver:   svc.GatingRuleResolver,
+		DefaultChainID: cfg.Web3.ChainID,
+		CacheTTL:       60 * time.Second,
+		MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
+		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 	}
-
-	authGroup := router.Group("/")
-	authGroup.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
-	{
-		RegisterAuthProtectedRoutes(authGroup, log, svc.AuthService)
-
-		cbSvc := middleware.NewService(log)
-		nftCBGroup := authGroup.Group("/")
-		nftCBGroup.Use(cbSvc.CircuitBreakerMiddleware("nft-verify", middleware.CircuitBreakerConfig{
-			FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
-		}))
-		RegisterNFTRoutes(nftCBGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
-
-		RegisterUploadRoutes(authGroup, log, svc.UploadService)
-
-		blockProver := svc.Web3Service
-		nftGateConfig := middleware.NFTGateConfig{
-			Verifier:       svc.NFTVerifier,
-			BlockProver:    blockProver,
-			Cache:          svc.NFTCacheBackend,
-			RuleResolver:   svc.GatingRuleResolver,
-			DefaultChainID: cfg.Web3.ChainID,
-			CacheTTL:       60 * time.Second,
-			MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
-			BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
+	nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
+	streamingGroup := router.Group(APIPrefix + "/streaming")
+	streamingGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
+	streamingGroup.Use(func(c *gin.Context) {
+		if core.IsDraining() {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
+			return
 		}
-		nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
-		nftGroup := authGroup.Group("/")
-		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
-		nftGroup.Use(func(c *gin.Context) {
-			if core.IsDraining() {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
-				return
-			}
-			c.Next()
-		})
-		RegisterStreamingRoutes(nftGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+		c.Next()
+	})
+	RegisterStreamingRoutes(streamingGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
-		RegisterContentRoutes(authGroup, log, svc.ContentService)
-		RegisterTranscodingRoutes(authGroup, log, svc.TranscodingSvc)
+	RegisterContentRoutes(router, log, svc.ContentService)
+	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc)
 
-		if svc.GatingRuleSvc != nil {
-			RegisterGatingRuleRoutes(authGroup, svc.GatingRuleSvc)
-		}
-		if svc.PlaybackStatsSvc != nil {
-			RegisterPlaybackStatsRoutes(authGroup, svc.PlaybackStatsSvc)
-		}
-		if svc.CategorySvc != nil {
-			RegisterCategoryRoutes(authGroup, svc.CategorySvc)
-		}
+	// Use a root sub-group for RouteGroup-specific registrations
+	rootG := router.Group("/")
+	if svc.GatingRuleSvc != nil {
+		RegisterGatingRuleRoutes(rootG, svc.GatingRuleSvc)
+	}
+	if svc.PlaybackStatsSvc != nil {
+		RegisterPlaybackStatsRoutes(rootG, svc.PlaybackStatsSvc)
+	}
+	if svc.CategorySvc != nil {
+		RegisterCategoryRoutes(rootG, svc.CategorySvc)
 	}
 }
 
