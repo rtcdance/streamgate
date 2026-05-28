@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -212,7 +212,7 @@ const SCENARIOS = {
       '    → client.CallContract (eth_call RPC)',
       '      → pkg/web3/chain.go:930 withChainClient (generics!)',
       '        → rate limiter check',
-羊→ pkg/web3/chain.go:1044 -> ethclient.CallContract
+'        → pkg/web3/chain.go:1044 -> ethclient.CallContract
       '        → latency recording + score update',
       '    → ABI.UnpackIntoInterface — decodes address from response',
       '    → compare recovered address vs. expected',
