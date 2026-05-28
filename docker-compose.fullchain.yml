@@ -91,22 +91,23 @@ services:
       - "19090:9090"
     environment:
       - APP_DEBUG=true
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=postgres
-      - DATABASE_PASSWORD=postgres
-      - DATABASE_NAME=streamgate
-      - DATABASE_SSLMODE=disable
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_TYPE=minio
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESSKEY=minioadmin
-      - STORAGE_SECRETKEY=minioadmin
-      - STORAGE_BUCKET=streamgate
-      - NATS_URL=nats://nats:4222
-      - AUTH_JWT_SECRET=fullchain-acceptance-secret
-      - WEB3_ETHEREUM_RPC=http://anvil:8545
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_DB_SSLMODE=disable
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_TYPE=minio
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:3000,http://localhost:8080,http://localhost:18080
+      - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
     depends_on:
       postgres:

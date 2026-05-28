@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -107,8 +107,8 @@ video{width:100%;border-radius:8px;margin-top:12px}
 </div>
 
 <script>
-const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
-const JWT_SECRET = 'fullchain-acceptance-secret';
+const API = localStorage.getItem('sg_backend') || 'http://localhost:18000';
+const JWT_SECRET = 'fullchain-acceptance-secret-2026';
 const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 let token = null, contentId = null, walletAddr = null;
@@ -118,12 +118,15 @@ function el(id){return document.getElementById(id)}
 function show(id){el(id).classList.remove('hidden')}
 function hide(id){el(id).classList.add('hidden')}
 
+function b64url(s) {
+  return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+}
 async function jwt(addr) {
-  const h=btoa('{"alg":"HS256","typ":"JWT"}').replace(/=/g,'');
-  const p=btoa(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'f-'+crypto.randomUUID()})).replace(/=/g,'');
+  const h=b64url('{"alg":"HS256","typ":"JWT"}');
+  const p=b64url(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'f-'+crypto.randomUUID()}));
   const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const s=await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
-  return h+'.'+p+'.'+btoa(String.fromCharCode(...new Uint8Array(s))).replace(/=/g,'');
+  return h+'.'+p+'.'+b64url(String.fromCharCode(...new Uint8Array(s)));
 }
 
 async function api(m,p,b,h){

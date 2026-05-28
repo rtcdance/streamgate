@@ -73,17 +73,29 @@ func (s *Service) RequestSizeLimitMiddleware(maxBodySize int64) gin.HandlerFunc 
 }
 
 // SecurityHeadersMiddleware adds standard security headers to every response.
+// Demo pages (/demo/*) get a relaxed CSP to allow CDN scripts, inline styles,
+// and inline scripts required by the acceptance test pages.
 func (s *Service) SecurityHeadersMiddleware() gin.HandlerFunc {
+	const (
+		strictCSP = "default-src 'self'"
+		demoCSP   = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* https://cdn.jsdelivr.net"
+	)
+
 	headers := map[string]string{
 		"X-Content-Type-Options":    "nosniff",
 		"X-Frame-Options":           "DENY",
 		"Referrer-Policy":           "strict-origin-when-cross-origin",
-		"Content-Security-Policy":   "default-src 'self'",
 		"Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
 	}
 	return func(c *gin.Context) {
 		for k, v := range headers {
 			c.Writer.Header().Set(k, v)
+		}
+		// Relax CSP for demo pages — they need CDN scripts, inline styles, inline JS
+		if strings.HasPrefix(c.Request.URL.Path, "/demo/") {
+			c.Writer.Header().Set("Content-Security-Policy", demoCSP)
+		} else {
+			c.Writer.Header().Set("Content-Security-Policy", strictCSP)
 		}
 		c.Next()
 	}
