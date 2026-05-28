@@ -42,7 +42,8 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 	}
 
 	return func(c *gin.Context) {
-		if skipPaths[c.Request.URL.Path] {
+		path := c.Request.URL.Path
+		if skipPaths[path] || strings.HasPrefix(path, "/demo/") {
 			c.Next()
 			return
 		}
