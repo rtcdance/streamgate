@@ -171,6 +171,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(docs.SwaggerUIHTML))
 	})
 	router.StaticFile("/docs/openapi.yaml", filepath.Join(".", "docs", "api", "openapi.yaml"))
+	router.Static("/demo", "./h5-demo")
 }
 
 func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache) {
