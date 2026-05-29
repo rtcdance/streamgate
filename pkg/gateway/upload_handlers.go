@@ -698,9 +698,12 @@ func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *servic
 		}
 
 		// Auto-submit transcode job after successful content creation
+		var taskID string
 		if transcodeSvc != nil {
 			inputURL := fmt.Sprintf("s3://%s/%s/%s.mp4", "streamgate", wallet, uploadID)
-			if _, tErr := transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet); tErr != nil {
+			var tErr error
+			taskID, tErr = transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet)
+			if tErr != nil {
 				log.Warn("auto-transcode submission failed (content created, transcode may be retried)",
 					zap.String("content_id", contentID),
 					zap.String("upload_id", uploadID),
@@ -711,13 +714,19 @@ func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *servic
 
 		info, err = uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
 		if err != nil {
-			respondOK(c, gin.H{"upload_id": uploadID, "content_id": contentID, "status": "processed"})
+			respondOK(c, gin.H{
+				"upload_id":  uploadID,
+				"content_id": contentID,
+				"transcode_task_id": taskID,
+				"status":     "processed",
+			})
 			return
 		}
 		respondOK(c, gin.H{
-			"upload_id":  uploadID,
-			"content_id": contentID,
-			"status":     info.Status,
+			"upload_id":         uploadID,
+			"content_id":        contentID,
+			"transcode_task_id": taskID,
+			"status":            info.Status,
 		})
 	}
 }
