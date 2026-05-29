@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -352,11 +353,22 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 	}
 	monitoring.TranscodingQueueDepth.Set(float64(depth))
 
-	target := s.minWorkers
-	needed := (depth + tasksPerWorker - 1) / tasksPerWorker
-	if needed > target-s.minWorkers {
-		target = s.minWorkers + needed
+	// Count in-progress tasks — never kill workers that are actively transcoding
+	s.mu.RLock()
+	inProgress := 0
+	for _, t := range s.tasks {
+		if t.Status == "processing" {
+			inProgress++
+		}
 	}
+	s.mu.RUnlock()
+
+	target := s.minWorkers
+	if inProgress > target {
+		target = inProgress
+	}
+	needed := (depth + tasksPerWorker - 1) / tasksPerWorker
+	target += needed
 	if target > s.maxWorkers {
 		target = s.maxWorkers
 	}
@@ -383,6 +395,10 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 	} else if target < current {
 		s.extraMu.Lock()
 		remove := current - target
+		// Never cancel workers that are actively transcoding
+		if inProgress > 0 && remove > current-inProgress {
+			remove = current - inProgress
+		}
 		if remove > len(s.extraCancels) {
 			remove = len(s.extraCancels)
 		}
@@ -390,7 +406,7 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 			s.extraCancels[len(s.extraCancels)-1]()
 			s.extraCancels = s.extraCancels[:len(s.extraCancels)-1]
 		}
-		atomic.StoreInt32(&s.currentWorkers, int32(target))
+		atomic.StoreInt32(&s.currentWorkers, int32(current-remove))
 		s.extraMu.Unlock()
 		if log != nil {
 			log.Info("TranscodingService: scaled down workers", zap.Int("from", current), zap.Int("to", target), zap.Int("queue_depth", depth))
@@ -665,8 +681,13 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 		}
 	}
 
-	// Create temp file with appropriate extension
-	ext := filepath.Ext(inputURL)
+	// inputURL may be a presigned URL with query params
+	parsedURL, parseErr := url.Parse(inputURL)
+	pathPart := inputURL
+	if parseErr == nil {
+		pathPart = parsedURL.Path
+	}
+	ext := filepath.Ext(pathPart)
 	if ext == "" {
 		ext = ".mp4"
 	}
@@ -790,6 +811,13 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 	// Save to database when persistence is available.
 	if s.db != nil {
 		if err := s.saveTask(ctx, task); err != nil {
+			// If the task already exists (duplicate content_id + profile), treat as success
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+				s.log.Debug("transcode task already exists for content",
+					zap.String("content_id", contentID),
+					zap.String("profile", profile))
+				return "", nil
+			}
 			return "", fmt.Errorf("failed to save task: %w", err)
 		}
 	} else {
@@ -814,7 +842,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 
 	query := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url, 
-		       error, priority, created_at, started_at, completed_at, metadata
+		       error, priority, created_at, started_at, completed_at, metadata, owner_wallet
 		FROM transcoding_tasks
 		WHERE id = $1
 	`
@@ -838,6 +866,7 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 		&startedAt,
 		&completedAt,
 		&metadataJSON,
+		&task.OwnerWallet,
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1037,7 +1066,7 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 
 	query := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url,
-		       error, priority, created_at, started_at, completed_at, metadata
+		       error, priority, created_at, started_at, completed_at, metadata, owner_wallet
 		FROM transcoding_tasks
 		WHERE content_id = $1
 		ORDER BY created_at DESC
@@ -1071,6 +1100,7 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 			&startedAt,
 			&completedAt,
 			&metadataJSON,
+			&task.OwnerWallet,
 		)
 
 		if err != nil {
@@ -1173,8 +1203,8 @@ func (s *TranscodingService) saveTask(ctx context.Context, task *TranscodingTask
 
 	query := `
 		INSERT INTO transcoding_tasks (id, content_id, profile, status, progress, input_url, 
-		                              output_url, error, priority, created_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		                              output_url, error, priority, created_at, metadata, owner_wallet)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
 	_, err = s.db.Exec(ctx, query,
@@ -1189,6 +1219,7 @@ func (s *TranscodingService) saveTask(ctx context.Context, task *TranscodingTask
 		task.Priority,
 		task.CreatedAt,
 		metadataJSON,
+		task.OwnerWallet,
 	)
 
 	return err
