@@ -127,7 +127,7 @@ func formatAllowedExtensions() string {
 
 // RegisterUploadRoutes registers file upload routes.
 // If uploadSvc is nil, all routes return 503 Service Unavailable.
-func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService) {
+func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService, transcodeSvc *service.TranscodingService) {
 	upload := router.Group(APIPrefix + "/upload")
 	upload.Use(func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
@@ -139,7 +139,7 @@ func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *servic
 	upload.POST("/init", handleChunkedUploadInit(uploadSvc, log))
 	upload.POST("/chunk", handleChunkUpload(uploadSvc, log))
 	upload.POST("/:id/complete", handleChunkedUploadComplete(uploadSvc, log))
-	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, log))
+	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, transcodeSvc, log))
 	upload.GET("/:id/status", handleUploadStatus(uploadSvc, log))
 	upload.GET("/:id/download-url", handleDownloadURL(uploadSvc, log))
 	upload.POST("/:id/batch-chunks", handleBatchChunkUpload(uploadSvc, log))
@@ -427,10 +427,10 @@ func handleChunkUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.Ha
 			detected, combined, err := readFileHeader(src)
 			reader = combined
 			if err != nil {
-			abortWithError(c, http.StatusInternalServerError, ErrUploadFailed, "failed to read file header")
-			return
-		}
-		if detected == "" {
+				abortWithError(c, http.StatusInternalServerError, ErrUploadFailed, "failed to read file header")
+				return
+			}
+			if detected == "" {
 				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "first chunk does not match any known video format")
 				return
 			}
@@ -662,7 +662,7 @@ func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Lo
 	}
 }
 
-func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
+func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *service.TranscodingService, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if uploadSvc == nil {
 			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
@@ -695,6 +695,18 @@ func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete upload", err.Error())
 			return
+		}
+
+		// Auto-submit transcode job after successful content creation
+		if transcodeSvc != nil {
+			inputURL := fmt.Sprintf("s3://%s/%s/%s.mp4", "streamgate", wallet, uploadID)
+			if _, tErr := transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet); tErr != nil {
+				log.Warn("auto-transcode submission failed (content created, transcode may be retried)",
+					zap.String("content_id", contentID),
+					zap.String("upload_id", uploadID),
+					zap.Error(tErr),
+				)
+			}
 		}
 
 		info, err = uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)

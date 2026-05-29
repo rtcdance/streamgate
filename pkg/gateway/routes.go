@@ -41,6 +41,16 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 			"/health", "/ready", "/metrics", "/docs",
 		},
 	}
+	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)
+	streamCache := res.StreamingCache
+	if streamCache == nil {
+		streamCache = NewStreamingCache()
+	}
+	// Segment route must be registered before JWT middleware — HLS.js sends
+	// segment requests without an Authorization header, using playback_token
+	// query param for auth instead.
+	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+
 	router.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
 
 	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
@@ -51,13 +61,6 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	res.AuthRateLimiter = authRL
 	RegisterAuthRoutes(router, log, cfg, svc.AuthService, authRL)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
-
-	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)
-	streamCache := res.StreamingCache
-	if streamCache == nil {
-		streamCache = NewStreamingCache()
-	}
-	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
 	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache)
 }
@@ -178,13 +181,13 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	RegisterAuthProtectedRoutes(router, log, svc.AuthService)
 
 	cbSvc := middleware.NewService(log)
-	nftGroup := router.Group(APIPrefix + "/nft")
+	nftGroup := router.Group("/")
 	nftGroup.Use(cbSvc.CircuitBreakerMiddleware("nft-verify", middleware.CircuitBreakerConfig{
 		FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
 	}))
 	RegisterNFTRoutes(nftGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
 
-	RegisterUploadRoutes(router, log, svc.UploadService)
+	RegisterUploadRoutes(router, log, svc.UploadService, svc.TranscodingSvc)
 
 	nftGateConfig := middleware.NFTGateConfig{
 		Verifier:       svc.NFTVerifier,
@@ -197,7 +200,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 	}
 	nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
-	streamingGroup := router.Group(APIPrefix + "/streaming")
+	streamingGroup := router.Group("/")
 	streamingGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
 	streamingGroup.Use(func(c *gin.Context) {
 		if core.IsDraining() {

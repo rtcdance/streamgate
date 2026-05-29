@@ -129,7 +129,7 @@ func setupUploadRouter(uploadSvc *service.UploadService, wallet string) *gin.Eng
 		}
 		c.Next()
 	})
-	RegisterUploadRoutes(r, zap.NewNop(), uploadSvc)
+	RegisterUploadRoutes(r, zap.NewNop(), uploadSvc, nil)
 	return r
 }
 
