@@ -700,15 +700,23 @@ func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *servic
 		// Auto-submit transcode job after successful content creation
 		var taskID string
 		if transcodeSvc != nil {
-			inputURL := fmt.Sprintf("s3://%s/%s/%s.mp4", "streamgate", wallet, uploadID)
-			var tErr error
-			taskID, tErr = transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet)
-			if tErr != nil {
-				log.Warn("auto-transcode submission failed (content created, transcode may be retried)",
+			inputURL, dlErr := uploadSvc.GetDownloadURL(c.Request.Context(), uploadID, 24*time.Hour, wallet)
+			if dlErr != nil {
+				log.Warn("auto-transcode: failed to generate download URL (transcode skipped)",
 					zap.String("content_id", contentID),
 					zap.String("upload_id", uploadID),
-					zap.Error(tErr),
+					zap.Error(dlErr),
 				)
+			} else {
+				var tErr error
+				taskID, tErr = transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet)
+				if tErr != nil {
+					log.Warn("auto-transcode submission failed (content created, transcode may be retried)",
+						zap.String("content_id", contentID),
+						zap.String("upload_id", uploadID),
+						zap.Error(tErr),
+					)
+				}
 			}
 		}
 
