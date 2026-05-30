@@ -22,10 +22,14 @@ import (
 // The returned shutdown function must be called on application exit to flush
 // pending spans.
 func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *zap.Logger) (shutdown func(ctx context.Context) error, err error) {
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	endpoint = strings.TrimPrefix(endpoint, "https://")
+	endpoint = strings.TrimSuffix(endpoint, "/api/traces")
+	endpoint = strings.TrimSuffix(endpoint, "/v1/traces")
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(endpoint),
 	}
-	if strings.Contains(endpoint, "443") || strings.HasPrefix(endpoint, "https") {
+	if strings.Contains(endpoint, "443") {
 		opts = append(opts, otlptracegrpc.WithTLSCredentials(credentials.NewTLS(nil)))
 	} else {
 		opts = append(opts, otlptracegrpc.WithInsecure())

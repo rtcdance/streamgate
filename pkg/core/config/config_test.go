@@ -48,7 +48,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, "https://api.devnet.solana.com", viper.GetString("web3.solana_rpc"))
 		assert.Equal(t, int64(11155111), viper.GetInt64("web3.chain_id"))
 		assert.Equal(t, 9090, viper.GetInt("monitoring.prometheus_port"))
-		assert.Equal(t, "http://localhost:14268/api/traces", viper.GetString("monitoring.jaeger_endpoint"))
+		assert.Equal(t, "localhost:4317", viper.GetString("monitoring.jaeger_endpoint"))
 		assert.Equal(t, "info", viper.GetString("monitoring.log_level"))
 		assert.Empty(t, viper.GetStringSlice("plugins.enabled"))
 	})
@@ -209,6 +209,21 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, "nats://nats-host:4222", cfg.NATS.URL)
 
 		_ = os.Unsetenv("STREAMGATE_NATS_URL")
+	})
+
+	t.Run("load config with comma-separated CORS allowed origins env var", func(t *testing.T) {
+		_ = os.Setenv("STREAMGATE_CORS_ORIGINS", "http://localhost:18000,http://localhost:3000,http://localhost:8080,http://localhost:18080")
+
+		cfg, err := LoadConfig()
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"http://localhost:18000",
+			"http://localhost:3000",
+			"http://localhost:8080",
+			"http://localhost:18080",
+		}, cfg.CORS.AllowedOrigins)
+
+		_ = os.Unsetenv("STREAMGATE_CORS_ORIGINS")
 	})
 }
 

@@ -6,14 +6,21 @@ class AuthService {
         this.isAuthenticated = false;
     }
 
+    _getActiveWallet() {
+        return demoWallet.isDemoMode ? demoWallet : this.wallet;
+    }
+
     async requestChallenge() {
-        const address = this.wallet.getAddress();
+        const w = this._getActiveWallet();
+        const address = w.getAddress();
         if (!address) {
             throw new Error('Wallet not connected');
         }
 
-        // Request EIP-712 typed data signing (modern DApp login standard)
-        const response = await this.api.getChallenge(address, this.wallet.getChainId() || 11155111, 'eip712');
+        // Demo mode uses personal_sign for maximum cross-library compatibility.
+        // MetaMask can use EIP-712 typed data signing.
+        const signType = demoWallet.isDemoMode ? 'personal_sign' : 'eip712';
+        const response = await this.api.getChallenge(address, w.getChainId() || 11155111, signType);
         this.currentChallenge = response;
         return response;
     }
@@ -24,7 +31,7 @@ async login() {
         }
 
         // Use demo wallet if in demo mode, otherwise use MetaMask wallet
-        const w = demoWallet.isDemoMode ? demoWallet : this.wallet;
+        const w = this._getActiveWallet();
 
         let signature;
         if (this.currentChallenge.signing_type === 'eip712') {
@@ -39,7 +46,8 @@ async login() {
         const response = await this.api.loginWithChallenge(
             w.getAddress(),
             this.currentChallenge.challenge_id,
-            signature
+            signature,
+            this.currentChallenge.chain_id
         );
 
         if (response.token) {
@@ -91,7 +99,8 @@ async login() {
     }
 
     async verifyNFT(contractAddress, chainId) {
-        const address = this.wallet.getAddress();
+        const w = this._getActiveWallet();
+        const address = w.getAddress();
         if (!address) {
             throw new Error('Wallet not connected');
         }

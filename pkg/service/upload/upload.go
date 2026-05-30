@@ -108,11 +108,13 @@ func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
 			return
 		}
 
-		inputURL := upload.URL
+		var inputURL string
 		if deps.Presigner != nil {
 			storageKey := strings.TrimPrefix(upload.URL, "/"+deps.Bucket+"/")
-			if storageKey == "" {
-				storageKey = upload.URL
+			if storageKey == "" || storageKey == upload.URL {
+				s.logger.Warn("Post-upload hook: cannot derive storage key from upload URL, skipping auto-transcode",
+					zap.String("upload_url", upload.URL))
+				return
 			}
 			expiry := deps.PresignedURLExpiry
 			if expiry <= 0 {
@@ -120,10 +122,16 @@ func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
 			}
 			presignedURL, err := deps.Presigner.PresignedURL(ctx, deps.Bucket, storageKey, expiry)
 			if err != nil {
-				s.logger.Warn("Post-upload hook: failed to generate presigned URL", zap.Error(err))
-			} else {
-				inputURL = presignedURL
+				s.logger.Warn("Post-upload hook: failed to generate presigned URL, skipping auto-transcode",
+					zap.String("content_id", contentID),
+					zap.Error(err))
+				return
 			}
+			inputURL = presignedURL
+		} else {
+			s.logger.Warn("Post-upload hook: no presigner configured, skipping auto-transcode",
+				zap.String("content_id", contentID))
+			return
 		}
 
 		for _, profile := range profiles {
@@ -998,9 +1006,7 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 	s.hookMu.Unlock()
 
 	for _, hook := range hooks {
-		s.hookWg.Add(1)
-		go func(h PostUploadHook) {
-			defer s.hookWg.Done()
+		func(h PostUploadHook) {
 			defer func() {
 				if r := recover(); r != nil {
 					s.logger.Error("PostUploadHook panic recovered",

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"os/signal"
@@ -10,9 +11,11 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/rtcdance/streamgate/migrations"
 	"github.com/rtcdance/streamgate/pkg/core"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/core/logger"
+	migrate "github.com/rtcdance/streamgate/pkg/storage/migrate"
 
 	_ "github.com/rtcdance/streamgate/pkg/plugins/api"
 	_ "github.com/rtcdance/streamgate/pkg/plugins/auth"
@@ -52,6 +55,22 @@ func main() {
 		}
 	}
 	log.Info("Configuration loaded", zap.String("mode", cfg.Mode), zap.Int("port", cfg.Server.Port))
+
+	dsn := cfg.Database.GetDSN()
+	if dsn != "" {
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			log.Warn("Failed to open DB for auto-migration", zap.Error(err))
+		} else {
+			runner := migrate.New(db, migrations.FS)
+			if err := runner.Up(); err != nil {
+				log.Warn("Auto-migration failed (continuing anyway)", zap.Error(err))
+			} else {
+				log.Info("Auto-migration completed")
+			}
+			_ = db.Close()
+		}
+	}
 
 	// Initialize microkernel
 	kernel, err := core.NewMicrokernel(cfg, log)

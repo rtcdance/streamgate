@@ -47,3 +47,25 @@ AGENTS.md
 
 # Docker
 docker-compose*.override.yml
+
+# Log files
+log/
+
+# Foundry build artifacts
+cache/
+out/
+contracts/src/TestNFT.sol
+
+# Node
+node_modules/
+package.json
+package-lock.json
+
+# Scripts (dev-only)
+scripts/
+
+# AI tooling
+.antigravitycli/
+
+# Binary
+streamgate

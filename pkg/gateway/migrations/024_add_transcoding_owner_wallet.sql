@@ -1,0 +1,1 @@
+ALTER TABLE transcoding_tasks ADD COLUMN IF NOT EXISTS owner_wallet VARCHAR(128) DEFAULT '';

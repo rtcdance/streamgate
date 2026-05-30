@@ -104,7 +104,7 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature, req.ChainID)
 		if err != nil {
 			monitoring.AuthOperationsTotal.WithLabelValues("login", "failure").Inc()
-			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed")
+			abortWithErrorDetail(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed", err.Error())
 			return
 		}
 		monitoring.AuthOperationsTotal.WithLabelValues("login", "success").Inc()

@@ -34,8 +34,8 @@ type EIP712Domain struct {
 	Name              string   `json:"name"`
 	Version           string   `json:"version"`
 	ChainId           *big.Int `json:"chainId"`
-	VerifyingContract string   `json:"verifyingContract"`
-	Salt              string   `json:"salt"`
+	VerifyingContract string   `json:"verifyingContract,omitempty"`
+	Salt              string   `json:"salt,omitempty"`
 }
 
 type EIP712Verifier struct {
@@ -131,17 +131,22 @@ func (ev *EIP712Verifier) convertToAPITypes(typedData *EIP712TypedData) apitypes
 		}
 	}
 
+	domain := apitypes.TypedDataDomain{
+		Name:    typedData.Domain.Name,
+		Version: typedData.Domain.Version,
+		ChainId: (*math.HexOrDecimal256)(typedData.Domain.ChainId),
+	}
+	if typedData.Domain.VerifyingContract != "" {
+		domain.VerifyingContract = typedData.Domain.VerifyingContract
+	}
+	if typedData.Domain.Salt != "" {
+		domain.Salt = typedData.Domain.Salt
+	}
 	return apitypes.TypedData{
 		Types:       apiTypes,
 		PrimaryType: typedData.PrimaryType,
-		Domain: apitypes.TypedDataDomain{
-			Name:              typedData.Domain.Name,
-			Version:           typedData.Domain.Version,
-			ChainId:           (*math.HexOrDecimal256)(typedData.Domain.ChainId),
-			VerifyingContract: typedData.Domain.VerifyingContract,
-			Salt:              typedData.Domain.Salt,
-		},
-		Message: typedData.Message,
+		Domain:      domain,
+		Message:     typedData.Message,
 	}
 }
 

@@ -40,7 +40,13 @@ class HLSPlayer {
         const token = options.token || null;
         const contract = options.contract || '';
         const chainId = options.chainId || '';
-        this.manifestUrl = `${baseUrl}/api/v1/streaming/${videoId}/manifest.m3u8?contract=${encodeURIComponent(contract)}${chainId ? `&chain_id=${encodeURIComponent(chainId)}` : ''}`;
+        let manifestUrl = `${baseUrl}/api/v1/streaming/${videoId}/manifest.m3u8`;
+        const params = new URLSearchParams();
+        if (contract) params.set('contract', contract);
+        if (chainId) params.set('chain_id', String(chainId));
+        const qs = params.toString();
+        if (qs) manifestUrl += '?' + qs;
+        this.manifestUrl = manifestUrl;
 
         const response = await fetch(this.manifestUrl, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -128,8 +128,16 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			}
 		}
 		if err != nil {
-			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT verification failed")
-			return
+			// Contract not found or execution reverted → treat as "no NFT" (balance 0)
+			// instead of returning a 500. This handles the common case where the
+			// contract doesn't exist on the selected chain.
+			log.Warn("NFT balance check failed, treating as zero",
+				zap.Int64("chain_id", chainID),
+				zap.String("contract", contract),
+				zap.Error(err))
+			hasNFT = false
+			balance = big.NewInt(0)
+			err = nil
 		}
 		if cache != nil && !cacheHit {
 			entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
@@ -141,7 +149,9 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			}
 			cache.Set(c.Request.Context(), cacheKey, entry)
 		}
-		if balance == nil { balance = big.NewInt(0) }
+		if balance == nil {
+			balance = big.NewInt(0)
+		}
 		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
 	})
 	log.Info("NFT routes registered")

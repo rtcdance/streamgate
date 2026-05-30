@@ -482,6 +482,18 @@ body {
     font-size: 11px;
     padding: 6px 10px;
 }
+.demo-badge.success {
+    background: rgba(46, 213, 115, 0.15);
+    color: #2ed573;
+}
+.demo-badge.pending {
+    background: rgba(255, 165, 2, 0.15);
+    color: #ffa502;
+}
+.demo-badge.muted {
+    background: rgba(255, 255, 255, 0.06);
+    color: #888;
+}
 
 .test-output {
     background: #18110d;
