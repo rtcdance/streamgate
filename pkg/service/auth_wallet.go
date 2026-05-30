@@ -308,10 +308,9 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 // providing better user experience and security in MetaMask and similar wallets.
 func (s *AuthService) buildEIP712Challenge(challenge *stg.WalletChallenge) *web3.EIP712TypedData {
 	domain := web3.EIP712Domain{
-		Name:              "StreamGate",
-		Version:           "1",
-		ChainId:           big.NewInt(challenge.ChainID),
-		VerifyingContract: "",
+		Name:    "StreamGate",
+		Version: "1",
+		ChainId: big.NewInt(challenge.ChainID),
 	}
 
 	return &web3.EIP712TypedData{
@@ -371,7 +370,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	defer span.End()
 
 	if ttl <= 0 {
-		ttl = 2 * time.Minute
+		ttl = 30 * time.Minute
 	}
 
 	claims := &Claims{

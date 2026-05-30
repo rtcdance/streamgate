@@ -16,5 +16,5 @@ data:
   NATS_URL: "nats://nats-service:4222"
   CONSUL_HOST: "consul-service"
   CONSUL_PORT: "8500"
-  JAEGER_ENDPOINT: "http://jaeger-service:14268/api/traces"
+  JAEGER_ENDPOINT: "jaeger-service:4317"
   # ETHEREUM_RPC and SOLANA_RPC moved to web3-secrets (no API keys in ConfigMap)

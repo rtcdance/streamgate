@@ -187,7 +187,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	}))
 	RegisterNFTRoutes(nftGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
 
-	RegisterUploadRoutes(router, log, svc.UploadService, svc.TranscodingSvc)
+	RegisterUploadRoutes(router, log, svc.UploadService)
 
 	nftGateConfig := middleware.NFTGateConfig{
 		Verifier:       svc.NFTVerifier,

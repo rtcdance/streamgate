@@ -135,7 +135,7 @@ func TestWeb3Handlers_RPCStatus_WithFailureTimestamps(t *testing.T) {
 func TestWeb3Handlers_RPCStatus_MultipleChains(t *testing.T) {
 	provider := &mockWeb3StatusProvider{
 		statuses: map[int64][]web3.RPCStatus{
-			1:  {{URL: "https://eth.example.com", IsActive: true}},
+			1:   {{URL: "https://eth.example.com", IsActive: true}},
 			137: {{URL: "https://polygon.example.com", IsActive: true}},
 		},
 		chains: []*web3.ChainConfig{

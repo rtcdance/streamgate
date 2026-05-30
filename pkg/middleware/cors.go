@@ -28,9 +28,7 @@ func (s *Service) CORSMiddleware(allowedOrigins ...string) gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		} else {
 			if c.Request.Method == http.MethodOptions {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", "")
-				c.Writer.Header().Set("Vary", "Origin")
-				c.AbortWithStatus(http.StatusNoContent)
+				c.AbortWithStatus(http.StatusForbidden)
 				return
 			}
 			c.Next()

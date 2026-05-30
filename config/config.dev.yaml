@@ -68,6 +68,13 @@ streaming:
 web3:
   enabled: true
   chains:
+    - id: 31337
+      name: "anvil-local"
+      rpc_url: "http://anvil:8545"
+      rpc_urls:
+        - "http://anvil:8545"
+      explorer_url: ""
+      currency: "ETH"
     - id: 11155111
       name: "ethereum-sepolia"
       rpc_url: "https://rpc.sepolia.org"
@@ -121,6 +128,7 @@ cors:
   allowed_origins:
     - "http://localhost:3000"
     - "http://localhost:8080"
+    - "http://localhost:18080"
   allowed_methods:
     - "GET"
     - "POST"

@@ -16,9 +16,9 @@ import (
 	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
 
+	"github.com/gin-gonic/gin"
 	authv1 "github.com/rtcdance/streamgate/pkg/api/v1/auth"
 	nftv1 "github.com/rtcdance/streamgate/pkg/api/v1/nft"
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -440,7 +440,7 @@ func (m *gwCovMockSegmentStorage) Download(_ context.Context, _, _ string) ([]by
 func (m *gwCovMockSegmentStorage) DownloadStream(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, nil
 }
-func (m *gwCovMockSegmentStorage) Delete(_ context.Context, _, _ string) error        { return nil }
+func (m *gwCovMockSegmentStorage) Delete(_ context.Context, _, _ string) error { return nil }
 func (m *gwCovMockSegmentStorage) ListObjects(_ context.Context, _, _ string) ([]string, error) {
 	return nil, nil
 }

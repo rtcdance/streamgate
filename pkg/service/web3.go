@@ -91,6 +91,11 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 		logger.Warn("Failed to add Polygon Amoy", zap.Error(err))
 	}
 
+	// Initialize Anvil local (dev only)
+	if err := service.multiChainManager.AddChain(31337); err != nil {
+		logger.Warn("Failed to add Anvil local chain", zap.Error(err))
+	}
+
 	// Initialize Solana chains
 	if err := service.multiChainManager.AddChain(-1); err != nil {
 		logger.Warn("Failed to add Solana Mainnet", zap.Error(err))

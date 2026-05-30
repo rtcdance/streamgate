@@ -48,7 +48,9 @@ func (m *playbackMockDB) Exec(ctx context.Context, query string, args ...interfa
 	return nil, errors.New("not implemented")
 }
 
-func (m *playbackMockDB) Begin(ctx context.Context) (*sql.Tx, error) { return nil, errors.New("not implemented") }
+func (m *playbackMockDB) Begin(ctx context.Context) (*sql.Tx, error) {
+	return nil, errors.New("not implemented")
+}
 
 func (m *playbackMockDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if m.inTxFn != nil {

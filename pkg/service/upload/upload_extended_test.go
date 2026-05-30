@@ -25,22 +25,23 @@ type fakeConn struct{}
 type fakeStmt struct{}
 type fakeTx struct{}
 
-func (d *fakeDriver) Open(name string) (driver.Conn, error) { return &fakeConn{}, nil }
+func (d *fakeDriver) Open(name string) (driver.Conn, error)   { return &fakeConn{}, nil }
 func (c *fakeConn) Prepare(query string) (driver.Stmt, error) { return &fakeStmt{}, nil }
-func (c *fakeConn) Close() error { return nil }
-func (c *fakeConn) Begin() (driver.Tx, error) { return &fakeTx{}, nil }
-func (s *fakeStmt) Close() error { return nil }
-func (s *fakeStmt) NumInput() int { return -1 }
+func (c *fakeConn) Close() error                              { return nil }
+func (c *fakeConn) Begin() (driver.Tx, error)                 { return &fakeTx{}, nil }
+func (s *fakeStmt) Close() error                              { return nil }
+func (s *fakeStmt) NumInput() int                             { return -1 }
 func (s *fakeStmt) Exec(args []driver.Value) (driver.Result, error) {
 	return &fakeResult{}, nil
 }
 func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
 	return nil, errors.New("not implemented")
 }
-func (t *fakeTx) Commit() error { return nil }
+func (t *fakeTx) Commit() error   { return nil }
 func (t *fakeTx) Rollback() error { return nil }
 
 type fakeResult struct{}
+
 func (r *fakeResult) LastInsertId() (int64, error) { return 0, nil }
 func (r *fakeResult) RowsAffected() (int64, error) { return 1, nil }
 

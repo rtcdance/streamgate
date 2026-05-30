@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/models"
-	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/google/uuid"
@@ -54,6 +54,8 @@ type TranscodingService struct {
 	running        int32
 	extraCancels   []context.CancelFunc
 	extraMu        sync.Mutex
+	serviceCtx     context.Context
+	serviceCancel  context.CancelFunc
 }
 
 const defaultUploadConcurrency = 5
@@ -66,6 +68,7 @@ func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...Transc
 		tasks:      make(map[string]*TranscodingTask),
 		httpClient: &http.Client{Timeout: 10 * time.Minute, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 20, IdleConnTimeout: 90 * time.Second}},
 	}
+	svc.serviceCtx, svc.serviceCancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
 		opt(svc)
 	}
@@ -188,6 +191,9 @@ func (s *TranscodingService) StartWorker(log *zap.Logger) {
 	}
 
 	atomic.StoreInt32(&s.currentWorkers, int32(initWorkers))
+
+	s.recoverStuckTasks(log)
+
 	for i := 0; i < initWorkers; i++ {
 		s.wg.Add(1)
 		s.startWorkerGoroutine(ctx, i, log)
@@ -212,7 +218,7 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *
 	for {
 		task, err := s.queue.Dequeue(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.Canceled) {
 				if log != nil {
 					log.Info("TranscodingService: worker stopped", zap.Int("worker", workerID))
 				}
@@ -231,6 +237,15 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *
 					if log != nil {
 						log.Info("TranscodingService: task panic recovered, continuing loop",
 							zap.String("task_id", task.ID), zap.Any("panic", r))
+					}
+					task.Status = "failed"
+					task.Error = fmt.Sprintf("panic during processing: %v", r)
+					failCtx, failCancel := context.WithTimeout(context.Background(), 3*time.Second)
+					defer failCancel()
+					if failErr := s.FailTask(failCtx, task.ID, task.Error); failErr != nil {
+						if log != nil {
+							log.Error("Failed to mark panicked task as failed", zap.String("task_id", task.ID), zap.Error(failErr))
+						}
 					}
 				}
 			}()
@@ -270,6 +285,31 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *
 	}
 }
 
+const stuckTaskTimeout = 10 * time.Minute
+
+func (s *TranscodingService) recoverStuckTasks(log *zap.Logger) {
+	if s.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := s.db.Exec(ctx,
+		"UPDATE transcoding_tasks SET status = 'pending', started_at = NULL WHERE status = 'processing' AND started_at < $1",
+		time.Now().Add(-stuckTaskTimeout))
+	if err != nil {
+		if log != nil {
+			log.Error("Failed to recover stuck transcoding tasks", zap.Error(err))
+		}
+		return
+	}
+	if rows, _ := result.RowsAffected(); rows > 0 {
+		if log != nil {
+			log.Info("Recovered stuck transcoding tasks", zap.Int64("count", rows))
+		}
+	}
+}
+
 // StopWorker stops the background worker and waits for all goroutines to exit.
 func (s *TranscodingService) StopWorker() {
 	s.cancelMu.Lock()
@@ -277,6 +317,9 @@ func (s *TranscodingService) StopWorker() {
 		s.cancel()
 	}
 	s.cancelMu.Unlock()
+	if s.serviceCancel != nil {
+		s.serviceCancel()
+	}
 	s.wg.Wait()
 	atomic.StoreInt32(&s.running, 0)
 	if s.httpClient != nil {
@@ -292,6 +335,9 @@ func (s *TranscodingService) Close() {
 		s.cancel()
 	}
 	s.cancelMu.Unlock()
+	if s.serviceCancel != nil {
+		s.serviceCancel()
+	}
 	atomic.StoreInt32(&s.running, 0)
 
 	done := make(chan struct{})
@@ -416,14 +462,17 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 }
 
 // processTask executes a single transcoding task
-func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log *zap.Logger) {
-	// Mark as processing
+func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTask, log *zap.Logger) {
 	task.Status = "processing"
 	now := time.Now()
 	task.StartedAt = &now
 	s.storeTask(task)
+
+	taskCtx, cancel := context.WithTimeout(s.serviceCtx, 30*time.Minute)
+	defer cancel()
+
 	if s.db != nil {
-		result, execErr := s.db.Exec(ctx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
+		result, execErr := s.db.Exec(taskCtx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
 		if execErr != nil {
 			s.log.Error("Failed to update task status to processing", zap.String("task_id", task.ID), zap.Error(execErr))
 		} else if rows, _ := result.RowsAffected(); rows == 0 {
@@ -435,7 +484,7 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	// Create temp dir for output
 	outputDir, err := os.MkdirTemp("", "streamgate-transcode-*")
 	if err != nil {
-		if failErr := s.FailTask(ctx, task.ID, fmt.Sprintf("failed to create temp dir: %v", err)); failErr != nil {
+		if failErr := s.FailTask(taskCtx, task.ID, fmt.Sprintf("failed to create temp dir: %v", err)); failErr != nil {
 			s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
 		}
 		return
@@ -454,11 +503,6 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 		profile = "720p"
 	}
 
-	// Add a per-task timeout to prevent runaway FFmpeg processes.
-	// Each profile's segment duration is ~6s; allow 5 minutes per profile as safety.
-	taskCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
 	// Resolve input: download HTTP URLs to a local temp file so FFmpeg
 	// always has a local path to work with. Skip for non-HTTP paths.
 	inputPath := task.InputURL
@@ -476,10 +520,21 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 		defer func() { _ = os.Remove(downloadedFile) }()
 	}
 
-	// Run transcode with progress tracking
+	var lastDBProgress int
 	err = s.transcoder.TranscodeHLS(taskCtx, inputPath, outputDir, profile, func(progress float64) {
 		task.Progress = int(progress)
 		s.storeTask(task)
+		if s.log != nil {
+			s.log.Debug("transcode progress",
+				zap.String("task_id", task.ID),
+				zap.Float64("progress_pct", progress),
+				zap.Int("task_progress", task.Progress))
+		}
+		if s.db != nil && task.Progress-lastDBProgress >= 5 {
+			lastDBProgress = task.Progress
+			_, _ = s.db.Exec(context.Background(),
+				"UPDATE transcoding_tasks SET progress = $2 WHERE id = $1", task.ID, task.Progress)
+		}
 	})
 
 	if err != nil {
@@ -811,11 +866,14 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 	// Save to database when persistence is available.
 	if s.db != nil {
 		if err := s.saveTask(ctx, task); err != nil {
-			// If the task already exists (duplicate content_id + profile), treat as success
 			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
 				s.log.Debug("transcode task already exists for content",
 					zap.String("content_id", contentID),
 					zap.String("profile", profile))
+				existingID, findErr := s.findTaskByContentAndProfile(ctx, contentID, profile)
+				if findErr == nil && existingID != "" {
+					return existingID, nil
+				}
 				return "", nil
 			}
 			return "", fmt.Errorf("failed to save task: %w", err)
@@ -974,7 +1032,10 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 		})
 	}
 
-	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+	completeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return s.db.InTransaction(completeCtx, func(tx *sql.Tx) error {
 		var contentID string
 		var currentStatus string
 		if err := tx.QueryRowContext(ctx, "SELECT content_id, status FROM transcoding_tasks WHERE id = $1", taskID).Scan(&contentID, &currentStatus); err != nil {
@@ -1046,8 +1107,11 @@ func (s *TranscodingService) FailTask(ctx context.Context, taskID, errorMsg stri
 		})
 	}
 
+	failCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	query := "UPDATE transcoding_tasks SET status = $2, error = $3, completed_at = $4 WHERE id = $1 AND status IN ('pending', 'processing')"
-	result, err := s.db.Exec(ctx, query, taskID, "failed", errorMsg, time.Now())
+	result, err := s.db.Exec(failCtx, query, taskID, "failed", errorMsg, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to fail task: %w", err)
 	}
@@ -1223,6 +1287,26 @@ func (s *TranscodingService) saveTask(ctx context.Context, task *TranscodingTask
 	)
 
 	return err
+}
+
+func (s *TranscodingService) findTaskByContentAndProfile(ctx context.Context, contentID, profile string) (string, error) {
+	if s.db == nil {
+		for _, t := range s.listTasks(contentID, "", 10, 0) {
+			if t.Profile == profile {
+				return t.ID, nil
+			}
+		}
+		return "", fmt.Errorf("task not found in memory")
+	}
+	var taskID string
+	err := s.db.QueryRow(ctx,
+		`SELECT id FROM transcoding_tasks WHERE content_id = $1 AND profile = $2 ORDER BY created_at DESC LIMIT 1`,
+		contentID, profile,
+	).Scan(&taskID)
+	if err != nil {
+		return "", err
+	}
+	return taskID, nil
 }
 
 // GetPendingTasks gets all pending tasks

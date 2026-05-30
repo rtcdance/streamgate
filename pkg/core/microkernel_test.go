@@ -266,7 +266,7 @@ func TestMicrokernel_Start_AlreadyStarted(t *testing.T) {
 
 func TestMicrokernel_Start_Success(t *testing.T) {
 	kernel := newTestKernel(t)
-	p := &mockPlugin{name: "test", version: "1.0.0"}
+	p := &mockPlugin{name: "api-gateway", version: "1.0.0"}
 	require.NoError(t, kernel.RegisterPlugin(p))
 
 	err := kernel.Start(context.Background())
@@ -277,8 +277,8 @@ func TestMicrokernel_Start_Success(t *testing.T) {
 
 func TestMicrokernel_Start_MultiplePlugins(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "alpha", version: "1.0.0"}
-	p2 := &mockPlugin{name: "beta", version: "1.0.0"}
+	p1 := &mockPlugin{name: "api-gateway", version: "1.0.0"}
+	p2 := &mockPlugin{name: "auth", version: "1.0.0"}
 	require.NoError(t, kernel.RegisterPlugin(p1))
 	require.NoError(t, kernel.RegisterPlugin(p2))
 
@@ -287,7 +287,7 @@ func TestMicrokernel_Start_MultiplePlugins(t *testing.T) {
 	assert.True(t, p1.initialized)
 	assert.True(t, p1.started)
 	assert.True(t, p2.initialized)
-	assert.True(t, p2.started)
+	assert.False(t, p2.started, "non-api-gateway plugins should not start in monolith mode")
 }
 
 func TestMicrokernel_Start_InitFailure_RollsBack(t *testing.T) {
@@ -306,14 +306,14 @@ func TestMicrokernel_Start_InitFailure_RollsBack(t *testing.T) {
 
 func TestMicrokernel_Start_StartFailure_RollsBack(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "good", version: "1.0.0"}
-	p2 := &mockPlugin{name: "bad", version: "1.0.0", startErr: fmt.Errorf("start failed")}
+	p1 := &mockPlugin{name: "auth", version: "1.0.0"}
+	p2 := &mockPlugin{name: "api-gateway", version: "1.0.0", startErr: fmt.Errorf("start failed")}
 	require.NoError(t, kernel.RegisterPlugin(p1))
 	require.NoError(t, kernel.RegisterPlugin(p2))
 
 	err := kernel.Start(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to start plugin bad")
+	assert.Contains(t, err.Error(), "failed to start plugin api-gateway")
 }
 
 func TestMicrokernel_Start_MissingDependency(t *testing.T) {
@@ -395,14 +395,12 @@ func TestMicrokernel_Health_AllHealthy(t *testing.T) {
 
 func TestMicrokernel_Health_UnhealthyPlugin(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "healthy", version: "1.0.0"}
-	p2 := &mockPlugin{name: "unhealthy", version: "1.0.0", healthErr: fmt.Errorf("unhealthy")}
-	require.NoError(t, kernel.RegisterPlugin(p1))
-	require.NoError(t, kernel.RegisterPlugin(p2))
+	p := &mockPlugin{name: "api-gateway", version: "1.0.0", healthErr: fmt.Errorf("unhealthy")}
+	require.NoError(t, kernel.RegisterPlugin(p))
 
 	err := kernel.Health(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unhealthy")
+	assert.Contains(t, err.Error(), "api-gateway")
 	assert.Contains(t, err.Error(), "health check failed")
 }
 
@@ -650,8 +648,8 @@ func (m *mockEventBus) Close() error { return m.closeErr }
 
 func TestMicrokernel_Start_InitFailureRollback_StopError(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "good", version: "1.0.0", stopErr: fmt.Errorf("stop during rollback")}
-	p2 := &mockPlugin{name: "bad", version: "1.0.0", initErr: fmt.Errorf("init failed"), deps: []string{"good"}}
+	p1 := &mockPlugin{name: "api-gateway", version: "1.0.0", stopErr: fmt.Errorf("stop during rollback")}
+	p2 := &mockPlugin{name: "bad", version: "1.0.0", initErr: fmt.Errorf("init failed"), deps: []string{"api-gateway"}}
 	require.NoError(t, kernel.RegisterPlugin(p1))
 	require.NoError(t, kernel.RegisterPlugin(p2))
 
@@ -662,20 +660,20 @@ func TestMicrokernel_Start_InitFailureRollback_StopError(t *testing.T) {
 
 func TestMicrokernel_Start_StartFailureRollback_StopError(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "good", version: "1.0.0", stopErr: fmt.Errorf("stop during start rollback")}
-	p2 := &mockPlugin{name: "bad", version: "1.0.0", startErr: fmt.Errorf("start failed")}
+	p1 := &mockPlugin{name: "auth", version: "1.0.0", stopErr: fmt.Errorf("stop during start rollback")}
+	p2 := &mockPlugin{name: "api-gateway", version: "1.0.0", startErr: fmt.Errorf("start failed")}
 	require.NoError(t, kernel.RegisterPlugin(p1))
 	require.NoError(t, kernel.RegisterPlugin(p2))
 
 	err := kernel.Start(context.Background())
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to start plugin bad")
+	assert.Contains(t, err.Error(), "failed to start plugin api-gateway")
 }
 
 func TestMicrokernel_Shutdown_MultiplePlugins_StopError(t *testing.T) {
 	kernel := newTestKernel(t)
-	p1 := &mockPlugin{name: "first", version: "1.0.0"}
-	p2 := &mockPlugin{name: "second", version: "1.0.0", stopErr: fmt.Errorf("stop error")}
+	p1 := &mockPlugin{name: "api-gateway", version: "1.0.0"}
+	p2 := &mockPlugin{name: "auth", version: "1.0.0", stopErr: fmt.Errorf("stop error")}
 	require.NoError(t, kernel.RegisterPlugin(p1))
 	require.NoError(t, kernel.RegisterPlugin(p2))
 	require.NoError(t, kernel.Start(context.Background()))
@@ -686,7 +684,7 @@ func TestMicrokernel_Shutdown_MultiplePlugins_StopError(t *testing.T) {
 
 func TestMicrokernel_Shutdown_ContextCancelled(t *testing.T) {
 	kernel := newTestKernel(t)
-	p := &mockPlugin{name: "test", version: "1.0.0"}
+	p := &mockPlugin{name: "api-gateway", version: "1.0.0"}
 	require.NoError(t, kernel.RegisterPlugin(p))
 	require.NoError(t, kernel.Start(context.Background()))
 
@@ -701,7 +699,7 @@ func TestMicrokernel_Shutdown_ContextCancelled(t *testing.T) {
 func TestMicrokernel_Shutdown_EventBusCloseError(t *testing.T) {
 	kernel := newTestKernel(t)
 	kernel.eventBus = &mockEventBus{closeErr: fmt.Errorf("bus close failed")}
-	p := &mockPlugin{name: "test", version: "1.0.0"}
+	p := &mockPlugin{name: "api-gateway", version: "1.0.0"}
 	require.NoError(t, kernel.RegisterPlugin(p))
 	require.NoError(t, kernel.Start(context.Background()))
 
