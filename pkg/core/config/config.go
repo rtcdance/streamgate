@@ -484,7 +484,7 @@ func LoadConfig() (*Config, error) {
 			Enabled:       viper.GetBool("transcoding.enabled"),
 			MaxWorkers:    viper.GetInt("transcoding.max_workers"),
 			QueueSize:     viper.GetInt("transcoding.queue_size"),
-			OutputFormats: viper.GetStringSlice("transcoding.output_formats"),
+			OutputFormats: splitCommaSlice(viper.GetStringSlice("transcoding.output_formats")),
 		},
 
 		Streaming: StreamingConfig{
@@ -541,11 +541,11 @@ func LoadConfig() (*Config, error) {
 		},
 
 		CORS: CORSConfig{
-			AllowedOrigins: viper.GetStringSlice("cors.allowed_origins"),
+			AllowedOrigins: splitCommaSlice(viper.GetStringSlice("cors.allowed_origins")),
 		},
 
 		Plugins: PluginsConfig{
-			Enabled: viper.GetStringSlice("plugins.enabled"),
+			Enabled: splitCommaSlice(viper.GetStringSlice("plugins.enabled")),
 		},
 	}
 
@@ -635,7 +635,7 @@ func setDefaults() {
 
 	// Monitoring defaults
 	viper.SetDefault("monitoring.prometheus_port", 9090)
-	viper.SetDefault("monitoring.jaeger_endpoint", "http://localhost:14268/api/traces")
+	viper.SetDefault("monitoring.jaeger_endpoint", "localhost:4317")
 	viper.SetDefault("monitoring.log_level", "info")
 
 	// Transcoding defaults
@@ -1257,3 +1257,25 @@ func (cm *ConfigManager) Watch(ctx context.Context, interval time.Duration) erro
 		}
 	}
 }
+
+// splitCommaSlice splits any string elements within the slice by comma,
+// trims leading/trailing whitespace, and ignores empty entries.
+func splitCommaSlice(slice []string) []string {
+	var result []string
+	for _, item := range slice {
+		if strings.Contains(item, ",") {
+			parts := strings.Split(item, ",")
+			for _, p := range parts {
+				if trimmed := strings.TrimSpace(p); trimmed != "" {
+					result = append(result, trimmed)
+				}
+			}
+		} else {
+			if trimmed := strings.TrimSpace(item); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+	}
+	return result
+}
+

@@ -48,7 +48,9 @@ func (m *gatingMockDB) Exec(ctx context.Context, query string, args ...interface
 	return nil, errors.New("not implemented")
 }
 
-func (m *gatingMockDB) Begin(ctx context.Context) (*sql.Tx, error) { return nil, errors.New("not implemented") }
+func (m *gatingMockDB) Begin(ctx context.Context) (*sql.Tx, error) {
+	return nil, errors.New("not implemented")
+}
 
 func (m *gatingMockDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if m.inTxFn != nil {

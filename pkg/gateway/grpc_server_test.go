@@ -1293,9 +1293,9 @@ func TestStreamingGrpcServer_GetManifest_ChainIDFromMetadata(t *testing.T) {
 	log := zap.NewNop()
 	ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
 	ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-		"x-nft-contract":  "0xContract",
-		"x-nft-token-id":  "1",
-		"x-nft-chain-id":  "137",
+		"x-nft-contract": "0xContract",
+		"x-nft-token-id": "1",
+		"x-nft-chain-id": "137",
 	}))
 	srv := &streamingGrpcServer{
 		nftVerifier: &grpcMockNFTChecker{owns: false},
@@ -1330,7 +1330,7 @@ func TestUploadGrpcServer_InitUpload_ChunkCountOverflow(t *testing.T) {
 
 	resp, err := srv.InitUpload(ctx, &uploadv1.InitUploadRequest{
 		Filename:  fmt.Sprintf("test%d.mp4", 1),
-		FileSize:  int64(1<<62),
+		FileSize:  int64(1 << 62),
 		ChunkSize: 1,
 	})
 	assert.Error(t, err)

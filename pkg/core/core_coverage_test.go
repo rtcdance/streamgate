@@ -324,7 +324,7 @@ func TestMicrokernel_Health_NotStarted(t *testing.T) {
 
 func TestMicrokernel_Start_PluginWithNoDeps(t *testing.T) {
 	kernel := newTestKernel(t)
-	p := &mockPlugin{name: "nodep", version: "1.0.0", deps: nil}
+	p := &mockPlugin{name: "api-gateway", version: "1.0.0", deps: nil}
 	require.NoError(t, kernel.RegisterPlugin(p))
 
 	err := kernel.Start(context.Background())

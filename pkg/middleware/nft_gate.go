@@ -200,9 +200,16 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 
 		contract, chainID, tokenID, contentID := parseNFTParams(c, config)
 
-		resolvedRules, minBalance, errResp := resolveNFTGateRules(c, config, logger, contentID, &contract, &tokenID, &chainID)
+		resolvedRules, minBalance, gatingRequired, errResp := resolveNFTGateRules(c, config, logger, contentID, &contract, &tokenID, &chainID)
 		if errResp != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, errResp)
+			return
+		}
+
+		if !gatingRequired {
+			c.Set("nft_verified", true)
+			c.Set("nft_bypass_reason", "no_gating_rules")
+			c.Next()
 			return
 		}
 
@@ -265,18 +272,24 @@ func parseNFTParams(c *gin.Context, config *NFTGateConfig) (contract string, cha
 	return
 }
 
-func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) ([]GatingRule, int, gin.H) {
+func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) ([]GatingRule, int, bool, gin.H) {
 	var resolvedRules []GatingRule
+	rulesFetched := false
 	if contentID != "" && config.RuleResolver != nil {
 		rules, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
 		if err != nil {
 			logger.Error("failed to resolve gating rules", zap.String("content_id", contentID), zap.Error(err))
 		} else {
 			resolvedRules = rules
+			rulesFetched = true
 			c.Set("gating_rules", rules)
 			c.Set("gating_rule_id", contentID)
 			c.Set("gating_rules_count", len(rules))
 		}
+	}
+
+	if rulesFetched && len(resolvedRules) == 0 {
+		return nil, 0, false, nil
 	}
 
 	var minBalance int
@@ -289,13 +302,13 @@ func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logg
 	}
 
 	if *contract == "" {
-		return nil, 0, gin.H{
+		return nil, 0, false, gin.H{
 			"error": "contract address is required",
 			"code":  "MISSING_CONTRACT",
 			"hint":  "provide 'contract' query parameter with the NFT contract address",
 		}
 	}
-	return resolvedRules, minBalance, nil
+	return resolvedRules, minBalance, true, nil
 }
 
 func resolveAutoDetect(c *gin.Context, config *NFTGateConfig, contract string, resolvedRules []GatingRule) bool {

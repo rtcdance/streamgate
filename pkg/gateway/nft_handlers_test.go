@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -230,8 +230,8 @@ func (m *mockNFTCache) Get(_ context.Context, _ string) (middleware.NFTAccessEnt
 	return middleware.NFTAccessEntry{}, false
 }
 func (m *mockNFTCache) Set(_ context.Context, _ string, _ middleware.NFTAccessEntry) {}
-func (m *mockNFTCache) Delete(_ context.Context, _ string)                            {}
-func (m *mockNFTCache) DeleteByPrefix(_ context.Context, _ string)                    {}
+func (m *mockNFTCache) Delete(_ context.Context, _ string)                           {}
+func (m *mockNFTCache) DeleteByPrefix(_ context.Context, _ string)                   {}
 
 func TestRegisterNFTRoutes_RoutesRegistered(t *testing.T) {
 	gin.SetMode(gin.TestMode)

@@ -27,12 +27,12 @@ func init() {
 }
 
 type gwCovVerifier struct {
-	mu              sync.RWMutex
-	verifyFn        func(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error)
-	balanceFn       func(ctx context.Context, chainID int64, contract, owner string) (*big.Int, error)
-	ownershipFn     func(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error)
-	collectionFn    func(ctx context.Context, chainID int64, contract, owner string) (bool, error)
-	nftInfoFn       func(ctx context.Context, chainID int64, contract, tokenID string) (*middleware.NFTMetadata, error)
+	mu           sync.RWMutex
+	verifyFn     func(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error)
+	balanceFn    func(ctx context.Context, chainID int64, contract, owner string) (*big.Int, error)
+	ownershipFn  func(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error)
+	collectionFn func(ctx context.Context, chainID int64, contract, owner string) (bool, error)
+	nftInfoFn    func(ctx context.Context, chainID int64, contract, tokenID string) (*middleware.NFTMetadata, error)
 }
 
 func (v *gwCovVerifier) VerifyNFTOwnership(ctx context.Context, chainID int64, contract, tokenID, owner string) (bool, error) {
@@ -631,8 +631,8 @@ func TestGwCov_IsValidContentID(t *testing.T) {
 
 func TestGwCov_ValidateSegmentName(t *testing.T) {
 	tests := []struct {
-		name    string
-		valid   bool
+		name  string
+		valid bool
 	}{
 		{"seg0.ts", true},
 		{"720p/seg0.ts", true},
@@ -689,7 +689,7 @@ func TestGwCov_BuildSegmentCandidates(t *testing.T) {
 	assert.NotEmpty(t, candidates)
 
 	cache.SetSegmentIndex("content1", map[string][]string{
-		"720p": {"seg0.ts", "seg1.ts"},
+		"720p":  {"seg0.ts", "seg1.ts"},
 		"1080p": {"seg0.ts", "seg1.ts"},
 	})
 	candidates = buildSegmentCandidates("content1", "seg0.ts", "720p", cache)

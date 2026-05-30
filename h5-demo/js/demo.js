@@ -54,8 +54,7 @@ class DemoWallet {
 
     async signTypedData(typedData) {
         if (!this._signer) throw new Error('Demo wallet not connected');
-        const { EIP712Domain, ...types } = typedData.types;
-        delete types.EIP712Domain;
+        const { EIP712Domain: _domainType, ...types } = typedData.types;
         return this._signer._signTypedData(typedData.domain, types, typedData.message);
     }
 

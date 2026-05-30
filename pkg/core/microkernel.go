@@ -313,6 +313,12 @@ func (m *Microkernel) Start(ctx context.Context) error {
 
 	var started []Plugin
 	for _, plugin := range orderedPlugins {
+		if m.config.Mode == "monolith" && plugin.Name() != "api-gateway" {
+			m.logger.Info("Skipping plugin HTTP server in monolith mode (routes served by api-gateway)",
+				zap.String("name", plugin.Name()))
+			started = append(started, plugin)
+			continue
+		}
 		if err := plugin.Start(ctx); err != nil {
 			m.logger.Error("Failed to start plugin",
 				zap.String("name", plugin.Name()),
@@ -360,6 +366,9 @@ func (m *Microkernel) Shutdown(ctx context.Context) error {
 
 	for i := len(orderedPlugins) - 1; i >= 0; i-- {
 		plugin := orderedPlugins[i]
+		if m.config.Mode == "monolith" && plugin.Name() != "api-gateway" {
+			continue
+		}
 		if err := plugin.Stop(shutdownCtx); err != nil {
 			m.logger.Error("Error stopping plugin",
 				zap.String("name", plugin.Name()),
@@ -404,6 +413,9 @@ func (m *Microkernel) Health(ctx context.Context) error {
 	m.mu.RUnlock()
 
 	for _, plugin := range plugins {
+		if m.config.Mode == "monolith" && plugin.Name() != "api-gateway" {
+			continue
+		}
 		if err := plugin.Health(ctx); err != nil {
 			m.logger.Error("Plugin health check failed",
 				zap.String("name", plugin.Name()),

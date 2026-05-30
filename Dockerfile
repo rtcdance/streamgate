@@ -42,7 +42,7 @@ COPY . .
 #   /root/.cache/go-build is persisted — incremental builds are near-instant
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build \
+    CGO_ENABLED=0 GOOS=linux go clean -cache && go build \
         -trimpath \
         -ldflags="-X main.Version=${VERSION} -X main.BuildTime=${BUILDTIME}" \
         -o /app/streamgate \

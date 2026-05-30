@@ -157,9 +157,9 @@ func TestAbortWithValidationError(t *testing.T) {
 	c.Set("request_id", "req-val")
 
 	abortWithValidationError(c, map[string]string{
-		"email":   "invalid format",
-		"wallet":  "required",
-		"_error":  "custom error message",
+		"email":  "invalid format",
+		"wallet": "required",
+		"_error": "custom error message",
 	})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)

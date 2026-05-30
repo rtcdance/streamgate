@@ -127,7 +127,7 @@ func formatAllowedExtensions() string {
 
 // RegisterUploadRoutes registers file upload routes.
 // If uploadSvc is nil, all routes return 503 Service Unavailable.
-func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService, transcodeSvc *service.TranscodingService) {
+func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *service.UploadService) {
 	upload := router.Group(APIPrefix + "/upload")
 	upload.Use(func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
@@ -139,7 +139,7 @@ func RegisterUploadRoutes(router gin.IRouter, log *zap.Logger, uploadSvc *servic
 	upload.POST("/init", handleChunkedUploadInit(uploadSvc, log))
 	upload.POST("/chunk", handleChunkUpload(uploadSvc, log))
 	upload.POST("/:id/complete", handleChunkedUploadComplete(uploadSvc, log))
-	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, transcodeSvc, log))
+	upload.POST("/:id/complete-upload", handleCompleteUpload(uploadSvc, log))
 	upload.GET("/:id/status", handleUploadStatus(uploadSvc, log))
 	upload.GET("/:id/download-url", handleDownloadURL(uploadSvc, log))
 	upload.POST("/:id/batch-chunks", handleBatchChunkUpload(uploadSvc, log))
@@ -662,7 +662,7 @@ func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Lo
 	}
 }
 
-func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *service.TranscodingService, log *zap.Logger) gin.HandlerFunc {
+func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if uploadSvc == nil {
 			abortWithError(c, http.StatusServiceUnavailable, ErrUploadFailed, "upload service unavailable")
@@ -697,44 +697,19 @@ func handleCompleteUpload(uploadSvc *service.UploadService, transcodeSvc *servic
 			return
 		}
 
-		// Auto-submit transcode job after successful content creation
-		var taskID string
-		if transcodeSvc != nil {
-			inputURL, dlErr := uploadSvc.GetDownloadURL(c.Request.Context(), uploadID, 24*time.Hour, wallet)
-			if dlErr != nil {
-				log.Warn("auto-transcode: failed to generate download URL (transcode skipped)",
-					zap.String("content_id", contentID),
-					zap.String("upload_id", uploadID),
-					zap.Error(dlErr),
-				)
-			} else {
-				var tErr error
-				taskID, tErr = transcodeSvc.Transcode(c.Request.Context(), contentID, "720p", inputURL, 5, wallet)
-				if tErr != nil {
-					log.Warn("auto-transcode submission failed (content created, transcode may be retried)",
-						zap.String("content_id", contentID),
-						zap.String("upload_id", uploadID),
-						zap.Error(tErr),
-					)
-				}
-			}
-		}
-
 		info, err = uploadSvc.GetUploadStatus(c.Request.Context(), uploadID)
 		if err != nil {
 			respondOK(c, gin.H{
 				"upload_id":  uploadID,
 				"content_id": contentID,
-				"transcode_task_id": taskID,
 				"status":     "processed",
 			})
 			return
 		}
 		respondOK(c, gin.H{
-			"upload_id":         uploadID,
-			"content_id":        contentID,
-			"transcode_task_id": taskID,
-			"status":            info.Status,
+			"upload_id":  uploadID,
+			"content_id": contentID,
+			"status":     info.Status,
 		})
 	}
 }

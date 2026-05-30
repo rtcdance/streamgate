@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -59,8 +59,8 @@ func (m *nftRouteMockCache) Get(_ context.Context, key string) (middleware.NFTAc
 func (m *nftRouteMockCache) Set(_ context.Context, key string, entry middleware.NFTAccessEntry) {
 	m.entries[key] = entry
 }
-func (m *nftRouteMockCache) Delete(_ context.Context, _ string)            {}
-func (m *nftRouteMockCache) DeleteByPrefix(_ context.Context, _ string)    {}
+func (m *nftRouteMockCache) Delete(_ context.Context, _ string)         {}
+func (m *nftRouteMockCache) DeleteByPrefix(_ context.Context, _ string) {}
 
 func setupNFTRouter(checker middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, wallet string) *gin.Engine {
 	gin.SetMode(gin.TestMode)

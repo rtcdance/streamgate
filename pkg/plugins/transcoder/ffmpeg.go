@@ -1,7 +1,7 @@
 package transcoder
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -252,16 +252,18 @@ func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath
 		outputPath,
 	}
 
-	return ft.runFFmpeg(ctx, args, callback)
+	return ft.runFFmpeg(ctx, args, 0, callback)
 }
 
 // TranscodeToHLS transcodes video to HLS format with multiple quality levels.
 // It validates the input file before transcoding and cleans up partial outputs on failure.
 func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback) error {
-	// Validate input before starting expensive transcoding
-	if _, err := ft.ValidateMediaFile(ctx, inputPath); err != nil {
+	info, err := ft.ValidateMediaFile(ctx, inputPath)
+	if err != nil {
 		return fmt.Errorf("input validation failed: %w", err)
 	}
+
+	totalDuration := time.Duration(info.Duration * float64(time.Second))
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -276,7 +278,7 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 			defer wg.Done()
 
 			outputPath := filepath.Join(outputDir, fmt.Sprintf("%s.m3u8", p.Resolution))
-			if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, p, callback); err != nil {
+			if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, p, totalDuration, callback); err != nil {
 				errChan <- fmt.Errorf("failed to transcode to %s: %w", p.Resolution, err)
 			}
 		}(profile)
@@ -339,7 +341,7 @@ func (ft *FFmpegTranscoder) cleanupPartialOutput(outputDir string) {
 }
 
 // transcodeToHLSVariant transcodes a single HLS variant
-func (ft *FFmpegTranscoder) transcodeToHLSVariant(ctx context.Context, inputPath, outputPath string, profile TranscodeProfile, callback ProgressCallback) error {
+func (ft *FFmpegTranscoder) transcodeToHLSVariant(ctx context.Context, inputPath, outputPath string, profile TranscodeProfile, totalDuration time.Duration, callback ProgressCallback) error {
 	videoCodec := ft.config.VideoCodec
 	if videoCodec == "" {
 		videoCodec = "libx264"
@@ -370,7 +372,7 @@ func (ft *FFmpegTranscoder) transcodeToHLSVariant(ctx context.Context, inputPath
 		outputPath,
 	}
 
-	return ft.runFFmpeg(ctx, args, callback)
+	return ft.runFFmpeg(ctx, args, totalDuration, callback)
 }
 
 // generateHLSMasterPlaylist generates the HLS master playlist
@@ -426,7 +428,7 @@ func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outp
 		filepath.Join(outputDir, "manifest.mpd"),
 	}
 
-	return ft.runFFmpeg(ctx, args, callback)
+	return ft.runFFmpeg(ctx, args, 0, callback)
 }
 
 // ExtractThumbnail extracts a thumbnail from video
@@ -440,7 +442,7 @@ func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, out
 		outputPath,
 	}
 
-	return ft.runFFmpeg(ctx, args, nil)
+	return ft.runFFmpeg(ctx, args, 0, nil)
 }
 
 // ExtractAudio extracts audio track from video
@@ -453,7 +455,7 @@ func (ft *FFmpegTranscoder) ExtractAudio(ctx context.Context, inputPath, outputP
 		outputPath,
 	}
 
-	return ft.runFFmpeg(ctx, args, nil)
+	return ft.runFFmpeg(ctx, args, 0, nil)
 }
 
 // ConcatVideos concatenates multiple videos
@@ -480,11 +482,11 @@ func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []strin
 		outputPath,
 	}
 
-	return ft.runFFmpeg(ctx, args, callback)
+	return ft.runFFmpeg(ctx, args, 0, callback)
 }
 
 // runFFmpeg executes FFmpeg command with progress monitoring
-func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callback ProgressCallback) error {
+func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, totalDuration time.Duration, callback ProgressCallback) error {
 	cmd := exec.CommandContext(ctx, ft.config.FFmpegPath, args...)
 
 	stderr, err := cmd.StderrPipe()
@@ -500,7 +502,7 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callba
 	go func() {
 		defer close(progressDone)
 		if callback != nil {
-			ft.monitorProgress(stderr, callback)
+			ft.monitorProgress(stderr, totalDuration, callback)
 		} else {
 			_, _ = io.Copy(io.Discard, stderr)
 		}
@@ -515,34 +517,80 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, callba
 	return nil
 }
 
-var progressRegex = regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
+var progressRegex = regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:.]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
 
 // monitorProgress monitors FFmpeg progress output
-func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, callback ProgressCallback) {
-	scanner := bufio.NewScanner(stderrPipe)
+func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, totalDuration time.Duration, callback ProgressCallback) {
+	buf := make([]byte, 4096)
+	var lineBuf []byte
+	var totalLines int
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		matches := progressRegex.FindStringSubmatch(line)
+	for {
+		n, err := stderrPipe.Read(buf)
+		if n > 0 {
+			lineBuf = append(lineBuf, buf[:n]...)
+			for {
+				idx := bytes.IndexAny(lineBuf, "\r\n")
+				if idx < 0 {
+					break
+				}
+				line := string(lineBuf[:idx])
+				lineBuf = lineBuf[idx+1:]
+				if len(lineBuf) > 0 && lineBuf[0] == '\n' {
+					lineBuf = lineBuf[1:]
+				}
+				if line == "" {
+					continue
+				}
 
-		if len(matches) >= 8 {
-			frame, _ := strconv.ParseInt(matches[1], 10, 64)
-			fps, _ := strconv.ParseFloat(matches[2], 64)
-			bitrate := matches[6]
-			speed := matches[7]
+				totalLines++
+				matches := progressRegex.FindStringSubmatch(line)
+				if len(matches) >= 8 {
+					frame, _ := strconv.ParseInt(matches[1], 10, 64)
+					fps, _ := strconv.ParseFloat(matches[2], 64)
+					bitrate := matches[6]
+					speed := matches[7]
 
-			timeStr := matches[5]
-			processed := parseTime(timeStr)
+					timeStr := matches[5]
+					processed := parseTime(timeStr)
 
-			progress := &TranscodeProgress{
-				Frame:          frame,
-				FPS:            fps,
-				CurrentBitrate: bitrate,
-				Speed:          speed,
-				Processed:      processed,
+					progress := &TranscodeProgress{
+						Frame:          frame,
+						FPS:            fps,
+						CurrentBitrate: bitrate,
+						Speed:          speed,
+						Processed:      processed,
+					}
+
+					if totalDuration > 0 {
+						pct := float64(processed) / float64(totalDuration) * 100
+						if pct > 99 {
+							pct = 99
+						}
+						progress.Progress = pct
+						if processed < totalDuration {
+							progress.Remaining = totalDuration - processed
+						}
+						ft.logger.Debug("ffmpeg progress",
+							zap.Duration("processed", processed),
+							zap.Duration("total", totalDuration),
+							zap.Float64("pct", pct))
+					}
+
+					callback(progress)
+				} else if totalLines <= 3 {
+					ft.logger.Debug("ffmpeg stderr line (no regex match)",
+						zap.Int("line_num", totalLines),
+						zap.String("line", line))
+				}
 			}
-
-			callback(progress)
+		}
+		if err != nil {
+			ft.logger.Debug("ffmpeg monitor done",
+				zap.Int("total_lines", totalLines),
+				zap.Duration("total_duration", totalDuration),
+				zap.Error(err))
+			break
 		}
 	}
 }

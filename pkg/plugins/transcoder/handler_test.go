@@ -804,7 +804,117 @@ func TestMonitorProgress_Callback(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		ft.monitorProgress(pr, callback)
+		ft.monitorProgress(pr, 10*time.Second, callback)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("monitorProgress timed out")
+	}
+
+	require.NotNil(t, received, "callback should have been called with progress data")
+	assert.Equal(t, int64(100), received.Frame)
+	assert.Equal(t, 25.0, received.FPS)
+	assert.Equal(t, "2048.0", received.CurrentBitrate)
+	assert.Equal(t, "1.0", received.Speed)
+	assert.InDelta(t, 40.0, received.Progress, 0.1)
+}
+
+func TestMonitorProgress_CarriageReturn(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+
+	go func() {
+		pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		pw.WriteString("frame= 150 fps= 25.0 q=28.0 size= 1536 time=00:00:06.00 bitrate=2048.0kbits/s speed=1.0x\n")
+		pw.Close()
+	}()
+
+	cfg := &FFmpegConfig{TempDir: t.TempDir()}
+	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
+
+	var calls []float64
+	callback := func(p *TranscodeProgress) {
+		calls = append(calls, p.Progress)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ft.monitorProgress(pr, 10*time.Second, callback)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("monitorProgress timed out")
+	}
+
+	assert.Equal(t, 3, len(calls), "expected 3 progress callbacks for \\r and \\n separated lines")
+	assert.InDelta(t, 20.0, calls[0], 0.1)
+	assert.InDelta(t, 40.0, calls[1], 0.1)
+	assert.InDelta(t, 60.0, calls[2], 0.1)
+}
+
+func TestMonitorProgress_MixedSeparators(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+
+	go func() {
+		pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r\n")
+		pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		pw.WriteString("frame= 200 fps= 25.0 q=28.0 size= 2048 time=00:00:08.00 bitrate=2048.0kbits/s speed=1.0x\n")
+		pw.Close()
+	}()
+
+	cfg := &FFmpegConfig{TempDir: t.TempDir()}
+	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
+
+	var calls []float64
+	callback := func(p *TranscodeProgress) {
+		calls = append(calls, p.Progress)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ft.monitorProgress(pr, 10*time.Second, callback)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("monitorProgress timed out")
+	}
+
+	assert.Equal(t, 3, len(calls), "expected 3 progress callbacks for mixed \\r\\n/\\r/\\n separators")
+	assert.InDelta(t, 20.0, calls[0], 0.1)
+	assert.InDelta(t, 40.0, calls[1], 0.1)
+	assert.InDelta(t, 80.0, calls[2], 0.1)
+}
+
+func TestMonitorProgress_ZeroDuration(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	require.NoError(t, err)
+
+	_, err = pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\n")
+	require.NoError(t, err)
+	pw.Close()
+
+	cfg := &FFmpegConfig{TempDir: t.TempDir()}
+	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
+
+	var received *TranscodeProgress
+	callback := func(p *TranscodeProgress) {
+		received = p
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ft.monitorProgress(pr, 0, callback)
 		close(done)
 	}()
 
@@ -815,10 +925,8 @@ func TestMonitorProgress_Callback(t *testing.T) {
 	}
 
 	if received != nil {
-		assert.Equal(t, int64(100), received.Frame)
-		assert.Equal(t, 25.0, received.FPS)
-		assert.Equal(t, "2048.0", received.CurrentBitrate)
-		assert.Equal(t, "1.0", received.Speed)
+		assert.Equal(t, float64(0), received.Progress, "Progress should be 0 when totalDuration is 0")
+		assert.Equal(t, time.Duration(4*time.Second), received.Processed)
 	}
 }
 

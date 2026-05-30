@@ -50,6 +50,14 @@ func (a *ffmpegAdapter) SelectProfiles(ctx context.Context, inputPath, requested
 		zap.Float64("fps", info.FrameRate),
 		zap.Int("bitrate", info.VideoBitrate))
 
+	// If a specific profile is requested, return only that profile
+	if requestedProfile != "" && requestedProfile != "abr" {
+		if tp, ok := profileDefs[requestedProfile]; ok {
+			return []transcoder.TranscodeProfile{tp}, nil
+		}
+	}
+
+	// Otherwise build a downward chain from input resolution
 	var profiles []transcoder.TranscodeProfile
 	chainOrder := []string{"1080p", "720p", "480p", "360p"}
 	started := false

@@ -30,6 +30,17 @@ func init() {
 }
 
 var supportedChains = map[int64]*ChainConfig{
+	// Anvil (local dev)
+	31337: {
+		ID:        31337,
+		Name:      "Anvil Local",
+		RPC:       "http://anvil:8545",
+		RPCs:      []string{"http://anvil:8545"},
+		Explorer:  "",
+		Currency:  "ETH",
+		IsTestnet: true,
+	},
+
 	// Ethereum
 	1: {
 		ID:        1,

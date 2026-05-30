@@ -237,9 +237,13 @@ func (r *Runner) ensureTrackingTable() error {
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    VARCHAR(10)   PRIMARY KEY,
 			name       VARCHAR(255)  NOT NULL,
-			filename   VARCHAR(255)  NOT NULL,
+			filename   VARCHAR(255)  NOT NULL DEFAULT '',
 			applied_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	r.db.Exec(`ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS filename VARCHAR(255) NOT NULL DEFAULT ''`)
+	return nil
 }

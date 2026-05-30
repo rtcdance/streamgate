@@ -18,7 +18,7 @@
                 <p class="tagline">Use one page to validate wallet login, NFT gating, protected playback, RPC status, and transcoding workflows.</p>
                 <div class="hero-note">
                     <span class="hero-note-label">Recommended flow</span>
-                    <span>Backend → Wallet → Login → NFT → Playback → RPC → Transcoding</span>
+                    <span>Backend → Wallet → Login → NFT → Upload → Transcode → Playback → RPC</span>
                 </div>
             </div>
             <div class="hero-rail">
@@ -33,7 +33,7 @@
         <section class="summary-bar">
             <div class="summary-card">
                 <span class="summary-label">Acceptance Progress</span>
-                <strong id="acceptance-progress-text">0 / 7 completed</strong>
+                <strong id="acceptance-progress-text">0 / 8 completed</strong>
             </div>
             <div class="summary-card">
                 <span class="summary-label">Current Focus</span>
@@ -110,12 +110,13 @@
                     <div class="form-group">
                         <label for="nft-contract">NFT Contract Address</label>
                         <input type="text" id="nft-contract" class="input"
-                               value="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f" readonly>
+                               value="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f">
                     </div>
                     <div class="form-group">
                         <label for="chain-select">Blockchain</label>
                         <select id="chain-select" class="select">
-                            <option value="11155111">Sepolia (11155111)</option>
+                            <option value="11155111" data-contract="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f">Sepolia (11155111)</option>
+                            <option value="31337" data-contract="0x5FbDB2315678afecb367f032d93F642f64180aa3">Anvil Local (31337)</option>
                         </select>
                     </div>
                     <button id="verify-nft" class="btn btn-primary">
@@ -133,26 +134,37 @@
                     </div>
                 </section>
 
-                <section id="player-section" class="card hidden">
+                <section id="upload-section" class="card">
                     <div class="section-kicker">Step 5</div>
-                    <h2>🎬 Protected Playback</h2>
+                    <h2>📤 Creator Upload</h2>
+                    <p class="desc">Upload a video file to the backend. Supports both whole-file and chunked upload.</p>
                     <div class="expectation-box">
                         <strong>Expected</strong>
-                        <p>The manifest loads successfully through a Bearer JWT request and the playback status turns green.</p>
+                        <p>Upload completes, status is available, and a download URL can be generated.</p>
                     </div>
                     <div class="form-group">
-                        <label for="video-id">Video ID</label>
-                        <input type="text" id="video-id" class="input" placeholder="Enter video ID" value="demo">
+                        <label for="upload-file">Select Video File</label>
+                        <input type="file" id="upload-file" class="input" accept="video/*,audio/*">
                     </div>
-                    <button id="play-video" class="btn btn-success">
-                        Play Video
-                    </button>
-                    <div id="player-container" class="player-container">
-                        <video id="video-player" controls playsinline>
-                            Your browser does not support HLS video.
-                        </video>
+                    <div class="action-grid">
+                        <button id="upload-whole-btn" class="btn btn-primary">Upload Whole File</button>
+                        <button id="upload-chunked-btn" class="btn btn-secondary">Upload Chunked</button>
                     </div>
-                    <div id="player-status" class="player-status"></div>
+                    <div id="upload-progress-container" class="hidden" style="margin-top:8px">
+                        <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
+                            <div id="upload-progress-bar" style="height:100%;width:0%;border-radius:3px;background:var(--primary);transition:width .3s"></div>
+                        </div>
+                        <span id="upload-progress-text" style="font-size:12px;color:var(--muted)">0%</span>
+                    </div>
+                    <div class="form-group" style="margin-top:8px">
+                        <label for="upload-id-display">Upload ID</label>
+                        <input type="text" id="upload-id-display" class="input" placeholder="Filled after upload" readonly>
+                    </div>
+                    <div class="action-grid">
+                        <button id="check-upload-status-btn" class="btn btn-secondary" disabled>Check Status</button>
+                        <button id="get-download-url-btn" class="btn btn-secondary" disabled>Get Download URL</button>
+                    </div>
+                    <div id="upload-output" class="test-output hidden"></div>
                 </section>
 
                 <section id="transcode-section" class="card">
@@ -189,7 +201,35 @@
                         <button id="load-transcode-tasks" class="btn btn-secondary">Load Tasks</button>
                         <button id="load-transcode-profiles" class="btn btn-secondary">Load Profiles</button>
                     </div>
+                    <div id="transcode-progress-area" class="hidden" style="margin-top:8px">
+                        <div style="height:6px;border-radius:3px;background:var(--line);overflow:hidden">
+                            <div id="transcode-progress-bar" style="height:100%;width:0%;border-radius:3px;background:var(--primary);transition:width .3s"></div>
+                        </div>
+                        <span id="transcode-progress-text" style="font-size:12px;color:var(--muted)">Waiting...</span>
+                    </div>
                     <div id="transcode-output" class="test-output hidden"></div>
+                </section>
+
+                <section id="player-section" class="card hidden">
+                    <div class="section-kicker">Step 7</div>
+                    <h2>🎬 Protected Playback</h2>
+                    <div class="expectation-box">
+                        <strong>Expected</strong>
+                        <p>The manifest loads successfully through a Bearer JWT request and the playback status turns green.</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="video-id">Video ID</label>
+                        <input type="text" id="video-id" class="input" placeholder="Enter video ID" value="demo">
+                    </div>
+                    <button id="play-video" class="btn btn-success">
+                        Play Video
+                    </button>
+                    <div id="player-container" class="player-container">
+                        <video id="video-player" controls playsinline>
+                            Your browser does not support HLS video.
+                        </video>
+                    </div>
+                    <div id="player-status" class="player-status"></div>
                 </section>
             </section>
 
@@ -226,25 +266,32 @@
                                 <p>Ownership check returns `has_nft`, `balance`, and `cache_hit`.</p>
                             </div>
                         </div>
-                        <div class="progress-item" id="step-playback">
+                        <div class="progress-item" id="step-upload">
                             <span class="progress-step">05</span>
+                            <div>
+                                <strong>Creator Upload</strong>
+                                <p>Upload a file and verify status + download URL.</p>
+                            </div>
+                        </div>
+                        <div class="progress-item" id="step-transcode">
+                            <span class="progress-step">06</span>
+                            <div>
+                                <strong>Transcoding Flow</strong>
+                                <p>Submit, status, tasks, and profiles all work from one page.</p>
+                            </div>
+                        </div>
+                        <div class="progress-item" id="step-playback">
+                            <span class="progress-step">07</span>
                             <div>
                                 <strong>Protected Playback</strong>
                                 <p>Manifest loads with Bearer JWT and protected segment flow.</p>
                             </div>
                         </div>
                         <div class="progress-item" id="step-rpc">
-                            <span class="progress-step">06</span>
+                            <span class="progress-step">08</span>
                             <div>
                                 <strong>RPC Visibility</strong>
                                 <p>Active RPC and failover state are visible.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-transcode">
-                            <span class="progress-step">07</span>
-                            <div>
-                                <strong>Transcoding Flow</strong>
-                                <p>Submit, status, tasks, and profiles all work from one page.</p>
                             </div>
                         </div>
                     </div>
@@ -282,6 +329,10 @@
                             <span class="status-label">Transcode</span>
                             <span id="transcode-status-global" class="status-value unknown">Unknown</span>
                         </div>
+                        <div class="status-item">
+                            <span class="status-label">Upload</span>
+                            <span id="upload-status-global" class="status-value unknown">Unknown</span>
+                        </div>
                     </div>
                 </section>
 
@@ -304,6 +355,16 @@
                     </div>
                     <button id="check-rpc" class="btn btn-secondary">Load RPC Status</button>
                     <div id="rpc-output" class="test-output hidden"></div>
+                </section>
+
+                <section id="my-videos-section" class="card card-compact" style="display:none">
+                    <div class="section-kicker">My Content</div>
+                    <h2>📹 My Videos</h2>
+                    <p class="desc">Videos you uploaded, ready to play.</p>
+                    <button id="refresh-videos-btn" class="btn btn-secondary" style="width:100%;margin-bottom:8px">Refresh List</button>
+                    <div id="my-videos-list" class="demo-list">
+                        <p style="color:var(--muted);font-size:13px;padding:8px;text-align:center">No videos yet. Upload one above.</p>
+                    </div>
                 </section>
 
                 <section id="demo-section" class="card card-compact">

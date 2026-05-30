@@ -78,7 +78,7 @@ func (s *Service) RequestSizeLimitMiddleware(maxBodySize int64) gin.HandlerFunc 
 func (s *Service) SecurityHeadersMiddleware() gin.HandlerFunc {
 	const (
 		strictCSP = "default-src 'self'"
-		demoCSP   = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* https://cdn.jsdelivr.net"
+		demoCSP   = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' http://localhost:* ws://localhost:* https://cdn.jsdelivr.net blob:"
 	)
 
 	headers := map[string]string{
@@ -91,7 +91,8 @@ func (s *Service) SecurityHeadersMiddleware() gin.HandlerFunc {
 		for k, v := range headers {
 			c.Writer.Header().Set(k, v)
 		}
-		// Relax CSP for demo pages — they need CDN scripts, inline styles, inline JS
+		// Relax CSP for demo pages — they need CDN scripts, inline styles, inline JS,
+		// HLS.js blob URLs for media playback, and blob: connect-src for XHR.
 		if strings.HasPrefix(c.Request.URL.Path, "/demo/") {
 			c.Writer.Header().Set("Content-Security-Policy", demoCSP)
 		} else {

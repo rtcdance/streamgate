@@ -79,12 +79,14 @@ services:
       retries: 10
 
   streamgate:
+    image: streamgate-fullchain:latest
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PKG: ./cmd/monolith/streamgate
         EXTRA_PKGS: ffmpeg
+        GOPROXY_VALUE: https://goproxy.cn,direct
     container_name: sg-fc-monolith
     ports:
       - "18080:8080"
@@ -140,7 +142,7 @@ services:
       streamgate:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 5s
       retries: 5

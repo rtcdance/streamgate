@@ -176,17 +176,17 @@ type fieldErrorStub struct {
 	param string
 }
 
-func (e *fieldErrorStub) Tag() string             { return e.tag }
-func (e *fieldErrorStub) ActualTag() string       { return e.tag }
-func (e *fieldErrorStub) Namespace() string       { return "" }
-func (e *fieldErrorStub) StructNamespace() string  { return "" }
-func (e *fieldErrorStub) Field() string            { return "Test" }
-func (e *fieldErrorStub) StructField() string      { return "" }
-func (e *fieldErrorStub) Value() interface{}       { return "" }
-func (e *fieldErrorStub) Param() string            { return e.param }
-func (e *fieldErrorStub) Kind() reflect.Kind       { return reflect.String }
-func (e *fieldErrorStub) Type() reflect.Type       { return reflect.TypeOf("") }
+func (e *fieldErrorStub) Tag() string                      { return e.tag }
+func (e *fieldErrorStub) ActualTag() string                { return e.tag }
+func (e *fieldErrorStub) Namespace() string                { return "" }
+func (e *fieldErrorStub) StructNamespace() string          { return "" }
+func (e *fieldErrorStub) Field() string                    { return "Test" }
+func (e *fieldErrorStub) StructField() string              { return "" }
+func (e *fieldErrorStub) Value() interface{}               { return "" }
+func (e *fieldErrorStub) Param() string                    { return e.param }
+func (e *fieldErrorStub) Kind() reflect.Kind               { return reflect.String }
+func (e *fieldErrorStub) Type() reflect.Type               { return reflect.TypeOf("") }
 func (e *fieldErrorStub) Translate(_ ut.Translator) string { return "" }
-func (e *fieldErrorStub) Error() string            { return e.tag }
+func (e *fieldErrorStub) Error() string                    { return e.tag }
 
 var _ validator.FieldError = (*fieldErrorStub)(nil)

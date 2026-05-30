@@ -89,6 +89,10 @@ func (p *GenericPlugin) Init(ctx context.Context, kernel *Microkernel) error {
 }
 
 func (p *GenericPlugin) Start(ctx context.Context) error {
+	if p.config.Mode == "monolith" && p.name != "api-gateway" {
+		p.logger.Info("Skipping HTTP server in monolith mode (routes served by api-gateway)", zap.String("plugin", p.name))
+		return nil
+	}
 	p.logger.Info("Starting "+p.name+" service", zap.Int("port", p.config.Server.Port))
 	if err := p.server.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start %s server: %w", p.name, err)
@@ -99,6 +103,9 @@ func (p *GenericPlugin) Start(ctx context.Context) error {
 func (p *GenericPlugin) Stop(ctx context.Context) error {
 	p.logger.Info("Stopping " + p.name + " service")
 	if p.server != nil {
+		if p.config.Mode == "monolith" && p.name != "api-gateway" {
+			return nil
+		}
 		if err := p.server.Stop(ctx); err != nil {
 			return fmt.Errorf("failed to stop %s server: %w", p.name, err)
 		}
@@ -109,6 +116,9 @@ func (p *GenericPlugin) Stop(ctx context.Context) error {
 func (p *GenericPlugin) Health(ctx context.Context) error {
 	if p.server == nil {
 		return fmt.Errorf("%s service not started", p.name)
+	}
+	if p.config.Mode == "monolith" && p.name != "api-gateway" {
+		return nil
 	}
 	return p.server.Health(ctx)
 }

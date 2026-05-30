@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE = 'http://localhost:29090';
-const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '19090', '28080', '29090']);
+const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '19090', '28080', '29090']);
 
 function normalizeBaseUrl(url) {
     return url.replace(/\/$/, '');
@@ -84,7 +84,11 @@ class APIService {
             const data = await response.json().catch(() => null);
 
             if (!response.ok) {
-                throw new Error(data?.error || data?.message || `HTTP ${response.status}`);
+                const errMsg = data?.error || data?.message || `HTTP ${response.status}`;
+                const errDetail = data?.details ? ` (${data.details})` : data?.detail ? ` (${data.detail})` : '';
+                const err = new Error(errMsg + errDetail);
+                err.status = response.status;
+                throw err;
             }
 
             return data;
@@ -157,11 +161,12 @@ class APIService {
         });
     }
 
-    async loginWithChallenge(walletAddress, challengeId, signature) {
+    async loginWithChallenge(walletAddress, challengeId, signature, chainId) {
         return this.post('/api/v1/auth/login', {
             wallet: walletAddress,
             challenge_id: challengeId,
             signature: signature,
+            chain_id: chainId || 0,
         });
     }
 
@@ -302,6 +307,18 @@ class APIService {
             params.expiry_minutes = expiryMinutes;
         }
         return this.get(`/api/v1/upload/${uploadId}/download-url`, params);
+    }
+
+    async listContents(limit = 50, offset = 0) {
+        return this.get(`/api/v1/content?limit=${limit}&offset=${offset}`);
+    }
+
+    async getContent(contentId) {
+        return this.get(`/api/v1/content/${contentId}`);
+    }
+
+    async listUploads(limit = 50, offset = 0) {
+        return this.get(`/api/v1/upload/list?limit=${limit}&offset=${offset}`);
     }
 }
 

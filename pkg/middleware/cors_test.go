@@ -108,5 +108,6 @@ func TestCORSMiddleware_AllowedOrigins_PreflightRejectsUnknownOrigin(t *testing.
 
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Equal(t, "", w.Header().Get("Access-Control-Allow-Origin"))
 }

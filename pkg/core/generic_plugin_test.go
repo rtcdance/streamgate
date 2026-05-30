@@ -142,7 +142,7 @@ func TestGenericPlugin_InitFailure(t *testing.T) {
 }
 
 func TestGenericPlugin_Start(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith", Server: config.ServerConfig{Port: 8080}}
+	cfg := &config.Config{Mode: "microservice", Server: config.ServerConfig{Port: 8080}}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -159,7 +159,7 @@ func TestGenericPlugin_Start(t *testing.T) {
 }
 
 func TestGenericPlugin_StartFailure(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith", Server: config.ServerConfig{Port: 8080}}
+	cfg := &config.Config{Mode: "microservice", Server: config.ServerConfig{Port: 8080}}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{startErr: fmt.Errorf("bind failed")}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -175,8 +175,42 @@ func TestGenericPlugin_StartFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to start start-fail server")
 }
 
-func TestGenericPlugin_Stop(t *testing.T) {
+func TestGenericPlugin_Start_MonolithSkip(t *testing.T) {
 	cfg := &config.Config{Mode: "monolith", Server: config.ServerConfig{Port: 8080}}
+	logger := zap.NewNop()
+	server := &mockServerLifecycle{}
+	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
+		return server, nil
+	}
+
+	p := NewGenericPlugin("non-gateway-plugin", cfg, logger, initFn)
+	kernel := newTestKernel(t)
+	require.NoError(t, p.Init(context.Background(), kernel))
+
+	err := p.Start(context.Background())
+	require.NoError(t, err)
+	assert.False(t, server.started, "server should not start in monolith mode for non-api-gateway plugins")
+}
+
+func TestGenericPlugin_Start_MonolithApiGateway(t *testing.T) {
+	cfg := &config.Config{Mode: "monolith", Server: config.ServerConfig{Port: 8080}}
+	logger := zap.NewNop()
+	server := &mockServerLifecycle{}
+	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
+		return server, nil
+	}
+
+	p := NewGenericPlugin("api-gateway", cfg, logger, initFn)
+	kernel := newTestKernel(t)
+	require.NoError(t, p.Init(context.Background(), kernel))
+
+	err := p.Start(context.Background())
+	require.NoError(t, err)
+	assert.True(t, server.started, "api-gateway server should start even in monolith mode")
+}
+
+func TestGenericPlugin_Stop(t *testing.T) {
+	cfg := &config.Config{Mode: "microservice", Server: config.ServerConfig{Port: 8080}}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -194,7 +228,7 @@ func TestGenericPlugin_Stop(t *testing.T) {
 }
 
 func TestGenericPlugin_StopFailure(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith"}
+	cfg := &config.Config{Mode: "microservice"}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{stopErr: fmt.Errorf("shutdown error")}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -224,7 +258,7 @@ func TestGenericPlugin_Stop_NilServer(t *testing.T) {
 }
 
 func TestGenericPlugin_Health(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith"}
+	cfg := &config.Config{Mode: "microservice"}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -240,7 +274,7 @@ func TestGenericPlugin_Health(t *testing.T) {
 }
 
 func TestGenericPlugin_Health_Unhealthy(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith"}
+	cfg := &config.Config{Mode: "microservice"}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{healthErr: fmt.Errorf("db unreachable")}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {
@@ -271,7 +305,7 @@ func TestGenericPlugin_Health_NotStarted(t *testing.T) {
 }
 
 func TestGenericPlugin_FullLifecycle(t *testing.T) {
-	cfg := &config.Config{Mode: "monolith", Server: config.ServerConfig{Port: 8080}}
+	cfg := &config.Config{Mode: "microservice", Server: config.ServerConfig{Port: 8080}}
 	logger := zap.NewNop()
 	server := &mockServerLifecycle{}
 	initFn := func(kernel *Microkernel) (ServerLifecycle, error) {

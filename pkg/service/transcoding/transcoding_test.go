@@ -205,7 +205,7 @@ func (m *mockSegmentStorage) Exists(_ context.Context, bucket, key string) (bool
 }
 
 type mockVideoTranscoder struct {
-	transcodeErr error
+	transcodeErr  error
 	progressCalls []float64
 }
 
@@ -319,14 +319,14 @@ type failingQueue struct {
 	enqueueErr error
 }
 
-func (q *failingQueue) Enqueue(_ *models.TranscodingTask) error  { return q.enqueueErr }
+func (q *failingQueue) Enqueue(_ *models.TranscodingTask) error { return q.enqueueErr }
 func (q *failingQueue) Dequeue(_ context.Context) (*models.TranscodingTask, error) {
 	return nil, errors.New("empty")
 }
 func (q *failingQueue) GetStatus(_ string) (string, error) { return "", nil }
-func (q *failingQueue) Ack(_ string) error                  { return nil }
-func (q *failingQueue) Nak(_ string) error                  { return nil }
-func (q *failingQueue) Depth() (int, error)                 { return 0, nil }
+func (q *failingQueue) Ack(_ string) error                 { return nil }
+func (q *failingQueue) Nak(_ string) error                 { return nil }
+func (q *failingQueue) Depth() (int, error)                { return 0, nil }
 
 func TestTranscodingService_InMemoryStatusFlow(t *testing.T) {
 	queue := NewMemoryTranscodingQueue()
@@ -934,11 +934,11 @@ func (m *mockRowScanner) Scan(dest ...interface{}) error {
 }
 
 type mockRows struct {
-	index    int
-	tasks    [][]interface{}
-	closed   bool
-	scanErr  error
-	nextErr  error
+	index   int
+	tasks   [][]interface{}
+	closed  bool
+	scanErr error
+	nextErr error
 }
 
 func (m *mockRows) Next() bool {

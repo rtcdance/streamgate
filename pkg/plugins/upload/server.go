@@ -111,7 +111,6 @@ func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, 
 		service.WithStorage(objStorage),
 		service.WithLogger(log),
 	)
-	svc.StartWorker(log.Named("transcode-worker"))
 	return svc
 }
 
@@ -156,9 +155,6 @@ func (s *UploadServer) Start(ctx context.Context) error {
 func (s *UploadServer) Stop(ctx context.Context) error {
 	if s.svc != nil {
 		s.svc.Close()
-	}
-	if s.transcodingSvc != nil {
-		s.transcodingSvc.StopWorker()
 	}
 	if s.server != nil {
 		if err := s.server.Shutdown(ctx); err != nil {

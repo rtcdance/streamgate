@@ -204,7 +204,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
-		playbackToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 2*time.Minute, c.GetHeader("X-Client-Fingerprint"))
+		playbackToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 30*time.Minute, c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
@@ -302,6 +302,9 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		wallet := middleware.GetWalletAddress(c)
 		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
 		if err != nil {
+			middleware.GetLogger(c, log).Warn("playback token validation failed",
+				zap.String("content_id", contentID),
+				zap.Error(err))
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 			return
 		}
@@ -375,10 +378,10 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 					}
 				}
 			}
-			cancel()
 			wg.Wait()
 
 			if best.rc == nil {
+				cancel()
 				monitoring.StreamingDownloadDuration.WithLabelValues("fail").Observe(time.Since(start).Seconds())
 				middleware.GetLogger(c, log).Warn("Segment download failed",
 					zap.String("content_id", contentID),
@@ -395,6 +398,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			if _, err := io.Copy(c.Writer, best.rc); err != nil {
 				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
 			}
+			cancel()
 			monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
 			quality := c.Query("quality")
 			if quality == "" {

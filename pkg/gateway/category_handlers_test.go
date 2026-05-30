@@ -48,7 +48,9 @@ func (m *categoryMockDB) Exec(ctx context.Context, query string, args ...interfa
 	return nil, errors.New("not implemented")
 }
 
-func (m *categoryMockDB) Begin(ctx context.Context) (*sql.Tx, error) { return nil, errors.New("not implemented") }
+func (m *categoryMockDB) Begin(ctx context.Context) (*sql.Tx, error) {
+	return nil, errors.New("not implemented")
+}
 
 func (m *categoryMockDB) InTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if m.inTxFn != nil {
@@ -390,8 +392,8 @@ func TestUnbindContentCategory_DBError(t *testing.T) {
 }
 
 type contentIDRowScanner struct {
-	ids  []string
-	idx  int
+	ids []string
+	idx int
 }
 
 func (s *contentIDRowScanner) Next() bool {

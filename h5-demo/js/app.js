@@ -12,10 +12,10 @@ class StreamGateApp {
             wallet: 'pending',
             auth: 'pending',
             nft: 'pending',
+            upload: 'pending',
+            transcode: 'pending',
             playback: 'pending',
             rpc: 'pending',
-            transcode: 'pending',
-            upload: 'pending',
         };
     }
 
@@ -31,7 +31,9 @@ class StreamGateApp {
 
     initBackendConfig() {
         const backendInput = document.getElementById('backend-url');
-        backendInput.value = this.api.getBaseUrl();
+        if (backendInput) {
+            backendInput.value = this.api.getBaseUrl();
+        }
     }
 
     inspectWalletEnvironment() {
@@ -72,29 +74,34 @@ class StreamGateApp {
 
     initPlayer() {
         const videoElement = document.getElementById('video-player');
+        if (!videoElement) {
+            console.warn('Video element not found, player initialization deferred');
+            return false;
+        }
         this.player = new HLSPlayer(videoElement);
-        this.player.init();
+        return this.player.init();
     }
 
     bindEvents() {
-        document.getElementById('connect-wallet').addEventListener('click', () => this.connectWallet());
-        document.getElementById('demo-mode-btn').addEventListener('click', () => this.connectDemoWallet());
-        document.getElementById('login-btn').addEventListener('click', () => this.doLogin());
-        document.getElementById('verify-nft').addEventListener('click', () => this.verifyNFT());
-        document.getElementById('mint-nft-btn').addEventListener('click', () => this.mintDemoNFT());
-        document.getElementById('play-video').addEventListener('click', () => this.playVideo());
-        document.getElementById('save-backend').addEventListener('click', () => this.saveBackendUrl());
-        document.getElementById('check-rpc').addEventListener('click', () => this.loadRPCStatus());
-        document.getElementById('submit-transcode').addEventListener('click', () => this.submitTranscode());
-        document.getElementById('load-transcode-status').addEventListener('click', () => this.loadTranscodeStatus());
-        document.getElementById('load-transcode-tasks').addEventListener('click', () => this.loadTranscodeTasks());
-        document.getElementById('load-transcode-profiles').addEventListener('click', () => this.loadTranscodeProfiles());
-        document.getElementById('upload-whole-btn').addEventListener('click', () => this.uploadWholeFile());
-        document.getElementById('upload-chunked-btn').addEventListener('click', () => this.uploadChunked());
-        document.getElementById('check-upload-status-btn').addEventListener('click', () => this.checkUploadStatus());
-        document.getElementById('get-download-url-btn').addEventListener('click', () => this.getDownloadURL());
-        document.getElementById('test-health').addEventListener('click', () => this.testHealth());
-        document.getElementById('test-challenge').addEventListener('click', () => this.testChallenge());
+        this._bindClick('connect-wallet', () => this.connectWallet());
+        this._bindClick('demo-mode-btn', () => this.connectDemoWallet());
+        this._bindClick('login-btn', () => this.doLogin());
+        this._bindClick('verify-nft', () => this.verifyNFT());
+        this._bindClick('mint-nft-btn', () => this.mintDemoNFT());
+        this._bindClick('play-video', () => this.playVideo());
+        this._bindClick('save-backend', () => this.saveBackendUrl());
+        this._bindClick('check-rpc', () => this.loadRPCStatus());
+        this._bindClick('submit-transcode', () => this.submitTranscode());
+        this._bindClick('load-transcode-status', () => this.loadTranscodeStatus());
+        this._bindClick('load-transcode-tasks', () => this.loadTranscodeTasks());
+        this._bindClick('load-transcode-profiles', () => this.loadTranscodeProfiles());
+        this._bindClick('upload-whole-btn', () => this.uploadWholeFile());
+        this._bindClick('upload-chunked-btn', () => this.uploadChunked());
+        this._bindClick('check-upload-status-btn', () => this.checkUploadStatus());
+        this._bindClick('get-download-url-btn', () => this.getDownloadURL());
+        this._bindClick('refresh-videos-btn', () => this.loadMyVideos());
+        this._bindClick('test-health', () => this.testHealth());
+        this._bindClick('test-challenge', () => this.testChallenge());
         document.querySelectorAll('.demo-item').forEach((item) => {
             item.addEventListener('click', () => {
                 document.getElementById('video-id').value = item.dataset.id;
@@ -104,6 +111,24 @@ class StreamGateApp {
 
         window.addEventListener('wallet:accountChanged', (e) => this.onAccountChanged(e));
         window.addEventListener('wallet:chainChanged', (e) => this.onChainChanged(e));
+
+        const chainSelect = document.getElementById('chain-select');
+        if (chainSelect) {
+            chainSelect.addEventListener('change', () => {
+                const selected = chainSelect.options[chainSelect.selectedIndex];
+                const contract = selected.getAttribute('data-contract');
+                if (contract) {
+                    document.getElementById('nft-contract').value = contract;
+                }
+            });
+        }
+    }
+
+    _bindClick(elementId, handler) {
+        const el = document.getElementById(elementId);
+        if (el) {
+            el.addEventListener('click', handler);
+        }
     }
 
     async checkBackend() {
@@ -136,6 +161,7 @@ class StreamGateApp {
             this.auth.isAuthenticated = true;
             this.updateStatus('auth', 'online', 'Authenticated');
             this.updateStep('auth', 'done');
+            this.loadMyVideos();
         }
     }
 
@@ -171,28 +197,49 @@ class StreamGateApp {
     }
 
     async mintDemoNFT() {
-        const contractAddr = document.getElementById('nft-contract').value;
-        if (!contractAddr || contractAddr === '0x...') {
-            this.showToast('Enter an NFT contract address first', 'warning');
-            return;
-        }
         if (!demoWallet.isDemoMode && !walletService.isConnected()) {
             this.showToast('Connect a wallet first', 'warning');
             return;
         }
         this.showLoading(true);
         try {
-            const provider = demoWallet.isDemoMode
+            const isDemo = demoWallet.isDemoMode;
+            const provider = isDemo
                 ? new ethers.providers.JsonRpcProvider('http://localhost:8545')
                 : walletService.provider;
-            const signer = demoWallet.isDemoMode
+            const signer = isDemo
                 ? new ethers.Wallet(DEMO_ANVIL_KEY, provider)
                 : provider.getSigner();
+            const addr = isDemo ? demoWallet.address : walletService.getAddress();
+            const input = document.getElementById('nft-contract');
+            let contractAddr = input.value;
+
+            // In demo mode, auto-deploy TestNFT if no contract or contract doesn't exist
+            if (isDemo) {
+                const code = await provider.getCode(contractAddr || ethers.constants.AddressZero);
+                if (!contractAddr || contractAddr === '0x...' || code === '0x') {
+                    this.showToast('Deploying TestNFT contract...', 'info');
+                    const testNFTAbi = [
+                        'function mint(address to) returns (uint256)',
+                        'function balanceOf(address owner) view returns (uint256)',
+                        'function ownerOf(uint256 tokenId) view returns (address)',
+                    ];
+                    const testNFTBytecode =
+                        '0x6080604052348015600e575f5ffd5b506106418061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061004a575f3560e01c806318160ddd1461004e5780636352211e1461006c5780636a6278421461009c57806370a08231146100cc575b5f5ffd5b6100566100fc565b6040516100639190610398565b60405180910390f35b610086600480360381019061008191906103df565b610104565b6040516100939190610449565b60405180910390f35b6100b660048036038101906100b1919061048c565b6101b0565b6040516100c39190610398565b60405180910390f35b6100e660048036038101906100e1919061048c565b6102cc565b6040516100f39190610398565b60405180910390f35b5f5f54905090565b5f5f60025f8481526020019081526020015f205f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1690505f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036101a7576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161019e90610511565b60405180910390fd5b80915050919050565b5f5f5f5f81546101bf9061055c565b919050819055905060015f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8154809291906102149061055c565b91905055508260025f8381526020019081526020015f205f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550808373ffffffffffffffffffffffffffffffffffffffff165f73ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef60405160405180910390a480915050919050565b5f5f73ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff160361033b576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610332906105ed565b60405180910390fd5b60015f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f819050919050565b61039281610380565b82525050565b5f6020820190506103ab5f830184610389565b92915050565b5f5ffd5b6103be81610380565b81146103c8575f5ffd5b50565b5f813590506103d9816103b5565b92915050565b5f602082840312156103f4576103f36103b1565b5b5f610401848285016103cb565b91505092915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6104338261040a565b9050919050565b61044381610429565b82525050565b5f60208201905061045c5f83018461043a565b92915050565b61046b81610429565b8114610475575f5ffd5b50565b5f8135905061048681610462565b92915050565b5f6020820190506104a16104a06103b1565b5b5f6104ae84828501610478565b91505092915050565b5f82825260208201905092915050565b7f6e6f6e6578697374656e7420746f6b656e0000000000000000000000000000005f82015250565b5f6104fb6011836104b7565b9150610506826104c7565b602082019050919050565b5f6020820190508181035f830152610528816104ef565b9050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61056682610380565b91507fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff82036105985761059761052f565b5b600182019050919050565b7f7a65726f206164647265737300000000000000000000000000000000000000005f82015250565b5f6105d7600c836104b7565b91506105e2826105a3565b602082019050919050565b5f6020820190508181035f830152610604816105cb565b905091905056fea2646970667358221220776d4943952e795b6c583e279f45342e4cf716c7741cf72b8bb4039b84d4948164736f6c63430008230033';
+
+                    const factory = new ethers.ContractFactory(testNFTAbi, testNFTBytecode, signer);
+                    const deployed = await factory.deploy();
+                    await deployed.deployed();
+                    contractAddr = deployed.address;
+                    input.value = contractAddr;
+                    this.showToast('TestNFT deployed at ' + contractAddr, 'success');
+                }
+            }
+
             const abi = ['function mint(address to) returns (uint256)',
                          'function safeMint(address to, uint256 tokenId)',
                          'function ownerOf(uint256 tokenId) view returns (address)'];
             const contract = new ethers.Contract(contractAddr, abi, signer);
-            const addr = demoWallet.isDemoMode ? demoWallet.address : walletService.getAddress();
 
             let tx;
             try {
@@ -352,8 +399,6 @@ class StreamGateApp {
 
     async playVideo() {
         const videoId = document.getElementById('video-id').value || 'demo';
-        const contract = document.getElementById('nft-contract').value;
-        const chainId = parseInt(document.getElementById('chain-select').value, 10);
         
         try {
             this.showLoading(true);
@@ -361,8 +406,6 @@ class StreamGateApp {
             const token = this.auth.getToken();
             await this.player.loadVideo(videoId, {
                 token,
-                contract,
-                chainId,
                 baseUrl: this.api.getBaseUrl(),
             });
             
@@ -420,12 +463,15 @@ class StreamGateApp {
             this.updateStatus('upload', 'online', 'Uploaded');
             this.updateStep('upload', 'done');
 
-            // Auto-bridge: complete upload → create content record → fill transcode form
+            // Auto-bridge: complete upload → create content record → fill transcode form → auto-submit
             await this.bridgeUploadToTranscode(result.upload_id);
+            await this.autoSubmitTranscodeFromUpload();
+
+            this.loadMyVideos();
 
             this.setTroubleshooting(
                 'Upload completed',
-                'Content record created. Transcode form auto-filled — click Submit Task to transcode.'
+                'Content record created. Transcode auto-submitted — monitoring progress below.'
             );
             this.showOutput('upload-output', 'Upload Result', JSON.stringify(result, null, 2));
             this.showToast('Upload successful', 'success');
@@ -487,12 +533,15 @@ class StreamGateApp {
             this.updateStatus('upload', 'online', 'Uploaded');
             this.updateStep('upload', 'done');
 
-            // Auto-bridge: complete upload → create content record → fill transcode form
+            // Auto-bridge: complete upload → create content record → fill transcode form → auto-submit
             await this.bridgeUploadToTranscode(uploadId);
+            await this.autoSubmitTranscodeFromUpload();
+
+            this.loadMyVideos();
 
             this.setTroubleshooting(
                 'Chunked upload completed',
-                'Content record created. Transcode form auto-filled — click Submit Task to transcode.'
+                'Content record created. Transcode auto-submitted — monitoring progress below.'
             );
             this.showOutput('upload-output', 'Chunked Upload Result', JSON.stringify(completeResult, null, 2));
             this.showToast('Chunked upload successful', 'success');
@@ -566,6 +615,219 @@ class StreamGateApp {
         }
     }
 
+    async loadMyVideos() {
+        try {
+            const result = await this.api.listContents(50, 0);
+            const items = result.items || [];
+            const list = document.getElementById('my-videos-list');
+            const section = document.getElementById('my-videos-section');
+
+            if (items.length === 0) {
+                list.innerHTML = '<p style="color:var(--muted);font-size:13px;padding:8px;text-align:center">No videos yet. Upload one above.</p>';
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = '';
+            list.innerHTML = items.map((v) => {
+                const title = v.title || v.filename || v.id;
+                const size = v.size ? ` (${(v.size / 1024 / 1024).toFixed(1)}MB)` : '';
+                const status = v.status || 'unknown';
+                const statusClass = status === 'ready' ? 'success' : status === 'pending' ? 'pending' : 'muted';
+                return `<button class="demo-item my-video-item" data-id="${v.id}" data-status="${status}">
+                    <span class="demo-title">${title}${size}</span>
+                    <span class="demo-badge ${statusClass}">${status}</span>
+                </button>`;
+            }).join('');
+
+            list.querySelectorAll('.my-video-item').forEach((item) => {
+                item.addEventListener('click', () => this.selectVideo(item.dataset.id));
+            });
+        } catch (error) {
+            console.warn('Failed to load my videos:', error.message);
+        }
+    }
+
+    async selectVideo(contentId) {
+        document.getElementById('video-id').value = contentId;
+        this.showToast(`Selected: ${contentId}`, 'info');
+
+        const playerSection = document.getElementById('player-section');
+        if (playerSection) {
+            playerSection.classList.remove('hidden');
+        }
+        this.updateStep('playback', 'active');
+        await this.playVideo();
+    }
+
+    async autoSubmitTranscodeFromUpload() {
+        const contentId = document.getElementById('transcode-content-id').value.trim();
+        if (!contentId) {
+            console.warn('Transcode content ID not set');
+            return;
+        }
+
+        this.showToast('Looking for auto-transcode task...', 'info');
+        this.updateStatus('transcode', 'online', 'Searching...');
+
+        const existingTask = await this._findExistingTranscodeTask(contentId);
+        if (existingTask) {
+            this.lastTranscodeTaskId = existingTask;
+            document.getElementById('transcode-task-id').value = existingTask;
+            this.updateStatus('transcode', 'online', 'Task Found');
+            this.updateStep('transcode', 'done');
+            this.setTroubleshooting(
+                'Transcode task found',
+                'Waiting for transcoding to complete...'
+            );
+            this._pollTranscodeProgress(contentId, existingTask);
+            return;
+        }
+
+        const inputUrl = document.getElementById('transcode-input-url').value.trim();
+        const profile = document.getElementById('transcode-profile').value.trim() || '720p';
+        const priority = parseInt(document.getElementById('transcode-priority').value, 10) || 5;
+        if (!inputUrl) {
+            console.warn('Transcode input URL not set');
+            return;
+        }
+
+        this.showToast('Auto-submitting transcode task...', 'info');
+        try {
+            const result = await this.api.submitTranscode(contentId, inputUrl, profile, priority);
+            const taskId = result.task_id || '';
+            this.lastTranscodeTaskId = taskId;
+            document.getElementById('transcode-task-id').value = taskId;
+            if (taskId) {
+                this.updateStatus('transcode', 'online', 'Task Submitted');
+                this.updateStep('transcode', 'done');
+                this.setTroubleshooting(
+                    'Transcode task submitted',
+                    'Waiting for transcoding to complete...'
+                );
+                this._pollTranscodeProgress(contentId, taskId);
+            } else {
+                const retryTask = await this._findExistingTranscodeTask(contentId);
+                if (retryTask) {
+                    this.lastTranscodeTaskId = retryTask;
+                    document.getElementById('transcode-task-id').value = retryTask;
+                    this.updateStatus('transcode', 'online', 'Task Found');
+                    this.updateStep('transcode', 'done');
+                    this._pollTranscodeProgress(contentId, retryTask);
+                } else {
+                    this.updateStatus('transcode', 'offline', 'Not Found');
+                    this.updateStep('transcode', 'failed');
+                    this.showToast('Transcode task not found after submit', 'error');
+                }
+            }
+        } catch (submitErr) {
+            console.warn('Transcode submit failed, searching for existing task:', submitErr.message);
+            const fallbackTask = await this._findExistingTranscodeTask(contentId);
+            if (fallbackTask) {
+                this.lastTranscodeTaskId = fallbackTask;
+                document.getElementById('transcode-task-id').value = fallbackTask;
+                this.updateStatus('transcode', 'online', 'Task Found');
+                this.updateStep('transcode', 'done');
+                this._pollTranscodeProgress(contentId, fallbackTask);
+                return;
+            }
+            this.updateStatus('transcode', 'offline', 'Submit Failed');
+            this.updateStep('transcode', 'failed');
+            this.showToast('Transcode submit failed: ' + submitErr.message, 'error');
+        }
+    }
+
+    async _findExistingTranscodeTask(contentId) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                const tasksResult = await this.api.listTranscodeTasks(contentId, 5, 0);
+                const items = tasksResult.items || tasksResult.tasks || [];
+                const active = items.find(t =>
+                    ['pending', 'processing', 'queued'].includes(t.status)
+                );
+                if (active) return active.task_id || active.id;
+                if (items.length > 0) return items[0].task_id || items[0].id;
+            } catch (e) {
+                console.warn('Failed to list transcode tasks (attempt ' + (attempt + 1) + '):', e);
+            }
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        return null;
+    }
+
+    _pollTranscodeProgress(contentId, taskId) {
+        this._transcodePollActive = false;
+        this._transcodePollActive = true;
+
+        const progressArea = document.getElementById('transcode-progress-area');
+        const progressBar = document.getElementById('transcode-progress-bar');
+        const progressText = document.getElementById('transcode-progress-text');
+        const output = document.getElementById('transcode-output');
+        if (progressArea) progressArea.classList.remove('hidden');
+
+        const poll = async () => {
+            if (!this._transcodePollActive) return;
+            try {
+                const result = await this.api.getTranscodeStatus(taskId);
+                const status = result.status || 'unknown';
+
+                if (progressText) progressText.textContent = status;
+                if (output) {
+                    output.classList.remove('hidden');
+                    output.textContent = 'Transcode Status:\n' + JSON.stringify(result, null, 2);
+                }
+
+                if (['completed', 'done', 'success'].includes(status)) {
+                    if (progressBar) progressBar.style.width = '100%';
+                    if (progressText) progressText.textContent = 'Completed!';
+                    this._transcodePollActive = false;
+                    await this.onTranscodeComplete(contentId);
+                    return;
+                }
+
+                if (['failed', 'error', 'timeout'].includes(status)) {
+                    if (progressText) progressText.textContent = 'Failed: ' + (result.error || status);
+                    this._transcodePollActive = false;
+                    this.showToast('Transcode failed', 'error');
+                    return;
+                }
+
+                if (progressBar) {
+                    const pct = typeof result.progress === 'number' ? result.progress : 0;
+                    progressBar.style.width = Math.min(pct, 100) + '%';
+                }
+                if (progressText && typeof result.progress === 'number') {
+                    progressText.textContent = `${result.progress}% - ${status}`;
+                }
+
+                setTimeout(poll, 3000);
+            } catch (err) {
+                console.warn('Transcode poll error:', err);
+                if (err.status === 401) {
+                    this._transcodePollActive = false;
+                    if (progressText) progressText.textContent = 'Session expired, please re-login';
+                    this.showToast('Session expired, please re-login', 'error');
+                    return;
+                }
+                if (this._transcodePollActive) setTimeout(poll, 5000);
+            }
+        };
+
+        setTimeout(poll, 3000);
+    }
+
+    async onTranscodeComplete(contentId) {
+        document.getElementById('video-id').value = contentId;
+        document.getElementById('player-section').classList.remove('hidden');
+        this.loadMyVideos();
+        this.showToast('Transcode complete, starting playback...', 'success');
+        this.setTroubleshooting(
+            'Transcode completed',
+            'Playback started automatically.'
+        );
+        await this.playVideo();
+    }
+
     async testHealth() {
         try {
             const result = await this.api.healthCheck();
@@ -622,15 +884,12 @@ class StreamGateApp {
             this.updateStatus('transcode', 'online', 'Task Submitted');
             this.updateStep('transcode', 'done');
 
-            // Auto-bridge: fill video ID for playback
-            document.getElementById('video-id').value = contentId;
-            document.getElementById('player-section').classList.remove('hidden');
-
             this.setTroubleshooting(
                 'Transcode task submitted',
-                'Next, load task status and task list to confirm the control plane path is working.'
+                'Polling for completion...'
             );
             this.showOutput('transcode-output', 'Transcode Submit', JSON.stringify(result, null, 2));
+            this._pollTranscodeProgress(contentId, result.task_id);
         } catch (error) {
             this.updateStatus('transcode', 'offline', 'Submit Failed');
             this.updateStep('transcode', 'failed');
@@ -701,10 +960,10 @@ class StreamGateApp {
             wallet: 'step-wallet',
             auth: 'step-auth',
             nft: 'step-nft',
+            upload: 'step-upload',
+            transcode: 'step-transcode',
             playback: 'step-playback',
             rpc: 'step-rpc',
-            transcode: 'step-transcode',
-            upload: 'step-upload',
         };
         const el = document.getElementById(mapping[step] || step);
         if (!el) {
@@ -724,10 +983,10 @@ class StreamGateApp {
             ['wallet', 'Connect wallet', 'Connect MetaMask and expose wallet address'],
             ['auth', 'Sign challenge login', 'Sign the backend challenge and obtain JWT'],
             ['nft', 'Verify NFT ownership', 'Run NFT verify and confirm has_nft / cache_hit'],
+            ['upload', 'Upload creator video', 'Upload a file and verify status + download URL'],
+            ['transcode', 'Exercise transcoding flow', 'Run submit / status / tasks / profiles'],
             ['playback', 'Load protected playback', 'Open manifest with JWT and validate playback'],
             ['rpc', 'Inspect RPC failover status', 'Load RPC status and confirm active endpoint'],
-            ['transcode', 'Exercise transcoding flow', 'Run submit / status / tasks / profiles'],
-            ['upload', 'Upload creator video', 'Upload a file and verify status + download URL'],
         ];
         const doneCount = Object.values(this.stepStates).filter((value) => value === 'done').length;
         const failedEntry = orderedSteps.find(([step]) => this.stepStates[step] === 'failed');
@@ -800,6 +1059,10 @@ class StreamGateApp {
 
     showToast(message, type = 'info') {
         const container = document.getElementById('toast-container');
+        if (!container) {
+            console.warn('Toast container not found:', message);
+            return;
+        }
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.textContent = message;
@@ -808,7 +1071,11 @@ class StreamGateApp {
         setTimeout(() => toast.classList.add('show'), 10);
         setTimeout(() => {
             toast.classList.remove('show');
-            setTimeout(() => container.removeChild(toast), 300);
+            setTimeout(() => {
+                if (container.contains(toast)) {
+                    container.removeChild(toast);
+                }
+            }, 300);
         }, 3000);
     }
 }
