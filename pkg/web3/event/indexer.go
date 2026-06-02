@@ -393,10 +393,33 @@ func (ei *EventIndexer) indexingLoop(ctx context.Context) {
 	ticker := time.NewTicker(ei.updateInterval)
 	defer ticker.Stop()
 
+	consecutiveFailures := 0
+	maxBackoff := 5 * time.Minute
+
 	for {
 		select {
 		case <-ticker.C:
-			ei.indexEvents(ctx)
+			err := ei.indexEvents(ctx)
+			if err != nil {
+				consecutiveFailures++
+				backoff := ei.updateInterval * time.Duration(1<<min(consecutiveFailures, 8))
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+				if consecutiveFailures <= 2 {
+					ei.logger.Warn("Event indexer backing off",
+						zap.Int("failures", consecutiveFailures),
+						zap.Duration("backoff", backoff))
+				}
+				ticker.Reset(backoff)
+			} else {
+				if consecutiveFailures > 0 {
+					ei.logger.Info("Event indexer recovered",
+						zap.Int("previous_failures", consecutiveFailures))
+					consecutiveFailures = 0
+					ticker.Reset(ei.updateInterval)
+				}
+			}
 		case mode := <-ei.modeCh:
 			ei.mu.Lock()
 			ei.mode = mode
@@ -413,7 +436,7 @@ func (ei *EventIndexer) indexingLoop(ctx context.Context) {
 	}
 }
 
-func (ei *EventIndexer) indexEvents(ctx context.Context) {
+func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 	ei.mu.RLock()
 	currentBlock := ei.currentBlock
 	confirmationBlocks := ei.confirmationBlocks
@@ -422,7 +445,7 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 	latestBlock, err := ei.client.BlockNumber(ctx)
 	if err != nil {
 		ei.logger.Error("Failed to get latest block number", zap.Error(err))
-		return
+		return err
 	}
 
 	safeBlock := latestBlock
@@ -431,10 +454,12 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 	}
 
 	if safeBlock <= currentBlock {
-		return
+		return nil
 	}
 
-	ei.indexRange(ctx, currentBlock+1, safeBlock)
+	if err := ei.indexRange(ctx, currentBlock+1, safeBlock); err != nil {
+		return err
+	}
 
 	ei.mu.RLock()
 	store := ei.store
@@ -478,17 +503,19 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) {
 			}
 		}
 	}
+
+	return nil
 }
 
 const indexBatchSize uint64 = 1000
 
-func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) {
+func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) error {
 	start := time.Now()
 	for batchStart := fromBlock; batchStart <= toBlock; {
 		select {
 		case <-ctx.Done():
 			ei.logger.Info("indexRange cancelled", zap.Uint64("last_batch_start", batchStart))
-			return
+			return ctx.Err()
 		default:
 		}
 
@@ -515,7 +542,7 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 				zap.Uint64("to_block", batchEnd),
 				zap.Error(err))
 			monitoring.EventIndexerEventsTotal.WithLabelValues(ei.contractAddress.Hex(), "filter", "error").Inc()
-			return
+			return err
 		}
 
 		for _, log := range logs {
@@ -545,6 +572,7 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 		batchStart = batchEnd + 1
 	}
 	monitoring.EventIndexerIndexDuration.WithLabelValues("batch").Observe(time.Since(start).Seconds())
+	return nil
 }
 
 func (ei *EventIndexer) Replay(ctx context.Context, fromBlock, toBlock uint64) error {
@@ -552,7 +580,9 @@ func (ei *EventIndexer) Replay(ctx context.Context, fromBlock, toBlock uint64) e
 		zap.Uint64("from_block", fromBlock),
 		zap.Uint64("to_block", toBlock))
 
-	ei.indexRange(ctx, fromBlock, toBlock)
+	if err := ei.indexRange(ctx, fromBlock, toBlock); err != nil {
+		return err
+	}
 
 	ei.mu.Lock()
 	if toBlock < ei.currentBlock {

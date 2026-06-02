@@ -34,20 +34,22 @@ const (
 type ContentStatus string
 
 const (
-	StatusDraft         ContentStatus = "draft"
-	StatusProcessing    ContentStatus = "processing"
-	StatusPublished     ContentStatus = "published"
-	StatusArchived      ContentStatus = "archived"
-	StatusReady         ContentStatus = "ready"
-	ContentStatusFailed ContentStatus = "failed"
+	StatusDraft          ContentStatus = "draft"
+	StatusProcessing     ContentStatus = "processing"
+	StatusPublished      ContentStatus = "published"
+	StatusArchived       ContentStatus = "archived"
+	StatusReady          ContentStatus = "ready"
+	ContentStatusFailed  ContentStatus = "failed"
+	ContentStatusPending ContentStatus = "pending"
 )
 
 var validContentTransitions = map[ContentStatus][]ContentStatus{
-	StatusDraft:      {StatusProcessing, StatusArchived},
-	StatusProcessing: {StatusReady, StatusPublished, ContentStatusFailed, StatusArchived},
-	StatusReady:      {StatusPublished, StatusArchived},
-	StatusPublished:  {StatusArchived, StatusDraft},
-	StatusArchived:   {StatusDraft},
+	StatusDraft:          {StatusProcessing, StatusArchived},
+	StatusProcessing:     {StatusReady, StatusPublished, ContentStatusFailed, StatusArchived},
+	StatusReady:          {StatusPublished, StatusArchived},
+	StatusPublished:      {StatusArchived, StatusDraft},
+	StatusArchived:       {StatusDraft},
+	ContentStatusPending: {StatusReady, ContentStatusFailed},
 }
 
 func IsValidContentTransition(from, to ContentStatus) bool {

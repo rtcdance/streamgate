@@ -194,6 +194,25 @@ func TestBuildMasterPlaylist(t *testing.T) {
 		assert.Contains(t, playlist, "BANDWIDTH=800000")
 		assert.Contains(t, playlist, "RESOLUTION=640x360")
 	})
+
+	t.Run("resolution-based keys (ABR)", func(t *testing.T) {
+		qualitySegments := map[string][]string{
+			"1920x1080": {"seg0.ts"},
+			"1280x720":  {"seg0.ts"},
+			"854x480":   {"seg0.ts"},
+			"640x360":   {"seg0.ts"},
+		}
+		playlist := BuildMasterPlaylist("content-1", qualitySegments, "token")
+
+		assert.Contains(t, playlist, "BANDWIDTH=5000000")
+		assert.Contains(t, playlist, "RESOLUTION=1920x1080")
+		assert.Contains(t, playlist, "BANDWIDTH=2800000")
+		assert.Contains(t, playlist, "RESOLUTION=1280x720")
+		assert.Contains(t, playlist, "BANDWIDTH=1400000")
+		assert.Contains(t, playlist, "RESOLUTION=854x480")
+		assert.Contains(t, playlist, "BANDWIDTH=800000")
+		assert.Contains(t, playlist, "RESOLUTION=640x360")
+	})
 }
 
 func TestBuildMediaPlaylist(t *testing.T) {

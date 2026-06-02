@@ -191,11 +191,16 @@ type ffmpegRouterAdapter struct {
 	log *zap.Logger
 }
 
-func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
+func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)
 		defer cancel()
+	}
+	// For ABR, delegate to FFmpegTranscoder which probes source height and
+	// selects profiles that do not exceed the input resolution.
+	if profile == "abr" || profile == "" {
+		return a.ft.TranscodeHLS(ctx, inputPath, outputDir, profile, progressFn)
 	}
 
 	profiles := []transcoder.TranscodeProfile{
@@ -214,13 +219,17 @@ func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outpu
 		profiles = []transcoder.TranscodeProfile{{Resolution: "854x480", Bitrate: "1000k", Format: "hls"}}
 	case "360p":
 		profiles = []transcoder.TranscodeProfile{{Resolution: "640x360", Bitrate: "500k", Format: "hls"}}
-	case "abr", "":
 	}
 
 	callback := func(p *transcoder.TranscodeProgress) {
 		if progressFn != nil && p != nil {
-			progressFn(p.Progress)
+			progressFn("", p.Progress)
 		}
 	}
-	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback)
+	variantFn := func(variant string, progress float64) {
+		if progressFn != nil {
+			progressFn(variant, progress)
+		}
+	}
+	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback, variantFn)
 }

@@ -17,9 +17,9 @@ func TestDetectTokenStandard_TableDriven(t *testing.T) {
 	contractAddr := "0x1234567890123456789012345678901234567890"
 
 	tests := []struct {
-		name      string
-		callFn    func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
-		expected  TokenStandard
+		name     string
+		callFn   func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
+		expected TokenStandard
 	}{
 		{
 			"ERC-721 via ERC-165",

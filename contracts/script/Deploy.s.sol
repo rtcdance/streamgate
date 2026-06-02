@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
+import {console} from "forge-std/console.sol";
 import {ContentRegistry} from "../src/ContentRegistry.sol";
 import {StreamNFT} from "../src/StreamNFT.sol";
 import {NFTGate} from "../src/NFTGate.sol";

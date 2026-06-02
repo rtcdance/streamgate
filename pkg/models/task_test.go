@@ -83,10 +83,10 @@ func TestTask_RetryTracking(t *testing.T) {
 func TestTask_ProgressTracking(t *testing.T) {
 	now := time.Now()
 	task := &Task{
-		ID:          "task123",
-		Status:      "running",
-		Payload:     map[string]interface{}{"progress": float64(50)},
-		StartedAt:   now,
+		ID:        "task123",
+		Status:    "running",
+		Payload:   map[string]interface{}{"progress": float64(50)},
+		StartedAt: now,
 	}
 
 	assert.Equal(t, float64(50), task.Payload["progress"])

@@ -56,10 +56,10 @@ func TestTransaction_ZeroValues(t *testing.T) {
 
 func TestTransaction_StatusTransitions(t *testing.T) {
 	tests := []struct {
-		name   string
-		from   TransactionStatus
-		to     TransactionStatus
-		valid  bool
+		name  string
+		from  TransactionStatus
+		to    TransactionStatus
+		valid bool
 	}{
 		{"pending to confirmed", TxStatusPending, TxStatusConfirmed, true},
 		{"pending to failed", TxStatusPending, TxStatusFailed, true},

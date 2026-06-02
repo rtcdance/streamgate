@@ -36,10 +36,10 @@ func TestFormatLog(t *testing.T) {
 
 	t.Run("multiple fields with different types", func(t *testing.T) {
 		fields := map[string]interface{}{
-			"count":    42,
-			"active":   true,
-			"ratio":    3.14,
-			"name":     "bob",
+			"count":  42,
+			"active": true,
+			"ratio":  3.14,
+			"name":   "bob",
 		}
 		result := FormatLog("DEBUG", "multi field log", fields)
 

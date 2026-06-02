@@ -678,4 +678,3 @@ func TestExt_ContractContentRegistry_Fields(t *testing.T) {
 	assert.Equal(t, "0x1234", cr.Address)
 	assert.Equal(t, "[]", cr.ABI)
 }
-

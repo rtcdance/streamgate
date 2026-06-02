@@ -224,13 +224,13 @@ func TestNFTMetadata_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		attrs := []*NFTAttribute{{TraitType: "Color", Value: "Blue"}}
 		meta := &NFTMetadata{
-			Name:          "TestNFT",
-			Description:   "A test",
-			Image:         "https://example.com/img.png",
-			AnimationUrl:  "https://example.com/anim.mp4",
-			ExternalUrl:   "https://example.com",
-			Attributes:    attrs,
-			Properties:    map[string]string{"key": "val"},
+			Name:         "TestNFT",
+			Description:  "A test",
+			Image:        "https://example.com/img.png",
+			AnimationUrl: "https://example.com/anim.mp4",
+			ExternalUrl:  "https://example.com",
+			Attributes:   attrs,
+			Properties:   map[string]string{"key": "val"},
 		}
 		assert.Equal(t, "TestNFT", meta.GetName())
 		assert.Equal(t, "A test", meta.GetDescription())
@@ -342,11 +342,23 @@ func TestNFTService_UnimplementedServer(t *testing.T) {
 		name string
 		fn   func() error
 	}{
-		{"VerifyOwnership", func() error { _, err := server.VerifyOwnership(context.Background(), &VerifyOwnershipRequest{}); return err }},
-		{"GetNFTMetadata", func() error { _, err := server.GetNFTMetadata(context.Background(), &GetNFTMetadataRequest{}); return err }},
-		{"GetNFTBalance", func() error { _, err := server.GetNFTBalance(context.Background(), &GetNFTBalanceRequest{}); return err }},
+		{"VerifyOwnership", func() error {
+			_, err := server.VerifyOwnership(context.Background(), &VerifyOwnershipRequest{})
+			return err
+		}},
+		{"GetNFTMetadata", func() error {
+			_, err := server.GetNFTMetadata(context.Background(), &GetNFTMetadataRequest{})
+			return err
+		}},
+		{"GetNFTBalance", func() error {
+			_, err := server.GetNFTBalance(context.Background(), &GetNFTBalanceRequest{})
+			return err
+		}},
 		{"ListUserNFTs", func() error { _, err := server.ListUserNFTs(context.Background(), &ListUserNFTsRequest{}); return err }},
-		{"GetContractInfo", func() error { _, err := server.GetContractInfo(context.Background(), &GetContractInfoRequest{}); return err }},
+		{"GetContractInfo", func() error {
+			_, err := server.GetContractInfo(context.Background(), &GetContractInfoRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {

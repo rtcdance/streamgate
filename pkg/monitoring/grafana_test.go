@@ -130,10 +130,10 @@ func TestDashboardManager_ExportAllDashboards(t *testing.T) {
 
 func TestGenerateDashboardURL(t *testing.T) {
 	tests := []struct {
-		name         string
-		grafanaURL   string
+		name          string
+		grafanaURL    string
 		dashboardName string
-		expected     string
+		expected      string
 	}{
 		{"standard", "http://grafana.example.com", "main", "http://grafana.example.com/d/main/main"},
 		{"with port", "http://localhost:3000", "infra", "http://localhost:3000/d/infra/infra"},

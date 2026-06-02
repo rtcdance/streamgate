@@ -144,8 +144,8 @@ func TestGetSegmentResponse_Getters(t *testing.T) {
 func TestStartStreamRequest_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		req := &StartStreamRequest{
-			ContentId:    "c1",
-			UserId:       "u1",
+			ContentId:     "c1",
+			UserId:        "u1",
 			WalletAddress: "0xABC",
 		}
 		assert.Equal(t, "c1", req.GetContentId())
@@ -198,8 +198,8 @@ func TestStopStreamRequest_Getters(t *testing.T) {
 func TestStopStreamResponse_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		resp := &StopStreamResponse{
-			Success:         true,
-			Duration:        120,
+			Success:          true,
+			Duration:         120,
 			BytesTransferred: 1024000,
 		}
 		assert.True(t, resp.GetSuccess())
@@ -231,13 +231,13 @@ func TestGetStreamStatsResponse_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		events := []*BufferEvent{{Timestamp: 100, EventType: "stall"}}
 		resp := &GetStreamStatsResponse{
-			StreamId:        "s1",
-			Status:          "active",
-			StartedAt:       100,
-			Duration:        60,
+			StreamId:         "s1",
+			Status:           "active",
+			StartedAt:        100,
+			Duration:         60,
 			BytesTransferred: 500000,
-			AverageBitrate:  2500.5,
-			BufferEvents:    events,
+			AverageBitrate:   2500.5,
+			BufferEvents:     events,
 		}
 		assert.Equal(t, "s1", resp.GetStreamId())
 		assert.Equal(t, "active", resp.GetStatus())
@@ -344,7 +344,10 @@ func TestStreamingService_UnimplementedServer(t *testing.T) {
 		{"GetSegment", func() error { _, err := server.GetSegment(context.Background(), &GetSegmentRequest{}); return err }},
 		{"StartStream", func() error { _, err := server.StartStream(context.Background(), &StartStreamRequest{}); return err }},
 		{"StopStream", func() error { _, err := server.StopStream(context.Background(), &StopStreamRequest{}); return err }},
-		{"GetStreamStats", func() error { _, err := server.GetStreamStats(context.Background(), &GetStreamStatsRequest{}); return err }},
+		{"GetStreamStats", func() error {
+			_, err := server.GetStreamStats(context.Background(), &GetStreamStatsRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {

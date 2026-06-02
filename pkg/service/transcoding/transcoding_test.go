@@ -209,12 +209,12 @@ type mockVideoTranscoder struct {
 	progressCalls []float64
 }
 
-func (m *mockVideoTranscoder) TranscodeHLS(_ context.Context, _, _, _ string, progressFn func(progress float64)) error {
+func (m *mockVideoTranscoder) TranscodeHLS(_ context.Context, _, _, _ string, progressFn func(variant string, progress float64)) error {
 	if m.transcodeErr != nil {
 		return m.transcodeErr
 	}
 	for _, p := range m.progressCalls {
-		progressFn(p)
+		progressFn("", p)
 	}
 	return nil
 }

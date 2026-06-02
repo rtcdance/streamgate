@@ -1409,7 +1409,7 @@ func TestStreamingService_CreateStream_NilDB(t *testing.T) {
 
 type mockVideoTranscoder struct{}
 
-func (m *mockVideoTranscoder) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
+func (m *mockVideoTranscoder) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error {
 	return nil
 }
 

@@ -491,10 +491,10 @@ func TestJobContext_GetMetadata(t *testing.T) {
 
 func TestContains(t *testing.T) {
 	tests := []struct {
-		name    string
-		s       string
-		substr  string
-		want    bool
+		name   string
+		s      string
+		substr string
+		want   bool
 	}{
 		{"exact match", "timeout", "timeout", true},
 		{"prefix", "timeout error", "timeout", true},

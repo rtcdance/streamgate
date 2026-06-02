@@ -16,9 +16,9 @@ import (
 )
 
 type mockChainAwareVerifier struct {
-	verifySignatureFunc     func(ctx context.Context, address, message, signature string) (bool, error)
-	verifySolanaFunc        func(ctx context.Context, address, message, signature string) (bool, error)
-	verifyOffchainFunc      func(ctx context.Context, address, message, signature string) (bool, error)
+	verifySignatureFunc func(ctx context.Context, address, message, signature string) (bool, error)
+	verifySolanaFunc    func(ctx context.Context, address, message, signature string) (bool, error)
+	verifyOffchainFunc  func(ctx context.Context, address, message, signature string) (bool, error)
 }
 
 func (m *mockChainAwareVerifier) VerifySignature(ctx context.Context, address, message, signature string) (bool, error) {
@@ -711,7 +711,7 @@ func (e *errorTokenBlacklist) Revoke(_ context.Context, _ string, _ time.Time) e
 	return errors.New("blacklist error")
 }
 func (e *errorTokenBlacklist) IsRevoked(_ context.Context, _ string) bool { return false }
-func (e *errorTokenBlacklist) Close() error                                { return nil }
+func (e *errorTokenBlacklist) Close() error                               { return nil }
 
 func TestIsTokenRevoked_NoBlacklist(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())

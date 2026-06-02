@@ -568,8 +568,8 @@ func TestAuthService_ValidatePlaybackToken_WithBlacklist(t *testing.T) {
 func TestAuthService_GenerateToken(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 	user := &models.User{
-		ID:           "user-1",
-		Username:     "token-user",
+		ID:            "user-1",
+		Username:      "token-user",
 		WalletAddress: "0xWallet",
 	}
 	token, err := auth.generateToken(user)
@@ -607,14 +607,14 @@ func TestAuthService_WithSIWEDomain_EmptyValues(t *testing.T) {
 
 func TestAuthService_WithJWTExpiry(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage(),
-		WithJWTExpiry(30 * time.Minute),
+		WithJWTExpiry(30*time.Minute),
 	)
 	assert.Equal(t, 30*time.Minute, auth.jwtExpiry)
 }
 
 func TestAuthService_WithChallengeTTL(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage(),
-		WithChallengeTTL(10 * time.Minute),
+		WithChallengeTTL(10*time.Minute),
 	)
 	assert.Equal(t, 10*time.Minute, auth.challengeTTL)
 }
@@ -624,9 +624,9 @@ type mockAuditLogger struct {
 }
 
 type auditLog struct {
-	action     string
-	actor      string
-	success    bool
+	action  string
+	actor   string
+	success bool
 }
 
 func (m *mockAuditLogger) Log(_ context.Context, action, actor, _, _ string, success bool, _, _ string) {

@@ -797,8 +797,8 @@ func TestIndexRange_LargeRange(t *testing.T) {
 }
 
 type stubLogSubscriber struct {
-	logsCh       <-chan types.Log
-	subscribeErr error
+	logsCh        <-chan types.Log
+	subscribeErr  error
 	onUnsubscribe func()
 }
 
@@ -816,8 +816,8 @@ func (s *stubLogSubscriber) Unsubscribe() {
 }
 
 type stubReorgChecker struct {
-	reorged      bool
-	checkErr     error
+	reorged       bool
+	checkErr      error
 	reorgedHashes []string
 }
 

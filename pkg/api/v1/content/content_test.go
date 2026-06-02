@@ -30,9 +30,9 @@ func TestGetContentResponse_Getters(t *testing.T) {
 		content := &Content{Id: "c1"}
 		metadata := &commonv1.Metadata{RequestId: "r1"}
 		resp := &GetContentResponse{
-			Content:      content,
+			Content:       content,
 			StreamingUrls: []string{"url1", "url2"},
-			Metadata:     metadata,
+			Metadata:      metadata,
 		}
 		assert.Equal(t, content, resp.GetContent())
 		assert.Equal(t, []string{"url1", "url2"}, resp.GetStreamingUrls())
@@ -83,9 +83,9 @@ func TestVerifyAccessRequest_Getters(t *testing.T) {
 func TestVerifyAccessResponse_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		resp := &VerifyAccessResponse{
-			HasAccess:   true,
-			AccessType:  "nft",
-			ExpiresAt:   999,
+			HasAccess:    true,
+			AccessType:   "nft",
+			ExpiresAt:    999,
 			RequiredNfts: []string{"nft1"},
 		}
 		assert.True(t, resp.GetHasAccess())
@@ -221,19 +221,19 @@ func TestDeleteContentResponse_Getters(t *testing.T) {
 func TestContent_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		c := &Content{
-			Id:          "c1",
-			Title:       "Test Video",
-			Description: "A test",
-			OriginalUrl: "https://example.com/video.mp4",
+			Id:           "c1",
+			Title:        "Test Video",
+			Description:  "A test",
+			OriginalUrl:  "https://example.com/video.mp4",
 			ThumbnailUrl: "https://example.com/thumb.jpg",
-			Duration:    120,
-			Size:        1024000,
-			MimeType:    "video/mp4",
-			Status:      "active",
-			CreatedAt:   1000,
-			UpdatedAt:   2000,
-			Tags:        []string{"test", "video"},
-			Metadata:    map[string]string{"key": "val"},
+			Duration:     120,
+			Size:         1024000,
+			MimeType:     "video/mp4",
+			Status:       "active",
+			CreatedAt:    1000,
+			UpdatedAt:    2000,
+			Tags:         []string{"test", "video"},
+			Metadata:     map[string]string{"key": "val"},
 		}
 		assert.Equal(t, "c1", c.GetId())
 		assert.Equal(t, "Test Video", c.GetTitle())
@@ -309,9 +309,15 @@ func TestContentService_UnimplementedServer(t *testing.T) {
 	}{
 		{"GetContent", func() error { _, err := server.GetContent(context.Background(), &GetContentRequest{}); return err }},
 		{"VerifyAccess", func() error { _, err := server.VerifyAccess(context.Background(), &VerifyAccessRequest{}); return err }},
-		{"GetTranscodeStatus", func() error { _, err := server.GetTranscodeStatus(context.Background(), &GetTranscodeStatusRequest{}); return err }},
+		{"GetTranscodeStatus", func() error {
+			_, err := server.GetTranscodeStatus(context.Background(), &GetTranscodeStatusRequest{})
+			return err
+		}},
 		{"ListContent", func() error { _, err := server.ListContent(context.Background(), &ListContentRequest{}); return err }},
-		{"DeleteContent", func() error { _, err := server.DeleteContent(context.Background(), &DeleteContentRequest{}); return err }},
+		{"DeleteContent", func() error {
+			_, err := server.DeleteContent(context.Background(), &DeleteContentRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {

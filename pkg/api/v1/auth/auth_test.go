@@ -220,7 +220,10 @@ func TestAuthService_UnimplementedServer(t *testing.T) {
 		fn   func() error
 	}{
 		{"GetNonce", func() error { _, err := server.GetNonce(context.Background(), &GetNonceRequest{}); return err }},
-		{"VerifySignature", func() error { _, err := server.VerifySignature(context.Background(), &VerifySignatureRequest{}); return err }},
+		{"VerifySignature", func() error {
+			_, err := server.VerifySignature(context.Background(), &VerifySignatureRequest{})
+			return err
+		}},
 		{"RefreshToken", func() error { _, err := server.RefreshToken(context.Background(), &RefreshTokenRequest{}); return err }},
 		{"RevokeToken", func() error { _, err := server.RevokeToken(context.Background(), &RevokeTokenRequest{}); return err }},
 		{"VerifyToken", func() error { _, err := server.VerifyToken(context.Background(), &VerifyTokenRequest{}); return err }},

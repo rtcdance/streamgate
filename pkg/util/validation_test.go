@@ -199,7 +199,7 @@ func TestValidation_SanitizeInput(t *testing.T) {
 		name     string
 		input    string
 		expected string
-}{
+	}{
 		{"normal text", "hello world", "hello world"},
 		{"text with spaces", "  hello  world  ", "hello  world"},
 		{"text with special chars", "hello<script>alert('xss')</script>", "hello&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"},

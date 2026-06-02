@@ -187,6 +187,13 @@ class StreamGateApp {
             document.getElementById('connect-wallet').disabled = true;
             document.getElementById('demo-mode-btn').textContent = 'Demo: Connected (Anvil)';
             document.getElementById('demo-mode-btn').className = 'btn btn-success';
+
+            const chainSelect = document.getElementById('chain-select');
+            if (chainSelect) {
+                chainSelect.value = '31337';
+                chainSelect.dispatchEvent(new Event('change'));
+            }
+
             this.showToast('Demo wallet connected (Anvil account #0)', 'success');
             this.updateAcceptance('wallet');
         } catch (err) {
@@ -205,7 +212,7 @@ class StreamGateApp {
         try {
             const isDemo = demoWallet.isDemoMode;
             const provider = isDemo
-                ? new ethers.providers.JsonRpcProvider('http://localhost:8545')
+                ? new ethers.providers.JsonRpcProvider('http://localhost:18545')
                 : walletService.provider;
             const signer = isDemo
                 ? new ethers.Wallet(DEMO_ANVIL_KEY, provider)
@@ -218,32 +225,42 @@ class StreamGateApp {
             if (isDemo) {
                 const code = await provider.getCode(contractAddr || ethers.constants.AddressZero);
                 if (!contractAddr || contractAddr === '0x...' || code === '0x') {
-                    this.showToast('Deploying TestNFT contract...', 'info');
-                    const testNFTAbi = [
-                        'function mint(address to) returns (uint256)',
-                        'function balanceOf(address owner) view returns (uint256)',
-                        'function ownerOf(uint256 tokenId) view returns (address)',
-                    ];
-                    const testNFTBytecode =
-                        '0x6080604052348015600e575f5ffd5b506106418061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061004a575f3560e01c806318160ddd1461004e5780636352211e1461006c5780636a6278421461009c57806370a08231146100cc575b5f5ffd5b6100566100fc565b6040516100639190610398565b60405180910390f35b610086600480360381019061008191906103df565b610104565b6040516100939190610449565b60405180910390f35b6100b660048036038101906100b1919061048c565b6101b0565b6040516100c39190610398565b60405180910390f35b6100e660048036038101906100e1919061048c565b6102cc565b6040516100f39190610398565b60405180910390f35b5f5f54905090565b5f5f60025f8481526020019081526020015f205f9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1690505f73ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16036101a7576040517f08c379a000000000000000000000000000000000000000000000000000000000815260040161019e90610511565b60405180910390fd5b80915050919050565b5f5f5f5f81546101bf9061055c565b919050819055905060015f8473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f205f8154809291906102149061055c565b91905055508260025f8381526020019081526020015f205f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550808373ffffffffffffffffffffffffffffffffffffffff165f73ffffffffffffffffffffffffffffffffffffffff167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef60405160405180910390a480915050919050565b5f5f73ffffffffffffffffffffffffffffffffffffffff168273ffffffffffffffffffffffffffffffffffffffff160361033b576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610332906105ed565b60405180910390fd5b60015f8373ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681526020019081526020015f20549050919050565b5f819050919050565b61039281610380565b82525050565b5f6020820190506103ab5f830184610389565b92915050565b5f5ffd5b6103be81610380565b81146103c8575f5ffd5b50565b5f813590506103d9816103b5565b92915050565b5f602082840312156103f4576103f36103b1565b5b5f610401848285016103cb565b91505092915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6104338261040a565b9050919050565b61044381610429565b82525050565b5f60208201905061045c5f83018461043a565b92915050565b61046b81610429565b8114610475575f5ffd5b50565b5f8135905061048681610462565b92915050565b5f6020820190506104a16104a06103b1565b5b5f6104ae84828501610478565b91505092915050565b5f82825260208201905092915050565b7f6e6f6e6578697374656e7420746f6b656e0000000000000000000000000000005f82015250565b5f6104fb6011836104b7565b9150610506826104c7565b602082019050919050565b5f6020820190508181035f830152610528816104ef565b9050919050565b7f4e487b71000000000000000000000000000000000000000000000000000000005f52601160045260245ffd5b5f61056682610380565b91507fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff82036105985761059761052f565b5b600182019050919050565b7f7a65726f206164647265737300000000000000000000000000000000000000005f82015250565b5f6105d7600c836104b7565b91506105e2826105a3565b602082019050919050565b5f6020820190508181035f830152610604816105cb565b905091905056fea2646970667358221220776d4943952e795b6c583e279f45342e4cf716c7741cf72b8bb4039b84d4948164736f6c63430008230033';
-
-                    const factory = new ethers.ContractFactory(testNFTAbi, testNFTBytecode, signer);
-                    const deployed = await factory.deploy();
-                    await deployed.deployed();
-                    contractAddr = deployed.address;
+                    contractAddr = '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512';
                     input.value = contractAddr;
-                    this.showToast('TestNFT deployed at ' + contractAddr, 'success');
+                    this.showToast('Using pre-deployed StreamNFT contract', 'info');
                 }
             }
 
-            const abi = ['function mint(address to) returns (uint256)',
-                         'function safeMint(address to, uint256 tokenId)',
-                         'function ownerOf(uint256 tokenId) view returns (address)'];
+            const streamNFTAbi = [
+                'function mintStreamNFT(address to, string contentId, string uri, string streamURL, uint256 duration, uint256 qualityBitrate, bool isPremium) returns (uint256)',
+                'function balanceOf(address owner) view returns (uint256)',
+                'function ownerOf(uint256 tokenId) view returns (address)',
+            ];
+            const simpleAbi = [
+                'function mint(address to) returns (uint256)',
+                'function safeMint(address to, uint256 tokenId)',
+                'function ownerOf(uint256 tokenId) view returns (address)',
+            ];
+            const isStreamNFT = isDemo;
+            const abi = isStreamNFT ? streamNFTAbi : simpleAbi;
             const contract = new ethers.Contract(contractAddr, abi, signer);
 
             let tx;
             try {
-                tx = await contract.mint(addr);
+                if (isStreamNFT) {
+                    const idx = Math.floor(Math.random() * 100000);
+                    tx = await contract.mintStreamNFT(
+                        addr,
+                        `demo-content-${idx}`,
+                        `https://streamgate.example/nft/${idx}`,
+                        `https://streamgate.example/stream/${idx}`,
+                        3600,
+                        5000000,
+                        true
+                    );
+                } else {
+                    tx = await contract.mint(addr);
+                }
             } catch {
                 const tokenId = Math.floor(Math.random() * 1000000);
                 tx = await contract.safeMint(addr, tokenId);
@@ -442,19 +459,23 @@ class StreamGateApp {
         const file = fileInput.files[0];
 
         try {
-            this.showLoading(true);
             const progressContainer = document.getElementById('upload-progress-container');
             const progressBar = document.getElementById('upload-progress-bar');
             const progressText = document.getElementById('upload-progress-text');
             progressContainer.classList.remove('hidden');
             progressBar.style.width = '0%';
-            progressText.textContent = '0%';
+            progressBar.style.background = 'var(--primary)';
+            progressText.textContent = `Uploading 0% (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
 
             const result = await this.api.uploadWholeFile(file, (loaded, total) => {
                 const pct = Math.round((loaded / total) * 100);
                 progressBar.style.width = `${pct}%`;
-                progressText.textContent = `${pct}%`;
+                progressText.textContent = `Uploading ${pct}% (${(loaded / 1024 / 1024).toFixed(1)} / ${(total / 1024 / 1024).toFixed(1)} MB)`;
             });
+
+            progressBar.style.width = '100%';
+            progressBar.style.background = 'var(--success, #22c55e)';
+            progressText.textContent = 'Upload done — creating content record...';
 
             this.lastUploadId = result.upload_id;
             document.getElementById('upload-id-display').value = result.upload_id;
@@ -463,7 +484,6 @@ class StreamGateApp {
             this.updateStatus('upload', 'online', 'Uploaded');
             this.updateStep('upload', 'done');
 
-            // Auto-bridge: complete upload → create content record → fill transcode form → auto-submit
             await this.bridgeUploadToTranscode(result.upload_id);
             await this.autoSubmitTranscodeFromUpload();
 
@@ -481,8 +501,6 @@ class StreamGateApp {
             this.setTroubleshooting('Upload failed', error.message);
             this.showOutput('upload-output', 'Upload Failed', error.message);
             this.showToast('Upload failed: ' + error.message, 'error');
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -497,34 +515,32 @@ class StreamGateApp {
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
         try {
-            this.showLoading(true);
             const progressContainer = document.getElementById('upload-progress-container');
             const progressBar = document.getElementById('upload-progress-bar');
             const progressText = document.getElementById('upload-progress-text');
             progressContainer.classList.remove('hidden');
             progressBar.style.width = '0%';
-            progressText.textContent = 'Initiating...';
+            progressBar.style.background = 'var(--primary)';
+            progressText.textContent = `Initiating... (${(file.size / 1024 / 1024).toFixed(1)} MB, ${totalChunks} chunks)`;
 
-            // Step 1: Init
             const initResult = await this.api.initChunkedUpload(file.name, file.size, totalChunks);
             const uploadId = initResult.upload_id;
             document.getElementById('upload-id-display').value = uploadId;
             this.lastUploadId = uploadId;
 
-            // Step 2: Upload chunks
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK_SIZE;
                 const end = Math.min(start + CHUNK_SIZE, file.size);
                 const chunkBlob = file.slice(start, end);
 
-                progressText.textContent = `Chunk ${i + 1}/${totalChunks}`;
+                progressText.textContent = `Uploading chunk ${i + 1}/${totalChunks}`;
                 await this.api.uploadChunk(uploadId, i, chunkBlob);
 
                 const pct = Math.round(((i + 1) / totalChunks) * 100);
                 progressBar.style.width = `${pct}%`;
             }
 
-            // Step 3: Complete
+            progressBar.style.background = 'var(--success, #22c55e)';
             progressText.textContent = 'Merging chunks...';
             const completeResult = await this.api.completeChunkedUpload(uploadId, totalChunks);
 
@@ -533,7 +549,6 @@ class StreamGateApp {
             this.updateStatus('upload', 'online', 'Uploaded');
             this.updateStep('upload', 'done');
 
-            // Auto-bridge: complete upload → create content record → fill transcode form → auto-submit
             await this.bridgeUploadToTranscode(uploadId);
             await this.autoSubmitTranscodeFromUpload();
 
@@ -551,8 +566,6 @@ class StreamGateApp {
             this.setTroubleshooting('Chunked upload failed', error.message);
             this.showOutput('upload-output', 'Chunked Upload Failed', error.message);
             this.showToast('Upload failed: ' + error.message, 'error');
-        } finally {
-            this.showLoading(false);
         }
     }
 
@@ -661,11 +674,16 @@ class StreamGateApp {
     }
 
     async autoSubmitTranscodeFromUpload() {
+        this._showTranscodeProgress('Preparing transcode...', 0);
+        this._scrollToTranscodeSection();
+
         const contentId = document.getElementById('transcode-content-id').value.trim();
         if (!contentId) {
-            console.warn('Transcode content ID not set');
+            this._showTranscodeProgress('Upload not yet linked to content', 10);
             return;
         }
+
+        this._showTranscodeProgress('Searching for transcode task...', 10);
 
         this.showToast('Looking for auto-transcode task...', 'info');
         this.updateStatus('transcode', 'online', 'Searching...');
@@ -680,18 +698,20 @@ class StreamGateApp {
                 'Transcode task found',
                 'Waiting for transcoding to complete...'
             );
+            this._showTranscodeProgress('Task found — starting...', 0);
             this._pollTranscodeProgress(contentId, existingTask);
             return;
         }
 
         const inputUrl = document.getElementById('transcode-input-url').value.trim();
-        const profile = document.getElementById('transcode-profile').value.trim() || '720p';
+        const profile = 'abr';
         const priority = parseInt(document.getElementById('transcode-priority').value, 10) || 5;
         if (!inputUrl) {
             console.warn('Transcode input URL not set');
             return;
         }
 
+        this._showTranscodeProgress('Submitting transcode task...', 0);
         this.showToast('Auto-submitting transcode task...', 'info');
         try {
             const result = await this.api.submitTranscode(contentId, inputUrl, profile, priority);
@@ -705,34 +725,43 @@ class StreamGateApp {
                     'Transcode task submitted',
                     'Waiting for transcoding to complete...'
                 );
+                this._showTranscodeProgress('Task submitted — starting...', 0);
                 this._pollTranscodeProgress(contentId, taskId);
             } else {
+                this._showTranscodeProgress('Searching for existing task...', 0);
                 const retryTask = await this._findExistingTranscodeTask(contentId);
                 if (retryTask) {
                     this.lastTranscodeTaskId = retryTask;
                     document.getElementById('transcode-task-id').value = retryTask;
                     this.updateStatus('transcode', 'online', 'Task Found');
                     this.updateStep('transcode', 'done');
+                    this._showTranscodeProgress('Task found — starting...', 0);
                     this._pollTranscodeProgress(contentId, retryTask);
                 } else {
                     this.updateStatus('transcode', 'offline', 'Not Found');
                     this.updateStep('transcode', 'failed');
+                    this._showTranscodeProgress('Task not found', 0);
+                    this._showTranscodeProgressBarError();
                     this.showToast('Transcode task not found after submit', 'error');
                 }
             }
         } catch (submitErr) {
             console.warn('Transcode submit failed, searching for existing task:', submitErr.message);
+            this._showTranscodeProgress('Submit failed — searching...', 0);
             const fallbackTask = await this._findExistingTranscodeTask(contentId);
             if (fallbackTask) {
                 this.lastTranscodeTaskId = fallbackTask;
                 document.getElementById('transcode-task-id').value = fallbackTask;
                 this.updateStatus('transcode', 'online', 'Task Found');
                 this.updateStep('transcode', 'done');
+                this._showTranscodeProgress('Task found — starting...', 0);
                 this._pollTranscodeProgress(contentId, fallbackTask);
                 return;
             }
             this.updateStatus('transcode', 'offline', 'Submit Failed');
             this.updateStep('transcode', 'failed');
+            this._showTranscodeProgress('Failed: ' + submitErr.message, 0);
+            this._showTranscodeProgressBarError();
             this.showToast('Transcode submit failed: ' + submitErr.message, 'error');
         }
     }
@@ -755,65 +784,213 @@ class StreamGateApp {
         return null;
     }
 
+    _showTranscodeProgress(text, pct) {
+        const area = document.getElementById('transcode-progress-area');
+        const bar = document.getElementById('transcode-progress-bar');
+        const txt = document.getElementById('transcode-progress-text');
+        if (area) area.classList.remove('hidden');
+        if (bar) { bar.style.width = Math.min(pct, 100) + '%'; bar.style.background = 'var(--primary)'; }
+        if (txt) txt.textContent = text || 'Waiting...';
+    }
+
+    _showTranscodeProgressBarError() {
+        const bar = document.getElementById('transcode-progress-bar');
+        if (bar) bar.style.background = 'var(--danger, #bb3f2d)';
+    }
+
+    _scrollToTranscodeSection() {
+        const el = document.getElementById('transcode-section');
+        if (el) {
+            setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+        }
+    }
+
     _pollTranscodeProgress(contentId, taskId) {
         this._transcodePollActive = false;
         this._transcodePollActive = true;
+        this._transcodePollCount = 0;
+        const MAX_POLL_COUNT = 900;
 
         const progressArea = document.getElementById('transcode-progress-area');
         const progressBar = document.getElementById('transcode-progress-bar');
         const progressText = document.getElementById('transcode-progress-text');
         const output = document.getElementById('transcode-output');
+        const variantContainer = document.getElementById('variant-progress-container');
         if (progressArea) progressArea.classList.remove('hidden');
+
+        const statusLabels = {
+            pending: 'Waiting',
+            queued: 'Queued',
+            processing: 'Transcoding',
+            running: 'Transcoding',
+        };
+
+        const setBarWaiting = () => {
+            if (progressBar) {
+                progressBar.classList.add('progress-waiting');
+                progressBar.style.width = '30%';
+            }
+        };
+
+        const setBarProgress = (pct) => {
+            if (progressBar) {
+                progressBar.classList.remove('progress-waiting');
+                progressBar.style.width = Math.min(pct, 100) + '%';
+                progressBar.style.background = 'var(--primary)';
+            }
+        };
+
+        const setBarCompleted = () => {
+            if (progressBar) {
+                progressBar.classList.remove('progress-waiting');
+                progressBar.style.width = '100%';
+                progressBar.style.background = 'var(--success, #22c55e)';
+            }
+        };
+
+        const setBarFailed = () => {
+            if (progressBar) {
+                progressBar.classList.remove('progress-waiting');
+                progressBar.style.background = 'var(--danger, #bb3f2d)';
+            }
+        };
+
+        const updateVariantProgress = (variantProgress) => {
+            if (!variantProgress || !variantContainer) return;
+            const variantKeys = Object.keys(variantProgress);
+            const hasVariants = variantKeys.length > 0;
+            variantContainer.style.display = hasVariants ? 'flex' : 'none';
+
+            const existingRows = variantContainer.querySelectorAll('.variant-row');
+            existingRows.forEach(row => {
+                if (!variantKeys.includes(row.dataset.variant)) {
+                    row.remove();
+                }
+            });
+
+            variantKeys.forEach(variant => {
+                let row = variantContainer.querySelector(`.variant-row[data-variant="${variant}"]`);
+                if (!row) {
+                    row = document.createElement('div');
+                    row.className = 'variant-row';
+                    row.dataset.variant = variant;
+                    row.style.cssText = 'display:flex;align-items:center;gap:8px';
+
+                    const label = document.createElement('span');
+                    label.style.cssText = 'font-size:11px;color:var(--muted);width:64px;flex-shrink:0';
+                    const parts = variant.split('x');
+                    label.textContent = parts.length === 2 ? parts[1] + 'p' : variant;
+                    row.appendChild(label);
+
+                    const barWrap = document.createElement('div');
+                    barWrap.style.cssText = 'flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden';
+                    const bar = document.createElement('div');
+                    bar.className = 'variant-bar';
+                    bar.style.cssText = 'height:100%;width:0%;border-radius:3px;background:var(--primary);transition:width .3s ease';
+                    barWrap.appendChild(bar);
+                    row.appendChild(barWrap);
+
+                    const pctLabel = document.createElement('span');
+                    pctLabel.className = 'variant-pct';
+                    pctLabel.style.cssText = 'font-size:11px;color:var(--muted);width:32px;text-align:right';
+                    pctLabel.textContent = '0%';
+                    row.appendChild(pctLabel);
+
+                    variantContainer.appendChild(row);
+                }
+
+                const pct = variantProgress[variant];
+                const bar = row.querySelector('.variant-bar');
+                const pctLabel = row.querySelector('.variant-pct');
+                if (typeof pct === 'number') {
+                    if (bar) {
+                        bar.style.width = Math.min(pct, 100) + '%';
+                        bar.style.background = pct >= 100 ? 'var(--success, #22c55e)' : 'var(--primary)';
+                    }
+                    if (pctLabel) pctLabel.textContent = pct + '%';
+                }
+            });
+        };
 
         const poll = async () => {
             if (!this._transcodePollActive) return;
+            this._transcodePollCount++;
+            if (this._transcodePollCount > MAX_POLL_COUNT) {
+                this._transcodePollActive = false;
+                if (progressText) progressText.textContent = 'Polling timed out — check status manually';
+                return;
+            }
             try {
                 const result = await this.api.getTranscodeStatus(taskId);
                 const status = result.status || 'unknown';
+                const label = statusLabels[status] || status;
 
-                if (progressText) progressText.textContent = status;
+                if (typeof result.progress === 'number' && result.progress > 0) {
+                    setBarProgress(result.progress);
+                    if (progressText) progressText.textContent = `${label} ${result.progress}%`;
+                } else if (status === 'processing' || status === 'running') {
+                    setBarProgress(0);
+                    if (progressText) progressText.textContent = label;
+                } else if (status === 'pending' || status === 'queued') {
+                    setBarWaiting();
+                    if (progressText) progressText.textContent = `${label}...`;
+                } else {
+                    setBarWaiting();
+                    if (progressText) progressText.textContent = label;
+                }
+
+                const variantProgress = result.metadata && result.metadata.variant_progress;
+                if (variantProgress) {
+                    updateVariantProgress(variantProgress);
+                }
+
                 if (output) {
                     output.classList.remove('hidden');
                     output.textContent = 'Transcode Status:\n' + JSON.stringify(result, null, 2);
                 }
 
                 if (['completed', 'done', 'success'].includes(status)) {
-                    if (progressBar) progressBar.style.width = '100%';
+                    setBarCompleted();
                     if (progressText) progressText.textContent = 'Completed!';
                     this._transcodePollActive = false;
-                    await this.onTranscodeComplete(contentId);
+                    try {
+                        await this.onTranscodeComplete(contentId);
+                    } catch (e) {
+                        console.warn('onTranscodeComplete error:', e);
+                    }
                     return;
                 }
 
                 if (['failed', 'error', 'timeout'].includes(status)) {
+                    setBarFailed();
                     if (progressText) progressText.textContent = 'Failed: ' + (result.error || status);
                     this._transcodePollActive = false;
                     this.showToast('Transcode failed', 'error');
                     return;
                 }
 
-                if (progressBar) {
-                    const pct = typeof result.progress === 'number' ? result.progress : 0;
-                    progressBar.style.width = Math.min(pct, 100) + '%';
-                }
-                if (progressText && typeof result.progress === 'number') {
-                    progressText.textContent = `${result.progress}% - ${status}`;
-                }
-
-                setTimeout(poll, 3000);
+                setTimeout(poll, 2000);
             } catch (err) {
                 console.warn('Transcode poll error:', err);
-                if (err.status === 401) {
+                const httpStatus = err.status || (err.response && err.response.status) || 0;
+                if (httpStatus === 401 || httpStatus === 403) {
                     this._transcodePollActive = false;
                     if (progressText) progressText.textContent = 'Session expired, please re-login';
                     this.showToast('Session expired, please re-login', 'error');
                     return;
                 }
-                if (this._transcodePollActive) setTimeout(poll, 5000);
+                if (this._transcodePollActive && this._transcodePollCount < MAX_POLL_COUNT) {
+                    setTimeout(poll, 4000);
+                } else {
+                    this._transcodePollActive = false;
+                    if (progressText) progressText.textContent = 'Polling stopped — check status manually';
+                }
             }
         };
 
-        setTimeout(poll, 3000);
+        setBarWaiting();
+        if (progressText) progressText.textContent = 'Waiting...';
+        setTimeout(poll, 1000);
     }
 
     async onTranscodeComplete(contentId) {
@@ -873,11 +1050,14 @@ class StreamGateApp {
     }
 
     async submitTranscode() {
+        const contentId = document.getElementById('transcode-content-id').value.trim();
+        const inputUrl = document.getElementById('transcode-input-url').value.trim();
+        const profile = document.getElementById('transcode-profile').value.trim();
+        const priority = parseInt(document.getElementById('transcode-priority').value, 10) || 5;
+
+        this._showTranscodeProgress('Submitting transcode task...', 0);
+
         try {
-            const contentId = document.getElementById('transcode-content-id').value.trim();
-            const inputUrl = document.getElementById('transcode-input-url').value.trim();
-            const profile = document.getElementById('transcode-profile').value.trim();
-            const priority = parseInt(document.getElementById('transcode-priority').value, 10) || 5;
             const result = await this.api.submitTranscode(contentId, inputUrl, profile, priority);
             this.lastTranscodeTaskId = result.task_id;
             document.getElementById('transcode-task-id').value = result.task_id || '';
@@ -889,6 +1069,7 @@ class StreamGateApp {
                 'Polling for completion...'
             );
             this.showOutput('transcode-output', 'Transcode Submit', JSON.stringify(result, null, 2));
+            this._scrollToTranscodeSection();
             this._pollTranscodeProgress(contentId, result.task_id);
         } catch (error) {
             this.updateStatus('transcode', 'offline', 'Submit Failed');
@@ -897,6 +1078,8 @@ class StreamGateApp {
                 'Transcode submit failed',
                 'Check that the gateway exposes `/api/v1/transcode/submit` and that the payload uses `content_id`, `input_url`, `profile`, and `priority`.'
             );
+            this._showTranscodeProgress('Failed: ' + error.message, 0);
+            this._showTranscodeProgressBarError();
             this.showOutput('transcode-output', 'Transcode Submit Failed', error.message);
         }
     }

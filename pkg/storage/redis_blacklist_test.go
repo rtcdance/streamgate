@@ -155,5 +155,3 @@ func TestRedisTokenBlacklist_IsRevoked_FailClosed_NoLocalEntry(t *testing.T) {
 
 	assert.True(t, bl.IsRevoked(context.Background(), "jti-not-in-local"))
 }
-
-

@@ -548,8 +548,14 @@ func TestSvcUploadService_UnimplementedServer(t *testing.T) {
 		fn   func() error
 	}{
 		{"UploadFile", func() error { _, err := server.UploadFile(context.Background(), &UploadFileRequest{}); return err }},
-		{"GetUploadStatus", func() error { _, err := server.GetUploadStatus(context.Background(), &GetUploadStatusRequest{}); return err }},
-		{"CompleteUpload", func() error { _, err := server.CompleteUpload(context.Background(), &CompleteUploadRequest{}); return err }},
+		{"GetUploadStatus", func() error {
+			_, err := server.GetUploadStatus(context.Background(), &GetUploadStatusRequest{})
+			return err
+		}},
+		{"CompleteUpload", func() error {
+			_, err := server.CompleteUpload(context.Background(), &CompleteUploadRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {
@@ -569,7 +575,10 @@ func TestSvcStreamingService_UnimplementedServer(t *testing.T) {
 		fn   func() error
 	}{
 		{"GetHLSPlaylist", func() error { _, err := server.GetHLSPlaylist(context.Background(), &GetPlaylistRequest{}); return err }},
-		{"GetDASHManifest", func() error { _, err := server.GetDASHManifest(context.Background(), &GetManifestRequest{}); return err }},
+		{"GetDASHManifest", func() error {
+			_, err := server.GetDASHManifest(context.Background(), &GetManifestRequest{})
+			return err
+		}},
 		{"GetSegment", func() error { _, err := server.GetSegment(context.Background(), &GetSegmentRequest{}); return err }},
 	}
 
@@ -590,10 +599,22 @@ func TestMetadataService_UnimplementedServer(t *testing.T) {
 		fn   func() error
 	}{
 		{"GetMetadata", func() error { _, err := server.GetMetadata(context.Background(), &GetMetadataRequest{}); return err }},
-		{"CreateMetadata", func() error { _, err := server.CreateMetadata(context.Background(), &CreateMetadataRequest{}); return err }},
-		{"UpdateMetadata", func() error { _, err := server.UpdateMetadata(context.Background(), &UpdateMetadataRequest{}); return err }},
-		{"DeleteMetadata", func() error { _, err := server.DeleteMetadata(context.Background(), &DeleteMetadataRequest{}); return err }},
-		{"SearchMetadata", func() error { _, err := server.SearchMetadata(context.Background(), &SearchMetadataRequest{}); return err }},
+		{"CreateMetadata", func() error {
+			_, err := server.CreateMetadata(context.Background(), &CreateMetadataRequest{})
+			return err
+		}},
+		{"UpdateMetadata", func() error {
+			_, err := server.UpdateMetadata(context.Background(), &UpdateMetadataRequest{})
+			return err
+		}},
+		{"DeleteMetadata", func() error {
+			_, err := server.DeleteMetadata(context.Background(), &DeleteMetadataRequest{})
+			return err
+		}},
+		{"SearchMetadata", func() error {
+			_, err := server.SearchMetadata(context.Background(), &SearchMetadataRequest{})
+			return err
+		}},
 	}
 
 	for _, tc := range tests {
@@ -612,7 +633,10 @@ func TestSvcAuthService_UnimplementedServer(t *testing.T) {
 		name string
 		fn   func() error
 	}{
-		{"VerifySignature", func() error { _, err := server.VerifySignature(context.Background(), &VerifySignatureRequest{}); return err }},
+		{"VerifySignature", func() error {
+			_, err := server.VerifySignature(context.Background(), &VerifySignatureRequest{})
+			return err
+		}},
 		{"VerifyNFT", func() error { _, err := server.VerifyNFT(context.Background(), &VerifyNFTRequest{}); return err }},
 		{"VerifyToken", func() error { _, err := server.VerifyToken(context.Background(), &VerifyTokenRequest{}); return err }},
 		{"GetChallenge", func() error { _, err := server.GetChallenge(context.Background(), &GetChallengeRequest{}); return err }},
@@ -677,7 +701,10 @@ func TestWorkerService_UnimplementedServer(t *testing.T) {
 		fn   func() error
 	}{
 		{"SubmitJob", func() error { _, err := server.SubmitJob(context.Background(), &SubmitWorkerJobRequest{}); return err }},
-		{"GetJobStatus", func() error { _, err := server.GetJobStatus(context.Background(), &GetWorkerJobStatusRequest{}); return err }},
+		{"GetJobStatus", func() error {
+			_, err := server.GetJobStatus(context.Background(), &GetWorkerJobStatusRequest{})
+			return err
+		}},
 		{"CancelJob", func() error { _, err := server.CancelJob(context.Background(), &CancelWorkerJobRequest{}); return err }},
 		{"ScheduleJob", func() error { _, err := server.ScheduleJob(context.Background(), &ScheduleJobRequest{}); return err }},
 	}

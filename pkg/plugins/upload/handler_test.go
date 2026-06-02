@@ -654,10 +654,10 @@ func TestFFmpegAdapter_SelectProfiles_FFprobeFail(t *testing.T) {
 	adapter := &ffmpegAdapter{ft: ft, log: zap.NewNop()}
 
 	tests := []struct {
-		name              string
-		requestedProfile  string
-		expectedLen       int
-		expectedBitrate   string
+		name             string
+		requestedProfile string
+		expectedLen      int
+		expectedBitrate  string
 	}{
 		{"fallback to 720p for unknown profile", "unknown", 1, "2500k"},
 		{"fallback to 1080p", "1080p", 1, "5000k"},
@@ -697,7 +697,7 @@ func TestFFmpegAdapter_TranscodeHLS_WithProgress(t *testing.T) {
 	}, zap.NewNop())
 	adapter := &ffmpegAdapter{ft: ft, log: zap.NewNop()}
 	progressCalled := false
-	progressFn := func(progress float64) { progressCalled = true }
+	progressFn := func(_ string, progress float64) { progressCalled = true }
 	err := adapter.TranscodeHLS(context.Background(), "/nonexistent/video.mp4", os.TempDir(), "720p", progressFn)
 	require.Error(t, err)
 	assert.False(t, progressCalled)
@@ -723,13 +723,13 @@ type mockPluginWithHealth struct {
 	healthErr error
 }
 
-func (m *mockPluginWithHealth) Name() string                                          { return "unhealthy" }
-func (m *mockPluginWithHealth) Version() string                                       { return "1.0.0" }
-func (m *mockPluginWithHealth) Init(_ context.Context, _ *core.Microkernel) error     { return nil }
-func (m *mockPluginWithHealth) Start(_ context.Context) error                         { return nil }
-func (m *mockPluginWithHealth) Stop(_ context.Context) error                          { return nil }
-func (m *mockPluginWithHealth) Health(_ context.Context) error                        { return m.healthErr }
-func (m *mockPluginWithHealth) DependsOn() []string                                   { return nil }
+func (m *mockPluginWithHealth) Name() string                                      { return "unhealthy" }
+func (m *mockPluginWithHealth) Version() string                                   { return "1.0.0" }
+func (m *mockPluginWithHealth) Init(_ context.Context, _ *core.Microkernel) error { return nil }
+func (m *mockPluginWithHealth) Start(_ context.Context) error                     { return nil }
+func (m *mockPluginWithHealth) Stop(_ context.Context) error                      { return nil }
+func (m *mockPluginWithHealth) Health(_ context.Context) error                    { return m.healthErr }
+func (m *mockPluginWithHealth) DependsOn() []string                               { return nil }
 
 func TestUploadPlugin_Init_NoDB(t *testing.T) {
 	cfg := &config.Config{Mode: "monolith"}
@@ -969,7 +969,7 @@ func TestFFmpegAdapter_TranscodeHLS_WithVideoAndProgress(t *testing.T) {
 	videoPath := generateTestVideo(t, 640, 360)
 
 	progressCalled := false
-	progressFn := func(progress float64) { progressCalled = true }
+	progressFn := func(_ string, progress float64) { progressCalled = true }
 
 	err := adapter.TranscodeHLS(context.Background(), videoPath,
 		filepath.Join(t.TempDir(), "output"), "360p", progressFn)

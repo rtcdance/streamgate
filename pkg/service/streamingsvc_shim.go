@@ -8,3 +8,4 @@ type StreamInfo = streamingsvc.StreamInfo
 
 var NewStreamingService = streamingsvc.NewStreamingService
 var DetectStreamType = streamingsvc.DetectStreamType
+var BuildMediaPlaylist = streamingsvc.BuildMediaPlaylist

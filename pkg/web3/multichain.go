@@ -39,6 +39,9 @@ var supportedChains = map[int64]*ChainConfig{
 		Explorer:  "",
 		Currency:  "ETH",
 		IsTestnet: true,
+		Finality: func(_ HeaderReader, _ *zap.Logger) FinalityStrategy {
+			return newFinalityDefault(nil, 0, BlockTagLatest, nil)
+		},
 	},
 
 	// Ethereum
@@ -170,8 +173,12 @@ var supportedChains = map[int64]*ChainConfig{
 // ApplyChainConfigs merges external chain configurations into supportedChains.
 // Config entries matching existing chain IDs override the built-in defaults
 // (RPC endpoints, explorer URL, etc.). Unknown chain IDs are added.
+// Existing Finality factory is preserved unless the config entry explicitly
+// provides one (e.g. via a finality field), to avoid replacing chain-specific
+// finality defaults (like BlockTagLatest for anvil) with a nil finality.
 func ApplyChainConfigs(entries []config.ChainConfigEntry) {
 	for _, entry := range entries {
+		existing, hasExisting := supportedChains[entry.ID]
 		cfg := &ChainConfig{
 			ID:        entry.ID,
 			Name:      entry.Name,
@@ -183,6 +190,12 @@ func ApplyChainConfigs(entries []config.ChainConfigEntry) {
 		}
 		if len(cfg.RPCs) == 0 && cfg.RPC != "" {
 			cfg.RPCs = []string{cfg.RPC}
+		}
+		// Preserve the Finality factory from the built-in config if not
+		// provided in the config entry, so that chain-specific block tag
+		// defaults (e.g. BlockTagLatest for anvil) are not lost.
+		if hasExisting && existing.Finality != nil {
+			cfg.Finality = existing.Finality
 		}
 		supportedChains[entry.ID] = cfg
 	}

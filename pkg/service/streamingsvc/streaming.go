@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -238,10 +239,7 @@ func BuildMasterPlaylist(contentID string, qualitySegments map[string][]string, 
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:3\n")
 	for quality := range qualitySegments {
-		bw := qualityBandwidth[quality]
-		if bw == 0 {
-			bw = 1500
-		}
+		bw := getBandwidthForQuality(quality)
 		resolution := qualityToResolution(quality)
 		fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n", bw*1000, resolution)
 		fmt.Fprintf(&b, "/api/v1/streaming/%s/manifest.m3u8?quality=%s&playback_token=%s\n", contentID, quality, playbackToken)
@@ -264,6 +262,9 @@ func BuildMediaPlaylist(contentID, quality string, segments []string, playbackTo
 }
 
 func qualityToResolution(quality string) string {
+	if strings.Contains(quality, "x") {
+		return quality
+	}
 	switch quality {
 	case "1080p":
 		return "1920x1080"
@@ -276,6 +277,30 @@ func qualityToResolution(quality string) string {
 	default:
 		return "1280x720"
 	}
+}
+
+func getBandwidthForQuality(quality string) int {
+	if bw, ok := qualityBandwidth[quality]; ok {
+		return bw
+	}
+	if strings.Contains(quality, "x") {
+		parts := strings.Split(quality, "x")
+		if len(parts) == 2 {
+			if height, err := strconv.Atoi(parts[1]); err == nil {
+				switch {
+				case height >= 1080:
+					return 5000
+				case height >= 720:
+					return 2800
+				case height >= 480:
+					return 1400
+				default:
+					return 800
+				}
+			}
+		}
+	}
+	return 1500
 }
 
 // GenerateDASHManifest generates a DASH manifest with playback token for segment access.

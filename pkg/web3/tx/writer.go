@@ -26,10 +26,12 @@ type ContractWriteResult struct {
 type ContractTxOpts struct {
 	To        string
 	Method    string
-	ParsedABI interface{ Pack(string, ...interface{}) ([]byte, error) }
-	Args      []interface{}
-	Value     *big.Int
-	GasLimit  uint64
+	ParsedABI interface {
+		Pack(string, ...interface{}) ([]byte, error)
+	}
+	Args     []interface{}
+	Value    *big.Int
+	GasLimit uint64
 }
 
 type KeyProvider interface {

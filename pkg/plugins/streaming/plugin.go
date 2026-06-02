@@ -95,4 +95,9 @@ func (p *StreamingPlugin) Health(ctx context.Context) error {
 	return p.server.Health(ctx)
 }
 
-func (p *StreamingPlugin) DependsOn() []string { return []string{"api-gateway"} }
+func (p *StreamingPlugin) DependsOn() []string {
+	if p.config.Mode == "microservice" {
+		return nil
+	}
+	return []string{"api-gateway"}
+}

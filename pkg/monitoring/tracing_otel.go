@@ -3,6 +3,7 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -16,16 +17,29 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// InitOTelTracing initializes the OpenTelemetry tracing pipeline.
-// It creates an OTLP gRPC exporter pointed at endpoint (e.g. "localhost:4317")
-// and registers a TracerProvider as the global provider.
-// The returned shutdown function must be called on application exit to flush
-// pending spans.
 func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *zap.Logger) (shutdown func(ctx context.Context) error, err error) {
 	endpoint = strings.TrimPrefix(endpoint, "http://")
 	endpoint = strings.TrimPrefix(endpoint, "https://")
 	endpoint = strings.TrimSuffix(endpoint, "/api/traces")
 	endpoint = strings.TrimSuffix(endpoint, "/v1/traces")
+
+	if endpoint == "" {
+		logger.Info("OTel tracing disabled (no endpoint configured)")
+		return func(_ context.Context) error { return nil }, nil
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	conn, dialErr := net.DialTimeout("tcp", endpoint, 3*time.Second)
+	if dialErr != nil {
+		logger.Warn("OTel tracing disabled (endpoint unreachable)",
+			zap.String("endpoint", endpoint),
+			zap.Error(dialErr))
+		return func(_ context.Context) error { return nil }, nil
+	}
+	conn.Close()
+	_ = dialCtx
+
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(endpoint),
 	}
@@ -40,7 +54,6 @@ func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *
 		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
-	// Create resource with service name
 	res, err := sdkresource.New(ctx,
 		sdkresource.WithAttributes(
 			semconv.ServiceNameKey.String(serviceName),
@@ -50,7 +63,6 @@ func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create TracerProvider with batch span processor
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter,
 			sdktrace.WithBatchTimeout(5*time.Second),
@@ -58,7 +70,6 @@ func InitOTelTracing(ctx context.Context, serviceName, endpoint string, logger *
 		sdktrace.WithResource(res),
 	)
 
-	// Register as global TracerProvider
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},

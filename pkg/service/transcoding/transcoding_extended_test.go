@@ -349,14 +349,14 @@ type mockTranscoderWithFiles struct {
 	progressCalls []float64
 }
 
-func (m *mockTranscoderWithFiles) TranscodeHLS(_ context.Context, _, outputDir, _ string, progressFn func(progress float64)) error {
+func (m *mockTranscoderWithFiles) TranscodeHLS(_ context.Context, _, outputDir, _ string, progressFn func(variant string, progress float64)) error {
 	if m.transcodeErr != nil {
 		return m.transcodeErr
 	}
 	_ = os.WriteFile(filepath.Join(outputDir, "index.m3u8"), []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nseg000.ts\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(outputDir, "seg000.ts"), []byte("ts-data"), 0o644)
 	for _, p := range m.progressCalls {
-		progressFn(p)
+		progressFn("", p)
 	}
 	return nil
 }
@@ -558,18 +558,18 @@ type mockTranscoderWithProgress struct {
 	transcodeErr error
 }
 
-func (m *mockTranscoderWithProgress) TranscodeHLS(_ context.Context, _, outputDir, _ string, progressFn func(progress float64)) error {
+func (m *mockTranscoderWithProgress) TranscodeHLS(_ context.Context, _, outputDir, _ string, progressFn func(variant string, progress float64)) error {
 	if m.transcodeErr != nil {
 		return m.transcodeErr
 	}
 	_ = os.WriteFile(filepath.Join(outputDir, "index.m3u8"), []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nseg000.ts\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(outputDir, "seg000.ts"), []byte("ts-data"), 0o644)
 	if progressFn != nil {
-		progressFn(10.5)
-		progressFn(25.0)
-		progressFn(50.0)
-		progressFn(75.0)
-		progressFn(99.0)
+		progressFn("", 10.5)
+		progressFn("", 25.0)
+		progressFn("", 50.0)
+		progressFn("", 75.0)
+		progressFn("", 99.0)
 	}
 	return nil
 }

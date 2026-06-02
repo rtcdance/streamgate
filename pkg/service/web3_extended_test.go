@@ -264,7 +264,7 @@ func TestWeb3Service_VerifyMerkleWhitelist_InvalidProofHex(t *testing.T) {
 
 func TestWeb3Service_WaitForReceipt_ContextCancelled(t *testing.T) {
 	srv := newTestRPCServer(t, map[string]func(reqParams []json.RawMessage) interface{}{
-		"eth_chainId":    func(_ []json.RawMessage) interface{} { return "0xaa36a7" },
+		"eth_chainId":     func(_ []json.RawMessage) interface{} { return "0xaa36a7" },
 		"eth_blockNumber": func(_ []json.RawMessage) interface{} { return "0x1" },
 		"eth_getTransactionReceipt": func(_ []json.RawMessage) interface{} {
 			return nil
@@ -299,7 +299,7 @@ func TestWeb3Service_GetSolanaSigner_NotSolanaSigner(t *testing.T) {
 
 func TestWeb3Service_GetNonceManager_LazyCreation(t *testing.T) {
 	srv := newTestRPCServer(t, map[string]func(reqParams []json.RawMessage) interface{}{
-		"eth_chainId":    func(_ []json.RawMessage) interface{} { return "0xaa36a7" },
+		"eth_chainId":     func(_ []json.RawMessage) interface{} { return "0xaa36a7" },
 		"eth_blockNumber": func(_ []json.RawMessage) interface{} { return "0x1" },
 	})
 	defer srv.Close()

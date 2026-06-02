@@ -687,7 +687,7 @@ func (wp *WorkerPool) transcode(task *TranscodeTask) error {
 		_ = wp.taskQueue.UpdateTask(task)
 	}
 
-	return wp.ffmpeg.TranscodeToHLS(wp.ctx, task.FilePath, outputDir, task.Profiles, callback)
+	return wp.ffmpeg.TranscodeToHLS(wp.ctx, task.FilePath, outputDir, task.Profiles, callback, nil)
 }
 
 // HealthCheck performs health checks on workers

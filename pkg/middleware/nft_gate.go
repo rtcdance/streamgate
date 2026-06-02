@@ -192,6 +192,13 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
+		if _, ok := c.Get("playback_auth"); ok {
+			c.Set("nft_verified", true)
+			c.Set("nft_bypass_reason", "playback_token")
+			c.Next()
+			return
+		}
+
 		walletAddress := GetWalletAddress(c)
 		if walletAddress == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required", "code": "UNAUTHORIZED"})
@@ -278,17 +285,21 @@ func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logg
 	if contentID != "" && config.RuleResolver != nil {
 		rules, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
 		if err != nil {
-			logger.Error("failed to resolve gating rules", zap.String("content_id", contentID), zap.Error(err))
-		} else {
-			resolvedRules = rules
-			rulesFetched = true
-			c.Set("gating_rules", rules)
-			c.Set("gating_rule_id", contentID)
-			c.Set("gating_rules_count", len(rules))
+			logger.Warn("failed to resolve gating rules, treating as no gating required", zap.String("content_id", contentID), zap.Error(err))
+			return nil, 0, false, nil
 		}
+		resolvedRules = rules
+		rulesFetched = true
+		c.Set("gating_rules", rules)
+		c.Set("gating_rule_id", contentID)
+		c.Set("gating_rules_count", len(rules))
 	}
 
-	if rulesFetched && len(resolvedRules) == 0 {
+	if !rulesFetched {
+		return nil, 0, false, nil
+	}
+
+	if len(resolvedRules) == 0 {
 		return nil, 0, false, nil
 	}
 

@@ -12,8 +12,8 @@ import (
 	"github.com/rtcdance/streamgate/pkg/cachetypes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"strings"
 	"go.uber.org/zap"
+	"strings"
 )
 
 type testEthCaller struct {

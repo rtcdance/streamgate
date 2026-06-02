@@ -243,7 +243,7 @@ func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "medium",
+		"-preset", "veryfast",
 		"-crf", "23",
 		"-c:a", audioCodec,
 		"-b:a", "128k",
@@ -257,7 +257,7 @@ func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath
 
 // TranscodeToHLS transcodes video to HLS format with multiple quality levels.
 // It validates the input file before transcoding and cleans up partial outputs on failure.
-func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback) error {
+func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback, variantProgressFn func(variant string, progress float64)) error {
 	info, err := ft.ValidateMediaFile(ctx, inputPath)
 	if err != nil {
 		return fmt.Errorf("input validation failed: %w", err)
@@ -278,7 +278,16 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 			defer wg.Done()
 
 			outputPath := filepath.Join(outputDir, fmt.Sprintf("%s.m3u8", p.Resolution))
-			if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, p, totalDuration, callback); err != nil {
+			variantCB := callback
+			if variantProgressFn != nil {
+				variantCB = func(pg *TranscodeProgress) {
+					if callback != nil {
+						callback(pg)
+					}
+					variantProgressFn(p.Resolution, pg.Progress)
+				}
+			}
+			if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, p, totalDuration, variantCB); err != nil {
 				errChan <- fmt.Errorf("failed to transcode to %s: %w", p.Resolution, err)
 			}
 		}(profile)
@@ -303,6 +312,46 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 	return ft.generateHLSMasterPlaylist(outputDir, profiles)
 }
 
+func selectABRProfiles(sourceHeight int) []TranscodeProfile {
+	profiles := make([]TranscodeProfile, 0, 4)
+	for _, name := range []string{"1080p", "720p", "480p", "360p"} {
+		if p, ok := defaultProfileMap[name]; ok {
+			if sourceHeight > 0 {
+				if ph := parseProfileHeight(p.Resolution); ph > sourceHeight {
+					continue
+				}
+			}
+			profiles = append(profiles, p)
+		}
+	}
+	if len(profiles) == 0 {
+		if p, ok := defaultProfileMap["360p"]; ok {
+			profiles = append(profiles, p)
+		}
+	}
+	return profiles
+}
+
+func parseProfileHeight(resolution string) int {
+	parts := strings.Split(resolution, "x")
+	if len(parts) != 2 {
+		return 0
+	}
+	h, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0
+	}
+	return h
+}
+
+func (ft *FFmpegTranscoder) probeSourceHeight(ctx context.Context, inputPath string) int {
+	info, err := ft.GetVideoInfo(ctx, inputPath)
+	if err != nil || info == nil {
+		return 0
+	}
+	return info.Height
+}
+
 var defaultProfileMap = map[string]TranscodeProfile{
 	"1080p": {Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"},
 	"720p":  {Resolution: "1280x720", Bitrate: "2500k", Format: "hls"},
@@ -310,18 +359,28 @@ var defaultProfileMap = map[string]TranscodeProfile{
 	"360p":  {Resolution: "640x360", Bitrate: "500k", Format: "hls"},
 }
 
-// TranscodeHLS transcodes video to HLS for a single profile name (e.g. "720p").
+// TranscodeHLS transcodes video to HLS for a profile name (e.g. "720p").
+// Profile "abr" or "" transcodes to all 4 predefined resolutions (1080p/720p/480p/360p).
 // This method satisfies the service.VideoTranscoder interface.
-func (ft *FFmpegTranscoder) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(float64)) error {
+func (ft *FFmpegTranscoder) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error {
+	if profile == "abr" || profile == "" {
+		sourceHeight := ft.probeSourceHeight(ctx, inputPath)
+		profiles := selectABRProfiles(sourceHeight)
+		return ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, func(pg *TranscodeProgress) {
+			if progressFn != nil {
+				progressFn("", pg.Progress)
+			}
+		}, progressFn)
+	}
 	p, ok := defaultProfileMap[profile]
 	if !ok {
 		p = defaultProfileMap["720p"]
 	}
-	cb := ProgressCallback(nil)
-	if progressFn != nil {
-		cb = func(pg *TranscodeProgress) { progressFn(pg.Progress) }
-	}
-	return ft.TranscodeToHLS(ctx, inputPath, outputDir, []TranscodeProfile{p}, cb)
+	return ft.TranscodeToHLS(ctx, inputPath, outputDir, []TranscodeProfile{p}, func(pg *TranscodeProgress) {
+		if progressFn != nil {
+			progressFn(profile, pg.Progress)
+		}
+	}, nil)
 }
 
 // cleanupPartialOutput removes .ts and .m3u8 files from a failed transcode attempt
@@ -355,7 +414,7 @@ func (ft *FFmpegTranscoder) transcodeToHLSVariant(ctx context.Context, inputPath
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "medium",
+		"-preset", "veryfast",
 		"-crf", "23",
 		"-vf", fmt.Sprintf("scale=%s", profile.Resolution),
 		"-b:v", profile.Bitrate,
@@ -413,7 +472,7 @@ func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outp
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "medium",
+		"-preset", "veryfast",
 		"-crf", "23",
 		"-c:a", audioCodec,
 		"-b:a", "128k",
@@ -517,7 +576,7 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, totalD
 	return nil
 }
 
-var progressRegex = regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([\d.]+)\s+size=\s*(\d+)\s+time=\s*([\d:.]+)\s+bitrate=\s*([\d.]+)kbits/s\s+speed=\s*([\d.]+)x`)
+var progressRegex = regexp.MustCompile(`frame=\s*(\d+)\s+fps=\s*([\d.]+)\s+q=\s*([-.\d]+)\s+L?size=\s*(\S+)\s+time=\s*([\d:.]+)\s+bitrate=\s*(\S+)\s+speed=\s*([\d.]+)x`)
 
 // monitorProgress monitors FFmpeg progress output
 func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, totalDuration time.Duration, callback ProgressCallback) {
@@ -579,6 +638,9 @@ func (ft *FFmpegTranscoder) monitorProgress(stderrPipe io.Reader, totalDuration 
 
 					callback(progress)
 				} else if totalLines <= 3 {
+					if strings.HasPrefix(line, "ffmpeg version") || strings.HasPrefix(line, "  ") {
+						continue
+					}
 					ft.logger.Debug("ffmpeg stderr line (no regex match)",
 						zap.Int("line_num", totalLines),
 						zap.String("line", line))
