@@ -244,6 +244,7 @@ func (r *Runner) ensureTrackingTable() error {
 	if err != nil {
 		return err
 	}
+	//nolint:errcheck // ALTER TABLE ... IF NOT EXISTS is best-effort, error is acceptable
 	r.db.Exec(`ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS filename VARCHAR(255) NOT NULL DEFAULT ''`)
 	return nil
 }
