@@ -53,7 +53,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #   docker build .                                        → alpine
 #   docker build --target runtime-distroless .            → distroless (minimal)
 # ============================================================
-FROM alpine:3.21 AS runtime-alpine
+FROM alpine:3.23 AS runtime-alpine
 
 ARG EXTRA_PKGS=ffmpeg
 
