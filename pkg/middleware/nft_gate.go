@@ -279,7 +279,7 @@ func parseNFTParams(c *gin.Context, config *NFTGateConfig) (contract string, cha
 	return
 }
 
-func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) ([]GatingRule, int, bool, gin.H) {
+func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) (rules []GatingRule, statusCode int, hasAccess bool, errorBody gin.H) {
 	var resolvedRules []GatingRule
 	rulesFetched := false
 	if contentID != "" && config.RuleResolver != nil {
@@ -296,6 +296,9 @@ func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logg
 	}
 
 	if !rulesFetched {
+		if *contract != "" {
+			return nil, 0, true, nil
+		}
 		return nil, 0, false, nil
 	}
 
