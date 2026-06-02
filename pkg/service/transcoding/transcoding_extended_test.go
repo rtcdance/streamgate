@@ -251,6 +251,9 @@ func TestTranscodingService_AdjustWorkerCount_ScaleDown(t *testing.T) {
 	defer cancel()
 
 	atomic.StoreInt32(&svc.currentWorkers, 3)
+	svc.extraMu.Lock()
+	svc.extraCancels = append(svc.extraCancels, func() {}, func() {})
+	svc.extraMu.Unlock()
 
 	svc.adjustWorkerCount(ctx, zap.NewNop())
 
