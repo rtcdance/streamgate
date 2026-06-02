@@ -247,13 +247,13 @@ type NATSConfig struct {
 
 // ChainConfigEntry defines a single blockchain network configuration.
 type ChainConfigEntry struct {
-	ID          int64    `yaml:"id" json:"id"`
-	Name        string   `yaml:"name" json:"name"`
-	RPC         string   `yaml:"rpc_url" json:"rpc_url"`
-	RPCs        []string `yaml:"rpc_urls" json:"rpc_urls"`
-	ExplorerURL string   `yaml:"explorer_url" json:"explorer_url"`
-	Currency    string   `yaml:"currency" json:"currency"`
-	IsTestnet   bool     `yaml:"testnet" json:"testnet"`
+	ID          int64    `mapstructure:"id" yaml:"id" json:"id"`
+	Name        string   `mapstructure:"name" yaml:"name" json:"name"`
+	RPC         string   `mapstructure:"rpc_url" yaml:"rpc_url" json:"rpc_url"`
+	RPCs        []string `mapstructure:"rpc_urls" yaml:"rpc_urls" json:"rpc_urls"`
+	ExplorerURL string   `mapstructure:"explorer_url" yaml:"explorer_url" json:"explorer_url"`
+	Currency    string   `mapstructure:"currency" yaml:"currency" json:"currency"`
+	IsTestnet   bool     `mapstructure:"testnet" yaml:"testnet" json:"testnet"`
 }
 
 // Web3Config holds Web3 configuration
@@ -373,6 +373,8 @@ func LoadConfig() (*Config, error) {
 
 	// Auth
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
+	_ = viper.BindEnv("app.debug", "APP_DEBUG")
+	_ = viper.BindEnv("server.port", "STREAMGATE_SERVER_PORT")
 
 	// CORS
 	_ = viper.BindEnv("cors.allowed_origins", "STREAMGATE_CORS_ORIGINS")
@@ -547,6 +549,12 @@ func LoadConfig() (*Config, error) {
 		Plugins: PluginsConfig{
 			Enabled: splitCommaSlice(viper.GetStringSlice("plugins.enabled")),
 		},
+	}
+
+	// Load web3 chains separately: UnmarshalKey is needed for slice-of-structs.
+	var chains []ChainConfigEntry
+	if err := viper.UnmarshalKey("web3.chains", &chains); err == nil && len(chains) > 0 {
+		cfg.Web3.Chains = chains
 	}
 
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
@@ -1278,4 +1286,3 @@ func splitCommaSlice(slice []string) []string {
 	}
 	return result
 }
-

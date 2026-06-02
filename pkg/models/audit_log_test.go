@@ -166,8 +166,8 @@ func TestGatingRule_Creation(t *testing.T) {
 
 func TestGatingRule_Inactive(t *testing.T) {
 	rule := &GatingRule{
-		ID:        "rule-2",
-		IsActive:  false,
+		ID:         "rule-2",
+		IsActive:   false,
 		MinBalance: 0,
 	}
 

@@ -163,7 +163,7 @@ func TestChainClient_CodeAt(t *testing.T) {
 
 func TestChainClient_GetBalance(t *testing.T) {
 	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":  chainIDHandler(1),
+		"eth_chainId": chainIDHandler(1),
 		"eth_getBalance": func(req rpcRequest) rpcResponse {
 			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0xde0b6b3a7640000"}
 		},
@@ -601,10 +601,10 @@ func TestChainClient_FeeHistory(t *testing.T) {
 		"eth_chainId": chainIDHandler(1),
 		"eth_feeHistory": func(req rpcRequest) rpcResponse {
 			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{
-				"baseFeePerGas":    []string{"0x3b9aca00"},
-				"gasUsedRatio":     []float64{0.5},
-				"oldestBlock":      "0x64",
-				"reward":           [][]string{{"0x77359400"}},
+				"baseFeePerGas": []string{"0x3b9aca00"},
+				"gasUsedRatio":  []float64{0.5},
+				"oldestBlock":   "0x64",
+				"reward":        [][]string{{"0x77359400"}},
 			}}
 		},
 	})

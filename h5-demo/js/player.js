@@ -5,6 +5,7 @@ class HLSPlayer {
         this.currentVideoId = null;
         this.manifestUrl = null;
         this.authToken = null;
+        this._manifestParsedBound = null;
     }
 
     init() {
@@ -14,15 +15,13 @@ class HLSPlayer {
                 lowLatencyMode: true,
                 backBufferLength: 90,
                 xhrSetup: (xhr, url) => {
-                    // Attach JWT to requests that don't already carry playback_token.
-                    // Segment URLs from the manifest include playback_token; the
-                    // Authorization header is a fallback for other HLS sub-requests.
                     if (this.authToken && !url.includes('playback_token=')) {
                         xhr.setRequestHeader('Authorization', `Bearer ${this.authToken}`);
                     }
                 },
             });
             this.hls.on(Hls.Events.ERROR, (event, data) => this.handleError(event, data));
+            this.hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => this.handleLevelSwitched(data));
             return true;
         } else if (this.video.canPlayType('application/vnd.apple.mpegurl')) {
             this.video.addEventListener('loadedmetadata', () => this.handleMetadata());
@@ -63,9 +62,13 @@ class HLSPlayer {
             if (this.hls.media) {
                 this.hls.detachMedia();
             }
+            if (this._manifestParsedBound) {
+                this.hls.off(Hls.Events.MANIFEST_PARSED, this._manifestParsedBound);
+            }
+            this._manifestParsedBound = () => this.handleManifestParsed();
+            this.hls.on(Hls.Events.MANIFEST_PARSED, this._manifestParsedBound);
             this.hls.loadSource(manifestBlobUrl);
             this.hls.attachMedia(this.video);
-            this.hls.on(Hls.Events.MANIFEST_PARSED, () => this.handleManifestParsed());
         } else {
             this.video.src = manifestBlobUrl;
             this.video.addEventListener('loadedmetadata', () => this.handleMetadata());
@@ -85,7 +88,7 @@ class HLSPlayer {
     }
 
     handleManifestParsed() {
-        console.log('HLS manifest parsed, attempting to play');
+        this.updateQualitySelector();
         this.video.play().catch(err => {
             console.warn('Auto-play failed:', err.message);
         });
@@ -98,9 +101,16 @@ class HLSPlayer {
         });
     }
 
+    handleLevelSwitched(data) {
+        const container = document.getElementById('quality-options');
+        if (!container) return;
+        container.querySelectorAll('.quality-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.level) === data.level);
+        });
+    }
+
     handleError(event, data) {
         console.error('HLS Error:', data);
-        
         if (data.fatal) {
             switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
@@ -117,6 +127,48 @@ class HLSPlayer {
                     break;
             }
         }
+    }
+
+    updateQualitySelector() {
+        const container = document.getElementById('quality-selector');
+        const options = document.getElementById('quality-options');
+        if (!container || !options || !this.hls) return;
+        const levels = this.hls.levels;
+        if (!levels || levels.length <= 1) {
+            container.classList.add('hidden');
+            return;
+        }
+        container.classList.remove('hidden');
+        options.innerHTML = '';
+
+        const autoBtn = document.createElement('button');
+        autoBtn.className = 'quality-btn' + (this.hls.currentLevel === -1 ? ' active' : '');
+        autoBtn.dataset.level = '-1';
+        autoBtn.textContent = 'Auto';
+        autoBtn.title = 'Auto (adaptive bitrate)';
+        autoBtn.addEventListener('click', () => this.setQuality(-1));
+        options.appendChild(autoBtn);
+
+        levels.forEach((level, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'quality-btn' + (this.hls.currentLevel === i ? ' active' : '');
+            btn.dataset.level = String(i);
+            const h = level.height || '?';
+            btn.textContent = h + 'p';
+            btn.title = `${level.width}x${level.height} (${Math.round(level.bitrate/1000)}kbps)`;
+            btn.addEventListener('click', () => this.setQuality(i));
+            options.appendChild(btn);
+        });
+    }
+
+    setQuality(level) {
+        if (!this.hls || !this.hls.levels) return;
+        this.hls.currentLevel = level;
+        const container = document.getElementById('quality-options');
+        if (!container) return;
+        container.querySelectorAll('.quality-btn').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.level) === level);
+        });
     }
 
     play() {

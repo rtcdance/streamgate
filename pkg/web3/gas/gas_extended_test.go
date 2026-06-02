@@ -13,8 +13,8 @@ import (
 )
 
 type mockGasPricer struct {
-	price    *big.Int
-	err      error
+	price     *big.Int
+	err       error
 	callCount int
 }
 
@@ -194,9 +194,9 @@ func TestGasMonitor_EstimateGasCostInEther(t *testing.T) {
 
 func TestFeeHistoryEstimator_EstimateTimes(t *testing.T) {
 	tests := []struct {
-		name      string
-		ratio     float64
-		expected  [3]string
+		name     string
+		ratio    float64
+		expected [3]string
 	}{
 		{"very_low", 0.1, [3]string{"> 60 seconds", "30-60 seconds", "< 30 seconds"}},
 		{"low", 0.4, [3]string{"> 30 seconds", "15-30 seconds", "< 15 seconds"}},

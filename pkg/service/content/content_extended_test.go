@@ -21,9 +21,9 @@ import (
 )
 
 type contentScanRowDriver struct {
-	mu          sync.Mutex
-	rows        *contentMockDriverRows
-	execResult  driver.Result
+	mu         sync.Mutex
+	rows       *contentMockDriverRows
+	execResult driver.Result
 }
 
 type contentMockDriverRows struct {

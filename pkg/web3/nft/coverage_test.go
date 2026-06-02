@@ -942,9 +942,9 @@ func TestERC20Reader_GetTokenInfo_Success(t *testing.T) {
 
 	caller := &erc20MockCaller{
 		responses: map[string][]byte{
-			common.Bytes2Hex(nameSelector):       encodeString("TestToken"),
-			common.Bytes2Hex(symbolSelector):     encodeString("TT"),
-			common.Bytes2Hex(decimalsSelector):   encodeUint256(big.NewInt(18)),
+			common.Bytes2Hex(nameSelector):        encodeString("TestToken"),
+			common.Bytes2Hex(symbolSelector):      encodeString("TT"),
+			common.Bytes2Hex(decimalsSelector):    encodeUint256(big.NewInt(18)),
 			common.Bytes2Hex(totalSupplySelector): encodeUint256(big.NewInt(1000000)),
 		},
 	}

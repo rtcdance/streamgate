@@ -13,10 +13,10 @@ import (
 )
 
 type mockServerLifecycle struct {
-	started bool
-	healthy bool
-	startErr error
-	stopErr  error
+	started   bool
+	healthy   bool
+	startErr  error
+	stopErr   error
 	healthErr error
 }
 

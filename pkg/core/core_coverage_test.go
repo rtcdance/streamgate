@@ -436,5 +436,5 @@ func (m *coreCovMockCache) Get(_ context.Context, _ string) (middleware.NFTAcces
 	return middleware.NFTAccessEntry{}, false
 }
 func (m *coreCovMockCache) Set(_ context.Context, _ string, _ middleware.NFTAccessEntry) {}
-func (m *coreCovMockCache) Delete(_ context.Context, _ string)                            {}
-func (m *coreCovMockCache) DeleteByPrefix(_ context.Context, _ string)                    {}
+func (m *coreCovMockCache) Delete(_ context.Context, _ string)                           {}
+func (m *coreCovMockCache) DeleteByPrefix(_ context.Context, _ string)                   {}

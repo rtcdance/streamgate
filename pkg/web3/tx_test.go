@@ -104,7 +104,7 @@ func TestChainClient_SendTransaction_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
-		"eth_chainId":     chainIDHandler(1),
+		"eth_chainId": chainIDHandler(1),
 		"eth_sendRawTransaction": func(req rpcRequest) rpcResponse {
 			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x" + strings.Repeat("00", 32)}
 		},

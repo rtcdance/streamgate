@@ -77,6 +77,11 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		resources.StreamingCache = streamCache
 		transcodingSvc.RegisterPostTranscodeHook(func(ctx context.Context, contentID, profile, outputURL string) {
 			streamCache.Invalidate(contentID)
+			if contentSvc != nil {
+				if err := contentSvc.UpdateContentStatus(ctx, contentID, "ready"); err != nil {
+					log.Warn("failed to update content status after transcode", zap.String("content_id", contentID), zap.Error(err))
+				}
+			}
 		})
 	}
 

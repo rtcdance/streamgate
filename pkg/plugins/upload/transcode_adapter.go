@@ -80,7 +80,7 @@ func (a *ffmpegAdapter) SelectProfiles(ctx context.Context, inputPath, requested
 	return profiles, nil
 }
 
-func (a *ffmpegAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error {
+func (a *ffmpegAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error {
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)
@@ -94,10 +94,15 @@ func (a *ffmpegAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, 
 
 	callback := func(p *transcoder.TranscodeProgress) {
 		if progressFn != nil && p != nil {
-			progressFn(p.Progress)
+			progressFn("", p.Progress)
 		}
 	}
-	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback)
+	variantFn := func(variant string, progress float64) {
+		if progressFn != nil {
+			progressFn(variant, progress)
+		}
+	}
+	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback, variantFn)
 }
 
 var _ service.VideoTranscoder = (*ffmpegAdapter)(nil)

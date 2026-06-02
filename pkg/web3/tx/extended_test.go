@@ -18,13 +18,13 @@ import (
 )
 
 type mockTxClient struct {
-	sendTxFn        func(ctx context.Context, tx *types.Transaction) error
-	estimateGasFn   func(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
-	suggestTipFn    func(ctx context.Context) (*big.Int, error)
-	getGasPriceFn   func(ctx context.Context) (*big.Int, error)
-	headerByNumFn   func(ctx context.Context, number *big.Int) (*types.Header, error)
-	receiptFn       func(ctx context.Context, hash common.Hash) (*types.Receipt, error)
-	blockNumberFn   func(ctx context.Context) (uint64, error)
+	sendTxFn      func(ctx context.Context, tx *types.Transaction) error
+	estimateGasFn func(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
+	suggestTipFn  func(ctx context.Context) (*big.Int, error)
+	getGasPriceFn func(ctx context.Context) (*big.Int, error)
+	headerByNumFn func(ctx context.Context, number *big.Int) (*types.Header, error)
+	receiptFn     func(ctx context.Context, hash common.Hash) (*types.Receipt, error)
+	blockNumberFn func(ctx context.Context) (uint64, error)
 }
 
 func (m *mockTxClient) SendTransaction(ctx context.Context, tx *types.Transaction) error {
@@ -89,8 +89,8 @@ func (mkp *mockKeyProvider) UseKey(fn func(*ecdsa.PrivateKey) error) error {
 }
 
 type mockNonceProvider struct {
-	nonce    uint64
-	nonceErr error
+	nonce     uint64
+	nonceErr  error
 	rollbacks map[string]map[uint64]struct{}
 }
 
@@ -628,8 +628,8 @@ func TestNonceManager_EvictStaleLocked(t *testing.T) {
 }
 
 type mockNonceClient struct {
-	nonce       uint64
-	getNonceFn  func(ctx context.Context, addr string) (uint64, error)
+	nonce      uint64
+	getNonceFn func(ctx context.Context, addr string) (uint64, error)
 }
 
 func (m *mockNonceClient) GetNonce(ctx context.Context, addr string) (uint64, error) {
@@ -861,12 +861,12 @@ func TestContractWriteResult_Fields(t *testing.T) {
 
 func TestContractTxOpts_Fields(t *testing.T) {
 	opts := ContractTxOpts{
-		To:       "0x1",
-		Method:   "transfer",
+		To:        "0x1",
+		Method:    "transfer",
 		ParsedABI: nil,
-		Args:     []interface{}{big.NewInt(1)},
-		Value:    big.NewInt(0),
-		GasLimit: 100000,
+		Args:      []interface{}{big.NewInt(1)},
+		Value:     big.NewInt(0),
+		GasLimit:  100000,
 	}
 	assert.Equal(t, "0x1", opts.To)
 	assert.Equal(t, "transfer", opts.Method)

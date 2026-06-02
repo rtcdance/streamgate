@@ -569,12 +569,12 @@ func TestValidateProduction(t *testing.T) {
 		for _, secret := range insecureSecrets {
 			t.Run(secret, func(t *testing.T) {
 				cfg := &Config{
-					Auth:    AuthConfig{JWTSecret: secret},
-					Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+					Auth:     AuthConfig{JWTSecret: secret},
+					Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 					Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-					Web3:    Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-					Redis:   RedisConfig{Password: "redis-pw"},
-					NATS:    NATSConfig{URL: "nats://localhost:4222"},
+					Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+					Redis:    RedisConfig{Password: "redis-pw"},
+					NATS:     NATSConfig{URL: "nats://localhost:4222"},
 				}
 				err := cfg.ValidateProduction(zap.NewNop())
 				assert.Error(t, err)
@@ -610,8 +610,8 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("private key hex invalid length", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
 			Web3: Web3Config{
 				EthereumRPC: "https://mainnet.infura.io/v3/real-key",
@@ -628,8 +628,8 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("private key hex invalid encoding", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
 			Web3: Web3Config{
 				EthereumRPC: "https://mainnet.infura.io/v3/real-key",
@@ -646,12 +646,12 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("empty redis password warning", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-			Web3:    Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:   RedisConfig{Password: ""},
-			NATS:    NATSConfig{URL: "nats://localhost:4222"},
+			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+			Redis:    RedisConfig{Password: ""},
+			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
 		assert.Error(t, err)
@@ -659,12 +659,12 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("empty NATS URL warning", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-			Web3:    Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:   RedisConfig{Password: "redis-pw"},
-			NATS:    NATSConfig{URL: ""},
+			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+			Redis:    RedisConfig{Password: "redis-pw"},
+			NATS:     NATSConfig{URL: ""},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
 		assert.Error(t, err)
@@ -672,12 +672,12 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("s3 storage with empty endpoint warning", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{Type: "s3", AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true, Endpoint: ""},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{Type: "s3", AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true, Endpoint: ""},
 			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
-			Web3:    Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:   RedisConfig{Password: "redis-pw"},
-			NATS:    NATSConfig{URL: "nats://localhost:4222"},
+			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+			Redis:    RedisConfig{Password: "redis-pw"},
+			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
 		assert.Error(t, err)
@@ -685,12 +685,12 @@ func TestValidateProduction(t *testing.T) {
 
 	t.Run("database sslmode disable warning", func(t *testing.T) {
 		cfg := &Config{
-			Auth:    AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
-			Storage: StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
+			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
+			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
 			Database: DatabaseConfig{SSLMode: "disable", Password: "secure-pw"},
-			Web3:    Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:   RedisConfig{Password: "redis-pw"},
-			NATS:    NATSConfig{URL: "nats://localhost:4222"},
+			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
+			Redis:    RedisConfig{Password: "redis-pw"},
+			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
 		assert.Error(t, err)

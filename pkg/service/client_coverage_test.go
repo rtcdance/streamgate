@@ -112,8 +112,8 @@ func TestServiceClient_GetAllServiceAddresses_DiscoverError(t *testing.T) {
 
 type errorDiscoverRegistry struct{}
 
-func (e *errorDiscoverRegistry) Register(_ context.Context, _ *ServiceInfo) error  { return nil }
-func (e *errorDiscoverRegistry) Deregister(_ context.Context, _ string) error      { return nil }
+func (e *errorDiscoverRegistry) Register(_ context.Context, _ *ServiceInfo) error { return nil }
+func (e *errorDiscoverRegistry) Deregister(_ context.Context, _ string) error     { return nil }
 func (e *errorDiscoverRegistry) Discover(_ context.Context, _ string) ([]*ServiceInfo, error) {
 	return nil, errors.New("registry unavailable")
 }

@@ -13,13 +13,13 @@ import (
 func TestInitUploadRequest_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		req := &InitUploadRequest{
-			UserId:   "u1",
-			Filename: "video.mp4",
-			FileSize: 1024000,
-			MimeType: "video/mp4",
-			Checksum: "abc123",
+			UserId:    "u1",
+			Filename:  "video.mp4",
+			FileSize:  1024000,
+			MimeType:  "video/mp4",
+			Checksum:  "abc123",
 			ChunkSize: 5,
-			Metadata: map[string]string{"key": "val"},
+			Metadata:  map[string]string{"key": "val"},
 		}
 		assert.Equal(t, "u1", req.GetUserId())
 		assert.Equal(t, "video.mp4", req.GetFilename())
@@ -91,8 +91,8 @@ func TestUploadPartRequest_Getters(t *testing.T) {
 func TestUploadPartResponse_Getters(t *testing.T) {
 	t.Run("with_values", func(t *testing.T) {
 		resp := &UploadPartResponse{
-			Success:      true,
-			Etag:         "etag1",
+			Success:       true,
+			Etag:          "etag1",
 			BytesReceived: 1024,
 		}
 		assert.True(t, resp.GetSuccess())

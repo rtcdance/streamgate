@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-streamgate}
     ports:
-      - "5432:5432"
+      - "25432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -30,7 +30,7 @@ services:
     container_name: streamgate-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "26379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -56,8 +56,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "29000:9000"
+      - "29001:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -80,8 +80,8 @@ services:
     restart: unless-stopped
     command: "-js"
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "24222:4222"
+      - "28222:8222"
     volumes:
       - nats-data:/data
     healthcheck:
@@ -104,8 +104,8 @@ services:
     restart: unless-stopped
     command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
     ports:
-      - "8500:8500"
-      - "8600:8600/udp"
+      - "28500:8500"
+      - "28600:8600/udp"
     volumes:
       - consul-data:/consul/data
     healthcheck:
@@ -132,7 +132,7 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
     ports:
-      - "9090:9090"
+      - "29090:9090"
     volumes:
       - ./deployments/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus-data:/prometheus
@@ -160,14 +160,12 @@ services:
     container_name: streamgate-grafana
     restart: unless-stopped
     environment:
-      GF_SECURITY_ADMIN_USER: "${GF_SECURITY_ADMIN_USER}"
-      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD}"
+      GF_SECURITY_ADMIN_USER: "${GF_SECURITY_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:-admin}"
     ports:
-      - "3000:3000"
+      - "23000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./deployments/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./deployments/grafana/datasources:/etc/grafana/provisioning/datasources
     depends_on:
       - prometheus
     deploy:
@@ -184,13 +182,13 @@ services:
     container_name: streamgate-jaeger
     restart: unless-stopped
     ports:
-      - "5775:5775/udp"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-      - "14268:14268"
-      - "9411:9411"
+      - "25775:5775/udp"
+      - "26831:6831/udp"
+      - "26832:6832/udp"
+      - "25778:5778"
+      - "26686:16686"
+      - "24268:14268"
+      - "29411:9411"
     environment:
       COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
     deploy:
@@ -209,25 +207,29 @@ services:
     container_name: streamgate-api-gateway
     ports:
       - "28080:8080"
-      - "29090:9090"
+      - "29091:9090"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8080
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
-      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8080
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+      - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:23000,http://localhost:28080,http://localhost:29091,http://localhost:3000,http://localhost:8080,http://localhost:18080,http://localhost:19090,http://localhost:29090
     depends_on:
       postgres:
         condition: service_healthy
@@ -240,7 +242,7 @@ services:
       consul:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       start_period: 10s
@@ -249,11 +251,11 @@ services:
     deploy:
       resources:
         limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
           memory: 512M
           cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
 
   transcoder:
     build:
@@ -261,26 +263,28 @@ services:
       dockerfile: deploy/docker/Dockerfile.transcoder
     container_name: streamgate-transcoder
     ports:
-      - "8081:8081"
-      - "9091:9091"
+      - "28081:8081"
+      - "29092:9091"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8081
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
-      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8081
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -314,26 +318,28 @@ services:
       dockerfile: deploy/docker/Dockerfile.upload
     container_name: streamgate-upload
     ports:
-      - "8082:8082"
-      - "9092:9092"
+      - "28082:8082"
+      - "29093:9092"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8082
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
-      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8082
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -367,26 +373,28 @@ services:
       dockerfile: deploy/docker/Dockerfile.streaming
     container_name: streamgate-streaming
     ports:
-      - "8083:8083"
-      - "9093:9093"
+      - "28083:8083"
+      - "29094:9093"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8083
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
-      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8083
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -420,22 +428,24 @@ services:
       dockerfile: deploy/docker/Dockerfile.metadata
     container_name: streamgate-metadata
     ports:
-      - "8084:8084"
-      - "9094:9094"
+      - "28084:8084"
+      - "29095:9094"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8084
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8084
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -467,17 +477,24 @@ services:
       dockerfile: deploy/docker/Dockerfile.cache
     container_name: streamgate-cache
     ports:
-      - "8085:8085"
-      - "9095:9095"
+      - "28085:8085"
+      - "29096:9095"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8085
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8085
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${STREAMGATE_DB_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${STREAMGATE_DB_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${STREAMGATE_DB_NAME:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       redis:
         condition: service_healthy
@@ -507,19 +524,26 @@ services:
       dockerfile: deploy/docker/Dockerfile.auth
     container_name: streamgate-auth
     ports:
-      - "8086:8086"
-      - "9096:9096"
+      - "28086:8086"
+      - "29097:9096"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8086
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
-      - ETHEREUM_RPC=${ETHEREUM_RPC:-https://mainnet.infura.io/v3/YOUR_PROJECT_ID}
-      - SOLANA_RPC=${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8086
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${STREAMGATE_DB_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${STREAMGATE_DB_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${STREAMGATE_DB_NAME:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+      - STREAMGATE_SOLANA_RPC=${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
     depends_on:
       redis:
         condition: service_healthy
@@ -549,26 +573,28 @@ services:
       dockerfile: deploy/docker/Dockerfile.worker
     container_name: streamgate-worker
     ports:
-      - "8087:8087"
-      - "9097:9097"
+      - "28087:8087"
+      - "29098:9097"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8087
-      - DATABASE_HOST=postgres
-      - DATABASE_PORT=5432
-      - DATABASE_USER=${DATABASE_USER:-postgres}
-      - DATABASE_PASSWORD=${DATABASE_PASSWORD:-postgres}
-      - DATABASE_NAME=${DATABASE_NAME:-streamgate}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - STORAGE_ENDPOINT=minio:9000
-      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
-      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
-      - STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8087
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${DATABASE_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${DATABASE_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${DATABASE_NAME:-streamgate}
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STREAMGATE_STORAGE_BUCKET=${STORAGE_BUCKET:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       postgres:
         condition: service_healthy
@@ -602,17 +628,24 @@ services:
       dockerfile: deploy/docker/Dockerfile.monitor
     container_name: streamgate-monitor
     ports:
-      - "8088:8088"
-      - "9098:9098"
+      - "28088:8088"
+      - "29099:9098"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
-      - SERVER_PORT=8088
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NATS_URL=nats://nats:4222
-      - CONSUL_HOST=consul
-      - CONSUL_PORT=8500
-      - JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JWT_SECRET=${STREAMGATE_JWT_SECRET:-sg-dev-jwt-secret-32chars-minimum!!}
+      - APP_DEBUG=true
+      - STREAMGATE_SERVER_PORT=8088
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=${STREAMGATE_DB_USER:-postgres}
+      - STREAMGATE_DB_PASSWORD=${STREAMGATE_DB_PASSWORD:-postgres}
+      - STREAMGATE_DB_NAME=${STREAMGATE_DB_NAME:-streamgate}
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
     depends_on:
       redis:
         condition: service_healthy
@@ -635,6 +668,35 @@ services:
         reservations:
           memory: 256M
           cpus: '0.25'
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: streamgate-anvil
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
+    ports:
+      - "18545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "rpc", "eth_chainId"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  h5-demo:
+    image: nginx:alpine
+    container_name: streamgate-h5-demo
+    ports:
+      - "18000:8080"
+    volumes:
+      - ./h5-demo:/usr/share/nginx/html:ro
+      - ./deploy/nginx/microservice.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres-data:

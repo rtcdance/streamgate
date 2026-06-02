@@ -711,7 +711,7 @@ func TestFFmpegTranscoder_TranscodeToHLS_NotFound(t *testing.T) {
 	cfg := &FFmpegConfig{TempDir: t.TempDir()}
 	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
 
-	err := ft.TranscodeToHLS(context.Background(), "/nonexistent.mp4", t.TempDir(), []TranscodeProfile{{Resolution: "720p", Bitrate: "2500k", Format: "hls"}}, nil)
+	err := ft.TranscodeToHLS(context.Background(), "/nonexistent.mp4", t.TempDir(), []TranscodeProfile{{Resolution: "720p", Bitrate: "2500k", Format: "hls"}}, nil, nil)
 	require.Error(t, err)
 }
 
@@ -817,7 +817,7 @@ func TestMonitorProgress_Callback(t *testing.T) {
 	require.NotNil(t, received, "callback should have been called with progress data")
 	assert.Equal(t, int64(100), received.Frame)
 	assert.Equal(t, 25.0, received.FPS)
-	assert.Equal(t, "2048.0", received.CurrentBitrate)
+	assert.Equal(t, "2048.0kbits/s", received.CurrentBitrate)
 	assert.Equal(t, "1.0", received.Speed)
 	assert.InDelta(t, 40.0, received.Progress, 0.1)
 }
@@ -946,7 +946,7 @@ func TestFFmpegTranscoder_TranscodeHLS_WithProgress(t *testing.T) {
 	cfg := &FFmpegConfig{TempDir: t.TempDir()}
 	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
 
-	err := ft.TranscodeHLS(context.Background(), "/nonexistent.mp4", t.TempDir(), "720p", func(f float64) {
+	err := ft.TranscodeHLS(context.Background(), "/nonexistent.mp4", t.TempDir(), "720p", func(_ string, f float64) {
 	})
 	require.Error(t, err)
 }
@@ -1216,4 +1216,47 @@ func TestParseBitrate_EdgeCases(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestParseProfileHeight(t *testing.T) {
+	tests := []struct {
+		name       string
+		resolution string
+		want       int
+	}{
+		{"1080p", "1920x1080", 1080},
+		{"720p", "1280x720", 720},
+		{"480p", "854x480", 480},
+		{"360p", "640x360", 360},
+		{"malformed no x", "1080", 0},
+		{"malformed bad height", "1920xabc", 0},
+		{"empty", "", 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseProfileHeight(tc.resolution)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestSelectABRProfiles_FiltersAboveSource(t *testing.T) {
+	profiles := selectABRProfiles(720)
+	assert.Len(t, profiles, 3)
+}
+
+func TestSelectABRProfiles_AllProfiles(t *testing.T) {
+	profiles := selectABRProfiles(1080)
+	assert.Len(t, profiles, 4)
+}
+
+func TestSelectABRProfiles_ProbeFallback(t *testing.T) {
+	profiles := selectABRProfiles(0)
+	assert.Len(t, profiles, 4)
+}
+
+func TestSelectABRProfiles_SourceBelow360p(t *testing.T) {
+	profiles := selectABRProfiles(240)
+	assert.Len(t, profiles, 1)
+	assert.Equal(t, "640x360", profiles[0].Resolution)
 }

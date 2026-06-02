@@ -17,27 +17,27 @@ import (
 )
 
 type mockJetStream struct {
-	publishFn          func(subj string, data []byte, opts ...nats.PubOpt) (*nats.PubAck, error)
-	publishMsgFn       func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error)
-	publishAsyncFn     func(subj string, data []byte, opts ...nats.PubOpt) (nats.PubAckFuture, error)
-	publishMsgAsyncFn  func(m *nats.Msg, opts ...nats.PubOpt) (nats.PubAckFuture, error)
-	addStreamFn        func(cfg *nats.StreamConfig, opts ...nats.JSOpt) (*nats.StreamInfo, error)
-	updateStreamFn     func(cfg *nats.StreamConfig, opts ...nats.JSOpt) (*nats.StreamInfo, error)
-	deleteStreamFn     func(name string, opts ...nats.JSOpt) error
-	streamInfoFn       func(stream string, opts ...nats.JSOpt) (*nats.StreamInfo, error)
-	purgeStreamFn      func(name string, opts ...nats.JSOpt) error
-	addConsumerFn      func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
-	updateConsumerFn   func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
-	deleteConsumerFn   func(stream, consumer string, opts ...nats.JSOpt) error
-	consumerInfoFn     func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
-	accountInfoFn      func(opts ...nats.JSOpt) (*nats.AccountInfo, error)
-	pullSubscribeFn    func(subj, durable string, opts ...nats.SubOpt) (*nats.Subscription, error)
-	subscribeFn        func(subj string, cb nats.MsgHandler, opts ...nats.SubOpt) (*nats.Subscription, error)
-	subscribeSyncFn    func(subj string, opts ...nats.SubOpt) (*nats.Subscription, error)
-	keyValueFn         func(bucket string) (nats.KeyValue, error)
-	createKeyValueFn   func(cfg *nats.KeyValueConfig) (nats.KeyValue, error)
-	deleteKeyValueFn   func(bucket string) error
-	objectStoreFn      func(bucket string) (nats.ObjectStore, error)
+	publishFn           func(subj string, data []byte, opts ...nats.PubOpt) (*nats.PubAck, error)
+	publishMsgFn        func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error)
+	publishAsyncFn      func(subj string, data []byte, opts ...nats.PubOpt) (nats.PubAckFuture, error)
+	publishMsgAsyncFn   func(m *nats.Msg, opts ...nats.PubOpt) (nats.PubAckFuture, error)
+	addStreamFn         func(cfg *nats.StreamConfig, opts ...nats.JSOpt) (*nats.StreamInfo, error)
+	updateStreamFn      func(cfg *nats.StreamConfig, opts ...nats.JSOpt) (*nats.StreamInfo, error)
+	deleteStreamFn      func(name string, opts ...nats.JSOpt) error
+	streamInfoFn        func(stream string, opts ...nats.JSOpt) (*nats.StreamInfo, error)
+	purgeStreamFn       func(name string, opts ...nats.JSOpt) error
+	addConsumerFn       func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
+	updateConsumerFn    func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
+	deleteConsumerFn    func(stream, consumer string, opts ...nats.JSOpt) error
+	consumerInfoFn      func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error)
+	accountInfoFn       func(opts ...nats.JSOpt) (*nats.AccountInfo, error)
+	pullSubscribeFn     func(subj, durable string, opts ...nats.SubOpt) (*nats.Subscription, error)
+	subscribeFn         func(subj string, cb nats.MsgHandler, opts ...nats.SubOpt) (*nats.Subscription, error)
+	subscribeSyncFn     func(subj string, opts ...nats.SubOpt) (*nats.Subscription, error)
+	keyValueFn          func(bucket string) (nats.KeyValue, error)
+	createKeyValueFn    func(cfg *nats.KeyValueConfig) (nats.KeyValue, error)
+	deleteKeyValueFn    func(bucket string) error
+	objectStoreFn       func(bucket string) (nats.ObjectStore, error)
 	createObjectStoreFn func(cfg *nats.ObjectStoreConfig) (nats.ObjectStore, error)
 	deleteObjectStoreFn func(bucket string) error
 }
@@ -66,9 +66,9 @@ func (m *mockJetStream) PublishMsgAsync(msg *nats.Msg, opts ...nats.PubOpt) (nat
 	}
 	return nil, nil
 }
-func (m *mockJetStream) PublishAsyncPending() int          { return 0 }
+func (m *mockJetStream) PublishAsyncPending() int              { return 0 }
 func (m *mockJetStream) PublishAsyncComplete() <-chan struct{} { return nil }
-func (m *mockJetStream) CleanupPublisher()                 {}
+func (m *mockJetStream) CleanupPublisher()                     {}
 
 func (m *mockJetStream) Subscribe(subj string, cb nats.MsgHandler, opts ...nats.SubOpt) (*nats.Subscription, error) {
 	if m.subscribeFn != nil {
@@ -140,8 +140,10 @@ func (m *mockJetStream) GetMsg(name string, seq uint64, opts ...nats.JSOpt) (*na
 func (m *mockJetStream) GetLastMsg(name, subject string, opts ...nats.JSOpt) (*nats.RawStreamMsg, error) {
 	return nil, nil
 }
-func (m *mockJetStream) DeleteMsg(name string, seq uint64, opts ...nats.JSOpt) error   { return nil }
-func (m *mockJetStream) SecureDeleteMsg(name string, seq uint64, opts ...nats.JSOpt) error { return nil }
+func (m *mockJetStream) DeleteMsg(name string, seq uint64, opts ...nats.JSOpt) error { return nil }
+func (m *mockJetStream) SecureDeleteMsg(name string, seq uint64, opts ...nats.JSOpt) error {
+	return nil
+}
 func (m *mockJetStream) AddConsumer(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
 	if m.addConsumerFn != nil {
 		return m.addConsumerFn(stream, cfg, opts...)
@@ -166,9 +168,13 @@ func (m *mockJetStream) ConsumerInfo(stream, name string, opts ...nats.JSOpt) (*
 	}
 	return &nats.ConsumerInfo{}, nil
 }
-func (m *mockJetStream) ConsumersInfo(stream string, opts ...nats.JSOpt) <-chan *nats.ConsumerInfo { return nil }
-func (m *mockJetStream) Consumers(stream string, opts ...nats.JSOpt) <-chan *nats.ConsumerInfo     { return nil }
-func (m *mockJetStream) ConsumerNames(stream string, opts ...nats.JSOpt) <-chan string             { return nil }
+func (m *mockJetStream) ConsumersInfo(stream string, opts ...nats.JSOpt) <-chan *nats.ConsumerInfo {
+	return nil
+}
+func (m *mockJetStream) Consumers(stream string, opts ...nats.JSOpt) <-chan *nats.ConsumerInfo {
+	return nil
+}
+func (m *mockJetStream) ConsumerNames(stream string, opts ...nats.JSOpt) <-chan string { return nil }
 func (m *mockJetStream) AccountInfo(opts ...nats.JSOpt) (*nats.AccountInfo, error) {
 	if m.accountInfoFn != nil {
 		return m.accountInfoFn(opts...)
@@ -197,7 +203,7 @@ func (m *mockJetStream) DeleteKeyValue(bucket string) error {
 	}
 	return nil
 }
-func (m *mockJetStream) KeyValueStoreNames() <-chan string    { return nil }
+func (m *mockJetStream) KeyValueStoreNames() <-chan string          { return nil }
 func (m *mockJetStream) KeyValueStores() <-chan nats.KeyValueStatus { return nil }
 
 func (m *mockJetStream) ObjectStore(bucket string) (nats.ObjectStore, error) {
@@ -218,8 +224,10 @@ func (m *mockJetStream) DeleteObjectStore(bucket string) error {
 	}
 	return nil
 }
-func (m *mockJetStream) ObjectStoreNames(opts ...nats.ObjectOpt) <-chan string      { return nil }
-func (m *mockJetStream) ObjectStores(opts ...nats.ObjectOpt) <-chan nats.ObjectStoreStatus { return nil }
+func (m *mockJetStream) ObjectStoreNames(opts ...nats.ObjectOpt) <-chan string { return nil }
+func (m *mockJetStream) ObjectStores(opts ...nats.ObjectOpt) <-chan nats.ObjectStoreStatus {
+	return nil
+}
 
 func TestNATSTranscodingQueue_GetStatus_NotFound(t *testing.T) {
 	q := &NATSTranscodingQueue{

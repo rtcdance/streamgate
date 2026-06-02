@@ -17,42 +17,42 @@ import (
 )
 
 type (
-	SolanaVerifier    = solana.SolanaVerifier
-	MetaplexMetadata  = solana.MetaplexMetadata
-	EIP712TypedData   = signature.EIP712TypedData
-	EIP712Domain      = signature.EIP712Domain
-	EIP712Types       = signature.EIP712Types
-	SignatureVerifier = signature.SignatureVerifier
-	WalletManager     = signature.WalletManager
-	SecurePrivateKey  = signature.SecurePrivateKey
-	SIWEMessage       = signature.SIWEMessage
-	SIWEMessageOption = signature.SIWEMessageOption
-	EIP712Verifier    = signature.EIP712Verifier
-	EthCaller         = nft.EthCaller
-	BlockTagCaller    = nft.BlockTagCaller
-	NFTVerifier       = nft.NFTVerifier
-	NFTInfo           = nft.NFTInfo
-	ApprovalInfo      = nft.ApprovalInfo
-	TokenStandard     = nft.TokenStandard
-	ERC1155Verifier   = nft.ERC1155Verifier
-	ERC20Reader       = nft.ERC20Reader
-	ERC20TokenInfo    = nft.ERC20TokenInfo
-	BlockTag            = nft.BlockTag
-	PendingTx           = tx.PendingTx
-	TrackedTx           = tx.TrackedTx
-	TxStatus            = tx.TxStatus
-	ContractWriteResult = tx.ContractWriteResult
-	ContractTxOpts      = tx.ContractTxOpts
-	ContractWriter      = tx.ContractWriter
-	ContractWriterConfig = tx.ContractWriterConfig
-	KeyProvider         = tx.KeyProvider
-	NonceProvider       = tx.NonceProvider
-	NonceClient         = tx.NonceClient
-	NonceManager        = tx.NonceManager
-	TxTracker           = tx.TxTracker
-	TxLifecycleManager  = tx.TxLifecycleManager
-	TxLifecycleConfig   = tx.TxLifecycleConfig
-	TxClient            = tx.Client
+	SolanaVerifier          = solana.SolanaVerifier
+	MetaplexMetadata        = solana.MetaplexMetadata
+	EIP712TypedData         = signature.EIP712TypedData
+	EIP712Domain            = signature.EIP712Domain
+	EIP712Types             = signature.EIP712Types
+	SignatureVerifier       = signature.SignatureVerifier
+	WalletManager           = signature.WalletManager
+	SecurePrivateKey        = signature.SecurePrivateKey
+	SIWEMessage             = signature.SIWEMessage
+	SIWEMessageOption       = signature.SIWEMessageOption
+	EIP712Verifier          = signature.EIP712Verifier
+	EthCaller               = nft.EthCaller
+	BlockTagCaller          = nft.BlockTagCaller
+	NFTVerifier             = nft.NFTVerifier
+	NFTInfo                 = nft.NFTInfo
+	ApprovalInfo            = nft.ApprovalInfo
+	TokenStandard           = nft.TokenStandard
+	ERC1155Verifier         = nft.ERC1155Verifier
+	ERC20Reader             = nft.ERC20Reader
+	ERC20TokenInfo          = nft.ERC20TokenInfo
+	BlockTag                = nft.BlockTag
+	PendingTx               = tx.PendingTx
+	TrackedTx               = tx.TrackedTx
+	TxStatus                = tx.TxStatus
+	ContractWriteResult     = tx.ContractWriteResult
+	ContractTxOpts          = tx.ContractTxOpts
+	ContractWriter          = tx.ContractWriter
+	ContractWriterConfig    = tx.ContractWriterConfig
+	KeyProvider             = tx.KeyProvider
+	NonceProvider           = tx.NonceProvider
+	NonceClient             = tx.NonceClient
+	NonceManager            = tx.NonceManager
+	TxTracker               = tx.TxTracker
+	TxLifecycleManager      = tx.TxLifecycleManager
+	TxLifecycleConfig       = tx.TxLifecycleConfig
+	TxClient                = tx.Client
 	ContractInteractor      = contract.ContractInteractor
 	ContractContentRegistry = contract.ContractContentRegistry
 	ContentInfo             = contract.ContentInfo
@@ -71,21 +71,21 @@ type (
 )
 
 const (
-	TokenStandardUnknown = nft.TokenStandardUnknown
-	TokenStandardERC721  = nft.TokenStandardERC721
-	TokenStandardERC1155 = nft.TokenStandardERC1155
-	BlockTagLatest       = nft.BlockTagLatest
-	BlockTagSafe         = nft.BlockTagSafe
-	BlockTagFinalized    = nft.BlockTagFinalized
-	ContentRegistryABI   = contract.ContentRegistryABI
+	TokenStandardUnknown    = nft.TokenStandardUnknown
+	TokenStandardERC721     = nft.TokenStandardERC721
+	TokenStandardERC1155    = nft.TokenStandardERC1155
+	BlockTagLatest          = nft.BlockTagLatest
+	BlockTagSafe            = nft.BlockTagSafe
+	BlockTagFinalized       = nft.BlockTagFinalized
+	ContentRegistryABI      = contract.ContentRegistryABI
 	ContentRegistryBytecode = contract.ContentRegistryBytecode
-	ERC721ABI            = contract.ERC721ABI
-	Multicall3ABI        = contract.Multicall3ABI
+	ERC721ABI               = contract.ERC721ABI
+	Multicall3ABI           = contract.Multicall3ABI
 )
 
 var (
-	ERC20ABI          = nft.ERC20ABI
-	BalanceOfABIJSON  = contract.BalanceOfABIJSON
+	ERC20ABI         = nft.ERC20ABI
+	BalanceOfABIJSON = contract.BalanceOfABIJSON
 )
 
 const PermitABI = nft.PermitABI

@@ -43,7 +43,7 @@ contract StreamNFT is ERC721, ERC721URIStorage, ERC721Burnable, Ownable {
     function mintStreamNFT(
         address to,
         string calldata contentId,
-        string calldata tokenURI,
+        string calldata uri_,
         string calldata streamURL,
         uint256 duration,
         uint256 qualityBitrate,
@@ -58,7 +58,7 @@ contract StreamNFT is ERC721, ERC721URIStorage, ERC721Burnable, Ownable {
 
         uint256 tokenId = ++_nextTokenId;
         _safeMint(to, tokenId);
-        _setTokenURI(tokenId, tokenURI);
+        _setTokenURI(tokenId, uri_);
 
         _streamMetadata[tokenId] = StreamMetadata({
             contentId: contentId,

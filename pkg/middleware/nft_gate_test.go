@@ -605,8 +605,8 @@ func TestNFTGateMiddleware_NftGateDeniedWithMarketplaceURL(t *testing.T) {
 				return false, nil
 			},
 		},
-		DefaultChainID:   1,
-		MarketplaceURL:   "https://market.example.com/{contract}/{token_id}",
+		DefaultChainID: 1,
+		MarketplaceURL: "https://market.example.com/{contract}/{token_id}",
 	}
 	router := setupNFTGateRouter(&config)
 
