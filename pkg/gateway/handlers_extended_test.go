@@ -467,7 +467,11 @@ func TestNFTExt_VerifyEndpoint_VerifyError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, APIPrefix+"/nft/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["has_nft"])
+	assert.Equal(t, "0", resp["balance"])
 }
 
 func TestNFTExt_VerifyEndpoint_BalanceError(t *testing.T) {
@@ -486,7 +490,11 @@ func TestNFTExt_VerifyEndpoint_BalanceError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, APIPrefix+"/nft/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, false, resp["has_nft"])
+	assert.Equal(t, "0", resp["balance"])
 }
 
 func TestNFTExt_ChainIDOverride(t *testing.T) {
