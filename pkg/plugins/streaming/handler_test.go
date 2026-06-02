@@ -306,7 +306,7 @@ func TestStreamingPlugin_DependsOn(t *testing.T) {
 	plugin := NewStreamingPlugin(cfg, zap.NewNop())
 
 	deps := plugin.DependsOn()
-	assert.Nil(t, deps)
+	assert.Equal(t, []string{"api-gateway"}, deps)
 }
 
 func TestStreamingPlugin_Stop_NoServer(t *testing.T) {

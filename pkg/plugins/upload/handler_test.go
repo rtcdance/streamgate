@@ -723,7 +723,7 @@ type mockPluginWithHealth struct {
 	healthErr error
 }
 
-func (m *mockPluginWithHealth) Name() string                                      { return "unhealthy" }
+func (m *mockPluginWithHealth) Name() string                                      { return "api-gateway" }
 func (m *mockPluginWithHealth) Version() string                                   { return "1.0.0" }
 func (m *mockPluginWithHealth) Init(_ context.Context, _ *core.Microkernel) error { return nil }
 func (m *mockPluginWithHealth) Start(_ context.Context) error                     { return nil }
