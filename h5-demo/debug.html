@@ -132,9 +132,9 @@ h1{font-size:20px;margin-bottom:4px}
 </div>
 
 <script>
-const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
+const API = localStorage.getItem('sg_backend') || '';
 const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
-const JWT_SECRET = 'fullchain-acceptance-secret';
+const JWT_SECRET = localStorage.getItem('sg_jwt_secret') || 'fullchain-acceptance-secret';
 let TOKEN = null;
 
 // ---- helpers ----
