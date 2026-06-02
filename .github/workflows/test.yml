@@ -14,7 +14,7 @@ permissions:
 
 env:
   GO_VERSION: '1.24'
-  GOPROXY: 'https://proxy.golang.org,https://goproxy.io,direct'
+  GOPROXY: 'https://proxy.golang.org,direct'
   GONOSUMDB: 'gonum.org/*'
   GONOSUMCHECK: 'gonum.org/*'
 
