@@ -425,7 +425,9 @@ func (ei *EventIndexer) indexingLoop(ctx context.Context) {
 			ei.mode = mode
 			ei.mu.Unlock()
 			ei.logger.Info("Event indexer mode changed", zap.String("mode", mode))
-			ei.indexEvents(ctx)
+			if err := ei.indexEvents(ctx); err != nil {
+				ei.logger.Warn("Index events failed", zap.Error(err))
+			}
 		case <-ei.stopChan:
 			ei.logger.Info("Event indexing loop stopped")
 			return
