@@ -113,8 +113,8 @@ select.input{width:auto;min-width:160px}
 </div>
 
 <script>
-const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
-const JWT_SECRET = 'fullchain-acceptance-secret';
+const API = localStorage.getItem('sg_backend') || '';
+const JWT_SECRET = localStorage.getItem('sg_jwt_secret') || 'fullchain-acceptance-secret';
 let cachedToken = null;
 
 async function getToken() {
