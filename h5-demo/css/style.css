@@ -446,6 +446,56 @@ body {
     margin-top: 12px;
 }
 
+.quality-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.75);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    font-size: 13px;
+    backdrop-filter: blur(4px);
+}
+
+.quality-label {
+    color: rgba(255,255,255,0.6);
+    white-space: nowrap;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+
+.quality-options {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.quality-btn {
+    padding: 5px 14px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all .15s ease;
+}
+
+.quality-btn:hover {
+    border-color: rgba(255,255,255,0.4);
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+
+.quality-btn.active {
+    background: #fff;
+    border-color: #fff;
+    color: #000;
+}
+
 .demo-list {
     display: grid;
     gap: 10px;
@@ -723,6 +773,18 @@ body {
 
 .hidden {
     display: none !important;
+}
+
+.progress-waiting {
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-deep) 50%, var(--primary) 100%) !important;
+    background-size: 200% 100% !important;
+    animation: progressPulse 1.5s ease infinite !important;
+}
+
+@keyframes progressPulse {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 100% 0%; }
+    100% { background-position: 0% 0%; }
 }
 
 @media (min-width: 900px) {

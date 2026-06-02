@@ -146,10 +146,10 @@ func TestGweiToWei_Table(t *testing.T) {
 
 func TestIsNonceError_Table(t *testing.T) {
 	tests := []struct {
-		name                string
-		err                 error
-		expectNonceTooLow   bool
-		expectFeeTooLow     bool
+		name              string
+		err               error
+		expectNonceTooLow bool
+		expectFeeTooLow   bool
 	}{
 		{"nonce too low", fmt.Errorf("nonce too low for account"), true, false},
 		{"replacement fee too low", fmt.Errorf("replacement fee too low"), false, true},

@@ -91,7 +91,7 @@ func TestExtractPlaybackToken(t *testing.T) {
 	}{
 		{"bearer token", "Bearer my-token", "", "my-token"},
 		{"query param", "", "my-token", "my-token"},
-		{"bearer takes precedence", "Bearer bearer-tok", "query-tok", "bearer-tok"},
+		{"query takes precedence over bearer", "Bearer bearer-tok", "query-tok", "query-tok"},
 		{"no token", "", "", ""},
 		{"non-bearer auth", "Basic dXNlcjpwYXNz", "", ""},
 	}

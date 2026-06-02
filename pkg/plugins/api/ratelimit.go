@@ -132,7 +132,6 @@ func (r *RateLimiter) Allow(clientIP string) bool {
 	})
 
 	b := val.(*bucket)
-	
 
 	if !loaded {
 		r.cleanupMu.Lock()

@@ -818,5 +818,3 @@ func TestStreamingService_GetStreamByID_NilCache_NoPanic(t *testing.T) {
 	assert.Equal(t, "s1", stream.ID)
 	assert.Len(t, stream.Qualities, 0)
 }
-
-

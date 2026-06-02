@@ -294,18 +294,53 @@ func (s *TranscodingService) recoverStuckTasks(log *zap.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	result, err := s.db.Exec(ctx,
+	rows, err := s.db.Query(ctx,
+		"SELECT id, content_id, profile, input_url, priority, owner_wallet FROM transcoding_tasks WHERE status = 'processing' AND started_at < $1",
+		time.Now().Add(-stuckTaskTimeout))
+	if err != nil {
+		if log != nil {
+			log.Error("Failed to query stuck transcoding tasks", zap.Error(err))
+		}
+		return
+	}
+	defer rows.Close()
+
+	var recovered []*TranscodingTask
+	for rows.Next() {
+		var t TranscodingTask
+		if err := rows.Scan(&t.ID, &t.ContentID, &t.Profile, &t.InputURL, &t.Priority, &t.OwnerWallet); err != nil {
+			continue
+		}
+		t.Status = "pending"
+		t.Metadata = make(map[string]interface{})
+		recovered = append(recovered, &t)
+	}
+
+	if len(recovered) == 0 {
+		return
+	}
+
+	_, err = s.db.Exec(ctx,
 		"UPDATE transcoding_tasks SET status = 'pending', started_at = NULL WHERE status = 'processing' AND started_at < $1",
 		time.Now().Add(-stuckTaskTimeout))
 	if err != nil {
 		if log != nil {
-			log.Error("Failed to recover stuck transcoding tasks", zap.Error(err))
+			log.Error("Failed to reset stuck transcoding tasks", zap.Error(err))
 		}
 		return
 	}
-	if rows, _ := result.RowsAffected(); rows > 0 {
-		if log != nil {
-			log.Info("Recovered stuck transcoding tasks", zap.Int64("count", rows))
+
+	if log != nil {
+		log.Info("Recovered stuck transcoding tasks", zap.Int("count", len(recovered)))
+	}
+
+	if s.queue != nil {
+		for _, t := range recovered {
+			if qErr := s.queue.Enqueue(t); qErr != nil {
+				if log != nil {
+					log.Warn("Failed to re-enqueue recovered task", zap.String("task_id", t.ID), zap.Error(qErr))
+				}
+			}
 		}
 	}
 }
@@ -498,9 +533,12 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	}()
 
 	// Build profile string from task profile name
+	// "abr" maps to multi-resolution transcoding handled by FFmpegTranscoder
 	profile := task.Profile
-	if _, ok := DefaultProfiles[profile]; !ok {
-		profile = "720p"
+	if profile != "abr" {
+		if _, ok := DefaultProfiles[profile]; !ok {
+			profile = "720p"
+		}
 	}
 
 	// Resolve input: download HTTP URLs to a local temp file so FFmpeg
@@ -521,19 +559,51 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	}
 
 	var lastDBProgress int
-	err = s.transcoder.TranscodeHLS(taskCtx, inputPath, outputDir, profile, func(progress float64) {
-		task.Progress = int(progress)
+	err = s.transcoder.TranscodeHLS(taskCtx, inputPath, outputDir, profile, func(variant string, progress float64) {
+		if variant != "" {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			vp, _ := task.Metadata["variant_progress"].(map[string]interface{})
+			if vp == nil {
+				vp = make(map[string]interface{})
+				task.Metadata["variant_progress"] = vp
+			}
+			vp[variant] = int(progress)
+			total := 0
+			count := 0
+			for _, v := range vp {
+				if f, ok := v.(int); ok {
+					total += f
+					count++
+				}
+			}
+			if count > 0 {
+				task.Progress = total / count
+			}
+		} else {
+			task.Progress = int(progress)
+		}
 		s.storeTask(task)
 		if s.log != nil {
 			s.log.Debug("transcode progress",
 				zap.String("task_id", task.ID),
+				zap.String("variant", variant),
 				zap.Float64("progress_pct", progress),
 				zap.Int("task_progress", task.Progress))
 		}
-		if s.db != nil && task.Progress-lastDBProgress >= 5 {
+		if s.db != nil && variant != "" {
+			metadataJSON, _ := json.Marshal(task.Metadata)
+			if _, err := s.db.Exec(context.Background(),
+				"UPDATE transcoding_tasks SET progress = $2, metadata = $3 WHERE id = $1", task.ID, task.Progress, metadataJSON); err != nil && s.log != nil {
+				s.log.Warn("failed to update variant progress in DB", zap.String("task_id", task.ID), zap.Error(err))
+			}
+		} else if s.db != nil && task.Progress-lastDBProgress >= 5 {
 			lastDBProgress = task.Progress
-			_, _ = s.db.Exec(context.Background(),
-				"UPDATE transcoding_tasks SET progress = $2 WHERE id = $1", task.ID, task.Progress)
+			if _, err := s.db.Exec(context.Background(),
+				"UPDATE transcoding_tasks SET progress = $2 WHERE id = $1", task.ID, task.Progress); err != nil && s.log != nil {
+				s.log.Warn("failed to update progress in DB", zap.String("task_id", task.ID), zap.Error(err))
+			}
 		}
 	})
 
@@ -593,6 +663,8 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 		contentType string
 	}
 
+	abrMode := profile == "abr"
+
 	var jobs []uploadJob
 	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -602,7 +674,14 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 		if err != nil {
 			return err
 		}
-		objectKey := fmt.Sprintf("streams/%s/%s/%s", contentID, profile, relPath)
+		// In ABR mode, organize files by resolution extracted from filename.
+		// FFmpegTranscoder outputs files named {resolution}.m3u8 and {resolution}_{seq}.ts
+		// (e.g. 1280x720.m3u8, 1280x720_000.ts, master.m3u8).
+		subdir := profile
+		if abrMode {
+			subdir = extractResolutionPrefix(relPath)
+		}
+		objectKey := fmt.Sprintf("streams/%s/%s/%s", contentID, subdir, relPath)
 
 		contentType := "application/octet-stream"
 		if strings.HasSuffix(path, ".m3u8") {
@@ -678,6 +757,33 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 
 	uploadWg.Wait()
 	return uploadErr
+}
+
+// extractResolutionPrefix extracts the resolution subdirectory from an ABR
+// output filename. FFmpegTranscoder outputs files like "1280x720_000.ts"
+// or "1280x720.m3u8". The resolution prefix is used as the quality subdirectory.
+// Returns the original filename unchanged for non-resolution files like "master.m3u8".
+func extractResolutionPrefix(filename string) string {
+	sep := strings.IndexAny(filename, "_.")
+	if sep <= 0 {
+		return filename
+	}
+	resolution := filename[:sep]
+	if idx := strings.IndexByte(resolution, 'x'); idx <= 0 || idx == len(resolution)-1 {
+		return filename
+	}
+	parts := strings.SplitN(resolution, "x", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return filename
+	}
+	for _, p := range parts {
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return filename
+			}
+		}
+	}
+	return resolution
 }
 
 func (s *TranscodingService) extractAndUploadThumbnail(ctx context.Context, inputPath, contentID string) {
@@ -764,7 +870,7 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 // VideoTranscoder defines the interface for video transcoding operations.
 // Implemented by FFmpegTranscoder in pkg/plugins/transcoder.
 type VideoTranscoder interface {
-	TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(progress float64)) error
+	TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error
 }
 
 // SegmentStorage defines the object storage operations needed by TranscodingService.
@@ -842,7 +948,7 @@ var DefaultProfiles = map[string]TranscodingProfile{
 // Transcode creates a transcoding task
 func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, inputURL string, priority int, ownerWallet string) (string, error) {
 	// Validate profile
-	if _, exists := DefaultProfiles[profile]; !exists {
+	if _, exists := DefaultProfiles[profile]; !exists && profile != "abr" {
 		return "", fmt.Errorf("invalid profile: %s", profile)
 	}
 
@@ -943,10 +1049,23 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 		task.CompletedAt = &completedAt.Time
 	}
 
-	// Parse metadata
+	// Parse metadata from DB
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &task.Metadata); err != nil {
 			return nil, fmt.Errorf("failed to parse metadata: %w", err)
+		}
+	}
+
+	// Merge live variant_progress from in-memory store (DB metadata is stale during processing)
+	if memTask, memErr := s.getTask(taskID); memErr == nil && memTask.Metadata != nil {
+		if vp, ok := memTask.Metadata["variant_progress"]; ok {
+			if task.Metadata == nil {
+				task.Metadata = make(map[string]interface{})
+			}
+			task.Metadata["variant_progress"] = vp
+			if task.Status == "processing" {
+				task.Progress = memTask.Progress
+			}
 		}
 	}
 
@@ -1029,6 +1148,13 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 			task.OutputURL = outputURL
 			now := time.Now()
 			task.CompletedAt = &now
+			if task.Metadata != nil {
+				if vp, ok := task.Metadata["variant_progress"].(map[string]interface{}); ok {
+					for variant := range vp {
+						vp[variant] = 100
+					}
+				}
+			}
 		})
 	}
 
@@ -1045,10 +1171,32 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 			return fmt.Errorf("invalid task state transition: %s -> completed", currentStatus)
 		}
 
-		if _, err := tx.ExecContext(ctx,
-			"UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5 WHERE id = $1 AND status = 'processing'",
-			taskID, "completed", 100, outputURL, time.Now()); err != nil {
-			return fmt.Errorf("failed to complete task: %w", err)
+		var metadataJSON []byte
+		if memTask, memErr := s.getTask(taskID); memErr == nil && memTask.Metadata != nil {
+			finalMeta := make(map[string]interface{})
+			for k, v := range memTask.Metadata {
+				finalMeta[k] = v
+			}
+			if vp, ok := finalMeta["variant_progress"].(map[string]interface{}); ok {
+				for variant := range vp {
+					vp[variant] = 100
+				}
+			}
+			metadataJSON, _ = json.Marshal(finalMeta)
+		}
+
+		if metadataJSON != nil {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5, metadata = $6 WHERE id = $1 AND status = 'processing'",
+				taskID, "completed", 100, outputURL, time.Now(), metadataJSON); err != nil {
+				return fmt.Errorf("failed to complete task: %w", err)
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5 WHERE id = $1 AND status = 'processing'",
+				taskID, "completed", 100, outputURL, time.Now()); err != nil {
+				return fmt.Errorf("failed to complete task: %w", err)
+			}
 		}
 
 		if contentID != "" {
@@ -1128,16 +1276,34 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 		return s.listTasks(contentID, ownerWallet, limit, offset), nil
 	}
 
-	query := `
+	baseQuery := `
 		SELECT id, content_id, profile, status, progress, input_url, output_url,
 		       error, priority, created_at, started_at, completed_at, metadata, owner_wallet
 		FROM transcoding_tasks
-		WHERE content_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
 	`
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
 
-	rows, err := s.db.Query(ctx, query, contentID, limit, offset)
+	if contentID != "" {
+		conditions = append(conditions, fmt.Sprintf("content_id = $%d", argIdx))
+		args = append(args, contentID)
+		argIdx++
+	}
+	if ownerWallet != "" {
+		conditions = append(conditions, fmt.Sprintf("owner_wallet = $%d", argIdx))
+		args = append(args, ownerWallet)
+		argIdx++
+	}
+
+	query := baseQuery
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query tasks: %w", err)
 	}

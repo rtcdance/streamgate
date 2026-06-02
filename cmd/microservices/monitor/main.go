@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,7 +33,15 @@ func main() {
 	cfg.Mode = "microservice"
 	cfg.ServiceName = "monitor"
 	if err := cfg.ValidateProduction(log); err != nil {
-		log.Fatal("Production config validation failed", zap.Error(err))
+		var ve *config.ValidationError
+		if errors.As(err, &ve) && ve.HasCritical() {
+			log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", ve.Critical))
+		}
+		if cfg.Debug {
+			log.Warn("Production config validation failed (debug mode, continuing anyway)", zap.Error(err))
+		} else {
+			log.Fatal("Config validation failed", zap.Error(err))
+		}
 	}
 	log.Info("Configuration loaded",
 		zap.String("mode", cfg.Mode),

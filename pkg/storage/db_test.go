@@ -13,12 +13,12 @@ import (
 )
 
 type mockDB struct {
-	pingErr   error
-	queryFn   func(ctx context.Context, query string, args ...interface{}) (Rows, error)
+	pingErr    error
+	queryFn    func(ctx context.Context, query string, args ...interface{}) (Rows, error)
 	queryRowFn func(ctx context.Context, query string, args ...interface{}) *CancelRow
-	execFn    func(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
-	beginFn   func(ctx context.Context) (*sql.Tx, error)
-	inTxFn    func(ctx context.Context, fn func(tx *sql.Tx) error) error
+	execFn     func(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	beginFn    func(ctx context.Context) (*sql.Tx, error)
+	inTxFn     func(ctx context.Context, fn func(tx *sql.Tx) error) error
 }
 
 func (m *mockDB) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {

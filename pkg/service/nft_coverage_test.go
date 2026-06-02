@@ -19,9 +19,9 @@ import (
 )
 
 type nftCovEthCaller struct {
-	mu          sync.RWMutex
+	mu             sync.RWMutex
 	callContractFn func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
-	codeAtFn      func(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error)
+	codeAtFn       func(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error)
 }
 
 func (m *nftCovEthCaller) CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
@@ -391,8 +391,8 @@ func TestNFTCov_NewNFTService_DialError(t *testing.T) {
 
 type nftCovErrorCache struct{}
 
-func (c *nftCovErrorCache) Get(_ string) (interface{}, error)          { return nil, errors.New("cache error") }
-func (c *nftCovErrorCache) Set(_ string, _ interface{}) error          { return errors.New("cache error") }
+func (c *nftCovErrorCache) Get(_ string) (interface{}, error) { return nil, errors.New("cache error") }
+func (c *nftCovErrorCache) Set(_ string, _ interface{}) error { return errors.New("cache error") }
 func (c *nftCovErrorCache) SetWithExpiration(_ string, _ interface{}, _ time.Duration) error {
 	return errors.New("cache error")
 }

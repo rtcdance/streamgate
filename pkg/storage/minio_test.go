@@ -14,8 +14,8 @@ import (
 
 func TestDetectContentTypeByExt(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     string
+		name     string
+		input    string
 		wantMime string
 	}{
 		{"mp4", "video.mp4", "video/mp4"},

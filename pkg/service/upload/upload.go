@@ -99,7 +99,7 @@ func (s *UploadService) RegisterAutoTranscodeHook(deps AutoTranscodeHookDeps) {
 	}
 	profiles := deps.Profiles
 	if len(profiles) == 0 {
-		profiles = []string{"720p"}
+		profiles = []string{"abr"}
 	}
 	s.RegisterPostUploadHook(func(ctx context.Context, uploadID, contentID, ownerID string) {
 		upload, err := s.GetUploadStatus(ctx, uploadID)

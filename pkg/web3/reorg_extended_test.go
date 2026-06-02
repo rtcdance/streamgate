@@ -277,8 +277,8 @@ func TestFinalityDefault_IsFinalized(t *testing.T) {
 	header100 := makeHeader(100, "0xaaa", "0x999")
 	mock := &mockHeaderReader{
 		headers: map[int64]*types.Header{
-			-1:   makeHeader(115, "0xccc", "0xbbb"),
-			100:  header100,
+			-1:  makeHeader(115, "0xccc", "0xbbb"),
+			100: header100,
 		},
 	}
 

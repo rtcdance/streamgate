@@ -177,15 +177,58 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		segBucket = bucket[0]
 	}
 	router.GET(APIPrefix+"/streaming/:id/manifest.m3u8", func(c *gin.Context) {
-		wallet := middleware.GetWalletAddress(c)
-		contract := middleware.GetNFTContract(c)
-		chainID, _ := c.Get("nft_chain_id")
-		tokenID := c.Query("token_id")
 		contentID := c.Param("id")
 		if !isValidContentID(contentID) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
 			return
 		}
+
+		playbackToken := extractPlaybackToken(c)
+		var quality string
+		quality = c.Query("quality")
+
+		if playbackToken != "" && quality != "" {
+			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, c.GetHeader("X-Client-Fingerprint"))
+			if validateErr != nil {
+				middleware.GetLogger(c, log).Warn("playback token validation failed for sub-manifest",
+					zap.String("content_id", contentID),
+					zap.Error(validateErr))
+				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
+				return
+			}
+			_ = claims
+
+			if limiter != nil && !limiter.tryAcquire() {
+				c.Header("Retry-After", "1")
+				abortWithError(c, http.StatusServiceUnavailable, ErrStreamLimitReached, "too many concurrent streams")
+				return
+			}
+			if limiter != nil {
+				defer limiter.release()
+			}
+
+			var qualitySegments map[string][]string
+			if cached, ok := cache.GetSegmentIndex(contentID); ok {
+				qualitySegments = cached
+			} else {
+				qualitySegments = make(map[string][]string)
+			}
+			segs, ok := qualitySegments[quality]
+			if !ok {
+				abortWithError(c, http.StatusNotFound, ErrContentNotFound, "quality not found")
+				return
+			}
+			manifest := service.BuildMediaPlaylist(contentID, quality, segs, playbackToken)
+			c.Header("Content-Type", "application/vnd.apple.mpegurl")
+			c.Header("Cache-Control", "private, max-age=30")
+			c.String(http.StatusOK, manifest)
+			return
+		}
+
+		wallet := middleware.GetWalletAddress(c)
+		contract := middleware.GetNFTContract(c)
+		chainID, _ := c.Get("nft_chain_id")
+		tokenID := c.Query("token_id")
 		var chainIDInt int64 = 1
 		if v, ok := chainID.(int64); ok {
 			chainIDInt = v
@@ -204,11 +247,12 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
-		playbackToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 30*time.Minute, c.GetHeader("X-Client-Fingerprint"))
+		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 30*time.Minute, c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
+		playbackToken = generatedToken
 
 		if cached, ok := cache.GetManifest(contentID, wallet); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
@@ -267,6 +311,21 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			qualitySegments[q] = segs
 		}
 
+		quality = c.Query("quality")
+		if quality != "" {
+			segs, ok := qualitySegments[quality]
+			if !ok {
+				abortWithError(c, http.StatusNotFound, ErrContentNotFound, "quality not found for this content")
+				return
+			}
+			manifest := service.BuildMediaPlaylist(contentID, quality, segs, "{{PLAYBACK_TOKEN}}")
+			rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
+			c.Header("Content-Type", "application/vnd.apple.mpegurl")
+			c.Header("Cache-Control", "private, max-age=30")
+			c.String(http.StatusOK, rendered)
+			return
+		}
+
 		manifest, err := streamingSvc.GenerateHLSPlaylist(contentID, qualitySegments, "{{PLAYBACK_TOKEN}}")
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
@@ -288,6 +347,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
 	}
+
 	router.GET(APIPrefix+"/streaming/:id/segment/:num", func(c *gin.Context) {
 		playbackToken := extractPlaybackToken(c)
 		if playbackToken == "" {
@@ -413,6 +473,12 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 }
 
 func extractPlaybackToken(c *gin.Context) string {
+	// Query parameter playback_token takes priority over Authorization header.
+	// HLS sub-manifest and segment URLs embed playback_token in the query string;
+	// the Authorization header carries the JWT and should not be used for these requests.
+	if pt := strings.TrimSpace(c.Query("playback_token")); pt != "" {
+		return pt
+	}
 	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
 	if authHeader != "" {
 		bearer := strings.TrimPrefix(authHeader, "Bearer ")
@@ -420,7 +486,7 @@ func extractPlaybackToken(c *gin.Context) string {
 			return bearer
 		}
 	}
-	return strings.TrimSpace(c.Query("playback_token"))
+	return ""
 }
 
 func extractSegmentNumber(segName string) int {

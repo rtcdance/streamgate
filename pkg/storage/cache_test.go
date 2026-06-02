@@ -306,5 +306,3 @@ func TestCacheStorage_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-

@@ -9,7 +9,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -installsuffix cgo -o monitor ./cmd/microservices/monitor
+RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -a -trimpath -installsuffix cgo -o monitor ./cmd/microservices/monitor
 
 # Final stage
 FROM alpine:3.21
