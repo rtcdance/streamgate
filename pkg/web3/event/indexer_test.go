@@ -142,7 +142,7 @@ func TestEventIndexer_ConfirmationBlocks(t *testing.T) {
 	reader.setLogs(logs)
 
 	ctx := context.Background()
-	ei.indexEvents(ctx)
+	_ = ei.indexEvents(ctx)
 
 	events := ei.GetEvents()
 	if len(events) == 0 {

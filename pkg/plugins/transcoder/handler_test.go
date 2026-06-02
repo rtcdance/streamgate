@@ -827,9 +827,9 @@ func TestMonitorProgress_CarriageReturn(t *testing.T) {
 	require.NoError(t, err)
 
 	go func() {
-		pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r")
-		pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
-		pw.WriteString("frame= 150 fps= 25.0 q=28.0 size= 1536 time=00:00:06.00 bitrate=2048.0kbits/s speed=1.0x\n")
+		_, _ = pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		_, _ = pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		_, _ = pw.WriteString("frame= 150 fps= 25.0 q=28.0 size= 1536 time=00:00:06.00 bitrate=2048.0kbits/s speed=1.0x\n")
 		pw.Close()
 	}()
 
@@ -864,9 +864,9 @@ func TestMonitorProgress_MixedSeparators(t *testing.T) {
 	require.NoError(t, err)
 
 	go func() {
-		pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r\n")
-		pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
-		pw.WriteString("frame= 200 fps= 25.0 q=28.0 size= 2048 time=00:00:08.00 bitrate=2048.0kbits/s speed=1.0x\n")
+		_, _ = pw.WriteString("frame=  50 fps= 25.0 q=28.0 size=  512 time=00:00:02.00 bitrate=2048.0kbits/s speed=1.0x\r\n")
+		_, _ = pw.WriteString("frame= 100 fps= 25.0 q=28.0 size= 1024 time=00:00:04.00 bitrate=2048.0kbits/s speed=1.0x\r")
+		_, _ = pw.WriteString("frame= 200 fps= 25.0 q=28.0 size= 2048 time=00:00:08.00 bitrate=2048.0kbits/s speed=1.0x\n")
 		pw.Close()
 	}()
 

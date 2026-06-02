@@ -364,7 +364,7 @@ func TestIndexEvents_WithStoreAndReorg(t *testing.T) {
 	rd := &stubReorgChecker{reorgedHashes: []string{common.BigToHash(big.NewInt(16)).Hex()}}
 	indexer.SetReorgDetector(rd)
 
-	indexer.indexEvents(context.Background())
+	_ = indexer.indexEvents(context.Background())
 
 	assert.Equal(t, uint64(18), indexer.GetCurrentBlock())
 }
@@ -382,7 +382,7 @@ func TestIndexEvents_StoreSaveCheckpoint(t *testing.T) {
 	store := NewMemoryEventStore()
 	indexer.SetEventStore(store)
 
-	indexer.indexEvents(context.Background())
+	_ = indexer.indexEvents(context.Background())
 
 	checkpoint, err := store.LoadCheckpoint("0x0000000000000000000000000000000000000aBc")
 	require.NoError(t, err)
@@ -394,7 +394,7 @@ func TestIndexEvents_BlockNumberError(t *testing.T) {
 	indexer, err := newTestEventIndexer(reader)
 	require.NoError(t, err)
 
-	indexer.indexEvents(context.Background())
+	_ = indexer.indexEvents(context.Background())
 	assert.Equal(t, uint64(0), indexer.GetCurrentBlock())
 }
 
@@ -405,7 +405,7 @@ func TestIndexEvents_SafeBlockLessThanOrEqualCurrent(t *testing.T) {
 	indexer.currentBlock = 10
 	indexer.confirmationBlocks = 2
 
-	indexer.indexEvents(context.Background())
+	_ = indexer.indexEvents(context.Background())
 }
 
 func TestIndexEvents_FilterLogsError(t *testing.T) {
@@ -413,7 +413,7 @@ func TestIndexEvents_FilterLogsError(t *testing.T) {
 	indexer, err := newTestEventIndexer(reader)
 	require.NoError(t, err)
 
-	indexer.indexEvents(context.Background())
+	_ = indexer.indexEvents(context.Background())
 }
 
 func TestIndexingLoop_ModeChange(t *testing.T) {
@@ -783,7 +783,7 @@ func TestIndexRange_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	indexer.indexRange(ctx, 1, 100)
+	_ = indexer.indexRange(ctx, 1, 100)
 }
 
 func TestIndexRange_LargeRange(t *testing.T) {
@@ -791,7 +791,7 @@ func TestIndexRange_LargeRange(t *testing.T) {
 	indexer, err := newTestEventIndexer(reader)
 	require.NoError(t, err)
 
-	indexer.indexRange(context.Background(), 1, 1500)
+	_ = indexer.indexRange(context.Background(), 1, 1500)
 
 	assert.Greater(t, indexer.GetCurrentBlock(), uint64(0))
 }
