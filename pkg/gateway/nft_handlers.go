@@ -137,7 +137,6 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 				zap.Error(err))
 			hasNFT = false
 			balance = big.NewInt(0)
-			err = nil
 		}
 		if cache != nil && !cacheHit {
 			entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
