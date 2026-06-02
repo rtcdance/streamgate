@@ -90,9 +90,12 @@ func TestE2E_LoggingFlow(t *testing.T) {
 func TestE2E_ErrorRecoveryFlow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
 	_, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	// Request to a non-existent route — recovery middleware handles it
-	resp, err := http.Get(server.URL + "/api/v1/nonexistent")
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/nonexistent", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)

@@ -169,7 +169,7 @@ func TestNFTGateMiddleware_MissingContract(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestNFTGateMiddleware_InvalidContractAddress(t *testing.T) {

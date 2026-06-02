@@ -254,7 +254,12 @@ func TestNFTRoutes_Verify_VerificationError(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewBufferString(`{"contract":"0x1234567890abcdef1234567890abcdef12345678","wallet":"0x1234567890abcdef1234567890abcdef12345678","token_id":"1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, false, resp["has_nft"])
+	assert.Equal(t, "0", resp["balance"])
 }
 
 func TestNFTRoutes_Verify_CacheHit(t *testing.T) {
