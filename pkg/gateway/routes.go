@@ -112,15 +112,9 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	}
 	if objStorage != nil {
 		healthChecker.RegisterCheck("storage", func(ctx context.Context) error {
-			if mwSvc != nil && cfg.CircuitBreaker.Enabled {
-				return mwSvc.ExecuteWithCB(ctx, "s3", cbConfig, func() error {
-					if _, err := objStorage.ListObjects(ctx, "streamgate", ""); err != nil {
-						return fmt.Errorf("storage check failed: %w", err)
-					}
-					return nil
-				})
-			}
-			if _, err := objStorage.ListObjects(ctx, "streamgate", ""); err != nil {
+			checkCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if _, err := objStorage.Exists(checkCtx, cfg.Storage.Bucket, "__health_check__"); err != nil {
 				return fmt.Errorf("storage check failed: %w", err)
 			}
 			return nil
@@ -130,6 +124,18 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	router.GET("/health", func(c *gin.Context) {
 		monitoring.HealthCheckTotal.WithLabelValues("health").Inc()
 		resp := healthChecker.CheckAll(c.Request.Context())
+		if resp.Status == health.StatusUnhealthy {
+			onlyStorageDown := true
+			for name, check := range resp.Checks {
+				if name != "storage" && check.Status != health.StatusHealthy {
+					onlyStorageDown = false
+					break
+				}
+			}
+			if onlyStorageDown {
+				resp.Status = health.StatusDegraded
+			}
+		}
 		status := http.StatusOK
 		if resp.Status == health.StatusUnhealthy {
 			status = http.StatusServiceUnavailable
@@ -212,7 +218,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	RegisterStreamingRoutes(streamingGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
 	RegisterContentRoutes(router, log, svc.ContentService)
-	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc)
+	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc, cfg.Debug)
 
 	// Use a root sub-group for RouteGroup-specific registrations
 	rootG := router.Group("/")

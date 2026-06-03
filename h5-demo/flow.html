@@ -100,7 +100,7 @@ video{width:100%;border-radius:8px;margin-top:12px}
   </section>
 
   <div style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)">
-    <strong>Config:</strong> API <code id="cfg-api">/</code> · JWT secret <code id="cfg-jwt">fullchain-acceptance-secret-2026</code>
+    <strong>Config:</strong> API <code id="cfg-api">/</code> · JWT secret <code id="cfg-jwt">sg-dev-jwt-secret-32chars-minimum!!</code>
     <span style="float:right">Set via localStorage: <code>sg_backend</code>, <code>sg_jwt_secret</code></span>
   </div>
   <details style="margin-top:16px;color:var(--muted);font-size:12px">
@@ -112,7 +112,7 @@ video{width:100%;border-radius:8px;margin-top:12px}
 
 <script>
 const API = localStorage.getItem('sg_backend') || '';
-const JWT_SECRET = localStorage.getItem('sg_jwt_secret') || 'fullchain-acceptance-secret-2026';
+const JWT_SECRET = localStorage.getItem('sg_jwt_secret') || 'sg-dev-jwt-secret-32chars-minimum!!';
 const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 let token = null, contentId = null, walletAddr = null;

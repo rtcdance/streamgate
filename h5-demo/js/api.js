@@ -88,6 +88,9 @@ class APIService {
                 const errDetail = data?.details ? ` (${data.details})` : data?.detail ? ` (${data.detail})` : '';
                 const err = new Error(errMsg + errDetail);
                 err.status = response.status;
+                if (response.status === 401) {
+                    this.clearAuthToken();
+                }
                 throw err;
             }
 
@@ -122,11 +125,17 @@ class APIService {
         return this.request(endpoint, { method: 'DELETE' });
     }
 
-    async healthCheck() {
-        try {
-            return await this.get('/health');
-        } catch (error) {
-            return this.get('/api/v1/health');
+    async healthCheck(retries = 3) {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await this.get('/health');
+            } catch (error) {
+                if (i < retries - 1 && (error.status === 503 || error.status === 502 || error.status === 207)) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    continue;
+                }
+                throw error;
+            }
         }
     }
 

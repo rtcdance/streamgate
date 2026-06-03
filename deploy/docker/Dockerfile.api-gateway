@@ -5,14 +5,14 @@ WORKDIR /app
 
 # Copy go mod files
 COPY go.mod go.sum ./
-ENV GOPROXY=https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct
+ENV GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
 RUN go mod download
 
 # Copy source code
 COPY . .
 
 # Build the api-gateway service
-RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -a -trimpath -installsuffix cgo -o api-gateway ./cmd/microservices/api-gateway
+RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -trimpath -installsuffix cgo -o api-gateway ./cmd/microservices/api-gateway
 
 # Final stage
 FROM alpine:3.21
@@ -37,7 +37,7 @@ USER appuser
 
 EXPOSE 8080 9090
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:9090/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 CMD ["./api-gateway"]

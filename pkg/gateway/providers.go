@@ -233,7 +233,7 @@ func provideUploadService(rc *RouterConfig, cfg *config.Config, log *zap.Logger,
 		log.Warn("Object storage does not implement UploadObjectStorage, upload service disabled")
 		return nil
 	}
-	svc := service.NewUploadService(db, uploadObj, "streamgate", log.Named("upload"))
+	svc := service.NewUploadService(db, uploadObj, cfg.Storage.Bucket, log.Named("upload"))
 	if cfg.Upload.MaxSize > 0 {
 		svc.SetMaxUploadSize(cfg.Upload.MaxSize)
 	}
@@ -251,7 +251,7 @@ func provideUploadService(rc *RouterConfig, cfg *config.Config, log *zap.Logger,
 	svc.RegisterAutoTranscodeHook(service.AutoTranscodeHookDeps{
 		TranscodingSvc: transcodingSvc,
 		Presigner:      presigner,
-		Bucket:         "streamgate",
+		Bucket:         cfg.Storage.Bucket,
 		Profiles:       cfg.Transcode.Profiles,
 	})
 	return svc

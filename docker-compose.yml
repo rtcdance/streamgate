@@ -188,6 +188,7 @@ services:
       - "25778:5778"
       - "26686:16686"
       - "24268:14268"
+      - "24317:4317"
       - "29411:9411"
     environment:
       COLLECTOR_ZIPKIN_HOST_PORT: ":9411"
@@ -203,7 +204,7 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: deploy/docker/Dockerfile.api-gateway
+      dockerfile: deploy/docker/Dockerfile.api-gateway.quick
     container_name: streamgate-api-gateway
     ports:
       - "28080:8080"
@@ -227,7 +228,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:23000,http://localhost:28080,http://localhost:29091,http://localhost:3000,http://localhost:8080,http://localhost:18080,http://localhost:19090,http://localhost:29090
     depends_on:
@@ -245,14 +246,14 @@ services:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
-      retries: 3
+      start_period: 60s
+      retries: 5
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 2G
-          cpus: '2.0'
+          memory: 4G
+          cpus: '4.0'
         reservations:
           memory: 512M
           cpus: '0.5'
@@ -284,7 +285,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -339,7 +340,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -394,7 +395,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -445,7 +446,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -494,7 +495,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       redis:
         condition: service_healthy
@@ -541,7 +542,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - STREAMGATE_SOLANA_RPC=${SOLANA_RPC:-https://api.mainnet-beta.solana.com}
     depends_on:
@@ -594,7 +595,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       postgres:
         condition: service_healthy
@@ -645,7 +646,7 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
-      - STREAMGATE_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+      - STREAMGATE_JAEGER_ENDPOINT=jaeger:4317
     depends_on:
       redis:
         condition: service_healthy

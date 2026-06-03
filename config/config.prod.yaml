@@ -3,8 +3,8 @@ server:
   port: 8080
   grpc_port: 9090
   mode: "microservices"
-  read_timeout: 30s
-  write_timeout: 30s
+  read_timeout: 120
+  write_timeout: 120
   shutdown_timeout: 60s
 
 database:

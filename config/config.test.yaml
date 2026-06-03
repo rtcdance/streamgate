@@ -3,8 +3,8 @@ server:
   port: 18080
   grpc_port: 19090
   mode: "monolith"
-  read_timeout: 10s
-  write_timeout: 10s
+  read_timeout: 30
+  write_timeout: 30
   shutdown_timeout: 5s
 
 database:

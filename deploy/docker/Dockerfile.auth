@@ -1,7 +1,7 @@
 FROM golang:1.24-alpine3.21 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
-ENV GOPROXY=https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct
+ENV GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -a -trimpath -installsuffix cgo -o auth ./cmd/microservices/auth
