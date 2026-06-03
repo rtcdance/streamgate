@@ -497,6 +497,7 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 }
 
 // processTask executes a single transcoding task
+//
 //nolint:gocyclo // processTask has complex step logic, refactoring would be too invasive
 func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTask, log *zap.Logger) {
 	task.Status = "processing"
@@ -504,7 +505,7 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	task.StartedAt = &now
 	s.storeTask(task)
 
-	taskCtx, cancel := context.WithTimeout(s.serviceCtx, 30*time.Minute)
+	taskCtx, cancel := context.WithTimeout(s.serviceCtx, 60*time.Minute)
 	defer cancel()
 
 	if s.db != nil {

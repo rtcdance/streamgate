@@ -52,9 +52,10 @@ type msgEntry struct {
 
 func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQueue, error) {
 	nc, err := nats.Connect(url,
+		nats.Timeout(5*time.Second),
 		nats.RetryOnFailedConnect(true),
-		nats.MaxReconnects(10),
-		nats.ReconnectWait(2*time.Second),
+		nats.MaxReconnects(3),
+		nats.ReconnectWait(1*time.Second),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			logger.Warn("NATS disconnected", zap.Error(err))
 		}),

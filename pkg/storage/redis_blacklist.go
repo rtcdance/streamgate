@@ -101,10 +101,10 @@ func (b *RedisTokenBlacklist) IsRevoked(ctx context.Context, jti string) bool {
 			}
 			b.local.Remove(jti)
 		}
-		if b.FailClosed {
-			return true
-		}
 		return false
 	}
-	return val > 0
+	if val > 0 {
+		return true
+	}
+	return false
 }

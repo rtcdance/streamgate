@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -243,8 +242,8 @@ func (ft *FFmpegTranscoder) Transcode(ctx context.Context, inputPath, outputPath
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "veryfast",
-		"-crf", "23",
+		"-preset", "ultrafast",
+		"-crf", "28",
 		"-c:a", audioCodec,
 		"-b:a", "128k",
 		"-movflags", "+faststart",
@@ -269,37 +268,23 @@ func (ft *FFmpegTranscoder) TranscodeToHLS(ctx context.Context, inputPath, outpu
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(profiles))
-
-	for _, profile := range profiles {
-		wg.Add(1)
-		go func(p TranscodeProfile) {
-			defer wg.Done()
-
-			outputPath := filepath.Join(outputDir, fmt.Sprintf("%s.m3u8", p.Resolution))
-			variantCB := callback
-			if variantProgressFn != nil {
-				variantCB = func(pg *TranscodeProgress) {
-					if callback != nil {
-						callback(pg)
-					}
-					variantProgressFn(p.Resolution, pg.Progress)
-				}
-			}
-			if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, p, totalDuration, variantCB); err != nil {
-				errChan <- fmt.Errorf("failed to transcode to %s: %w", p.Resolution, err)
-			}
-		}(profile)
-	}
-
-	wg.Wait()
-	close(errChan)
-
 	var firstErr error
-	for err := range errChan {
-		if err != nil && firstErr == nil {
-			firstErr = err
+	for _, profile := range profiles {
+		outputPath := filepath.Join(outputDir, fmt.Sprintf("%s.m3u8", profile.Resolution))
+		variantCB := callback
+		if variantProgressFn != nil {
+			p := profile
+			variantCB = func(pg *TranscodeProgress) {
+				if callback != nil {
+					callback(pg)
+				}
+				variantProgressFn(p.Resolution, pg.Progress)
+			}
+		}
+		if err := ft.transcodeToHLSVariant(ctx, inputPath, outputPath, profile, totalDuration, variantCB); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to transcode to %s: %w", profile.Resolution, err)
+			}
 		}
 	}
 
@@ -414,8 +399,8 @@ func (ft *FFmpegTranscoder) transcodeToHLSVariant(ctx context.Context, inputPath
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "veryfast",
-		"-crf", "23",
+		"-preset", "ultrafast",
+		"-crf", "28",
 		"-vf", fmt.Sprintf("scale=%s", profile.Resolution),
 		"-b:v", profile.Bitrate,
 		"-maxrate", profile.Bitrate,
@@ -472,8 +457,8 @@ func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outp
 	args := []string{
 		"-i", inputPath,
 		"-c:v", videoCodec,
-		"-preset", "veryfast",
-		"-crf", "23",
+		"-preset", "ultrafast",
+		"-crf", "28",
 		"-c:a", audioCodec,
 		"-b:a", "128k",
 		"-ac", "2",

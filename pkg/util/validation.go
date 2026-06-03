@@ -45,10 +45,21 @@ func IsValidURL(rawURL string) bool {
 	return ValidateURL(rawURL) == nil
 }
 
+// SafeURLOptions controls the behaviour of IsSafeURLWithOptions.
+type SafeURLOptions struct {
+	AllowLocalhost bool
+}
+
 // IsSafeURL checks that a URL is valid and does not target internal/private
 // networks (RFC 1918, link-local, loopback). This prevents SSRF attacks on
 // endpoints that fetch remote resources (e.g. transcoding input URLs).
 func IsSafeURL(rawURL string) error {
+	return IsSafeURLWithOptions(rawURL, SafeURLOptions{})
+}
+
+// IsSafeURLWithOptions is like IsSafeURL but accepts options to relax checks
+// in development environments.
+func IsSafeURLWithOptions(rawURL string, opts SafeURLOptions) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -57,12 +68,12 @@ func IsSafeURL(rawURL string) error {
 	if host == "" {
 		return fmt.Errorf("URL missing host")
 	}
-	if strings.ToLower(host) == "localhost" {
+	if !opts.AllowLocalhost && strings.ToLower(host) == "localhost" {
 		return fmt.Errorf("localhost URLs are not allowed")
 	}
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		if !opts.AllowLocalhost && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()) {
 			return fmt.Errorf("private/internal IP addresses are not allowed")
 		}
 	}

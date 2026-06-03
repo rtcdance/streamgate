@@ -58,11 +58,12 @@ func main() {
 	defer func() { _ = resources.Close() }()
 
 	httpServer := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:           router,
+		ReadTimeout:       time.Duration(cfg.Server.ReadTimeout) * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      time.Duration(cfg.Server.WriteTimeout) * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	grpcAddr := fmt.Sprintf(":%d", grpcPort)

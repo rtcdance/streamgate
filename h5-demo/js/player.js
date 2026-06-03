@@ -12,8 +12,10 @@ class HLSPlayer {
         if (Hls.isSupported()) {
             this.hls = new Hls({
                 enableWorker: true,
-                lowLatencyMode: true,
+                lowLatencyMode: false,
                 backBufferLength: 90,
+                maxBufferHole: 0.5,
+                maxSeekHole: 2,
                 xhrSetup: (xhr, url) => {
                     if (this.authToken && !url.includes('playback_token=')) {
                         xhr.setRequestHeader('Authorization', `Bearer ${this.authToken}`);
