@@ -1007,17 +1007,19 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 
 	for _, hook := range hooks {
 		func(h PostUploadHook) {
-			defer func() {
-				if r := recover(); r != nil {
-					s.logger.Error("PostUploadHook panic recovered",
-						zap.String("upload_id", uploadID),
-						zap.String("content_id", contentID),
-						zap.Any("panic", r))
-				}
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						s.logger.Error("PostUploadHook panic recovered",
+							zap.String("upload_id", uploadID),
+							zap.String("content_id", contentID),
+							zap.Any("panic", r))
+					}
+				}()
+				hookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				h(hookCtx, uploadID, contentID, upload.OwnerID)
 			}()
-			hookCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			h(hookCtx, uploadID, contentID, upload.OwnerID)
 		}(hook)
 	}
 

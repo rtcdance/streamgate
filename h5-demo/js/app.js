@@ -658,6 +658,12 @@ class StreamGateApp {
             });
         } catch (error) {
             console.warn('Failed to load my videos:', error.message);
+            if (error.status === 401) {
+                this.auth.isAuthenticated = false;
+                this.updateStatus('auth', 'offline', 'Session expired');
+                this.updateStep('auth', 'failed');
+                this.showToast('Session expired, please re-login', 'error');
+            }
         }
     }
 
@@ -708,6 +714,15 @@ class StreamGateApp {
         const priority = parseInt(document.getElementById('transcode-priority').value, 10) || 5;
         if (!inputUrl) {
             console.warn('Transcode input URL not set');
+            this.updateStatus('transcode', 'offline', 'No Input URL');
+            this.updateStep('transcode', 'failed');
+            this._showTranscodeProgress('No input URL — download URL generation failed', 0);
+            this._showTranscodeProgressBarError();
+            this.showToast('Cannot start transcoding: input URL is empty. The download URL may not have been generated.', 'error');
+            this.setTroubleshooting(
+                'Transcode input URL missing',
+                'The upload completed but the download URL could not be generated. This usually means the object storage (MinIO/S3) presigned URL feature is not working. Check that MinIO is accessible and the storage endpoint is correctly configured.'
+            );
             return;
         }
 
@@ -809,6 +824,7 @@ class StreamGateApp {
         this._transcodePollActive = false;
         this._transcodePollActive = true;
         this._transcodePollCount = 0;
+        let consecutiveErrors = 0;
         const MAX_POLL_COUNT = 900;
 
         const progressArea = document.getElementById('transcode-progress-area');
@@ -922,6 +938,7 @@ class StreamGateApp {
             }
             try {
                 const result = await this.api.getTranscodeStatus(taskId);
+                consecutiveErrors = 0;
                 const status = result.status || 'unknown';
                 const label = statusLabels[status] || status;
 
@@ -971,6 +988,7 @@ class StreamGateApp {
 
                 setTimeout(poll, 2000);
             } catch (err) {
+                consecutiveErrors++;
                 console.warn('Transcode poll error:', err);
                 const httpStatus = err.status || (err.response && err.response.status) || 0;
                 if (httpStatus === 401 || httpStatus === 403) {
@@ -979,8 +997,15 @@ class StreamGateApp {
                     this.showToast('Session expired, please re-login', 'error');
                     return;
                 }
+                if (consecutiveErrors >= 10) {
+                    this._transcodePollActive = false;
+                    if (progressText) progressText.textContent = 'Server unreachable — check status manually';
+                    this.showToast('Server unreachable, polling stopped', 'error');
+                    return;
+                }
+                const backoff = Math.min(4000 * Math.pow(1.5, consecutiveErrors - 1), 30000);
                 if (this._transcodePollActive && this._transcodePollCount < MAX_POLL_COUNT) {
-                    setTimeout(poll, 4000);
+                    setTimeout(poll, backoff);
                 } else {
                     this._transcodePollActive = false;
                     if (progressText) progressText.textContent = 'Polling stopped — check status manually';

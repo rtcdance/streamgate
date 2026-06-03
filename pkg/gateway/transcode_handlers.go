@@ -17,9 +17,10 @@ import (
 )
 
 // RegisterTranscodingRoutes registers video transcoding management routes.
-func RegisterTranscodingRoutes(router gin.IRouter, log *zap.Logger, svc *service.TranscodingService) {
+func RegisterTranscodingRoutes(router gin.IRouter, log *zap.Logger, svc *service.TranscodingService, allowLocalhost ...bool) {
+	allowLocal := len(allowLocalhost) > 0 && allowLocalhost[0]
 	transcode := router.Group(APIPrefix + "/transcode")
-	transcode.POST("/submit", handleTranscodeSubmit(svc, log))
+	transcode.POST("/submit", handleTranscodeSubmit(svc, log, allowLocal))
 	transcode.GET("/status/:id", handleTranscodeStatus(svc, log))
 	transcode.POST("/cancel/:id", handleTranscodeCancel(svc, log))
 	transcode.GET("/tasks", handleTranscodeTasks(svc, log))
@@ -34,7 +35,7 @@ type transcodeSubmitRequest struct {
 	Priority  int    `json:"priority"`
 }
 
-func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger) gin.HandlerFunc {
+func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger, allowLocalhost bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil {
 			abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "transcoding service unavailable")
@@ -60,7 +61,7 @@ func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger) gin
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url must be a valid http/https URL")
 			return
 		}
-		if err := util.IsSafeURL(req.InputURL); err != nil {
+		if err := util.IsSafeURLWithOptions(req.InputURL, util.SafeURLOptions{AllowLocalhost: allowLocalhost}); err != nil {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url targets a private or internal network")
 			return
 		}
