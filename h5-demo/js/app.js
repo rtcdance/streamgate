@@ -82,7 +82,39 @@ class StreamGateApp {
         return this.player.init();
     }
 
+    switchView(viewName) {
+        document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
+        const target = document.getElementById('view-' + viewName);
+        if (target) target.style.display = '';
+        document.querySelectorAll('.sidebar-nav a').forEach(a => {
+            a.classList.toggle('active', a.dataset.view === viewName);
+        });
+        // Refresh data when switching to dashboard
+        if (viewName === 'dashboard') {
+            this.refreshAcceptanceSummary();
+            if (this.api.isReachable()) {
+                this.api.healthCheck().then(h => this.updateBackendStatus(h)).catch(() => {});
+            }
+        }
+    }
+
     bindEvents() {
+        // Sidebar navigation
+        document.querySelectorAll('.sidebar-nav a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.switchView(link.dataset.view);
+            });
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            const map = { '1': 'dashboard', '2': 'workflow', '3': 'upload', '4': 'transcode', '5': 'playback', '6': 'rpc' };
+            if (map[e.key]) { e.preventDefault(); this.switchView(map[e.key]); }
+        });
+
+        this._bindClick('refresh-my-videos', () => this.loadMyVideos());
         this._bindClick('connect-wallet', () => this.connectWallet());
         this._bindClick('demo-mode-btn', () => this.connectDemoWallet());
         this._bindClick('login-btn', () => this.doLogin());
@@ -141,6 +173,15 @@ class StreamGateApp {
                 'Backend connected',
                 'Good start. Next connect MetaMask so the page can request a real challenge from the backend.'
             );
+            const mode = (result && result.mode) || '';
+            const modeEl = document.getElementById('deployment-mode');
+            const modeVal = document.getElementById('mode-value');
+            if (mode && modeEl && modeVal) {
+                modeEl.classList.remove('hidden');
+                modeVal.textContent = mode === 'monolith' ? 'Monolith' : mode === 'microservice' ? 'Microservices' : mode;
+                modeVal.style.background = mode === 'monolith' ? 'rgba(191,91,43,0.12)' : 'rgba(46,139,87,0.12)';
+                modeVal.style.color = mode === 'monolith' ? 'var(--primary)' : 'var(--success)';
+            }
             if (result && result.recovered_from) {
                 this.showToast(`Backend auto-switched from ${result.recovered_from} to ${this.api.getBaseUrl()}`, 'info');
             }
@@ -172,6 +213,8 @@ class StreamGateApp {
             return;
         }
         this.api.setBaseUrl(value);
+        const apiEl = document.getElementById('sidebar-api-url');
+        if (apiEl) apiEl.textContent = value;
         await this.checkBackend();
         this.showToast('Backend URL updated', 'success');
     }
@@ -196,11 +239,38 @@ class StreamGateApp {
 
             this.showToast('Demo wallet connected (Anvil account #0)', 'success');
             this.updateAcceptance('wallet');
+
+            // Auto-mint NFT to demo wallet address
+            try {
+                await this._autoMintDemoNFT(demoWallet.address);
+            } catch (mintErr) {
+                console.warn('Auto-mint failed (non-fatal):', mintErr.message);
+            }
         } catch (err) {
             this.showToast('Demo wallet failed: ' + err.message, 'error');
         } finally {
             this.showLoading(false);
         }
+    }
+
+    async _autoMintDemoNFT(address) {
+        if (typeof ethers === 'undefined') return;
+        const provider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
+        const signer = new ethers.Wallet(DEMO_ANVIL_KEY, provider);
+        const contractAddr = document.getElementById('nft-contract').value || '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0';
+        const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
+        const contract = new ethers.Contract(contractAddr, abi, signer);
+
+        const balance = await contract.balanceOf(address);
+        if (balance.gt(0)) {
+            this.showToast(`NFT ready (balance: ${balance})`, 'info');
+            return;
+        }
+
+        const nonce = await provider.getTransactionCount(signer.address);
+        const tx = await contract.mint(address, { nonce });
+        await tx.wait();
+        this.showToast('NFT auto-minted for demo!', 'success');
     }
 
     async mintDemoNFT() {
@@ -225,7 +295,7 @@ class StreamGateApp {
             if (isDemo) {
                 const code = await provider.getCode(contractAddr || ethers.constants.AddressZero);
                 if (!contractAddr || contractAddr === '0x...' || code === '0x') {
-                    contractAddr = '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512';
+                    contractAddr = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0';
                     input.value = contractAddr;
                     this.showToast('Using pre-deployed StreamNFT contract', 'info');
                 }
@@ -304,14 +374,17 @@ class StreamGateApp {
         const formatted = this.wallet.formatAddress(address);
         document.getElementById('address-value').textContent = formatted;
         document.getElementById('wallet-address').classList.remove('hidden');
-        const walletStatus = document.getElementById('wallet-status');
-        walletStatus.textContent = '';
-        const dot = document.createElement('span');
-        dot.className = 'status-dot online';
-        walletStatus.appendChild(dot);
-        const label = document.createElement('span');
-        label.textContent = 'Connected';
-        walletStatus.appendChild(label);
+        // Update wallet-status
+        const ws = document.getElementById('wallet-status');
+        const wsSpan = ws.querySelector('span:last-child');
+        if (wsSpan) {
+            wsSpan.innerHTML = '<span class="status-dot online"></span> Connected';
+        }
+        // Update sidebar wallet info
+        const sw = document.getElementById('sidebar-wallet');
+        if (sw) {
+            sw.innerHTML = 'Wallet: <span class="status-value online">' + formatted + '</span>';
+        }
     }
 
     async doLogin() {
@@ -334,6 +407,15 @@ class StreamGateApp {
                 'JWT is ready. Now verify NFT ownership against the configured contract and chain.'
             );
             this.showToast('Login successful', 'success');
+
+            // Auto-mint NFT to logged-in wallet on Anvil
+            if (demoWallet.isDemoMode) {
+                try {
+                    await this._autoMintDemoNFT(demoWallet.address);
+                } catch (mintErr) {
+                    console.warn('Auto-mint after login failed:', mintErr.message);
+                }
+            }
         } catch (error) {
             document.getElementById('login-result').classList.remove('hidden');
             const errEl = document.getElementById('login-result');
@@ -1159,6 +1241,11 @@ class StreamGateApp {
         if (statusEl) {
             statusEl.textContent = text;
             statusEl.className = `status-value ${status}`;
+        }
+        // Update dashboard status cards
+        const dotEl = document.getElementById(`${type}-dot`);
+        if (dotEl) {
+            dotEl.className = `status-dot ${status}`;
         }
     }
 
