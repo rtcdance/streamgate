@@ -311,12 +311,6 @@ async _autoMintDemoNFT(address) {
         }
     }
 
-        const nonce = await provider.getTransactionCount(signer.address);
-        const tx = await contract.mint(address, { nonce });
-        await tx.wait();
-        this.showToast('NFT auto-minted for demo!', 'success');
-    }
-
     async mintDemoNFT() {
         if (!demoWallet.isDemoMode && !walletService.isConnected()) {
             this.showToast('Connect a wallet first', 'warning');
