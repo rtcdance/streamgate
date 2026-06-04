@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'http://localhost:28080';
+const DEFAULT_API_BASE = 'http://localhost:18000';
 const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '19090', '28080', '29091']);
 
 function normalizeBaseUrl(url) {
