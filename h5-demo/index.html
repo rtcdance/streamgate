@@ -1,409 +1,411 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>StreamGate - NFT-Gated Video Streaming</title>
+    <title>StreamGate — Admin Console</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/ethers@5/dist/ethers.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 </head>
 <body>
     <div class="backdrop"></div>
-    <div class="container">
-        <header class="hero">
-            <div class="hero-copy">
-                <p class="eyebrow">Acceptance Console</p>
-                <h1>StreamGate H5 Demo</h1>
-                <p class="tagline">Use one page to validate wallet login, NFT gating, protected playback, RPC status, and transcoding workflows.</p>
-                <div class="hero-note">
-                    <span class="hero-note-label">Recommended flow</span>
-                    <span>Backend → Wallet → Login → NFT → Upload → Transcode → Playback → RPC</span>
+
+    <div class="app-shell">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">&#9889;</div>
+                <div>
+                    <h1>StreamGate</h1>
+                    <div class="subtitle">NFT-Gated Streaming</div>
                 </div>
             </div>
-            <div class="hero-rail">
-                <div class="hero-chip">Wallet Auth</div>
-                <div class="hero-chip">NFT Gate</div>
-                <div class="hero-chip">HLS Playback</div>
-                <div class="hero-chip">RPC Failover</div>
-                <div class="hero-chip">Transcoding</div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="active" data-view="dashboard" id="nav-dashboard">
+                    <span class="nav-icon">&#9632;</span> Dashboard
+                    <span class="nav-shortcut">1</span>
+                </a>
+                <a href="#" data-view="workflow" id="nav-workflow">
+                    <span class="nav-icon">&#9654;</span> Workflow
+                    <span class="nav-shortcut">2</span>
+                </a>
+                <a href="#" data-view="upload" id="nav-upload">
+                    <span class="nav-icon">&#9650;</span> Upload
+                    <span class="nav-shortcut">3</span>
+                </a>
+                <a href="#" data-view="transcode" id="nav-transcode">
+                    <span class="nav-icon">&#9881;</span> Transcode
+                    <span class="nav-shortcut">4</span>
+                </a>
+                <a href="#" data-view="playback" id="nav-playback">
+                    <span class="nav-icon">&#9654;&#65039;</span> Playback
+                    <span class="nav-shortcut">5</span>
+                </a>
+                <a href="#" data-view="rpc" id="nav-rpc">
+                    <span class="nav-icon">&#127760;</span> RPC Status
+                    <span class="nav-shortcut">6</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="wallet-info" id="sidebar-wallet">Wallet: <span id="wallet-status-text" class="status-value unknown">Unknown</span></div>
+                <div class="api-url" id="sidebar-api">API: <span id="sidebar-api-url">http://localhost:28080</span></div>
             </div>
-        </header>
+        </aside>
 
-        <section class="summary-bar">
-            <div class="summary-card">
-                <span class="summary-label">Acceptance Progress</span>
-                <strong id="acceptance-progress-text">0 / 8 completed</strong>
-            </div>
-            <div class="summary-card">
-                <span class="summary-label">Current Focus</span>
-                <strong id="acceptance-focus-text">Connect the backend</strong>
-            </div>
-            <div class="summary-card">
-                <span class="summary-label">Recommended Next Step</span>
-                <strong id="acceptance-next-text">Set Backend URL and run health check</strong>
-            </div>
-        </section>
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <section id="view-dashboard" class="view">
+                <div class="page-header">
+                    <h2>Dashboard</h2>
+                    <p>Monitor all microservices and system health</p>
+                </div>
 
-        <main class="main-layout">
-            <section class="primary-column">
-                <section id="backend-section" class="card card-accent">
-                    <div class="section-kicker">Step 1</div>
-                    <h2>🌐 Backend Target</h2>
-                    <p class="desc">First make sure the demo points to the correct backend. Every later acceptance step depends on this.</p>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>The `Backend` status becomes `Online` and Step 1 turns green.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="backend-url">Backend URL</label>
-                        <input type="text" id="backend-url" class="input" placeholder="http://localhost:29090">
-                    </div>
-                    <button id="save-backend" class="btn btn-secondary">Save Backend URL</button>
-                    <p class="hint-text">If the page is opened from a static server, the backend URL is usually `http://localhost:29090`.</p>
-                </section>
-
-                <section id="wallet-section" class="card">
-                    <div class="section-kicker">Step 2</div>
-                    <h2>🔗 Wallet Connection</h2>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>The wallet address appears, the wallet status becomes `Connected`, and Step 2 turns green.</p>
-                    </div>
-                    <div id="wallet-status" class="status">
-                        <span class="status-dot offline"></span>
-                        <span>Not Connected</span>
-                    </div>
-                    <button id="connect-wallet" class="btn btn-primary">
-                        Connect Wallet
-                    </button>
-                    <button id="demo-mode-btn" class="btn btn-secondary" style="margin-top:8px">
-                        Demo Mode (No MetaMask)
-                    </button>
-                    <div id="wallet-address" class="address-display hidden">
-                        <span class="label">Address:</span>
-                        <span id="address-value" class="value"></span>
-                    </div>
-                </section>
-
-                <section id="login-section" class="card hidden">
-                    <div class="section-kicker">Step 3</div>
-                    <h2>🔐 Wallet Login</h2>
-                    <p class="desc">Sign the backend challenge, obtain a JWT, and validate the real login path.</p>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>The backend returns a JWT, `Auth` becomes `Authenticated`, and Step 3 turns green.</p>
-                    </div>
-                    <button id="login-btn" class="btn btn-success">
-                        Sign & Login
-                    </button>
-                    <div id="login-result" class="result hidden"></div>
-                </section>
-
-                <section id="nft-section" class="card hidden">
-                    <div class="section-kicker">Step 4</div>
-                    <h2>🎨 NFT Verification</h2>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>The response includes `has_nft / balance / cache_hit`, and playback is unlocked when NFT ownership passes.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="nft-contract">NFT Contract Address</label>
-                        <input type="text" id="nft-contract" class="input"
-                               value="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f">
-                    </div>
-                    <div class="form-group">
-                        <label for="chain-select">Blockchain</label>
-                        <select id="chain-select" class="select">
-                            <option value="11155111" data-contract="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f">Sepolia (11155111)</option>
-                            <option value="31337" data-contract="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512">Anvil Local (31337)</option>
-                        </select>
-                    </div>
-                    <button id="verify-nft" class="btn btn-primary">
-                        Verify NFT Ownership
-                    </button>
-                    <button id="mint-nft-btn" class="btn btn-secondary" style="margin-top:8px">
-                        Mint Demo NFT (Anvil)
-                    </button>
-                    <div id="nft-result" class="result hidden">
-                        <div class="nft-status">
-                            <span class="nft-icon"></span>
-                            <span id="nft-status-text"></span>
-                        </div>
-                        <div id="nft-details" class="nft-details"></div>
-                    </div>
-                </section>
-
-                <section id="upload-section" class="card">
-                    <div class="section-kicker">Step 5</div>
-                    <h2>📤 Creator Upload</h2>
-                    <p class="desc">Upload a video file to the backend. Supports both whole-file and chunked upload.</p>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>Upload completes, status is available, and a download URL can be generated.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="upload-file">Select Video File</label>
-                        <input type="file" id="upload-file" class="input" accept="video/*,audio/*">
-                    </div>
-                    <div class="action-grid">
-                        <button id="upload-whole-btn" class="btn btn-primary">Upload Whole File</button>
-                        <button id="upload-chunked-btn" class="btn btn-secondary">Upload Chunked</button>
-                    </div>
-                    <div id="upload-progress-container" class="hidden" style="margin-top:8px">
-                        <div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden">
-                            <div id="upload-progress-bar" style="height:100%;width:0%;border-radius:4px;background:var(--primary);transition:width .3s ease"></div>
-                        </div>
-                        <span id="upload-progress-text" style="font-size:12px;color:var(--muted);margin-top:2px;display:block">0%</span>
-                    </div>
-                    <div class="form-group" style="margin-top:8px">
-                        <label for="upload-id-display">Upload ID</label>
-                        <input type="text" id="upload-id-display" class="input" placeholder="Filled after upload" readonly>
-                    </div>
-                    <div class="action-grid">
-                        <button id="check-upload-status-btn" class="btn btn-secondary" disabled>Check Status</button>
-                        <button id="get-download-url-btn" class="btn btn-secondary" disabled>Get Download URL</button>
-                    </div>
-                    <div id="upload-output" class="test-output hidden"></div>
-                </section>
-
-                <section id="transcode-section" class="card">
-                    <div class="section-kicker">Step 6</div>
-                    <h2>🛠️ Transcoding Acceptance</h2>
-                    <p class="desc">Directly validate the transcoding control flow: submit, status, tasks, and profiles.</p>
-
-                    <div id="transcode-progress-area" class="hidden" style="padding:12px;margin-bottom:12px;border:2px solid var(--primary);border-radius:8px;background:var(--bg-accent)">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                            <strong id="transcode-progress-label" style="font-size:14px;color:var(--text)">Transcode Progress</strong>
-                            <span id="transcode-progress-text" style="font-size:13px;font-weight:600;color:var(--primary)">Waiting...</span>
-                        </div>
-                        <div style="height:12px;border-radius:6px;background:var(--line);overflow:hidden;margin-bottom:8px">
-                            <div id="transcode-progress-bar" style="height:100%;width:0%;border-radius:6px;background:var(--primary);transition:width .3s ease"></div>
-                        </div>
-                        <div id="variant-progress-container" style="display:none;gap:6px;flex-direction:column"></div>
-                    </div>
-
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>At minimum, `submit` and `status` should work; `tasks` and `profiles` complete the acceptance path.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="transcode-content-id">Content ID</label>
-                        <input type="text" id="transcode-content-id" class="input" value="demo-content">
-                    </div>
-                    <div class="form-group">
-                        <label for="transcode-input-url">Input URL</label>
-                        <input type="text" id="transcode-input-url" class="input" value="https://example.com/input.mp4">
-                    </div>
-                    <div class="form-group">
-                        <label for="transcode-profile">Profile</label>
-                        <input type="text" id="transcode-profile" class="input" value="720p">
-                    </div>
-                    <div class="form-group">
-                        <label for="transcode-priority">Priority</label>
-                        <input type="number" id="transcode-priority" class="input" value="5">
-                    </div>
-                    <div class="form-group">
-                        <label for="transcode-task-id">Last Task ID</label>
-                        <input type="text" id="transcode-task-id" class="input" placeholder="Will be filled after submit">
-                    </div>
-                    <div class="action-grid">
-                        <button id="submit-transcode" class="btn btn-primary">Submit Task</button>
-                        <button id="load-transcode-status" class="btn btn-secondary">Load Status</button>
-                        <button id="load-transcode-tasks" class="btn btn-secondary">Load Tasks</button>
-                        <button id="load-transcode-profiles" class="btn btn-secondary">Load Profiles</button>
-                    </div>
-                    <div id="transcode-output" class="test-output hidden"></div>
-                </section>
-
-                <section id="player-section" class="card hidden">
-                    <div class="section-kicker">Step 7</div>
-                    <h2>🎬 Protected Playback</h2>
-                    <div class="expectation-box">
-                        <strong>Expected</strong>
-                        <p>The manifest loads successfully through a Bearer JWT request and the playback status turns green.</p>
-                    </div>
-                    <div class="form-group">
-                        <label for="video-id">Video ID</label>
-                        <input type="text" id="video-id" class="input" placeholder="Enter video ID" value="demo">
-                    </div>
-                    <button id="play-video" class="btn btn-success">
-                        Play Video
-                    </button>
-                    <div id="player-container" class="player-container">
-                        <video id="video-player" controls playsinline>
-                            Your browser does not support HLS video.
-                        </video>
-                        <div id="quality-selector" class="quality-selector hidden">
-                            <span class="quality-label">Quality:</span>
-                            <div id="quality-options" class="quality-options"></div>
-                        </div>
-                    </div>
-                    <div id="player-status" class="player-status"></div>
-                </section>
-            </section>
-
-            <aside class="secondary-column">
-                <section id="acceptance-section" class="card card-compact">
-                    <div class="section-kicker">Acceptance Map</div>
-                    <h2>✅ Progress Checklist</h2>
-                    <div class="progress-list">
-                        <div class="progress-item" id="step-backend">
-                            <span class="progress-step">01</span>
-                            <div>
-                                <strong>Backend Connected</strong>
-                                <p>Health check reaches the correct StreamGate backend.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-wallet">
-                            <span class="progress-step">02</span>
-                            <div>
-                                <strong>Wallet Connected</strong>
-                                <p>MetaMask account and chain are available.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-auth">
-                            <span class="progress-step">03</span>
-                            <div>
-                                <strong>Challenge Login</strong>
-                                <p>JWT is issued through the real `/auth/login` path.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-nft">
-                            <span class="progress-step">04</span>
-                            <div>
-                                <strong>NFT Verified</strong>
-                                <p>Ownership check returns `has_nft`, `balance`, and `cache_hit`.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-upload">
-                            <span class="progress-step">05</span>
-                            <div>
-                                <strong>Creator Upload</strong>
-                                <p>Upload a file and verify status + download URL.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-transcode">
-                            <span class="progress-step">06</span>
-                            <div>
-                                <strong>Transcoding Flow</strong>
-                                <p>Submit, status, tasks, and profiles all work from one page.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-playback">
-                            <span class="progress-step">07</span>
-                            <div>
-                                <strong>Protected Playback</strong>
-                                <p>Manifest loads with Bearer JWT and protected segment flow.</p>
-                            </div>
-                        </div>
-                        <div class="progress-item" id="step-rpc">
-                            <span class="progress-step">08</span>
-                            <div>
-                                <strong>RPC Visibility</strong>
-                                <p>Active RPC and failover state are visible.</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section id="status-section" class="card card-compact">
-                    <div class="section-kicker">Live State</div>
-                    <h2>📊 Connection Status</h2>
-                    <div class="status-grid">
-                        <div class="status-item">
-                            <span class="status-label">Backend</span>
+                <!-- Status Cards -->
+                <div class="status-bar" id="status-bar">
+                    <div class="status-card">
+                        <div class="label">Backend</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="backend-dot"></span>
                             <span id="backend-status" class="status-value unknown">Unknown</span>
                         </div>
-                        <div class="status-item">
-                            <span class="status-label">Wallet</span>
+                    </div>
+                    <div class="status-card">
+                        <div class="label">Wallet</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="wallet-dot"></span>
                             <span id="wallet-status-text" class="status-value unknown">Unknown</span>
                         </div>
-                        <div class="status-item">
-                            <span class="status-label">Auth</span>
+                    </div>
+                    <div class="status-card">
+                        <div class="label">Auth</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="auth-dot"></span>
                             <span id="auth-status" class="status-value unknown">Unknown</span>
                         </div>
-                        <div class="status-item">
-                            <span class="status-label">NFT</span>
+                    </div>
+                    <div class="status-card">
+                        <div class="label">NFT</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="nft-dot"></span>
                             <span id="nft-status-global" class="status-value unknown">Unknown</span>
                         </div>
-                        <div class="status-item">
-                            <span class="status-label">Playback</span>
-                            <span id="streaming-status-global" class="status-value unknown">Unknown</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">RPC</span>
-                            <span id="rpc-status-global" class="status-value unknown">Unknown</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Transcode</span>
-                            <span id="transcode-status-global" class="status-value unknown">Unknown</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Upload</span>
+                    </div>
+                    <div class="status-card">
+                        <div class="label">Upload</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="upload-dot"></span>
                             <span id="upload-status-global" class="status-value unknown">Unknown</span>
                         </div>
                     </div>
-                </section>
-
-                <section id="troubleshooting-section" class="card card-compact">
-                    <div class="section-kicker">Troubleshooting</div>
-                    <h2>🩺 Failure Hints</h2>
-                    <div id="troubleshooting-panel" class="troubleshooting-panel">
-                        <strong id="troubleshooting-title">Start with backend health</strong>
-                        <p id="troubleshooting-message">Set the backend URL first. If health check fails, later steps are not trustworthy.</p>
+                    <div class="status-card">
+                        <div class="label">Transcode</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="transcode-dot"></span>
+                            <span id="transcode-status-global" class="status-value unknown">Unknown</span>
+                        </div>
                     </div>
-                </section>
-
-                <section id="rpc-section" class="card card-compact">
-                    <div class="section-kicker">Infra Check</div>
-                    <h2>🛰️ RPC Status</h2>
-                    <p class="desc">Use this to validate multi-RPC failover visibility, active endpoint reporting, and cooldown state exposure.</p>
-                    <div class="expectation-box compact">
-                        <strong>Expected</strong>
-                        <p>You should at least see the current active RPC and the state of candidate endpoints.</p>
+                    <div class="status-card">
+                        <div class="label">Playback</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="playback-dot"></span>
+                            <span id="streaming-status-global" class="status-value unknown">Unknown</span>
+                        </div>
                     </div>
-                    <button id="check-rpc" class="btn btn-secondary">Load RPC Status</button>
-                    <div id="rpc-output" class="test-output hidden"></div>
-                </section>
-
-                <section id="my-videos-section" class="card card-compact" style="display:none">
-                    <div class="section-kicker">My Content</div>
-                    <h2>📹 My Videos</h2>
-                    <p class="desc">Videos you uploaded, ready to play.</p>
-                    <button id="refresh-videos-btn" class="btn btn-secondary" style="width:100%;margin-bottom:8px">Refresh List</button>
-                    <div id="my-videos-list" class="demo-list">
-                        <p style="color:var(--muted);font-size:13px;padding:8px;text-align:center">No videos yet. Upload one above.</p>
+                    <div class="status-card">
+                        <div class="label">RPC</div>
+                        <div class="value">
+                            <span class="status-dot unknown" id="rpc-dot"></span>
+                            <span id="rpc-status-global" class="status-value unknown">Unknown</span>
+                        </div>
                     </div>
-                </section>
+                </div>
 
-                <section id="demo-section" class="card card-compact">
-                    <div class="section-kicker">Quick Select</div>
-                    <h2>📺 Demo Videos</h2>
-                    <div class="demo-list" id="demo-list">
-                        <button class="demo-item" data-id="demo">
-                            <span class="demo-title">Demo Video</span>
-                            <span class="demo-badge">NFT Required</span>
-                        </button>
+                <!-- Progress Checklist -->
+                <div class="card">
+                    <h2>Acceptance Progress</h2>
+                    <div class="progress-list" id="acceptance-progress">
+                        <div class="progress-item" id="step-backend">
+                            <span class="progress-step">01</span>
+                            <div><strong>Backend Connected</strong><p>Health check passes</p></div>
+                        </div>
+                        <div class="progress-item" id="step-wallet">
+                            <span class="progress-step">02</span>
+                            <div><strong>Wallet Connected</strong><p>MetaMask or Demo wallet</p></div>
+                        </div>
+                        <div class="progress-item" id="step-auth">
+                            <span class="progress-step">03</span>
+                            <div><strong>Challenge Login</strong><p>JWT issued via /auth/login</p></div>
+                        </div>
+                        <div class="progress-item" id="step-nft">
+                            <span class="progress-step">04</span>
+                            <div><strong>NFT Verified</strong><p>Ownership check returns has_nft</p></div>
+                        </div>
+                        <div class="progress-item" id="step-upload">
+                            <span class="progress-step">05</span>
+                            <div><strong>File Upload</strong><p>Video file uploaded</p></div>
+                        </div>
+                        <div class="progress-item" id="step-transcode">
+                            <span class="progress-step">06</span>
+                            <div><strong>Transcoding</strong><p>Auto-transcode to HLS</p></div>
+                        </div>
+                        <div class="progress-item" id="step-playback">
+                            <span class="progress-step">07</span>
+                            <div><strong>Protected Playback</strong><p>HLS with Bearer JWT</p></div>
+                        </div>
+                        <div class="progress-item" id="step-rpc">
+                            <span class="progress-step">08</span>
+                            <div><strong>RPC Visibility</strong><p>Active RPC endpoint</p></div>
+                        </div>
                     </div>
-                </section>
+                </div>
+            </section>
 
-                <section id="test-section" class="card card-compact">
-                    <div class="section-kicker">Sanity Check</div>
-                    <h2>🧪 API Test</h2>
-                    <div class="action-grid">
-                        <button id="test-health" class="btn btn-secondary">Health Check</button>
-                        <button id="test-challenge" class="btn btn-secondary">Get Challenge</button>
-                    </div>
-                    <div id="test-output" class="test-output hidden"></div>
-                </section>
-            </aside>
+            <!-- Workflow View -->
+            <section id="view-workflow" class="view" style="display:none">
+                <div class="page-header">
+                    <h2>Workflow</h2>
+                    <p>Full acceptance flow: wallet → upload → transcode → playback</p>
+                </div>
+                <div class="workflow-grid">
+                    <!-- Step 1: Backend -->
+                    <section id="backend-section" class="card">
+                        <div class="section-kicker">Step 1</div>
+                        <h2>Backend Target</h2>
+                        <p class="desc">Set the backend URL. Every step depends on this.</p>
+                        <div class="form-group">
+                            <label for="backend-url">Backend URL</label>
+                            <input type="text" id="backend-url" class="input" placeholder="http://localhost:29090">
+                        </div>
+                        <button id="save-backend" class="btn btn-primary">Save Backend URL</button>
+                        <p class="hint-text">If opened from a static server, use http://localhost:18080.</p>
+                    </section>
+
+                    <!-- Step 2: Wallet -->
+                    <section id="wallet-section" class="card">
+                        <div class="section-kicker">Step 2</div>
+                        <h2>Wallet Connection</h2>
+                        <p class="desc">Connect MetaMask or use Demo Mode.</p>
+                        <div id="wallet-status" class="status-item" style="margin-bottom:12px">
+                            <span class="status-label">Status</span>
+                            <span><span class="status-dot offline"></span> Not Connected</span>
+                        </div>
+                        <button id="connect-wallet" class="btn btn-primary">Connect Wallet</button>
+                        <button id="demo-mode-btn" class="btn btn-outline">Demo Mode (No MetaMask)</button>
+                        <div id="wallet-address" class="address-display hidden">
+                            <span class="label">Address:</span>
+                            <span id="address-value" class="value"></span>
+                        </div>
+                    </section>
+
+                    <!-- Step 3: Login -->
+                    <section id="login-section" class="card hidden">
+                        <div class="section-kicker">Step 3</div>
+                        <h2>Wallet Login</h2>
+                        <p class="desc">Sign challenge, obtain JWT.</p>
+                        <button id="login-btn" class="btn btn-success">Sign &amp; Login</button>
+                        <div id="login-result" class="result hidden"></div>
+                    </section>
+
+                    <!-- Step 4: NFT -->
+                    <section id="nft-section" class="card hidden">
+                        <div class="section-kicker">Step 4</div>
+                        <h2>NFT Verification</h2>
+                        <p class="desc">Verify NFT ownership for gated access.</p>
+                        <div class="form-group">
+                            <label for="nft-contract">NFT Contract Address</label>
+                            <input type="text" id="nft-contract" class="input" value="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="chain-select">Blockchain</label>
+                            <select id="chain-select" class="select">
+                                <option value="11155111">Sepolia (11155111)</option>
+                                <option value="31337">Anvil Local (31337)</option>
+                            </select>
+                        </div>
+                        <button id="verify-nft" class="btn btn-primary">Verify NFT Ownership</button>
+                        <button id="mint-nft-btn" class="btn btn-outline">Mint Demo NFT (Anvil)</button>
+                        <div id="nft-result" class="result hidden">
+                            <div class="nft-status">
+                                <span class="nft-icon"></span>
+                                <span id="nft-status-text"></span>
+                            </div>
+                            <div id="nft-details" class="nft-details"></div>
+                        </div>
+                    </section>
+
+                    <!-- Troubleshooting -->
+                    <section class="card">
+                        <div class="section-kicker">Troubleshooting</div>
+                        <h2>Failure Hints</h2>
+                        <div id="troubleshooting-panel" class="troubleshooting-panel">
+                            <strong id="troubleshooting-title">Start with backend health</strong>
+                            <p id="troubleshooting-message">Set the backend URL first.</p>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <!-- Upload View -->
+            <section id="view-upload" class="view" style="display:none">
+                <div class="page-header">
+                    <h2>Upload</h2>
+                    <p>Upload video files for transcoding</p>
+                </div>
+                <div class="workflow-grid">
+                    <section class="card">
+                        <h2>File Upload</h2>
+                        <p class="desc">Select a video file and upload.</p>
+                        <input type="file" id="upload-file" accept="video/*,audio/*">
+                        <div class="action-grid">
+                            <button id="upload-whole-btn" class="btn btn-primary">Upload Whole File</button>
+                            <button id="upload-chunked-btn" class="btn btn-secondary">Upload Chunked</button>
+                        </div>
+                        <div id="upload-progress-area" class="hidden" style="margin-top:12px">
+                            <div class="progress-bar-outer">
+                                <div id="upload-progress-bar" class="progress-bar-inner" style="width:0%"></div>
+                            </div>
+                            <span id="upload-progress-text" class="progress-text">Waiting...</span>
+                        </div>
+                        <div class="form-group" style="margin-top:12px">
+                            <label for="upload-id-display">Upload ID</label>
+                            <input type="text" id="upload-id-display" class="input" readonly placeholder="Will be filled after upload">
+                        </div>
+                        <div class="action-grid">
+                            <button id="check-upload-status-btn" class="btn btn-secondary" disabled>Check Status</button>
+                            <button id="get-download-url-btn" class="btn btn-secondary" disabled>Get Download URL</button>
+                        </div>
+                        <div id="upload-output" class="test-output hidden"></div>
+                    </section>
+
+                    <!-- My Videos -->
+                    <section id="my-videos-section" class="card" style="display:none">
+                        <h2>My Videos</h2>
+                        <button id="refresh-my-videos" class="btn btn-secondary">Refresh</button>
+                        <div id="my-videos-list" class="demo-list" style="margin-top:12px"></div>
+                    </section>
+                </div>
+            </section>
+
+            <!-- Transcode View -->
+            <section id="view-transcode" class="view" style="display:none">
+                <div class="page-header">
+                    <h2>Transcoding</h2>
+                    <p>Monitor and manage video transcoding jobs</p>
+                </div>
+                <div class="workflow-grid">
+                    <section class="card">
+                        <h2>Transcode Task</h2>
+                        <p class="desc">Auto-submitted after upload, or manual control.</p>
+                        <div class="form-group">
+                            <label for="transcode-content-id">Content ID</label>
+                            <input type="text" id="transcode-content-id" class="input" placeholder="Auto-filled after upload">
+                        </div>
+                        <div class="form-group">
+                            <label for="transcode-input-url">Input URL</label>
+                            <input type="text" id="transcode-input-url" class="input" placeholder="Auto-filled after upload">
+                        </div>
+                        <div class="form-group">
+                            <label for="transcode-profile">Profile</label>
+                            <input type="text" id="transcode-profile" class="input" value="720p">
+                        </div>
+                        <div class="form-group">
+                            <label for="transcode-priority">Priority</label>
+                            <input type="number" id="transcode-priority" class="input" value="5">
+                        </div>
+                        <div class="form-group">
+                            <label for="transcode-task-id">Last Task ID</label>
+                            <input type="text" id="transcode-task-id" class="input" readonly placeholder="Will be filled after submit">
+                        </div>
+                        <div id="transcode-progress-area" class="hidden" style="margin-top:12px">
+                            <div class="progress-bar-outer">
+                                <div id="transcode-progress-bar" class="progress-bar-inner" style="width:0%"></div>
+                            </div>
+                            <span id="transcode-progress-text" class="progress-text">Waiting...</span>
+                        </div>
+                        <div class="action-grid">
+                            <button id="submit-transcode" class="btn btn-primary">Submit Task</button>
+                            <button id="load-transcode-status" class="btn btn-secondary">Load Status</button>
+                            <button id="load-transcode-tasks" class="btn btn-secondary">Load Tasks</button>
+                            <button id="load-transcode-profiles" class="btn btn-secondary">Load Profiles</button>
+                        </div>
+                        <div id="transcode-output" class="test-output hidden"></div>
+                    </section>
+                </div>
+            </section>
+
+            <!-- Playback View -->
+            <section id="view-playback" class="view" style="display:none">
+                <div class="page-header">
+                    <h2>Playback</h2>
+                    <p>Protected HLS video playback</p>
+                </div>
+                <div class="workflow-grid">
+                    <section class="card">
+                        <h2>Video Player</h2>
+                        <p class="desc">Enter a video ID to play protected HLS content.</p>
+                        <div class="form-group">
+                            <label for="video-id">Video ID</label>
+                            <input type="text" id="video-id" class="input" placeholder="Enter video ID" value="demo">
+                        </div>
+                        <div class="form-group">
+                            <label for="nft-contract-playback">NFT Contract</label>
+                            <input type="text" id="nft-contract-playback" class="input" value="0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f" readonly>
+                        </div>
+                        <button id="play-video" class="btn btn-success">Play Video</button>
+                        <div class="player-container">
+                            <video id="video-player" controls playsinline>
+                                Your browser does not support HLS video.
+                            </video>
+                        </div>
+                        <div id="player-status" class="player-status"></div>
+                    </section>
+
+                    <section class="card">
+                        <h2>Demo Videos</h2>
+                        <div class="demo-list" id="demo-list">
+                            <button class="demo-item" data-id="demo">
+                                <span class="demo-title">Demo Video</span>
+                                <span class="demo-badge">NFT Required</span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            </section>
+
+            <!-- RPC View -->
+            <section id="view-rpc" class="view" style="display:none">
+                <div class="page-header">
+                    <h2>RPC Status</h2>
+                    <p>Multi-RPC failover and endpoint health</p>
+                </div>
+                <div class="workflow-grid">
+                    <section class="card">
+                        <h2>RPC Endpoints</h2>
+                        <p class="desc">Current active RPC and failover state.</p>
+                        <button id="check-rpc" class="btn btn-primary">Load RPC Status</button>
+                        <div id="rpc-output" class="test-output hidden"></div>
+                    </section>
+
+                    <section class="card">
+                        <h2>API Test</h2>
+                        <p class="desc">Sanity check raw endpoints.</p>
+                        <div class="action-grid">
+                            <button id="test-health" class="btn btn-secondary">Health Check</button>
+                            <button id="test-challenge" class="btn btn-secondary">Get Challenge</button>
+                        </div>
+                        <div id="test-output" class="test-output hidden"></div>
+                    </section>
+                </div>
+            </section>
+
+            <div class="footer">
+                <p>StreamGate v1.0.0 | NFT-Gated Video Streaming</p>
+            </div>
         </main>
-
-        <footer class="footer">
-            <p>StreamGate - NFT-Gated Video Streaming Platform</p>
-            <p class="version">v1.0.0 | Go 1.24 | Acceptance-first layout</p>
-        </footer>
     </div>
 
     <!-- Loading Overlay -->
@@ -411,8 +413,6 @@
         <div class="spinner"></div>
         <p>Loading...</p>
     </div>
-
-    <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 
     <script src="js/api.js"></script>
