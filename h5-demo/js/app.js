@@ -253,19 +253,63 @@ class StreamGateApp {
         }
     }
 
-    async _autoMintDemoNFT(address) {
+async _autoMintDemoNFT(address) {
         if (typeof ethers === 'undefined') return;
-        const provider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
-        const signer = new ethers.Wallet(DEMO_ANVIL_KEY, provider);
-        const contractAddr = document.getElementById('nft-contract').value || '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0';
-        const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
-        const contract = new ethers.Contract(contractAddr, abi, signer);
+        try {
+            const provider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
+            const signer = new ethers.Wallet(DEMO_ANVIL_KEY, provider);
+            const contractAddr = document.getElementById('nft-contract').value;
+            const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
+            const contract = new ethers.Contract(contractAddr, abi, signer);
 
-        const balance = await contract.balanceOf(address);
-        if (balance.gt(0)) {
-            this.showToast(`NFT ready (balance: ${balance})`, 'info');
-            return;
+            const balance = await contract.balanceOf(address);
+            if (balance.gt(0)) {
+                this.showToast(`NFT ready (balance: ${balance})`, 'info');
+                return;
+            }
+
+            const tx = await contract.mint(address);
+            await tx.wait();
+            this.showToast('NFT auto-minted for demo!', 'success');
+        } catch (e) {
+            // use ensureAnvilNFT as fallback (deploy + mint)
+            if (typeof ensureAnvilNFT !== 'undefined') {
+                const provider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
+                const signer = new ethers.Wallet(DEMO_ANVIL_KEY, provider);
+                const addr = await ensureAnvilNFT(provider, signer, address);
+                document.getElementById('nft-contract').value = addr;
+                document.getElementById('nft-contract-playback').value = addr;
+                this.showToast('DemoNFT deployed and minted!', 'success');
+            }
         }
+    }
+
+    async _autoEnsureAnvilNFT(address) {
+        if (typeof ethers === 'undefined' || typeof ensureAnvilNFT === 'undefined') return;
+        try {
+            const provider = this.wallet.provider;
+            if (!provider) return;
+            const signer = provider.getSigner();
+            const contractAddr = document.getElementById('nft-contract').value;
+            let addr = contractAddr;
+            // If contract address is set, check if it has code; otherwise deploy
+            if (addr && addr !== '0x...') {
+                const code = await provider.getCode(addr);
+                if (code !== '0x' && code !== '0x0') {
+                    // Contract exists, just ensure balance
+                    const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
+                    const c = new ethers.Contract(addr, abi, signer);
+                    const bal = await c.balanceOf(address);
+                    if (bal.toNumber() > 0) return;
+                }
+            }
+            addr = await ensureAnvilNFT(provider, signer, address);
+            document.getElementById('nft-contract').value = addr;
+            document.getElementById('nft-contract-playback').value = addr;
+        } catch (e) {
+            console.warn('Auto-ensure NFT failed:', e.message);
+        }
+    }
 
         const nonce = await provider.getTransactionCount(signer.address);
         const tx = await contract.mint(address, { nonce });
@@ -358,6 +402,11 @@ class StreamGateApp {
             this.showToast('Wallet connected', 'success');
             document.getElementById('login-section').classList.remove('hidden');
             document.getElementById('nft-section').classList.remove('hidden');
+
+            // Auto-ensure NFTs on Anvil local chain
+            if (this.wallet.chainId === 31337 || this.wallet.chainId === '0x7a69') {
+                this._autoEnsureAnvilNFT(result.address);
+            }
         } catch (error) {
             this.updateStatus('wallet', 'offline', 'Unavailable');
             this.setTroubleshooting(
