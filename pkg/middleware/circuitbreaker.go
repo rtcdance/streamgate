@@ -47,11 +47,13 @@ func (s *Service) CircuitBreakerMiddleware(name string, config CircuitBreakerCon
 		})
 
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error":   "Service temporarily unavailable",
-				"circuit": name,
-				"state":   cb.State().String(),
-			})
+			if !c.Writer.Written() {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"error":   "Service temporarily unavailable",
+					"circuit": name,
+					"state":   cb.State().String(),
+				})
+			}
 			c.Abort()
 		}
 	}
