@@ -130,10 +130,10 @@ go test -v ./test/security/...
 Tests for individual components and functions.
 
 **Files**:
-- `test/unit/core/config_test.go` - Configuration tests
-- `test/unit/core/microkernel_test.go` - Microkernel tests
-- `test/unit/plugins/api_test.go` - API plugin tests
-- `test/unit/service/content_test.go` - Content service tests
+- `test/unit/auth_test.go` - Auth service unit tests
+- `test/unit/nft_test.go` - NFT service unit tests
+- `test/unit/redis_test.go` - Redis storage unit tests
+- `test/unit/postgres_test.go` - Postgres storage unit tests
 
 **Run**:
 ```bash
@@ -147,9 +147,16 @@ go test -v ./test/unit/...
 Tests for component interactions and system integration.
 
 **Files**:
-- `test/integration/api/rest_test.go` - REST API tests
-- `test/integration/storage/db_test.go` - Database tests
-- `test/integration/web3/` - Web3 integration tests
+- `test/integration/auth/` - Auth integration tests
+- `test/integration/content/` - Content service tests
+- `test/integration/middleware/` - Middleware chain tests
+- `test/integration/models/` - Model layer tests
+- `test/integration/monitoring/` - Health check tests
+- `test/integration/service/` - Service layer tests
+- `test/integration/streaming/` - Streaming service tests
+- `test/integration/transcoding/` - Transcoding pipeline tests
+- `test/integration/upload/` - Upload service tests
+- `test/integration/web3/` - Web3 integration tests (anvil, testnet, fork)
 
 **Run**:
 ```bash
@@ -356,9 +363,8 @@ If load tests fail:
 
 ## Documentation
 
-- **[docs/development/testing.md](../docs/development/testing.md)** - Testing guide
-- **[docs/development/debugging.md](../docs/development/debugging.md)** - Debugging guide
-- **[PHASE7_COMPLETE.md](../PHASE7_COMPLETE.md)** - Phase 7 completion report
+- **[AGENTS.md](../AGENTS.md)** - Project knowledge base (testing conventions, test commands)
+- **[DEPLOY.md](../DEPLOY.md)** - Deployment + verification (includes `make verify-deploy`)
 
 ## Support
 
