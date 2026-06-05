@@ -1,615 +1,323 @@
 # StreamGate Operational Excellence Guide
 
-**Date**: 2025-01-28  
-**Status**: Operational Best Practices  
-**Version**: 1.0.0
-
-## Executive Summary
-
-This guide provides best practices for operating StreamGate in production with focus on reliability, security, performance, and cost efficiency.
-
-## 1. Incident Management
-
-### 1.1 Incident Response Process
-
-**Incident Severity Levels**:
-```
-SEV-1 (Critical): Service completely down, data loss risk
-  - Response time: < 5 minutes
-  - Escalation: Immediate
-  - Communication: Every 15 minutes
-
-SEV-2 (High): Service degraded, significant impact
-  - Response time: < 15 minutes
-  - Escalation: Within 30 minutes
-  - Communication: Every 30 minutes
-
-SEV-3 (Medium): Service partially impacted
-  - Response time: < 1 hour
-  - Escalation: Within 2 hours
-  - Communication: Every hour
-
-SEV-4 (Low): Minor issues, no user impact
-  - Response time: < 4 hours
-  - Escalation: Within 1 day
-  - Communication: Daily
-```
-
-### 1.2 Incident Response Playbook
-
-**SEV-1 Response**:
-```
-1. Declare incident (< 1 min)
-   - Create incident ticket
-   - Notify on-call team
-   - Start war room
-
-2. Assess impact (< 5 min)
-   - Check service status
-   - Identify affected users
-   - Estimate impact
-
-3. Mitigate (< 15 min)
-   - Implement quick fix
-   - Rollback if needed
-   - Restore service
-
-4. Communicate (ongoing)
-   - Update status page
-   - Notify customers
-   - Post-incident review
-
-5. Post-mortem (within 24 hours)
-   - Root cause analysis
-   - Action items
-   - Prevention measures
-```
-
-### 1.3 Runbooks
-
-**Common Issues Runbook**:
-```
-Issue: High Error Rate
-1. Check error logs
-   kubectl logs -f deployment/api-gateway -n streamgate
-
-2. Check metrics
-   - Error rate
-   - Latency
-   - Resource usage
-
-3. Check dependencies
-   - Database connectivity
-   - Cache connectivity
-   - External services
-
-4. Mitigation
-   - Scale up if needed
-   - Clear cache if needed
-   - Restart services if needed
-
-Issue: High Latency
-1. Check resource usage
-   kubectl top pods -n streamgate
-
-2. Check database
-   - Query performance
-   - Connection pool
-   - Lock contention
-
-3. Check cache
-   - Hit rate
-   - Eviction rate
-   - Memory usage
-
-4. Mitigation
-   - Scale up
-   - Optimize queries
-   - Increase cache size
-
-Issue: Service Down
-1. Check pod status
-   kubectl get pods -n streamgate
-
-2. Check events
-   kubectl describe pod <pod-name> -n streamgate
-
-3. Check logs
-   kubectl logs <pod-name> -n streamgate
-
-4. Mitigation
-   - Restart pod
-   - Rollback deployment
-   - Scale up
-```
-
-## 2. Change Management
-
-### 2.1 Change Request Process
-
-**Change Request Template**:
-```
-Title: [Service] - [Change Description]
-
-Type: [ ] Deployment [ ] Configuration [ ] Infrastructure [ ] Security
-
-Risk Level: [ ] Low [ ] Medium [ ] High
-
-Description:
-- What is changing?
-- Why is it changing?
-- What is the business impact?
-
-Testing:
-- [ ] Unit tests passed
-- [ ] Integration tests passed
-- [ ] Load tests passed
-- [ ] Security tests passed
-
-Rollback Plan:
-- How to rollback?
-- Estimated rollback time?
-- Data recovery needed?
-
-Approval:
-- [ ] Tech lead approved
-- [ ] Security approved
-- [ ] Operations approved
-```
-
-### 2.2 Deployment Process
-
-**Safe Deployment Steps**:
-```
-1. Pre-deployment (1 hour before)
-   - Notify team
-   - Prepare rollback plan
-   - Verify backups
-
-2. Deployment (during maintenance window)
-   - Deploy to staging
-   - Run smoke tests
-   - Deploy to production (canary)
-   - Monitor metrics
-   - Gradually increase traffic
-   - Full deployment
-
-3. Post-deployment (1 hour after)
-   - Verify all services
-   - Check metrics
-   - Monitor error rate
-   - Confirm no issues
-
-4. Communication
-   - Update status page
-   - Notify customers
-   - Document changes
-```
-
-## 3. Capacity Planning
-
-### 3.1 Capacity Forecasting
-
-**Forecast Methodology**:
-```
-1. Analyze historical data
-   - Request rate trends
-   - Peak usage patterns
-   - Growth rate
-
-2. Project future capacity
-   - Linear regression
-   - Seasonal adjustment
-   - Growth factor
-
-3. Plan for peaks
-   - Add 50% buffer
-   - Plan for 2x growth
-   - Account for spikes
-
-4. Resource allocation
-   - CPU: 2x projected peak
-   - Memory: 1.5x projected peak
-   - Storage: 2x projected peak
-   - Network: 1.5x projected peak
-```
-
-### 3.2 Resource Optimization
-
-**Right-sizing Resources**:
-```
-1. Monitor actual usage
-   - CPU usage
-   - Memory usage
-   - Disk usage
-   - Network usage
-
-2. Identify over-provisioned resources
-   - CPU < 30% average
-   - Memory < 40% average
-   - Disk < 50% usage
-
-3. Optimize allocation
-   - Reduce resource requests
-   - Consolidate services
-   - Use spot instances
-
-4. Monitor impact
-   - Ensure no performance degradation
-   - Watch for increased errors
-   - Monitor latency
-```
-
-## 4. Security Operations
-
-### 4.1 Security Monitoring
-
-**Security Metrics**:
-```
-- Failed authentication attempts
-- Rate limit violations
-- SQL injection attempts
-- XSS attempts
-- Unauthorized access attempts
-- Data access patterns
-- Configuration changes
-- Certificate expiration
-```
-
-### 4.2 Vulnerability Management
-
-**Vulnerability Process**:
-```
-1. Scan for vulnerabilities
-   - Dependency scanning
-   - Container scanning
-   - Infrastructure scanning
-
-2. Assess severity
-   - CVSS score
-   - Exploitability
-   - Impact
-
-3. Remediate
-   - Update dependencies
-   - Patch systems
-   - Implement workarounds
-
-4. Verify
-   - Re-scan
-   - Test functionality
-   - Monitor for issues
-```
-
-### 4.3 Access Control
-
-**Access Management**:
-```
-1. Principle of least privilege
-   - Grant minimum required access
-   - Regular access reviews
-   - Revoke unused access
-
-2. Multi-factor authentication
-   - Require for all users
-   - Enforce for sensitive operations
-   - Monitor for bypass attempts
-
-3. Audit logging
-   - Log all access
-   - Log all changes
-   - Retain logs for 1 year
-   - Regular review
-```
-
-## 5. Cost Optimization
-
-### 5.1 Cost Monitoring
-
-**Cost Tracking**:
-```
-1. Monitor cloud costs
-   - Compute costs
-   - Storage costs
-   - Network costs
-   - Database costs
-
-2. Identify cost drivers
-   - Unused resources
-   - Over-provisioned resources
-   - Inefficient queries
-
-3. Optimize costs
-   - Use reserved instances
-   - Use spot instances
-   - Optimize storage
-   - Optimize data transfer
-```
-
-### 5.2 Cost Reduction Strategies
-
-**Optimization Opportunities**:
-```
-1. Compute
-   - Right-size instances
-   - Use auto-scaling
-   - Use spot instances
-   - Consolidate workloads
-
-2. Storage
-   - Archive old data
-   - Compress data
-   - Use cheaper storage tiers
-   - Delete unused data
-
-3. Network
-   - Use CDN
-   - Optimize data transfer
-   - Use private endpoints
-   - Batch requests
-
-4. Database
-   - Optimize queries
-   - Use read replicas
-   - Archive old data
-   - Use managed services
-```
-
-## 6. Disaster Recovery
-
-### 6.1 Backup Strategy
-
-**Backup Plan**:
-```
-1. Database backups
-   - Frequency: Daily
-   - Retention: 30 days
-   - Location: Multiple regions
-   - Verification: Weekly restore test
-
-2. Storage backups
-   - Frequency: Daily
-   - Retention: 30 days
-   - Location: Multiple regions
-   - Verification: Weekly restore test
-
-3. Configuration backups
-   - Frequency: On change
-   - Retention: 1 year
-   - Location: Version control
-   - Verification: Regular review
-
-4. Disaster recovery
-   - RTO: 1 hour
-   - RPO: 15 minutes
-   - Test: Monthly
-   - Documentation: Up-to-date
-```
-
-### 6.2 Recovery Procedures
-
-**Recovery Steps**:
-```
-1. Assess damage
-   - Identify affected systems
-   - Determine data loss
-   - Estimate recovery time
-
-2. Activate recovery
-   - Restore from backup
-   - Verify data integrity
-   - Restore to alternate location
-
-3. Failover
-   - Update DNS
-   - Redirect traffic
-   - Monitor for issues
-
-4. Restore
-   - Restore to primary
-   - Verify functionality
-   - Post-incident review
-```
-
-## 7. Performance Management
-
-### 7.1 SLO Definition
-
-**Service Level Objectives**:
-```
-Availability: 99.9%
-- Downtime budget: 43 minutes/month
-- Measured: Uptime monitoring
-- Escalation: SEV-1 if breached
-
-Latency (P95): < 200ms
-- Measured: Request latency
-- Escalation: SEV-2 if breached
-
-Error Rate: < 0.1%
-- Measured: Error rate
-- Escalation: SEV-2 if breached
-
-Throughput: > 1000 req/sec
-- Measured: Request rate
-- Escalation: SEV-3 if breached
-```
-
-### 7.2 Performance Monitoring
-
-**Monitoring Dashboard**:
-```
-Real-time Metrics:
-- Request rate
-- Error rate
-- Latency (P50, P95, P99)
-- CPU usage
-- Memory usage
-- Disk usage
-- Network usage
-
-Alerts:
-- Error rate > 1%
-- Latency P95 > 500ms
-- CPU > 80%
-- Memory > 85%
-- Disk > 90%
-- Network > 80%
-```
-
-## 8. Documentation
-
-### 8.1 Runbook Documentation
-
-**Runbook Template**:
-```
-Title: [Issue Description]
-
-Severity: [SEV-1/2/3/4]
-
-Symptoms:
-- What users see
-- What metrics show
-- What logs show
-
-Root Causes:
-- Common causes
-- How to identify
-
-Resolution Steps:
-1. Step 1
-2. Step 2
-3. Step 3
-
-Verification:
-- How to verify fix
-- What to check
-
-Prevention:
-- How to prevent
-- Monitoring needed
-
-Escalation:
-- When to escalate
-- Who to contact
-```
-
-### 8.2 Architecture Documentation
-
-**Keep Updated**:
-- System architecture diagrams
-- Data flow diagrams
-- Deployment architecture
-- Network topology
-- Security architecture
-- Disaster recovery plan
-
-## 9. Team Operations
-
-### 9.1 On-Call Rotation
-
-**On-Call Schedule**:
-```
-- Primary on-call: 1 week
-- Secondary on-call: 1 week
-- Backup on-call: 1 week
-
-Responsibilities:
-- Monitor alerts
-- Respond to incidents
-- Escalate as needed
-- Document issues
-
-Support:
-- Runbooks available
-- Escalation contacts
-- War room access
-- Incident tools
-```
-
-### 9.2 Knowledge Sharing
-
-**Knowledge Management**:
-```
-1. Documentation
-   - Keep runbooks updated
-   - Document lessons learned
-   - Share best practices
-
-2. Training
-   - Onboard new team members
-   - Regular training sessions
-   - Incident simulations
-
-3. Communication
-   - Daily standups
-   - Weekly reviews
-   - Monthly retrospectives
-```
-
-## 10. Operational Checklist
-
-### Daily
-- [ ] Monitor dashboards
-- [ ] Check alerts
-- [ ] Review error logs
-- [ ] Verify backups
-
-### Weekly
-- [ ] Review performance metrics
-- [ ] Check capacity usage
-- [ ] Review security logs
-- [ ] Test disaster recovery
-
-### Monthly
-- [ ] Capacity planning review
-- [ ] Cost analysis
-- [ ] Security audit
-- [ ] Incident review
-
-### Quarterly
-- [ ] Architecture review
-- [ ] Disaster recovery test
-- [ ] Security assessment
-- [ ] Performance optimization
-
-### Annually
-- [ ] Compliance audit
-- [ ] Security penetration test
-- [ ] Disaster recovery drill
-- [ ] Strategic planning
-
-## 11. Metrics & KPIs
-
-**Key Performance Indicators**:
-```
-Reliability:
-- Uptime: 99.9%
-- MTTR: < 30 minutes
-- MTBF: > 720 hours
-
-Performance:
-- Latency P95: < 200ms
-- Error rate: < 0.1%
-- Throughput: > 1000 req/sec
-
-Efficiency:
-- CPU utilization: 50-70%
-- Memory utilization: 60-75%
-- Disk utilization: < 80%
-
-Cost:
-- Cost per request: < $0.001
-- Cost per user: < $1/month
-- Cost per GB: < $0.01
-```
-
-## Conclusion
-
-Operational excellence requires continuous focus on reliability, security, performance, and cost efficiency. Regular monitoring, documentation, and process improvement ensure StreamGate operates smoothly in production.
+> **Updated 2026-06-05** to reflect the simplified observability stack. The previous version (2025-01-28) was written when Prometheus + Grafana + Jaeger were deployed. **They have since been removed.** This file documents the current operational reality.
+>
+> **Last verified against**: `master` branch (commit `96beacf`)
+> **Cross-references**: [operations/monitoring.md](../operations/monitoring.md), [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md), [DEPLOY.md](../../DEPLOY.md)
 
 ---
 
-**Document Status**: Complete  
-**Last Updated**: 2025-01-28  
-**Version**: 1.0.0
+## What changed
+
+The Jan 2025 version of this file described:
+
+- SLOs measured by Prometheus queries
+- Alerting via Grafana
+- Incident response triggered by Prometheus alerts
+- Capacity planning based on Prometheus time-series data
+
+The Jun 2026 version reflects:
+
+- SLOs verified manually via `./scripts/verify-deploy.sh` (8 checks)
+- No automated alerting — operators check dashboards manually
+- Incident response is mostly reactive (someone notices a problem)
+- Capacity planning is rule-of-thumb (see [architecture/microservices.md](../architecture/microservices.md) for per-service resource limits)
+
+---
+
+## Current SLOs
+
+| SLO | Target | How measured | Status |
+|-----|--------|--------------|--------|
+| **Availability** | 99.9% | `curl /health` returns 200 | Manually verified |
+| **API latency P95** | < 200ms | `time curl /api/v1/auth/challenge` | Sample only |
+| **Error rate** | < 1% | Auth challenge/login success ratio in logs | Manual log inspection |
+| **Time to recovery (TTR)** | < 5 min | `make deploy-teardown && make deploy-monolith` | ✓ Achievable |
+| **Time to detect (TTD)** | < 10 min | User complaint or h5-demo step failure | Reactive |
+
+For production, these SLOs should be measured continuously via Prometheus + alerting. The recommendations section below has the minimum setup.
+
+---
+
+## Monitoring reality
+
+### What we have
+
+| Component | URL | Purpose |
+|-----------|-----|---------|
+| `/health` | `:18080/health`, `:28080/health` | Process liveness |
+| `/ready` | `:18080/ready` | Dependency readiness |
+| `/metrics` | `:18080/metrics` | Prometheus text (not scraped) |
+| `make deploy-status` | (CLI) | `docker ps` filter |
+| `verify-deploy.sh` | (CLI) | 8 automated checks |
+| `fullchain-acceptance.sh` | (CLI) | 11 API checks |
+| h5-demo | `:18000`/`:18001` | Manual 7-step flow |
+
+### What we want (production)
+
+| Component | Status | Implementation |
+|-----------|--------|----------------|
+| Prometheus | Not deployed | See [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md) for setup |
+| Grafana | Not deployed | Same as above |
+| Alertmanager | Not deployed | Same as above |
+| Jaeger tracing | Not deployed | Same as above |
+| Log aggregation | Not deployed | ELK or Loki + Promtail |
+| Error tracking (Sentry) | Not deployed | SDK integration needed |
+
+For the current scale (dev/demo/interview), the manual tools are sufficient. For production, the items above should be prioritized.
+
+---
+
+## Incident response
+
+### Detection
+
+Symptoms come from 4 sources:
+
+1. **h5-demo failure** — one of the 7 steps turns red
+2. **CLI check failure** — `make deploy-status` shows unhealthy containers, or `verify-deploy.sh` returns non-zero
+3. **User complaint** — manual report of broken behavior
+4. **Container restart loop** — visible in `docker logs`
+
+### Triage
+
+| Symptom | First check | Most likely cause |
+|---------|-------------|-------------------|
+| h5-demo step 1 (Backend) red | `curl /health` directly | Monolith or api-gateway not running |
+| h5-demo step 4 (NFT) red | `curl /api/v1/web3/rpc-status` | Anvil down or RPC chain mismatch |
+| h5-demo step 7 (Transcoding) stuck | `docker logs sg-fc-transcoder` | FFmpeg failure or NATS queue blocked |
+| All 7 steps red | `make deploy-status` | Infrastructure (postgres/redis/minio/nats) down |
+| `verify-deploy.sh` fails 1/8 | (specific check) | See below |
+| Container restart loop | `docker logs <container>` | Crash on startup (config error, port conflict) |
+
+### Mitigation
+
+Most issues are resolved with one of these commands:
+
+```bash
+# Restart everything cleanly
+make deploy-teardown && make deploy-monolith
+
+# Restart just infrastructure
+make deploy-teardown
+docker compose -f docker-compose.fullchain.yml up -d postgres redis minio nats anvil
+make deploy-monolith
+
+# Restart a specific service
+docker restart sg-fc-transcoder
+
+# Check service logs
+docker logs --tail=100 sg-fc-transcoder
+```
+
+### Recovery verification
+
+After mitigation:
+
+```bash
+./scripts/verify-deploy.sh monolith        # Should be 8/8
+./scripts/fullchain-acceptance.sh          # Should be 11/11
+```
+
+If both pass, the stack is healthy.
+
+---
+
+## Runbooks
+
+### Anvil out of sync
+
+**Symptom**: NFT verify fails with "chain mismatch" or returns wrong balance
+
+**Diagnosis**:
+```bash
+curl -s -X POST http://localhost:18545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","id":1}'
+# Should return {"result":"0x7a69"} (31337)
+```
+
+**Fix**:
+```bash
+docker restart sg-fc-anvil
+# Wait 5s, then redeploy contracts:
+make contracts-deploy-anvil
+```
+
+### PostgreSQL full
+
+**Symptom**: Slow API responses, eventually 500 errors
+
+**Diagnosis**:
+```bash
+docker exec sg-fc-postgres psql -U postgres -c "SELECT pg_database_size('streamgate');"
+```
+
+**Fix**:
+```bash
+docker exec sg-fc-postgres vacuumdb -U postgres --all --analyze
+# Or full reset (loses data):
+make deploy-teardown && make deploy-monolith
+```
+
+### MinIO bucket missing
+
+**Symptom**: Upload fails with "bucket not found"
+
+**Diagnosis**:
+```bash
+docker exec sg-fc-minio mc ls local/
+```
+
+**Fix**:
+```bash
+docker exec sg-fc-minio mc mb local/streamgate
+docker exec sg-fc-minio mc anonymous set download local/streamgate
+```
+
+### NATS stream stuck
+
+**Symptom**: Transcoding submit succeeds but no progress, tasks list empty
+
+**Diagnosis**:
+```bash
+docker exec sg-fc-nats nats stream info TRANSCODING
+```
+
+**Fix**:
+```bash
+docker restart sg-fc-nats
+# Stream is recreated automatically by the transcoder service on next start
+```
+
+### Microservice won't start
+
+**Symptom**: `make deploy-microservices` shows unhealthy services
+
+**Diagnosis**:
+```bash
+docker logs sg-fc-<service-name>
+```
+
+Common causes:
+- Consul not ready (wait 30s, retry)
+- Port conflict with monolith (run `make deploy-teardown` first)
+- Missing image (run with `--build` flag)
+
+**Fix**:
+```bash
+make deploy-teardown
+make deploy-microservices  # if --build is set in Makefile, otherwise manually
+```
+
+### Both modes running, port conflict
+
+**Symptom**: `verify-deploy.sh` says ports are taken
+
+**Fix**:
+```bash
+make deploy-teardown
+# Pick one mode:
+make deploy-monolith
+# OR
+make deploy-microservices
+```
+
+---
+
+## Capacity planning
+
+### Monolith (1 process)
+
+- **CPU**: 1-2 cores
+- **Memory**: 2GB
+- **Suitable for**: < 100 RPS, dev/demo/interview
+- **Limit**: Single process can't scale beyond ~100 RPS sustained
+
+### Microservices (9 binaries + 6 infra)
+
+Per-service resources (recommended for ~500 RPS total):
+
+| Service | CPU | Memory |
+|---------|-----|--------|
+| api-gateway | 1.0 | 512MB |
+| auth | 0.3 | 256MB |
+| cache | 0.2 | 512MB |
+| metadata | 0.3 | 256MB |
+| monitor | 0.2 | 256MB |
+| streaming | 0.5 | 512MB |
+| transcoder | 2.0 | 2GB |
+| upload | 0.5 | 512MB |
+| worker | 1.0 | 1GB |
+| **Total** | **6.0** | **6.0GB** |
+
+For higher RPS, scale api-gateway and streaming horizontally (HPA), keep transcoder and worker at 1 replica each (FFmpeg is CPU-bound, not parallelizable across replicas for a single task).
+
+---
+
+## Disaster recovery
+
+### Volume backups
+
+The fullchain compose uses 5 named volumes:
+
+| Volume | Used by | Backup command |
+|--------|---------|----------------|
+| `pg_data` | postgres | `docker exec sg-fc-postgres pg_dump -U postgres streamgate > backup.sql` |
+| `redis_data` | redis | `docker exec sg-fc-redis redis-cli BGSAVE` (snapshot) |
+| `minio_data` | minio | `docker exec sg-fc-minio mc mirror local/ /backup/` |
+| `nats_data` | nats | `docker exec sg-fc-nats nats stream backup TRANSCODING /backup/transcoding.tar` |
+| `consul_data` | consul | `docker exec sg-fc-consul consul snapshot save /backup/snap.snap` |
+
+### Full restore
+
+```bash
+make deploy-teardown
+
+# Restore volumes
+docker volume create streamgate_pg_data
+docker run --rm -v streamgate_pg_data:/data -v $(pwd):/backup alpine \
+  sh -c "cp /backup/pg_data/* /data/"
+
+# Same for redis, minio, nats, consul
+
+make deploy-monolith
+./scripts/verify-deploy.sh monolith
+```
+
+### RPO / RTO targets
+
+| Tier | RPO | RTO | Notes |
+|------|-----|-----|-------|
+| Critical (PostgreSQL) | 1 hour | 30 min | Hourly pg_dump, 30min to redeploy |
+| Important (MinIO) | 24 hours | 1 hour | Daily mirror, 1hr to restore |
+| Standard (Redis, NATS, Consul) | None (recreatable) | 5 min | Ephemeral state |
+
+---
+
+## Production readiness checklist
+
+Before deploying to production, complete this list:
+
+- [ ] Replace `STREAMGATE_JWT_SECRET` with a 32+ byte secret from a secret manager
+- [ ] Set `APP_DEBUG=false` in environment
+- [ ] Configure CORS to only allow your frontend domain
+- [ ] Set up PostgreSQL backups (cron + pg_dump)
+- [ ] Add Prometheus + Grafana (see [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md))
+- [ ] Configure alert rules (P95 latency, error rate, disk usage)
+- [ ] Set up log aggregation (Loki or ELK)
+- [ ] Run `make validate-config` to check production config
+- [ ] Load test with k6 or vegeta
+- [ ] Document your incident response in a runbook specific to your environment
+- [ ] Test the disaster recovery procedure (do a real restore drill)
+
+---
+
+## See also
+
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — system overview
+- [operations/monitoring.md](../operations/monitoring.md) — current monitoring endpoints
+- [development/MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md) — full Prometheus + Grafana setup
+- [DEPLOY.md](../../DEPLOY.md) — deployment guide
+- [scripts/verify-deploy.sh](../../scripts/verify-deploy.sh) — 8-point automated check
+- [scripts/fullchain-acceptance.sh](../../scripts/fullchain-acceptance.sh) — 11-step API acceptance
