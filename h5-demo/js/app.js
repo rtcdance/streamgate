@@ -96,6 +96,9 @@ class StreamGateApp {
                 this.api.healthCheck().then(h => this.updateBackendStatus(h)).catch(() => {});
             }
         }
+        if (viewName === 'admin') {
+            this.loadAdminData();
+        }
     }
 
     bindEvents() {
@@ -110,7 +113,7 @@ class StreamGateApp {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-            const map = { '1': 'dashboard', '2': 'workflow', '3': 'upload', '4': 'transcode', '5': 'playback', '6': 'rpc' };
+            const map = { '1': 'dashboard', '2': 'workflow', '3': 'upload', '4': 'transcode', '5': 'playback', '6': 'rpc', '7': 'admin' };
             if (map[e.key]) { e.preventDefault(); this.switchView(map[e.key]); }
         });
 
@@ -154,6 +157,14 @@ class StreamGateApp {
                 }
             });
         }
+
+        // Admin tab navigation
+        document.querySelectorAll('.admin-tab').forEach(tab => {
+            tab.addEventListener('click', () => this.switchAdminTab(tab.dataset.adminTab));
+        });
+        this._bindClick('admin-refresh-btn', () => this.loadAdminData());
+        this._bindClick('admin-health-check-btn', () => this.runAdminHealthCheck());
+        this._bindClick('admin-metrics-btn', () => this.loadAdminMetrics());
     }
 
     _bindClick(elementId, handler) {
@@ -227,9 +238,13 @@ class StreamGateApp {
             this._walletAddress = demoWallet.address;
             this._chainId = demoWallet.chainId;
             this.updateWalletUI(demoWallet.address);
+            this.updateStatus('wallet', 'online', 'Connected');
+            this.updateStep('wallet', 'done');
             document.getElementById('connect-wallet').disabled = true;
             document.getElementById('demo-mode-btn').textContent = 'Demo: Connected (Anvil)';
             document.getElementById('demo-mode-btn').className = 'btn btn-success';
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('nft-section').classList.remove('hidden');
 
             const chainSelect = document.getElementById('chain-select');
             if (chainSelect) {
@@ -240,7 +255,6 @@ class StreamGateApp {
             this.showToast('Demo wallet connected (Anvil account #0)', 'success');
             this.updateAcceptance('wallet');
 
-            // Auto-mint NFT to demo wallet address
             try {
                 await this._autoMintDemoNFT(demoWallet.address);
             } catch (mintErr) {
@@ -386,6 +400,8 @@ async _autoMintDemoNFT(address) {
         try {
             this.showLoading(true);
             const result = await this.wallet.connect();
+            this._walletAddress = result.address;
+            this._chainId = result.chainId;
             this.updateWalletUI(result.address);
             this.updateStatus('wallet', 'online', 'Connected');
             this.updateStep('wallet', 'done');
@@ -417,17 +433,16 @@ async _autoMintDemoNFT(address) {
         const formatted = this.wallet.formatAddress(address);
         document.getElementById('address-value').textContent = formatted;
         document.getElementById('wallet-address').classList.remove('hidden');
-        // Update wallet-status
         const ws = document.getElementById('wallet-status');
         const wsSpan = ws.querySelector('span:last-child');
         if (wsSpan) {
             wsSpan.innerHTML = '<span class="status-dot online"></span> Connected';
         }
-        // Update sidebar wallet info
-        const sw = document.getElementById('sidebar-wallet');
-        if (sw) {
-            sw.innerHTML = 'Wallet: <span class="status-value online">' + formatted + '</span>';
-        }
+        const swTextEls = document.querySelectorAll('#sidebar-wallet #wallet-status-text');
+        swTextEls.forEach(el => {
+            el.textContent = 'Connected: ' + formatted;
+            el.className = 'status-value online';
+        });
     }
 
     async doLogin() {
@@ -451,14 +466,19 @@ async _autoMintDemoNFT(address) {
             );
             this.showToast('Login successful', 'success');
 
-            // Auto-mint NFT to logged-in wallet on Anvil
-            if (demoWallet.isDemoMode) {
+            const walletAddress = this._walletAddress || demoWallet.address;
+            const chainId = parseInt(document.getElementById('chain-select').value);
+            if (chainId === 31337 && walletAddress) {
                 try {
-                    await this._autoMintDemoNFT(demoWallet.address);
+                    await this._autoMintDemoNFT(walletAddress);
                 } catch (mintErr) {
                     console.warn('Auto-mint after login failed:', mintErr.message);
                 }
             }
+
+            this.verifyNFT().catch((vErr) => {
+                console.warn('Auto NFT verify after login failed:', vErr.message);
+            });
         } catch (error) {
             document.getElementById('login-result').classList.remove('hidden');
             const errEl = document.getElementById('login-result');
@@ -484,14 +504,16 @@ async _autoMintDemoNFT(address) {
 
         try {
             this.showLoading(true);
+            this.updateStatus('nft', 'pending', 'Verifying…');
+            this.updateStep('nft', 'active');
             const result = await this.auth.verifyNFT(contract, chainId);
-            
+
             const resultDiv = document.getElementById('nft-result');
             resultDiv.classList.remove('hidden');
-            
+
             const statusText = document.getElementById('nft-status-text');
             const icon = resultDiv.querySelector('.nft-icon');
-            
+
             if (result.has_nft) {
                 statusText.textContent = '✓ NFT Verified - You can watch!';
                 icon.textContent = '🎉';
@@ -507,9 +529,12 @@ async _autoMintDemoNFT(address) {
                 icon.textContent = '❌';
                 this.updateStatus('nft', 'offline', 'Not Verified');
                 this.updateStep('nft', 'failed');
+                const onAnvil = chainId === 31337;
                 this.setTroubleshooting(
                     'NFT not found',
-                    'Check the connected wallet, contract address, and chain ID. Full acceptance needs a wallet that actually owns the NFT.'
+                    onAnvil
+                        ? 'Connected wallet has 0 NFTs on this contract. Click "Mint Demo NFT (Anvil)" to mint, or switch to Demo Mode for an auto-funded test wallet.'
+                        : 'Check the connected wallet, contract address, and chain ID. Full acceptance needs a wallet that actually owns the NFT on this chain.'
                 );
             }
 
@@ -524,14 +549,15 @@ async _autoMintDemoNFT(address) {
             const p3 = document.createElement('p');
             p3.textContent = `Cache: ${result.cache_hit ? 'Yes' : 'No'}`;
             nftDetails.appendChild(p3);
-            
-            this.showToast(result.has_nft ? 'NFT verified!' : 'No NFT found', 
+
+            this.showToast(result.has_nft ? 'NFT verified!' : 'No NFT found',
                 result.has_nft ? 'success' : 'warning');
         } catch (error) {
+            this.updateStatus('nft', 'offline', 'Failed');
             this.updateStep('nft', 'failed');
             this.setTroubleshooting(
                 'NFT verification failed',
-                'Check RPC availability, contract address, chain selection, and whether the backend can reach the configured chain client.'
+                `Last error: ${error.message}. Check RPC availability, contract address, chain selection, and whether the backend can reach the configured chain client.`
             );
             this.showToast(error.message, 'error');
         } finally {
@@ -584,7 +610,7 @@ async _autoMintDemoNFT(address) {
         const file = fileInput.files[0];
 
         try {
-            const progressContainer = document.getElementById('upload-progress-container');
+            const progressContainer = document.getElementById('upload-progress-area');
             const progressBar = document.getElementById('upload-progress-bar');
             const progressText = document.getElementById('upload-progress-text');
             progressContainer.classList.remove('hidden');
@@ -640,7 +666,7 @@ async _autoMintDemoNFT(address) {
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
         try {
-            const progressContainer = document.getElementById('upload-progress-container');
+            const progressContainer = document.getElementById('upload-progress-area');
             const progressBar = document.getElementById('upload-progress-bar');
             const progressText = document.getElementById('upload-progress-text');
             progressContainer.classList.remove('hidden');
@@ -939,10 +965,40 @@ async _autoMintDemoNFT(address) {
     }
 
     _scrollToTranscodeSection() {
+        this.switchView('transcode');
         const el = document.getElementById('transcode-section');
         if (el) {
             setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
         }
+    }
+
+    _buildProfileDisplayMap(result, backendVariantProgress) {
+        const submittedProfile = (result && result.profile) ? String(result.profile).toLowerCase() : '';
+        const overallProgress = (result && typeof result.progress === 'number') ? result.progress : 0;
+        const status = (result && result.status) || '';
+        const completed = ['completed', 'done', 'success'].includes(status);
+        const failed = ['failed', 'error', 'timeout'].includes(status);
+        const defaultPct = completed ? 100 : (failed ? 0 : overallProgress);
+
+        const abrProfileList = ['1080p', '720p', '480p', '360p'];
+        const hasBackend = backendVariantProgress && typeof backendVariantProgress === 'object'
+            && Object.keys(backendVariantProgress).length > 0;
+
+        if (hasBackend) {
+            return backendVariantProgress;
+        }
+
+        if (overallProgress === 0 && !completed && !failed) {
+            return null;
+        }
+
+        if (submittedProfile === 'abr' || submittedProfile === '') {
+            const map = {};
+            abrProfileList.forEach(p => { map[p] = defaultPct; });
+            return map;
+        }
+
+        return { [submittedProfile]: defaultPct };
     }
 
     _pollTranscodeProgress(contentId, taskId) {
@@ -958,6 +1014,10 @@ async _autoMintDemoNFT(address) {
         const output = document.getElementById('transcode-output');
         const variantContainer = document.getElementById('variant-progress-container');
         if (progressArea) progressArea.classList.remove('hidden');
+        if (variantContainer) {
+            variantContainer.innerHTML = '';
+            variantContainer.style.display = 'none';
+        }
 
         const statusLabels = {
             pending: 'Waiting',
@@ -1001,6 +1061,16 @@ async _autoMintDemoNFT(address) {
             const variantKeys = Object.keys(variantProgress);
             const hasVariants = variantKeys.length > 0;
             variantContainer.style.display = hasVariants ? 'flex' : 'none';
+            variantContainer.style.flexDirection = 'column';
+            variantContainer.style.gap = '8px';
+
+            if (hasVariants && !variantContainer.querySelector('.variant-header')) {
+                const header = document.createElement('div');
+                header.className = 'variant-header';
+                header.style.cssText = 'font-size:12px;color:var(--mist);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:4px';
+                header.textContent = `${variantKeys.length} Resolution Profiles`;
+                variantContainer.insertBefore(header, variantContainer.firstChild);
+            }
 
             const existingRows = variantContainer.querySelectorAll('.variant-row');
             existingRows.forEach(row => {
@@ -1018,9 +1088,20 @@ async _autoMintDemoNFT(address) {
                     row.style.cssText = 'display:flex;align-items:center;gap:8px';
 
                     const label = document.createElement('span');
-                    label.style.cssText = 'font-size:11px;color:var(--muted);width:64px;flex-shrink:0';
+                    label.style.cssText = 'font-size:12px;color:var(--sand);width:72px;flex-shrink:0;font-weight:500';
                     const parts = variant.split('x');
-                    label.textContent = parts.length === 2 ? parts[1] + 'p' : variant;
+                    const height = parts.length === 2 ? parseInt(parts[1]) : 0;
+                    const profileNames = { 1080: '1080p FHD', 720: '720p HD', 480: '480p SD', 360: '360p LD' };
+                    if (profileNames[height]) {
+                        label.textContent = profileNames[height];
+                    } else {
+                        const heightFromName = parseInt(String(variant).replace(/[^0-9]/g, ''), 10);
+                        if (profileNames[heightFromName]) {
+                            label.textContent = profileNames[heightFromName];
+                        } else {
+                            label.textContent = parts.length === 2 ? parts[1] + 'p' : variant;
+                        }
+                    }
                     row.appendChild(label);
 
                     const barWrap = document.createElement('div');
@@ -1071,7 +1152,7 @@ async _autoMintDemoNFT(address) {
                     setBarProgress(result.progress);
                     if (progressText) progressText.textContent = `${label} ${result.progress}%`;
                 } else if (status === 'processing' || status === 'running') {
-                    setBarProgress(0);
+                    setBarWaiting();
                     if (progressText) progressText.textContent = label;
                 } else if (status === 'pending' || status === 'queued') {
                     setBarWaiting();
@@ -1081,9 +1162,10 @@ async _autoMintDemoNFT(address) {
                     if (progressText) progressText.textContent = label;
                 }
 
-                const variantProgress = result.metadata && result.metadata.variant_progress;
-                if (variantProgress) {
-                    updateVariantProgress(variantProgress);
+                const backendVariantProgress = result.metadata && result.metadata.variant_progress;
+                const displayProfileMap = this._buildProfileDisplayMap(result, backendVariantProgress);
+                if (displayProfileMap) {
+                    updateVariantProgress(displayProfileMap);
                 }
 
                 if (output) {
@@ -1093,8 +1175,9 @@ async _autoMintDemoNFT(address) {
 
                 if (['completed', 'done', 'success'].includes(status)) {
                     setBarCompleted();
-                    if (progressText) progressText.textContent = 'Completed!';
+                    if (progressText) progressText.textContent = 'Completed! Loading player...';
                     this._transcodePollActive = false;
+                    await new Promise(r => setTimeout(r, 1500));
                     try {
                         await this.onTranscodeComplete(contentId);
                     } catch (e) {
@@ -1152,6 +1235,7 @@ async _autoMintDemoNFT(address) {
             'Transcode completed',
             'Playback started automatically.'
         );
+        this.switchView('playback');
         await this.playVideo();
     }
 
@@ -1280,12 +1364,19 @@ async _autoMintDemoNFT(address) {
     }
 
     updateStatus(type, status, text) {
-        const statusEl = document.getElementById(`${type}-status`) || document.getElementById(`${type}-status-global`);
+        const statusEl = document.getElementById(`${type}-status`)
+            || document.getElementById(`${type}-status-global`)
+            || document.getElementById(`${type}-status-text`);
         if (statusEl) {
             statusEl.textContent = text;
             statusEl.className = `status-value ${status}`;
         }
-        // Update dashboard status cards
+        const siblingTextEls = document.querySelectorAll(`#${type}-status-text, #${type}-status-global, #${type}-status`);
+        siblingTextEls.forEach(el => {
+            if (el === statusEl) return;
+            el.textContent = text;
+            el.className = `status-value ${status}`;
+        });
         const dotEl = document.getElementById(`${type}-dot`);
         if (dotEl) {
             dotEl.className = `status-dot ${status}`;
@@ -1415,6 +1506,275 @@ async _autoMintDemoNFT(address) {
                 }
             }, 300);
         }, 3000);
+    }
+
+    // === Admin Tab Methods ===
+
+    switchAdminTab(tabName) {
+        document.querySelectorAll('.admin-content').forEach(el => el.style.display = 'none');
+        const target = document.getElementById('admin-' + tabName);
+        if (target) target.style.display = '';
+        document.querySelectorAll('.admin-tab').forEach(t => {
+            t.classList.toggle('active', t.dataset.adminTab === tabName);
+        });
+    }
+
+    async loadAdminData() {
+        try {
+            let health = await this.api.healthCheck();
+
+            // Auto-correct: when health doesn't report mode, try the page origin.
+            // This handles stale localStorage pointing at a wrong backend
+            // (e.g. old api-gateway :28080 while monolith runs on :18080 via nginx :18000).
+            if (!health.mode && !health.deployment_mode) {
+                const pageOrigin = window.location.origin;
+                if (this.api.getBaseUrl() !== pageOrigin) {
+                    try {
+                        const altResp = await fetch(`${pageOrigin}/health`);
+                        if (altResp.ok) {
+                            const altHealth = await altResp.json();
+                            if (altHealth.mode || altHealth.deployment_mode) {
+                                console.log(`Auto-correcting backend URL: ${this.api.getBaseUrl()} → ${pageOrigin}`);
+                                this.api.setBaseUrl(pageOrigin);
+                                health = altHealth;
+                            }
+                        }
+                    } catch (_) { /* page origin not reachable, use what we have */ }
+                }
+            }
+
+            this._updateAdminOverview(health);
+            await this._loadServiceMatrix(health);
+        } catch (err) {
+            console.warn('Admin data load failed:', err.message);
+        }
+    }
+
+    _updateAdminOverview(health) {
+        const mode = health.mode || health.deployment_mode || '';
+        // Detect deployment mode: if health API doesn't report mode,
+        // check if we're running on the microservices port (28080 = api-gateway)
+        // Monolith runs on port 8080, microservices api-gateway on 9090 (mapped to 28080)
+        let isMonolith;
+        if (mode === 'monolith') {
+            isMonolith = true;
+        } else if (mode === 'microservice' || mode === 'microservices') {
+            isMonolith = false;
+        } else {
+            // Heuristic: if we can reach individual microservice ports, it's microservices
+            // api-gateway in microservices mode is on port 28080 (mapped from 9090)
+            // monolith would be on port 8080
+            const baseUrl = this.api.getBaseUrl();
+            isMonolith = baseUrl.includes(':8080') || baseUrl.includes(':18080') || baseUrl.includes(':18000');
+        }
+
+        const modeEl = document.getElementById('admin-deployment-mode');
+        if (modeEl) {
+            modeEl.textContent = isMonolith ? 'Monolith' : 'Microservices';
+        }
+        const modeLabel = document.getElementById('admin-deployment-mode-label');
+        if (modeLabel) {
+            modeLabel.textContent = isMonolith ? '1 Binary (Monolith)' : '9 Microservices';
+        }
+        const healthEl = document.getElementById('admin-health-status');
+        if (healthEl) {
+            const ok = health.status === 'healthy' || health.status === 'ok';
+            healthEl.textContent = health.status || '—';
+            healthEl.style.color = ok ? 'var(--emerald)' : 'var(--rose)';
+        }
+        const chainsEl = document.getElementById('admin-active-chains');
+        if (chainsEl) {
+            const checks = health.checks || {};
+            const dbOk = checks.database && checks.database.status === 'healthy';
+            const storageOk = checks.storage && checks.storage.status === 'healthy';
+            const okCount = [dbOk, storageOk].filter(Boolean).length;
+            chainsEl.textContent = `${okCount}/2`;
+            chainsEl.style.color = okCount === 2 ? 'var(--emerald)' : 'var(--amber)';
+        }
+        const uptimeEl = document.getElementById('admin-uptime');
+        if (uptimeEl) {
+            uptimeEl.textContent = health.version || health.release || '—';
+        }
+
+        // Gateway Evidence
+        const evDep = document.getElementById('evidence-deployment');
+        if (evDep) evDep.textContent = isMonolith ? 'Monolith (single binary)' : 'Microservices (9 independent services)';
+        const evRun = document.getElementById('evidence-runtime');
+        if (evRun) evRun.textContent = isMonolith ? 'In-process plugins' : 'Distributed via Docker Compose';
+        const evTs = document.getElementById('evidence-timestamp');
+        if (evTs) evTs.textContent = health.timestamp ? new Date(health.timestamp).toLocaleString() : new Date().toLocaleString();
+        const evEp = document.getElementById('evidence-endpoint');
+        if (evEp) evEp.textContent = this.api.getBaseUrl();
+        const evVer = document.getElementById('evidence-version');
+        if (evVer) evVer.textContent = health.version || health.release || '—';
+        const evDb = document.getElementById('evidence-database');
+        if (evDb) {
+            const db = health.checks && health.checks.database;
+            evDb.textContent = db ? `${db.status} (${db.duration_ms}ms)` : '—';
+            evDb.style.color = db && db.status === 'healthy' ? 'var(--emerald)' : 'var(--rose)';
+        }
+    }
+
+    async _loadServiceMatrix(health) {
+        const services = [
+            { id: 'api-gateway', name: 'API Gateway', role: 'HTTP + gRPC entry point', probePaths: ['/health', '/api/v1/auth/profile'] },
+            { id: 'auth', name: 'Auth Service', role: 'API endpoint via gateway', probePaths: ['/api/v1/auth/profile'] },
+            { id: 'transcoder', name: 'Transcoder', role: 'API endpoint via gateway', probePaths: ['/api/v1/transcode/profiles'] },
+            { id: 'streaming', name: 'Streaming', role: 'API endpoint via gateway', probePaths: ['/api/v1/web3/rpc-status'] },
+            { id: 'upload', name: 'Upload Service', role: 'API endpoint via gateway', probePaths: ['/api/v1/upload/list'] },
+            { id: 'metadata', name: 'Metadata', role: 'API endpoint via gateway', probePaths: ['/api/v1/content'] },
+            { id: 'cache', name: 'Cache Service', role: 'API endpoint via gateway', probePaths: ['/health'] },
+            { id: 'worker', name: 'Worker', role: 'API endpoint via gateway', probePaths: ['/health'] },
+            { id: 'monitor', name: 'Monitor', role: 'API endpoint via gateway', probePaths: ['/health'] },
+        ];
+
+        const mode = health.mode || health.deployment_mode || '';
+        let isMonolith;
+        if (mode === 'monolith') {
+            isMonolith = true;
+        } else if (mode === 'microservice' || mode === 'microservices') {
+            isMonolith = false;
+        } else {
+            const baseUrl = this.api.getBaseUrl();
+            isMonolith = baseUrl.includes(':8080') || baseUrl.includes(':18080') || baseUrl.includes(':18000');
+        }
+
+        const baseUrl = this.api.getBaseUrl();
+        const matrixEl = document.getElementById('service-matrix');
+        const summaryEl = document.getElementById('service-matrix-summary');
+        if (!matrixEl) return;
+
+        if (isMonolith) {
+            const probes = await this._probeEndpoints(baseUrl, [
+                { path: '/health', label: 'Health' },
+                { path: '/api/v1/auth/profile', label: 'Auth' },
+                { path: '/api/v1/web3/rpc-status', label: 'RPC Status' },
+                { path: '/metrics', label: 'Metrics' },
+            ]);
+            const okCount = probes.filter(p => p.ok).length;
+            if (summaryEl) {
+                summaryEl.innerHTML = `<span style="color:var(--emerald)">${okCount}/${probes.length}</span> probes passed — <strong>Monolith mode</strong> (all services in one process)`;
+            }
+            matrixEl.innerHTML = this._renderServiceCard('monolith', 'Monolith (All-in-One)', 'Single binary running all 9 plugins', baseUrl, probes);
+        } else {
+            // Microservices mode: all probes go through API Gateway (CORS-restricted from browser)
+            let totalOk = 0;
+            let totalProbes = 0;
+            let cardsHtml = '';
+
+            for (const svc of services) {
+                const endpoints = svc.probePaths.map(p => {
+                    if (typeof p === 'string') return { path: p, label: p.split('/').pop() || p };
+                    return { path: p.path, method: p.method, label: p.label || p.path.split('/').pop() };
+                });
+                const probes = await this._probeEndpoints(baseUrl, endpoints);
+                totalOk += probes.filter(p => p.ok).length;
+                totalProbes += probes.length;
+                cardsHtml += this._renderServiceCard(svc.id, svc.name, svc.role, baseUrl, probes);
+            }
+
+            if (summaryEl) {
+                summaryEl.innerHTML = `<span style="color:${totalOk === totalProbes ? 'var(--emerald)' : 'var(--amber)'}">${totalOk}/${totalProbes}</span> API endpoints available via <strong>microservices gateway</strong>`;
+            }
+            matrixEl.innerHTML = cardsHtml;
+        }
+    }
+
+    async _probeEndpoints(baseUrl, endpoints) {
+        const probes = [];
+        const token = this.api.getAuthToken();
+        for (const ep of endpoints) {
+            try {
+                const opts = { signal: AbortSignal.timeout(3000) };
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                if (ep.method === 'POST') {
+                    opts.method = 'POST';
+                    headers['Content-Type'] = 'application/json';
+                    opts.body = '{}';
+                }
+                opts.headers = headers;
+                const resp = await fetch(`${baseUrl}${ep.path}`, opts);
+                // 2xx = healthy, 401/403 = service up but needs auth
+                const ok = resp.ok || resp.status === 401 || resp.status === 403;
+                probes.push({ path: ep.path, ok, status: String(resp.status), summary: ok ? `${ep.label} OK` : `HTTP ${resp.status}` });
+            } catch (e) {
+                probes.push({ path: ep.path, ok: false, status: 'ERR', summary: e.name === 'TimeoutError' ? 'Timeout' : 'Unreachable' });
+            }
+        }
+        return probes;
+    }
+
+    _renderServiceCard(_id, name, role, baseUrl, probes) {
+        const okCount = probes.filter(p => p.ok).length;
+        const allOk = okCount === probes.length;
+        const toneClass = allOk ? 'healthy' : okCount > 0 ? 'warning' : 'error';
+
+        return `
+        <div class="service-card">
+            <div class="service-card-header">
+                <div>
+                    <h3>${name}</h3>
+                    <p>${role}</p>
+                    <p class="service-url">${baseUrl}</p>
+                </div>
+                <div class="probe-badge ${toneClass}">${okCount}/${probes.length} ready</div>
+            </div>
+            <div class="probe-list">
+                ${probes.map(p => `
+                <div class="probe-item ${p.ok ? 'healthy' : 'error'}">
+                    <div class="probe-row">
+                        <span class="probe-path">${p.path}</span>
+                        <span class="probe-status">${p.status}</span>
+                    </div>
+                    <pre class="probe-summary">${p.summary}</pre>
+                </div>
+                `).join('')}
+            </div>
+        </div>`;
+    }
+
+    async runAdminHealthCheck() {
+        const output = document.getElementById('admin-health-output');
+        if (!output) return;
+        output.classList.remove('hidden');
+        output.textContent = 'Running health check...';
+        try {
+            const result = await this.api.healthCheck();
+            output.textContent = 'Health Check Result:\n' + JSON.stringify(result, null, 2);
+        } catch (err) {
+            output.textContent = 'Health Check Failed:\n' + err.message;
+        }
+    }
+
+    async loadAdminMetrics() {
+        const output = document.getElementById('admin-metrics-output');
+        if (!output) return;
+        output.classList.remove('hidden');
+        output.textContent = 'Loading metrics...';
+        try {
+            const baseUrl = this.api.getBaseUrl();
+            const resp = await fetch(`${baseUrl}/metrics`, { headers: { 'Authorization': `Bearer ${this.api.getAuthToken()}` } });
+            const text = await resp.text();
+            // Third-party workaround: nginx serves index.html when /metrics route is missing
+            const contentType = resp.headers.get('content-type') || '';
+            const isPrometheus = contentType.includes('text/plain') || text.trimStart().startsWith('#');
+            if (!resp.ok) {
+                output.textContent = `Metrics Load Failed: HTTP ${resp.status} ${resp.statusText}`;
+            } else if (!isPrometheus) {
+                const preview = text.slice(0, 200).replace(/\n/g, ' ');
+                output.textContent = `Metrics endpoint not available.\n` +
+                    `Expected Prometheus text format from ${baseUrl}/metrics, got ${contentType || 'unknown'}.\n` +
+                    `Response preview: ${preview}...`;
+            } else {
+                const lines = text.split('\n').filter(l => l && !l.startsWith('#')).slice(0, 50);
+                output.textContent = `Prometheus Metrics (${lines.length} samples shown):\n\n` + lines.join('\n');
+            }
+        } catch (err) {
+            output.textContent = 'Metrics Load Failed:\n' + err.message;
+        }
     }
 }
 
