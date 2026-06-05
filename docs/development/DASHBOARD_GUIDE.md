@@ -119,7 +119,6 @@ The dev/acceptance JWT secret is **`fullchain-acceptance-secret-2026`**. It must
 |------------|---------------|-------|
 | docker-compose.fullchain.yml | `STREAMGATE_AUTH_JWT_SECRET` | `fullchain-acceptance-secret-2026` |
 | docker-compose.monolith.yml | same | `fullchain-acceptance-secret-2026` |
-| docker-compose.yml | same | `fullchain-acceptance-secret-2026` |
 
 If the JWT secret in the backend does not match what the h5-demo expects, JWT verification will fail silently (401 on protected endpoints). Align the secret before deploying.
 

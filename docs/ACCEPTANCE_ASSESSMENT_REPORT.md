@@ -315,7 +315,7 @@ README 描述的功能可实际运行
 | 文件 | 路径 | 状态 | 说明 |
 |------|------|------|------|
 | Dockerfile | `Dockerfile` | ✅ 存在 | 多阶段构建 |
-| docker-compose | `docker-compose.yml` | ✅ 存在 | 本地开发环境 |
+| docker-compose (fullchain) | `docker-compose.fullchain.yml` | ✅ 存在 | 全栈 (PG + Redis + MinIO + NATS + 9 microservices) |
 | K8s 部署 | `deploy/k8s/` | ✅ 完整 | 9 微服务 + 基础设施 |
 
 **已实现功能**:
