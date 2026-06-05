@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-BASE_URL="${1:-http://localhost:29090}"
+BASE_URL="${1:-http://localhost:18080}"
 WALLET="${WALLET:-0x000000000000000000000000000000000000dEaD}"
 CONTRACT="${CONTRACT:-0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f}"
 CHAIN_ID="${CHAIN_ID:-11155111}"
