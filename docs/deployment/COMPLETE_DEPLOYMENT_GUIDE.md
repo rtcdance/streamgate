@@ -223,7 +223,7 @@ docker-compose down -v
 
 ```bash
 # Override environment variables
-docker-compose -f docker-compose.yml \
+docker compose -f docker-compose.fullchain.yml \
   -e DB_HOST=custom-db \
   -e REDIS_HOST=custom-redis \
   up -d
