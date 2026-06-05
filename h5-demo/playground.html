@@ -6,32 +6,32 @@
 <title>StreamGate Playground</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
-body{margin:0;padding:16px;background:var(--bg)}
+body{margin:0;padding:16px;background:var(--ink);background-image:linear-gradient(rgba(255,255,255,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.06) 1px,transparent 1px);background-size:42px 42px}
 .container{max-width:960px;margin:0 auto}
-h1{font-size:20px;margin-bottom:4px}
-.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+h1{font-size:20px;margin-bottom:4px;color:var(--sand);font-weight:700}
+.sub{color:var(--mist);font-size:13px;margin-bottom:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:16px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px}
+.card{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:20px}
 .card h3{font-size:14px;margin:0 0 8px 0;display:flex;align-items:center;gap:6px}
 .card .val{font-size:24px;font-weight:700}
-.card .hint{font-size:11px;color:var(--muted);margin-top:4px}
-.rpc-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--line);font-size:13px}
+.card .hint{font-size:11px;color:var(--mist);margin-top:4px}
+.rpc-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.1);font-size:13px}
 .rpc-row:last-child{border-bottom:none}
-.score-bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:2px;flex:1;margin-left:8px}
+.score-bar{height:6px;border-radius:3px;background:rgba(255,255,255,0.1);overflow:hidden;margin-top:2px;flex:1;margin-left:8px}
 .score-fill{height:100%;border-radius:3px;transition:width .5s}
-.tbl{width:100%;border-collapse:collapse;font-size:13px}
-.tbl td,.tbl th{padding:4px 8px;text-align:left;border-bottom:1px solid var(--line)}
-.tbl th{color:var(--muted);font-weight:500;font-size:11px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;border-color:rgba(255,255,255,0.1)}
+.tbl td,.tbl th{padding:4px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.1)}
+.tbl th{color:var(--mist);font-weight:500;font-size:11px}
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
-.dot-green{background:var(--success)}
-.dot-red{background:var(--danger)}
-.dot-yellow{background:#d29922}
-.dot-gray{background:var(--muted)}
-.chain-header{font-size:13px;font-weight:600;padding:8px 0 4px;color:var(--text)}
+.dot-green{background:var(--emerald)}
+.dot-red{background:var(--rose)}
+.dot-yellow{background:var(--amber)}
+.dot-gray{background:var(--mist)}
+.chain-header{font-size:13px;font-weight:600;padding:8px 0 4px;color:var(--sand)}
 .refresh-row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
-#status-msg{font-size:12px;color:var(--muted)}
-.alive{background:rgba(63,185,80,.15);border-color:var(--success)}
-.error-state{background:rgba(248,81,73,.1);border-color:var(--danger)}
+#status-msg{font-size:12px;color:var(--mist)}
+.alive{background:rgba(110,231,183,0.1);border-color:rgba(110,231,183,0.25)}
+.error-state{background:rgba(251,113,133,0.1);border-color:rgba(251,113,133,0.25)}
 </style>
 </head>
 <body>
@@ -41,7 +41,7 @@ h1{font-size:20px;margin-bottom:4px}
 
   <div class="refresh-row">
     <button class="btn btn-primary" id="refresh-btn">Refresh Now</button>
-    <label style="font-size:12px;color:var(--muted)">
+    <label style="font-size:12px;color:var(--mist)">
       <input type="checkbox" id="auto-refresh" checked> Auto-refresh (5s)
     </label>
     <span id="status-msg"></span>
@@ -50,13 +50,13 @@ h1{font-size:20px;margin-bottom:4px}
   <div class="grid" id="stat-cards">
     <div class="card"><h3>⛓️ Chains</h3><div class="val" id="stat-chains">-</div><div class="hint">Configured blockchains</div></div>
     <div class="card"><h3>🔗 RPC Endpoints</h3><div class="val" id="stat-rpcs">-</div><div class="hint">Total endpoints across chains</div></div>
-    <div class="card"><h3>📦 Events Indexed</h3><div class="val" id="stat-events">-</div><div class="hint">Events in indexer buffer</div></div>
-    <div class="card"><h3>🔍 Reorg Detector</h3><div class="val" id="stat-reorg">-</div><div class="hint">Tracking headers</div></div>
+    <div class="card"><h3>📡 RPC Active</h3><div class="val" id="stat-events">-</div><div class="hint">Active / total RPC endpoints</div></div>
+    <div class="card"><h3>📊 Avg Score</h3><div class="val" id="stat-reorg">-</div><div class="hint">Average RPC health score</div></div>
   </div>
 
   <div class="card" id="rpc-detail">
     <h3>🔌 RPC Endpoint Scores</h3>
-    <div id="rpc-content"><p style="color:var(--muted);font-size:13px">Loading...</p></div>
+    <div id="rpc-content"><p style="color:var(--mist);font-size:13px">Loading...</p></div>
   </div>
 
   <div class="card" style="margin-top:12px">
@@ -68,41 +68,41 @@ h1{font-size:20px;margin-bottom:4px}
     </table>
   </div>
 
-  <details style="margin-top:16px;color:var(--muted);font-size:12px">
+  <details style="margin-top:16px;color:var(--mist);font-size:12px">
     <summary>Raw JSON</summary>
-    <pre id="raw-json" style="background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px;margin-top:8px;max-height:300px;overflow:auto;white-space:pre-wrap;font-size:11px"></pre>
+    <pre id="raw-json" style="background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:12px;margin-top:8px;max-height:300px;overflow:auto;white-space:pre-wrap;font-size:11px"></pre>
   </details>
 </div>
 
 <script>
-const API = localStorage.getItem('sg_backend') || 'http://localhost:18080';
+const API = localStorage.getItem('sg_backend') || '';
 
 function el(id){return document.getElementById(id)}
 
 async function fetchState() {
   try {
-    const r = await fetch(API + '/debug/web3-state');
+    const r = await fetch(API + '/api/v1/web3/rpc-status');
     if (!r.ok) {
       const t = await r.text();
       el('status-msg').textContent = '⚠️ ' + (t || 'HTTP ' + r.status);
-      el('status-msg').style.color = 'var(--danger)';
+      el('status-msg').style.color = 'var(--rose)';
       return null;
     }
     const d = await r.json();
     el('status-msg').textContent = '✅ Updated ' + new Date().toLocaleTimeString();
-    el('status-msg').style.color = 'var(--muted)';
+    el('status-msg').style.color = 'var(--mist)';
     return d;
   } catch(e) {
     el('status-msg').textContent = '⚠️ ' + e.message;
-    el('status-msg').style.color = 'var(--danger)';
+    el('status-msg').style.color = 'var(--rose)';
     return null;
   }
 }
 
 function scoreColor(s) {
-  if (s >= 0.8) return 'var(--success)';
-  if (s >= 0.4) return '#d29922';
-  return 'var(--danger)';
+  if (s >= 0.8) return 'var(--emerald)';
+  if (s >= 0.4) return 'var(--amber)';
+  return 'var(--rose)';
 }
 
 function scoreLabel(s) {
@@ -117,24 +117,23 @@ function render(data) {
   el('raw-json').textContent = JSON.stringify(data, null, 2);
 
   // Stats cards
-  const chains = data.chains ? Object.keys(data.chains).length : 0;
+  const chains = data.chains && Array.isArray(data.chains) ? data.chains : [];
+  el('stat-chains').textContent = chains.length;
   let rpcCount = 0;
-  if (data.chains) {
-    for (const cid of Object.keys(data.chains)) {
-      if (data.chains[cid].rpcs) rpcCount += data.chains[cid].rpcs.length;
-    }
+  for (const ch of chains) {
+    if (ch.rpcs) rpcCount += ch.rpcs.length;
   }
-  el('stat-chains').textContent = chains;
   el('stat-rpcs').textContent = rpcCount;
-  el('stat-events').textContent = (data.event_indexer && data.event_indexer.event_count != null) ? data.event_indexer.event_count : 'N/A';
-  el('stat-reorg').textContent = (data.reorg_detector && data.reorg_detector.configured) ? 'Active' : 'N/A';
+  const activeRPCs = chains.reduce((sum, ch) => sum + (ch.rpcs || []).filter(r => r.is_active).length, 0);
+  el('stat-events').textContent = activeRPCs + '/' + rpcCount + ' active';
+  const avgScore = chains.length > 0 ? chains.flatMap(ch => ch.rpcs || []).reduce((s, r) => s + (r.score || 0), 0) / Math.max(1, rpcCount) : 0;
+  el('stat-reorg').textContent = (avgScore * 100).toFixed(0) + '% avg score';
 
   // RPC detail
   let html = '';
-  if (data.chains) {
-    for (const cid of Object.keys(data.chains)) {
-      const ch = data.chains[cid];
-      html += `<div class="chain-header">${ch.name} (chain ${cid})${ch.is_testnet ? ' ⚗️ testnet' : ''}</div>`;
+  if (chains.length > 0) {
+    for (const ch of chains) {
+      html += `<div class="chain-header">${ch.name} (chain ${ch.chain_id})</div>`;
       if (ch.rpcs && ch.rpcs.length > 0) {
         for (const rpc of ch.rpcs) {
           const sc = typeof rpc.score === 'number' ? rpc.score : 0;
@@ -144,25 +143,25 @@ function render(data) {
             <span style="display:flex;align-items:center;gap:4px;min-width:160px">
               <span style="font-size:12px;min-width:48px;text-align:right">${scoreLabel(sc)}</span>
               <div class="score-bar"><div class="score-fill" style="width:${Math.round(sc*100)}%;background:${scoreColor(sc)}"></div></div>
-              <span style="font-size:11px;color:var(--muted);min-width:28px">${rpc.is_active ? 'ACTIVE' : ''}</span>
+              <span style="font-size:11px;color:var(--mist);min-width:28px">${rpc.is_active ? 'ACTIVE' : ''}</span>
             </span>
           </div>`;
           if (rpc.failures > 0) {
-            html += `<div style="font-size:11px;color:var(--muted);padding:0 0 4px 16px">${rpc.failures} failures, cooldown until ${rpc.cooldown_until || 'N/A'}</div>`;
+            html += `<div style="font-size:11px;color:var(--mist);padding:0 0 4px 16px">${rpc.failures} failures, cooldown until ${rpc.cooldown_until || 'N/A'}</div>`;
           }
         }
       } else {
-        html += '<div style="font-size:12px;color:var(--muted);padding:4px 0">No RPC data (not connected)</div>';
+        html += '<div style="font-size:12px;color:var(--mist);padding:4px 0">No RPC data (not connected)</div>';
       }
     }
   } else {
-    html = '<p style="color:var(--muted);font-size:13px">No chain data available</p>';
+    html = '<p style="color:var(--mist);font-size:13px">No chain data available</p>';
   }
   el('rpc-content').innerHTML = html;
 
   // Config
   el('cfg-debug').textContent = document.cookie.includes('DEBUG_ENABLED') ? 'enabled' : 'check env';
-  el('cfg-url').textContent = API;
+  el('cfg-url').textContent = API || '(same origin)';
 }
 
 let interval = null;

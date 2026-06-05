@@ -114,17 +114,22 @@ select.input{width:auto;min-width:160px}
 
 <script>
 const API = localStorage.getItem('sg_backend') || '';
-const JWT_SECRET = localStorage.getItem('sg_jwt_secret') || 'sg-dev-jwt-secret-32chars-minimum!!';
+const _defaultJwtSecret = 'fullchain-acceptance-secret-2026';
+const _storedJwtSecret = localStorage.getItem('sg_jwt_secret');
+const JWT_SECRET = _storedJwtSecret || _defaultJwtSecret;
 let cachedToken = null;
 
+function b64url(s) {
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
 async function getToken() {
   if (cachedToken) return cachedToken;
   const addr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
-  const h = btoa('{"alg":"HS256","typ":"JWT"}').replace(/=/g,'');
-  const p = btoa(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'tr-'+crypto.randomUUID()})).replace(/=/g,'');
+  const h = b64url(JSON.stringify({alg:'HS256',typ:'JWT'}));
+  const p = b64url(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'tr-'+crypto.randomUUID()}));
   const k = await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
   const s = await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
-  cachedToken = h+'.'+p+'.'+btoa(String.fromCharCode(...new Uint8Array(s))).replace(/=/g,'');
+  cachedToken = h+'.'+p+'.'+b64url(String.fromCharCode(...new Uint8Array(s)));
   return cachedToken;
 }
 
@@ -199,7 +204,7 @@ const SCENARIOS = {
   'nft-verify': {
     req: async () => {
       const t = await getToken();
-      return {method:'GET',url:API+'/api/v1/nft/verify?contract=0xDEAD000000000000000000000000000000000001&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
+      return {method:'GET',url:API+'/api/v1/nft/verify?contract=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
     },
     middleware: ['m-http','m-reqid','m-jwt','m-cb'],
     handlerFile: 'pkg/gateway/nft_handlers.go:55',
@@ -212,7 +217,7 @@ const SCENARIOS = {
       '    → client.CallContract (eth_call RPC)',
       '      → pkg/web3/chain.go:930 withChainClient (generics!)',
       '        → rate limiter check',
-'        → pkg/web3/chain.go:1044 -> ethclient.CallContract
+      '        → pkg/web3/chain.go:1044 -> ethclient.CallContract',
       '        → latency recording + score update',
       '    → ABI.UnpackIntoInterface — decodes address from response',
       '    → compare recovered address vs. expected',
@@ -223,7 +228,7 @@ const SCENARIOS = {
   manifest: {
     req: async () => {
       const t = await getToken();
-      return {method:'GET',url:API+'/api/v1/streaming/demo/manifest.m3u8?contract=0xDEAD000000000000000000000000000000000001&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
+      return {method:'GET',url:API+'/api/v1/streaming/demo/manifest.m3u8?contract=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
     },
     middleware: ['m-http','m-reqid','m-jwt','m-nftgate'],
     handlerFile: 'pkg/gateway/streaming_handlers.go:17',
