@@ -78,6 +78,9 @@ scripts/quick-build.sh
 scripts/setup.sh
 scripts/setup-hpa.sh
 scripts/setup-vpa.sh
+scripts/deploy-nft-anvil.js
+scripts/deploy-test-nft.mjs
+scripts/extract-bytecode.mjs
 scripts/*.py
 
 # AI tooling
