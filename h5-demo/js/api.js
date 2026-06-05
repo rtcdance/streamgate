@@ -1,31 +1,34 @@
 const DEFAULT_API_BASE = 'http://localhost:18000';
-const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '19090', '28080', '29091']);
+const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '28080', '29091']);
 
 function normalizeBaseUrl(url) {
     return url.replace(/\/$/, '');
 }
 
 function inferApiBase() {
-    const stored = localStorage.getItem('streamgate_api_base');
-    if (stored) {
-        return normalizeBaseUrl(stored);
-    }
-
     if (window.location.protocol === 'file:') {
-        return DEFAULT_API_BASE;
+        const stored = localStorage.getItem('streamgate_api_base');
+        return stored ? normalizeBaseUrl(stored) : DEFAULT_API_BASE;
     }
 
     try {
         const current = new URL(window.location.href);
         const port = current.port || (current.protocol === 'https:' ? '443' : '80');
         if (ACCEPTANCE_BACKEND_PORTS.has(port)) {
-            return normalizeBaseUrl(current.origin);
+            const pageOrigin = normalizeBaseUrl(current.origin);
+            const stored = localStorage.getItem('streamgate_api_base');
+            if (stored && normalizeBaseUrl(stored) !== pageOrigin) {
+                localStorage.setItem('streamgate_api_base', pageOrigin);
+                console.log(`Auto-corrected API base: ${stored} → ${pageOrigin}`);
+            }
+            return pageOrigin;
         }
     } catch (error) {
         console.warn('Failed to infer API base from current location:', error);
     }
 
-    return DEFAULT_API_BASE;
+    const stored = localStorage.getItem('streamgate_api_base');
+    return stored ? normalizeBaseUrl(stored) : DEFAULT_API_BASE;
 }
 
 const API_BASE = inferApiBase();
