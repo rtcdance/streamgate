@@ -70,7 +70,6 @@ make build-all
 
 - `QUICK_START.md` - 快速开始指南
 - `deployment-architecture.md` - 部署架构
-- `../project-planning/implementation/` - 实现规划
 - `../../README.md` - 项目主文档
 - `../../cmd/README.md` - 命令行工具文档
 
@@ -78,7 +77,6 @@ make build-all
 
 - **快速开始** - `QUICK_START.md`
 - **架构设计** - `deployment-architecture.md`
-- **项目规划** - `../project-planning/`
 - **开发指南** - `../development/`
 - **Web3指南** - `../web3/`
 
