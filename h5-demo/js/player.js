@@ -104,11 +104,18 @@ class HLSPlayer {
     }
 
     handleLevelSwitched(data) {
-        const container = document.getElementById('quality-options');
-        if (!container) return;
-        container.querySelectorAll('.quality-btn').forEach(btn => {
-            btn.classList.toggle('active', parseInt(btn.dataset.level) === data.level);
-        });
+        const select = document.getElementById('quality-select');
+        if (select) select.value = String(data.level);
+        const current = document.getElementById('quality-current');
+        if (current && this.hls && this.hls.levels) {
+            const level = this.hls.levels[data.level];
+            if (data.level === -1) {
+                current.textContent = 'Auto (adaptive)';
+            } else if (level) {
+                const h = level.height || '?';
+                current.textContent = `${h}p (${Math.round(level.bitrate / 1000)}kbps)`;
+            }
+        }
     }
 
     handleError(event, data) {
@@ -133,44 +140,40 @@ class HLSPlayer {
 
     updateQualitySelector() {
         const container = document.getElementById('quality-selector');
-        const options = document.getElementById('quality-options');
-        if (!container || !options || !this.hls) return;
+        const select = document.getElementById('quality-select');
+        if (!container || !select || !this.hls) return;
         const levels = this.hls.levels;
         if (!levels || levels.length <= 1) {
             container.classList.add('hidden');
             return;
         }
         container.classList.remove('hidden');
-        options.innerHTML = '';
+        select.innerHTML = '';
 
-        const autoBtn = document.createElement('button');
-        autoBtn.className = 'quality-btn' + (this.hls.currentLevel === -1 ? ' active' : '');
-        autoBtn.dataset.level = '-1';
-        autoBtn.textContent = 'Auto';
-        autoBtn.title = 'Auto (adaptive bitrate)';
-        autoBtn.addEventListener('click', () => this.setQuality(-1));
-        options.appendChild(autoBtn);
+        const autoOpt = document.createElement('option');
+        autoOpt.value = '-1';
+        autoOpt.textContent = 'Auto (adaptive)';
+        autoOpt.selected = this.hls.currentLevel === -1;
+        select.appendChild(autoOpt);
 
         levels.forEach((level, i) => {
-            const btn = document.createElement('button');
-            btn.className = 'quality-btn' + (this.hls.currentLevel === i ? ' active' : '');
-            btn.dataset.level = String(i);
+            const opt = document.createElement('option');
+            opt.value = String(i);
             const h = level.height || '?';
-            btn.textContent = h + 'p';
-            btn.title = `${level.width}x${level.height} (${Math.round(level.bitrate/1000)}kbps)`;
-            btn.addEventListener('click', () => this.setQuality(i));
-            options.appendChild(btn);
+            opt.textContent = `${h}p (${Math.round(level.bitrate/1000)}kbps)`;
+            opt.selected = this.hls.currentLevel === i;
+            select.appendChild(opt);
         });
+
+        select.onchange = () => this.setQuality(parseInt(select.value));
+        this.handleLevelSwitched({ level: this.hls.currentLevel });
     }
 
     setQuality(level) {
         if (!this.hls || !this.hls.levels) return;
         this.hls.currentLevel = level;
-        const container = document.getElementById('quality-options');
-        if (!container) return;
-        container.querySelectorAll('.quality-btn').forEach(btn => {
-            btn.classList.toggle('active', parseInt(btn.dataset.level) === level);
-        });
+        const select = document.getElementById('quality-select');
+        if (select) select.value = String(level);
     }
 
     play() {
