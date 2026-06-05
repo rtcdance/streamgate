@@ -480,7 +480,16 @@ migrate-reset: migrate-down-all migrate-up
 	@echo "Schema reset complete."
 
 deploy-monolith:
-	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil h5-demo streamgate
+	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil h5-demo monolith
 
 deploy-microservices:
-	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil consul jaeger prometheus grafana h5-demo auth cache metadata monitor streaming transcoder upload worker api-gateway
+	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil consul h5-demo auth cache metadata monitor streaming transcoder upload worker api-gateway
+
+deploy-status:
+	@docker ps --filter "name=sg-fc" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
+
+deploy-teardown:
+	docker compose -f docker-compose.fullchain.yml down -v
+
+deploy-logs:
+	docker compose -f docker-compose.fullchain.yml logs -f --tail=100
