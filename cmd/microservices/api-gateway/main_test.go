@@ -455,6 +455,97 @@ func TestRegisterNFTRoutes_VerifyReturnsCacheHitOnSecondRequest(t *testing.T) {
 	assert.Contains(t, secondRec.Body.String(), `"balance":"2"`)
 }
 
+func TestRegisterNFTRoutes_VerifyBypassCacheMissesAndDoesNotPopulate(t *testing.T) {
+	authService, _ := newTestAuthService()
+	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(0)}, nil)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"wallet":   "0x1234567890123456789012345678901234567890",
+		"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+		"chain_id": int64(11155111),
+	})
+
+	// 1. A bypass request must skip the cache and report cache_hit=false.
+	bypassReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify?bypass_cache=true", bytes.NewReader(body))
+	bypassReq.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
+	bypassRec := httptest.NewRecorder()
+	router.ServeHTTP(bypassRec, bypassReq)
+	require.Equal(t, http.StatusOK, bypassRec.Code)
+	assert.Contains(t, bypassRec.Body.String(), `"cache_hit":false`)
+	assert.Contains(t, bypassRec.Body.String(), `"bypass_cache":true`)
+	assert.Contains(t, bypassRec.Body.String(), `"has_nft":false`)
+
+	// 2. A follow-up plain request must still miss the cache because the
+	//    bypass call did not write the negative result back to the cache.
+	plainReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewReader(body))
+	plainReq.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
+	plainRec := httptest.NewRecorder()
+	router.ServeHTTP(plainRec, plainReq)
+	require.Equal(t, http.StatusOK, plainRec.Code)
+	assert.Contains(t, plainRec.Body.String(), `"cache_hit":false`)
+	assert.Contains(t, plainRec.Body.String(), `"has_nft":false`)
+
+	// 3. A third plain request (after the second one populated the cache) must
+	//    be a cache hit. This proves the bypass did not poison the cache.
+	hitReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewReader(body))
+	hitReq.Header.Set("Authorization", "Bearer "+testJWT("0x1234567890123456789012345678901234567890"))
+	hitRec := httptest.NewRecorder()
+	router.ServeHTTP(hitRec, hitReq)
+	require.Equal(t, http.StatusOK, hitRec.Code)
+	assert.Contains(t, hitRec.Body.String(), `"cache_hit":true`)
+	assert.Contains(t, hitRec.Body.String(), `"has_nft":false`)
+}
+
+func TestRegisterNFTRoutes_VerifyBypassCacheSkipsStaleWrite(t *testing.T) {
+	authService, _ := newTestAuthService()
+	// Pre-seed a "false" result into the in-memory cache via the public verify
+	// path with a non-existent wallet so the cache key matches the bypass call.
+	router := newTestRouter(authService, &mockNFTAccessVerifier{balance: big.NewInt(0)}, nil)
+
+	wallet := "0x1234567890123456789012345678901234567890"
+	contract := "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f"
+	body, _ := json.Marshal(map[string]interface{}{
+		"wallet":   wallet,
+		"contract": contract,
+		"chain_id": int64(11155111),
+	})
+
+	// 1. Prime cache with a "false" result.
+	primeReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewReader(body))
+	primeReq.Header.Set("Authorization", "Bearer "+testJWT(wallet))
+	primeRec := httptest.NewRecorder()
+	router.ServeHTTP(primeRec, primeReq)
+	require.Equal(t, http.StatusOK, primeRec.Code)
+	assert.Contains(t, primeRec.Body.String(), `"cache_hit":false`)
+
+	// 2. Without bypass, second call should hit cache ("true").
+	hReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewReader(body))
+	hReq.Header.Set("Authorization", "Bearer "+testJWT(wallet))
+	hRec := httptest.NewRecorder()
+	router.ServeHTTP(hRec, hReq)
+	require.Equal(t, http.StatusOK, hRec.Code)
+	assert.Contains(t, hRec.Body.String(), `"cache_hit":true`)
+
+	// 3. With bypass_cache, the response should report cache_hit=false and
+	//    not repopulate the cache with the "false" result for next time.
+	bReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify?bypass_cache=true", bytes.NewReader(body))
+	bReq.Header.Set("Authorization", "Bearer "+testJWT(wallet))
+	bRec := httptest.NewRecorder()
+	router.ServeHTTP(bRec, bReq)
+	require.Equal(t, http.StatusOK, bRec.Code)
+	assert.Contains(t, bRec.Body.String(), `"cache_hit":false`)
+	assert.Contains(t, bRec.Body.String(), `"bypass_cache":true`)
+
+	// 4. After bypass, the next non-bypass call should still hit the cache
+	//    (because bypass_cache does not write back).
+	cReq := httptest.NewRequest(http.MethodPost, "/api/v1/nft/verify", bytes.NewReader(body))
+	cReq.Header.Set("Authorization", "Bearer "+testJWT(wallet))
+	cRec := httptest.NewRecorder()
+	router.ServeHTTP(cRec, cReq)
+	require.Equal(t, http.StatusOK, cRec.Code)
+	assert.Contains(t, cRec.Body.String(), `"cache_hit":true`)
+}
+
 func TestNFTAccessCache_ExpiresEntry(t *testing.T) {
 	cache := gateway.NewNFTAccessCache()
 	cache.Set("demo", gateway.CachedNFTAccess{
