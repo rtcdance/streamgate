@@ -19,6 +19,7 @@ make fullchain-deploy
 ### 单体模式部署
 
 ```bash
+make deploy-monolith
 ./scripts/docker-deploy-monolith.sh [--build] [--clean]
 ```
 
@@ -27,6 +28,7 @@ make fullchain-deploy
 ### 微服务模式部署
 
 ```bash
+make deploy-microservices
 ./scripts/docker-deploy-microservices.sh [--build] [--clean]
 ```
 
@@ -35,8 +37,8 @@ make fullchain-deploy
 ### 拆除
 
 ```bash
-make fullchain-teardown
-docker compose -f docker-compose.fullchain.yml down -v
+make fullchain-teardown            # 停止容器，保留数据
+docker compose -f docker-compose.fullchain.yml down -v  # 停止容器并清除数据
 ```
 
 ---
@@ -61,12 +63,14 @@ docker compose -f docker-compose.fullchain.yml down -v
                     └──────────────┘
 ```
 
+> 前端 `http://localhost:18000/` → nginx `proxy_pass http://streamgate:8080` → monolith
+
 ### 端口
 
 | 服务 | 端口 | 说明 |
 |------|------|------|
-| API (HTTP) | `:18080` | nginx 代理后端 |
-| gRPC | `:19090` | gRPC 端点 |
+| Monolith (HTTP) | `:18080` | 单体直连 |
+| Monolith (gRPC) | `:19090` | gRPC 端点 |
 | H5 Demo (nginx) | `:18000` | 前端页面 |
 | MinIO | `:19000` | 对象存储 |
 | MinIO Console | `:19001` | 管理界面 (minioadmin/minioadmin) |
@@ -91,36 +95,33 @@ docker compose -f docker-compose.fullchain.yml down -v
 ### 架构
 
 ```
-┌──────────────┐     ┌──────────────┐
-│  浏览器       │────▶│  nginx       │
-│  :18000/demo/ │     │  :18000      │
-└──────────────┘     └──────┬───────┘
-                            │ /api/ proxy
-                            ▼
-                    ┌──────────────────┐
-                    │  api-gateway     │  ← 微服务入口
-                    │  :28080          │
-                    └────┬──────┬─────┘
-                         │      │
-          ┌──────────────┘      └──────────────┐
-          ▼                                      ▼
-  ┌──────────────┐                      ┌──────────────┐
-  │  auth        │                      │  transcoder   │
-  │  :28086      │                      │  :28081       │
-  └──────────────┘                      └──────────────┘
-  ┌──────────────┐                      ┌──────────────┐
-  │  upload      │                      │  streaming    │
-  │  :28082      │                      │  :28083       │
-  └──────────────┘                      └──────────────┘
-  ┌──────────────┐                      ┌──────────────┐
-  │  metadata    │                      │  cache        │
-  │  :28084      │                      │  :28085       │
-  └──────────────┘                      └──────────────┘
-  ┌──────────────┐                      ┌──────────────┐
-  │  worker      │                      │  monitor      │
-  │  :28087      │                      │  :28088       │
-  └──────────────┘                      └──────────────┘
+┌──────────────┐          ┌──────────────┐
+│  浏览器       │─────────▶│  api-gateway │  ← 微服务入口，直连
+│  :18000/demo/ │ 28080   │  :28080      │
+│  Backend URL  │          └────┬──────┬──┘
+│  = :28080     │               │      │
+└──────────────┘    ┌───────────┘      └────────────┐
+                    ▼                               ▼
+            ┌──────────────┐              ┌──────────────┐
+            │  auth        │              │  transcoder   │
+            │  :28086      │              │  :28081       │
+            └──────────────┘              └──────────────┘
+            ┌──────────────┐              ┌──────────────┐
+            │  upload      │              │  streaming    │
+            │  :28082      │              │  :28083       │
+            └──────────────┘              └──────────────┘
+            ┌──────────────┐              ┌──────────────┐
+            │  metadata    │              │  cache        │
+            │  :28084      │              │  :28085       │
+            └──────────────┘              └──────────────┘
+            ┌──────────────┐              ┌──────────────┐
+            │  worker      │              │  monitor      │
+            │  :28087      │              │  :28088       │
+            └──────────────┘              └──────────────┘
 ```
+
+> 微服务模式下，前端 Backend URL 设为 `http://localhost:28080` 直连 api-gateway。
+> nginx 仍会 proxy 到 monolith，但**微服务模式建议绕过 nginx，直接调用 api-gateway:28080**。
 
 ### 服务端口
 
@@ -128,15 +129,15 @@ docker compose -f docker-compose.fullchain.yml down -v
 
 | 微服务 | HTTP 端口 | gRPC 端口 | 功能 |
 |--------|-----------|-----------|------|
-| **API Gateway** | `:28080` | `:29091` | API 入口，路由分发 |
-| **Auth** | `:28086` | `:29097` | 钱包认证，JWT 签发 |
-| **Upload** | `:28082` | `:29093` | 文件上传，分片合并 |
-| **Transcoder** | `:28081` | `:29092` | FFmpeg 转码，HLS 输出 |
-| **Streaming** | `:28083` | `:29094` | HLS 流媒体分发 |
-| **Metadata** | `:28084` | `:29095` | 元数据索引与查询 |
-| **Cache** | `:28085** | `:29096` | 缓存加速 |
-| **Worker** | `:28087` | `:29098` | 后台任务调度 |
-| **Monitor** | `:28088` | `:29099` | 指标收集，健康监控 |
+| API Gateway | `:28080` | `:29091` | API 入口，路由分发 |
+| Auth | `:28086` | `:29097` | 钱包认证，JWT 签发 |
+| Upload | `:28082` | `:29093` | 文件上传，分片合并 |
+| Transcoder | `:28081` | `:29092` | FFmpeg 转码，HLS 输出 |
+| Streaming | `:28083` | `:29094` | HLS 流媒体分发 |
+| Metadata | `:28084` | `:29095` | 元数据索引与查询 |
+| Cache | `:28085` | `:29096` | 缓存加速 |
+| Worker | `:28087` | `:29098` | 后台任务调度 |
+| Monitor | `:28088` | `:29099` | 指标收集，健康监控 |
 
 #### 基础设施
 
@@ -171,8 +172,8 @@ docker compose -f docker-compose.fullchain.yml down -v
 
 | 路径 | 说明 |
 |------|------|
-| `http://localhost:18000/` | 首页（推荐，API 走 monolith） |
-| `http://localhost:18000/demo/` | Demo 页（同上，API 走 monolith） |
+| `http://localhost:18000/` | 首页（推荐，单体模式下 API 走 monolith） |
+| `http://localhost:18000/demo/` | 功能演示页面 |
 
 ### 页面功能
 
