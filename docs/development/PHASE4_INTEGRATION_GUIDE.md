@@ -432,7 +432,6 @@ func (h *Handler) GetServiceAddress(ctx context.Context, kernel *core.Microkerne
 ---
 
 For more information, see:
-- `docs/project-planning/implementation/CODE_IMPLEMENTATION_PHASE4.md`
 - `proto/v1/service.proto` - gRPC service definitions
 - `pkg/service/registry.go` - Service registry
 - `pkg/core/event/nats.go` - Event bus
