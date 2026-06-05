@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>StreamGate — Admin Console</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20">
     <script src="https://cdn.jsdelivr.net/npm/ethers@5/dist/ethers.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
 </head>
@@ -62,7 +62,7 @@
                 </div>
                 <div class="api-url" id="sidebar-api" style="border:1px solid rgba(255,255,255,0.1);border-radius:1rem;padding:12px;margin-bottom:12px">
                     <div class="label" style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.5);margin-bottom:4px">API Endpoint</div>
-                    <div id="sidebar-api-url" style="font-size:13px;color:rgba(255,255,255,0.8)">http://localhost:28080</div>
+                    <div id="sidebar-api-url" style="font-size:13px;color:rgba(255,255,255,0.8)">http://localhost:18080</div>
                 </div>
                 <button id="sign-out-btn" style="width:100%;padding:10px;border-radius:0.75rem;border:1px solid rgba(244,63,94,0.3);background:rgba(244,63,94,0.1);color:#f43f5e;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.15s">Sign Out</button>
             </div>
@@ -196,7 +196,7 @@
                         <p class="desc">Set the backend URL. Every step depends on this.</p>
                         <div class="form-group">
                             <label for="backend-url">Backend URL</label>
-                            <input type="text" id="backend-url" class="input" placeholder="http://localhost:29090">
+                            <input type="text" id="backend-url" class="input" placeholder="http://localhost:18080">
                         </div>
                         <button id="save-backend" class="btn btn-primary">Save Backend URL</button>
                         <p class="hint-text">If opened from a static server, use http://localhost:18080.</p>
@@ -235,7 +235,7 @@
                         <p class="desc">Verify NFT ownership for gated access.</p>
                         <div class="form-group">
                             <label for="nft-contract">NFT Contract Address</label>
-                            <input type="text" id="nft-contract" class="input" value="0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0" readonly>
+                            <input type="text" id="nft-contract" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3" readonly>
                         </div>
                         <div class="form-group">
                             <label for="chain-select">Blockchain</label>
@@ -372,7 +372,7 @@
                         </div>
                         <div class="form-group">
                             <label for="nft-contract-playback">NFT Contract</label>
-                            <input type="text" id="nft-contract-playback" class="input" value="0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0" readonly>
+                            <input type="text" id="nft-contract-playback" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3" readonly>
                         </div>
                         <button id="play-video" class="btn btn-success">Play Video</button>
                         <div class="player-container">
@@ -383,8 +383,9 @@
                         <div id="quality-selector" class="quality-selector hidden">
                             <label class="quality-label" for="quality-select">Quality</label>
                             <select id="quality-select" class="quality-select">
-                                <option value="-1" selected>Auto</option>
+                                <option value="-1" selected>Auto (adaptive)</option>
                             </select>
+                            <span id="quality-current" class="quality-current">Auto</span>
                         </div>
                         <div id="player-status" class="player-status"></div>
                     </section>
@@ -464,7 +465,7 @@
                     <!-- Status Cards -->
                     <div class="status-bar">
                         <div class="status-card"><div class="label">Service Health</div><div class="value" id="admin-health-status">—</div><div class="label">GET /health</div></div>
-                        <div class="status-card"><div class="label">Deployment Mode</div><div class="value" id="admin-deployment-mode">—</div><div class="label">9 Microservices</div></div>
+                        <div class="status-card"><div class="label">Deployment Mode</div><div class="value" id="admin-deployment-mode">—</div><div class="label" id="admin-deployment-mode-label">9 Microservices</div></div>
                         <div class="status-card"><div class="label">Infra Checks</div><div class="value" id="admin-active-chains">—</div><div class="label">DB + Storage</div></div>
                         <div class="status-card"><div class="label">Version</div><div class="value" id="admin-uptime">—</div><div class="label">Release</div></div>
                     </div>
@@ -566,11 +567,11 @@
     </div>
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="js/api.js?v=14"></script>
-    <script src="js/demo.js?v=14"></script>
-    <script src="js/wallet.js?v=14"></script>
-    <script src="js/auth.js?v=14"></script>
-    <script src="js/player.js?v=14"></script>
-    <script src="js/app.js?v=14"></script>
+<script src="js/api.js?v=20"></script>
+<script src="js/demo.js?v=20"></script>
+<script src="js/wallet.js?v=20"></script>
+<script src="js/auth.js?v=20"></script>
+<script src="js/player.js?v=20"></script>
+<script src="js/app.js?v=24"></script>
 </body>
 </html>
