@@ -17,13 +17,12 @@
 - [ ] Tag created: `git tag v1.x.x && git push origin v1.x.x`
 - [ ] GitHub Release created with changelog summary
 - [ ] Docker images tagged and pushed: `make docker-push`
-- [ ] Release announcement drafted (see [launch-kit.md](docs/launch-kit.md))
+- [ ] Release announcement drafted
 
 ### Post-Release
 
 - [ ] Monitor issue tracker for regression reports
 - [ ] Verify CI pipeline passes for tagged commit
-- [ ] Update [product-roadmap.md](docs/product-roadmap.md) with completed items
 
 ## Version Scheme
 

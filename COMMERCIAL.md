@@ -41,4 +41,4 @@ A: MIT license is sufficient for self-hosted usage. A commercial license is only
 SLA-backed support or priority security patches.
 
 **Q: Is there a hosted version?**
-A: Not yet. A managed cloud version is on the [roadmap](product-roadmap.md).
+A: Not yet. A managed cloud version may be added in a future release.
