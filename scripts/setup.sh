@@ -19,25 +19,28 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-echo "📦 Building Docker images..."
-docker-compose build
+echo "📦 Pulling container images (postgres, redis, minio, nats, anvil, consul, nginx)..."
+docker compose -f docker-compose.fullchain.yml pull postgres redis minio nats anvil consul h5-demo 2>&1 | tail -5 || true
 
-echo "🗄️  Starting services..."
-docker-compose up -d postgres redis minio
+echo "🗄️  Starting infrastructure services..."
+docker compose -f docker-compose.fullchain.yml up -d postgres redis minio nats anvil
 
 echo "⏳ Waiting for services to be ready..."
 sleep 10
 
-echo "🗄️  Running database migrations..."
-docker-compose run --rm streamgate migrate up
+echo "🗄️  Running database migrations (host-side, requires Go)..."
+go run ./cmd/migrate up
 
 echo "✅ Setup complete!"
 echo ""
 echo "To start the application:"
-echo "  docker-compose up"
+echo "  make deploy-monolith          # Monolith mode (7 containers, 30s)"
+echo "  make deploy-microservices     # Microservices mode (15 containers, 2min)"
+echo "  make deploy-status            # Check running containers"
+echo "  make deploy-teardown          # Stop everything"
 echo ""
 echo "To run tests:"
-echo "  go test ./..."
+echo "  make test                     # All tests with race + coverage"
+echo "  make test-anvil               # Web3 integration tests (needs Anvil)"
 echo ""
-echo "To build the application:"
-echo "  go build ./cmd/monolith"
+echo "See DEPLOY.md for the full beginner-friendly walkthrough."
