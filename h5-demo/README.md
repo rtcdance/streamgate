@@ -10,48 +10,42 @@ This page is the acceptance console for StreamGate. It is designed to validate t
 
 ## Quick Start
 
-### 1. Start the backend
+### 1. Start the backend (dual mode)
 
-Recommended acceptance path:
+StreamGate ships in **two modes** that share the same infrastructure. Pick one — the demo behavior is identical:
 
-```bash
-cd streamgate
-go run ./cmd/microservices/api-gateway/main.go
-```
-
-Recommended backend URL for the Dockerized acceptance gateway:
-
-```text
-http://localhost:29090
-```
-
-If you want to use the monolith path instead, use `http://localhost:18080`. The gateway path is the default acceptance path for the full demo because it exposes the complete route set.
-
-### Dockerized acceptance
-
-If you want to run the full acceptance stack in Docker, use the API gateway port mapping that was validated during this pass:
+| Mode | Frontend (H5 demo) | API | Container count | Boot time |
+|------|--------------------|-----|-----------------|-----------|
+| **Monolith** (default for dev) | `http://localhost:18000/demo/` | `http://localhost:18080` | 7 | ~30 s |
+| **Microservices** (default for prod) | `http://localhost:18001/demo/` | `http://localhost:28080` | 15 | ~2 min |
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.api-gateway.override.yml up -d --build api-gateway
+# From the repo root
+make deploy-monolith          # 7 containers, ~30s
+make deploy-microservices     # 15 containers, ~2min
+make deploy-status            # Check what is up
+make deploy-teardown          # Stop everything
 ```
 
-Then point the demo at:
+> Both modes expose the **same h5-demo app** on different ports. Switching modes is as simple as `make deploy-teardown && make deploy-monolith` (or `deploy-microservices`). The h5-demo directory is bind-mounted, so code edits reflect on `:18000` and `:18001` immediately — no rebuild needed.
+>
+> Need both running side-by-side for comparison? Use `make fullchain-deploy` (17 containers, all 6 infra + monolith + 9 microservices, ~5 min). See [DEPLOY.md](../DEPLOY.md) for details.
 
-```text
-http://localhost:29090
-```
+### Point the demo at the backend
 
-### Scripted acceptance
+The default Backend URL inside the page is `http://localhost:18080` (monolith). To use microservices instead, change the `Backend URL` field in the top bar to `http://localhost:28080` and click `Save Backend URL`. Both backends share the same JWT secret, the same Anvil RPC, and the same NFT contract, so the rest of the flow is identical.
 
-If you want a repeatable local workflow instead of typing commands manually:
+### Scripted acceptance (optional)
+
+If you want a repeatable acceptance run after deploying, use the dedicated scripts in the repo root:
 
 ```bash
-scripts/self-test-deploy.sh
-scripts/run-docker-acceptance.sh
+./scripts/verify-deploy.sh                # 8 health checks against current stack
+./scripts/fullchain-acceptance.sh 18080   # full API acceptance (monolith)
+./scripts/fullchain-acceptance.sh 28080   # full API acceptance (microservices)
 ```
 
-The first script starts the self-test environment. The second script runs the current API acceptance checks against the Docker gateway path.
-It also runs the targeted gateway route tests that verify manifest authorization and playback-token-protected segment access.
+The fullchain script runs 11 checks: infrastructure (PostgreSQL/Redis/MinIO/NATS/Anvil), backend health, auth challenge roundtrip, NFT verify roundtrip, manifest auth, transcode submit/status/tasks/profiles, and Prometheus metrics.
 
 ### 2. Open the demo
 
@@ -63,7 +57,7 @@ You can:
 
 If the page is not hosted on the same origin as the backend, make sure the `Backend URL` field points to your actual StreamGate backend.
 If MetaMask reports that it is unavailable while you open `index.html` directly, enable MetaMask access to file URLs or serve `h5-demo/` over HTTP.
-If you serve the page from a local static server on `localhost:8080`, do not treat `8080` as the backend. The H5 demo backend should still point to `http://localhost:29090`.
+If you serve the page from a local static server on `localhost:8080`, do not treat `8080` as the backend. The H5 demo backend should still point to `http://localhost:18080` (monolith) or `http://localhost:28080` (microservices).
 
 ## Recommended Acceptance Flow
 
@@ -84,7 +78,7 @@ The right-side checklist and the top summary bar should update as each step comp
 ### Step 1: Backend
 
 Action:
-- Set `Backend URL` to `http://localhost:29090`
+- Set `Backend URL` to `http://localhost:18080` (monolith) or `http://localhost:28080` (microservices)
 - Click `Save Backend URL`
 
 Expected:
@@ -92,9 +86,10 @@ Expected:
 - Acceptance `Step 1` turns green
 
 If it fails:
-- confirm the gateway is running
-- confirm the backend port is really `29090`
+- confirm the gateway is running (`make deploy-status` from the repo root)
+- confirm the backend port is really `18080` (monolith) or `28080` (microservices)
 - check whether your browser is blocking cross-origin requests
+- run `./scripts/verify-deploy.sh monolith` or `./scripts/verify-deploy.sh microservices` for an 8-point health check
 
 ### Step 2: Wallet
 
@@ -208,28 +203,34 @@ If it fails:
 
 ## Test Configuration
 
-| Setting | Value |
-|---------|-------|
-| Backend URL | `http://localhost:29090` |
-| NFT Contract | `0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f` |
-| Chain ID | `11155111` (Sepolia) |
-| Demo Video ID | `demo` |
-| Default Transcode Profile | `720p` |
+| Setting | Value | Notes |
+|---------|-------|-------|
+| Backend URL (monolith) | `http://localhost:18080` | Default in-page |
+| Backend URL (microservices) | `http://localhost:28080` | Switch in top bar |
+| NFT Contract | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | StreamGate Demo NFT on local Anvil (public mint `0x6a627842`) |
+| Chain ID | `31337` | Local Anvil (Anvil testnet, not Sepolia) |
+| Anvil RPC | `http://localhost:18545` | Bundled with the full stack |
+| Demo Video ID | `demo` | |
+| Default Transcode Profile | `720p` | |
 
-## Docker Ports
+> **Note for Sepolia testnet users**: The previous `0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f` contract and chain ID `11155111` are still valid for a hosted Sepolia deployment, but the bundled Anvil full stack uses the demo contract above. The h5-demo page auto-detects chain ID 31337 and routes to the bundled Anvil RPC.
 
-| Service | Local Port | Notes |
-|---------|------------|-------|
-| API Gateway | `29090` | Main acceptance API for the H5 demo |
-| Monolith | `18080` | Optional single-process path |
-| MinIO | `19000` | Object storage |
+## Docker Ports (host-exposed)
+
+| Service | Port | Notes |
+|---------|------|-------|
+| Monolith API | `18080` | `make deploy-monolith` |
+| Monolith metrics | `19090` | `/metrics` on monolith |
+| API Gateway (microservices) | `28080` | `make deploy-microservices` |
+| H5 demo (monolith nginx) | `18000` | Same app, monolith upstream |
+| H5 demo (microservices nginx) | `18001` | Same app, microservices upstream |
+| MinIO API | `19000` | Object storage S3 API |
+| MinIO Console | `19001` | Web UI (minioadmin/minioadmin) |
+| PostgreSQL | `15432` | Persistence |
 | Redis | `16379` | Challenge / cache support |
-| Postgres | `15432` | Persistence |
 | NATS | `14222` | Event bus |
-| Consul | `18500` | Service discovery |
-| Prometheus | `19091` | Metrics |
-| Grafana | `13000` | Dashboards |
-| Jaeger | `16687` | Traces |
+| Consul | `28500` | Service discovery UI (microservices only) |
+| Anvil RPC | `18545` | Local testnet (chain ID 31337) |
 
 ## Real API Endpoints Exercised
 
