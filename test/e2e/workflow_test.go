@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 func TestE2ENFTVerifyWorkflow(t *testing.T) {
 	t.Skip("requires external service")
 	checker := &mockNFTChecker{balance: big.NewInt(3)}
@@ -24,9 +23,9 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 
 	t.Run("VerifyByBalance", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
-			"wallet":   "0x1234567890123456789012345678901234567890",
-			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
-			"chain_id": 11155111,
+			"wallet":    "0x1234567890123456789012345678901234567890",
+			"contract":  "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+			"chain_id":  11155111,
 			"sign_type": "personal_sign",
 		})
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/nft/verify", bytes.NewReader(body))
@@ -50,10 +49,10 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 		jwtToken2 := testJWT("0x1234567890123456789012345678901234567890")
 
 		body, _ := json.Marshal(map[string]interface{}{
-			"wallet":   "0x1234567890123456789012345678901234567890",
-			"contract": "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
-			"token_id": "42",
-			"chain_id": 11155111,
+			"wallet":    "0x1234567890123456789012345678901234567890",
+			"contract":  "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+			"token_id":  "42",
+			"chain_id":  11155111,
 			"sign_type": "personal_sign",
 		})
 		req, _ := http.NewRequest("POST", server2.URL+"/api/v1/nft/verify", bytes.NewReader(body))
@@ -82,9 +81,9 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 
 	// Full auth flow to get a real JWT
 	challengeBody, _ := json.Marshal(map[string]interface{}{
-		"wallet":   wallet,
-		"chain_id": 11155111,
-			"sign_type": "personal_sign",
+		"wallet":    wallet,
+		"chain_id":  11155111,
+		"sign_type": "personal_sign",
 	})
 	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
 	require.NoError(t, err)

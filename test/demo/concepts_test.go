@@ -120,10 +120,10 @@ func TestDemo3_JWTHS256vsRS256(t *testing.T) {
 	// HS256: 共享密钥
 	secret := []byte("shared-secret")
 	claims := jwt.MapClaims{
-		"sub": "0xUser",
+		"sub":            "0xUser",
 		"wallet_address": "0xUser",
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"iat":            time.Now().Unix(),
+		"exp":            time.Now().Add(1 * time.Hour).Unix(),
 	}
 
 	hsToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -132,10 +132,10 @@ func TestDemo3_JWTHS256vsRS256(t *testing.T) {
 
 	// 任何持有 secret 的人都能伪造
 	fakeClaims := jwt.MapClaims{
-		"sub": "0xAttacker",
+		"sub":            "0xAttacker",
 		"wallet_address": "0xAttacker",
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(1 * time.Hour).Unix(),
+		"iat":            time.Now().Unix(),
+		"exp":            time.Now().Add(1 * time.Hour).Unix(),
 	}
 	fakeToken := jwt.NewWithClaims(jwt.SigningMethodHS256, fakeClaims)
 	fakeStr, _ := fakeToken.SignedString(secret)
@@ -328,7 +328,7 @@ func TestDemo10_UploadHashingAndStorage(t *testing.T) {
 
 	content := []byte("test video content")
 	h := sha256.New()
-	tee := h  // io.TeeReader 的逻辑
+	tee := h // io.TeeReader 的逻辑
 
 	// 模拟写入
 	tee.Write(content)

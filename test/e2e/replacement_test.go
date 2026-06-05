@@ -42,7 +42,9 @@ func e2eLogin(t *testing.T) string {
 			e2eAnvilAddr, cr.ChallengeID, common.Bytes2Hex(sig)))))
 	require.NoError(t, err)
 	defer resp2.Body.Close()
-	var lr struct{ Token string `json:"token"` }
+	var lr struct {
+		Token string `json:"token"`
+	}
 	json.NewDecoder(resp2.Body).Decode(&lr)
 	require.NotEmpty(t, lr.Token)
 	return lr.Token
