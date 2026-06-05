@@ -1,5 +1,0 @@
-services:
-  api-gateway:
-    ports:
-      - "28080:8080"
-      - "29090:9090"

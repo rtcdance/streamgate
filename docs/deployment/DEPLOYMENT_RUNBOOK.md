@@ -587,7 +587,7 @@ docker-compose restart <service>
 kubectl rollout restart deployment/<service> -n streamgate
 
 # 5. Increase memory limit
-# Edit docker-compose.yml or Kubernetes manifest
+# Edit docker-compose.fullchain.yml or Kubernetes manifest
 ```
 
 ### High Latency
