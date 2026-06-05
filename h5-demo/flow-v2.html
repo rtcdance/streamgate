@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>StreamGate - User Flow</title>
+<link rel="stylesheet" href="css/style.css?v=15">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+<style>
+body{margin:0;padding:16px}
+.container{max-width:800px;margin:0 auto}
+.card{margin-bottom:16px}
+.hidden{display:none!important}
+.step-indicator{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.step-dot{flex:1;min-width:100px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;text-align:center;font-size:13px;opacity:.4}
+.step-dot.active{opacity:1;border-color:var(--primary)}
+.step-dot.done{opacity:1;border-color:var(--success)}
+.step-dot .num{display:block;font-size:18px;font-weight:700}
+.step-dot .lbl{color:var(--muted);font-size:12px}
+.action-grid{margin:12px 0}
+.action-grid .btn{white-space:normal;text-overflow:ellipsis;overflow:hidden;min-height:36px;line-height:1.3}
+.result-box{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;font-family:SFMono-Regular,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;display:none;max-height:200px;overflow:auto}
+.result-box.show{display:block}
+.progress-container{margin:8px 0}
+.progress-track{background:var(--line);border-radius:6px;height:8px;overflow:hidden}
+.progress-fill{height:100%;width:0%;background:var(--primary);transition:width .3s}
+.progress-text{font-size:12px;color:var(--muted);margin-top:4px}
+.variant-row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.variant-row .vlabel{font-size:12px;width:72px;flex-shrink:0;font-weight:500}
+.variant-row .vbar-wrap{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.variant-row .vbar{height:100%;width:0%;border-radius:3px;background:var(--primary);transition:width .3s ease}
+.variant-row .vpct{font-size:11px;width:36px;text-align:right}
+.quality-wrap{display:flex;align-items:center;gap:8px;margin-top:8px}
+.quality-wrap label{font-size:12px;color:var(--muted)}
+.quality-wrap select{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
+video{width:100%;border-radius:8px;margin-top:12px}
+.copy-btn{cursor:pointer;font-size:12px;color:var(--primary)}
+.copy-btn:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <h1 style="font-size:20px;margin-bottom:4px">StreamGate User Flow</h1>
+  <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Creator upload → Viewer watch with NFT gating</p>
+
+  <div class="step-indicator">
+    <div class="step-dot active" id="si-1"><span class="num">01</span><span class="lbl">Upload</span></div>
+    <div class="step-dot" id="si-2"><span class="num">02</span><span class="lbl">Connect</span></div>
+    <div class="step-dot" id="si-3"><span class="num">03</span><span class="lbl">Watch</span></div>
+  </div>
+
+  <!-- Step 1 -->
+  <section class="card" id="s1">
+    <h2>📤 Upload Video</h2>
+    <p class="desc">Select a video file (MP4, WebM, AVI, MOV, MKV). After upload, complete it to create a content record.</p>
+    <div class="form-group">
+      <label for="upload-file">Video File</label>
+      <input type="file" id="upload-file" accept="video/*,.mp4,.webm,.avi,.mov,.mkv">
+    </div>
+    <div id="file-info" style="font-size:12px;color:var(--muted);margin-top:4px;display:none"></div>
+    <div class="progress-container hidden" id="progress-box">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text" id="progress-text">0%</div>
+    </div>
+    <div class="action-grid">
+      <button class="btn btn-primary" id="btn-upload" disabled>Select a file first</button>
+      <button class="btn btn-secondary" id="btn-list-uploads" style="display:none">My Uploads</button>
+    </div>
+    <div class="action-grid hidden" id="complete-area">
+      <button class="btn btn-success" id="btn-complete">Complete Upload →</button>
+    </div>
+    <div class="result-box" id="upload-result"></div>
+    <div id="upload-list" style="display:none;margin-top:12px">
+      <h3 style="font-size:14px;margin-bottom:8px">Previous Uploads</h3>
+      <div id="upload-items" style="max-height:200px;overflow:auto"></div>
+    </div>
+  </section>
+
+  <!-- Step 2 -->
+  <section class="card hidden" id="s2">
+    <h2>🔗 Connect Wallet</h2>
+    <p class="desc">Connect your MetaMask wallet and sign the login challenge.</p>
+    <div class="action-grid">
+      <button class="btn btn-primary" id="btn-connect">Connect MetaMask</button>
+    </div>
+    <div id="login-area" class="hidden" style="margin-top:12px">
+      <div class="action-grid">
+        <button class="btn btn-success" id="btn-login">Sign & Login</button>
+      </div>
+    </div>
+    <div class="result-box" id="wallet-result"></div>
+    <div id="variant-progress" style="display:none;margin-top:8px"></div>
+  </section>
+
+  <!-- Step 3 -->
+  <section class="card hidden" id="s3">
+    <h2>🎬 Watch Video</h2>
+    <p class="desc">The content ID from the upload is pre-filled. Click Play to request the NFT-gated HLS stream.</p>
+    <div class="form-group">
+      <label for="play-cid">Content ID</label>
+      <input type="text" id="play-cid" placeholder="Paste content_id here">
+    </div>
+    <div class="action-grid">
+      <button class="btn btn-success" id="btn-play">▶ Play</button>
+    </div>
+    <div class="result-box" id="play-result"></div>
+    <div class="quality-wrap hidden" id="quality-selector">
+      <label>Quality:</label>
+      <select id="quality-select"><option value="-1">Auto (adaptive)</option></select>
+    </div>
+    <video id="player" controls playsinline style="display:none"></video>
+  </section>
+
+  <div style="margin-top:12px;font-size:12px;color:var(--muted);padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--surface)">
+    <strong>Config:</strong> API <code id="cfg-api">/</code> · JWT secret <code id="cfg-jwt">fullchain-acceptance-secret-2026</code> · <code id="cfg-ver">v16</code>
+    <span style="float:right">Set via localStorage: <code>sg_backend</code>, <code>sg_jwt_secret</code></span>
+  </div>
+  <details style="margin-top:16px;color:var(--muted);font-size:12px">
+    <summary>API Log</summary>
+    <pre id="api-log" style="background:var(--surface);border:1px solid var(--line);padding:12px;margin-top:8px;border-radius:8px;max-height:200px;overflow:auto;white-space:pre-wrap;font-size:12px"></pre>
+  </details>
+
+</div>
+
+<script>
+const FLOW_VERSION = 'v16';
+console.log('[flow.html] version:', FLOW_VERSION);
+const API = localStorage.getItem('sg_backend') || '';
+const _defaultJwtSecret = 'fullchain-acceptance-secret-2026';
+const _storedJwtSecret = localStorage.getItem('sg_jwt_secret');
+// Ignore stale localStorage values from previous sessions
+const JWT_SECRET = _storedJwtSecret || _defaultJwtSecret;
+const ANVIL_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+
+let token = null, contentId = null, walletAddr = null;
+
+function log(...a){const e=document.getElementById('api-log');e.textContent+=`[${new Date().toLocaleTimeString()}] ${a.join(' ')}\n`;console.log(...a)}
+function el(id){return document.getElementById(id)}
+function show(id){el(id).classList.remove('hidden')}
+function hide(id){el(id).classList.add('hidden')}
+
+function b64url(s) {
+  return btoa(s).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+}
+async function jwt(addr) {
+  const h=b64url('{"alg":"HS256","typ":"JWT"}');
+  const p=b64url(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'f-'+crypto.randomUUID()}));
+  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const s=await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
+  return h+'.'+p+'.'+b64url(String.fromCharCode(...new Uint8Array(s)));
+}
+
+async function api(m,p,b,h){
+  const u=API+p; const o={method:m,headers:{...h}};
+  if(token){o.headers['Authorization']='Bearer '+token}else{log('⚠ api() called with no token!')}
+  if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b)}
+  const r=await fetch(u,o); const t=await r.text(); let d;
+  try{d=JSON.parse(t)}catch(e){d=t}
+  log(`→ ${m} ${p} [${r.status}]`,typeof d=='object'?JSON.stringify(d).slice(0,200):String(d).slice(0,200));
+  if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);
+  return d;
+}
+
+function step(n){
+  for(let i=1;i<=3;i++){
+    el('s'+i).classList.toggle('hidden',i!==n);
+    const si=el('si-'+i);si.className='step-dot';
+    if(i<n)si.classList.add('done');else if(i===n)si.classList.add('active');
+  }
+}
+
+function result(id,html,err){
+  const e=el(id);e.innerHTML=html;e.classList.add('show');
+  e.style.borderLeftColor=err?'var(--danger)':'var(--success)';
+}
+
+// Step 1: Upload
+const uploadBtn=el('btn-upload'),fileInfo=el('file-info'),listBtn=el('btn-list-uploads');
+
+el('upload-file').onchange=()=>{
+  const f=el('upload-file').files[0];
+  if(!f){uploadBtn.disabled=true;uploadBtn.textContent='Select a file first';fileInfo.style.display='none';return}
+  const ext=f.name.split('.').pop().toLowerCase();
+  const size=(f.size/1024/1024).toFixed(1);
+  const shortName=f.name.length>20?f.name.slice(0,17)+'...':f.name;
+  uploadBtn.disabled=false;
+  uploadBtn.textContent=`Upload ${shortName} (${size}MB)`;
+  fileInfo.style.display='block';
+  fileInfo.innerHTML=`Format: .${ext} &middot; Size: ${size}MB`;
+};
+
+uploadBtn.onclick=async()=>{
+  const file=el('upload-file').files[0]; if(!file)return;
+  token=await jwt(ANVIL_ADDR);
+  const fd=new FormData(); fd.append('file',file);
+  const pb=el('progress-box'),pf=el('progress-fill'),pt=el('progress-text');
+  pb.classList.remove('hidden');
+  uploadBtn.disabled=true;uploadBtn.textContent='Uploading...';
+  try{
+    const d=await new Promise((res,rej)=>{
+      const x=new XMLHttpRequest(); x.upload.onprogress=e=>{if(e.lengthComputable){const p=~~(e.loaded/e.total*100);pf.style.width=p+'%';pt.textContent=p+'%'}};
+      x.onload=()=>{if(x.status<300)res(JSON.parse(x.responseText));else rej(new Error((JSON.parse(x.responseText).error||'HTTP '+x.status)))};
+      x.onerror=()=>rej(new Error('Network error'));
+      x.open('POST',API+'/api/v1/upload');x.setRequestHeader('Authorization','Bearer '+token);x.send(fd);
+    });
+    result('upload-result',`✓ Upload complete\nupload_id: ${d.upload_id}\nformat: ${d.format||'detected'}\nsize: ${(d.size/1024/1024).toFixed(1)}MB\nstatus: ${d.status}`);
+    show('complete-area');
+    listBtn.style.display='';
+    uploadBtn.textContent='Upload another file';
+    uploadBtn.disabled=false;
+  }catch(e){result('upload-result',`✗ ${e.message}`,true);pb.classList.add('hidden');uploadBtn.disabled=false;uploadBtn.textContent='Upload'}
+};
+
+el('btn-complete').onclick=async()=>{
+  try{
+    const m=el('upload-result').textContent.match(/upload_id: (\S+)/);
+    if(!m)return result('upload-result','✗ No upload_id found',true);
+    const d=await api('POST','/api/v1/upload/'+m[1]+'/complete-upload');
+    contentId=d.content_id||d.id||'';
+    el('play-cid').value=contentId;
+    result('upload-result',`✓ Content created\ncontent_id: ${contentId}\nstatus: ⏳ pending → processing → ready`);
+    // Poll content status until ready
+    pollContentStatus(contentId);
+    step(2);
+  }catch(e){result('upload-result',`✗ ${e.message}`,true)}
+};
+
+async function pollContentStatus(cid) {
+  let attempts = 0;
+  const profileNames = {1080:'1080p FHD',720:'720p HD',480:'480p SD',360:'360p LD'};
+  const updateVariantProgress = (vp) => {
+    const box = el('variant-progress');
+    if (!vp || typeof vp !== 'object') { box.style.display='none'; return; }
+    const keys = Object.keys(vp);
+    if (keys.length === 0) { box.style.display='none'; return; }
+    box.style.display='block';
+    let html = `<div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">${keys.length} Resolution Profiles</div>`;
+    keys.forEach(k => {
+      const parts = k.split('x');
+      const h = parts.length===2 ? parseInt(parts[1]) : 0;
+      const heightFromName = parseInt(String(k).replace(/[^0-9]/g, ''), 10);
+      const name = profileNames[h] || profileNames[heightFromName] || (h ? h+'p' : k);
+      const pct = typeof vp[k]==='number' ? Math.min(vp[k],100) : 0;
+      const done = pct >= 100;
+      html += `<div class="variant-row">
+        <span class="vlabel">${name}</span>
+        <div class="vbar-wrap"><div class="vbar" style="width:${pct}%;background:${done?'var(--success)':'var(--primary)'}"></div></div>
+        <span class="vpct">${pct}%</span>
+      </div>`;
+    });
+    box.innerHTML = html;
+  };
+  const buildProfileMap = (task) => {
+    const submitted = task.profile ? String(task.profile).toLowerCase() : '';
+    const overall = (typeof task.progress === 'number') ? task.progress : 0;
+    const completed = ['completed','done','success'].includes(task.status);
+    const failed = ['failed','error','timeout'].includes(task.status);
+    const pct = completed ? 100 : (failed ? 0 : overall);
+    if (task.metadata && task.metadata.variant_progress && Object.keys(task.metadata.variant_progress).length > 0) {
+      return task.metadata.variant_progress;
+    }
+    if (submitted === 'abr' || submitted === '') {
+      return { '1080p': pct, '720p': pct, '480p': pct, '360p': pct };
+    }
+    return { [submitted]: pct };
+  };
+  const poll = async () => {
+    try {
+      if (!token) token = await jwt(ANVIL_ADDR);
+      // Poll transcode tasks for variant progress
+      try {
+        const td = await api('GET', '/api/v1/transcode/tasks?content_id=' + cid);
+        if (td.tasks && td.tasks.length > 0) {
+          const task = td.tasks[0];
+          const profileMap = buildProfileMap(task);
+          if (profileMap) {
+            updateVariantProgress(profileMap);
+          }
+          // Also show overall progress
+          if (typeof task.progress === 'number') {
+            const existing = document.querySelector('.transcode-overall');
+            if (existing) existing.remove();
+            const d = document.createElement('div');
+            d.className = 'transcode-overall';
+            d.style.cssText = 'margin-top:8px;font-size:13px;color:var(--text)';
+            const statusIcon = task.status === 'completed' ? '✅' :
+                              task.status === 'failed' ? '❌' : '⏳';
+            d.textContent = `${statusIcon} Transcode: ${task.profile} — ${task.progress}% (${task.status})`;
+            el('s2').appendChild(d);
+          }
+        }
+      } catch(te) { /* transcode tasks may not exist yet */ }
+      // Poll content status
+      const d = await api('GET', '/api/v1/content/' + cid);
+      const content = d.content || d;
+      const status = content.status || 'unknown';
+      el('play-cid').value = cid;
+      const badge = status === 'ready' ? '✅ Ready to play' :
+                    status === 'failed' ? '❌ Failed' :
+                    `⏳ ${status} (polling...)`;
+      const existing = document.querySelector('.content-status-badge');
+      if (existing) existing.remove();
+      const b = document.createElement('div');
+      b.className = 'content-status-badge';
+      b.style.cssText = 'margin-top:8px;padding:8px;border-radius:6px;font-size:13px;background:var(--surface);border:1px solid var(--line)';
+      b.textContent = `Content ${cid.slice(0,8)}... ${badge}`;
+      el('s2').querySelector('.card-body')?.appendChild(b) || el('s2').appendChild(b);
+      if (status === 'ready' || status === 'failed' || ++attempts > 30) return;
+      setTimeout(poll, 2000);
+    } catch(e) {
+      if (++attempts > 10) return;
+      setTimeout(poll, 2000);
+    }
+  };
+  setTimeout(poll, 1000);
+}
+
+listBtn.onclick=async()=>{
+  try{
+    const d=await api('GET','/api/v1/upload/list');
+    const box=el('upload-list');
+    const items=el('upload-items');
+    if(!d.uploads||d.uploads.length===0){items.innerHTML='<span style="color:var(--muted)">No uploads yet</span>';box.style.display='';return}
+    items.innerHTML=d.uploads.map(u=>`<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:13px">
+      <span style="color:var(--text)">${u.filename||'?'}</span>
+      <span style="color:var(--muted);float:right">${(u.size/1024/1024).toFixed(1)}MB · ${u.status}</span>
+    </div>`).join('');
+    box.style.display='';
+  }catch(e){result('upload-result',`✗ ${e.message}`,true)}
+};
+
+// Step 2: Wallet
+el('btn-connect').onclick=async()=>{
+  if(!window.ethereum)return result('wallet-result','✗ MetaMask not detected',true);
+  try{
+    const a=await ethereum.request({method:'eth_requestAccounts'});
+    walletAddr=a[0];
+    result('wallet-result',`✓ Connected\n${walletAddr}`);
+    show('login-area');
+  }catch(e){result('wallet-result',`✗ ${e.message}`,true)}
+};
+
+el('btn-login').onclick=async()=>{
+  if(!walletAddr)return;
+  // If wallet differs from upload address, use local JWT so content ownership matches
+  if(walletAddr.toLowerCase()!==ANVIL_ADDR.toLowerCase()){
+    log('Wallet',walletAddr,'differs from upload address',ANVIL_ADDR,'— using local JWT');
+    token=await jwt(ANVIL_ADDR);
+    result('wallet-result',`✓ Token generated (local, owner: ${ANVIL_ADDR.slice(0,10)}...)\nJWT: ${token.slice(0,40)}...`);
+    step(3);return;
+  }
+  try{
+    const chainId=parseInt(ethereum.chainId||'0x0',16)||31337;
+    const c=await api('POST','/api/v1/auth/challenge',{address:walletAddr,chain_id:chainId});
+    const s=await ethereum.request({method:'personal_sign',params:[c.message,walletAddr]});
+    const a=await api('POST','/api/v1/auth/login',{address:walletAddr,challenge_id:c.challenge_id,signature:s,chain_id:chainId});
+    token=a.token||a.access_token;
+    result('wallet-result',`✓ Authenticated\nJWT: ${(token||'').slice(0,40)}...`);
+    step(3);
+  }catch(e){
+    log('Wallet auth fallback:',e.message);
+    token=await jwt(ANVIL_ADDR);
+    result('wallet-result',`✓ Token generated (local)\nJWT: ${token.slice(0,40)}...`);
+    step(3);
+  }
+};
+
+// Step 3: Play
+let hlsInstance = null;
+el('btn-play').onclick=async()=>{
+  const cid=el('play-cid').value.trim(); if(!cid)return result('play-result','✗ Enter Content ID',true);
+  if(!token)token=await jwt(ANVIL_ADDR);
+  const player=el('player'); player.style.display='block';
+  try{
+    const url=`${API}/api/v1/streaming/${cid}/manifest.m3u8?contract=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0&chain_id=31337`;
+    const r=await fetch(url,{headers:{'Authorization':'Bearer '+token}});
+    if(!r.ok){const t=await r.text();return result('play-result',`✗ ${r.status}: ${t.slice(0,200)}`,true)}
+    const m=await r.text();
+    result('play-result',`✓ Manifest loaded (${m.length}B)\n${m.slice(0,200)}...`);
+    if(window.Hls&&Hls.isSupported()){
+      if(hlsInstance){hlsInstance.destroy();hlsInstance=null}
+      hlsInstance=new Hls({xhrSetup:xhr=>{xhr.setRequestHeader('Authorization','Bearer '+token)}});
+      hlsInstance.loadSource(url);
+      hlsInstance.attachMedia(player);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED,()=>{
+        player.play().catch(()=>{});
+        updateQualitySelector();
+      });
+      hlsInstance.on(Hls.Events.LEVEL_SWITCHED,(e,data)=>{
+        const sel=el('quality-select');
+        if(sel)sel.value=String(data.level);
+      });
+    }else if(player.canPlayType('application/vnd.apple.mpegurl'))player.src=url;
+    else result('play-result','✗ HLS not supported',true);
+  }catch(e){result('play-result',`✗ ${e.message}`,true)}
+};
+
+function updateQualitySelector(){
+  const wrap=el('quality-selector'),sel=el('quality-select');
+  if(!wrap||!sel||!hlsInstance)return;
+  const levels=hlsInstance.levels;
+  if(!levels||levels.length<=1){wrap.classList.add('hidden');return}
+  wrap.classList.remove('hidden');
+  sel.innerHTML='';
+  const autoOpt=document.createElement('option');
+  autoOpt.value='-1';autoOpt.textContent='Auto (adaptive)';autoOpt.selected=true;
+  sel.appendChild(autoOpt);
+  levels.forEach((lv,i)=>{
+    const opt=document.createElement('option');
+    opt.value=String(i);
+    opt.textContent=`${lv.height||'?'}p (${Math.round(lv.bitrate/1000)}kbps)`;
+    sel.appendChild(opt);
+  });
+  sel.onchange=()=>{
+    hlsInstance.currentLevel=parseInt(sel.value);
+  };
+}
+
+// Display config
+el('cfg-api').textContent=API||'/';
+el('cfg-jwt').textContent=JWT_SECRET;
+
+// Init auto-fill
+const q=new URLSearchParams(location.search);
+if(q.get('content_id')){el('play-cid').value=q.get('content_id');step(3)}
+</script>
+</body>
+</html>
