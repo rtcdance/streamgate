@@ -610,7 +610,6 @@ if len(data) > 100*1024*1024 {
 ---
 
 For more information, see:
-- `docs/project-planning/implementation/CODE_IMPLEMENTATION_PHASE5.md`
 - `PHASE5_COMPLETE.md`
 - `pkg/web3/` - Web3 modules
 - `pkg/service/web3.go` - Web3 service

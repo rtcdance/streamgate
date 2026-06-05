@@ -245,7 +245,6 @@ config/prometheus.yml
 
 - **[cmd/README.md](../cmd/README.md)** - 部署模式详解
 - **[deployment-architecture.md](deployment-architecture.md)** - 架构和设计
-- **[docs/project-planning/](../project-planning/)** - 项目规划文档
 - **[README.md](../../README.md)** - 项目主文档
 
 ## 🆘 常见问题
@@ -288,15 +287,12 @@ kubectl logs -f deployment/streamgate-api-gateway
 
 ## 🚀 下一步
 
-1. **了解架构** → 查看 `docs/project-planning/architecture/`
-2. **了解目录结构** → 查看 `docs/project-planning/directory-structure/`
-3. **了解实现计划** → 查看 `docs/project-planning/implementation/`
-4. **开始开发** → 查看 `docs/development/`
+1. **了解架构** → 查看 `docs/ARCHITECTURE.md`
+2. **开始开发** → 查看 `docs/development/`
 
 ## 📞 获取帮助
 
 - 查看 `README.md` 了解项目概述
-- 查看 `docs/project-planning/` 了解详细规划
 - 查看 `docs/deployment/` 了解部署详情
 - 查看 `docs/development/` 了解开发指南
 
