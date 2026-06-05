@@ -76,6 +76,10 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
 			return
 		}
+		// bypassCache skips both the cache read and the cache write for this call.
+		// The frontend uses this after a fresh on-chain mint so the verifier sees
+		// the new balance instead of a stale "no NFT" result.
+		bypassCache := c.Query("bypass_cache") == "true" || c.Query("nocache") == "1"
 		wallet := req.Wallet
 		if wallet == "" {
 			if req.Address != "" {
@@ -109,7 +113,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 		var err error
 		var cacheHit bool
 		cacheKey := fmt.Sprintf("%d:%s:%s:%s", chainID, wallet, contract, req.TokenID)
-		if cache != nil {
+		if cache != nil && !bypassCache {
 			if entry, ok := cache.Get(c.Request.Context(), cacheKey); ok && entry.Expires.After(time.Now()) {
 				hasNFT = entry.HasNFT
 				balance = entry.Balance
@@ -138,7 +142,9 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 			hasNFT = false
 			balance = big.NewInt(0)
 		}
-		if cache != nil && !cacheHit {
+		// Skip writing to the cache when bypassCache is set, so a fresh
+		// on-chain state is not immediately poisoned by a transient result.
+		if cache != nil && !cacheHit && !bypassCache {
 			entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
 			if len(blockProver) > 0 && blockProver[0] != nil {
 				if header, err := blockProver[0].HeaderByNumber(c.Request.Context(), nil); err == nil && header != nil {
@@ -151,7 +157,7 @@ func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.
 		if balance == nil {
 			balance = big.NewInt(0)
 		}
-		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit})
+		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit, "bypass_cache": bypassCache})
 	})
 	log.Info("NFT routes registered")
 }
