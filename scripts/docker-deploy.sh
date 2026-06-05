@@ -1,5 +1,5 @@
 #!/bin/bash
-# StreamGate Docker Full-Chain Deployment
+# StreamGate Docker Full-Chain Deployment (monolith + microservices)
 # Usage: ./scripts/docker-deploy.sh [--build] [--clean]
 #   --build   Force rebuild images (default: use cache)
 #   --clean   Remove volumes and rebuild from scratch
@@ -21,19 +21,18 @@ for arg in "$@"; do
 done
 
 echo "============================================"
-echo "StreamGate Docker Full-Chain Deployment"
+echo "StreamGate Full-Chain Deployment"
+echo "  Monolith (:18000) + Microservices (:18001)"
 echo "============================================"
 
-# ---- 1. Check Docker ----
 echo ""
 echo "[1/5] Checking Docker..."
 if ! docker info >/dev/null 2>&1; then
-    echo "Docker daemon not running. Attempting to start..."
+    echo "Docker daemon not running. Starting..."
     open -a "Docker Desktop" 2>/dev/null || open -a "Docker" 2>/dev/null || {
-        echo "FAIL: Cannot start Docker. Please start it manually."
+        echo "FAIL: Cannot start Docker."
         exit 1
     }
-    echo "Waiting for Docker daemon..."
     for i in $(seq 1 40); do
         docker info >/dev/null 2>&1 && break
         sleep 3
@@ -45,18 +44,16 @@ if ! docker info >/dev/null 2>&1; then
 fi
 echo "PASS: Docker is running"
 
-# ---- 2. Clean (optional) ----
 if [ -n "$CLEAN_FLAG" ]; then
     echo ""
-    echo "[2/5] Cleaning existing containers and volumes..."
+    echo "[2/5] Cleaning existing stack..."
     docker compose -f "$COMPOSE_FILE" down -v 2>/dev/null || true
-    echo "PASS: Cleaned up"
+    echo "PASS: Cleaned"
 else
     echo ""
     echo "[2/5] Skipping clean (use --clean to reset)"
 fi
 
-# ---- 3. Build & Start ----
 echo ""
 echo "[3/5] Building and starting services..."
 if [ -n "$BUILD_FLAG" ] || [ -n "$CLEAN_FLAG" ]; then
@@ -66,10 +63,9 @@ else
 fi
 echo "PASS: Compose started"
 
-# ---- 4. Wait for healthy ----
 echo ""
-echo "[4/5] Waiting for all services to be healthy..."
-MAX_WAIT=120
+echo "[4/5] Waiting for services to be healthy..."
+MAX_WAIT=180
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
     UNHEALTHY=$(docker ps --filter "name=sg-fc" --format "{{.Names}} {{.Status}}" | grep -v "healthy" | grep -v "no such" || true)
@@ -81,27 +77,28 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 done
 
 if [ $ELAPSED -ge $MAX_WAIT ]; then
-    echo "WARN: Some services not healthy after ${MAX_WAIT}s:"
+    echo "WARN: Some services not healthy after ${MAX_WAIT}s"
     docker ps --filter "name=sg-fc" --format "  {{.Names}}: {{.Status}}"
 else
     echo "PASS: All services healthy (${ELAPSED}s)"
 fi
 
-# ---- 5. Summary ----
 echo ""
-echo "[5/5] Service endpoints:"
+echo "[5/5] Service status:"
 echo ""
-docker ps --filter "name=sg-fc" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | head -10
+docker ps --filter "name=sg-fc" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
 echo ""
 echo "============================================"
 echo "Deployment complete!"
 echo ""
-echo "  API:          http://localhost:18080/health"
-echo "  H5 Demo:      http://localhost:18080/demo/"
-echo "  MinIO Console: http://localhost:19001 (minioadmin/minioadmin)"
-echo "  PostgreSQL:    localhost:15432 (postgres/postgres/streamgate)"
+echo "  Monolith demo:      http://localhost:18000/demo/"
+echo "  Microservices demo: http://localhost:18001/demo/"
 echo ""
-echo "Next: run acceptance test"
-echo "  make fullchain-test"
-echo "  or: ./scripts/fullchain-acceptance.sh"
+echo "  Monolith API:       http://localhost:18080/health"
+echo "  API Gateway:        http://localhost:28080/health"
+echo ""
+echo "  MinIO Console:      http://localhost:19001 (minioadmin/minioadmin)"
+echo "  PostgreSQL:         localhost:15432 (postgres/postgres/streamgate)"
+echo ""
+echo "  Teardown: make fullchain-teardown"
 echo "============================================"
