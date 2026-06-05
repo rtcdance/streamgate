@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming build-learn clean test docker-build docker-bake docker-bake-load docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown demo challenge run-learn
+.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming build-learn clean test docker-build docker-bake docker-bake-load docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown deploy-monolith deploy-microservices demo challenge run-learn
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -40,10 +40,12 @@ help:
 	@echo "  make docker-bake-load   - Build & load monolith image via Bake"
 	@echo "  make docker-up          - Start Docker Compose services"
 	@echo "  make docker-down        - Stop Docker Compose services"
-	@echo "  make fullchain-deploy   - Deploy full-chain stack (PG + Redis + MinIO + NATS + monolith + H5 Demo)"
+	@echo "  make fullchain-deploy   - Deploy monolith + microservices (dual mode)"
+	@echo "    Monolith demo:      http://localhost:18000/demo/"
+	@echo "    Microservices demo: http://localhost:18001/demo/"
 	@echo "  make fullchain-test     - Run full-chain acceptance test"
-	@echo "  make fullchain-teardown - Stop full-chain stack (add --volumes to wipe data)"
-	@echo "  make demo               - 🚀 One-command demo: infra up → build → run → curl instructions"
+	@echo "  make fullchain-teardown - Stop full-stack (add --volumes to wipe data)"
+	@echo "  make demo               - One-command demo: infra up → build → run"
 	@echo "  make run-monolith       - Run monolithic service"
 	@echo "  make run-api-gateway    - Run API Gateway service"
 	@echo "  make run-transcoder     - Run Transcoder service"
@@ -476,3 +478,9 @@ migrate-down-all:
 
 migrate-reset: migrate-down-all migrate-up
 	@echo "Schema reset complete."
+
+deploy-monolith:
+	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil h5-demo streamgate
+
+deploy-microservices:
+	docker compose -f docker-compose.fullchain.yml up -d --build postgres redis minio nats anvil consul jaeger prometheus grafana h5-demo auth cache metadata monitor streaming transcoder upload worker api-gateway

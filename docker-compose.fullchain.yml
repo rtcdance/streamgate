@@ -1,7 +1,9 @@
-# Full-chain acceptance test: creator upload → wallet login → watch video
-# Usage: docker-compose -f docker-compose.fullchain.yml up --build
-# H5 Demo: open http://localhost:18000 in browser
+# Full-chain dual deployment: monolith (:18000) + microservices (:18001)
+# Usage: docker compose -f docker-compose.fullchain.yml up --build
+# Monolith demo: http://localhost:18000/demo/
+# Microservices demo: http://localhost:18001/demo/
 services:
+  # ---- Shared Infrastructure ----
   postgres:
     image: postgres:15-alpine
     container_name: sg-fc-postgres
@@ -67,8 +69,6 @@ services:
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: sg-fc-anvil
-    # Anvil: local Ethereum testnet on chain ID 31337 with pre-funded accounts
-    # --host 0.0.0.0 is required for Docker port mapping to work
     entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
     ports:
       - "18545:8545"
@@ -78,7 +78,22 @@ services:
       timeout: 3s
       retries: 10
 
-  streamgate:
+  consul:
+    image: hashicorp/consul:latest
+    container_name: sg-fc-consul
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    ports:
+      - "28500:8500"
+    volumes:
+      - fc-consul-data:/consul/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---- Monolith ----
+  monolith:
     image: streamgate-fullchain:latest
     build:
       context: .
@@ -108,7 +123,7 @@ services:
       - STREAMGATE_STORAGE_BUCKET=streamgate
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
-      - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:3000,http://localhost:8080,http://localhost:18080
+      - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:3000,http://localhost:8080,http://localhost:18080
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
     depends_on:
@@ -130,6 +145,302 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ---- Microservices ----
+  api-gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.api-gateway.quick
+    container_name: sg-fc-api-gateway
+    ports:
+      - "28080:8080"
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+      - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:28080,http://localhost:3000,http://localhost:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  auth:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.auth
+    container_name: sg-fc-auth
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  transcoder:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.transcoder
+    container_name: sg-fc-transcoder
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  upload:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.upload
+    container_name: sg-fc-upload
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  streaming:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.streaming
+    container_name: sg-fc-streaming
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  metadata:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.metadata
+    container_name: sg-fc-metadata
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  cache:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.cache
+    container_name: sg-fc-cache
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.worker
+    container_name: sg-fc-worker
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  monitor:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.monitor
+    container_name: sg-fc-monitor
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ---- H5 Demo (dual port) ----
   h5-demo:
     image: nginx:alpine
     container_name: sg-fc-h5-demo
@@ -140,7 +451,9 @@ services:
       - ./h5-demo:/usr/share/nginx/html:ro
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      streamgate:
+      monolith:
+        condition: service_healthy
+      api-gateway:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
@@ -153,3 +466,4 @@ volumes:
   fc-redis-data:
   fc-minio-data:
   fc-nats-data:
+  fc-consul-data:
