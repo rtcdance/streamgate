@@ -81,6 +81,23 @@ func NewStreamingService(db storage.DB, objStorage StreamingObjectStorage, cache
 func (s *StreamingService) Close() {
 }
 
+// GetContentStatus returns the status string for a content record from the DB.
+// Returns empty string and no error if the content does not exist.
+func (s *StreamingService) GetContentStatus(ctx context.Context, contentID string) (string, error) {
+	if err := s.checkDB(); err != nil {
+		return "", err
+	}
+	var status string
+	err := s.db.QueryRow(ctx, "SELECT status FROM contents WHERE id = $1", contentID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return status, nil
+}
+
 func (s *StreamingService) checkDB() error {
 	if s.db == nil {
 		return fmt.Errorf("database not available")
