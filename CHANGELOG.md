@@ -75,7 +75,6 @@ StreamGate v1.0.0 marks the first stable release after 20 rounds of architecture
 
 ### Documentation
 
-- Learning roadmap: `docs/learning-roadmap.md` — 2-3 week plan
 - Web3 glossary: 11 terms defined in README
 - User personas: Platform Developer / Content Creator / Node Operator
 - Product roadmap: P0 Core / P1 Usability / P2 Ecosystem

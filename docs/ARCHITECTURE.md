@@ -383,7 +383,7 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 - **Deployment operations** — see [DEPLOY.md](../../DEPLOY.md) and [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOYMENT_GUIDE.md)
 - **H5 demo features** — see [h5-demo/README.md](../../h5-demo/README.md)
 - **CI/CD** — see [.github/](../../.github/) workflows and [docs/development/GITHUB_CI_CD_GUIDE.md](../development/GITHUB_CI_CD_GUIDE.md)
-- **Interview prep** — see [docs/INTERVIEW_PACKAGE_INDEX.md](../INTERVIEW_PACKAGE_INDEX.md)
+- **Interview prep** — see [AGENTS.md](../../AGENTS.md) (project knowledge base) and [README.md](../../README.md) (talking points: wallet sign-in → NFT verify → protected HLS)
 
 ---
 

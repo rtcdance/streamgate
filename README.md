@@ -91,7 +91,7 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 |----------|---------|
 | **Decentralized video network** | StreamGate is self-hosted infrastructure, not a peer-to-peer network. For decentralized transcoding, see Livepeer. |
 | **Traditional DRM (Widevine/FairPlay)** | DRM requires proprietary licensing. StreamGate uses on-chain ownership as an alternative. |
-| **Managed SaaS / Cloud** | Community edition is self-hosted. A hosted version is on the [roadmap](docs/product-roadmap.md). |
+| **Managed SaaS / Cloud** | Community edition is self-hosted. A hosted version may be added in a future release. |
 | **No-code platform** | StreamGate is API-first. A Web UI is planned but not yet available. |
 
 ### 👥 Who Is It For?
@@ -238,12 +238,6 @@ If you have questions or need help:
 4. **Discussions**: Start a [Discussion](https://github.com/rtcdance/streamgate/discussions)
 
 ## 🚀 Roadmap
-
-| Document | Description |
-|----------|-------------|
-| [Product Roadmap](docs/product-roadmap.md) | Quarterly roadmap with deliverables and success metrics |
-| [Product OKRs](docs/product-okrs.md) | North star metric + Q3 objectives and key results |
-| [Competitive Analysis](docs/competitive-analysis.md) | StreamGate vs Livepeer vs DIY vs DRM |
 
 ### Phase 1: Identity + Ownership (Completed ✅)
 - Wallet sign-in
