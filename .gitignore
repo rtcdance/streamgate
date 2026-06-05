@@ -73,8 +73,6 @@ scripts/fix-all-*
 scripts/init-directory-structure.sh
 scripts/init-*
 scripts/organize-docs.sh
-scripts/lint.sh
-scripts/lint-fix.sh
 scripts/quick-build.sh
 scripts/setup.sh
 scripts/setup-hpa.sh
