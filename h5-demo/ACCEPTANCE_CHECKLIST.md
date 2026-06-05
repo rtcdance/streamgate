@@ -4,8 +4,9 @@ Use this as the shortest on-site checklist when you want to validate the StreamG
 
 ## Pre-check
 
-- [ ] Backend gateway is running
-- [ ] Recommended backend URL is `http://localhost:29090`
+- [ ] Backend gateway is running (run `make deploy-monolith` or `make deploy-microservices`)
+- [ ] Verify with `make deploy-status` — all containers should be `(healthy)`
+- [ ] Recommended backend URL is `http://localhost:18080` (monolith) or `http://localhost:28080` (microservices)
 - [ ] MetaMask is installed and unlocked
 - [ ] If using `file://`, MetaMask file URL access is enabled; otherwise serve `h5-demo/` over HTTP
 - [ ] The wallet is connected to the expected test chain
