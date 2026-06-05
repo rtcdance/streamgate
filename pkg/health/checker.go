@@ -42,6 +42,7 @@ type HealthResponse struct {
 	Checks    map[string]HealthCheckResult `json:"checks"`
 	Version   string                       `json:"version,omitempty"`
 	Release   string                       `json:"release,omitempty"`
+	Mode      string                       `json:"mode,omitempty"`
 }
 
 // LivenessResponse represents the liveness probe response
@@ -66,6 +67,14 @@ type HealthChecker struct {
 	timeout time.Duration
 	version string
 	release string
+	mode    string
+}
+
+// SetMode sets the deployment mode (monolith or microservice) reported in health responses.
+func (hc *HealthChecker) SetMode(mode string) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.mode = mode
 }
 
 // NewHealthChecker creates a new health checker
@@ -171,6 +180,7 @@ func (hc *HealthChecker) CheckAll(ctx context.Context) HealthResponse {
 		Checks:    results,
 		Version:   hc.version,
 		Release:   hc.release,
+		Mode:      hc.mode,
 	}
 }
 
