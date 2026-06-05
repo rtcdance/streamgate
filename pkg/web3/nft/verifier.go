@@ -627,11 +627,11 @@ func try1155BalanceOf(ctx context.Context, caller EthCaller, contract common.Add
 	data = append(data, paddedAddr...)
 	data = append(data, paddedID...)
 
-	_, err := caller.CallContract(ctx, ethereum.CallMsg{
+	result, err := caller.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
 	}, nil)
-	return err == nil
+	return err == nil && len(result) >= 32
 }
 
 func try721BalanceOf(ctx context.Context, caller EthCaller, contract common.Address) bool {
@@ -643,11 +643,11 @@ func try721BalanceOf(ctx context.Context, caller EthCaller, contract common.Addr
 	data = append(data, selector...)
 	data = append(data, paddedAddr...)
 
-	_, err := caller.CallContract(ctx, ethereum.CallMsg{
+	result, err := caller.CallContract(ctx, ethereum.CallMsg{
 		To:   &contract,
 		Data: data,
 	}, nil)
-	return err == nil
+	return err == nil && len(result) >= 32
 }
 
 type BlockTag string
