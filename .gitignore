@@ -9,6 +9,11 @@
 bin/
 dist/
 api-gateway
+api-gateway-linux
+deploy/docker/api-gateway-linux
+# Foundry build artifacts that may end up in src/
+contracts/src/*_sol_*.abi
+contracts/src/*_sol_*.bin
 
 # Go workspace
 go.work
