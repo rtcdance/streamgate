@@ -2,6 +2,8 @@
 
 > 评估日期: 2026-04-08  
 > 项目: StreamGate - NFT-Gated 视频分发平台
+>
+> **Note (2026-06-05)**: Port `29090` (the historical Docker Gateway) has been superseded. The equivalent API gateway is now at `http://localhost:28080` (microservices mode) or `http://localhost:18080` (monolith mode). See [DEPLOY.md](../DEPLOY.md) for the current architecture. The curl examples below have been updated to the new port.
 
 ---
 
@@ -18,7 +20,7 @@
 
 ### 当前可验收入口
 
-- Docker Gateway: `http://localhost:29090`
+- Docker Gateway: `http://localhost:28080` (formerly `http://localhost:29090`; updated 2026-06-05)
 - Docker Monolith: `http://localhost:18080`
 - H5 Demo: `h5-demo/index.html`
 
@@ -217,29 +219,29 @@ go build ./...
 能通过 curl 完整跑通:
 ```bash
 # 1. 获取登录挑战
-curl -X POST http://localhost:29090/api/v1/auth/challenge \
+curl -X POST http://localhost:28080/api/v1/auth/challenge \
   -H "Content-Type: application/json" \
   -d '{"wallet": "0x...", "chain_id": 11155111}'
 
 # 2. 签名验证获取 JWT
-curl -X POST http://localhost:29090/api/v1/auth/login \
+curl -X POST http://localhost:28080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"wallet": "0x...", "challenge_id": "...", "signature": "..."}'
 
 # 3. NFT 所有权验证
-curl -X POST http://localhost:29090/api/v1/nft/verify \
+curl -X POST http://localhost:28080/api/v1/nft/verify \
   -H "Content-Type: application/json" \
   -d '{"wallet": "0x...", "contract": "0x...", "chain_id": 11155111}'
 
 # 4. 获取 HLS manifest
 curl -H "Authorization: Bearer <JWT>" \
-  "http://localhost:29090/api/v1/streaming/{contentID}/manifest.m3u8?contract=0x...&chain_id=11155111"
+  "http://localhost:28080/api/v1/streaming/{contentID}/manifest.m3u8?contract=0x...&chain_id=11155111"
 
 # 5. 查看 RPC 状态
-curl http://localhost:29090/api/v1/web3/rpc-status
+curl http://localhost:28080/api/v1/web3/rpc-status
 
 # 6. 提交转码任务
-curl -X POST http://localhost:29090/api/v1/transcode/submit \
+curl -X POST http://localhost:28080/api/v1/transcode/submit \
   -H "Content-Type: application/json" \
   -d '{"content_id":"demo-content","input_url":"https://example.com/input.mp4","profile":"720p","priority":5}'
 ```
