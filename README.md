@@ -100,7 +100,7 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 |------|------|-------------|
 | **Platform Developer** | Integrate NFT-gated video via API | Read the [OpenAPI spec](docs/api/openapi.yaml) — no Go required |
 | **Content Creator** | Upload video, set NFT rules, go live | Use `make demo-quick` (no blockchain needed for testing) |
-| **Node Operator** | Deploy and scale StreamGate | Use `make fullchain-deploy` or K8s manifests in `deploy/k8s/` |
+| **Node Operator** | Deploy and scale StreamGate | Use `make deploy-monolith` (7 containers) or `make deploy-microservices` (15 containers), or K8s manifests in `deploy/k8s/`. See [DEPLOY.md](DEPLOY.md) for the 5-minute guide. |
 
 ### 📦 Product Roadmap
 

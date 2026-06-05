@@ -52,14 +52,14 @@
 │   └─→ make deploy-microservices    (15 容器, 2-3 分钟)
 │
 └─ 两个都要,模拟真实生产环境
-    └─→ make fullchain-deploy        (22 容器, 5 分钟)
+    └─→ make fullchain-deploy        (17 容器, 5 分钟)
 ```
 
 | 模式 | 容器数 | API 端口 | 前端端口 | 适合 |
 |------|-------|---------|---------|------|
 | **Monolith** | 7 | `:18080` | `:18000` | 本地开发、面试演示、单机 demo |
 | **Microservices** | 15 | `:28080` (api-gateway) | `:18001` | 模拟生产、压测、服务级调试 |
-| **Fullchain (Dual)** | 22 | `:18080` + `:28080` | `:18000` + `:18001` | 同时演示两种模式 |
+| **Fullchain (Dual)** | 17 | `:18080` + `:28080` | `:18000` + `:18001` | 同时演示两种模式 |
 
 > 💡 **不确定选哪个?默认选 monolith** — 更快、更简单,功能完全一致。
 
@@ -103,7 +103,7 @@ curl http://localhost:18080/health  # 应该返回 {"status":"ok",...}
 make deploy-microservices    # 微服务 (15 容器,API 端口 :28080)
 ./scripts/verify-deploy.sh microservices
 
-make fullchain-deploy        # 双模式一起跑 (22 容器, :18080 + :28080)
+make fullchain-deploy        # 双模式一起跑 (17 容器, :18080 + :28080)
 make fullchain-teardown      # 停止 + 保留数据
 make deploy-teardown         # 停止 + 删数据 (-v)
 ```
