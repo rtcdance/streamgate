@@ -66,34 +66,19 @@ node_modules/
 package.json
 package-lock.json
 
-# Scripts (dev-only) — track production deploy scripts, ignore one-off fix scripts
-scripts/
-!scripts/docker-deploy.sh
-!scripts/docker-deploy-monolith.sh
-!scripts/docker-deploy-microservices.sh
-!scripts/docker-teardown.sh
-!scripts/docker-build.sh
-!scripts/verify-deploy.sh
-!scripts/fullchain-acceptance.sh
-!scripts/e2e-acceptance.sh
-!scripts/run-docker-acceptance.sh
-!scripts/self-test-deploy.sh
-!scripts/seed-demo-video.sh
-!scripts/anvil-deploy-test-nft.sh
-!scripts/blue-green-deploy.sh
-!scripts/blue-green-rollback.sh
-!scripts/canary-deploy.sh
-!scripts/chaos-demo.sh
-!scripts/demo.sh
-!scripts/deploy-nft-anvil.js
-!scripts/deploy-test-nft.mjs
-!scripts/extract-bytecode.mjs
-!scripts/migrate.sh
-!scripts/test.sh
-!scripts/setup.sh
-!scripts/setup-hpa.sh
-!scripts/setup-vpa.sh
-!scripts/generate-proto.sh
+# Scripts (dev-only) — ignore one-off fix scripts, keep production deploy scripts tracked
+scripts/fix-*
+scripts/fix-all-*
+scripts/init-directory-structure.sh
+scripts/init-*
+scripts/organize-docs.sh
+scripts/lint.sh
+scripts/lint-fix.sh
+scripts/quick-build.sh
+scripts/setup.sh
+scripts/setup-hpa.sh
+scripts/setup-vpa.sh
+scripts/*.py
 
 # AI tooling
 .antigravitycli/
