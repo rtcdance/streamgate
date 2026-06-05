@@ -23,6 +23,7 @@ go.work
 .idea/
 .claude/
 .codex/
+.sisyphus/
 .vscode/
 
 # Editor swap files
