@@ -332,7 +332,13 @@ func parseProfileHeight(resolution string) int {
 func (ft *FFmpegTranscoder) probeSourceHeight(ctx context.Context, inputPath string) int {
 	info, err := ft.GetVideoInfo(ctx, inputPath)
 	if err != nil || info == nil {
+		if ft.logger != nil {
+			ft.logger.Warn("probeSourceHeight failed, skipping upscaling filter", zap.String("input", inputPath), zap.Error(err))
+		}
 		return 0
+	}
+	if ft.logger != nil {
+		ft.logger.Info("probeSourceHeight", zap.String("input", inputPath), zap.Int("height", info.Height))
 	}
 	return info.Height
 }

@@ -634,6 +634,25 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	// Mark complete — output is safely in object storage, skip cleanup
 	cleanupOutput = false
 	outputURL := fmt.Sprintf("streams/%s/%s", task.ContentID, task.Profile)
+
+	// Finalize variant_progress to 100% (FFmpeg progress caps at ~99.x%)
+	if task.Metadata != nil {
+		if vp, ok := task.Metadata["variant_progress"].(map[string]interface{}); ok {
+			for k := range vp {
+				vp[k] = 100
+			}
+			task.Metadata["variant_progress"] = vp
+			s.storeTask(task)
+			if s.db != nil {
+				metadataJSON, _ := json.Marshal(task.Metadata)
+				if _, err := s.db.Exec(context.Background(),
+					"UPDATE transcoding_tasks SET metadata = $2 WHERE id = $1", task.ID, metadataJSON); err != nil && s.log != nil {
+					s.log.Warn("failed to finalize variant progress in DB", zap.String("task_id", task.ID), zap.Error(err))
+				}
+			}
+		}
+	}
+
 	if err := s.CompleteTask(taskCtx, task.ID, outputURL); err != nil {
 		s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
 	}
