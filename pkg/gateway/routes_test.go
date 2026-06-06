@@ -965,6 +965,9 @@ func (m *routesMockSegmentStorage) ListObjects(_ context.Context, _, _ string) (
 }
 
 func (m *routesMockSegmentStorage) Exists(_ context.Context, _, _ string) (bool, error) {
+	if m.listErr != nil {
+		return false, m.listErr
+	}
 	return false, nil
 }
 

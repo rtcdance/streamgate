@@ -94,6 +94,12 @@ func (b *RedisTokenBlacklist) IsRevoked(ctx context.Context, jti string) bool {
 	key := blacklistKeyPrefix + jti
 	val, err := b.client.Exists(ctx, key).Result()
 	if err != nil {
+		// Fail-closed is the secure default for token-gated systems: when
+		// the revocation store is unreachable, treat unknown tokens as
+		// revoked rather than silently allowing them through.
+		if b.FailClosed {
+			return true
+		}
 		if entry, ok := b.local.Get(jti); ok {
 			e := entry.(*revocationEntry)
 			if !e.isExpired() {
