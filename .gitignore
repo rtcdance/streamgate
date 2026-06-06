@@ -89,3 +89,5 @@ scripts/*.py
 # Binary
 streamgate
 deploy/docker/*-linux
+scripts/h5-demo-acceptance/reports/
+scripts/h5-demo-acceptance/node_modules/
