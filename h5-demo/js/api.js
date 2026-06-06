@@ -190,6 +190,10 @@ class APIService {
         });
     }
 
+    async mintDemoNFT(count = 3) {
+        return this.post('/api/v1/nft/dev/mint', { count });
+    }
+
     async getRPCStatus() {
         return this.get('/api/v1/web3/rpc-status');
     }

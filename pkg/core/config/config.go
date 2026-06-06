@@ -258,14 +258,16 @@ type ChainConfigEntry struct {
 
 // Web3Config holds Web3 configuration
 type Web3Config struct {
-	EthereumRPC   string
-	EthereumWSURL string // WebSocket URL for real-time event subscriptions
-	SolanaRPC     string
-	ChainID       int64
-	BlockTag      string // "safe" (default), "finalized", or "latest"
-	Chains        []ChainConfigEntry
-	Transaction   TransactionConfig
-	RateLimit     RPCRateLimitConfig
+	EthereumRPC        string
+	EthereumWSURL      string // WebSocket URL for real-time event subscriptions
+	SolanaRPC          string
+	ChainID            int64
+	BlockTag           string // "safe" (default), "finalized", or "latest"
+	Chains             []ChainConfigEntry
+	Transaction        TransactionConfig
+	RateLimit          RPCRateLimitConfig
+	AnvilDemoContract  string
+	AnvilDeployerKey   string
 }
 
 // RPCRateLimitConfig holds RPC rate limiting configuration
@@ -370,6 +372,8 @@ func LoadConfig() (*Config, error) {
 	_ = viper.BindEnv("web3.solana_rpc", "STREAMGATE_SOLANA_RPC")
 	_ = viper.BindEnv("web3.ethereum_ws_url", "STREAMGATE_ETH_WS_URL")
 	_ = viper.BindEnv("web3.transaction.private_key_hex", "STREAMGATE_PRIVATE_KEY_HEX")
+	_ = viper.BindEnv("web3.anvil_demo_contract", "STREAMGATE_ANVIL_DEMO_CONTRACT")
+	_ = viper.BindEnv("web3.anvil_deployer_key", "STREAMGATE_ANVIL_DEPLOYER_KEY")
 
 	// Auth
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
@@ -454,11 +458,13 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Web3: Web3Config{
-			EthereumRPC:   viper.GetString("web3.ethereum_rpc"),
-			EthereumWSURL: viper.GetString("web3.ethereum_ws_url"),
-			SolanaRPC:     viper.GetString("web3.solana_rpc"),
-			ChainID:       viper.GetInt64("web3.chain_id"),
-			BlockTag:      viper.GetString("web3.block_tag"),
+			EthereumRPC:       viper.GetString("web3.ethereum_rpc"),
+			EthereumWSURL:     viper.GetString("web3.ethereum_ws_url"),
+			SolanaRPC:         viper.GetString("web3.solana_rpc"),
+			ChainID:           viper.GetInt64("web3.chain_id"),
+			BlockTag:          viper.GetString("web3.block_tag"),
+			AnvilDemoContract: viper.GetString("web3.anvil_demo_contract"),
+			AnvilDeployerKey:  viper.GetString("web3.anvil_deployer_key"),
 			Transaction: TransactionConfig{
 				PrivateKeyHex:            viper.GetString("web3.transaction.private_key_hex"),
 				GasLimit:                 viper.GetUint64("web3.transaction.gas_limit"),

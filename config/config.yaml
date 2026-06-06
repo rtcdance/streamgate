@@ -170,6 +170,8 @@ web3:
     enabled: true
     rate: 10
     burst: 20
+  anvil_demo_contract: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  anvil_deployer_key: ""
 
 auth:
   jwt_secret: ""  # Set via AUTH_JWT_SECRET env var in production
