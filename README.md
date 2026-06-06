@@ -99,8 +99,8 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 | Role | Goal | Quick Start |
 |------|------|-------------|
 | **Platform Developer** | Integrate NFT-gated video via API | Read the [OpenAPI spec](docs/api/openapi.yaml) — no Go required |
-| **Content Creator** | Upload video, set NFT rules, go live | Use `make demo-quick` (no blockchain needed for testing) |
-| **Node Operator** | Deploy and scale StreamGate | Use `make deploy-monolith` (7 containers) or `make deploy-microservices` (15 containers), or K8s manifests in `deploy/k8s/`. See [DEPLOY.md](DEPLOY.md) for the 5-minute guide. |
+| **Content Creator** | Upload video, set NFT rules, go live | Use `make demo` (single-binary, no blockchain needed for code-level experimentation) |
+| **Node Operator** | Deploy and scale StreamGate | Use `make deploy-monolith` (7 containers) or `make deploy-microservices` (16 services), or K8s manifests in `deploy/k8s/`. See [DEPLOY.md](DEPLOY.md) for the 5-minute guide. |
 
 ### 📦 Product Roadmap
 
@@ -134,7 +134,7 @@ Production operations and developer experience.
 - [x] **gRPC TLS** — Certificate-based server-side TLS
 - [x] **Structured Logging** — Zap with request ID correlation
 - [x] **Health Check Aggregation** — `/health`, `/ready`, `/health/live`
-- [x] **Database Migrations** — 31 versioned migrations with rollback
+- [x] **Database Migrations** — 52 versioned migrations with rollback
 - [x] **CI/CD Pipeline** — GitHub Actions: lint → test → build → security → docker
 - [x] **Multi-stage Docker Build** — Builder + distroless runtime support
 - [x] **Blues/Green + Canary Deployment** — K8s rollout strategies
