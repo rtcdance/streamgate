@@ -429,6 +429,14 @@ fullchain-deploy:
 fullchain-test:
 	@./scripts/fullchain-acceptance.sh
 
+h5-demo-acceptance:
+	@cd scripts/h5-demo-acceptance && [ -d node_modules ] || npm install --silent
+	@cd scripts/h5-demo-acceptance && node run.mjs
+
+h5-demo-acceptance-spec:
+	@cd scripts/h5-demo-acceptance && [ -d node_modules ] || npm install --silent
+	@cd scripts/h5-demo-acceptance && node run.mjs --only=$(SPEC)
+
 fullchain-teardown:
 	@./scripts/docker-teardown.sh --volumes
 
