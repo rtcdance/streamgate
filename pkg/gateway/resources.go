@@ -8,11 +8,13 @@ import (
 	"io"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/go-redis/redis/v8"
+	"go.uber.org/zap"
 )
 
 // AppResources holds closeable resources created by SetupRouter.
@@ -167,4 +169,24 @@ type serviceInit struct {
 	SegmentStorage     service.SegmentStorage
 	TranscodingSvc     *service.TranscodingService
 	UploadService      *service.UploadService
+	DemoNFTMinter      *service.DemoNFTMinter
+}
+
+func newDemoNFTMinter(cfg *config.Config, log *zap.Logger) *service.DemoNFTMinter {
+	if cfg.Web3.AnvilDeployerKey == "" || cfg.Web3.AnvilDemoContract == "" {
+		log.Info("Demo NFT minter disabled (anvil_deployer_key or anvil_demo_contract not set)")
+		return nil
+	}
+	rpcURL := cfg.Web3.EthereumRPC
+	if rpcURL == "" {
+		log.Warn("Demo NFT minter disabled (no ethereum rpc configured)")
+		return nil
+	}
+	minter, err := service.NewDemoNFTMinter(rpcURL, cfg.Web3.AnvilDemoContract, cfg.Web3.AnvilDeployerKey, cfg.Web3.ChainID, log.Named("demo-nft-minter"))
+	if err != nil {
+		log.Warn("Demo NFT minter init failed", zap.Error(err))
+		return nil
+	}
+	log.Info("Demo NFT minter ready", zap.String("contract", cfg.Web3.AnvilDemoContract), zap.String("from", minter.FromAddress().Hex()))
+	return minter
 }

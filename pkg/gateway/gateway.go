@@ -106,6 +106,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		SegmentStorage:  objStorage,
 		TranscodingSvc:  transcodingSvc,
 		UploadService:   uploadSvc,
+		DemoNFTMinter:   newDemoNFTMinter(cfg, log),
 	}
 	resources.StreamingSvc = svc.StreamingSvc
 

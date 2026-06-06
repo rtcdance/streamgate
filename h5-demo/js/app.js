@@ -298,6 +298,18 @@ async _autoMintDemoNFT(address) {
         }
     }
 
+    async _autoMintViaBackend() {
+        try {
+            this.showToast('No NFTs found — requesting backend to mint 3...', 'info');
+            const result = await this.api.mintDemoNFT(3);
+            const balance = result?.balance ?? '0';
+            this.showToast(`Auto-minted 3 NFTs (new balance: ${balance})`, 'success');
+            await this.verifyNFT();
+        } catch (e) {
+            this.showToast('Backend auto-mint failed: ' + e.message, 'warning');
+        }
+    }
+
     async _autoEnsureAnvilNFT(address) {
         if (typeof ethers === 'undefined' || typeof ensureAnvilNFT === 'undefined') return;
         try {
@@ -536,6 +548,9 @@ async _autoMintDemoNFT(address) {
                         ? 'Connected wallet has 0 NFTs on this contract. Click "Mint Demo NFT (Anvil)" to mint, or switch to Demo Mode for an auto-funded test wallet.'
                         : 'Check the connected wallet, contract address, and chain ID. Full acceptance needs a wallet that actually owns the NFT on this chain.'
                 );
+                if (onAnvil && this.auth.isAuthenticated) {
+                    this._autoMintViaBackend();
+                }
             }
 
             const nftDetails = document.getElementById('nft-details');

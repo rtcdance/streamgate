@@ -180,6 +180,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
 	}))
 	RegisterNFTRoutes(nftGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
+	RegisterNFTDevMintRoute(router, svc.DemoNFTMinter, log)
 
 	RegisterUploadRoutes(router, log, svc.UploadService)
 

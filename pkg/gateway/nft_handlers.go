@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
+	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/util"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -342,4 +344,69 @@ func (a *NFTAccessCacheAdapter) Delete(_ context.Context, key string) {
 
 func (a *NFTAccessCacheAdapter) DeleteByPrefix(_ context.Context, prefix string) {
 	a.Cache.DeleteByPrefix(prefix)
+}
+
+func RegisterNFTDevMintRoute(router gin.IRouter, minter *service.DemoNFTMinter, log *zap.Logger) {
+	if minter == nil {
+		log.Info("Dev mint endpoint disabled (no minter configured)")
+		return
+	}
+	router.Group(APIPrefix + "/nft/dev").POST("/mint", func(c *gin.Context) {
+		handleMintDemoNFT(c, minter, log)
+	})
+	log.Info("Dev mint endpoint registered at /nft/dev/mint")
+}
+
+type mintDemoRequest struct {
+	Count int `json:"count"`
+}
+
+func handleMintDemoNFT(c *gin.Context, minter *service.DemoNFTMinter, log *zap.Logger) {
+	wallet := middleware.GetWalletAddress(c)
+	if wallet == "" {
+		abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet address required")
+		return
+	}
+	if !util.IsValidAddress(wallet) {
+		abortWithError(c, http.StatusBadRequest, ErrMissingContract, "invalid wallet address")
+		return
+	}
+
+	var req mintDemoRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request body")
+			return
+		}
+	}
+	if req.Count <= 0 {
+		req.Count = 3
+	}
+	if req.Count > 10 {
+		req.Count = 10
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	preBalance, err := minter.BalanceOf(ctx, common.HexToAddress(wallet))
+	if err != nil {
+		log.Warn("demo mint: pre-balance lookup failed", zap.Error(err))
+	}
+
+	result, err := minter.Mint(ctx, common.HexToAddress(wallet), req.Count)
+	if err != nil {
+		log.Error("demo mint failed", zap.String("wallet", wallet), zap.Error(err))
+		abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "demo mint failed: "+err.Error())
+		return
+	}
+
+	respondOK(c, gin.H{
+		"wallet":          wallet,
+		"contract":        minter.FromAddress().Hex(),
+		"tx_hashes":       result.TxHashes,
+		"total_minted":    result.TotalMinted,
+		"balance":         result.Balance.String(),
+		"previous_balance": preBalance.String(),
+	})
 }
