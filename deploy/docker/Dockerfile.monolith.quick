@@ -1,0 +1,22 @@
+FROM alpine:3.21
+
+RUN apk --no-cache add ca-certificates wget ffmpeg
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+COPY deploy/docker/streamgate-linux ./streamgate
+COPY config ./config
+COPY h5-demo ./h5-demo
+
+RUN chown -R appuser:appgroup /app && chmod +x ./streamgate
+
+USER appuser
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+CMD ["./streamgate"]

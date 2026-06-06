@@ -69,13 +69,16 @@ services:
   anvil:
     image: ghcr.io/foundry-rs/foundry:latest
     container_name: sg-fc-anvil
-    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
+    entrypoint: ["/contracts/docker-entrypoint.sh"]
     ports:
       - "18545:8545"
+    volumes:
+      - ./contracts:/contracts:ro
     healthcheck:
-      test: ["CMD", "cast", "rpc", "eth_chainId"]
-      interval: 5s
-      timeout: 3s
+      test: ["CMD", "cast", "call", "--rpc-url", "http://localhost:8545", "0x5FbDB2315678afecb367f032d93F642f64180aa3", "balanceOf(address)(uint256)", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
       retries: 10
 
   consul:
@@ -97,11 +100,7 @@ services:
     image: streamgate-fullchain:latest
     build:
       context: .
-      dockerfile: Dockerfile
-      args:
-        PKG: ./cmd/monolith/streamgate
-        EXTRA_PKGS: ffmpeg
-        GOPROXY_VALUE: https://goproxy.cn,direct
+      dockerfile: deploy/docker/Dockerfile.monolith.quick
     container_name: sg-fc-monolith
     ports:
       - "18080:8080"
@@ -171,8 +170,11 @@ services:
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
       - STREAMGATE_ETH_RPC=http://anvil:8545
+      - WEB3_CHAIN_ID=31337
       - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:28080,http://localhost:3000,http://localhost:8080
     depends_on:
+      anvil:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:

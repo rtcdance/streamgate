@@ -301,25 +301,25 @@ async _autoMintDemoNFT(address) {
     async _autoEnsureAnvilNFT(address) {
         if (typeof ethers === 'undefined' || typeof ensureAnvilNFT === 'undefined') return;
         try {
-            const provider = this.wallet.provider;
-            if (!provider) return;
-            const signer = provider.getSigner();
+            // Use Anvil deployer key directly for minting, works with any wallet
+            const anvilProvider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
+            const deployer = new ethers.Wallet(DEMO_ANVIL_KEY, anvilProvider);
             const contractAddr = document.getElementById('nft-contract').value;
-            let addr = contractAddr;
-            // If contract address is set, check if it has code; otherwise deploy
-            if (addr && addr !== '0x...') {
-                const code = await provider.getCode(addr);
-                if (code !== '0x' && code !== '0x0') {
-                    // Contract exists, just ensure balance
-                    const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
-                    const c = new ethers.Contract(addr, abi, signer);
-                    const bal = await c.balanceOf(address);
-                    if (bal.toNumber() > 0) return;
-                }
+            // Contract deployed at 0x5FbDB231... by forge create on Anvil startup
+            const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
+            const c = new ethers.Contract(contractAddr, abi, anvilProvider);
+            const bal = await c.balanceOf(address);
+            if (bal.toNumber() > 0) {
+                this.showToast(`NFT ready (balance: ${bal})`, 'info');
+                return;
             }
-            addr = await ensureAnvilNFT(provider, signer, address);
-            document.getElementById('nft-contract').value = addr;
-            document.getElementById('nft-contract-playback').value = addr;
+            // Mint to the connected wallet using deployer key
+            const signed = new ethers.Contract(contractAddr, abi, deployer);
+            for (let i = 0; i < 3; i++) {
+                const tx = await signed.mint(address);
+                await tx.wait();
+            }
+            this.showToast('Auto-minted 3 NFTs for you!', 'success');
         } catch (e) {
             console.warn('Auto-ensure NFT failed:', e.message);
         }
