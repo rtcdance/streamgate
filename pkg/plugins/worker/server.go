@@ -204,7 +204,10 @@ func (s *JobScheduler) GetJob(jobID string) (*Job, error) {
 	if !exists {
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
-	return job, nil
+	// Return a snapshot copy so callers can read job fields without racing
+	// against executeJob's writes to s.jobs[jobID].Status and friends.
+	snapshot := *job
+	return &snapshot, nil
 }
 
 func (s *JobScheduler) ListJobs() []*Job {

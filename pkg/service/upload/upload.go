@@ -1007,7 +1007,9 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 
 	for _, hook := range hooks {
 		func(h PostUploadHook) {
+			s.hookWg.Add(1)
 			go func() {
+				defer s.hookWg.Done()
 				defer func() {
 					if r := recover(); r != nil {
 						s.logger.Error("PostUploadHook panic recovered",
