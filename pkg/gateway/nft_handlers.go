@@ -20,146 +20,154 @@ import (
 
 // RegisterNFTRoutes registers NFT verification and ownership routes.
 func RegisterNFTRoutes(router gin.IRouter, log *zap.Logger, verifier middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, defaultChainID int64, cacheTTL time.Duration, blockProver ...middleware.BlockProver) {
+	var bp middleware.BlockProver
+	if len(blockProver) > 0 {
+		bp = blockProver[0]
+	}
 	nft := router.Group(APIPrefix + "/nft")
-	nft.GET("", func(c *gin.Context) {
-		wallet := middleware.GetWalletAddress(c)
-		contract := c.Query("contract")
-		if contract == "" || !util.IsValidAddress(contract) {
-			abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
-			return
-		}
-		chainID := defaultChainID
-		if v := c.Query("chain_id"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				chainID = n
-			}
-		}
-		balance, err := verifier.GetNFTBalance(c.Request.Context(), chainID, contract, wallet)
-		if err != nil {
-			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT balance check failed")
-			return
-		}
-		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "chain_id": chainID, "balance": balance.String(), "has_nft": balance.Sign() > 0})
-	})
-	nft.GET("/:id", func(c *gin.Context) {
-		tokenID := c.Param("id")
-		contract := c.Query("contract")
-		if contract == "" || !util.IsValidAddress(contract) {
-			abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
-			return
-		}
-		chainID := defaultChainID
-		if v := c.Query("chain_id"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				chainID = n
-			}
-		}
-		wallet := middleware.GetWalletAddress(c)
-		hasNFT, err := verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, tokenID, wallet)
-		if err != nil {
-			abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT ownership verification failed")
-			return
-		}
-		respondOK(c, gin.H{"wallet": wallet, "contract": contract, "token_id": tokenID, "chain_id": chainID, "has_nft": hasNFT})
-	})
-	nft.POST("/verify", func(c *gin.Context) {
-		var req struct {
-			ChainID         int64  `json:"chain_id"`
-			Address         string `json:"address"`
-			Wallet          string `json:"wallet"`
-			OwnerAddress    string `json:"owner_address"`
-			Contract        string `json:"contract"`
-			ContractAddress string `json:"contract_address"`
-			TokenID         string `json:"token_id"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
-			return
-		}
-		// bypassCache skips both the cache read and the cache write for this call.
-		// The frontend uses this after a fresh on-chain mint so the verifier sees
-		// the new balance instead of a stale "no NFT" result.
-		bypassCache := c.Query("bypass_cache") == "true" || c.Query("nocache") == "1"
-		wallet := req.Wallet
-		if wallet == "" {
-			if req.Address != "" {
-				wallet = req.Address
-			} else {
-				wallet = req.OwnerAddress
-			}
-		}
-		contract := req.Contract
-		if contract == "" {
-			contract = req.ContractAddress
-		}
-		// Validate contract address format
-		if contract == "" || !util.IsValidAddress(contract) {
-			abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
-			return
-		}
-		// Validate tokenID is numeric if provided
-		if req.TokenID != "" {
-			if _, ok := new(big.Int).SetString(req.TokenID, 10); !ok {
-				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "token_id must be a valid numeric string")
-				return
-			}
-		}
-		chainID := req.ChainID
-		if chainID == 0 {
-			chainID = defaultChainID
-		}
-		var hasNFT bool
-		var balance *big.Int
-		var err error
-		var cacheHit bool
-		cacheKey := fmt.Sprintf("%d:%s:%s:%s", chainID, wallet, contract, req.TokenID)
-		if cache != nil && !bypassCache {
-			if entry, ok := cache.Get(c.Request.Context(), cacheKey); ok && entry.Expires.After(time.Now()) {
-				hasNFT = entry.HasNFT
-				balance = entry.Balance
-				cacheHit = true
-			}
-		}
-		if !cacheHit {
-			if req.TokenID != "" {
-				hasNFT, err = verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, req.TokenID, wallet)
-				if hasNFT {
-					balance = big.NewInt(1)
-				}
-			} else {
-				balance, err = verifier.GetNFTBalance(c.Request.Context(), chainID, contract, wallet)
-				hasNFT = balance != nil && balance.Sign() > 0
-			}
-		}
-		if err != nil {
-			// Contract not found or execution reverted → treat as "no NFT" (balance 0)
-			// instead of returning a 500. This handles the common case where the
-			// contract doesn't exist on the selected chain.
-			log.Warn("NFT balance check failed, treating as zero",
-				zap.Int64("chain_id", chainID),
-				zap.String("contract", contract),
-				zap.Error(err))
-			hasNFT = false
-			balance = big.NewInt(0)
-		}
-		// Skip writing to the cache when bypassCache is set, so a fresh
-		// on-chain state is not immediately poisoned by a transient result.
-		if cache != nil && !cacheHit && !bypassCache {
-			entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
-			if len(blockProver) > 0 && blockProver[0] != nil {
-				if header, err := blockProver[0].HeaderByNumber(c.Request.Context(), nil); err == nil && header != nil {
-					entry.BlockNumber = header.Number
-					entry.BlockHash = header.Hash
-				}
-			}
-			cache.Set(c.Request.Context(), cacheKey, entry)
-		}
-		if balance == nil {
-			balance = big.NewInt(0)
-		}
-		respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit, "bypass_cache": bypassCache})
-	})
+	nft.GET("", func(c *gin.Context) { handleNFTBalance(c, verifier, defaultChainID) })
+	nft.GET("/:id", func(c *gin.Context) { handleNFTOwnership(c, verifier, defaultChainID) })
+	nft.POST("/verify", func(c *gin.Context) { handleNFTVerify(c, log, verifier, cache, defaultChainID, cacheTTL, bp) })
 	log.Info("NFT routes registered")
+}
+
+func parseChainID(c *gin.Context, defaultChainID int64) int64 {
+	chainID := defaultChainID
+	if v := c.Query("chain_id"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			chainID = n
+		}
+	}
+	return chainID
+}
+
+func handleNFTBalance(c *gin.Context, verifier middleware.NFTOwnershipChecker, defaultChainID int64) {
+	wallet := middleware.GetWalletAddress(c)
+	contract := c.Query("contract")
+	if contract == "" || !util.IsValidAddress(contract) {
+		abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
+		return
+	}
+	chainID := parseChainID(c, defaultChainID)
+	balance, err := verifier.GetNFTBalance(c.Request.Context(), chainID, contract, wallet)
+	if err != nil {
+		abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT balance check failed")
+		return
+	}
+	respondOK(c, gin.H{"wallet": wallet, "contract": contract, "chain_id": chainID, "balance": balance.String(), "has_nft": balance.Sign() > 0})
+}
+
+func handleNFTOwnership(c *gin.Context, verifier middleware.NFTOwnershipChecker, defaultChainID int64) {
+	tokenID := c.Param("id")
+	contract := c.Query("contract")
+	if contract == "" || !util.IsValidAddress(contract) {
+		abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
+		return
+	}
+	chainID := parseChainID(c, defaultChainID)
+	wallet := middleware.GetWalletAddress(c)
+	hasNFT, err := verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, tokenID, wallet)
+	if err != nil {
+		abortWithError(c, http.StatusInternalServerError, ErrNFTVerifyError, "NFT ownership verification failed")
+		return
+	}
+	respondOK(c, gin.H{"wallet": wallet, "contract": contract, "token_id": tokenID, "chain_id": chainID, "has_nft": hasNFT})
+}
+
+func handleNFTVerify(c *gin.Context, log *zap.Logger, verifier middleware.NFTOwnershipChecker, cache middleware.NFTAccessCache, defaultChainID int64, cacheTTL time.Duration, blockProver middleware.BlockProver) {
+	var req struct {
+		ChainID         int64  `json:"chain_id"`
+		Address         string `json:"address"`
+		Wallet          string `json:"wallet"`
+		OwnerAddress    string `json:"owner_address"`
+		Contract        string `json:"contract"`
+		ContractAddress string `json:"contract_address"`
+		TokenID         string `json:"token_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid request")
+		return
+	}
+	// bypassCache skips both the cache read and the cache write for this call.
+	// The frontend uses this after a fresh on-chain mint so the verifier sees
+	// the new balance instead of a stale "no NFT" result.
+	bypassCache := c.Query("bypass_cache") == "true" || c.Query("nocache") == "1"
+	wallet := req.Wallet
+	if wallet == "" {
+		if req.Address != "" {
+			wallet = req.Address
+		} else {
+			wallet = req.OwnerAddress
+		}
+	}
+	contract := req.Contract
+	if contract == "" {
+		contract = req.ContractAddress
+	}
+	if contract == "" || !util.IsValidAddress(contract) {
+		abortWithError(c, http.StatusBadRequest, ErrMissingContract, "valid contract address is required (0x-prefixed 40-hex)")
+		return
+	}
+	if req.TokenID != "" {
+		if _, ok := new(big.Int).SetString(req.TokenID, 10); !ok {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "token_id must be a valid numeric string")
+			return
+		}
+	}
+	chainID := req.ChainID
+	if chainID == 0 {
+		chainID = defaultChainID
+	}
+	var hasNFT bool
+	var balance *big.Int
+	var err error
+	var cacheHit bool
+	cacheKey := fmt.Sprintf("%d:%s:%s:%s", chainID, wallet, contract, req.TokenID)
+	if cache != nil && !bypassCache {
+		if entry, ok := cache.Get(c.Request.Context(), cacheKey); ok && entry.Expires.After(time.Now()) {
+			hasNFT = entry.HasNFT
+			balance = entry.Balance
+			cacheHit = true
+		}
+	}
+	if !cacheHit {
+		if req.TokenID != "" {
+			hasNFT, err = verifier.VerifyNFTOwnership(c.Request.Context(), chainID, contract, req.TokenID, wallet)
+			if hasNFT {
+				balance = big.NewInt(1)
+			}
+		} else {
+			balance, err = verifier.GetNFTBalance(c.Request.Context(), chainID, contract, wallet)
+			hasNFT = balance != nil && balance.Sign() > 0
+		}
+	}
+	if err != nil {
+		// Contract not found or execution reverted → treat as "no NFT" (balance 0)
+		// instead of returning a 500. This handles the common case where the
+		// contract doesn't exist on the selected chain.
+		log.Warn("NFT balance check failed, treating as zero",
+			zap.Int64("chain_id", chainID),
+			zap.String("contract", contract),
+			zap.Error(err))
+		hasNFT = false
+		balance = big.NewInt(0)
+	}
+	// Skip writing to the cache when bypassCache is set, so a fresh
+	// on-chain state is not immediately poisoned by a transient result.
+	if cache != nil && !cacheHit && !bypassCache {
+		entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
+		if blockProver != nil {
+			if header, err := blockProver.HeaderByNumber(c.Request.Context(), nil); err == nil && header != nil {
+				entry.BlockNumber = header.Number
+				entry.BlockHash = header.Hash
+			}
+		}
+		cache.Set(c.Request.Context(), cacheKey, entry)
+	}
+	if balance == nil {
+		balance = big.NewInt(0)
+	}
+	respondOK(c, gin.H{"has_nft": hasNFT, "balance": balance.String(), "chain_id": chainID, "contract": contract, "cache_hit": cacheHit, "bypass_cache": bypassCache})
 }
 
 // --- NFT Access Cache ---

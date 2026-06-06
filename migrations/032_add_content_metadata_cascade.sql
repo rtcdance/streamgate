@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS content_metadata (
-    content_id VARCHAR(255) PRIMARY KEY REFERENCES contents(id) ON DELETE CASCADE,
+    content_id UUID PRIMARY KEY REFERENCES contents(id) ON DELETE CASCADE,
     metadata JSONB,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
