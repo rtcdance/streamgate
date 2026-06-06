@@ -20,7 +20,7 @@ class AuthService {
         // Demo mode uses personal_sign for maximum cross-library compatibility.
         // MetaMask can use EIP-712 typed data signing.
         const signType = demoWallet.isDemoMode ? 'personal_sign' : 'eip712';
-        const response = await this.api.getChallenge(address, w.getChainId() || 11155111, signType);
+        const response = await this.api.getChallenge(address, w.getChainId() || 31337, signType);
         this.currentChallenge = response;
         return response;
     }
@@ -61,7 +61,7 @@ async login() {
     // buildEIP712TypedData constructs the EIP-712 typed data structure
     // matching the backend's buildEIP712Challenge in auth_wallet.go.
     buildEIP712TypedData(challenge) {
-        const chainId = challenge.chain_id || 11155111;
+            const chainId = challenge.chain_id || 31337;
 
         return {
             domain: {
