@@ -125,6 +125,7 @@ services:
       - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:3000,http://localhost:8080,http://localhost:18080
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
+      - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,6 +172,7 @@ services:
       - STREAMGATE_CONSUL_PORT=8500
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
+      - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
       - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:28080,http://localhost:3000,http://localhost:8080
     depends_on:
       anvil:
