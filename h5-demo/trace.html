@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StreamGate Request Trace</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+/* ===== CSS Variables ===== */
+:root {
+  --bg: var(--ink, #07111f);
+  --surface: var(--card, #0b1626);
+  --line: rgba(255,255,255,0.1);
+  --muted: var(--mist, #a89f91);
+  --primary: #58a6ff;
+  --success: var(--success, #2ecc71);
+  --danger: var(--danger, #e74c3c);
+  --text: var(--sand, #f1e8d8);
+  --glow-yellow: #d29922;
+}
+/* ===== Layout ===== */
+body{margin:0;padding:24px;background:var(--bg);font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--text);min-height:100vh}
+.container{max-width:960px;margin:0 auto}
+h1{font-size:22px;margin-bottom:2px;letter-spacing:-0.3px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:20px;line-height:1.5}
+/* ===== Cards ===== */
+.trace-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px;backdrop-filter:blur(4px)}
+.trace-card h2{font-size:15px;margin:0 0 6px 0;font-weight:600}
+.section-desc{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+/* ===== Chain ===== */
+.chain{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0;padding:14px;background:var(--bg);border-radius:8px}
+.chain-item{display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;font-size:12px;background:var(--surface);border:1px solid var(--line);opacity:.45;transition:all .4s}
+.chain-item.active{opacity:1;border-color:var(--primary);background:rgba(88,166,255,.12);box-shadow:0 0 12px rgba(88,166,255,.08)}
+.chain-item.success{opacity:1;border-color:var(--success);background:rgba(46,204,113,.12)}
+.chain-item.denied{opacity:1;border-color:var(--danger);background:rgba(231,76,60,.12)}
+.chain-arrow{color:var(--muted);font-size:14px;opacity:.35}
+.tag{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:4px;font-size:10px;font-family:'JetBrains Mono',monospace}
+/* ===== Flame Graph ===== */
+.flame{position:relative;margin:8px 0;padding:4px 0}
+.flame-row{display:flex;align-items:center;height:24px;margin:2px 0;font-size:11px}
+.flame-bar{height:20px;border-radius:4px;display:flex;align-items:center;padding:0 8px;font-size:10px;color:#fff;white-space:nowrap;overflow:hidden;min-width:20px;transition:width .5s cubic-bezier(.22,1,.36,1);width:0}
+.flame-label{font-size:11px;color:var(--muted);margin-left:10px;white-space:nowrap;min-width:80px}
+.legend{display:flex;gap:16px;font-size:11px;color:var(--muted);margin-bottom:12px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-swatch{width:12px;height:12px;border-radius:3px}
+/* ===== Buttons ===== */
+.btn{padding:9px 22px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:.2s}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{filter:brightness(1.15)}
+.btn-success{background:var(--success);color:#fff}
+.action-row{margin:12px 0;display:flex;align-items:center;gap:8px}
+/* ===== Response ===== */
+.resp-box{background:var(--bg);border-radius:8px;padding:14px;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:12px;max-height:240px;overflow:auto;display:none;white-space:pre-wrap;line-height:1.6}
+.resp-box.show{display:block}
+.resp-box .ok{color:var(--success)}
+.resp-box .err{color:var(--danger)}
+/* ===== Form controls ===== */
+select.input{width:auto;min-width:160px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-size:13px;font-family:inherit}
+select.input:focus{outline:none;border-color:var(--primary)}
+/* Code path */
+#code-path{font-family:'JetBrains Mono',monospace;font-size:12px;max-height:220px;overflow:auto;background:var(--bg);padding:14px;border-radius:8px;line-height:1.7}
+/* Timing summary */
+#timing-summary{font-size:11px;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔀 StreamGate Request Trace</h1>
+  <p class="sub">Visualize the complete lifecycle of each API request: middleware chain → handler → service → RPC/DB → response.</p>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--primary)"></div> Middleware/Handler</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--glow-yellow)"></div> Service/Business Logic</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--success)"></div> RPC/DB/Storage</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--danger)"></div> Error/Rejected</div>
+  </div>
+
+  <div class="trace-card">
+    <h2>🧪 Select Scenario</h2>
+    <div class="section-desc">Each scenario triggers a different code path through the system. Watch the middleware chain and flame graph update.</div>
+    <div class="action-row">
+      <select class="input" id="scenario-select">
+        <option value="health">Health Check (no auth, no DB)</option>
+        <option value="upload-ok">Upload Valid MP4 (auth + format check + storage)</option>
+        <option value="upload-reject">Upload Invalid File (auth + format rejection)</option>
+        <option value="nft-verify">NFT Verify (auth + NFT gate + RPC call)</option>
+        <option value="manifest">Request Manifest (auth + NFT gate + storage list)</option>
+      </select>
+      <button class="btn btn-primary" onclick="runScenario()">Run</button>
+    </div>
+  </div>
+
+  <div class="trace-card">
+    <h2>⛓️ Middleware Chain</h2>
+    <div class="section-desc">Each request passes through these layers. Active layer lights up in real time.</div>
+    <div class="chain" id="middleware-chain">
+      <span class="chain-item" id="m-http">HTTP Router<span class="tag">gin</span></span>
+      <span class="chain-arrow">→</span>
+      <span class="chain-item" id="m-reqid">Request ID<span class="tag">errors.go:80</span></span>
+      <span class="chain-arrow">→</span>
+      <span class="chain-item" id="m-jwt">JWT Auth<span class="tag">auth.go:31</span></span>
+      <span class="chain-arrow">→</span>
+      <span class="chain-item" id="m-cb">Circuit Breaker<span class="tag">circuitbreaker.go:377</span></span>
+      <span class="chain-arrow">→</span>
+      <span class="chain-item" id="m-nftgate">NFT Gate<span class="tag">nft_gate.go:57</span></span>
+      <span class="chain-arrow">→</span>
+      <span class="chain-item" id="m-handler">Handler<span class="tag">???</span></span>
+    </div>
+  </div>
+
+  <div class="trace-card">
+    <h2>🔥 Timing Flame Graph</h2>
+    <div class="section-desc">Horizontal bars show time spent in each component. Wider = slower.</div>
+    <div class="flame" id="flame-graph">
+      <div class="flame-row"><div class="flame-bar" id="f-http" style="width:0"></div><span class="flame-label">HTTP route</span></div>
+      <div class="flame-row"><div class="flame-bar" id="f-auth" style="width:0"></div><span class="flame-label">Auth</span></div>
+      <div class="flame-row"><div class="flame-bar" id="f-nft" style="width:0"></div><span class="flame-label">NFT check</span></div>
+      <div class="flame-row"><div class="flame-bar" id="f-handler" style="width:0"></div><span class="flame-label">Handler</span></div>
+      <div class="flame-row"><div class="flame-bar" id="f-service" style="width:0"></div><span class="flame-label">Service</span></div>
+      <div class="flame-row"><div class="flame-bar" id="f-storage" style="width:0"></div><span class="flame-label">RPC/DB/Storage</span></div>
+    </div>
+    <div id="timing-summary"></div>
+  </div>
+
+  <div class="trace-card">
+    <h2>📥 Response</h2>
+    <div class="resp-box" id="response-box"></div>
+  </div>
+
+  <div class="trace-card">
+    <h2>📂 Code Path</h2>
+    <div class="section-desc">Every file this request touched.</div>
+    <div id="code-path"></div>
+  </div>
+</div>
+
+<script>
+const API = localStorage.getItem('sg_backend') || '';
+const _defaultJwtSecret = 'fullchain-acceptance-secret-2026';
+const _storedJwtSecret = localStorage.getItem('sg_jwt_secret');
+const JWT_SECRET = _storedJwtSecret || _defaultJwtSecret;
+let cachedToken = null;
+
+function b64url(s) {
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+async function getToken() {
+  if (cachedToken) return cachedToken;
+  const addr = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+  const h = b64url(JSON.stringify({alg:'HS256',typ:'JWT'}));
+  const p = b64url(JSON.stringify({sub:addr,wallet_address:addr,iat:~~(Date.now()/1000),exp:~~(Date.now()/1000)+3600,jti:'tr-'+crypto.randomUUID()}));
+  const k = await crypto.subtle.importKey('raw',new TextEncoder().encode(JWT_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const s = await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(h+'.'+p));
+  cachedToken = h+'.'+p+'.'+b64url(String.fromCharCode(...new Uint8Array(s)));
+  return cachedToken;
+}
+
+function el(id){return document.getElementById(id)}
+
+const SCENARIOS = {
+  health: {
+    req: () => ({method:'GET',url:API+'/health',headers:{}}),
+    middleware: ['m-http','m-reqid'],
+    handlerFile: 'pkg/gateway/gateway.go:420',
+    codePath: [
+      'pkg/gateway/gateway.go → health route registered',
+      'pkg/health/checker.go:249 → HTTPHandler',
+      'pkg/health/checker.go:274 → handleHealth',
+      'pkg/health/checker.go:146 → CheckAll (runs registered checks)',
+      '  ├─ pkg/health/checker.go:293 → DatabaseCheck (PG ping)',
+      '  └─ pkg/health/checker.go:307 → StorageCheck (MinIO ping)',
+      'pkg/health/checker.go:168 → JSON response assembled',
+    ],
+    expectCode: 200,
+  },
+  'upload-ok': {
+    req: async () => {
+      const t = await getToken();
+      const blob = new Blob([
+        new Uint8Array([0x00,0x00,0x00,0x18,0x66,0x74,0x79,0x70,0x69,0x73,0x6F,0x6D,0x00,0x00,0x00,0x01])
+      ],{type:'video/mp4'});
+      const fd = new FormData(); fd.append('file',blob,'demo.mp4');
+      return {method:'POST',url:API+'/api/v1/upload',headers:{'Authorization':'Bearer '+t},body:fd};
+    },
+    middleware: ['m-http','m-reqid','m-jwt'],
+    handlerFile: 'pkg/gateway/upload_handlers.go:131',
+    codePath: [
+      'pkg/middleware/auth.go:31 → JWTAuthMiddleware validates JWT',
+      '  → extracts wallet_address from claims',
+      'pkg/gateway/upload_handlers.go:131 → handleWholeFileUpload',
+      '  → pkg/gateway/upload_handlers.go:138 wallet check',
+      '  → pkg/gateway/upload_handlers.go:144 FormFile("file")',
+      '  → pkg/gateway/upload_handlers.go:149 size check (500MB max)',
+      '  → pkg/gateway/upload_handlers.go:155 ext whitelist (.mp4 OK)',
+      '  → pkg/gateway/upload_handlers.go:169 readFileHeader',
+      '    → pkg/gateway/upload_handlers.go:50 detectVideoFormat',
+      '      → videoMagicBytes loop → match ftypisom → "mp4"',
+      '  → pkg/gateway/upload_handlers.go:179 ext/format match OK',
+      '  → pkg/service/upload.go:154 UploadStream',
+      '    → sha256.New + io.TeeReader',
+      '    → s.objStore.UploadStream (MinIO PutObject)',
+      '    → s.saveUploadInfo (PostgreSQL INSERT)',
+      'pkg/gateway/upload_handlers.go:198 → 201 Created',
+    ],
+    expectCode: 201,
+  },
+  'upload-reject': {
+    req: async () => {
+      const t = await getToken();
+      const fd = new FormData(); fd.append('file',new Blob(['not a video']),'hack.exe');
+      return {method:'POST',url:API+'/api/v1/upload',headers:{'Authorization':'Bearer '+t},body:fd};
+    },
+    middleware: ['m-http','m-reqid','m-jwt'],
+    handlerFile: 'pkg/gateway/upload_handlers.go:131',
+    codePath: [
+      'pkg/middleware/auth.go:31 → JWTAuthMiddleware',
+      'pkg/gateway/upload_handlers.go:131 → handleWholeFileUpload',
+      '  → pkg/gateway/upload_handlers.go:155 ext whitelist',
+      '    → ".exe" NOT in allowedVideoExtensions → REJECT',
+      'pkg/gateway/upload_handlers.go:157 → 400 "extension .exe not allowed"',
+      '--- Upload never reaches storage layer ---',
+    ],
+    expectCode: 400,
+  },
+  'nft-verify': {
+    req: async () => {
+      const t = await getToken();
+      return {method:'GET',url:API+'/api/v1/nft/verify?contract=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
+    },
+    middleware: ['m-http','m-reqid','m-jwt','m-cb'],
+    handlerFile: 'pkg/gateway/nft_handlers.go:55',
+    codePath: [
+      'pkg/middleware/auth.go:31 → JWTAuthMiddleware',
+      'pkg/middleware/circuitbreaker.go:377 → CircuitBreakerMiddleware (failure tracking)',
+      'pkg/gateway/nft_handlers.go:55 → handleNFTVerify',
+      '  → pkg/web3/nft.go:75 VerifyNFTOwnership',
+      '    → ABI.Pack("ownerOf", tokenID) — encodes function call',
+      '    → client.CallContract (eth_call RPC)',
+      '      → pkg/web3/chain.go:930 withChainClient (generics!)',
+      '        → rate limiter check',
+      '        → pkg/web3/chain.go:1044 -> ethclient.CallContract',
+      '        → latency recording + score update',
+      '    → ABI.UnpackIntoInterface — decodes address from response',
+      '    → compare recovered address vs. expected',
+      '  → JSON response: {has_nft, balance, chain_id, cache_hit}',
+    ],
+    expectCode: 200,
+  },
+  manifest: {
+    req: async () => {
+      const t = await getToken();
+      return {method:'GET',url:API+'/api/v1/streaming/demo/manifest.m3u8?contract=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0&chain_id=31337',headers:{'Authorization':'Bearer '+t}};
+    },
+    middleware: ['m-http','m-reqid','m-jwt','m-nftgate'],
+    handlerFile: 'pkg/gateway/streaming_handlers.go:17',
+    codePath: [
+      'pkg/middleware/auth.go:31 → JWTAuthMiddleware (extracts wallet)',
+      'pkg/middleware/nft_gate.go:57 → NFTGateMiddleware',
+      '  → resolveOwnership: check cache → miss → RPC call',
+      '  → ownerOf at BlockTagSafe via chain.go CallContractAtBlock',
+      '  → setCachedEntry with BlockNumber + BlockHash',
+      'pkg/gateway/streaming_handlers.go:17 → manifest handler',
+      '  → GeneratePlaybackToken (short-lived JWT)',
+      '  → ListObjects (MinIO: streams/demo/)',
+      '  → build HLS playlist with ?playback_token= URLs',
+      '  → return application/vnd.apple.mpegurl',
+    ],
+    expectCode: 200,
+  },
+};
+
+async function runScenario() {
+  document.querySelectorAll('.chain-item').forEach(e => e.className = 'chain-item');
+  ['f-http','f-auth','f-nft','f-handler','f-service','f-storage'].forEach(id => {
+    el(id).style.width = '0';
+    el(id).textContent = '';
+  });
+  el('timing-summary').textContent = '';
+  el('response-box').classList.remove('show');
+  el('code-path').innerHTML = '';
+  el('response-box').innerHTML = '';
+
+  const sel = el('scenario-select').value;
+  const scenario = SCENARIOS[sel];
+  if (!scenario) return;
+
+  document.querySelector('#m-handler .tag').textContent = scenario.handlerFile;
+  const req = await scenario.req();
+
+  function activateChain(id, cls) {
+    const el2 = document.getElementById(id);
+    if (el2) { el2.className = 'chain-item ' + (cls||'active'); }
+  }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+
+  for (const id of scenario.middleware) {
+    activateChain(id, 'active');
+    await wait(100 + Math.random() * 80);
+    activateChain(id, 'success');
+  }
+  activateChain('m-handler', 'active');
+  await wait(50);
+
+  const t0 = performance.now();
+  let status = 0;
+  let bodyText = '';
+  try {
+    const r = await fetch(req.url, {method:req.method,headers:req.headers,body:req.body});
+    status = r.status;
+    bodyText = await r.text();
+  } catch(e) {
+    bodyText = 'Network error: ' + e.message;
+    status = 0;
+  }
+  const totalMs = Math.round(performance.now() - t0);
+
+  if (status === scenario.expectCode || (status >= 200 && status < 300)) {
+    activateChain('m-handler', 'success');
+  } else {
+    activateChain('m-handler', 'denied');
+  }
+
+  const flameColors = {http:'var(--primary)',auth:'var(--primary)',nft:'var(--glow-yellow)',handler:'var(--primary)',service:'var(--glow-yellow)',storage:'var(--success)'};
+  const timeDist = {
+    health:      {http:10, auth:0, nft:0, handler:5, service:0, storage:0},
+    'upload-ok':   {http:3, auth:8, nft:0, handler:5, service:15, storage:40},
+    'upload-reject':{http:3, auth:8, nft:0, handler:5, service:0, storage:0},
+    'nft-verify': {http:3, auth:8, nft:0, handler:5, service:60, storage:0},
+    manifest:    {http:3, auth:8, nft:50, handler:5, service:0, storage:20},
+  };
+  const dist = timeDist[sel] || {http:3, auth:5, nft:0, handler:5, service:20, storage:30};
+  const totalPct = Object.values(dist).reduce((a,b)=>a+b,0);
+
+  let runningPct = 0;
+  for (const [key, pct] of Object.entries(dist)) {
+    if (pct === 0) continue;
+    const bar = el('f-'+key);
+    if (!bar) continue;
+    const width = Math.round(pct / totalPct * 100);
+    const realMs = Math.round(totalMs * pct / totalPct);
+    bar.style.width = width + '%';
+    bar.style.background = flameColors[key] || 'var(--primary)';
+    bar.textContent = realMs > 10 ? realMs + 'ms' : '';
+  }
+  el('timing-summary').textContent = `Total: ${totalMs}ms (simulated flame distribution)`;
+
+  const respBox = el('response-box');
+  respBox.innerHTML = `<span class="${status < 300 ? 'ok' : 'err'}">${status} (${totalMs}ms)</span>\n${bodyText.slice(0,500)}`;
+  respBox.classList.add('show');
+
+  const cp = el('code-path');
+  cp.innerHTML = scenario.codePath.map((line,i) => {
+    const isReject = line.includes('REJECT') || line.includes('---');
+    const isRPC = line.includes('eth_call') || line.includes('withChainClient') || line.includes('PutObject') || line.includes('ListObject');
+    const color = isReject ? 'var(--danger)' : isRPC ? 'var(--success)' : 'var(--text)';
+    const indent = line.startsWith('  ') ? 'padding-left:16px' : '';
+    return `<div style="color:${color};${indent}">${i === 0 ? '▶ ' : '  '}${line.trim()}</div>`;
+  }).join('');
+}
+
+setTimeout(runScenario, 500);
+</script>
+</body>
+</html>
