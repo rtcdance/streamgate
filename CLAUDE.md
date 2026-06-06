@@ -9,7 +9,7 @@ NFT-gated streaming platform built with Go. Combines traditional high-concurrenc
 - **Go 1.24** | **Gin** HTTP framework | **go-ethereum** + **Solana SDK** multichain
 - **Microkernel Plugin Architecture** with dual-mode deployment (monolith + microservices)
 - **10 build targets**: 1 monolith + 9 microservices
-- **255 test files**: unit (4), integration (14), E2E (19), benchmark (5), load (4), security (1), performance (1) — plus 207 in-package tests across pkg/ and cmd/
+- **255 test files**: unit (4), integration (14), E2E (19), benchmark (5), load (4), security (1), performance (1) — plus 206 in-package tests under `pkg/` and the 27K `cmd/microservices/api-gateway/main_test.go`. Total coverage 74.5% (81.7% by function), well above the 40% CI floor.
 
 ## Tech Stack
 
