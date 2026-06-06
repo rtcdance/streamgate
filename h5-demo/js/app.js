@@ -304,9 +304,18 @@ async _autoMintDemoNFT(address) {
             const result = await this.api.mintDemoNFT(3);
             const balance = result?.balance ?? '0';
             this.showToast(`Auto-minted 3 NFTs (new balance: ${balance})`, 'success');
-            await this.verifyNFT();
+            try {
+                await this.verifyNFT();
+            } catch (vErr) {
+                console.warn('post-mint verify failed:', vErr.message);
+            }
         } catch (e) {
-            this.showToast('Backend auto-mint failed: ' + e.message, 'warning');
+            const msg = e?.message || String(e);
+            if (msg.includes('401') || msg.includes('Unauthorized')) {
+                this.showToast('Auto-mint skipped: not logged in', 'warning');
+            } else {
+                this.showToast('Backend auto-mint failed: ' + msg, 'warning');
+            }
         }
     }
 
@@ -482,7 +491,7 @@ async _autoMintDemoNFT(address) {
             const chainId = parseInt(document.getElementById('chain-select').value);
             if (chainId === 31337 && walletAddress) {
                 try {
-                    await this._autoMintDemoNFT(walletAddress);
+                    await this._autoMintViaBackend();
                 } catch (mintErr) {
                     console.warn('Auto-mint after login failed:', mintErr.message);
                 }
@@ -548,7 +557,7 @@ async _autoMintDemoNFT(address) {
                         ? 'Connected wallet has 0 NFTs on this contract. Click "Mint Demo NFT (Anvil)" to mint, or switch to Demo Mode for an auto-funded test wallet.'
                         : 'Check the connected wallet, contract address, and chain ID. Full acceptance needs a wallet that actually owns the NFT on this chain.'
                 );
-                if (onAnvil && this.auth.isAuthenticated) {
+                if (onAnvil && (this.auth.isAuthenticated || this.auth.isLoggedIn())) {
                     this._autoMintViaBackend();
                 }
             }
