@@ -124,18 +124,6 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	router.GET("/health", func(c *gin.Context) {
 		monitoring.HealthCheckTotal.WithLabelValues("health").Inc()
 		resp := healthChecker.CheckAll(c.Request.Context())
-		if resp.Status == health.StatusUnhealthy {
-			onlyStorageDown := true
-			for name, check := range resp.Checks {
-				if name != "storage" && check.Status != health.StatusHealthy {
-					onlyStorageDown = false
-					break
-				}
-			}
-			if onlyStorageDown {
-				resp.Status = health.StatusDegraded
-			}
-		}
 		status := http.StatusOK
 		if resp.Status == health.StatusUnhealthy {
 			status = http.StatusServiceUnavailable
