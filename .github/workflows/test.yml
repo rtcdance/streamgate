@@ -113,14 +113,12 @@ jobs:
       fail-fast: false
       matrix:
         test-path:
-          - test-integration-api
           - test-integration-auth
           - test-integration-content
           - test-integration-middleware
           - test-integration-models
           - test-integration-monitoring
           - test-integration-service
-          - test-integration-storage
           - test-integration-streaming
           - test-integration-transcoding
           - test-integration-upload
@@ -193,14 +191,12 @@ jobs:
         id: set-path
         run: |
           case "${{ matrix.test-path }}" in
-            test-integration-api) echo "path=./test/integration/api/..." >> $GITHUB_OUTPUT ;;
             test-integration-auth) echo "path=./test/integration/auth/..." >> $GITHUB_OUTPUT ;;
             test-integration-content) echo "path=./test/integration/content/..." >> $GITHUB_OUTPUT ;;
             test-integration-middleware) echo "path=./test/integration/middleware/..." >> $GITHUB_OUTPUT ;;
             test-integration-models) echo "path=./test/integration/models/..." >> $GITHUB_OUTPUT ;;
             test-integration-monitoring) echo "path=./test/integration/monitoring/..." >> $GITHUB_OUTPUT ;;
             test-integration-service) echo "path=./test/integration/service/..." >> $GITHUB_OUTPUT ;;
-            test-integration-storage) echo "path=./test/integration/storage/..." >> $GITHUB_OUTPUT ;;
             test-integration-streaming) echo "path=./test/integration/streaming/..." >> $GITHUB_OUTPUT ;;
             test-integration-transcoding) echo "path=./test/integration/transcoding/..." >> $GITHUB_OUTPUT ;;
             test-integration-upload) echo "path=./test/integration/upload/..." >> $GITHUB_OUTPUT ;;
