@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming build-learn clean test docker-build docker-bake docker-bake-load docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown deploy-monolith deploy-microservices demo challenge run-learn
+.PHONY: help build build-all build-monolith build-api-gateway build-transcoder build-upload build-streaming build-learn clean test docker-build docker-bake docker-bake-load docker-up docker-down lint lint-fix lint-verbose fullchain-deploy fullchain-test fullchain-teardown deploy-monolith deploy-microservices one-click-deploy demo challenge run-learn
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -43,6 +43,7 @@ help:
 	@echo "  make fullchain-deploy   - Deploy monolith + microservices (dual mode)"
 	@echo "    Monolith demo:      http://localhost:18000/demo/"
 	@echo "    Microservices demo: http://localhost:18001/demo/"
+	@echo "  make one-click-deploy  - Zero-step: build binaries + deploy full chain"
 	@echo "  make fullchain-test     - Run full-chain acceptance test"
 	@echo "  make fullchain-teardown - Stop full-stack (add --volumes to wipe data)"
 	@echo "  make demo               - One-command demo: infra up → build → run"
@@ -402,6 +403,26 @@ tree:
 	@echo "    └── streaming/           # Streaming service"
 
 # Full-chain Docker deployment and acceptance testing
+
+# One-click deploy: build prebuilt Linux binaries, then start full chain
+one-click-deploy:
+	@echo "=== StreamGate One-Click Deploy ==="
+	@echo "[1/4] Building monolith Linux binary..."
+	GOOS=linux GOARCH=arm64 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
+	@echo "[2/4] Building api-gateway Linux binary..."
+	GOOS=linux GOARCH=arm64 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
+	@echo "[3/4] Starting full chain stack..."
+	docker compose -f docker-compose.fullchain.yml up -d
+	@echo "[4/4] Waiting for services (30s)..."
+	@sleep 30
+	@echo ""
+	@echo "=== Deployment Summary ==="
+	@echo "Monolith demo:      http://localhost:18000/demo/"
+	@echo "Microservices demo: http://localhost:18001/demo/"
+	@echo "Anvil chain:        http://localhost:18545 (chain 31337)"
+	@echo "DemoNFT auto-deployed + 3 NFTs minted ✓"
+	@echo "Frontend defaults to Anvil (chain 31337) ✓"
+
 fullchain-deploy:
 	@./scripts/docker-deploy.sh --build
 
