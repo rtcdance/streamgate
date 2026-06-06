@@ -88,3 +88,4 @@ scripts/*.py
 
 # Binary
 streamgate
+deploy/docker/*-linux

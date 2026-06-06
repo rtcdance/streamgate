@@ -165,7 +165,7 @@ class APIService {
         }
     }
 
-    async getChallenge(walletAddress, chainId = 11155111, signType = 'eip712') {
+    async getChallenge(walletAddress, chainId = 31337, signType = 'eip712') {
         return this.post('/api/v1/auth/challenge', {
             wallet: walletAddress,
             chain_id: chainId,
@@ -178,7 +178,7 @@ class APIService {
             wallet: walletAddress,
             challenge_id: challengeId,
             signature: signature,
-            chain_id: chainId || 0,
+            chain_id: chainId || 31337,
         });
     }
 
