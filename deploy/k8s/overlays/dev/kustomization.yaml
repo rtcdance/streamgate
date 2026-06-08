@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: streamgate
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: dev
+
+replicas:
+  - name: api-gateway
+    count: 1
+  - name: transcoder
+    count: 1
+  - name: upload
+    count: 1
+  - name: streaming
+    count: 1
+  - name: metadata
+    count: 1
+  - name: cache
+    count: 1
+  - name: auth
+    count: 1
+  - name: worker
+    count: 1
+  - name: streamgate-monolith
+    count: 1
+
+images:
+  - name: streamgate/monolith
+    newTag: dev
+  - name: streamgate
+    newTag: dev
+
+configMapGenerator:
+  - name: streamgate-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development

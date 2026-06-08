@@ -165,13 +165,17 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 
 	// Initialize ReorgDetector + EventIndexer + EventListener for real-time
 	// Transfer event monitoring and NFT cache invalidation.
-	if client, err := service.multiChainManager.GetClient(11155111); err == nil {
+	indexerChainID := cfg.Web3.ChainID
+	if indexerChainID == 0 {
+		indexerChainID = 11155111
+	}
+	if client, err := service.multiChainManager.GetClient(indexerChainID); err == nil {
 		ethClient := client.GetEthClient()
 
 		// ReorgDetector tracks block headers for reorg detection
 		reorgDetector := web3.NewReorgDetector(ethClient, logger)
 
-		// EventIndexer polls for ERC-721/ERC-1155 Transfer events
+		// EventIndexer polls for ERC-721/ERC-1155 Transfer events.
 		transferSig := "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 		transferSingleSig := "0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62"
 		indexer, err := web3.NewEventIndexerWithConfig(
@@ -179,7 +183,7 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 			web3.EventIndexerConfig{
 				EventSignatures:    []string{transferSig, transferSingleSig},
 				ConfirmationBlocks: 12,
-				UpdateInterval:     15 * time.Second,
+				UpdateInterval:     4 * time.Second,
 			},
 			logger,
 		)
