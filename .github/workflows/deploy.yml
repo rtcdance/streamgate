@@ -68,7 +68,7 @@ jobs:
           mkdir -p ~/.kube
           cp "$KUBE_DIR/config" ~/.kube/config
 
-      - name: Deploy with kustomize
+      - name: Deploy with kustomize (prod overlay)
         env:
           IMAGE_TAG: ${{ github.ref_name }}
         run: |
@@ -76,17 +76,18 @@ jobs:
             echo "Kubernetes not configured, skipping deployment"
             exit 0
           fi
-          kubectl apply -k deploy/k8s/
-          kubectl set image deployment/api-gateway -n streamgate streamgate=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:$IMAGE_TAG --namespace=streamgate 2>/dev/null || true
-          kubectl set image deployment/auth -n streamgate streamgate=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth:$IMAGE_TAG --namespace=streamgate 2>/dev/null || true
+          # Apply prod overlay with environment-specific replicas/HPA/config
+          kubectl apply -k deploy/k8s/overlays/prod/
+          # Override image tags from registry
+          kubectl set image deployment/api-gateway -n streamgate api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:$IMAGE_TAG 2>/dev/null || true
+          kubectl set image deployment/auth -n streamgate auth=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth:$IMAGE_TAG 2>/dev/null || true
 
       - name: Wait for rollout
         run: |
           if [ ! -f ~/.kube/config ]; then
             exit 0
           fi
-          kubectl rollout status deployment/api-gateway -n streamgate --timeout=5m 2>/dev/null || true
-          kubectl rollout status deployment/auth -n streamgate --timeout=5m 2>/dev/null || true
+          kubectl rollout status deployment -n streamgate -l environment=prod --timeout=5m 2>/dev/null || true
 
   notify:
     name: Notify Deployment

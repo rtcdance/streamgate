@@ -121,6 +121,7 @@ func TestNFTEventHandler_HandleTransfer(t *testing.T) {
 		}
 		err := h.HandleTransfer(context.Background(), evt)
 		require.NoError(t, err)
+		h.FlushNow()
 		assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:42")
 		assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:42")
 		assert.Contains(t, cache.deletedPrefixes, "1::0xcontract:42")
@@ -141,6 +142,7 @@ func TestNFTEventHandler_HandleTransferSingle(t *testing.T) {
 		}
 		err := h.HandleTransferSingle(context.Background(), evt)
 		require.NoError(t, err)
+		h.FlushNow()
 		assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:100")
 		assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:100")
 	})

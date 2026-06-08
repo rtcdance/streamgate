@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: streamgate
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - infrastructure/postgres.yaml
+  - infrastructure/postgres-backup.yaml
+  - infrastructure/redis.yaml
+  - infrastructure/minio.yaml
+  - infrastructure/prometheus.yaml
+  - infrastructure/grafana.yaml
+  - services/api-gateway.yaml
+  - services/transcoder.yaml
+  - services/upload.yaml
+  - services/streaming.yaml
+  - services/metadata.yaml
+  - services/cache.yaml
+  - services/auth.yaml
+  - services/worker.yaml
+  - services/hpa/api-gateway-hpa.yaml
+  - services/hpa/transcoder-hpa.yaml
+  - services/hpa/upload-hpa.yaml
+  - services/hpa/streaming-hpa.yaml
+  - services/hpa/metadata-hpa.yaml
+  - services/hpa/cache-hpa.yaml
+  - services/hpa/auth-hpa.yaml
+  - services/hpa/worker-hpa.yaml
+  - monolith/deployment.yaml
+  - monolith/service.yaml
+  - rbac.yaml
+  - pdb.yaml
+
+images:
+  - name: streamgate/monolith
+    newTag: latest
+  - name: streamgate
+    newTag: latest

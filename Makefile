@@ -92,6 +92,18 @@ help:
 	@echo "  make deploy-teardown         - docker compose -f docker-compose.fullchain.yml down -v"
 	@echo "  make deploy-logs             - Tail -f last 100 lines of stack logs"
 	@echo ""
+	@echo "Kubernetes (Kustomize base/overlays):"
+	@echo "  make k8s-up                  - Apply overlay (default: dev) + verify"
+	@echo "  make k8s-down                - Delete overlay resources"
+	@echo "  make k8s-status              - Show deployments, pods, services, HPA"
+	@echo "  make k8s-logs                - Stream logs from all pods"
+	@echo "  make k8s-verify              - Render + dry-run validate manifests"
+	@echo "  make k8s-diff                - Diff current vs desired state"
+	@echo "  make k8s-rollout             - Wait for rollout completion"
+	@echo "  make k8s-oneclick            - up + rollout + status in one shot"
+	@echo "  make k8s-acceptance          - up + rollout + acceptance tests"
+	@echo "  K8S_OVERLAY=prod make k8s-up  - Deploy to production overlay"
+	@echo ""
 	@echo "Run locally (binaries already built):"
 	@echo "  make run-monolith            - Run monolithic service"
 	@echo "  make run-api-gateway         - Run API Gateway service"
@@ -398,27 +410,70 @@ docker-push: docker-build
 	docker push streamgate:monitor
 	@echo "✓ Images pushed"
 
-# Deploy to Kubernetes
+# Kubernetes Deployment (Kustomize base/overlays)
+K8S_OVERLAY ?= dev
+
+.PHONY: k8s-deploy k8s-up k8s-down k8s-status k8s-logs k8s-verify k8s-acceptance k8s-clean k8s-diff k8s-rollout k8s-oneclick k8s-local-secret
+
 k8s-deploy:
-	@echo "Deploying to Kubernetes..."
-	kubectl apply -k deploy/k8s/
-	@echo "✓ Deployment complete"
+	@echo "Deploying StreamGate (overlay: $(K8S_OVERLAY))..."
+	@KUSTOMIZE_ENV=$(K8S_OVERLAY) make k8s-verify
+	kubectl apply -k deploy/k8s/overlays/$(K8S_OVERLAY)/
+	@echo "✓ Deployment applied (overlay: $(K8S_OVERLAY))"
 
-# Deploy local secrets with envsubst (template → literal substitution)
-k8s-local-secret:
-	@echo "Applying local secrets with envsubst..."
-	@envsubst < deploy/k8s/config/local-secret.yaml | kubectl apply -f -
-	@echo "✓ Local secrets applied"
+k8s-up: k8s-local-secret k8s-deploy
+	@echo "✓ StreamGate is up (overlay: $(K8S_OVERLAY))"
+	@kubectl get pods -n streamgate
 
-# Check Kubernetes status
 k8s-status:
-	@echo "Kubernetes status:"
-	kubectl get deployments
-	kubectl get pods
-	kubectl get services
+	@echo "Kubernetes status (overlay: $(K8S_OVERLAY)):"
+	@echo ""
+	@echo "== Deployments =="
+	kubectl get deployments -n streamgate -o wide
+	@echo ""
+	@echo "== Pods =="
+	kubectl get pods -n streamgate -o wide
+	@echo ""
+	@echo "== Services =="
+	kubectl get services -n streamgate
+	@echo ""
+	@echo "== HPA =="
+	kubectl get hpa -n streamgate
 
-# View Kubernetes logs
 k8s-logs:
+	@echo "Streaming logs from all StreamGate pods..."
+	kubectl logs -f -l app.kubernetes.io/name=streamgate --all-containers=true -n streamgate
+
+k8s-verify:
+	@echo "Validating K8s manifests (overlay: $(K8S_OVERLAY))..."
+	@kustomize build deploy/k8s/overlays/$(K8S_OVERLAY)/ > /tmp/streamgate-k8s.yaml
+	@kubectl apply --dry-run=server -f /tmp/streamgate-k8s.yaml > /dev/null 2>&1 && \
+		echo "✓ All manifests valid (render + server-side dry-run)" || \
+		(echo "⚠ Server-side dry-run failed, trying client-side..." && \
+		 kubectl apply --dry-run=client -f /tmp/streamgate-k8s.yaml > /dev/null 2>&1 && \
+		 echo "✓ All manifests valid (client-side dry-run)")
+	@rm -f /tmp/streamgate-k8s.yaml
+
+k8s-diff:
+	@echo "Showing diff between current and desired state (overlay: $(K8S_OVERLAY))..."
+	kubectl diff -k deploy/k8s/overlays/$(K8S_OVERLAY)/
+
+k8s-rollout:
+	@echo "Waiting for rollout to complete (overlay: $(K8S_OVERLAY))..."
+	kubectl rollout status deployment -l app.kubernetes.io/name=streamgate -n streamgate --timeout=5m
+	@echo "✓ Rollout complete"
+
+k8s-oneclick: k8s-up k8s-rollout k8s-status
+	@echo ""
+	@echo "=== StreamGate K8s Deployment Summary ==="
+	@echo "Overlay:     $(K8S_OVERLAY)"
+	@echo "Namespace:   streamgate"
+	@echo ""
+
+k8s-acceptance: k8s-up k8s-rollout
+	@echo "Running K8s acceptance tests..."
+	@bash ./scripts/k8s-acceptance.sh
+	@echo "✓ K8s acceptance tests passed"
 	@echo "Streaming logs from all pods..."
 	kubectl logs -f -l app=streamgate --all-containers=true
 

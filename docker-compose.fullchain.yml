@@ -74,12 +74,21 @@ services:
       - "18545:8545"
     volumes:
       - ./contracts:/contracts:ro
+    cpuset: "0"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.80'
+          memory: 512M
+        reservations:
+          cpus: '0.30'
+          memory: 256M
     healthcheck:
-      test: ["CMD", "cast", "call", "--rpc-url", "http://localhost:8545", "0x5FbDB2315678afecb367f032d93F642f64180aa3", "balanceOf(address)(uint256)", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"]
-      interval: 10s
+      test: ["CMD-SHELL", "cast chain-id --rpc-url http://localhost:8545 | grep -q '31337'"]
+      interval: 30s
       timeout: 5s
       start_period: 15s
-      retries: 10
+      retries: 5
 
   consul:
     image: hashicorp/consul:latest

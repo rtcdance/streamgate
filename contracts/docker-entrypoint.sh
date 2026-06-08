@@ -10,7 +10,9 @@ WALLET="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 CONTRACT=0x5FbDB2315678afecb367f032d93F642f64180aa3
 
 # Start anvil in background
-anvil --host 0.0.0.0 --chain-id 31337 --slots-in-an-epoch 1 &
+anvil --host 0.0.0.0 \
+      --chain-id 31337 \
+      --block-time 2 &
 ANVIL_PID=$!
 
 # Wait for anvil to be ready

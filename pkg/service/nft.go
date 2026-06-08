@@ -34,6 +34,7 @@ type NFTService struct {
 	parsedABI     abi.ABI // pre-parsed at construction
 	closer        io.Closer
 	logger        *zap.Logger
+	eventHandler  *NFTEventHandler
 }
 
 // NFTMetadata represents NFT metadata for API responses.
@@ -314,12 +315,14 @@ func (s *NFTService) InvalidateOwnershipCache(ctx context.Context, contractAddre
 // that automatically invalidates NFT ownership cache when tokens are transferred.
 func (s *NFTService) RegisterEventHandler(listener *web3.EventListener) {
 	handler := NewNFTEventHandler(s, s.logger)
+	s.eventHandler = handler
 	listener.On("Transfer", handler.HandleTransfer)
 	listener.On("TransferSingle", handler.HandleTransferSingle)
 }
 
 func (s *NFTService) RegisterEventHandlerWithCache(listener *web3.EventListener, cache middleware.NFTAccessCache, chainID int64) {
 	handler := NewNFTEventHandlerWithCache(s, cache, chainID, s.logger)
+	s.eventHandler = handler
 	listener.On("Transfer", handler.HandleTransfer)
 	listener.On("TransferSingle", handler.HandleTransferSingle)
 }
@@ -331,6 +334,9 @@ func (s *NFTService) SetLogger(logger *zap.Logger) {
 
 // Close closes the Ethereum client connection
 func (s *NFTService) Close() {
+	if s.eventHandler != nil {
+		s.eventHandler.FlushNow()
+	}
 	if s.closer != nil {
 		s.closer.Close()
 	}
