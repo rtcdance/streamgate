@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: worker
+        image: streamgate:worker
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8087
+          name: http
+        - containerPort: 9097
+          name: metrics
+        env:
+        - name: SERVER_PORT
+          value: "8087"
+        envFrom:
+        - configMapRef:
+            name: streamgate-config
+        - secretRef:
+            name: streamgate-secrets
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8087
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8087
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-service
+spec:
+  selector:
+    app: worker
+  ports:
+  - name: http
+    port: 8087
+    targetPort: 8087
+  - name: metrics
+    port: 9097
+    targetPort: 9097
+  type: ClusterIP

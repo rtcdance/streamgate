@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streaming
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: streaming
+  template:
+    metadata:
+      labels:
+        app: streaming
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: streaming
+        image: streamgate:streaming
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8083
+          name: http
+        - containerPort: 9093
+          name: metrics
+        env:
+        - name: SERVER_PORT
+          value: "8083"
+        envFrom:
+        - configMapRef:
+            name: streamgate-config
+        - secretRef:
+            name: streamgate-secrets
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streaming-service
+spec:
+  selector:
+    app: streaming
+  ports:
+  - name: http
+    port: 8083
+    targetPort: 8083
+  - name: metrics
+    port: 9093
+    targetPort: 9093
+  type: LoadBalancer

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upload
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: upload
+  template:
+    metadata:
+      labels:
+        app: upload
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: upload
+        image: streamgate:upload
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8082
+          name: http
+        - containerPort: 9092
+          name: metrics
+        env:
+        - name: SERVER_PORT
+          value: "8082"
+        envFrom:
+        - configMapRef:
+            name: streamgate-config
+        - secretRef:
+            name: streamgate-secrets
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8082
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upload-service
+spec:
+  selector:
+    app: upload
+  ports:
+  - name: http
+    port: 8082
+    targetPort: 8082
+  - name: metrics
+    port: 9092
+    targetPort: 9092
+  type: ClusterIP

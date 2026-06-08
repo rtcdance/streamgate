@@ -42,7 +42,8 @@ func setupAnvil(t *testing.T) (rpcURL string, fundedKey *ecdsa.PrivateKey, clean
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, anvilPath,
 		"--port", fmt.Sprintf("%d", port),
-		"--block-time", "1",
+		"--block-time", "2",
+		"--gas-limit", "30000000",
 		"--silent",
 		"--accounts", "1",
 	)

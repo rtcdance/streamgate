@@ -174,6 +174,47 @@ services:
           memory: 128M
           cpus: '0.25'
 
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: streamgate-loki
+    ports:
+      - "${SG_SELFTEST_LOKI_PORT:-13100}:3100"
+    volumes:
+      - ./config/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki.yml
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+
+  promtail:
+    image: grafana/promtail:3.2.0
+    container_name: streamgate-promtail
+    volumes:
+      - ./config/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
   api-gateway:
     build:
       context: .
@@ -293,3 +334,4 @@ volumes:
   consul-data:
   prometheus-data:
   grafana-data:
+  loki-data:
