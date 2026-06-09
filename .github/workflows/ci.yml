@@ -75,6 +75,9 @@ jobs:
 
       - run: go mod download
 
+      - name: Clear Go build cache
+        run: go clean -cache
+
       - name: Setup database schema
         env:
           PGPASSWORD: streamgate
