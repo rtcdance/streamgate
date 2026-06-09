@@ -94,7 +94,7 @@ jobs:
       failure_summary: ${{ steps.analyze.outputs.summary }}
       fix_required: ${{ steps.analyze.outputs.fix_required }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.check-eligibility.outputs.head_sha }}
 
@@ -168,7 +168,7 @@ jobs:
     needs: [check-eligibility, analyze-failure]
     if: ${{ needs.analyze-failure.outputs.fix_required == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.check-eligibility.outputs.head_sha }}
 
