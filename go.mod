@@ -20,7 +20,7 @@ require (
 	github.com/nats-io/nats.go v1.41.1
 	github.com/prometheus/client_golang v1.21.1
 	github.com/spf13/viper v1.21.0
-	go.uber.org/zap v1.26.0
+	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.41.0
 
 	// Additional dependencies for microservices
