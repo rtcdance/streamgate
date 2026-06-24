@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/consul/api v1.25.1
 
 	// Database
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.3
 	github.com/minio/minio-go/v7 v7.0.63
 	github.com/nats-io/nats.go v1.41.1
 	github.com/prometheus/client_golang v1.21.1
