@@ -138,9 +138,11 @@ func mustValidJWT(t *testing.T, wallet string) string {
 	return signed
 }
 
-// newAuthzTestRouter reproduces the PRODUCTION middleware order:
-// segment route registered first (routes.go:52), then JWT (routes.go:54).
-// Getting this order wrong makes the tests meaningless.
+// newAuthzTestRouter reproduces the PRODUCTION middleware order (routes.go):
+// the streaming group is created BEFORE the global JWT Use and carries
+// PlaybackTokenAuth first; JWT + the NFT gate are appended to the group
+// afterwards, giving [PlaybackTokenAuth, JWT, NFTGate] for manifest AND
+// segment routes. Getting this order wrong makes the tests meaningless.
 func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[string]bool) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -152,8 +154,19 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 	store := fakeSegmentStorage{}
 	r := gin.New()
 
-	RegisterStreamingSegmentRoute(r, log, authSvc, store, lim, cache, "streamgate")
+	g := r.Group("/")
+	g.Use(middleware.PlaybackTokenAuth(middleware.PlaybackTokenAuthConfig{
+		Validate: func(ctx context.Context, token, contentID, fingerprint string) (string, error) {
+			claims, err := authSvc.ValidatePlaybackToken(ctx, token, contentID, fingerprint)
+			if err != nil {
+				return "", err
+			}
+			return claims.WalletAddress, nil
+		},
+	}, log))
+
 	r.Use(middleware.JWTAuthMiddleware(middleware.JWTAuthConfig{Secret: authzTestSecret}, log))
+	g.Use(middleware.JWTAuthMiddleware(middleware.JWTAuthConfig{Secret: authzTestSecret}, log))
 
 	gateCfg := middleware.NFTGateConfig{
 		Verifier:     fakeOwnership{owned: owned},
@@ -166,8 +179,8 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 		// Get(ctx, key) / Delete(ctx, key). See pkg/gateway/nft_handlers.go:310-348.
 		Cache: &NFTAccessCacheAdapter{Cache: NewNFTAccessCache()},
 	}
-	g := r.Group("/")
 	g.Use(middleware.NFTGateMiddleware(&gateCfg, log))
+	RegisterStreamingSegmentRoute(g, log, authSvc, store, lim, cache, "streamgate")
 	RegisterStreamingRoutes(g, log, authSvc, nil, store, lim, cache, "streamgate")
 
 	return r
