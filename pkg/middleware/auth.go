@@ -48,8 +48,13 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		if pt := c.Query("playback_token"); pt != "" {
-			c.Set("playback_auth", true)
+		// playback_token presence alone must NEVER skip JWT. On streaming routes,
+		// PlaybackTokenAuth runs BEFORE this middleware and sets playback_auth
+		// only after cryptographically validating the query token. HLS.js cannot
+		// send Authorization headers on media requests, so a validated playback
+		// token is accepted in lieu of a JWT — but only on routes where that
+		// middleware actually ran.
+		if c.GetBool("playback_auth") {
 			c.Next()
 			return
 		}
