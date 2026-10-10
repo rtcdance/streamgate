@@ -462,40 +462,40 @@ func TestExt_MulticallCaller_Aggregate3_RPCError(t *testing.T) {
 	assert.Contains(t, err.Error(), "multicall3 aggregate3 failed")
 }
 
-func TestExt_ContractContentRegistry_RegisterContent_InvalidHash(t *testing.T) {
+func TestExt_ContractContentRegistry_RegisterContent_PacksThreeStrings(t *testing.T) {
 	cr := &ContractContentRegistry{
 		Address: "0x1234567890123456789012345678901234567890",
 		ABI:     ContentRegistryABI,
 	}
 	ci := NewContractInteractor(&mockEthCaller{}, zap.NewNop())
 
-	_, err := cr.RegisterContent(context.Background(), ci, "not_a_hash", "owner", "metadata")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid content hash")
+	// string args always pack; a selector check would need the ABI method id.
+	data, err := cr.RegisterContent(context.Background(), ci, "content-1", "0xhash", "ipfs://meta/1")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, data)
 }
 
-func TestExt_ContractContentRegistry_VerifyContent_InvalidHash(t *testing.T) {
+func TestExt_ContractContentRegistry_ABIIsSol_Faithful(t *testing.T) {
+	// registerContent now takes 3 strings matching ContentRegistry.sol; the old
+	// bytes32-based invalid-hash test is obsolete.
 	cr := &ContractContentRegistry{
 		Address: "0x1234567890123456789012345678901234567890",
 		ABI:     ContentRegistryABI,
 	}
-	ci := NewContractInteractor(&mockEthCaller{}, zap.NewNop())
-
-	_, err := cr.VerifyContent(context.Background(), ci, "bad_hash")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid content hash")
+	data, err := cr.RegisterContent(context.Background(), nil, "content-1", "0xhash", "ipfs://meta/1")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, data)
 }
 
-func TestExt_ContractContentRegistry_GetContentInfo_InvalidHash(t *testing.T) {
+func TestExt_ContractContentRegistry_GetContent_NotFound(t *testing.T) {
 	cr := &ContractContentRegistry{
 		Address: "0x1234567890123456789012345678901234567890",
 		ABI:     ContentRegistryABI,
 	}
 	ci := NewContractInteractor(&mockEthCaller{}, zap.NewNop())
 
-	_, err := cr.GetContentInfo(context.Background(), ci, "bad_hash")
+	_, err := cr.GetContent(context.Background(), ci, "missing")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid content hash")
 }
 
 func TestExt_ContractContentRegistry_RegisterContent_Success(t *testing.T) {
@@ -523,10 +523,9 @@ func TestExt_ContractContentRegistry_VerifyContent_RPCError(t *testing.T) {
 	}
 	ci := NewContractInteractor(mock, zap.NewNop())
 
-	hash := "0x" + strings.Repeat("ab", 32)
-	_, err := cr.VerifyContent(context.Background(), ci, hash)
+	_, err := cr.VerifyContent(context.Background(), ci, "content-1")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verifyContent call failed")
+	assert.Contains(t, err.Error(), "contentExists call failed")
 }
 
 func TestExt_ContractContentRegistry_GetContentInfo_RPCError(t *testing.T) {
@@ -541,10 +540,10 @@ func TestExt_ContractContentRegistry_GetContentInfo_RPCError(t *testing.T) {
 	}
 	ci := NewContractInteractor(mock, zap.NewNop())
 
-	hash := "0x" + strings.Repeat("ab", 32)
-	_, err := cr.GetContentInfo(context.Background(), ci, hash)
+	// getContent returns a struct; a failing mock RPC surfaces as a call error.
+	_, err := cr.GetContent(context.Background(), ci, "content-1")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "getContentInfo call failed")
+	assert.Contains(t, err.Error(), "getContent call failed")
 }
 
 func TestExt_RevertError_Error_Panic(t *testing.T) {

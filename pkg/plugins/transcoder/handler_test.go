@@ -691,35 +691,11 @@ func TestFFmpegTranscoder_ExtractThumbnail_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestFFmpegTranscoder_ExtractAudio_NotFound(t *testing.T) {
-	cfg := &FFmpegConfig{TempDir: t.TempDir()}
-	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
-
-	err := ft.ExtractAudio(context.Background(), "/nonexistent.mp4", "/tmp/audio.aac")
-	require.Error(t, err)
-}
-
-func TestFFmpegTranscoder_ConcatVideos_NotFound(t *testing.T) {
-	cfg := &FFmpegConfig{TempDir: t.TempDir()}
-	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
-
-	err := ft.ConcatVideos(context.Background(), []string{"/nonexistent1.mp4", "/nonexistent2.mp4"}, "/tmp/out.mp4", nil)
-	require.Error(t, err)
-}
-
 func TestFFmpegTranscoder_TranscodeToHLS_NotFound(t *testing.T) {
 	cfg := &FFmpegConfig{TempDir: t.TempDir()}
 	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
 
 	err := ft.TranscodeToHLS(context.Background(), "/nonexistent.mp4", t.TempDir(), []TranscodeProfile{{Resolution: "720p", Bitrate: "2500k", Format: "hls"}}, nil, nil)
-	require.Error(t, err)
-}
-
-func TestFFmpegTranscoder_TranscodeToDASH_NotFound(t *testing.T) {
-	cfg := &FFmpegConfig{TempDir: t.TempDir()}
-	ft := NewFFmpegTranscoder(cfg, zap.NewNop())
-
-	err := ft.TranscodeToDASH(context.Background(), "/nonexistent.mp4", t.TempDir(), []TranscodeProfile{{Resolution: "720p", Bitrate: "2500k", Format: "dash"}}, nil)
 	require.Error(t, err)
 }
 

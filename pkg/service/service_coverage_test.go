@@ -375,7 +375,7 @@ func TestContentService_SetContentRegistry(t *testing.T) {
 // mockContentRegistry implements ContentRegistry for testing
 type mockContentRegistry struct{}
 
-func (m *mockContentRegistry) RegisterContent(ctx context.Context, contentHash [32]byte, metadata string) (string, error) {
+func (m *mockContentRegistry) RegisterContent(_ context.Context, _, _, _ string) (string, error) {
 	return "0xtxhash", nil
 }
 
@@ -912,19 +912,7 @@ func TestWeb3Service_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	assert.Contains(t, err.Error(), "gas monitor not initialized")
 }
 
-func TestWeb3Service_UploadToIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.UploadToIPFS(context.Background(), "file.txt", []byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
-func TestWeb3Service_DownloadFromIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.DownloadFromIPFS(context.Background(), "QmTest")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
 func TestWeb3Service_VerifySolanaTokenAccount_NilVerifier(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
@@ -952,10 +940,6 @@ func TestWeb3Service_GetSolanaVerifier_Nil(t *testing.T) {
 	assert.Nil(t, svc.GetSolanaVerifier())
 }
 
-func TestWeb3Service_GetIPFSClient_Nil(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	assert.Nil(t, svc.GetIPFSClient())
-}
 
 func TestWeb3Service_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}

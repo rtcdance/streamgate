@@ -50,7 +50,6 @@ type Web3Service struct {
 	eip712Verifier     web3.EIP712VerifierInterface
 	gasMonitor         *web3.GasMonitor
 	cancelGasMonitor   context.CancelFunc
-	ipfsClient         *web3.IPFSClient
 	transactionQueue   *web3.TransactionQueue
 	nonceManagers      map[int64]web3.NonceProvider
 	nonceMu            sync.Mutex
@@ -260,11 +259,6 @@ func (ws *Web3Service) GetWalletManager() *web3.WalletManager {
 // GetGasMonitor returns the gas monitor
 func (ws *Web3Service) GetGasMonitor() *web3.GasMonitor {
 	return ws.gasMonitor
-}
-
-// GetIPFSClient returns the IPFS client
-func (ws *Web3Service) GetIPFSClient() *web3.IPFSClient {
-	return ws.ipfsClient
 }
 
 // GetTransactionQueue returns the transaction queue

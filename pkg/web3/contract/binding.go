@@ -58,7 +58,11 @@ func NewContentRegistryBinding(address string, reader *ContractInteractor, write
 	}
 }
 
-func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentHash [32]byte, metadata string) (string, error) {
+// RegisterContent registers a content's existence on-chain. Signatures mirror
+// contracts/src/ContentRegistry.sol: registerContent(string contentId,
+// string contentHash, string metadataURI) — the tx sender must be the
+// contract owner (onlyOwner).
+func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentID, contentHash, metadataURI string) (string, error) {
 	if b.writer == nil {
 		return "", fmt.Errorf("content_registry_binding: writer not configured")
 	}
@@ -67,70 +71,89 @@ func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentHas
 		To:        b.address.Hex(),
 		Method:    "registerContent",
 		ParsedABI: &b.abi,
-		Args:      []interface{}{contentHash, metadata},
+		Args:      []interface{}{contentID, contentHash, metadataURI},
 	})
 	if err != nil {
 		return "", fmt.Errorf("content_registry_binding: RegisterContent: %w", err)
 	}
 
 	b.logger.Info("RegisterContent tx sent",
-		zap.String("content_hash", fmt.Sprintf("%x", contentHash)),
+		zap.String("content_id", contentID),
 		zap.String("tx_hash", result.TxHash))
 
 	return result.TxHash, nil
 }
 
-func (b *ContentRegistryBinding) VerifyContent(ctx context.Context, contentHash [32]byte) (bool, error) {
-	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "verifyContent", "", contentHash)
+// ContentExists checks whether a contentId is registered (status != Nonexistent).
+func (b *ContentRegistryBinding) ContentExists(ctx context.Context, contentID string) (bool, error) {
+	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "contentExists", "", contentID)
 	if err != nil {
-		return false, fmt.Errorf("content_registry_binding: verifyContent call: %w", err)
+		return false, fmt.Errorf("content_registry_binding: contentExists call: %w", err)
 	}
 
 	data, ok := result.([]byte)
 	if !ok {
-		return false, fmt.Errorf("content_registry_binding: unexpected result type from verifyContent")
+		return false, fmt.Errorf("content_registry_binding: unexpected result type from contentExists")
 	}
 
-	out, err := b.abi.Unpack("verifyContent", data)
+	out, err := b.abi.Unpack("contentExists", data)
 	if err != nil {
-		return false, fmt.Errorf("content_registry_binding: unpack verifyContent: %w", err)
+		return false, fmt.Errorf("content_registry_binding: unpack contentExists: %w", err)
 	}
 
 	if len(out) > 0 {
-		if valid, ok := out[0].(bool); ok {
-			return valid, nil
+		if exists, ok := out[0].(bool); ok {
+			return exists, nil
 		}
 	}
 	return false, nil
 }
 
-func (b *ContentRegistryBinding) GetContentInfo(ctx context.Context, contentHash [32]byte) (*ContentInfo, error) {
-	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "getContentInfo", "", contentHash)
+// ContentRecord mirrors the ContentRecord struct returned by getContent.
+type ContentRecord struct {
+	ContentID   string
+	Creator     string
+	ContentHash string
+	MetadataURI string
+	Status      uint8
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
+// GetContent reads the on-chain record for a contentId.
+func (b *ContentRegistryBinding) GetContent(ctx context.Context, contentID string) (*ContentRecord, error) {
+	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "getContent", "", contentID)
 	if err != nil {
-		return nil, fmt.Errorf("content_registry_binding: getContentInfo call: %w", err)
+		return nil, fmt.Errorf("content_registry_binding: getContent call: %w", err)
 	}
 
 	data, ok := result.([]byte)
 	if !ok {
-		return nil, fmt.Errorf("content_registry_binding: unexpected result type from getContentInfo")
+		return nil, fmt.Errorf("content_registry_binding: unexpected result type from getContent")
 	}
 
-	type getContentInfoResult struct {
-		Owner     common.Address
-		Timestamp *big.Int
-		Metadata  string
+	type getContentResult struct {
+		ContentID   string
+		Creator     common.Address
+		ContentHash string
+		MetadataURI string
+		Status      uint8
+		CreatedAt   *big.Int
+		UpdatedAt   *big.Int
 	}
-	var out getContentInfoResult
-	if err := b.abi.UnpackIntoInterface(&out, "getContentInfo", data); err != nil {
-		return nil, fmt.Errorf("content_registry_binding: unpack getContentInfo: %w", err)
+	var out getContentResult
+	if err := b.abi.UnpackIntoInterface(&out, "getContent", data); err != nil {
+		return nil, fmt.Errorf("content_registry_binding: unpack getContent: %w", err)
 	}
 
-	return &ContentInfo{
-		Hash:      fmt.Sprintf("%x", contentHash),
-		Owner:     out.Owner.Hex(),
-		Timestamp: out.Timestamp.Int64(),
-		Metadata:  out.Metadata,
-		IsValid:   out.Owner != common.Address{},
+	return &ContentRecord{
+		ContentID:   out.ContentID,
+		Creator:     out.Creator.Hex(),
+		ContentHash: out.ContentHash,
+		MetadataURI: out.MetadataURI,
+		Status:      out.Status,
+		CreatedAt:   out.CreatedAt.Int64(),
+		UpdatedAt:   out.UpdatedAt.Int64(),
 	}, nil
 }
 

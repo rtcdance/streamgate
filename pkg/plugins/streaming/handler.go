@@ -52,52 +52,6 @@ func (h *StreamingHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
-// GetHLSPlaylistHandler handles HLS playlist requests
-func (h *StreamingHandler) GetHLSPlaylistHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		h.metricsCollector.IncrementCounter("hls_playlist_invalid_method", map[string]string{})
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	contentID := r.URL.Query().Get("content_id")
-	if contentID == "" {
-		h.metricsCollector.IncrementCounter("hls_playlist_missing_id", map[string]string{})
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing content_id"})
-		return
-	}
-
-	h.logger.Info("Generating HLS playlist", zap.String("content_id", contentID))
-
-	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("#EXTM3U\n#EXT-X-VERSION:3\n"))
-}
-
-// GetDASHManifestHandler handles DASH manifest requests
-func (h *StreamingHandler) GetDASHManifestHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	contentID := r.URL.Query().Get("content_id")
-	if contentID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing content_id"})
-		return
-	}
-
-	h.logger.Info("Generating DASH manifest", zap.String("content_id", contentID))
-
-	w.Header().Set("Content-Type", "application/dash+xml")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><MPD></MPD>`))
-}
-
 // GetSegmentHandler handles segment requests
 func (h *StreamingHandler) GetSegmentHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

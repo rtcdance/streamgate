@@ -259,16 +259,17 @@ type ChainConfigEntry struct {
 
 // Web3Config holds Web3 configuration
 type Web3Config struct {
-	EthereumRPC        string
-	EthereumWSURL      string // WebSocket URL for real-time event subscriptions
-	SolanaRPC          string
-	ChainID            int64
-	BlockTag           string // "safe" (default), "finalized", or "latest"
-	Chains             []ChainConfigEntry
-	Transaction        TransactionConfig
-	RateLimit          RPCRateLimitConfig
-	AnvilDemoContract  string
-	AnvilDeployerKey   string
+	EthereumRPC            string
+	EthereumWSURL          string // WebSocket URL for real-time event subscriptions
+	SolanaRPC              string
+	ChainID                int64
+	BlockTag               string // "safe" (default), "finalized", or "latest"
+	Chains                 []ChainConfigEntry
+	Transaction            TransactionConfig
+	RateLimit              RPCRateLimitConfig
+	AnvilDemoContract      string
+	AnvilDeployerKey       string
+	ContentRegistryAddress string // deployed ContentRegistry contract; empty disables on-chain registration
 }
 
 // RPCRateLimitConfig holds RPC rate limiting configuration
@@ -465,7 +466,8 @@ func LoadConfig() (*Config, error) {
 			ChainID:           viper.GetInt64("web3.chain_id"),
 			BlockTag:          viper.GetString("web3.block_tag"),
 			AnvilDemoContract: viper.GetString("web3.anvil_demo_contract"),
-			AnvilDeployerKey:  viper.GetString("web3.anvil_deployer_key"),
+			AnvilDeployerKey:       viper.GetString("web3.anvil_deployer_key"),
+			ContentRegistryAddress: viper.GetString("web3.content_registry_address"),
 			Transaction: TransactionConfig{
 				PrivateKeyHex:            viper.GetString("web3.transaction.private_key_hex"),
 				GasLimit:                 viper.GetUint64("web3.transaction.gas_limit"),

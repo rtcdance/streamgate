@@ -11,9 +11,11 @@ import (
 
 func TestContentRegistryABI_Valid(t *testing.T) {
 	assert.NotEmpty(t, ContentRegistryABI)
+	// The ABI must mirror contracts/src/ContentRegistry.sol.
 	assert.Contains(t, ContentRegistryABI, "registerContent")
-	assert.Contains(t, ContentRegistryABI, "verifyContent")
-	assert.Contains(t, ContentRegistryABI, "getContentInfo")
+	assert.Contains(t, ContentRegistryABI, "contentExists")
+	assert.Contains(t, ContentRegistryABI, "getContent")
+	assert.NotContains(t, ContentRegistryABI, "getContentInfo")
 }
 
 func TestERC721ABI_Valid(t *testing.T) {
@@ -26,13 +28,11 @@ func TestERC721ABI_Valid(t *testing.T) {
 func TestContentRegistry_Events(t *testing.T) {
 	cr := NewContentRegistry("0x1234567890123456789012345678901234567890")
 
-	expectedContentRegistered := crypto.Keccak256Hash([]byte("ContentRegistered(bytes32,address,uint256)")).Hex()
-	expectedContentVerified := crypto.Keccak256Hash([]byte("ContentVerified(bytes32,bool)")).Hex()
-	expectedContentDeleted := crypto.Keccak256Hash([]byte("ContentDeleted(bytes32,address)")).Hex()
+	expectedContentRegistered := crypto.Keccak256Hash([]byte("ContentRegistered(string,address,string,string,uint256)")).Hex()
+	expectedContentRemoved := crypto.Keccak256Hash([]byte("ContentRemoved(string,uint256)")).Hex()
 
 	assert.Equal(t, expectedContentRegistered, cr.Events["ContentRegistered"])
-	assert.Equal(t, expectedContentVerified, cr.Events["ContentVerified"])
-	assert.Equal(t, expectedContentDeleted, cr.Events["ContentDeleted"])
+	assert.Equal(t, expectedContentRemoved, cr.Events["ContentRemoved"])
 }
 
 func TestNFTContract_Events(t *testing.T) {

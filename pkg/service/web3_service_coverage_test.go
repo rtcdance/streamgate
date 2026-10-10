@@ -464,19 +464,7 @@ func TestSvcCov_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestSvcCov_UploadToIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.UploadToIPFS(context.Background(), "file.txt", []byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
-func TestSvcCov_DownloadFromIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.DownloadFromIPFS(context.Background(), "QmTest")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
 func TestSvcCov_VerifySolanaTokenAccount_NilVerifier(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
@@ -501,10 +489,6 @@ func TestSvcCov_GetSolanaVerifier_Nil(t *testing.T) {
 	assert.Nil(t, svc.GetSolanaVerifier())
 }
 
-func TestSvcCov_GetIPFSClient_Nil(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	assert.Nil(t, svc.GetIPFSClient())
-}
 
 func TestSvcCov_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
@@ -581,11 +565,6 @@ func TestSvcCov_Web3Service_GetTransactionQueue_Set(t *testing.T) {
 	assert.Equal(t, q, svc.GetTransactionQueue())
 }
 
-func TestSvcCov_Web3Service_GetIPFSClient_Set(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	svc.ipfsClient = &web3.IPFSClient{}
-	assert.NotNil(t, svc.GetIPFSClient())
-}
 
 func TestSvcCov_Web3Service_SendTransaction_ContextWithDeadline(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
