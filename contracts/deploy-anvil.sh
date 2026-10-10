@@ -18,6 +18,23 @@ fi
 # Copy contracts into container
 cp -r /contracts/src "$CONTRACT_DIR" 2>/dev/null || mkdir -p "$CONTRACT_DIR"
 
+# Deploy ContentRegistry (the Go backend registers content here; the
+# deployer key below becomes the contract owner, matching the backend signer)
+echo "Deploying ContentRegistry..."
+REGISTRY_OUT=$(forge create \
+  --rpc-url http://localhost:8545 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  /contracts/src/ContentRegistry.sol:ContentRegistry \
+  --out "$OUT_DIR" \
+  --legacy 2>&1) || {
+    echo "ContentRegistry deploy failed (may already exist): $REGISTRY_OUT"
+}
+REGISTRY=$(echo "$REGISTRY_OUT" | grep "Deployed to:" | awk '{print $3}')
+if [ -n "$REGISTRY" ]; then
+  echo "ContentRegistry deployed at: $REGISTRY"
+  echo "$REGISTRY" > "$OUT_DIR/content_registry_address"
+fi
+
 # Deploy DemoNFT
 echo "Deploying DemoNFT..."
 DEPLOY_OUT=$(forge create \
