@@ -363,6 +363,14 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
 func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration, clientFingerprint string) (string, error) {
+	// A playback token is a wallet-bound capability proving prior NFT
+	// authorization; issuing one to an empty wallet would mint an
+	// unattributable credential.
+	if walletAddress == "" {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", errors.New("wallet address is required for playback token")
+	}
+
 	_, span := monitoring.StartOTelSpan(ctx, "auth.generate_playback_token",
 		attribute.String("content_id", contentID),
 		attribute.Int64("chain_id", chainID),

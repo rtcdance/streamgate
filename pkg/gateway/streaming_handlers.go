@@ -234,6 +234,12 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 
 		wallet := middleware.GetWalletAddress(c)
+		// JWTAuthMiddleware and PlaybackTokenAuth both guarantee a wallet by the
+		// time we get here; refuse to mint a token if one somehow slipped through.
+		if wallet == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+			return
+		}
 		contract := middleware.GetNFTContract(c)
 		chainID, _ := c.Get("nft_chain_id")
 		tokenID := c.Query("token_id")
