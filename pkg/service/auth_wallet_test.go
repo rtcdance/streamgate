@@ -550,6 +550,23 @@ func TestGeneratePlaybackToken_DefaultTTL(t *testing.T) {
 	assert.Equal(t, "fp-abc", claims.ClientFingerprint)
 }
 
+func TestGeneratePlaybackToken_RejectsEmptyWallet(t *testing.T) {
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
+
+	_, err := auth.GeneratePlaybackToken(
+		context.Background(),
+		"",
+		"content-1",
+		"0xcontract",
+		"7",
+		1,
+		time.Minute,
+		"fp-abc",
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wallet address is required")
+}
+
 func TestValidatePlaybackToken_ContentMismatch(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
