@@ -8,8 +8,8 @@ NFT-gated streaming platform built with Go. Combines traditional high-concurrenc
 
 - **Go 1.24** | **Gin** HTTP framework | **go-ethereum** + **Solana SDK** multichain
 - **Microkernel Plugin Architecture** with dual-mode deployment (monolith + microservices)
-- **10 build targets**: 1 monolith + 9 microservices
-- **255 test files**: unit (4), integration (14), E2E (19), benchmark (5), load (4), security (1), performance (1) — plus 206 in-package tests under `pkg/` and the 27K `cmd/microservices/api-gateway/main_test.go`. Total coverage 74.5% (81.7% by function), well above the 40% CI floor.
+- **11 build targets**: 1 monolith + 9 microservices + cmd/learn (per `make build-all`)
+- **261 test files** (2026-10-10 measured) — plus 206 in-package tests under `pkg/` and the 27K `cmd/microservices/api-gateway/main_test.go`. Total coverage ~73.4% (2026-10-10 measured), enforced at a 60% CI floor.
 
 ## Tech Stack
 
@@ -74,29 +74,29 @@ All components listed below. Production-ready items pass tests and have no TODOs
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Wallet Sign-In | **Ready** | `pkg/service/auth_wallet.go` — EIP-191/712/SIWE, Solana ed25519 |
-| NFT Verification | **Ready** | `pkg/web3/nft.go` — ERC-721/1155, ERC-165 detection |
+| NFT Verification | **Ready** | `pkg/web3/nft/` (verifier.go, erc20.go, erc1155.go) — ERC-721/1155, ERC-165 detection |
 | HLS Streaming | **Ready** | `pkg/service/streaming.go` — Multi-bitrate, DASH |
 | NFT Gate Middleware | **Ready** | `pkg/middleware/nft_gate.go` — Protected content access |
 | Reorg Protection | **Ready** | `pkg/web3/reorg.go` — Safe/finalized block tags |
-| Event Indexing | **Ready** | `pkg/web3/event_indexer.go` — Full event parsing and storage |
+| Event Indexing | **Ready** | `pkg/web3/event/indexer.go` — Full event parsing and storage |
 | Transcoding | **Ready** | `pkg/service/transcoding.go` — FFmpeg pipeline with retry logic |
 | Multi-chain | **Ready** | EVM + Solana + RPC failover; cross-chain bridge is future scope |
-| `pkg/web3/contract.go` | **Ready** | Batch queries and error classification implemented |
-| `pkg/web3/solana.go` | **Ready** | RPC fallback and Metaplex support implemented |
+| `pkg/web3/contract/` | **Ready** | Batch queries and error classification implemented (binding.go, interactor.go, registry.go) |
+| `pkg/web3/solana/` | **Ready** | RPC fallback and Metaplex support implemented |
 | `pkg/plugins/worker/handler.go` | **Ready** | Task distribution and failure recovery implemented |
 | `pkg/plugins/streaming/handler.go` | **Ready** | Adaptive bitrate negotiation implemented |
-| `pkg/web3/smart_contracts.go` | **Partial** (1 TODO) | Contract ABI resolution mostly complete |
+| `pkg/web3/contract/registry.go` (`SmartContractRegistry`) | **Partial** (1 TODO) | Contract ABI resolution mostly complete |
 | `pkg/web3/account_abstraction.go` | **Partial** (skeleton) | `IAccount` interface + `UserOperation` struct only; no real bundler/entry-point integration yet |
 | `pkg/plugins/metadata/server.go` | **Ready** | gRPC service and search indexing implemented |
 | `pkg/plugins/monitor/server.go` | **Ready** | Aggregated health and alert routing implemented |
-| Microservice main.go files (9) | **Ready** | 10 lines each via `core.RunMicroservice` |
+| Microservice main.go files (9) | **Ready** | 89 lines each (api-gateway 118); `core.RunMicroservice` exists but has no callers — mains do their own wiring |
 
 ## Commands
 
 ```bash
 # Build
 make build-monolith        # Single binary
-make build-all             # All 10 binaries (1 monolith + 9 services)
+make build-all             # All 11 binaries (1 monolith + 9 services + cmd/learn)
 make build-api-gateway     # Individual service build
 
 # Run
@@ -107,7 +107,7 @@ make dev-setup             # One-command dev environment setup
 
 # Test
 make test                  # All tests with race detection + coverage HTML
-make test-ci               # CI mode with 40% coverage threshold
+make test-ci               # CI mode with 60% coverage threshold
 make test-anvil            # Foundry Anvil Web3 integration tests
 make test-testnet          # Testnet integration tests (needs SEPOLIA_RPC)
 
@@ -197,7 +197,7 @@ Mock files live alongside interfaces with `//go:generate` directives.
 **Patterns**:
 - **Table-driven tests preferred** — see `pkg/service/auth_wallet_test.go` for reference
 - **Test names**: `Test<FunctionName>_<Scenario>` — e.g. `TestVerifySignature_InvalidNonce`
-- **Coverage**: 40% minimum (CI enforced). Focus on core flow: auth → NFT verify → streaming
+- **Coverage**: 60% minimum (CI enforced, `ci.yml`). Focus on core flow: auth → NFT verify → streaming
 - **Race detection**: Always enabled (`-race` flag in `make test`)
 
 ### Dependency Management
@@ -289,9 +289,9 @@ To understand the auth → gate → stream pipeline, read these 10 files:
 1. cmd/monolith/streamgate/main.go        Entry point, plugin loading
 2. pkg/plugins/auth/plugin.go             Auth plugin → route registration
 3. pkg/service/auth_wallet.go             Wallet sign-in logic
-4. pkg/web3/signature.go                  EIP-191/712 verification
+4. pkg/web3/signature/                    EIP-191/712 verification
 5. pkg/middleware/nft_gate.go             NFT-gated access middleware
-6. pkg/web3/nft.go                        NFT ownership verification
+6. pkg/web3/nft/verifier.go               NFT ownership verification
 7. pkg/plugins/streaming/plugin.go        Streaming plugin → route registration
 8. pkg/service/streaming.go               HLS/DASH manifest delivery
 9. pkg/plugins/transcoder/plugin.go       Transcoding plugin
@@ -358,7 +358,7 @@ JWT (pkg/gateway/playback_stats_handlers.go):
 | `EventBus` | `pkg/core/event/event.go:40` | MemoryEventBus (monolith), NATSEventBus (microservices) |
 | Storage backends | `pkg/storage/` | postgres, redis, minio, s3, nats, cache |
 
-Plugin implementations are in `pkg/plugins/<name>/plugin.go`. Each uses `core.GenericPlugin` to delegate to a `pkg/service/` layer. Microservice entry points call `core.RunMicroservice()` — see `cmd/microservices/<name>/main.go` (10 lines each).
+Plugin implementations are in `pkg/plugins/<name>/plugin.go`. Each uses `core.GenericPlugin` to delegate to a `pkg/service/` layer. Microservice entry points do their own wiring (89 lines each; api-gateway 118) — `core.RunMicroservice()` exists but is currently unused.
 
 ### Workflow Tips
 
