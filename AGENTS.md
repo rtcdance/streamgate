@@ -45,7 +45,7 @@ streamgate/
 | Task | Location | Notes |
 |------|----------|-------|
 | Wallet sign-in | `pkg/service/auth_wallet.go` | EIP-191/712/SIWE, Solana ed25519 |
-| NFT verification | `pkg/web3/nft.go` | ERC-721/1155, ERC-165 detection |
+| NFT verification | `pkg/web3/nft/` | ERC-721/1155, ERC-165 detection |
 | Transcoding | `pkg/service/transcoding.go` | FFmpeg worker pipeline, HLS output |
 | Streaming | `pkg/service/streaming.go` | HLS/DASH manifest delivery |
 | API routes | `pkg/gateway/` | REST handlers (auth_handlers, content_handlers, etc.) |
