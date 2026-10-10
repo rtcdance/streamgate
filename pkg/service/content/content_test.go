@@ -153,7 +153,7 @@ type mockContentRegistry struct {
 	err    error
 }
 
-func (m *mockContentRegistry) RegisterContent(_ context.Context, _ [32]byte, _ string) (string, error) {
+func (m *mockContentRegistry) RegisterContent(_ context.Context, _, _, _ string) (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}

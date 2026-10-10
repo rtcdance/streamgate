@@ -36,8 +36,7 @@ func TestContentRegistryBinding_RegisterContent_NilWriter(t *testing.T) {
 		nil, nil, zap.NewNop(),
 	)
 
-	var hash [32]byte
-	_, err := binding.RegisterContent(context.Background(), hash, "metadata")
+	_, err := binding.RegisterContent(context.Background(), "content-1", "0xhash", "ipfs://meta/1")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "writer not configured")
 }
@@ -48,9 +47,8 @@ func TestContentRegistryBinding_VerifyContent_NilReader(t *testing.T) {
 		nil, nil, zap.NewNop(),
 	)
 
-	var hash [32]byte
 	assert.Panics(t, func() {
-		_, _ = binding.VerifyContent(context.Background(), hash)
+		_, _ = binding.ContentExists(context.Background(), "content-1")
 	})
 }
 
@@ -60,15 +58,13 @@ func TestContentRegistryBinding_GetContentInfo_NilReader(t *testing.T) {
 		nil, nil, zap.NewNop(),
 	)
 
-	var hash [32]byte
 	assert.Panics(t, func() {
-		_, _ = binding.GetContentInfo(context.Background(), hash)
+		_, _ = binding.GetContent(context.Background(), "content-1")
 	})
 }
 
 func TestEventTopics_NonEmpty(t *testing.T) {
 	assert.NotEqual(t, common.Hash{}, contentRegisteredTopic)
-	assert.NotEqual(t, common.Hash{}, contentVerifiedTopic)
 	assert.NotEqual(t, common.Hash{}, contentDeletedTopic)
 	assert.NotEqual(t, common.Hash{}, transferTopic)
 	assert.NotEqual(t, common.Hash{}, approvalTopic)

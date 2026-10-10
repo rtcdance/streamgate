@@ -49,76 +49,6 @@ func TestStreamingHandler_ReadyHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestStreamingHandler_GetHLSPlaylistHandler_MethodNotAllowed(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/hls", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetHLSPlaylistHandler(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestStreamingHandler_GetHLSPlaylistHandler_MissingID(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/hls", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetHLSPlaylistHandler(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestStreamingHandler_GetHLSPlaylistHandler_Success(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/hls?content_id=test-123", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetHLSPlaylistHandler(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/vnd.apple.mpegurl", rec.Header().Get("Content-Type"))
-	assert.Contains(t, rec.Body.String(), "#EXTM3U")
-}
-
-func TestStreamingHandler_GetDASHManifestHandler_MethodNotAllowed(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/dash", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetDASHManifestHandler(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestStreamingHandler_GetDASHManifestHandler_MissingID(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/dash", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetDASHManifestHandler(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestStreamingHandler_GetDASHManifestHandler_Success(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/dash?content_id=test-123", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetDASHManifestHandler(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/dash+xml", rec.Header().Get("Content-Type"))
-	assert.Contains(t, rec.Body.String(), "MPD")
-}
-
 func TestStreamingHandler_GetSegmentHandler_MethodNotAllowed(t *testing.T) {
 	handler := newTestStreamingHandler(t)
 
@@ -198,20 +128,6 @@ func TestStreamingHandler_NotFoundHandler(t *testing.T) {
 	handler.NotFoundHandler(rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHLSGenerator_Generate(t *testing.T) {
-	gen := &HLSGenerator{}
-	result, err := gen.Generate("content-1")
-	require.NoError(t, err)
-	assert.Contains(t, result, "#EXTM3U")
-}
-
-func TestDASHGenerator_Generate(t *testing.T) {
-	gen := &DASHGenerator{}
-	result, err := gen.Generate("content-1")
-	require.NoError(t, err)
-	assert.Contains(t, result, "MPD")
 }
 
 func TestStreamCache_Operations(t *testing.T) {

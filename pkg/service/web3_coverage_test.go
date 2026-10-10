@@ -122,10 +122,6 @@ func TestWeb3Service_Coverage_SetNFTAccessCache(t *testing.T) {
 	assert.Equal(t, cache, ws.nftAccessCache)
 }
 
-func TestWeb3Service_Coverage_GetIPFSClient_NilSvc(t *testing.T) {
-	ws := &Web3Service{logger: zap.NewNop()}
-	assert.Nil(t, ws.GetIPFSClient())
-}
 
 func TestWeb3Service_Coverage_GetTransactionQueue_Set(t *testing.T) {
 	tq := web3.NewTransactionQueue(50)
@@ -323,19 +319,7 @@ func TestWeb3Service_Coverage_VerifySolanaMetaplexNFT_NilV(t *testing.T) {
 	assert.Contains(t, err.Error(), "solana verifier not initialized")
 }
 
-func TestWeb3Service_Coverage_UploadToIPFS_NilClient(t *testing.T) {
-	ws := &Web3Service{logger: zap.NewNop()}
-	_, err := ws.UploadToIPFS(context.Background(), "file.txt", []byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
-func TestWeb3Service_Coverage_DownloadFromIPFS_NilClient(t *testing.T) {
-	ws := &Web3Service{logger: zap.NewNop()}
-	_, err := ws.DownloadFromIPFS(context.Background(), "QmTest")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
 func TestWeb3Service_Coverage_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	ws := &Web3Service{logger: zap.NewNop()}

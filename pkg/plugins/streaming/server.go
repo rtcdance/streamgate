@@ -92,8 +92,8 @@ func (s *StreamingServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/health/ready", handler.ReadyHandler)
 	mux.HandleFunc("/ready", handler.ReadyHandler)
 
-	mux.HandleFunc("/api/v1/stream/hls", s.requireAuth(handler.GetHLSPlaylistHandler))
-	mux.HandleFunc("/api/v1/stream/dash", s.requireAuth(handler.GetDASHManifestHandler))
+	// Literal-stub HLS/DASH endpoints removed (B4): they served "#EXTM3U" and
+	// an empty MPD regardless of content.
 	mux.HandleFunc("/api/v1/stream/segment", s.requireAuth(handler.GetSegmentHandler))
 	mux.HandleFunc("/api/v1/stream/info", s.requireAuth(handler.GetStreamInfoHandler))
 
