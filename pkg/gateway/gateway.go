@@ -113,6 +113,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	if db != nil {
 		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
 		svc.GatingRuleResolver = NewGatingRuleResolverAdapter(svc.GatingRuleSvc)
+		resources.GatingRuleResolver = svc.GatingRuleResolver
 		svc.PlaybackStatsSvc = service.NewPlaybackStatsService(db, log.Named("playback-stats"))
 		svc.CategorySvc = service.NewCategoryService(db, log.Named("category"))
 	}

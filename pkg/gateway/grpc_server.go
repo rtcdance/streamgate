@@ -35,17 +35,18 @@ import (
 )
 
 type GRPCServices struct {
-	AuthService    *service.AuthService
-	Web3Service    *service.Web3Service
-	NFTVerifier    middleware.NFTOwnershipChecker
-	StreamingSvc   *service.StreamingService
-	ContentService *service.ContentService
-	SegmentStorage service.SegmentStorage
-	UploadService  *service.UploadService
-	TranscodingSvc *service.TranscodingService
-	DB             Pinger
-	Cache          Pinger
-	Blacklist      middleware.TokenBlacklistChecker
+	AuthService        *service.AuthService
+	Web3Service        *service.Web3Service
+	NFTVerifier        middleware.NFTOwnershipChecker
+	GatingRuleResolver middleware.GatingRuleResolver
+	StreamingSvc       *service.StreamingService
+	ContentService     *service.ContentService
+	SegmentStorage     service.SegmentStorage
+	UploadService      *service.UploadService
+	TranscodingSvc     *service.TranscodingService
+	DB                 Pinger
+	Cache              Pinger
+	Blacklist          middleware.TokenBlacklistChecker
 }
 
 type Pinger interface {
@@ -164,6 +165,7 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 		streamingSrv := &streamingGrpcServer{
 			authSvc:      svcs.AuthService,
 			nftVerifier:  svcs.NFTVerifier,
+			ruleResolver: svcs.GatingRuleResolver,
 			streamingSvc: svcs.StreamingSvc,
 			segStore:     svcs.SegmentStorage,
 			log:          log,
@@ -694,6 +696,7 @@ type streamingGrpcServer struct {
 	streamingv1.UnimplementedStreamingServiceServer
 	authSvc      *service.AuthService
 	nftVerifier  middleware.NFTOwnershipChecker
+	ruleResolver middleware.GatingRuleResolver
 	streamingSvc *service.StreamingService
 	segStore     service.SegmentStorage
 	log          *zap.Logger
@@ -716,41 +719,42 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		return nil, err
 	}
 
-	var contract, tokenID string
-	var chainID int64 = 1
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if v := md.Get("x-nft-contract"); len(v) > 0 {
-			contract = v[0]
-		}
-		if v := md.Get("x-nft-token-id"); len(v) > 0 {
-			tokenID = v[0]
-		}
-		if v := md.Get("x-nft-chain-id"); len(v) > 0 {
-			if parsed, err := fmt.Sscanf(v[0], "%d", &chainID); parsed != 1 || err != nil {
-				chainID = 1
-			}
-		}
+	// The authorization subject comes from server-side gating rules, never from
+	// caller metadata (same rule as the HTTP path): a caller-named contract
+	// would let anyone pass by verifying ownership of an NFT they already hold.
+	if s.ruleResolver == nil {
+		return nil, status.Error(codes.Internal, "gating rules unavailable; access denied for safety")
+	}
+	gatingRules, err := s.ruleResolver.GetActiveRulesForContent(ctx, req.ContentId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to resolve gating rules")
+	}
+	if len(gatingRules) == 0 {
+		return nil, status.Error(codes.PermissionDenied, "content is gated; no active gating rules are configured for it")
 	}
 
-	if contract == "" {
-		return nil, status.Error(codes.PermissionDenied, "NFT contract address required; provide x-nft-contract metadata header")
-	}
 	if s.nftVerifier == nil {
 		return nil, status.Error(codes.Internal, "NFT verification service unavailable; access denied for safety")
 	}
-	owned, err := s.nftVerifier.VerifyNFTOwnership(ctx, chainID, contract, tokenID, wallet)
-	if err != nil {
-		s.log.Warn("NFT ownership verification failed",
-			zap.String("wallet", wallet),
-			zap.String("contract", contract),
-			zap.Error(err))
-		return nil, status.Error(codes.PermissionDenied, "NFT ownership verification failed")
+	owned := false
+	var ruleContract, ruleTokenID string
+	var ruleChainID int64
+	for _, rule := range gatingRules {
+		ok, verifyErr := s.nftVerifier.VerifyNFTOwnership(ctx, rule.ChainID, rule.ContractAddress, rule.TokenID, wallet)
+		if verifyErr == nil && ok {
+			owned = true
+			ruleContract, ruleTokenID, ruleChainID = rule.ContractAddress, rule.TokenID, rule.ChainID
+			break
+		}
 	}
 	if !owned {
+		s.log.Warn("NFT ownership verification failed against server-side gating rules",
+			zap.String("wallet", wallet),
+			zap.String("content_id", req.ContentId))
 		return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
 	}
 
-	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, contract, tokenID, chainID, 2*time.Minute, "")
+	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, ruleContract, ruleTokenID, ruleChainID, 2*time.Minute, "")
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to generate playback token")
 	}
