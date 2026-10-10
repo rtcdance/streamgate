@@ -1,5 +1,5 @@
 variable "GO_VERSION" {
-  default = "1.24"
+  default = "1.25"
 }
 
 variable "REGISTRY" {
