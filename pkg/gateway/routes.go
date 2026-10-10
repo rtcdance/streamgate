@@ -46,12 +46,30 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	if streamCache == nil {
 		streamCache = NewStreamingCache()
 	}
-	// Segment route must be registered before JWT middleware — HLS.js sends
-	// segment requests without an Authorization header, using playback_token
-	// query param for auth instead.
-	RegisterStreamingSegmentRoute(router, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+	// PlaybackTokenAuth must run BEFORE the global JWT middleware: HLS.js cannot
+	// send an Authorization header on media requests, so segment/sub-manifest
+	// URLs carry playback_token in the query string. The token is validated
+	// cryptographically and its wallet injected here — the mere presence of the
+	// query param never grants access.
+	//
+	// The group is created BEFORE router.Use(JWT) below. gin's RouterGroup
+	// snapshots the parent handler chain at creation and Use only appends, so
+	// JWT and the NFT gate are appended to this group explicitly afterwards to
+	// get the chain [PlaybackTokenAuth, JWT, NFTGate].
+	playbackAuth := middleware.PlaybackTokenAuth(middleware.PlaybackTokenAuthConfig{
+		Validate: func(ctx context.Context, token, contentID, fingerprint string) (string, error) {
+			claims, err := svc.AuthService.ValidatePlaybackToken(ctx, token, contentID, fingerprint)
+			if err != nil {
+				return "", err
+			}
+			return claims.WalletAddress, nil
+		},
+	}, log)
+	streamGroup := router.Group("/")
+	streamGroup.Use(playbackAuth)
 
 	router.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
+	streamGroup.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
 
 	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
 		RequestsPerMinute: 10,
@@ -62,7 +80,7 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	RegisterAuthRoutes(router, log, cfg, svc.AuthService, authRL)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, streamGroup)
 }
 
 func buildCircuitBreakerConfig(cfg *config.Config) middleware.CircuitBreakerConfig {
@@ -171,7 +189,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	router.Static("/demo", "./h5-demo")
 }
 
-func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache) {
+func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup) {
 	RegisterAuthProtectedRoutes(router, log, svc.AuthService)
 
 	cbSvc := middleware.NewService(log)
@@ -195,16 +213,19 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 	}
 	nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
-	streamingGroup := router.Group("/")
-	streamingGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
-	streamingGroup.Use(func(c *gin.Context) {
+	// Streaming routes (manifest + segment) live on streamGroup, whose chain is
+	// [PlaybackTokenAuth, JWT, NFTGate] — the group was created before the
+	// global JWT Use in registerRoutes.
+	streamGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
+	streamGroup.Use(func(c *gin.Context) {
 		if core.IsDraining() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})
 			return
 		}
 		c.Next()
 	})
-	RegisterStreamingRoutes(streamingGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+	RegisterStreamingSegmentRoute(streamGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
 	RegisterContentRoutes(router, log, svc.ContentService)
 	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc, cfg.Debug)
