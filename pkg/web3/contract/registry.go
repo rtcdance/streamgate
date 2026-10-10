@@ -8,9 +8,8 @@ import (
 )
 
 var (
-	contentRegisteredTopic = crypto.Keccak256Hash([]byte("ContentRegistered(bytes32,address,uint256)"))
-	contentVerifiedTopic   = crypto.Keccak256Hash([]byte("ContentVerified(bytes32,bool)"))
-	contentDeletedTopic    = crypto.Keccak256Hash([]byte("ContentDeleted(bytes32,address)"))
+	contentRegisteredTopic = crypto.Keccak256Hash([]byte("ContentRegistered(string,address,string,string,uint256)"))
+	contentDeletedTopic    = crypto.Keccak256Hash([]byte("ContentRemoved(string,uint256)"))
 )
 
 type ContentRegistry struct {
@@ -25,17 +24,20 @@ func NewContentRegistry(address string) *ContentRegistry {
 		ABI:     ContentRegistryABI,
 		Events: map[string]string{
 			"ContentRegistered": contentRegisteredTopic.Hex(),
-			"ContentVerified":   contentVerifiedTopic.Hex(),
-			"ContentDeleted":    contentDeletedTopic.Hex(),
+			"ContentRemoved":    contentDeletedTopic.Hex(),
 		},
 	}
 }
 
+// ContentRegistryABI mirrors contracts/src/ContentRegistry.sol — the two MUST
+// stay in sync (the 2026-10-10 review found them diverged, which made every
+// on-chain registration call revert against the deployed contract).
 const ContentRegistryABI = `[
   {
     "inputs": [
-      {"name": "contentHash", "type": "bytes32"},
-      {"name": "metadata", "type": "string"}
+      {"name": "contentId", "type": "string"},
+      {"name": "contentHash", "type": "string"},
+      {"name": "metadataURI", "type": "string"}
     ],
     "name": "registerContent",
     "outputs": [],
@@ -44,22 +46,28 @@ const ContentRegistryABI = `[
   },
   {
     "inputs": [
-      {"name": "contentHash", "type": "bytes32"}
+      {"name": "contentId", "type": "string"}
     ],
-    "name": "verifyContent",
+    "name": "contentExists",
     "outputs": [{"name": "", "type": "bool"}],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      {"name": "contentHash", "type": "bytes32"}
+      {"name": "contentId", "type": "string"}
     ],
-    "name": "getContentInfo",
+    "name": "getContent",
     "outputs": [
-      {"name": "owner", "type": "address"},
-      {"name": "timestamp", "type": "uint256"},
-      {"name": "metadata", "type": "string"}
+      {"name": "record", "type": "tuple", "components": [
+        {"name": "contentId", "type": "string"},
+        {"name": "creator", "type": "address"},
+        {"name": "contentHash", "type": "string"},
+        {"name": "metadataURI", "type": "string"},
+        {"name": "status", "type": "uint8"},
+        {"name": "createdAt", "type": "uint256"},
+        {"name": "updatedAt", "type": "uint256"}
+      ]}
     ],
     "stateMutability": "view",
     "type": "function"
@@ -67,8 +75,10 @@ const ContentRegistryABI = `[
   {
     "anonymous": false,
     "inputs": [
-      {"indexed": true, "name": "contentHash", "type": "bytes32"},
-      {"indexed": true, "name": "owner", "type": "address"},
+      {"indexed": true, "name": "contentId", "type": "string"},
+      {"indexed": true, "name": "creator", "type": "address"},
+      {"indexed": false, "name": "contentHash", "type": "string"},
+      {"indexed": false, "name": "metadataURI", "type": "string"},
       {"indexed": false, "name": "timestamp", "type": "uint256"}
     ],
     "name": "ContentRegistered",

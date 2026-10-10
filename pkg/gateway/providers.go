@@ -2,16 +2,23 @@ package gateway
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/service/content"
 	"github.com/rtcdance/streamgate/pkg/storage"
+	web3contract "github.com/rtcdance/streamgate/pkg/web3/contract"
+	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
 
 	"github.com/go-redis/redis/v8"
 	_ "github.com/lib/pq"
@@ -164,6 +171,73 @@ func provideContentService(rc *RouterConfig, db storage.DB, log *zap.Logger) *se
 	}
 	log.Warn("Content service unavailable, database not connected")
 	return nil
+}
+
+// provideContentRegistry wires the on-chain content registration binding when
+// a deployed ContentRegistry address is configured. Every missing piece
+// (address, signer key, RPC) degrades to nil — content creation must never
+// depend on the chain being reachable (the service degrades the same way at
+// registration time).
+func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) content.ContentRegistry {
+	if cfg.Web3.ContentRegistryAddress == "" {
+		log.Info("On-chain content registry disabled (web3.content_registry_address not set)")
+		return nil
+	}
+	if cfg.Web3.AnvilDeployerKey == "" {
+		log.Info("On-chain content registry disabled (no deployer key to sign registration txs)")
+		return nil
+	}
+	if cfg.Web3.EthereumRPC == "" {
+		log.Info("On-chain content registry disabled (no ethereum rpc configured)")
+		return nil
+	}
+
+	ethClient, err := ethclient.Dial(cfg.Web3.EthereumRPC)
+	if err != nil {
+		log.Warn("On-chain content registry disabled (rpc dial failed)", zap.Error(err))
+		return nil
+	}
+
+	key := strings.TrimPrefix(cfg.Web3.AnvilDeployerKey, "0x")
+	pk, err := crypto.HexToECDSA(key)
+	if err != nil {
+		log.Warn("On-chain content registry disabled (invalid deployer key)", zap.Error(err))
+		ethClient.Close()
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	chainID, err := ethClient.ChainID(ctx)
+	if err != nil {
+		log.Warn("On-chain content registry disabled (chain id resolve failed)", zap.Error(err))
+		ethClient.Close()
+		return nil
+	}
+
+	reader := web3contract.NewContractInteractor(ethClient, log.Named("registry-reader"))
+	writer := txtx.NewContractWriter(txtx.ContractWriterConfig{
+		Client:      txtx.NewEthClientAdapter(ethClient),
+		Key:         privateKeyProvider{key: pk},
+		NonceMgr:    txtx.NewNonceManager(txtx.NewEthClientAdapter(ethClient), log.Named("registry-nonce")),
+		FromAddress: crypto.PubkeyToAddress(pk.PublicKey).Hex(),
+		ChainID:     chainID.Int64(),
+		Logger:      log.Named("registry-writer"),
+	})
+	binding := web3contract.NewContentRegistryBinding(cfg.Web3.ContentRegistryAddress, reader, writer, log.Named("content-registry"))
+	log.Info("On-chain content registry enabled",
+		zap.String("contract", cfg.Web3.ContentRegistryAddress),
+		zap.Int64("chain_id", chainID.Int64()))
+	return binding
+}
+
+// privateKeyProvider adapts a fixed ECDSA key to tx.KeyProvider.
+type privateKeyProvider struct {
+	key *ecdsa.PrivateKey
+}
+
+func (p privateKeyProvider) UseKey(fn func(*ecdsa.PrivateKey) error) error {
+	return fn(p.key)
 }
 
 func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger, res *AppResources) service.SegmentStorage {

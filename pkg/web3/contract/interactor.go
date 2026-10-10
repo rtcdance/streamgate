@@ -214,18 +214,15 @@ type ContractContentRegistry struct {
 	ABI     string
 }
 
-func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentHash, owner, metadata string) ([]byte, error) {
+// RegisterContent packs the registerContent(string,string,string) calldata,
+// mirroring contracts/src/ContentRegistry.sol.
+func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentID, contentHash, metadataURI string) ([]byte, error) {
 	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
 
-	hashBytes, err := hexToBytes32(contentHash)
-	if err != nil {
-		return nil, fmt.Errorf("invalid content hash: %w", err)
-	}
-
-	data, err := parsedABI.Pack("registerContent", hashBytes, metadata)
+	data, err := parsedABI.Pack("registerContent", contentID, contentHash, metadataURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack registerContent call: %w", err)
 	}
@@ -233,21 +230,18 @@ func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *Cont
 	return data, nil
 }
 
-func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentHash string) (bool, error) {
+// VerifyContent checks whether a contentId is registered, mirroring
+// contentExists(string) in contracts/src/ContentRegistry.sol.
+func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *ContractInteractor, contentID string) (bool, error) {
 	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
 
-	hashBytes, err := hexToBytes32(contentHash)
-	if err != nil {
-		return false, fmt.Errorf("invalid content hash: %w", err)
-	}
-
 	contract := common.HexToAddress(cr.Address)
-	callData, err := parsedABI.Pack("verifyContent", hashBytes)
+	callData, err := parsedABI.Pack("contentExists", contentID)
 	if err != nil {
-		return false, fmt.Errorf("failed to pack verifyContent call: %w", err)
+		return false, fmt.Errorf("failed to pack contentExists call: %w", err)
 	}
 
 	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
@@ -255,12 +249,12 @@ func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *Contra
 		Data: callData,
 	}, nil)
 	if err != nil {
-		return false, fmt.Errorf("verifyContent call failed: %w", err)
+		return false, fmt.Errorf("contentExists call failed: %w", err)
 	}
 
-	out, err := parsedABI.Unpack("verifyContent", result)
+	out, err := parsedABI.Unpack("contentExists", result)
 	if err != nil {
-		return false, fmt.Errorf("failed to unpack verifyContent result: %w", err)
+		return false, fmt.Errorf("failed to unpack contentExists result: %w", err)
 	}
 	if len(out) > 0 {
 		if valid, ok := out[0].(bool); ok {
@@ -270,21 +264,18 @@ func (cr *ContractContentRegistry) VerifyContent(ctx context.Context, ci *Contra
 	return false, nil
 }
 
-func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *ContractInteractor, contentHash string) (*ContentInfo, error) {
+// GetContent reads the on-chain record, mirroring getContent(string) in
+// contracts/src/ContentRegistry.sol.
+func (cr *ContractContentRegistry) GetContent(ctx context.Context, ci *ContractInteractor, contentID string) (*ContentRecord, error) {
 	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
 
-	hashBytes, err := hexToBytes32(contentHash)
-	if err != nil {
-		return nil, fmt.Errorf("invalid content hash: %w", err)
-	}
-
 	contract := common.HexToAddress(cr.Address)
-	callData, err := parsedABI.Pack("getContentInfo", hashBytes)
+	callData, err := parsedABI.Pack("getContent", contentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pack getContentInfo call: %w", err)
+		return nil, fmt.Errorf("failed to pack getContent call: %w", err)
 	}
 
 	result, err := ci.client.CallContract(ctx, ethereum.CallMsg{
@@ -292,25 +283,31 @@ func (cr *ContractContentRegistry) GetContentInfo(ctx context.Context, ci *Contr
 		Data: callData,
 	}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("getContentInfo call failed: %w", err)
+		return nil, fmt.Errorf("getContent call failed: %w", err)
 	}
 
-	type getContentInfoResult struct {
-		Owner     common.Address
-		Timestamp *big.Int
-		Metadata  string
+	type getContentResult struct {
+		ContentID   string
+		Creator     common.Address
+		ContentHash string
+		MetadataURI string
+		Status      uint8
+		CreatedAt   *big.Int
+		UpdatedAt   *big.Int
 	}
-	var out getContentInfoResult
-	if err := parsedABI.UnpackIntoInterface(&out, "getContentInfo", result); err != nil {
-		return nil, fmt.Errorf("failed to unpack getContentInfo result: %w", err)
+	var out getContentResult
+	if err := parsedABI.UnpackIntoInterface(&out, "getContent", result); err != nil {
+		return nil, fmt.Errorf("failed to unpack getContent result: %w", err)
 	}
 
-	return &ContentInfo{
-		Hash:      contentHash,
-		Owner:     out.Owner.Hex(),
-		Timestamp: out.Timestamp.Int64(),
-		Metadata:  out.Metadata,
-		IsValid:   out.Owner != common.Address{},
+	return &ContentRecord{
+		ContentID:   out.ContentID,
+		Creator:     out.Creator.Hex(),
+		ContentHash: out.ContentHash,
+		MetadataURI: out.MetadataURI,
+		Status:      out.Status,
+		CreatedAt:   out.CreatedAt.Int64(),
+		UpdatedAt:   out.UpdatedAt.Int64(),
 	}, nil
 }
 

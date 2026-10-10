@@ -348,19 +348,7 @@ func TestWeb3Service_CancelPendingTransaction_NilManager(t *testing.T) {
 	assert.Contains(t, err.Error(), "multiChainManager not initialized")
 }
 
-func TestW3TxExt_UploadToIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.UploadToIPFS(context.Background(), "file.txt", []byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
-func TestW3TxExt_DownloadFromIPFS_NilClient(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	_, err := svc.DownloadFromIPFS(context.Background(), "QmTest")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "IPFS client not initialized")
-}
 
 func TestW3TxExt_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
@@ -423,10 +411,6 @@ func TestW3TxExt_GetGasMonitor_Nil(t *testing.T) {
 	assert.Nil(t, svc.GetGasMonitor())
 }
 
-func TestW3TxExt_GetIPFSClient_Nil(t *testing.T) {
-	svc := &Web3Service{logger: zap.NewNop()}
-	assert.Nil(t, svc.GetIPFSClient())
-}
 
 func TestW3TxExt_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}

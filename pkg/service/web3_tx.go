@@ -53,30 +53,6 @@ func (ws *Web3Service) GetGasPriceLevels(ctx context.Context, chainID int64) ([]
 	return ws.gasMonitor.GetGasPriceLevels(ctx)
 }
 
-// UploadToIPFS uploads a file to IPFS
-func (ws *Web3Service) UploadToIPFS(ctx context.Context, filename string, data []byte) (string, error) {
-	ws.logger.Debug("Uploading to IPFS",
-		zap.String("filename", filename),
-		zap.Int("size", len(data)))
-
-	if ws.ipfsClient == nil {
-		return "", fmt.Errorf("IPFS client not initialized")
-	}
-
-	return ws.ipfsClient.UploadFile(ctx, filename, data)
-}
-
-// DownloadFromIPFS downloads a file from IPFS
-func (ws *Web3Service) DownloadFromIPFS(ctx context.Context, cid string) ([]byte, error) {
-	ws.logger.Debug("Downloading from IPFS", zap.String("cid", cid))
-
-	if ws.ipfsClient == nil {
-		return nil, fmt.Errorf("IPFS client not initialized")
-	}
-
-	return ws.ipfsClient.DownloadFile(ctx, cid)
-}
-
 // SendTransaction builds, signs, and sends an EVM transaction on the given chain.
 // It resolves the nonce, estimates gas (with configurable buffer), signs with the
 // configured private key, and dispatches via ChainClient.SendTransaction.

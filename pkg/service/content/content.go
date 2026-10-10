@@ -2,7 +2,9 @@ package content
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,9 +31,11 @@ type ContentService struct {
 }
 
 // ContentRegistry defines the interface for on-chain content registration.
-// Implemented by web3.ContentRegistryBinding; nil means on-chain registration is disabled.
+// Signatures mirror registerContent(string,string,string) in
+// contracts/src/ContentRegistry.sol (implemented by web3.ContentRegistryBinding);
+// nil means on-chain registration is disabled.
 type ContentRegistry interface {
-	RegisterContent(ctx context.Context, contentHash [32]byte, metadata string) (string, error)
+	RegisterContent(ctx context.Context, contentID, contentHash, metadataURI string) (string, error)
 }
 
 // ContentObjectStorage defines the interface for object storage
@@ -357,11 +361,13 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 		return "", fmt.Errorf("commit tx: %w", err)
 	}
 
-	// Optionally register on-chain after successful DB commit
+	// Optionally register on-chain after successful DB commit. The chain is
+	// the ownership/existence truth source; a failed registration must not
+	// fail the DB insert (degrade, never crash).
 	if s.registry != nil {
-		var contentHash [32]byte
-		copy(contentHash[:], []byte(content.ID))
-		if txHash, err := s.registry.RegisterContent(ctx, contentHash, content.Title); err != nil {
+		contentHash := contentContentHash(content)
+		metadataURI, _ := content.Metadata["metadata_uri"].(string)
+		if txHash, err := s.registry.RegisterContent(ctx, content.ID, contentHash, metadataURI); err != nil {
 			s.logger.Warn("On-chain registration failed (content still in DB)",
 				zap.String("id", content.ID),
 				zap.Error(err))
@@ -656,4 +662,16 @@ func (s *ContentService) UpdateContentStatus(ctx context.Context, id, status str
 	}
 
 	return nil
+}
+
+// contentContentHash derives the deterministic content fingerprint registered
+// on-chain: SHA-256 of the media URL when set, else of the content ID. A real
+// media hash replaces this once uploads carry one.
+func contentContentHash(c *Content) string {
+	source := c.URL
+	if source == "" {
+		source = c.ID
+	}
+	sum := sha256.Sum256([]byte(source))
+	return hex.EncodeToString(sum[:])
 }

@@ -64,6 +64,11 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	db, _ := provideDatabase(cfg, log, resources)
 	contentSvc := provideContentService(rc, db, log)
+	if contentSvc != nil && rc.ContentService == nil {
+		if registry := ProvideContentRegistry(cfg, log); registry != nil {
+			contentSvc.SetContentRegistry(registry)
+		}
+	}
 	resources.ContentService = contentSvc
 
 	objStorage := provideObjectStorage(rc, cfg, log, resources)

@@ -444,43 +444,6 @@ func (ft *FFmpegTranscoder) generateHLSMasterPlaylist(outputDir string, profiles
 	return os.WriteFile(masterPath, []byte(builder.String()), 0o644)
 }
 
-// TranscodeToDASH transcodes video to DASH format with multiple quality levels
-func (ft *FFmpegTranscoder) TranscodeToDASH(ctx context.Context, inputPath, outputDir string, profiles []TranscodeProfile, callback ProgressCallback) error {
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	videoCodec := ft.config.VideoCodec
-	if videoCodec == "" {
-		videoCodec = "libx264"
-	}
-
-	audioCodec := ft.config.AudioCodec
-	if audioCodec == "" {
-		audioCodec = "aac"
-	}
-
-	args := []string{
-		"-i", inputPath,
-		"-c:v", videoCodec,
-		"-preset", "ultrafast",
-		"-crf", "28",
-		"-c:a", audioCodec,
-		"-b:a", "128k",
-		"-ac", "2",
-		"-f", "dash",
-		"-seg_duration", "6",
-		"-use_template", "1",
-		"-use_timeline", "1",
-		"-init_seg_name", "init-$RepresentationID$.m4s",
-		"-media_seg_name", "chunk-$RepresentationID$-$Number%05d$.m4s",
-		"-y",
-		filepath.Join(outputDir, "manifest.mpd"),
-	}
-
-	return ft.runFFmpeg(ctx, args, 0, callback)
-}
-
 // ExtractThumbnail extracts a thumbnail from video
 func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, outputPath, timestamp string) error {
 	args := []string{
@@ -493,46 +456,6 @@ func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, out
 	}
 
 	return ft.runFFmpeg(ctx, args, 0, nil)
-}
-
-// ExtractAudio extracts audio track from video
-func (ft *FFmpegTranscoder) ExtractAudio(ctx context.Context, inputPath, outputPath string) error {
-	args := []string{
-		"-i", inputPath,
-		"-vn",
-		"-acodec", "copy",
-		"-y",
-		outputPath,
-	}
-
-	return ft.runFFmpeg(ctx, args, 0, nil)
-}
-
-// ConcatVideos concatenates multiple videos
-func (ft *FFmpegTranscoder) ConcatVideos(ctx context.Context, inputPaths []string, outputPath string, callback ProgressCallback) error {
-	listFile := filepath.Join(ft.config.TempDir, fmt.Sprintf("concat_%d.txt", time.Now().UnixNano()))
-	defer func() { _ = os.Remove(listFile) }()
-
-	var listContent strings.Builder
-	for _, path := range inputPaths {
-		escaped := strings.ReplaceAll(path, `'`, `'\''`)
-		fmt.Fprintf(&listContent, "file '%s'\n", escaped)
-	}
-
-	if err := os.WriteFile(listFile, []byte(listContent.String()), 0o644); err != nil {
-		return fmt.Errorf("failed to create concat list: %w", err)
-	}
-
-	args := []string{
-		"-f", "concat",
-		"-safe", "0",
-		"-i", listFile,
-		"-c", "copy",
-		"-y",
-		outputPath,
-	}
-
-	return ft.runFFmpeg(ctx, args, 0, callback)
 }
 
 // runFFmpeg executes FFmpeg command with progress monitoring

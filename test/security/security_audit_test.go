@@ -119,16 +119,8 @@ func TestTLSConfiguration(t *testing.T) {
 	t.Skip("GetTLSConfig removed from pkg/security")
 }
 
-func TestDependencyVulnerabilities(t *testing.T) {
-	vulnerabilities := checkDependencies()
-	if len(vulnerabilities) > 0 {
-		t.Logf("Found %d potential vulnerabilities in dependencies", len(vulnerabilities))
-		for _, vuln := range vulnerabilities {
-			t.Logf("  - %s", vuln)
-		}
-	}
-}
-
+// TestDependencyVulnerabilities removed (B4): checkDependencies() was constant-empty;
+// real dependency auditing now lives in CI (govulncheck).
 func TestSQLInjectionPrevention(t *testing.T) {
 	t.Log("SQL injection prevention relies on parameterized queries, not string escaping")
 	t.Log("All database operations use $1, $2, ... placeholders via database/sql")
@@ -208,9 +200,7 @@ func TestSecurityAudit(t *testing.T) {
 	}{
 		{"Input Validation", testInputValidationCheck},
 		{"Rate Limiting", testRateLimitingCheck},
-		{"Audit Logging", testAuditLoggingCheck},
 		{"Cryptography", testCryptographyCheck},
-		{"SQL Injection Prevention", testSQLInjectionCheck},
 		{"Authorization", testAuthorizationCheck},
 		{"Data Encryption", testEncryptionCheck},
 	}
@@ -245,10 +235,6 @@ func TestSecurityAudit(t *testing.T) {
 	}
 }
 
-func checkDependencies() []string {
-	return []string{}
-}
-
 func testInputValidationCheck() bool {
 	return util.ValidateEmail("test@example.com") == nil && util.ValidateEmail("invalid") != nil
 }
@@ -258,17 +244,9 @@ func testRateLimitingCheck() bool {
 	return limiter.Allow("test")
 }
 
-func testAuditLoggingCheck() bool {
-	return true
-}
-
 func testCryptographyCheck() bool {
 	hash := util.HashSHA256([]byte("test"))
 	return len(hash) == 64
-}
-
-func testSQLInjectionCheck() bool {
-	return true
 }
 
 func testAuthorizationCheck() bool {
