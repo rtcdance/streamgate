@@ -101,7 +101,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   - `golangci-lint run ./pkg/...` → **0 issues**
   - CI 覆盖情况：`/test/load`、`/test/integration/web3` 无任何 CI 执行；`/test/e2e` 在 `test.yml:324` 有专门 job（`-tags=e2e`），只是不随主测试通道跑
 
-### [ ] P0-3 恢复被删除的面试材料
+### [x] P0-3 恢复被删除的面试材料
 
 - **依赖**：无
 - **步骤**：
@@ -178,7 +178,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   **必须复现生产注册顺序**：分片路由先注册（`routes.go:52`），JWT 后挂（`:54`）——顺序错了测试就没意义。
 - **⚠️ 尚未实现的部分**：计划原列的 gRPC 测试（`TestGRPC_GetSegment_TokenWithoutWallet_Unauthenticated`）**未写**，需在 A7 时补上。`streamingGrpcServer` 定义在 `pkg/gateway/grpc_server.go:693`，字段 `authSvc *service.AuthService`（`:695`）。
 
-### [ ] A2 修复 JWT 中间件的无条件放行
+### [x] A2 修复 JWT 中间件的无条件放行
 
 - **依赖**：A1
 - **文件**：`pkg/middleware/auth.go:51-52`
@@ -196,7 +196,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/middleware/... -count=1`
 - **验收判据**：`TestManifest_BogusPlaybackToken_Returns401` 转绿
 
-### [ ] A3 新增 PlaybackTokenAuth 中间件并挂到分片路由
+### [x] A3 新增 PlaybackTokenAuth 中间件并挂到分片路由
 
 - **依赖**：A2
 - **文件**：`pkg/gateway/routes.go:52`（分片路由注册位置）、`pkg/gateway/streaming_handlers.go`
@@ -235,7 +235,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/gateway/... -count=1`
 - **验收判据**：`TestSegment_NoToken_Returns401` 保持绿；A1 的 4 个 RED 中与 token 相关的 2 个转绿
 
-### [ ] A4 修复 manifest handler 的校验分支被绕过
+### [x] A4 修复 manifest handler 的校验分支被绕过
 
 - **依赖**：A3
 - **文件**：`pkg/gateway/streaming_handlers.go:190`
@@ -245,7 +245,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验收判据**：`TestManifest_CallerSuppliedContract_Ignored` 转绿
 
 
-### [ ] A5 禁止为空钱包签发播放令牌
+### [x] A5 禁止为空钱包签发播放令牌
 
 - **依赖**：A4
 - **文件**：`pkg/gateway/streaming_handlers.go:228,250`
@@ -256,7 +256,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/service/... ./pkg/gateway/... -count=1`
 - **验收判据**：空钱包无法获得令牌
 
-### [ ] A6 修复 ValidatePlaybackToken 的可变参数与短路
+### [x] A6 修复 ValidatePlaybackToken 的可变参数与短路
 
 - **依赖**：A5
 - **文件**：`pkg/service/auth_wallet.go:407`（签名）、`:422`、`:428`
@@ -275,7 +275,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/service/... ./pkg/gateway/... -count=1`
 - **验收判据**：编译通过 + 全部调用点显式传 wallet
 
-### [ ] A7 修复 gRPC 路径（易漏）
+### [x] A7 修复 gRPC 路径（易漏）
 
 - **依赖**：A6
 - **文件**：`pkg/gateway/grpc_server.go:824`
@@ -284,7 +284,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/gateway/ -run TestGRPC -count=1`
 - **验收判据**：`TestGRPC_GetSegment_TokenWithoutWallet_Unauthenticated` 转绿
 
-### [ ] A8 门控改为 fail-closed（三处）
+### [x] A8 门控改为 fail-closed（三处）
 
 - **依赖**：A1
 - **文件**：`pkg/middleware/nft_gate.go`
@@ -298,7 +298,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/middleware/ -count=1`
 - **验收判据**：`TestManifest_NoGatingRules_DeniesByDefault` 转绿
 
-### [ ] A9 删除"请求方指定 contract"
+### [x] A9 删除"请求方指定 contract"
 
 - **依赖**：A1
 - **文件**：`pkg/middleware/nft_gate.go:267`（`parseNFTParams` 从 query 读 `contract`/`contract_address`/`token_id`/`chain_id`）、`:310-316`
@@ -308,7 +308,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **验证**：`go test ./pkg/middleware/... -count=1`
 - **验收判据**：`TestManifest_CallerSuppliedContract_Ignored` 转绿
 
-### [ ] A10 验证 G1
+### [x] A10 验证 G1
 
 - **依赖**：A2–A9 全部完成
 - **步骤**：
@@ -334,7 +334,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 
 ## 3. Track B — 减法与诚实
 
-### [ ] B1 删除无引用的智能合约
+### [x] B1 删除无引用的智能合约
 
 - **依赖**：无（可与 Track A 并行）
 - **步骤**：
@@ -347,7 +347,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   3. 从 `contracts/script/Deploy.s.sol` 移除对应部署逻辑
 - **验收判据**：`forge build`（在 `contracts/` 下）通过
 
-### [ ] B2 修 DemoNFT 的两个真实缺陷
+### [x] B2 修 DemoNFT 的两个真实缺陷
 
 - **依赖**：无
 - **文件**：`contracts/src/DemoNFT.sol:43-46`、`:52-74`
@@ -356,7 +356,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   2. `supportsInterface` 当前返回 `0x80ac58cd`（ERC-721）与 `0x780e9d63`（Enumerable），但 `approve`/`setApprovalForAll` **直接 `revert("not implemented")`**——**这是向 ERC-165 谎报**。只返回真正实现的接口。
 - **验收判据**：`forge test` 通过；`supportsInterface(0x80ac58cd)` 的行为与实现一致
 
-### [ ] B3 接线链上内容登记（代码已存在，只缺调用）
+### [x] B3 接线链上内容登记（代码已存在，只缺调用）
 
 - **依赖**：P0-1
 - **证据**：`pkg/service/content/content.go:361-364` 的上链逻辑被 `if s.registry != nil` 包住，而 `SetContentRegistry`（`content.go:79`）**无任何非测试调用者**；`provideContentService`（`pkg/gateway/providers.go:157-163`）只调 `service.NewContentService(db, nil, nil)`，从不设置 registry。**故该分支运行时永不执行。**
@@ -367,17 +367,17 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   3. 补充集成测试：创建内容 → 断言产生交易哈希
 - **验收判据**：创建内容后日志出现 `Content registered on-chain`，且有交易哈希
 
-### [ ] B4 删除死代码（清单见附录 B）
+### [x] B4 删除死代码（清单见附录 B）
 
 - **依赖**：无
 - **验收判据**：非测试源码行数下降；`go build ./...` 与 `go test ./...` 仍通过
 
-### [ ] B5 文档对齐（8 处矛盾，见附录 A.6）
+### [x] B5 文档对齐（8 处矛盾，见附录 A.6）
 
 - **依赖**：B1、B4
 - **验收判据**：附录 A.6 表格中每条都已修正
 
-### [ ] B6 CI 真实化
+### [x] B6 CI 真实化
 
 - **文件**：`.github/workflows/ci.yml:121`、`:216`；`.github/workflows/build.yml:113,136-142`
 - **步骤**：
@@ -388,7 +388,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   5. `:216` 的 docker job 依赖加入 security，使其真正成为门禁
 - **验收判据**：故意引入一个漏洞依赖 → CI 必须失败
 
-### [ ] B7 凭据清理
+### [x] B7 凭据清理
 
 - **文件**：`config/config.dev.yaml`、`config/config.test.yaml`、`docs/ARCHITECTURE.md:354`（注：test.yaml 仅含 `minioadmin`，密码为 `streamgate_test_password`、JWT 为 `test-secret-key`——三处凭据字面量都要清）
 - **步骤**：默认凭据（`minioadmin`、`streamgate_dev_password`、`dev-secret-key-not-for-production`）移入 `.env.example`；删除 `docs/ARCHITECTURE.md:354` 的硬编码 secret 字面量
@@ -400,18 +400,18 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 
 > **人工边界（2026-10-10 评审补充）**：G5 的「3 个真人」与 C4 的投递是**人工任务**。AI 执行到 C3（产出全部物料）为止；C4 交还人工。G5 的 3 个真人来源建议：web3 求职内推群、前同事、技术社区（Foundry/以太坊中文社区）——**先约人再定稿**，避免判据悬空。
 
-### [ ] C0 简历初稿 v0（解锁第 3 周硬规则；2026-10-10 评审新增）
+### [x] C0 简历初稿 v0（解锁第 3 周硬规则；2026-10-10 评审新增）
 
 - **依赖**：P0-3。**不依赖 B5**——初稿直接用附录 A.3 已核实的优势与 A1–A10 修复事实；B5 完成后在 C2 润色。
 - **步骤**：以 `docs/_recovered/` 的中英模板为起点，产出 `docs/resume/RESUME_CN.md` 与 `docs/resume/RESUME_EN.md`（**双语都要**——附录 C 的目标公司基本要求英文；个人信息留占位符）。
 - **验收判据**：两份简历成稿，内容纪律与 C2 相同（只写能现场证明的；不写 150K 行、覆盖率、微内核、10 微服务、v1.0.0-stable）。
 
-### [ ] C1 评估恢复的面试材料
+### [x] C1 评估恢复的面试材料
 
 - **依赖**：P0-3
 - **验收判据**：`docs/_recovered/` 中只留有实质内容的文件
 
-### [ ] C2 产出简历（**这是解锁 J1 的前置**）
+### [x] C2 产出简历（**这是解锁 J1 的前置**）
 
 - **依赖**：C0、C1、B5
 - **步骤**：
@@ -421,7 +421,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   4. 密钥分发（Track D-1）完成后补进简历
 - **验收判据（G5）**：**3 个真人读过，并回答"你会面这个人吗"**。若 ≥2 人答否 → 重写
 
-### [ ] C3 项目讲述稿 + 预演
+### [x] C3 项目讲述稿 + 预演
 
 - **依赖**：C2
 - **步骤**：
