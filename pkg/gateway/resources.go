@@ -40,6 +40,9 @@ type AppResources struct {
 	StreamingCache  *StreamingCache
 	NATSQueue       io.Closer
 	MiddlewareSvc   *middleware.Service
+	// GatingRuleResolver feeds the gRPC streaming server (the HTTP gate reads
+	// it via serviceInit); nil means gRPC manifest access is denied (fail-closed).
+	GatingRuleResolver middleware.GatingRuleResolver
 }
 
 // Close releases all held resources. Errors from individual closes are

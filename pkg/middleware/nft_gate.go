@@ -113,9 +113,14 @@ type NFTGateConfig struct {
 	MarketplaceURL     string
 	BlockTag           web3.BlockTag
 	AutoDetectStandard bool
-	Enabled            atomic.Bool // atomic for safe concurrent runtime toggling
-	reorgActive        atomic.Bool
-	reorgDetectedAt    atomic.Int64
+	// GatingMode decides what happens when NO active gating rules resolve for a
+	// content: "closed" (default) denies the request (fail-closed — an unlisted
+	// content is protected by default), "open" allows it (for explicitly public
+	// deployments). Empty means "closed".
+	GatingMode  string
+	Enabled     atomic.Bool // atomic for safe concurrent runtime toggling
+	reorgActive atomic.Bool
+	reorgDetectedAt atomic.Int64
 }
 
 type blockHashEntry struct {
@@ -184,11 +189,20 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 	if config.BlockVerifyCache == nil {
 		config.BlockVerifyCache = NewBlockHashCache()
 	}
+	// Gating is fail-closed by default: a content with no resolvable rules is
+	// DENIED unless the operator explicitly opted into "open".
+	if config.GatingMode == "" {
+		config.GatingMode = "closed"
+	}
 	config.Enabled.Store(true)
 
 	return func(c *gin.Context) {
 		if !config.Enabled.Load() {
-			c.Next()
+			// Fail closed: the gate being toggled off must not become a bypass.
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "nft gating is disabled; protected content is unavailable",
+				"code":  "GATING_DISABLED",
+			})
 			return
 		}
 
@@ -207,16 +221,28 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 
 		contract, chainID, tokenID, contentID := parseNFTParams(c, config)
 
-		resolvedRules, minBalance, gatingRequired, errResp := resolveNFTGateRules(c, config, logger, contentID, &contract, &tokenID, &chainID)
+		resolvedRules, minBalance, gatingRequired, errStatus, errResp := resolveNFTGateRules(c, config, logger, contentID, &contract, &tokenID, &chainID)
 		if errResp != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, errResp)
+			if errStatus == 0 {
+				errStatus = http.StatusBadRequest
+			}
+			c.AbortWithStatusJSON(errStatus, errResp)
 			return
 		}
 
 		if !gatingRequired {
-			c.Set("nft_verified", true)
-			c.Set("nft_bypass_reason", "no_gating_rules")
-			c.Next()
+			if config.GatingMode == "open" {
+				c.Set("nft_verified", true)
+				c.Set("nft_bypass_reason", "no_gating_rules")
+				c.Next()
+				return
+			}
+			// Fail closed: no rules means the content is gated by default.
+			// (An explicitly public deployment sets GatingMode "open".)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "content is gated; no active gating rules are configured for it",
+				"code":  "GATING_REQUIRED",
+			})
 			return
 		}
 
@@ -264,29 +290,30 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 }
 
 func parseNFTParams(c *gin.Context, config *NFTGateConfig) (contract string, chainID int64, tokenID, contentID string) {
-	contract = c.Query("contract")
-	if contract == "" {
-		contract = c.Query("contract_address")
-	}
+	// The authorization subject MUST come from server-side gating rules, never
+	// from the request: a caller-supplied ?contract= would let anyone pass the
+	// gate by naming a contract they happen to hold an NFT in. RuleResolver is
+	// the only source; resolveNFTGateRules applies the first resolved rule.
+	contract = ""
 	chainID = config.DefaultChainID
-	if raw := c.Query("chain_id"); raw != "" {
-		if parsed, err := parseInt64(raw); err == nil {
-			chainID = parsed
-		}
-	}
-	tokenID = c.Query("token_id")
+	tokenID = ""
 	contentID = c.Param("id")
 	return
 }
 
-func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) (rules []GatingRule, statusCode int, hasAccess bool, errorBody gin.H) {
+func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) (rules []GatingRule, minBalance int, hasAccess bool, errStatus int, errorBody gin.H) {
 	var resolvedRules []GatingRule
 	rulesFetched := false
 	if contentID != "" && config.RuleResolver != nil {
 		rules, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
 		if err != nil {
-			logger.Warn("failed to resolve gating rules, treating as no gating required", zap.String("content_id", contentID), zap.Error(err))
-			return nil, 0, false, nil
+			// Fail closed: an unresolvable rule set must not become a bypass.
+			logger.Error("failed to resolve gating rules; denying request",
+				zap.String("content_id", contentID), zap.Error(err))
+			return nil, 0, false, http.StatusInternalServerError, gin.H{
+				"error": "failed to resolve gating rules",
+				"code":  "GATING_RULES_ERROR",
+			}
 		}
 		resolvedRules = rules
 		rulesFetched = true
@@ -296,17 +323,16 @@ func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logg
 	}
 
 	if !rulesFetched {
-		if *contract != "" {
-			return nil, 0, true, nil
-		}
-		return nil, 0, false, nil
+		// No resolver (or no content ID): there are no server-side rules to
+		// authorize against. GatingRequired=false hands the decision to the
+		// GatingMode check (closed denies, open allows).
+		return nil, 0, false, 0, nil
 	}
 
 	if len(resolvedRules) == 0 {
-		return nil, 0, false, nil
+		return nil, 0, false, 0, nil
 	}
 
-	var minBalance int
 	if *contract == "" && len(resolvedRules) > 0 {
 		rule := resolvedRules[0]
 		*contract = rule.ContractAddress
@@ -316,13 +342,13 @@ func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logg
 	}
 
 	if *contract == "" {
-		return nil, 0, false, gin.H{
+		return nil, 0, false, 0, gin.H{
 			"error": "contract address is required",
 			"code":  "MISSING_CONTRACT",
 			"hint":  "provide 'contract' query parameter with the NFT contract address",
 		}
 	}
-	return resolvedRules, minBalance, true, nil
+	return resolvedRules, minBalance, true, 0, nil
 }
 
 func resolveAutoDetect(c *gin.Context, config *NFTGateConfig, contract string, resolvedRules []GatingRule) bool {

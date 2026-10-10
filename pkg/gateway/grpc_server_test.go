@@ -985,22 +985,27 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 
-	t.Run("no contract metadata", func(t *testing.T) {
+	// Without a rule resolver the manifest is denied for safety (fail-closed, A9):
+	// the authorization subject must come from server-side rules, never caller metadata.
+	t.Run("no rule resolver", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
 		srv := &streamingGrpcServer{log: log}
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		st, _ := status.FromError(err)
-		assert.Equal(t, codes.PermissionDenied, st.Code())
+		assert.Equal(t, codes.Internal, st.Code())
 	})
 
+	// Caller-supplied x-nft-contract metadata is IGNORED (A9); rules come from
+	// the server-side resolver.
 	t.Run("no NFT verifier", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
-		ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-			"x-nft-contract": "0xContract",
-		}))
-		srv := &streamingGrpcServer{nftVerifier: nil, log: log}
+		srv := &streamingGrpcServer{
+			nftVerifier:  nil,
+			ruleResolver: grpcMockGatingRuleResolver{},
+			log:          log,
+		}
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -1010,12 +1015,10 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 
 	t.Run("NFT verification fails", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
-		ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-			"x-nft-contract": "0xContract",
-		}))
 		srv := &streamingGrpcServer{
-			nftVerifier: &grpcMockNFTChecker{owns: false, ownsErr: errors.New("rpc fail")},
-			log:         log,
+			nftVerifier:  &grpcMockNFTChecker{owns: false, ownsErr: errors.New("rpc fail")},
+			ruleResolver: grpcMockGatingRuleResolver{},
+			log:          log,
 		}
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
@@ -1026,12 +1029,10 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 
 	t.Run("NFT not owned", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
-		ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-			"x-nft-contract": "0xContract",
-		}))
 		srv := &streamingGrpcServer{
-			nftVerifier: &grpcMockNFTChecker{owns: false},
-			log:         log,
+			nftVerifier:  &grpcMockNFTChecker{owns: false},
+			ruleResolver: grpcMockGatingRuleResolver{},
+			log:          log,
 		}
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
@@ -1345,4 +1346,15 @@ func TestUploadGrpcServer_InitUpload_ChunkCountOverflow(t *testing.T) {
 	})
 	assert.Error(t, err)
 	assert.Nil(t, resp)
+}
+
+// grpcMockGatingRuleResolver serves one server-side rule for any content —
+// mirrors the post-A9 contract where the authorization subject comes from the
+// server, never from caller metadata.
+type grpcMockGatingRuleResolver struct{}
+
+func (grpcMockGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ string) ([]middleware.GatingRule, error) {
+	return []middleware.GatingRule{
+		{ContractAddress: "0x1111111111111111111111111111111111111111", TokenID: "", ChainID: 1, Standard: "ERC721", MinBalance: 1},
+	}, nil
 }

@@ -233,6 +233,7 @@ type LoggingConfig struct {
 // FeaturesConfig holds feature flags
 type FeaturesConfig struct {
 	NFTGating       bool
+	GatingMode      string // "closed" (default, fail-closed) or "open" for explicitly public content
 	SignatureAuth   bool
 	ChunkedUpload   bool
 	ResumableUpload bool
@@ -532,6 +533,7 @@ func LoadConfig() (*Config, error) {
 
 		Features: FeaturesConfig{
 			NFTGating:       viper.GetBool("features.nft_gating"),
+			GatingMode:      viper.GetString("features.gating_mode"),
 			SignatureAuth:   viper.GetBool("features.signature_auth"),
 			ChunkedUpload:   viper.GetBool("features.chunked_upload"),
 			ResumableUpload: viper.GetBool("features.resumable_upload"),
@@ -691,6 +693,7 @@ func setDefaults() {
 
 	// Features defaults
 	viper.SetDefault("features.nft_gating", true)
+	viper.SetDefault("features.gating_mode", "closed")
 	viper.SetDefault("features.signature_auth", true)
 	viper.SetDefault("features.chunked_upload", true)
 	viper.SetDefault("features.resumable_upload", true)
@@ -999,6 +1002,7 @@ func DefaultConfig() *Config {
 
 		Features: FeaturesConfig{
 			NFTGating:       true,
+			GatingMode:      "closed",
 			SignatureAuth:   true,
 			ChunkedUpload:   true,
 			ResumableUpload: true,

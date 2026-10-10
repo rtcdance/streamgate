@@ -211,6 +211,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		CacheTTL:       60 * time.Second,
 		MarketplaceURL: "https://opensea.io/assets/ethereum/{contract}/{token_id}",
 		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
+		GatingMode:     cfg.Features.GatingMode, // empty → "closed" (fail-closed default set by the middleware)
 	}
 	nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
 	// Streaming routes (manifest + segment) live on streamGroup, whose chain is
