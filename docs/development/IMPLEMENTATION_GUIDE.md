@@ -293,8 +293,8 @@ redis:
 storage:
   type: minio
   endpoint: localhost:9000
-  accesskey: minioadmin
-  secretkey: minioadmin
+  accesskey: "${STREAMGATE_STORAGE_ACCESS_KEY}"   # see .env.example
+  secretkey: "${STREAMGATE_STORAGE_SECRET_KEY}"   # see .env.example
   bucket: streamgate
 ```
 

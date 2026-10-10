@@ -118,8 +118,8 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           go tool cover -func=coverage.out 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          if [ "$(echo "$COVERAGE < 10" | bc -l)" = "1" ]; then
-            echo "Coverage ${COVERAGE}% is below 10% threshold"
+          if [ "$(echo "$COVERAGE < 60" | bc -l)" = "1" ]; then
+            echo "Coverage ${COVERAGE}% is below 60% threshold"
             exit 1
           fi
 
@@ -201,6 +201,12 @@ jobs:
         run: |
           gosec -exclude-dir=examples -exclude-dir=test -exclude-dir=pkg/api -exclude=G101,G103,G104,G115,G201,G202,G203,G204,G301,G304,G306 ./...
 
+      - name: Install govulncheck
+        run: GOPROXY=${{ env.GOPROXY }} go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
       - uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run Slither
@@ -208,13 +214,12 @@ jobs:
         with:
           target: contracts/
           slither-args: --filter-paths "lib|test"
-        continue-on-error: true
 
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test-go, build]
-    if: always() && needs.build.result == 'success'
+    needs: [test-go, build, security]
+    if: always() && needs.build.result == 'success' && needs.security.result == 'success'
     steps:
       - uses: actions/checkout@v4
 
