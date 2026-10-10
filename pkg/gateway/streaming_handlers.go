@@ -192,7 +192,12 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		quality := c.Query("quality")
 
 		if queryToken != "" {
-			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), queryToken, contentID, c.GetHeader("X-Client-Fingerprint"))
+			wallet := middleware.GetWalletAddress(c)
+			if wallet == "" {
+				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+				return
+			}
+			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), queryToken, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
 			if validateErr != nil {
 				middleware.GetLogger(c, log).Warn("playback token validation failed for manifest",
 					zap.String("content_id", contentID),
@@ -373,6 +378,13 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
+		if wallet == "" {
+			// The wallet is set by PlaybackTokenAuth (from the validated token's
+			// claims) or by JWTAuthMiddleware; without it there is nothing to
+			// bind the token to, so refuse rather than skip the wallet check.
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+			return
+		}
 		claims, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
 		if err != nil {
 			middleware.GetLogger(c, log).Warn("playback token validation failed",

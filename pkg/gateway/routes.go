@@ -58,7 +58,7 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	// get the chain [PlaybackTokenAuth, JWT, NFTGate].
 	playbackAuth := middleware.PlaybackTokenAuth(middleware.PlaybackTokenAuthConfig{
 		Validate: func(ctx context.Context, token, contentID, fingerprint string) (string, error) {
-			claims, err := svc.AuthService.ValidatePlaybackToken(ctx, token, contentID, fingerprint)
+			claims, err := svc.AuthService.ParsePlaybackToken(ctx, token, contentID, fingerprint)
 			if err != nil {
 				return "", err
 			}

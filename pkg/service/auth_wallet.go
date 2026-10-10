@@ -409,39 +409,62 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	return token, nil
 }
 
-// ValidatePlaybackToken validates a playback token and ensures it matches the
-// requested content. If walletAddress is non-empty, it also verifies that the
-// token was issued to the same wallet, preventing token sharing between users.
-func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint string, walletAddress ...string) (*Claims, error) {
-	_, span := monitoring.StartOTelSpan(ctx, "auth.validate_playback_token",
+// ParsePlaybackToken validates a playback token against the requested content
+// WITHOUT a wallet-binding check: the wallet comes FROM the token's claims.
+// Used by paths where the token itself is the credential (PlaybackTokenAuth
+// middleware, token-only mounts). Fingerprint binding is enforced when the
+// token was issued with one: a fingerprint-bound token must be presented with
+// the same X-Client-Fingerprint; tokens issued without a fingerprint are not
+// fingerprint-bound.
+func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint string) (*Claims, error) {
+	_, span := monitoring.StartOTelSpan(ctx, "auth.parse_playback_token",
 		attribute.String("content_id", contentID),
 	)
 	defer span.End()
 
 	claims, err := s.ParseToken(tokenString)
 	if err != nil {
-		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, err
 	}
 	if claims.Subject != contentID {
-		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, errors.New("playback token content mismatch")
 	}
-	if len(walletAddress) > 0 && walletAddress[0] != "" && claims.WalletAddress != walletAddress[0] {
-		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
-		return nil, errors.New("playback token wallet mismatch")
-	}
-	if clientFingerprint != "" && claims.ClientFingerprint != clientFingerprint {
-		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+	// A fingerprint-bound token must be presented with the same fingerprint —
+	// presenting NO fingerprint does not satisfy the binding.
+	if claims.ClientFingerprint != "" && claims.ClientFingerprint != clientFingerprint {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, errors.New("playback token fingerprint mismatch")
 	}
 	if s.blacklist != nil && claims.ID != "" {
 		if s.blacklist.IsRevoked(ctx, claims.ID) {
-			monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+			monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 			return nil, ErrTokenRevoked
 		}
 	}
-	monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "success").Inc()
+	monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "success").Inc()
+	return claims, nil
+}
+
+// ValidatePlaybackToken validates a playback token, ensures it matches the
+// requested content, and enforces that it was issued to walletAddress. The
+// wallet is REQUIRED — passing an empty wallet is an error, not a skip — which
+// forces every call site to prove whose wallet it is checking against and
+// prevents the silent no-wallet-compare downgrade this check used to have.
+func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint string, walletAddress string) (*Claims, error) {
+	if walletAddress == "" {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		return nil, errors.New("wallet address is required to validate playback token")
+	}
+	claims, err := s.ParsePlaybackToken(ctx, tokenString, contentID, clientFingerprint)
+	if err != nil {
+		return nil, err
+	}
+	if claims.WalletAddress != walletAddress {
+		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
+		return nil, errors.New("playback token wallet mismatch")
+	}
 	return claims, nil
 }
 

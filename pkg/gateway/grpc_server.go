@@ -816,16 +816,27 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 }
 
 func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.GetSegmentRequest) (*streamingv1.GetSegmentResponse, error) {
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		tokens := md.Get("playback-token")
-		if len(tokens) == 0 || tokens[0] == "" {
-			return nil, status.Error(codes.Unauthenticated, "missing playback token")
-		}
-		if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId, ""); err != nil {
-			return nil, status.Error(codes.Unauthenticated, "invalid playback token")
-		}
-	} else {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing metadata")
+	}
+	tokens := md.Get("playback-token")
+	if len(tokens) == 0 || tokens[0] == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing playback token")
+	}
+	// grpcAuthInterceptor authenticates the caller's JWT and injects the wallet;
+	// the playback token must belong to that wallet. Validating the token
+	// WITHOUT a wallet binding let any wallet's token serve segments to any caller.
+	wallet := grpcWalletFromContext(ctx)
+	if wallet == "" {
+		return nil, status.Error(codes.Unauthenticated, "wallet address required")
+	}
+	fingerprint := ""
+	if v := md.Get("x-client-fingerprint"); len(v) > 0 {
+		fingerprint = v[0]
+	}
+	if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId, fingerprint, wallet); err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid playback token")
 	}
 
 	if strings.Contains(req.SegmentId, "..") || strings.Contains(req.SegmentId, "/") || strings.Contains(req.SegmentId, "\\") {

@@ -408,6 +408,8 @@ func TestGwCov_StreamingSegmentRoute_InvalidSegmentName(t *testing.T) {
 	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "test-content", "", "", 1, 2*time.Minute, "")
 	require.NoError(t, err)
 	r := gin.New()
+	// Mirror production: auth middleware sets wallet_address (required by A6).
+	r.Use(func(c *gin.Context) { c.Set("wallet_address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18") })
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
@@ -422,6 +424,8 @@ func TestGwCov_StreamingSegmentRoute_NoObjStorage(t *testing.T) {
 	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "test-content", "", "", 1, 2*time.Minute, "")
 	require.NoError(t, err)
 	r := gin.New()
+	// Mirror production: auth middleware sets wallet_address (required by A6).
+	r.Use(func(c *gin.Context) { c.Set("wallet_address", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18") })
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache)
