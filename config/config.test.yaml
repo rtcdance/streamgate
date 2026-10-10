@@ -11,7 +11,7 @@ database:
   host: "localhost"
   port: 5432
   user: "streamgate"
-  password: "streamgate_test_password"
+  password: "${STREAMGATE_DB_PASSWORD}"  # REQUIRED: set via env in CI
   database: "streamgate_test"
   sslmode: "disable"
   maxconns: 5
@@ -30,15 +30,15 @@ storage:
   type: "minio"
   s3:
     endpoint: "http://localhost:9000"
-    access_key: "minioadmin"
-    secret_key: "minioadmin"
+    access_key: "${STREAMGATE_STORAGE_ACCESS_KEY}"  # REQUIRED: set via env in CI
+    secret_key: "${STREAMGATE_STORAGE_SECRET_KEY}"  # REQUIRED: set via env in CI
     bucket: "streamgate-test"
     region: "us-east-1"
     use_ssl: false
   minio:
     endpoint: "http://localhost:9000"
-    access_key: "minioadmin"
-    secret_key: "minioadmin"
+    access_key: "${STREAMGATE_STORAGE_ACCESS_KEY}"  # REQUIRED: set via env in CI
+    secret_key: "${STREAMGATE_STORAGE_SECRET_KEY}"  # REQUIRED: set via env in CI
     bucket: "streamgate-test"
     use_ssl: false
 
@@ -67,7 +67,7 @@ web3:
   chain_id: 1
 
 auth:
-  jwt_secret: "test-secret-key"
+  jwt_secret: "ci-placeholder-jwt-secret-not-a-real-credential"  # >=32 chars; OVERRIDE via env
   jwt_expiry: 1h
   refresh_token_expiry: 24h
   nonce_expiry: 5m

@@ -463,7 +463,8 @@ func SetupTestRedis() *redis.Client {
 // SetupTestStorage creates a test MinIO connection
 func SetupTestStorage() *minio.Client {
     client, _ := minio.New("localhost:9000", &minio.Options{
-        Creds: credentials.NewStaticV4("minioadmin", "minioadmin", ""),
+        // Local test creds come from env, not committed literals.
+		Creds: credentials.NewStaticV4(os.Getenv("STREAMGATE_STORAGE_ACCESS_KEY"), os.Getenv("STREAMGATE_STORAGE_SECRET_KEY"), ""),
     })
     return client
 }

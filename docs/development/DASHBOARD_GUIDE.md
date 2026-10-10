@@ -113,12 +113,12 @@ const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '2
 
 ## JWT secret
 
-The dev/acceptance JWT secret is **`fullchain-acceptance-secret-2026`**. It must match the backend environment variable `STREAMGATE_AUTH_JWT_SECRET`.
+The dev/acceptance JWT secret is injected via the backend environment variable `STREAMGATE_AUTH_JWT_SECRET` (default value lives in `.env.example`, never committed as a real secret).
 
 | Deployment | Env var source | Value |
 |------------|---------------|-------|
-| docker-compose.fullchain.yml | `STREAMGATE_AUTH_JWT_SECRET` | `fullchain-acceptance-secret-2026` |
-| docker-compose.monolith.yml | same | `fullchain-acceptance-secret-2026` |
+| docker-compose.fullchain.yml | `STREAMGATE_AUTH_JWT_SECRET` | from `.env.example` (local default) |
+| docker-compose.monolith.yml | same | from `.env.example` (local default) |
 
 If the JWT secret in the backend does not match what the h5-demo expects, JWT verification will fail silently (401 on protected endpoints). Align the secret before deploying.
 
@@ -202,7 +202,7 @@ The auto-mint feature is available on steps 2-3. After minting, proceed to NFT v
 
 1. **Admin mode detection by port number.** The JavaScript detects whether it is talking to monolith or microservices by checking the backend URL port. If custom port mappings are used, the detection logic in `h5-demo/js/api.js` may misidentify the backend mode.
 
-2. **JWT secret must be aligned.** The `fullchain-acceptance-secret-2026` value is hardcoded in each docker-compose file. If changed in one place but not another, auth will fail silently. Always update all compose files and the h5-demo config together.
+2. **JWT secret must be aligned.** The secret is injected into each docker-compose file from the environment. If changed in one place but not another, auth will fail silently. Always update all compose files and the h5-demo config together.
 
 3. **h5-demo is not a production dashboard.** It does not provide persistent monitoring, alerting, or historical metrics. It is an acceptance tool for validating the E2E path.
 

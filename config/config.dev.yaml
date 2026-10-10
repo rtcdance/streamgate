@@ -11,7 +11,7 @@ database:
   host: "localhost"
   port: 5432
   user: "streamgate"
-  password: "${DB_PASSWORD:-streamgate_dev_password}"  # OVERRIDE IN PRODUCTION
+  password: "${STREAMGATE_DB_PASSWORD}"  # REQUIRED: set via env (see .env.example)
   database: "streamgate_dev"
   sslmode: "disable"
   maxconns: 10
@@ -30,15 +30,15 @@ storage:
   type: "minio"
   s3:
     endpoint: "http://localhost:9000"
-    access_key: "minioadmin"
-    secret_key: "${S3_SECRET_KEY:-minioadmin}"  # OVERRIDE IN PRODUCTION
+    access_key: "${STREAMGATE_STORAGE_ACCESS_KEY}"  # REQUIRED: set via env (see .env.example)
+    secret_key: "${STREAMGATE_STORAGE_SECRET_KEY}"  # REQUIRED: set via env (see .env.example)
     bucket: "streamgate-dev"
     region: "us-east-1"
     use_ssl: false
   minio:
     endpoint: "http://localhost:9000"
-    access_key: "minioadmin"
-    secret_key: "${MINIO_SECRET_KEY:-minioadmin}"  # OVERRIDE IN PRODUCTION
+    access_key: "${STREAMGATE_STORAGE_ACCESS_KEY}"  # REQUIRED: set via env (see .env.example)
+    secret_key: "${STREAMGATE_STORAGE_SECRET_KEY}"  # REQUIRED: set via env (see .env.example)
     bucket: "streamgate-dev"
     use_ssl: false
 
@@ -94,7 +94,7 @@ web3:
   chain_id: 11155111
 
 auth:
-  jwt_secret: "${JWT_SECRET:-dev-secret-key-not-for-production}"  # OVERRIDE IN PRODUCTION
+  jwt_secret: "jwt-secret-placeholder-set-STREAMGATE_JWT_SECRET-env"  # >=32 chars so local runs do not panic; OVERRIDE via env
   jwt_expiry: 1h
   refresh_token_expiry: 24h
   nonce_expiry: 10m
