@@ -181,9 +181,14 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		gateway.RegisterNFTRoutes(authGroup, zap.NewNop(), verifier, &gateway.NFTAccessCacheAdapter{Cache: cache}, 11155111, 60*time.Second)
 		gateway.RegisterUploadRoutes(authGroup, zap.NewNop(), nil)
 
+		// Server-side gating rule: the authorization subject must come from the
+		// resolver, never from the request (A8/A9).
 		nftGateConfig := middleware.NFTGateConfig{
-			Verifier:       verifier,
-			Cache:          &gateway.NFTAccessCacheAdapter{Cache: cache},
+			Verifier:     verifier,
+			Cache:        &gateway.NFTAccessCacheAdapter{Cache: cache},
+			RuleResolver: staticGatingRuleResolver{rules: []middleware.GatingRule{
+				{ContractAddress: "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", TokenID: "", ChainID: 11155111, Standard: "erc721", MinBalance: 1},
+			}},
 			DefaultChainID: 11155111,
 			CacheTTL:       60 * time.Second,
 		}
@@ -198,7 +203,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "missing playback token"})
 				return
 			}
-			if _, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, c.Param("id"), ""); err != nil {
+			if _, err := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, c.Param("id"), "", middleware.GetWalletAddress(c)); err != nil {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid playback token"})
 				return
 			}
@@ -377,7 +382,7 @@ func TestRegisterStreamingRoutes_ManifestSuccess(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+		"/api/v1/streaming/demo/manifest.m3u8",
 		http.NoBody,
 	)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -714,4 +719,14 @@ func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
 	assert.Contains(t, metricsRec.Body.String(), "http_requests_total")
 	assert.Contains(t, metricsRec.Body.String(), "health_check_success_total")
 	assert.Contains(t, metricsRec.Body.String(), "streamgate_service_requests")
+}
+
+// staticGatingRuleResolver serves one fixed rule for any content — the
+// server-side source of the authorization subject (post-A9 contract).
+type staticGatingRuleResolver struct {
+	rules []middleware.GatingRule
+}
+
+func (s staticGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ string) ([]middleware.GatingRule, error) {
+	return s.rules, nil
 }
