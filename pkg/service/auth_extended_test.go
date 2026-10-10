@@ -554,12 +554,12 @@ func TestAuthService_ValidatePlaybackToken_WithBlacklist(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc")
+	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc", "0x1234567890123456789012345678901234567890")
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
 
 	_ = bl.Revoke(context.Background(), claims.JTI, time.Now().Add(time.Hour))
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc", "0x1234567890123456789012345678901234567890")
 	if err == nil {
 		t.Log("blacklist check skipped: claims.ID (RegisteredClaims.ID) is empty, JTI is set on custom field")
 	}

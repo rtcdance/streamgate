@@ -1132,7 +1132,7 @@ func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
 	require.NoError(t, err)
 
-	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1", "")
+	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1", "", "0xWallet")
 	require.NoError(t, err)
 	assert.Equal(t, "content1", claims.Subject)
 	assert.Equal(t, "0xWallet", claims.WalletAddress)
@@ -1145,7 +1145,7 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
 	require.NoError(t, err)
 
-	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content", "")
+	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content", "", "0xWallet")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "mismatch")
 }

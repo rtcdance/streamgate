@@ -1090,6 +1090,8 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
 		}))
+		// Mirror grpcAuthInterceptor: authenticated wallet in the request context.
+		ctx = context.WithValue(ctx, grpcWalletKey, "0xWallet")
 		srv := &streamingGrpcServer{authSvc: authSvc, log: log}
 
 		for _, segID := range []string{"../etc/passwd", "path/seg", "path\\seg"} {
@@ -1109,6 +1111,8 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
 		}))
+		// Mirror grpcAuthInterceptor: authenticated wallet in the request context.
+		ctx = context.WithValue(ctx, grpcWalletKey, "0xWallet")
 		srv := &streamingGrpcServer{authSvc: authSvc, log: log}
 		resp, err := srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{
 			ContentId: "../etc", SegmentId: "seg1.ts",
@@ -1123,6 +1127,8 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
 		}))
+		// Mirror grpcAuthInterceptor: authenticated wallet in the request context.
+		ctx = context.WithValue(ctx, grpcWalletKey, "0xWallet")
 		srv := &streamingGrpcServer{authSvc: authSvc, segStore: nil, log: log}
 		resp, err := srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{
 			ContentId: "c1", SegmentId: "seg1.ts",
@@ -1139,6 +1145,8 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
 		}))
+		// Mirror grpcAuthInterceptor: authenticated wallet in the request context.
+		ctx = context.WithValue(ctx, grpcWalletKey, "0xWallet")
 		segStore := newGrpcMockSegmentStorage()
 		srv := &streamingGrpcServer{authSvc: authSvc, segStore: segStore, log: log}
 		resp, err := srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{
@@ -1156,6 +1164,8 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
 		}))
+		// Mirror grpcAuthInterceptor: authenticated wallet in the request context.
+		ctx = context.WithValue(ctx, grpcWalletKey, "0xWallet")
 		segStore := newGrpcMockSegmentStorage()
 		segData := []byte("fake-ts-data")
 		_ = segStore.Upload(context.Background(), "streamgate", "streams/c1/seg1.ts", segData)

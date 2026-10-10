@@ -582,7 +582,7 @@ func TestValidatePlaybackToken_ContentMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-2", "fp-abc")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-2", "fp-abc", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "content mismatch")
 }
@@ -622,7 +622,7 @@ func TestValidatePlaybackToken_FingerprintMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-wrong")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-wrong", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "fingerprint mismatch")
 }
@@ -630,7 +630,7 @@ func TestValidatePlaybackToken_FingerprintMismatch(t *testing.T) {
 func TestValidatePlaybackToken_InvalidToken(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
-	_, err := auth.ValidatePlaybackToken(context.Background(), "invalid.token", "content-1", "fp-abc")
+	_, err := auth.ValidatePlaybackToken(context.Background(), "invalid.token", "content-1", "fp-abc", "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18")
 	assert.Error(t, err)
 }
 
@@ -763,4 +763,73 @@ func TestBuildEIP712Challenge(t *testing.T) {
 	assert.Equal(t, "Authentication", typedData.PrimaryType)
 	assert.NotNil(t, typedData.Domain.ChainId)
 	assert.Equal(t, int64(1), typedData.Domain.ChainId.Int64())
+}
+
+func TestValidatePlaybackToken_EmptyWalletRejected(t *testing.T) {
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
+
+	token, err := auth.GeneratePlaybackToken(
+		context.Background(),
+		"0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+		"content-1",
+		"0xcontract",
+		"7",
+		1,
+		time.Minute,
+		"",
+	)
+	require.NoError(t, err)
+
+	// An empty wallet is an ERROR, not a skip — callers must prove whose
+	// wallet they are checking against (TRANSITION_PLAN A6).
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "wallet address is required")
+}
+
+func TestParsePlaybackToken_FingerprintBoundTokenRequiresFingerprint(t *testing.T) {
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
+
+	token, err := auth.GeneratePlaybackToken(
+		context.Background(),
+		"0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+		"content-1",
+		"0xcontract",
+		"7",
+		1,
+		time.Minute,
+		"fp-bound",
+	)
+	require.NoError(t, err)
+
+	// A fingerprint-bound token must be presented with the SAME fingerprint —
+	// presenting none does not satisfy the binding.
+	_, err = auth.ParsePlaybackToken(context.Background(), token, "content-1", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fingerprint mismatch")
+
+	claims, err := auth.ParsePlaybackToken(context.Background(), token, "content-1", "fp-bound")
+	require.NoError(t, err)
+	assert.Equal(t, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", claims.WalletAddress)
+}
+
+func TestParsePlaybackToken_UnboundTokenNoFingerprintRequired(t *testing.T) {
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
+
+	token, err := auth.GeneratePlaybackToken(
+		context.Background(),
+		"0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+		"content-1",
+		"0xcontract",
+		"7",
+		1,
+		time.Minute,
+		"",
+	)
+	require.NoError(t, err)
+
+	// Tokens issued WITHOUT a fingerprint are not fingerprint-bound.
+	claims, err := auth.ParsePlaybackToken(context.Background(), token, "content-1", "")
+	require.NoError(t, err)
+	assert.Equal(t, "content-1", claims.ContentID)
 }

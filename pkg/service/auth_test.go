@@ -253,14 +253,14 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc123")
+	claims, err := auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-abc123", "0x1234567890123456789012345678901234567890")
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
 	assert.Equal(t, "7", claims.TokenID)
 	assert.Equal(t, int64(11155111), claims.ChainID)
 	assert.Equal(t, "fp-abc123", claims.ClientFingerprint)
 
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "other-content", "fp-abc123")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "other-content", "fp-abc123", "0x1234567890123456789012345678901234567890")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "content mismatch")
 }
@@ -803,7 +803,7 @@ func TestAuthService_ValidatePlaybackToken_FingerprintMismatch(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-wrong")
+	_, err = auth.ValidatePlaybackToken(context.Background(), token, "content-1", "fp-wrong", "0x1234567890123456789012345678901234567890")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "fingerprint mismatch")
 }
