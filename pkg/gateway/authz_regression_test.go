@@ -30,7 +30,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -205,29 +204,16 @@ func segmentURL() string {
 }
 
 // ===========================================================================
-// RED — these MUST fail on the current code.
-//
-// They are skipped by default so the CI test job stays green while the fix is
-// still pending. Run them explicitly with:
-//
-//	AUTHZ_RED=1 go test ./pkg/gateway/ -run 'TestManifest|TestSegment' -v
-//
-// Once TRANSITION_PLAN.md tasks A2..A9 land, remove the requireRED() calls and
-// these become permanent regression tests.
+// Permanent regression (A10). These were RED tests gated behind
+// requireRED()/AUTHZ_RED=1 while the fix was pending — tasks A2..A9 have
+// landed, so they now run unconditionally in CI and permanently guard the
+// streaming authorization path.
 // ===========================================================================
 
-func requireRED(t *testing.T) {
-	t.Helper()
-	if os.Getenv("AUTHZ_RED") == "" {
-		t.Skip("RED: pending fix (TRANSITION_PLAN A2..A9); set AUTHZ_RED=1 to run")
-	}
-}
-
 // A forged playback_token must not be accepted as a credential.
-// Current behavior: JWT is skipped (auth.go:51), the gate is bypassed
-// (nft_gate.go:195), and the request reaches the handler (404), never 401.
+// Pre-fix: JWT was skipped (auth.go:51), the gate bypassed (nft_gate.go:195),
+// and the request reached the handler (404) — never 401.
 func TestManifest_BogusPlaybackToken_Returns401(t *testing.T) {
-	requireRED(t)
 	r := newAuthzTestRouter(t, nil, nil)
 	w := doGet(r, manifestURL()+"?playback_token=x", "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code,
@@ -237,7 +223,6 @@ func TestManifest_BogusPlaybackToken_Returns401(t *testing.T) {
 // The `quality` param must not gate whether validation happens
 // (streaming_handlers.go:190). Omitting it must not open the door.
 func TestManifest_BogusPlaybackToken_NoQuality_Returns401(t *testing.T) {
-	requireRED(t)
 	r := newAuthzTestRouter(t, nil, nil)
 	w := doGet(r, manifestURL()+"?playback_token=x", "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code,
@@ -245,9 +230,8 @@ func TestManifest_BogusPlaybackToken_NoQuality_Returns401(t *testing.T) {
 }
 
 // With a valid JWT but NO gating rules, the gate must fail CLOSED.
-// Current behavior: nft_gate.go:216-221 fails open ("no_gating_rules").
+// Pre-fix: nft_gate.go failed open ("no_gating_rules").
 func TestManifest_NoGatingRules_DeniesByDefault(t *testing.T) {
-	requireRED(t)
 	r := newAuthzTestRouter(t, nil /* no rules */, nil)
 	w := doGet(r, manifestURL(), mustValidJWT(t, authzWallet))
 	assert.Equal(t, http.StatusForbidden, w.Code,
@@ -257,9 +241,8 @@ func TestManifest_NoGatingRules_DeniesByDefault(t *testing.T) {
 // The contract to verify against must come from server-side rules, never from
 // the caller (nft_gate.go:267 reads it from the query).
 // Here the server's rule is contractA, the caller owns an NFT in contractB.
-// Current behavior: the caller's contractB wins -> access granted.
+// Pre-fix: the caller's contractB won -> access granted.
 func TestManifest_CallerSuppliedContract_Ignored(t *testing.T) {
-	requireRED(t)
 	rules := []middleware.GatingRule{{
 		ContractAddress: contractA,
 		TokenID:         "1",
