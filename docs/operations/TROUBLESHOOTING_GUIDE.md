@@ -95,8 +95,8 @@ Error: failed to upload file: permission denied
 curl http://localhost:9000/minio/health/live
 
 # Check MinIO credentials
-export MINIO_ROOT_USER=minioadmin
-export MINIO_ROOT_PASSWORD=minioadmin
+export MINIO_ROOT_USER="${MINIO_ROOT_USER}"   # dev default in .env.example
+export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}"  # dev default in .env.example
 
 # Check bucket exists
 mc ls minio/streamgate

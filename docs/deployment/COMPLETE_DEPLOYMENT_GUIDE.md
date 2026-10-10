@@ -72,8 +72,8 @@ REDIS_PORT=6379
 
 # Storage
 MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}   # see .env.example — do NOT reuse the local default in production
+MINIO_SECRET_KEY=${MINIO_SECRET_KEY}   # see .env.example
 
 # Web3
 ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY

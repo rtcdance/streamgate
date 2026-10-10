@@ -115,7 +115,7 @@ Each check has a 5s timeout. Exits non-zero on first failure.
 10. POST /upload/chunk -> 200
 11. POST /upload/:id/complete -> 200
 
-Uses the acceptance JWT secret: `fullchain-acceptance-secret-2026`.
+Uses the JWT secret injected via the `STREAMGATE_JWT_SECRET` env var (see `.env.example`).
 
 ### h5-demo as operational console
 

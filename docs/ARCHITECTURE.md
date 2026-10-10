@@ -351,7 +351,7 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 
 ### Security
 
-- **JWT secret**: `fullchain-acceptance-secret-2026` (dev/acceptance). In production, use 32+ random bytes from secret manager.
+- **JWT secret**: injected via the `STREAMGATE_JWT_SECRET` env var (the compose stack sets one for local acceptance). In production, use 32+ random bytes from a secret manager — never a committed literal.
 - **Replay protection**: `MarkChallengeUsed()` is atomic (Redis `SETNX` or in-memory `sync.Map` with `LoadOrStore`).
 - **TOCTOU prevention**: NFT verify and streaming gate both check the same cache key with the same TTL.
 - **Circuit breaker**: 7 critical paths wrapped (PostgreSQL, Redis, MinIO, NATS, RPC clients). Configurable thresholds.
