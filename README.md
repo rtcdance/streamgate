@@ -11,7 +11,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](Dockerfile)
 [![OpenAPI](https://img.shields.io/badge/API-OpenAPI_3.0-6BA539)](docs/api/openapi.yaml)
-[![Status](https://img.shields.io/badge/Status-v1.0.0--stable-2ea44f)](VERSION)
+[![Status](https://img.shields.io/badge/Status-development--in--progress-orange)](VERSION)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord)](https://discord.gg/streamgate)
 
 ---
@@ -128,14 +128,14 @@ Production operations and developer experience.
 - [x] **Dual-mode Deployment** — Monolith (dev) + 9 microservices (prod)
 - [x] **Docker + Docker Compose** — Full stack with health checks
 - [x] **Kubernetes Manifests** — Deployments, services, config maps, secrets
-- [x] **Prometheus Metrics** — RED metrics (Rate/Errors/Duration) + custom
+- [~] **Prometheus Metrics** — `/metrics` endpoint (RED metrics) on every service; scrape stack (Grafana/Jaeger) removed during simplification, see docs/ARCHITECTURE.md
 - [x] **gRPC API** — Full proto definitions + interceptors + health protocol
-- [x] **OpenTelemetry Tracing** — Gin + gRPC integrated, export to Jaeger
+- [~] **OpenTelemetry Tracing** — Gin + gRPC instrumented; Jaeger export removed during simplification
 - [x] **gRPC TLS** — Certificate-based server-side TLS
 - [x] **Structured Logging** — Zap with request ID correlation
 - [x] **Health Check Aggregation** — `/health`, `/ready`, `/health/live`
-- [x] **Database Migrations** — 52 versioned migrations with rollback
-- [x] **CI/CD Pipeline** — GitHub Actions: lint → test → build → security → docker
+- [x] **Database Migrations** — 34 versioned migrations with paired rollback (18 `.down.sql`)
+- [x] **CI/CD Pipeline** — GitHub Actions: lint → test → build → security → docker (security and docker are enforcing gates; coverage floor 60%)
 - [x] **Multi-stage Docker Build** — Builder + distroless runtime support
 - [x] **Blues/Green + Canary Deployment** — K8s rollout strategies
 - [x] **SLO Alerts** — Prometheus alerting rules with burn rate
