@@ -114,11 +114,16 @@ func TestNFTGateMiddleware_Owner(t *testing.T) {
 				return big.NewInt(3), nil
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -133,11 +138,16 @@ func TestNFTGateMiddleware_NotOwner(t *testing.T) {
 				return big.NewInt(0), nil
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xNotOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xNotOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -151,16 +161,37 @@ func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8?contract="+testContractAddr, http.NoBody)
+	req := httptest.NewRequest("GET", "/stream/123/manifest.m3u8", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestNFTGateMiddleware_MissingContract(t *testing.T) {
+// No server-side gating rules + GatingMode "closed" (default) must DENY —
+// an unlisted content is protected by default (TRANSITION_PLAN A8).
+func TestNFTGateMiddleware_NoRules_FailsClosed(t *testing.T) {
 	config := NFTGateConfig{
 		Verifier:       &mockNFTOwnershipCheckerOld{},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(&config)
+
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "GATING_REQUIRED", resp["code"])
+}
+
+// An explicitly public deployment opts out via GatingMode "open".
+func TestNFTGateMiddleware_NoRules_OpenModeAllows(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier:       &mockNFTOwnershipCheckerOld{},
+		GatingMode:     "open",
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
@@ -172,14 +203,20 @@ func TestNFTGateMiddleware_MissingContract(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+// A server rule with a malformed contract address must still be rejected.
 func TestNFTGateMiddleware_InvalidContractAddress(t *testing.T) {
 	config := NFTGateConfig{
-		Verifier:       &mockNFTOwnershipCheckerOld{},
+		Verifier: &mockNFTOwnershipCheckerOld{},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: "not-a-hex-address", TokenID: "", ChainID: 1, Standard: "erc721"},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract=0xABC", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -196,11 +233,16 @@ func TestNFTGateMiddleware_VerifierError(t *testing.T) {
 				return big.NewInt(0), context.DeadlineExceeded
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -216,6 +258,11 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 				return big.NewInt(5), nil
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		Cache: &mockNFTAccessCacheOld{
 			entries: map[string]NFTAccessEntry{
 				"1:0xOwner:" + testContractAddr + ":__collection__": {
@@ -229,7 +276,7 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -245,18 +292,27 @@ func TestNFTGateMiddleware_WithTokenID(t *testing.T) {
 				return true, nil
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "42", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr+"&token_id=42", "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestNFTGateMiddleware_ContractAddressAlias(t *testing.T) {
+// Caller-supplied contract/chain_id/token_id query params must be IGNORED —
+// the authorization subject comes only from server-side rules (A9). With no
+// server rules and GatingMode closed, the request is denied even though the
+// caller names a contract they own.
+func TestNFTGateMiddleware_ContractQueryParams_Ignored(t *testing.T) {
 	config := NFTGateConfig{
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
@@ -267,11 +323,11 @@ func TestNFTGateMiddleware_ContractAddressAlias(t *testing.T) {
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract_address="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr+"&contract_address="+testContractAddr+"&token_id=42&chain_id=1", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestNewBlockHashCache_DefaultTTL(t *testing.T) {
@@ -421,11 +477,12 @@ func TestNFTGateMiddleware_Disabled(t *testing.T) {
 	router := setupNFTGateRouter(&config)
 	config.Enabled.Store(false)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	// Fail closed: a disabled gate must NOT become a bypass (A8).
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 type mockGatingRuleResolver struct {
@@ -493,14 +550,18 @@ func TestNFTGateMiddleware_RuleResolverFails(t *testing.T) {
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/content-1/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/content-1/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	// Fail closed: an unresolvable rule set is a server error, not a bypass (A8).
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	var resp map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.Equal(t, "GATING_RULES_ERROR", resp["code"])
 }
 
-func TestNFTGateMiddleware_NoGatingRules_SkipsVerification(t *testing.T) {
+func TestNFTGateMiddleware_NoGatingRules_DeniedByDefault(t *testing.T) {
 	config := NFTGateConfig{
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
@@ -518,10 +579,12 @@ func TestNFTGateMiddleware_NoGatingRules_SkipsVerification(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-func TestNFTGateMiddleware_NoGatingRules_WithContractParam_SkipsVerification(t *testing.T) {
+// Caller-supplied contract/chain_id params must not restore access when no
+// server rules exist (A8+A9).
+func TestNFTGateMiddleware_NoGatingRules_WithContractParam_Denied(t *testing.T) {
 	config := NFTGateConfig{
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
@@ -539,7 +602,7 @@ func TestNFTGateMiddleware_NoGatingRules_WithContractParam_SkipsVerification(t *
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestNFTGateMiddleware_RuleResolverWithAutoDetect(t *testing.T) {
@@ -605,6 +668,11 @@ func TestNFTGateMiddleware_NftGateDeniedWithMarketplaceURL(t *testing.T) {
 				return false, nil
 			},
 		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "42", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 		MarketplaceURL: "https://market.example.com/{contract}/{token_id}",
 	}
@@ -627,12 +695,17 @@ func TestNFTGateMiddleware_AuditLoggerOnDenied(t *testing.T) {
 				return big.NewInt(0), nil
 			},
 		},
-		AuditLogger:    audit,
+				AuditLogger:     audit,
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -648,12 +721,17 @@ func TestNFTGateMiddleware_AuditLoggerOnPassed(t *testing.T) {
 				return big.NewInt(1), nil
 			},
 		},
-		AuditLogger:    audit,
+				AuditLogger:     audit,
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -746,11 +824,16 @@ func TestNFTGateMiddleware_CircuitBreakerOpen(t *testing.T) {
 			},
 		},
 		CircuitBreaker: cb,
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -784,30 +867,36 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 		BlockVerifyCache: blockVerifyCache,
 		CacheTTL:         60 * time.Second,
 		ReorgTTL:         5 * time.Second,
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
 		DefaultChainID:   1,
 	}
 	router := setupNFTGateRouter(&config)
 
-	req := authRequestWithWallet("/stream/123/manifest.m3u8?contract="+testContractAddr, "0xOwner")
+	req := authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestParseNFTParams_ChainIDOverride(t *testing.T) {
+func TestParseNFTParams_QueryParamsIgnored(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	// Caller-supplied contract/chain_id/token_id must be ignored (A9):
 	c.Request = httptest.NewRequest("GET", "/stream/abc/manifest.m3u8?contract=0xABC&chain_id=137&token_id=99", http.NoBody)
 	c.Params = gin.Params{{Key: "id", Value: "abc"}}
 
 	config := NFTGateConfig{DefaultChainID: 1}
 	contract, chainID, tokenID, contentID := parseNFTParams(c, &config)
 
-	assert.Equal(t, "0xABC", contract)
-	assert.Equal(t, int64(137), chainID)
-	assert.Equal(t, "99", tokenID)
+	assert.Empty(t, contract)
+	assert.Equal(t, int64(1), chainID)
+	assert.Empty(t, tokenID)
 	assert.Equal(t, "abc", contentID)
 }
 

@@ -120,14 +120,15 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 	}
 
 	grpcServices := &gateway.GRPCServices{
-		AuthService:    resources.AuthService,
-		StreamingSvc:   resources.StreamingSvc,
-		Web3Service:    resources.Web3Service,
-		NFTVerifier:    resources.NFTVerifier,
-		ContentService: resources.ContentService,
-		SegmentStorage: resources.SegmentStorage,
-		UploadService:  resources.UploadService,
-		TranscodingSvc: resources.TranscodingSvc,
+		AuthService:        resources.AuthService,
+		StreamingSvc:       resources.StreamingSvc,
+		Web3Service:        resources.Web3Service,
+		NFTVerifier:        resources.NFTVerifier,
+		GatingRuleResolver: resources.GatingRuleResolver,
+		ContentService:     resources.ContentService,
+		SegmentStorage:     resources.SegmentStorage,
+		UploadService:      resources.UploadService,
+		TranscodingSvc:     resources.TranscodingSvc,
 	}
 	p.healthCtx, p.healthCancel = context.WithCancel(context.Background())
 	p.grpcServer = gateway.SetupGRPCServer(p.healthCtx, p.config, p.logger, grpcServices)
