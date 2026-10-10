@@ -370,6 +370,8 @@ func TestGwCov_StreamingRoutes_LimiterFull(t *testing.T) {
 	limiter := newStreamLimiter(1)
 	limiter.tryAcquire()
 	cache := NewStreamingCache()
+	// Mirror production: auth middleware sets wallet_address before the handler.
+	r.Use(func(c *gin.Context) { c.Set("wallet_address", "0xabc") })
 	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, nil, nil, limiter, cache)
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/test-content/manifest.m3u8", http.NoBody)
