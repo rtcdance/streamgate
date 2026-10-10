@@ -56,6 +56,44 @@ export default async function spec01Index({ page, reportDir, snap, sleep }) {
     checks.push(check('nft-chain-31337', /Chain ID:\s*31337/.test(nftDetails), `details=${nftDetails.replace(/\s+/g, ' ').slice(0, 80)}`));
     await snap('04-nft-verified');
 
+    // Step 4.5: seed the server-side gating rule for the demo content.
+    // Since A8 the NFT gate is fail-closed: without a rule, /streaming/demo/* is
+    // denied with GATING_REQUIRED. The rule binds the demo content to the
+    // DemoNFT contract the demo user just minted (chain 31337).
+    const seeded = await page.evaluate(async () => {
+        const token = sessionStorage.getItem('streamgate_token');
+        const contract = document.getElementById('nft-contract')?.value;
+        const base = localStorage.getItem('streamgate_api_base') || '';
+        if (!token || !contract) return { ok: false, reason: 'missing token or contract' };
+        const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+        try {
+            const listRes = await fetch(`${base}/api/v1/content/demo/gating-rules`, { headers });
+            const list = await listRes.json().catch(() => ({}));
+            if (listRes.ok && Array.isArray(list.rules) && list.rules.length > 0) {
+                return { ok: true, seeded: false, count: list.rules.length };
+            }
+            const createRes = await fetch(`${base}/api/v1/content/demo/gating-rules`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ contract_address: contract, token_id: '', chain_id: 31337, standard: 'ERC721', min_balance: 1 }),
+            });
+            return { ok: createRes.ok, seeded: createRes.ok, status: createRes.status };
+        } catch (e) {
+            return { ok: false, reason: String(e) };
+        }
+    });
+    checks.push(check('demo-gating-rule-seeded', seeded.ok === true, JSON.stringify(seeded)));
+
+    // Step 4.6: A1-A9 end-to-end regression probe — an UNAUTHENTICATED manifest
+    // fetch must be 401 (pre-fix it reached the handler via the playback_token /
+    // no-rules fail-open bypass).
+    const unauthManifestStatus = await page.evaluate(async () => {
+        const base = localStorage.getItem('streamgate_api_base') || '';
+        const res = await fetch(`${base}/api/v1/streaming/demo/manifest.m3u8`);
+        return res.status;
+    });
+    checks.push(check('manifest-unauth-401', unauthManifestStatus === 401, `status=${unauthManifestStatus}`));
+
     // Step 5: player section should be visible now
     // verifyNFT() already removes the `hidden` class. Make sure parents are also visible.
     await page.evaluate(() => {
