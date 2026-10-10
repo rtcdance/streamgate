@@ -452,7 +452,7 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 // wallet is REQUIRED — passing an empty wallet is an error, not a skip — which
 // forces every call site to prove whose wallet it is checking against and
 // prevents the silent no-wallet-compare downgrade this check used to have.
-func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint string, walletAddress string) (*Claims, error) {
+func (s *AuthService) ValidatePlaybackToken(ctx context.Context, tokenString, contentID, clientFingerprint, walletAddress string) (*Claims, error) {
 	if walletAddress == "" {
 		monitoring.AuthOperationsTotal.WithLabelValues("validate_playback_token", "failure").Inc()
 		return nil, errors.New("wallet address is required to validate playback token")
