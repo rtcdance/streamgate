@@ -183,20 +183,28 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 
-		playbackToken := extractPlaybackToken(c)
-		var quality string
-		quality = c.Query("quality")
+		// A playback token presented in the query MUST be validated regardless of
+		// any other parameter — previously, omitting `quality` skipped the only
+		// validation branch entirely. The decision deliberately uses the query
+		// param only: extractPlaybackToken's Authorization-header fallback would
+		// see the JWT itself on the master-manifest path.
+		queryToken := c.Query("playback_token")
+		quality := c.Query("quality")
 
-		if playbackToken != "" && quality != "" {
-			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), playbackToken, contentID, c.GetHeader("X-Client-Fingerprint"))
+		if queryToken != "" {
+			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), queryToken, contentID, c.GetHeader("X-Client-Fingerprint"))
 			if validateErr != nil {
-				middleware.GetLogger(c, log).Warn("playback token validation failed for sub-manifest",
+				middleware.GetLogger(c, log).Warn("playback token validation failed for manifest",
 					zap.String("content_id", contentID),
 					zap.Error(validateErr))
 				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 				return
 			}
 			_ = claims
+		}
+
+		if queryToken != "" && quality != "" {
+			playbackToken := queryToken
 
 			if limiter != nil && !limiter.tryAcquire() {
 				c.Header("Retry-After", "1")
@@ -252,7 +260,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
 		}
-		playbackToken = generatedToken
+		playbackToken := generatedToken
 
 		if cached, ok := cache.GetManifest(contentID, wallet); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
@@ -311,7 +319,6 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			qualitySegments[q] = segs
 		}
 
-		quality = c.Query("quality")
 		if quality != "" {
 			segs, ok := qualitySegments[quality]
 			if !ok {
