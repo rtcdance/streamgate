@@ -59,14 +59,12 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 
 ## Component Status
 
-`Ready` means tested with no TODOs. Only two components are deliberately incomplete:
+`Ready` means tested and wired into the running system; everything else — auth, NFT verification, gating, streaming, transcoding, upload, worker, storage — is Ready (full table in `README.md` → Product Roadmap). These two are not:
 
 | Component | Status | Notes |
 |---|---|---|
-| `pkg/web3/account_abstraction.go` | **Partial** | `IAccount` + `UserOperation` only; no bundler or entry-point integration. ERC-4337 is out of scope — see `TRANSITION_PLAN.md` appendix D |
-| `pkg/web3/contract/registry.go` | **Partial** (1 TODO) | contract ABI resolution mostly complete |
-
-Everything else — auth, NFT verification, gating, streaming, transcoding, upload, worker, storage — is Ready. Full table in `README.md` → Product Roadmap.
+| `pkg/web3/account_abstraction.go` | **Unused** | `IAccount` / `UserOperation` / `AAProvider` exist, including entry-point validation and nonce expiry, but nothing constructs them. ERC-4337 is out of scope — see `TRANSITION_PLAN.md` appendix D |
+| `pkg/web3/contract/registry.go` (`SmartContractRegistry`) | **Unused** | complete in-memory registry API (register, get by name / address / chain) but never constructed outside tests. Contains no TODO markers |
 
 ## Conventions
 
@@ -118,6 +116,7 @@ Everything else — auth, NFT verification, gating, streaming, transcoding, uplo
 | `go mod tidy` drops needed packages | stale `go.sum` | `go mod download && go mod tidy` |
 | Docker build fails | BuildKit disabled | `DOCKER_BUILDKIT=1` |
 | Local `golangci-lint` refuses the module | binary built with Go ≤ 1.25 | use a v2.12+ build (CI pins v2.12.2) |
+| Microservice events error locally | `make build-all` does not set `-tags nats_integration`, so `NATSEventBus` compiles to the stub | build the image (every Dockerfile passes the tag) or add `-tags nats_integration` |
 
 ## Anti-Patterns
 
