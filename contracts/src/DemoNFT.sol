@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 // Minimal ERC-721 with mint and ERC-165 support. Demo/testing only: minting is
 // permissionless by design (the backend's dev-mint endpoint relies on it).
 contract DemoNFT {
-    string public name = "StreamGate Demo";
-    string public symbol = "SDEM";
+    string public constant name = "StreamGate Demo";
+    string public constant symbol = "SDEM";
 
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;

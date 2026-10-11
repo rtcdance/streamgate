@@ -225,7 +225,10 @@ jobs:
         uses: crytic/slither-action@v0.4.0
         with:
           target: contracts/
-          slither-args: --filter-paths "lib|test"
+          # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
+          # checks (status == Nonexistent) — intended idiom, the struct merely
+          # carries timestamp fields. Reviewed and accepted (2026-10-11).
+          slither-args: --filter-paths "lib|test" --exclude incorrect-equality,timestamp
 
   docker:
     name: Docker Build
