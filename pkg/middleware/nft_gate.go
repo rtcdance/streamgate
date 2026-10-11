@@ -117,9 +117,9 @@ type NFTGateConfig struct {
 	// content: "closed" (default) denies the request (fail-closed — an unlisted
 	// content is protected by default), "open" allows it (for explicitly public
 	// deployments). Empty means "closed".
-	GatingMode  string
-	Enabled     atomic.Bool // atomic for safe concurrent runtime toggling
-	reorgActive atomic.Bool
+	GatingMode      string
+	Enabled         atomic.Bool // atomic for safe concurrent runtime toggling
+	reorgActive     atomic.Bool
 	reorgDetectedAt atomic.Int64
 }
 
