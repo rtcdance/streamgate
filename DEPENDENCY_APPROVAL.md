@@ -24,6 +24,18 @@
 | 2026-10-11 | golang.org/x/net | v0.57.0 → v0.60.0 | CVE-2026-78669 (HIGH, net/http http2 DoS). Declares `go 1.26.0` — this is the bump that required raising the module's `go` directive |
 | 2026-10-11 | **Go toolchain** | 1.25 → **1.26** (`go.mod` adds `toolchain go1.26.9`) | 3 stdlib HIGH (CVE-2026-78667 / -78669 / -97031: net/http, http2, crypto/tls) fixed only in 1.26.9 / 1.27.2 — the Go 1.25 line receives **no** patch. Approved by the human owner; see `TRANSITION_PLAN.md` baseline amendment 2026-10-11 |
 
+### Indirect dependencies pulled in transitively by the 2026-10-11 bump
+
+Not direct dependencies — no code imports them. They enter the module graph via
+`golang.org/x/net v0.60.0` / `golang.org/x/crypto v0.57.0`. Logged per the
+"不新增 Go 依赖（见 DEPENDENCY_APPROVAL.md）" convention, since `go.mod` now carries them.
+
+| Module | Pulled in by | Notes |
+|--------|--------------|-------|
+| `github.com/miekg/dns` | `golang.org/x/net v0.60.0` | transitive, `// indirect` |
+| `github.com/opentracing/opentracing-go` | `golang.org/x/net v0.60.0` | transitive, `// indirect` |
+| `go.uber.org/atomic` | `golang.org/x/crypto v0.57.0` | transitive, `// indirect` |
+
 ## Resolved — Go baseline raised to 1.26 (was: blocked on Go 1.25)
 
 The four entries below were all reported by the Docker Trivy gate (`severity CRITICAL,HIGH`,

@@ -106,7 +106,7 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 
 #### P0 — Core Flow (Implemented, hardening)
 
-Core authentication, NFT verification, and streaming pipeline — implemented and covered by tests, and actively being hardened: the authorization path recently went through a fail-closed security audit (see `docs/reviews/`); some components remain skeletons or partially wired (see [Project Status](#-project-status) below).
+Core authentication, NFT verification, and streaming pipeline — implemented and covered by tests, and actively being hardened: the authorization path recently went through a fail-closed security audit and is now pinned by permanent regression tests (`pkg/gateway/authz_regression_test.go`); some components remain skeletons or partially wired (see [Project Status](#-project-status) below).
 
 - [x] **Wallet Sign-In** — EIP-191 / EIP-712 / SIWE (EIP-4361) + Solana ed25519
 - [x] **NFT Ownership Verification** — ERC-721, ERC-1155, ERC-165 auto-detect
@@ -134,7 +134,7 @@ Production operations and developer experience — deployed pieces are listed be
 - [x] **gRPC TLS** — Certificate-based server-side TLS
 - [x] **Structured Logging** — Zap with request ID correlation
 - [x] **Health Check Aggregation** — `/health`, `/ready`, `/health/live`
-- [x] **Database Migrations** — 34 versioned migrations with paired rollback (18 `.down.sql`)
+- [x] **Database Migrations** — 35 versioned migrations with paired rollback (19 `.down.sql`)
 - [x] **CI/CD Pipeline** — GitHub Actions: lint → test → build → security → docker (security and docker are enforcing gates; coverage floor 60%)
 - [x] **Multi-stage Docker Build** — Builder + distroless runtime support
 - [x] **Blues/Green + Canary Deployment** — K8s rollout strategies
