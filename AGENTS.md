@@ -76,7 +76,7 @@ streamgate/
 
 ```bash
 make build-monolith       # Build single binary
-make build-all            # Build all 10 binaries (1 monolith + 9 services)
+make build-all            # Build all 11 binaries (1 monolith + 9 services + cmd/learn)
 make test                 # Run tests with race detection + coverage HTML
 make test-ci              # CI mode with 60% coverage threshold
 make test-anvil           # Foundry Anvil Web3 integration tests
@@ -94,6 +94,6 @@ make k8s-deploy           # Deploy to Kubernetes
 ## NOTES
 
 - Core flow (auth → NFT → streaming) is fully implemented with 100+ test files
-- 10 build targets: 1 monolith + 9 microservices, all compiled and runnable
+- 11 build targets: 1 monolith + 9 microservices + cmd/learn, all compiled and runnable
 - Dual-mode deployment (monolith first, microservices for scale)
 - Project goals: interview preparation, Web3 capability demonstration

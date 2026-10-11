@@ -318,6 +318,82 @@ grep -nE "applied\[f.Version\]" -A 3 pkg/storage/migrate.go
 *本记录所有结论均可由上表命令复现。若与执行方叙述不符，以命令输出为准。*
 
 ---
+---
+
+# 第二轮复核（2026-10-11，修订后）
+
+复核对象：`fe98833` → **`590075f`**（11 个新提交）。以下为**逐项验证结果**，不采信提交信息。
+
+## R.1 首轮 P0/P1/P2 整改核验
+
+| 首轮发现 | 状态 | 复核证据 |
+|------|:--:|------|
+| **P0** 就地改已发布 migration | ✅ **已修（正确做法）** | `021`/`033` 已还原为原文（`content_id UUID NOT NULL`、FK 保留）；新增 `035_alter_gating_rules_content_id.sql`：`DROP CONSTRAINT IF EXISTS fk_gating_rules_content` + `ALTER COLUMN content_id TYPE VARCHAR(255) USING content_id::text`，**同时收敛全新库与既有库**；`.down.sql` 反向且注明「含非 UUID 行时会失败，这正是 035 存在的理由」。`migrations/embed.go` 为 `//go:embed *.sql` → 自动纳入，无需注册 |
+| **P1** demo 门控未在栈启动种子 | ✅ **已修** | `scripts/docker-deploy.sh` 新增 `[4b/5] Seeding demo gating rule`：`INSERT … SELECT … WHERE NOT EXISTS`（幂等），失败 `WARN`。**线上证据**：最新验收报告 `demo-gating-rule-seeded {"ok":true,"seeded":false,"count":1}` —— 规则已由 bootstrap 种好 |
+| **P1** 缺正向探针 / 探针被拉黑 | ✅ **已修** | `specs/01-index.mjs` 新增 `manifest-holder-passes-gate`（持币者 → 404 `CONTENT_NOT_FOUND` 或 200 含 `playback_token=`）与 `manifest-unruled-403`（无规则内容 → 403 `GATING_REQUIRED`）。**线上证据**：`manifest-unauth-401 status=401` / `manifest-holder-passes-gate status=404 CONTENT_NOT_FOUND` / `manifest-unruled-403 status=403 GATING_REQUIRED` 三条全 PASS。`common.mjs` 改为 `transient: true` + 注释说明，而非静默丢弃 |
+| **P2** `features.nft_gating` 不可达 | ✅ **已修** | `routes.go`：`nftGate := NFTGateMiddleware(...)` 之后才 `if !cfg.Features.NFTGating { nftGateConfig.Enabled.Store(false) }`，再 `Use(nftGate)` —— 顺序正确。配置齐备：`config.yaml`/`prod`/`dev` 均 `true`，`viper.SetDefault("features.nft_gating", true)`，`config.test.yaml` 显式 `false`。连带修正 `test/e2e/gateway_helper_test.go` 设 `NFTGating = true` |
+| **P2** 播放令牌无类型判别位 | ✅ **已修** | `Claims.TokenType`（`json:"token_type,omitempty"`）；`GeneratePlaybackToken` 写 `"playback"`，`ParsePlaybackToken` 强制 `claims.TokenType != "playback"` 即拒；附单元测试 |
+| **P2** audit 恒真检查 | ✅ **已修** | `testRateLimitingCheck` / `testAuthorizationCheck` 及其函数体、`api` import 全部删除；audit 列表由 5 项降至 3 项真实检查 |
+| **P2** 文档数字 | ⚠️ **基本已修，遗留 1 处** | 见 R.2 |
+| **ℹ️** `handler.go` 保留理由 | ✅ **已修** | `GetSegmentHandler` / `GetStreamInfoHandler` 及 `server.go` 对应两条 `mux.HandleFunc` 已删，仅留 Health/Ready/NotFound |
+
+## R.2 遗留（唯一一项）
+
+🔸 **P2 —— `AGENTS.md` 仍有 2 行过期**：
+
+```
+AGENTS.md:79  make build-all  # Build all 10 binaries (1 monolith + 9 services)
+AGENTS.md:97  - 10 build targets: 1 monolith + 9 microservices, all compiled and runnable
+```
+
+实测 `ls bin/ | wc -l` = **11**（含 `learn`）。首轮指出的同文件 40%→60% 已改（`:65`/`:81` ✓），但 A.6 #9 的 build-target 计数只改了 `CLAUDE.md:11`，遗漏 `AGENTS.md`。而 `AGENTS.md` 头部自述 *"canonical source … kept in sync"*。
+
+## R.3 新引入项复核（首轮未覆盖的提交）
+
+| 项 | 结论 |
+|------|------|
+| 依赖 bump `golang.org/x/crypto v0.49.0 → v0.55.0` | ✅ 已在 `DEPENDENCY_APPROVAL.md:20` 登记（理由 + CI run ID）。同时清理了 `ipfs/go-ipfs-api`、`tsenart/vegeta` 残留。ℹ️ 该 bump 连带引入 3 个新 indirect 模块（`miekg/dns`、`opentracing/opentracing-go`、`go.uber.org/atomic`），建议在审批表补一行，避免「不新增依赖」的措辞被误读 |
+| Trivy `--ignore-unfixed` | ℹ️ 门禁语义由「CRITICAL/HIGH 必红」变为「**有修复**的 CRITICAL/HIGH 必红」。`exit-code: '1'` 保留。B6 的验收判据（故意引入可修复漏洞依赖 → CI 失败）仍成立；但「不可修复」的漏洞不再阻断，属有意权衡，建议在 B6 备注中写明 |
+| `govulncheck` 仍为报告模式 | ✅ 与计划 2026-10-11 修订一致（`continue-on-error: true`） |
+| Go 版本告警 `golangci-lint` 等 | ℹ️ `go.mod` 声明 1.25，本机 1.25.x 链无告警。本次全量 lint 0 issues |
+
+## R.4 门禁全量重跑（本轮新鲜证据）
+
+```
+go build ./...               → EXIT 0
+go vet ./...                 → EXIT 0
+golangci-lint run ./pkg/...  → 0 issues
+forge test                   → 12 passed, 0 failed, 0 skipped
+go test ./... -count=1       → 无 FAIL；total coverage 73.4%
+go test ./pkg/gateway/ -run 'TestManifest|TestSegment' -count=1
+                             → ok（0 SKIP）
+AUTHZ_RED=1 … -v             → 7 PASS
+grep -rn requireRED --include='*.go' .
+                             → 仅 authz_regression_test.go:208 一行注释（无函数/无 os 依赖）
+find . -name '*_test.go' … | wc -l   → 254   （CLAUDE.md:12 声明 254 ✓）
+find pkg -name '*_test.go'  | wc -l  → 203   （CLAUDE.md:12 声明 203 ✓）
+非测试 Go 源码行数           → 61,506（较首轮 61,528 再降 22，源于桩 handler 删除）
+```
+
+G1 反向证明（worktree `f6dcf20` → 恰好 4 FAIL）在本轮未重跑：代码路径未变，测试文件未变（该文件在 `fe98833..590075f` 区间内无 diff），首轮结论继续成立。
+
+## R.5 判定
+
+**首轮 3 个 P1 + 1 个 P0 全部闭环，且整改方式符合计划纪律**（migration 走新增而非就地改；探针补正向断言而非放宽；门控开关顺序修正而非删除校验）。
+
+- **G1** ✅ 通过（未回退）
+- **G2** ✅ **本轮升为通过**（`handler.go` 桩处理器已删，非测试行数再降 22）
+- **G3** ⚠️ 仅剩 `AGENTS.md:79/:97` 两行 build-target 计数；A.6 #1 的正文矛盾已消解
+- **G4** ✅ 通过（覆盖率 73.4%、254/203、18 down、11 二进制均实测吻合）
+
+**结论：可判定 Track A/B 交付验收通过。** 建议在下一提交一并修掉 `AGENTS.md:79/:97`（两字符改动：10 → 11），并在 `DEPENDENCY_APPROVAL.md` 补记 3 个新 indirect 依赖。
+
+### R.5.1 表述精确性提醒（非阻断）
+
+- 提交 `9f3a37c` 称 *"post-commit acceptance 6/6"*；`scripts/h5-demo-acceptance/reports/2026-10-11T01-56-46/summary.json` 实际含 **5** 个 spec 条目（`stack_passed: true` + 5 项）。建议标注为「5/5 specs + stack」。
+- `01-index` 的 `passed: true` 伴随 `errors: 2` —— 该 2 条为已标记 `transient` 的 401/403 控制台条目。机制本身合理（且比原先静默丢弃更诚实），但需明确：**控制台通道已不再独立兜住 manifest 拒绝**，唯一守卫是那三条显式 `check()`。这三条目前已齐备。
+
+---
 
 ## 14. 整改记录（2026-10-11，执行方复核 @ `685ebf6`）
 
