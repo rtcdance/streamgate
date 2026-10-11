@@ -138,12 +138,19 @@ jobs:
           image-ref: streamgate-monolith:scan
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          # Blocking gate: any CRITICAL/HIGH with an available fix fails the job.
-          # --ignore-unfixed exempts only findings upstream has not patched
-          # (tracked via the govulncheck report step in ci.yml).
-          # 2026-10-11: baseline raised to Go 1.26 + x/net v0.60 so the previously
-          # reported stdlib/http2 findings now have fixes and are enforced.
-          options: '--ignore-unfixed'
+          # Blocking gate: ANY CRITICAL/HIGH fails the job, patched or not.
+          #
+          # History: this step previously carried `options: '--ignore-unfixed'`,
+          # but trivy-action@v0.36.0 has no `options` input (it warns and ignores
+          # it), so that exemption never took effect — the gate has in fact always
+          # blocked unfixed findings as well. The dead key is removed rather than
+          # converted to the real `ignore-unfixed: true` input, because the
+          # stricter behaviour is the intended one here.
+          #
+          # 2026-10-11: baseline raised to Go 1.26 + x/net v0.60 + grpc v1.83.2;
+          # the image now scans clean — 0 findings, verified in run 38122905154.
+          # If upstream ever ships an unfixable HIGH in the base image, add a
+          # documented exception here instead of relaxing the whole gate.
           exit-code: '1'
 
       - name: Generate SBOM
