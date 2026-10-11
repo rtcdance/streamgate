@@ -19,7 +19,7 @@
 |------|-----------|-----------|--------|
 | 2026-10-11 | golang.org/x/crypto | v0.49.0 → v0.55.0 | 23 HIGH CVEs in x/crypto/ssh (Trivy blocking gate, CI run 38105648347) |
 | 2026-10-11 | golang.org/x/crypto | v0.54.0 → v0.55.0 (→ v0.57.0) | CVE-2026-56854 (HIGH, x/crypto/ssh). Trivy Docker run 38112149624. Later raised again to v0.57.0 as a transitive requirement of `x/net v0.60.0` |
-| 2026-10-11 | google.golang.org/grpc | v1.82.2 → v1.83.1 | CVE-2026-84304 (HIGH, gRPC-Go DoS). v1.83.1 declares `go 1.25.0` |
+| 2026-10-11 | google.golang.org/grpc | v1.82.2 → v1.83.1 → **v1.83.2** | Two chained CVEs. CVE-2026-84304 (DoS) fixed in 1.83.1; the bump to 1.83.1 then exposed CVE-2026-84445 (DoS), fixed in 1.83.2. Note v1.82.2 was *not* affected by 84445 — the intermediate step moved into its vulnerable range. Both `go 1.25.0` |
 | 2026-10-11 | golang.org/x/text | v0.40.0 → v0.41.0 (→ v0.42.0) | Transitive requirement of x/crypto v0.55.0. No direct usage change |
 | 2026-10-11 | golang.org/x/net | v0.57.0 → v0.60.0 | CVE-2026-78669 (HIGH, net/http http2 DoS). Declares `go 1.26.0` — this is the bump that required raising the module's `go` directive |
 | 2026-10-11 | **Go toolchain** | 1.25 → **1.26** (`go.mod` adds `toolchain go1.26.9`) | 3 stdlib HIGH (CVE-2026-78667 / -78669 / -97031: net/http, http2, crypto/tls) fixed only in 1.26.9 / 1.27.2 — the Go 1.25 line receives **no** patch. Approved by the human owner; see `TRANSITION_PLAN.md` baseline amendment 2026-10-11 |
