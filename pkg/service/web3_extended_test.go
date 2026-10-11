@@ -21,8 +21,6 @@ func TestWeb3Service_GetGasPriceLevels_NoMonitor(t *testing.T) {
 	assert.Contains(t, err.Error(), "gas monitor not initialized")
 }
 
-
-
 func TestWeb3Service_SendTransaction_NoChainManager(t *testing.T) {
 	sk, err := web3.NewSecurePrivateKeyFromHex("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 	require.NoError(t, err)
