@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/rtcdance/streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,11 +233,21 @@ func TestE2EContentRoutesRequireAuth(t *testing.T) {
 
 func TestE2ENFTGateEnriched403(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(0)} // no NFT
-	_, _, server := setupE2EServer(t, checker, nil)
+	const demoContract = "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f"
+	// Server-side rule for the demo content (A9: the request no longer picks
+	// the contract; the resolver is the only source).
+	rules := staticGatingRuleResolver{rules: []middleware.GatingRule{{
+		ContractAddress: demoContract,
+		TokenID:         "",
+		ChainID:         11155111,
+		Standard:        "erc721",
+		MinBalance:      1,
+	}}}
+	_, _, server := setupE2EServer(t, checker, nil, gateway.WithGatingRuleResolver(rules))
 	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
 
 	t.Run("StreamingWithoutNFT_Enriched403", func(t *testing.T) {
-		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", http.NoBody)
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)

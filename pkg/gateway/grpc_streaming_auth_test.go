@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rtcdance/streamgate/pkg/service"
 	streamingv1 "github.com/rtcdance/streamgate/pkg/api/v1/streaming"
+	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

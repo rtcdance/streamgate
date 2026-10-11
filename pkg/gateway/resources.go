@@ -114,6 +114,10 @@ type RouterConfig struct {
 	NFTVerifier    middleware.NFTOwnershipChecker
 	ContentService *service.ContentService
 	UploadService  *service.UploadService
+	// GatingRuleResolver injects the server-side rule source for the NFT gate
+	// (overrides the DB-backed resolver built from GatingRuleSvc). Without any
+	// resolver the fail-closed gate denies all gated routes.
+	GatingRuleResolver middleware.GatingRuleResolver
 }
 
 // RouterOption configures a RouterConfig.
@@ -142,6 +146,11 @@ func WithChallengeStore(store storage.ChallengeStore) RouterOption {
 // WithNFTVerifier injects an NFTOwnershipChecker for NFT routes and middleware.
 func WithNFTVerifier(v middleware.NFTOwnershipChecker) RouterOption {
 	return func(c *RouterConfig) { c.NFTVerifier = v }
+}
+
+// WithGatingRuleResolver injects a server-side gating rule resolver.
+func WithGatingRuleResolver(r middleware.GatingRuleResolver) RouterOption {
+	return func(c *RouterConfig) { c.GatingRuleResolver = r }
 }
 
 // WithContentService injects a ContentService for content routes.
