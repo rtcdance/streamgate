@@ -912,8 +912,6 @@ func TestWeb3Service_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	assert.Contains(t, err.Error(), "gas monitor not initialized")
 }
 
-
-
 func TestWeb3Service_VerifySolanaTokenAccount_NilVerifier(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	_, err := svc.VerifySolanaTokenAccount(context.Background(), "acct", "owner")
@@ -939,7 +937,6 @@ func TestWeb3Service_GetSolanaVerifier_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	assert.Nil(t, svc.GetSolanaVerifier())
 }
-
 
 func TestWeb3Service_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}

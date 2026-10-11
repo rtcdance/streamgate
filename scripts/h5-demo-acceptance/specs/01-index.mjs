@@ -115,6 +115,21 @@ export default async function spec01Index({ page, reportDir, snap, sleep }) {
     checks.push(check('manifest-holder-passes-gate', holderOk,
         `status=${holderManifest.status} body=${holderManifest.body.slice(0, 120).replace(/\s+/g, ' ')}`));
 
+    // Step 4.8: FAIL-CLOSED assertion — an AUTHENTICATED request for a content
+    // with NO gating rules must be denied 403 GATING_REQUIRED (the exact hole
+    // A8 closed: pre-fix this failed open with nft_bypass_reason).
+    const unruledManifest = await page.evaluate(async () => {
+        const token = sessionStorage.getItem('streamgate_token');
+        const base = localStorage.getItem('streamgate_api_base') || '';
+        const res = await fetch(`${base}/api/v1/streaming/unruled-content-probe/manifest.m3u8`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.text();
+        return { status: res.status, body: body.slice(0, 300) };
+    });
+    checks.push(check('manifest-unruled-403', unruledManifest.status === 403 && unruledManifest.body.includes('GATING_REQUIRED'),
+        `status=${unruledManifest.status} body=${unruledManifest.body.slice(0, 120).replace(/\s+/g, ' ')}`));
+
     // Step 5: player section should be visible now
     // verifyNFT() already removes the `hidden` class. Make sure parents are also visible.
     await page.evaluate(() => {
