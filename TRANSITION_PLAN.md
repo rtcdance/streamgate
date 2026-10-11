@@ -541,7 +541,8 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 - 签名验签：EIP-191/712/SIWE + EIP-2 low-s + 常量时间比较 + EIP-1271（`pkg/web3/signature/`）
 - 防重放：Redis Lua 原子消费（`pkg/storage/redis_challenge.go:142-155`）
 - 链上校验：`safe` block tag（`pkg/web3/nft/verifier.go:72`）、ERC-165（`verifier.go:560-613`）、15s TTL 上限（`nft_gate.go:531-532`）、重组失效（`nft_gate.go:408-424`）
-- H5 Demo + Playwright 验收：`scripts/h5-demo-acceptance/reports/2026-06-06T14-24-13/summary.json`（5/5 通过）
+- H5 Demo + Playwright 验收：`make h5-demo-acceptance`（5 specs / 13 探针，含安全三向差分：401 无认证 · 403 无规则 · 404-已过门控）。
+  **注意**：`scripts/h5-demo-acceptance/reports/` 是 `.gitignore` 的运行产物，已按附录 D 清理 —— 证据以 CI run id 或本地重跑为准，**不引用具体报告路径**。
 
 ### A.4 真实短板
 
@@ -613,7 +614,7 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 
 ## 附录 D：禁止事项
 
-❌ 不把 monolith 拆成真微服务 · ❌ 不做直播/WebRTC · ❌ 不接 IPFS · ❌ 不做 Admin UI · ❌ 不扩展到更多链 · ❌ **不把自研合约接进授权路径** · ❌ 不追求覆盖率数字 · ❌ 不做 ERC-4337（除非实现完，否则从 README 删掉）· ❌ **不做 Android**（先做 iOS）· ❌ **不新增设计文档**（本文件是唯一计划文档）
+❌ 不把 monolith 拆成真微服务 · ❌ 不做直播/WebRTC · ❌ 不接 IPFS · ❌ 不做 Admin UI · ❌ 不扩展到更多链 · ❌ **不把自研合约接进授权路径** · ❌ 不追求覆盖率数字 · ❌ 不做 ERC-4337（除非实现完，否则从 README 删掉）· ❌ **不做 Android**（先做 iOS）· ❌ **不新增计划/过程文档**（本文件是唯一计划文档；验收记录、交接文档、状态文件、审计报告一律**不落盘** —— 结论写进本文件）· ❌ **不在仓库留下生成物**（`bin/`、`out/`、`cache/`、`target/`、`coverage.out`、`deploy/docker/*-linux`、`scripts/h5-demo-acceptance/reports/` —— 用完即清）
 
 ---
 

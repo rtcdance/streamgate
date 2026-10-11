@@ -218,6 +218,38 @@ Mock files live alongside interfaces with `//go:generate` directives.
 - No force-push to shared branches without confirmation
 - PR must pass: build + lint + test
 
+### Documentation
+
+**Single plan document**: `TRANSITION_PLAN.md` is the **only** plan/spec document. Every durable
+conclusion — decisions, evidence, amendments, known gaps — is recorded *there*, never in a new file.
+
+**NEVER create temporary or process documents.** No review reports, handover notes, status files,
+audit write-ups, or dated `*.md` scratch files. Explicitly forbidden paths include:
+
+- `docs/reviews/**`, `docs/HANDOVER_*.md`, `docs/STATUS_*.md`, `*_PLAN_v2.md`
+- any per-session record of "what I did" or "what the next agent should do"
+
+**Where the content goes instead:**
+
+| Content | Destination |
+|---------|-------------|
+| Plan, decisions, evidence, amendments, known gaps | `TRANSITION_PLAN.md` |
+| Knowledge an agent needs to work in this repo | `CLAUDE.md` (canonical) · `AGENTS.md` (kept in sync) |
+| Verification evidence | a CI run id, a commit hash, or a command output — quoted in the commit message / `TRANSITION_PLAN.md` |
+| Dependency changes | `DEPENDENCY_APPROVAL.md` |
+| Interview / job-search material | `docs/resume/`, `docs/_recovered/` (these are deliverables, not process docs) |
+
+**Generated artifacts never belong in the repo — clean them up when done:**
+
+`bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`,
+`scripts/h5-demo-acceptance/reports/`. All are `.gitignore`d; they are ~600 MB when left behind.
+Do not delete `.workbuddy/` (project data, not cache) or the agent-tool state dirs
+(`.claude/`, `.agents/`, `.atomcode/`, `.omo/`, `.sisyphus/`).
+
+**No dangling references**: before deleting or renaming a document, find inbound links
+(`grep -rn "<path>" --include="*.md" .`) and repoint them at a durable artifact. A stale link in
+`README.md` or `CLAUDE.md` is worse than the file that was removed.
+
 ### Common Issues & Recovery
 
 | Symptom | Likely Cause | Fix |
@@ -238,6 +270,8 @@ Mock files live alongside interfaces with `//go:generate` directives.
 - **NEVER** use a single RPC endpoint (must have fallback chain)
 - **NEVER** introduce speculative features or premature abstractions
 - **NEVER** add unnecessary comments — see Comment Policy above for allowed exceptions
+- **NEVER** create temporary or process documents (review reports, handovers, status files) — see Documentation above
+- **NEVER** leave generated artifacts behind (`bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`)
 
 ## Key Design Decisions
 
