@@ -1,16 +1,20 @@
 // Stack health pre-check — runs before any browser spec.
-// Verifies the docker-compose stack is up and the API surfaces we depend on are reachable.
+// Verifies the stack is up and the API surfaces we depend on are reachable.
+// Endpoints come from lib/urls.mjs so the same checks work on the host and
+// inside a container on the compose network.
+
+import { H5_BASE, API_BASE, MONOLITH_BASE, ANVIL_BASE } from './urls.mjs';
 
 const TARGETS = [
-    { name: 'monolith-health', url: 'http://localhost:18080/health', expect: { has: 'status' } },
-    { name: 'api-gateway-health', url: 'http://localhost:28080/health', expect: { has: 'status' } },
-    { name: 'h5-demo-index', url: 'http://localhost:18000/', expect: { status: 200 } },
-    { name: 'h5-demo-flow', url: 'http://localhost:18000/flow.html', expect: { status: 200 } },
-    { name: 'h5-demo-debug', url: 'http://localhost:18000/debug.html', expect: { status: 200 } },
-    { name: 'h5-demo-playground', url: 'http://localhost:18000/playground.html', expect: { status: 200 } },
-    { name: 'h5-demo-trace', url: 'http://localhost:18000/trace.html', expect: { status: 200 } },
-    { name: 'anvil-rpc', url: 'http://localhost:18545', expect: { status: 200, has: 'result' } },
-    { name: 'api-gateway-nft-dev-mint-routed', url: 'http://localhost:28080/api/v1/nft/dev/mint', expect: { status: 401 } },
+    { name: 'monolith-health', url: `${MONOLITH_BASE}/health`, expect: { has: 'status' } },
+    { name: 'api-gateway-health', url: `${API_BASE}/health`, expect: { has: 'status' } },
+    { name: 'h5-demo-index', url: `${H5_BASE}/`, expect: { status: 200 } },
+    { name: 'h5-demo-flow', url: `${H5_BASE}/flow.html`, expect: { status: 200 } },
+    { name: 'h5-demo-debug', url: `${H5_BASE}/debug.html`, expect: { status: 200 } },
+    { name: 'h5-demo-playground', url: `${H5_BASE}/playground.html`, expect: { status: 200 } },
+    { name: 'h5-demo-trace', url: `${H5_BASE}/trace.html`, expect: { status: 200 } },
+    { name: 'anvil-rpc', url: ANVIL_BASE, expect: { status: 200, has: 'result' } },
+    { name: 'api-gateway-nft-dev-mint-routed', url: `${API_BASE}/api/v1/nft/dev/mint`, expect: { status: 401 } },
 ];
 
 export async function checkStack({ timeout = 5000 } = {}) {

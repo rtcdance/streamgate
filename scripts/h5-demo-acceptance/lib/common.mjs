@@ -3,6 +3,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { HEALTH_HOSTS } from './urls.mjs';
+
 export async function newContext(browser, options = {}) {
     return browser.newContext({
         viewport: { width: 1440, height: 900 },
@@ -16,7 +18,7 @@ export function attachProbes(page, reportDir) {
     const consoleEvents = [];
     const networkEvents = [];
     const errors = [];
-    const ignorable = (url) => url.includes('favicon.ico') || (url.includes('/health') && url.includes('localhost:28080'));
+    const ignorable = (url) => url.includes('favicon.ico') || (url.includes('/health') && HEALTH_HOSTS.some((h) => url.includes(h)));
 
     page.on('console', (msg) => {
         consoleEvents.push({ type: msg.type(), text: msg.text(), location: msg.location() });
