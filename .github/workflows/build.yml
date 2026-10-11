@@ -138,6 +138,9 @@ jobs:
           image-ref: streamgate-monolith:scan
           format: 'table'
           severity: 'CRITICAL,HIGH'
+          # Ignore findings with no fixed version (e.g. golang.org/x/net
+          # CVE-2026-25681) — unfixable today, tracked via govulncheck report.
+          options: '--ignore-unfixed'
           exit-code: '1'
 
       - name: Generate SBOM

@@ -13,6 +13,12 @@
 
 <!-- Add new dependencies here -->
 
+## Approved Version Bumps (security)
+
+| Date | Dependency | From → To | Reason |
+|------|-----------|-----------|--------|
+| 2026-10-11 | golang.org/x/crypto | v0.49.0 → v0.55.0 | 23 HIGH CVEs in x/crypto/ssh (Trivy blocking gate, CI run 38105648347) |
+
 ## Approved Dependencies
 
 ### Standard Library Preference
