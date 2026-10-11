@@ -7,11 +7,11 @@
 
 **Architecture:** 分四个 Track。Track A/B 是项目侧（安全 + 诚实），Track C 是求职侧，Track D 是条件触发（只有在市场探针确认方向后才做）。**Track A 必须先于一切。**
 
-**Tech Stack:** Go **1.25** / Gin / testify / Foundry / hls.js。**不新增** Go 依赖（见 `DEPENDENCY_APPROVAL.md`）。
+**Tech Stack:** Go **1.26** / Gin / testify / Foundry / hls.js。**不新增** Go 依赖（见 `DEPENDENCY_APPROVAL.md`）。
 
 > **基线声明（2026-10-10 更新）**：本计划制定于「与 chainpulse 版本对齐」完成**之后**。执行前请确认以下已完成项，**不要重复做**：
 >
-> - Go 版本已对齐 **1.25**：`Dockerfile:11`、`docker-bake.hcl:2`、`.github/workflows/{ci,test,auto-fix}.yml`、`deploy/docker/Dockerfile.*`(10)
+> - Go 版本 **1.26**（**2026-10-11 修订**：由 1.25 上调。原因：Docker Trivy 门禁报出 6 个 HIGH，其中 `stdlib` 3 项与 `golang.org/x/net` 1 项的修复版本均要求 Go ≥ 1.26 —— Go 1.25 线不再出补丁。已获人工确认，全量 pin 同步：`Dockerfile:11`、`docker-bake.hcl:2`、`.github/workflows/{ci,test,auto-fix}.yml`、`deploy/docker/Dockerfile.*`(10)、`README.md` badge、`CLAUDE.md`。`go.mod` 另加 `toolchain go1.26.9` 作为 CVE 修复下限，`golang.org/x/net` → v0.60.0）
 > - 依赖已部分对齐 chainpulse：`bitset v1.24.4`、`gnark-crypto v0.19.2`、`gorilla/websocket v1.5.3`、`mongo-driver v1.14.0`（共享模块 45/59 一致）
 > - `pkg/gateway/authz_regression_test.go` **已存在**（A1 已完成，见下）
 > - h5-demo 可用 `cd h5-demo && python3 -m http.server 18000` 提供，验收探针 5/5 通过

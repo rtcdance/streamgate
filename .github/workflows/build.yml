@@ -138,8 +138,11 @@ jobs:
           image-ref: streamgate-monolith:scan
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          # Ignore findings with no fixed version (e.g. golang.org/x/net
-          # CVE-2026-25681) — unfixable today, tracked via govulncheck report.
+          # Blocking gate: any CRITICAL/HIGH with an available fix fails the job.
+          # --ignore-unfixed exempts only findings upstream has not patched
+          # (tracked via the govulncheck report step in ci.yml).
+          # 2026-10-11: baseline raised to Go 1.26 + x/net v0.60 so the previously
+          # reported stdlib/http2 findings now have fixes and are enforced.
           options: '--ignore-unfixed'
           exit-code: '1'
 

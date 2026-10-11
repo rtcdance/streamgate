@@ -6,7 +6,7 @@ NFT-gated streaming platform built with Go. Combines traditional high-concurrenc
 
 **Core Flow**: Wallet sign-in → NFT verification → Protected HLS streaming
 
-- **Go 1.24** | **Gin** HTTP framework | **go-ethereum** + **Solana SDK** multichain
+- **Go 1.26** | **Gin** HTTP framework | **go-ethereum** + **Solana SDK** multichain
 - **Microkernel Plugin Architecture** with dual-mode deployment (monolith + microservices)
 - **11 build targets**: 1 monolith + 9 microservices + cmd/learn (per `make build-all`)
 - **254 test files** (2026-10-11 measured, `find . -name '*_test.go' | wc -l`) — plus 203 in-package tests under `pkg/` and the 27K `cmd/microservices/api-gateway/main_test.go`. Total coverage ~73.4%, enforced at a 60% CI floor.

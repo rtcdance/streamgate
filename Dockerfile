@@ -8,7 +8,7 @@
 #   docker buildx bake                                      # all services
 #   docker buildx bake monolith                              # single via bake
 # ============================================================
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.26
 ARG DISTROLESS=false
 
 # ============================================================

@@ -18,6 +18,32 @@
 | Date | Dependency | From → To | Reason |
 |------|-----------|-----------|--------|
 | 2026-10-11 | golang.org/x/crypto | v0.49.0 → v0.55.0 | 23 HIGH CVEs in x/crypto/ssh (Trivy blocking gate, CI run 38105648347) |
+| 2026-10-11 | golang.org/x/crypto | v0.54.0 → v0.55.0 (→ v0.57.0) | CVE-2026-56854 (HIGH, x/crypto/ssh). Trivy Docker run 38112149624. Later raised again to v0.57.0 as a transitive requirement of `x/net v0.60.0` |
+| 2026-10-11 | google.golang.org/grpc | v1.82.2 → v1.83.1 | CVE-2026-84304 (HIGH, gRPC-Go DoS). v1.83.1 declares `go 1.25.0` |
+| 2026-10-11 | golang.org/x/text | v0.40.0 → v0.41.0 (→ v0.42.0) | Transitive requirement of x/crypto v0.55.0. No direct usage change |
+| 2026-10-11 | golang.org/x/net | v0.57.0 → v0.60.0 | CVE-2026-78669 (HIGH, net/http http2 DoS). Declares `go 1.26.0` — this is the bump that required raising the module's `go` directive |
+| 2026-10-11 | **Go toolchain** | 1.25 → **1.26** (`go.mod` adds `toolchain go1.26.9`) | 3 stdlib HIGH (CVE-2026-78667 / -78669 / -97031: net/http, http2, crypto/tls) fixed only in 1.26.9 / 1.27.2 — the Go 1.25 line receives **no** patch. Approved by the human owner; see `TRANSITION_PLAN.md` baseline amendment 2026-10-11 |
+
+## Resolved — Go baseline raised to 1.26 (was: blocked on Go 1.25)
+
+The four entries below were all reported by the Docker Trivy gate (`severity CRITICAL,HIGH`,
+`exit-code 1`). Every fixed version required a Go toolchain ≥ 1.26, which conflicted with the
+then-current "Go 版本已对齐 1.25" baseline. **Resolved on 2026-10-11** by raising the baseline to
+Go 1.26 with an explicit `toolchain go1.26.9` floor rather than by adding `--ignore-unfixed`/`.trivyignore`
+exceptions — the gate keeps blocking on real, fixable findings.
+
+| CVE | Component | Was | Fixed by |
+|-----|-----------|-----|----------|
+| CVE-2026-78669 | golang.org/x/net | v0.57.0 | `x/net v0.60.0` (requires `go 1.26.0`) |
+| CVE-2026-78667 | stdlib (net/http) | go1.25.14 | Go toolchain 1.26.9 |
+| CVE-2026-78669 | stdlib (net/http http2) | go1.25.14 | Go toolchain 1.26.9 |
+| CVE-2026-97031 | stdlib (crypto/tls) | go1.25.14 | Go toolchain 1.26.9 |
+
+**Evidence note**: `e13f31d`'s commit message claimed "x/net v0.57 (CVE-2026-78669 fix)". The scan run
+on that very commit (38112149624) reported `golang.org/x/net v0.57.0` as **still vulnerable**, fixed in
+`0.60.0`. The claim was not supported by its own artifact — corrected by this bump.
+
+
 
 ## Approved Dependencies
 
