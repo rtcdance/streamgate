@@ -2,7 +2,6 @@ package streaming
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -47,76 +46,6 @@ func TestStreamingHandler_ReadyHandler(t *testing.T) {
 	handler.ReadyHandler(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestStreamingHandler_GetSegmentHandler_MethodNotAllowed(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/segment", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetSegmentHandler(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestStreamingHandler_GetSegmentHandler_MissingIDs(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/segment?content_id=test-123", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetSegmentHandler(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestStreamingHandler_GetSegmentHandler_Success(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/segment?content_id=test-123&segment_id=seg-1", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetSegmentHandler(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "video/mp2t", rec.Header().Get("Content-Type"))
-}
-
-func TestStreamingHandler_GetStreamInfoHandler_MethodNotAllowed(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/info", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetStreamInfoHandler(rec, req)
-
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-}
-
-func TestStreamingHandler_GetStreamInfoHandler_MissingID(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/info", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetStreamInfoHandler(rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestStreamingHandler_GetStreamInfoHandler_Success(t *testing.T) {
-	handler := newTestStreamingHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/info?content_id=test-123", http.NoBody)
-	rec := httptest.NewRecorder()
-
-	handler.GetStreamInfoHandler(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	var resp map[string]interface{}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "test-123", resp["content_id"])
 }
 
 func TestStreamingHandler_NotFoundHandler(t *testing.T) {

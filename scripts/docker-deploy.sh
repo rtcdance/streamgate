@@ -84,6 +84,20 @@ else
 fi
 
 echo ""
+echo "[4b/5] Seeding demo gating rule..."
+# The NFT gate is fail-closed (TRANSITION_PLAN A8): without a server-side
+# rule for the demo content, manual playback in h5-demo is denied with
+# 403 GATING_REQUIRED. Seed the rule the demo user's minted DemoNFT satisfies.
+if docker exec sg-fc-postgres psql -U postgres -d streamgate -c "
+    INSERT INTO content_gating_rules (content_id, contract_address, token_id, chain_id, standard, min_balance, is_active)
+    SELECT 'demo', '0x5FbDB2315678afecb367f032d93F642f64180aa3', '', 31337, 'erc721', 1, TRUE
+    WHERE NOT EXISTS (SELECT 1 FROM content_gating_rules WHERE content_id = 'demo');" >/dev/null 2>&1; then
+    echo "PASS: demo gating rule present (content_id='demo' -> DemoNFT @31337)"
+else
+    echo "WARN: could not seed demo gating rule (database unreachable?) — manual playback will 403 until seeded"
+fi
+
+echo ""
 echo "[5/5] Service status:"
 echo ""
 docker ps --filter "name=sg-fc" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null

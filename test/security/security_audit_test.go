@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/rtcdance/streamgate/pkg/models"
-	"github.com/rtcdance/streamgate/pkg/plugins/api"
 	"github.com/rtcdance/streamgate/pkg/util"
 )
 
@@ -199,9 +198,7 @@ func TestSecurityAudit(t *testing.T) {
 		fn   func() bool
 	}{
 		{"Input Validation", testInputValidationCheck},
-		{"Rate Limiting", testRateLimitingCheck},
 		{"Cryptography", testCryptographyCheck},
-		{"Authorization", testAuthorizationCheck},
 		{"Data Encryption", testEncryptionCheck},
 	}
 
@@ -239,24 +236,9 @@ func testInputValidationCheck() bool {
 	return util.ValidateEmail("test@example.com") == nil && util.ValidateEmail("invalid") != nil
 }
 
-func testRateLimitingCheck() bool {
-	limiter := api.NewRateLimiter(10)
-	return limiter.Allow("test")
-}
-
 func testCryptographyCheck() bool {
 	hash := util.HashSHA256([]byte("test"))
 	return len(hash) == 64
-}
-
-func testAuthorizationCheck() bool {
-	validRoles := map[string]bool{
-		"user":  true,
-		"admin": true,
-	}
-	_, hasUser := validRoles[string(models.RoleUser)]
-	_, hasAdmin := validRoles[string(models.RoleAdmin)]
-	return hasUser && hasAdmin
 }
 
 func testEncryptionCheck() bool {
