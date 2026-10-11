@@ -109,6 +109,18 @@ func (b *ContentRegistryBinding) ContentExists(ctx context.Context, contentID st
 	return false, nil
 }
 
+// contentRecordTuple mirrors getContent's tuple output exactly (field order
+// and types); abi.ConvertType needs this shape for reflection-based mapping.
+type contentRecordTuple struct {
+	ContentID   string
+	Creator     common.Address
+	ContentHash string
+	MetadataURI string
+	Status      uint8
+	CreatedAt   *big.Int
+	UpdatedAt   *big.Int
+}
+
 // ContentRecord mirrors the ContentRecord struct returned by getContent.
 type ContentRecord struct {
 	ContentID   string
@@ -132,19 +144,14 @@ func (b *ContentRegistryBinding) GetContent(ctx context.Context, contentID strin
 		return nil, fmt.Errorf("content_registry_binding: unexpected result type from getContent")
 	}
 
-	type getContentResult struct {
-		ContentID   string
-		Creator     common.Address
-		ContentHash string
-		MetadataURI string
-		Status      uint8
-		CreatedAt   *big.Int
-		UpdatedAt   *big.Int
-	}
-	var out getContentResult
-	if err := b.abi.UnpackIntoInterface(&out, "getContent", data); err != nil {
+	raw, err := b.abi.Unpack("getContent", data)
+	if err != nil {
 		return nil, fmt.Errorf("content_registry_binding: unpack getContent: %w", err)
 	}
+	if len(raw) != 1 {
+		return nil, fmt.Errorf("content_registry_binding: getContent returned %d values", len(raw))
+	}
+	out := abi.ConvertType(raw[0], new(contentRecordTuple)).(*contentRecordTuple)
 
 	return &ContentRecord{
 		ContentID:   out.ContentID,

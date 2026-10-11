@@ -1,6 +1,5 @@
-ALTER TABLE content_gating_rules
-    ADD CONSTRAINT fk_gating_rules_content
-    FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE;
+-- FK to contents(id) removed (2026-10-11): gating rule subjects are string
+-- content IDs that may not have a contents row (e.g. the h5 demo "demo").
 
 CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
 CREATE INDEX IF NOT EXISTS idx_transcoding_tasks_owner ON transcoding_tasks(owner_wallet);
