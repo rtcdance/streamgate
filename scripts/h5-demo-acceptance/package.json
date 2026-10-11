@@ -1,0 +1,12 @@
+{
+  "name": "streamgate-h5-demo-acceptance",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

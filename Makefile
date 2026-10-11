@@ -629,3 +629,11 @@ deploy-teardown:
 
 deploy-logs:
 	docker compose -f docker-compose.fullchain.yml logs -f --tail=100
+
+# ─── Docker verification (SG-00) ──────────────────────────────
+# Unified acceptance entry. Runs inside Docker so a clean checkout needs no
+# host Go / Foundry / Node toolchain. Stages: unit | chain | durability | ops |
+# media | perf | release | all. Stages not yet implemented fail loudly.
+.PHONY: verify-docker
+verify-docker:
+	@VERIFY_STAGE="$(if $(VERIFY_STAGE),$(VERIFY_STAGE),all)" scripts/verify-docker.sh

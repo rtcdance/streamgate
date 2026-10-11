@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1.4
+# ============================================================
+# StreamGate verification toolchain image
+# ============================================================
+# One image carrying every tool the acceptance stages need — Go, Foundry
+# (forge/cast/anvil), FFmpeg, Node + Playwright deps, golangci-lint — so a
+# clean checkout can be verified without any host toolchain.
+#
+# The candidate source is copied in once; every VERIFY_STAGE runs against this
+# same image contents (no per-stage rebuild).
+#
+# Build:  docker build -f deploy/docker/Dockerfile.verify -t streamgate-verify:local .
+# Use:    make verify-docker VERIFY_STAGE=unit
+# ============================================================
+FROM golang:1.26-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System toolchain: ffmpeg for media, jq/curl/git for scripting, build-essential
+# for cgo-dependent test paths, python3 for helper scripts.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        jq \
+        curl \
+        git \
+        ca-certificates \
+        build-essential \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 22 + Playwright browser system dependencies (the H5 acceptance suite
+# drives a real Chromium via `npm ci`).
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Foundry: forge / cast / anvil, pinned to the version used by CI.
+ARG FOUNDRY_VERSION=stable
+RUN curl -L https://foundry.paradigm.xyz | bash \
+    && /root/.foundry/bin/foundryup --install "${FOUNDRY_VERSION}"
+ENV PATH="/root/.foundry/bin:${PATH}"
+
+# golangci-lint (v2 line — required for Go 1.26 modules).
+ARG GOLANGCI_LINT_VERSION=v2.12.2
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+        | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
+
+WORKDIR /src
+COPY . .
+
+# Warm the module cache; contracts submodules must already be checked out
+# (the runner runs `git submodule update --init --recursive` beforehand).
+RUN go mod download
+
+CMD ["bash"]
