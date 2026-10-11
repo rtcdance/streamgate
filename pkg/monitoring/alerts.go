@@ -3,6 +3,7 @@ package monitoring
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -43,6 +44,11 @@ type AlertManager struct {
 	rules       map[string]*AlertRule
 	handlers    []AlertHandler
 	lastChecked map[string]time.Time
+	// seq disambiguates alert IDs. A wall-clock timestamp alone is not unique:
+	// time.Now().UnixNano() returns identical values for back-to-back calls
+	// (observed on darwin with Go 1.26), so two rules firing in the same instant
+	// collided on ID and the map store silently dropped the first alert.
+	seq atomic.Uint64
 }
 
 // AlertHandler is a function that handles alerts
@@ -149,7 +155,7 @@ func (am *AlertManager) shouldTriggerAlert(rule *AlertRule, value float64) bool 
 // triggerAlert triggers an alert
 func (am *AlertManager) triggerAlert(rule *AlertRule, value float64) {
 	alert := &Alert{
-		ID:        fmt.Sprintf("alert-%d", time.Now().UnixNano()),
+		ID:        fmt.Sprintf("alert-%d-%d", time.Now().UnixNano(), am.seq.Add(1)),
 		Level:     rule.Level,
 		Title:     rule.Name,
 		Message:   fmt.Sprintf("Metric %s has value %f (threshold: %f)", rule.Metric, value, rule.Threshold),
