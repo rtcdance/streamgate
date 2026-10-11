@@ -94,6 +94,27 @@ export default async function spec01Index({ page, reportDir, snap, sleep }) {
     });
     checks.push(check('manifest-unauth-401', unauthManifestStatus === 401, `status=${unauthManifestStatus}`));
 
+    // Step 4.7: POSITIVE differential — the demo wallet just minted 3 DemoNFTs
+    // and the server rule for `demo` points at that contract, so an
+    // AUTHENTICATED request must PASS the gate. Without transcoded segments
+    // the handler answers 404 CONTENT_NOT_FOUND (i.e. JWT + on-chain check
+    // both passed); once segments exist it must be 200 with an embedded
+    // playback_token. Anything else (401/403) means the gate misfires.
+    const holderManifest = await page.evaluate(async () => {
+        const token = sessionStorage.getItem('streamgate_token');
+        const base = localStorage.getItem('streamgate_api_base') || '';
+        const res = await fetch(`${base}/api/v1/streaming/demo/manifest.m3u8`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.text();
+        return { status: res.status, body: body.slice(0, 400) };
+    });
+    const holderOk =
+        (holderManifest.status === 404 && holderManifest.body.includes('CONTENT_NOT_FOUND')) ||
+        (holderManifest.status === 200 && holderManifest.body.includes('playback_token='));
+    checks.push(check('manifest-holder-passes-gate', holderOk,
+        `status=${holderManifest.status} body=${holderManifest.body.slice(0, 120).replace(/\s+/g, ' ')}`));
+
     // Step 5: player section should be visible now
     // verifyNFT() already removes the `hidden` class. Make sure parents are also visible.
     await page.evaluate(() => {

@@ -213,11 +213,18 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 		GatingMode:     cfg.Features.GatingMode, // empty → "closed" (fail-closed default set by the middleware)
 	}
-	nftGateConfig.Enabled.Store(cfg.Features.NFTGating)
 	// Streaming routes (manifest + segment) live on streamGroup, whose chain is
 	// [PlaybackTokenAuth, JWT, NFTGate] — the group was created before the
 	// global JWT Use in registerRoutes.
-	streamGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, log))
+	nftGate := middleware.NFTGateMiddleware(&nftGateConfig, log)
+	// NFTGateMiddleware defaults to enabled; apply the operator flag AFTER
+	// construction (the middleware reads config.Enabled per request), so
+	// features.nft_gating=false really disables the gate — and since the gate
+	// is fail-closed, disabled means streaming routes answer 503 GATING_DISABLED.
+	if !cfg.Features.NFTGating {
+		nftGateConfig.Enabled.Store(false)
+	}
+	streamGroup.Use(nftGate)
 	streamGroup.Use(func(c *gin.Context) {
 		if core.IsDraining() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "server shutting down"})

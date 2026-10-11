@@ -1,8 +1,6 @@
--- content_id is VARCHAR (not UUID): rule subjects are string content IDs
--- (e.g. "demo", "demo-content-1"); content may exist without a contents row.
 CREATE TABLE IF NOT EXISTS content_gating_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    content_id VARCHAR(255) NOT NULL,
+    content_id UUID NOT NULL,
     contract_address VARCHAR(255) NOT NULL,
     token_id VARCHAR(255) DEFAULT '',
     chain_id BIGINT NOT NULL DEFAULT 1,

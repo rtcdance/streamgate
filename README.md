@@ -100,13 +100,13 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 |------|------|-------------|
 | **Platform Developer** | Integrate NFT-gated video via API | Read the [OpenAPI spec](docs/api/openapi.yaml) — no Go required |
 | **Content Creator** | Upload video, set NFT rules, go live | Use `make demo` (single-binary, no blockchain needed for code-level experimentation) |
-| **Node Operator** | Deploy and scale StreamGate | Use `make deploy-monolith` (7 containers) or `make deploy-microservices` (16 services), or K8s manifests in `deploy/k8s/`. See [DEPLOY.md](DEPLOY.md) for the 5-minute guide. |
+| **Node Operator** | Deploy and scale StreamGate | Use `make deploy-monolith` (7 containers) or `make deploy-microservices` (10 service binaries, 16 containers), or K8s manifests in `deploy/k8s/`. See [DEPLOY.md](DEPLOY.md) for the 5-minute guide. |
 
 ### 📦 Product Roadmap
 
-#### P0 — Core Flow (Stable)
+#### P0 — Core Flow (Implemented, hardening)
 
-Core authentication, NFT verification, and streaming pipeline. All items are implemented and tested.
+Core authentication, NFT verification, and streaming pipeline — implemented and covered by tests, and actively being hardened: the authorization path recently went through a fail-closed security audit (see `docs/reviews/`); some components remain skeletons or partially wired (see [Project Status](#-project-status) below).
 
 - [x] **Wallet Sign-In** — EIP-191 / EIP-712 / SIWE (EIP-4361) + Solana ed25519
 - [x] **NFT Ownership Verification** — ERC-721, ERC-1155, ERC-165 auto-detect
@@ -121,9 +121,9 @@ Core authentication, NFT verification, and streaming pipeline. All items are imp
 - [x] **Configuration Management** — Viper YAML + env vars with hot reload
 - [x] **Graceful Shutdown** — Context-aware with 30s timeout
 
-#### P1 — Usability & Operations (Stable)
+#### P1 — Usability & Operations (Mostly complete)
 
-Production operations and developer experience.
+Production operations and developer experience — deployed pieces are listed below; observability is partial (metrics endpoint only, no scrape stack).
 
 - [x] **Dual-mode Deployment** — Monolith (dev) + 9 microservices (prod)
 - [x] **Docker + Docker Compose** — Full stack with health checks
