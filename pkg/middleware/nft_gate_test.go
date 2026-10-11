@@ -695,7 +695,7 @@ func TestNFTGateMiddleware_AuditLoggerOnDenied(t *testing.T) {
 				return big.NewInt(0), nil
 			},
 		},
-				AuditLogger:     audit,
+		AuditLogger: audit,
 		RuleResolver: &mockGatingRuleResolver{
 			rules: []GatingRule{
 				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
@@ -721,7 +721,7 @@ func TestNFTGateMiddleware_AuditLoggerOnPassed(t *testing.T) {
 				return big.NewInt(1), nil
 			},
 		},
-				AuditLogger:     audit,
+		AuditLogger: audit,
 		RuleResolver: &mockGatingRuleResolver{
 			rules: []GatingRule{
 				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
@@ -872,7 +872,7 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
 			},
 		},
-		DefaultChainID:   1,
+		DefaultChainID: 1,
 	}
 	router := setupNFTGateRouter(&config)
 
