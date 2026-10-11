@@ -13,6 +13,6 @@ jobs:
         run: |
           for repo in bitnamilegacy/minio bitnami/minio minio/minio; do
             echo "=== $repo ==="
-            curl -s "https://hub.docker.com/v2/repositories/$repo/tags?page_size=12" | head -c 1200
+            curl -s "https://hub.docker.com/v2/repositories/$repo/tags?page_size=100" | grep -oE '"name":"[^s][^"]*"' | grep -v sha256 | head -30
             echo
           done
