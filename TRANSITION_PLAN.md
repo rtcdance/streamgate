@@ -592,7 +592,8 @@ make verify-docker
 | 既有 Docker Build | [38138403126](https://github.com/rtcdance/streamgate/actions/runs/38138403126) success | 历史构建结果；不是本轮同 digest 发布验收 |
 | 既有 Production Deploy | [38138403111](https://github.com/rtcdance/streamgate/actions/runs/38138403111) 显示 success，但缺凭据 skip | **不能证明生产部署成功** |
 | SG-10 | **设计基线完成（见 §8.1）** | 事实清单（wired/tested/scaffold/disabled）、2 张图、六类主体权限矩阵、四类 profile、R01～R12 入口映射、路由正负例→SG 映射 |
-| SG-00、SG-01～09、SG-11～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-00 | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞） | 见 §8.2 |
+| SG-01～09、SG-11～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -760,6 +761,24 @@ sequenceDiagram
 | production profile 启动 | 依赖齐全启动成功 | 缺 Redis/NATS **不** memory fallback；Demo signer 关闭 | SG-14 |
 | `GET /ready` | 全依赖健康 200 | 全部 RPC 坏 → 503；单 endpoint 坏而 fallback 可用不误判 | SG-14 |
 | `/metrics` `/pprof` 内部 gRPC | 授权可达 | 公网无认证拒绝 | SG-14 |
+
+### 8.2 SG-00 执行证据（部分完成）
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| Anvil 测试编译修复 | PASS | 移除 `os.Discard`、`auth.PrivateKey` 误用；改用 `io.Discard`、`bind.NewKeyedTransactorWithChainID`、`bind.DeployContract`、`BoundContract.Transact/Call` |
+| 真实合约 fixture | PASS | `forge build` 产出 `contracts/out/DemoNFT.sol/DemoNFT.json`；测试运行时加载真实 ABI/bytecode，按真实 `mint(address)` 调用（不再用截断占位 bytecode / 手写 selector） |
+| ERC-1155 fixture | PASS | 新增 `contracts/src/DemoERC1155.sol`（OpenZeppelin 5.6.1）；`TestAnvil_ERC1155Quantity` 证明同钱包 token 7 持有 1 → 2 |
+| Anvil 套件运行 | **PASS 8/8、0 skip** | `go test -tags=anvil -race -count=1 ./test/integration/web3/`（约 12.5s） |
+| 动态端口 + Fatal | PASS | `net.Listen(":0")` 分配端口；缺 anvil / 启动失败 / readiness 超时一律 `t.Fatalf`（不再 `t.Skip`） |
+| safe/finalized 语义 | PASS（含关键发现） | **Anvil 默认把 `safe`/`finalized` 钉在创世块**；须 `--slots-in-an-epoch 1` 才会推进。新增 `mineUntilSafe` 保证只断言已进入 safe 视图的状态，未把 verifier 降级为 latest |
+| H5 lock 跟踪 | PASS | `scripts/h5-demo-acceptance/{package.json,package-lock.json}` 已 `git add -f`，出现在 `git ls-files`（全局 ignore 命中 `scripts`） |
+| 验收 Compose | PASS（静态） | `deploy/docker/compose.acceptance.yml` 无 `container_name`、无固定宿主端口；`docker compose config -q` 通过 |
+| 统一入口 | PASS（静态） | `scripts/verify-docker.sh` + `make verify-docker [VERIFY_STAGE=…]`；未实现阶段（durability/ops/media/perf/release）**显式失败**，不假绿 |
+| 主机预检 | PASS | `gofmt -l` 空、`go vet ./...` 干净、`go build ./...` 与 `-tags nats_integration` 干净、`forge test` 12/12 |
+| **Docker 镜像构建** | **BLOCKED（本机网络）** | `deploy/docker/Dockerfile.verify` 首次构建在拉取 `golang:1.26-bookworm` 时报 `short read: expected 86641718 bytes but got 0: unexpected EOF`；重拉成功后二次构建运行 28 分钟未完成。属环境网络问题而非 Dockerfile 缺陷，但**未验证**，故 SG-00 不勾选 |
+
+**结论**：SG-00 的测试与入口已落地，本机可验证部分全部通过；**Docker 镜像实跑未完成**，SG-00 保持未勾选。网络可用时执行 `make verify-docker VERIFY_STAGE=unit` 复验后补记，再进入 SG-11。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
