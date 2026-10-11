@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rtcdance/streamgate/pkg/web3/internal/abiutil"
 	"github.com/rtcdance/streamgate/pkg/web3/nft"
@@ -286,19 +287,14 @@ func (cr *ContractContentRegistry) GetContent(ctx context.Context, ci *ContractI
 		return nil, fmt.Errorf("getContent call failed: %w", err)
 	}
 
-	type getContentResult struct {
-		ContentID   string
-		Creator     common.Address
-		ContentHash string
-		MetadataURI string
-		Status      uint8
-		CreatedAt   *big.Int
-		UpdatedAt   *big.Int
-	}
-	var out getContentResult
-	if err := parsedABI.UnpackIntoInterface(&out, "getContent", result); err != nil {
+	raw, err := parsedABI.Unpack("getContent", result)
+	if err != nil {
 		return nil, fmt.Errorf("failed to unpack getContent result: %w", err)
 	}
+	if len(raw) != 1 {
+		return nil, fmt.Errorf("getContent returned %d values", len(raw))
+	}
+	out := abi.ConvertType(raw[0], new(contentRecordTuple)).(*contentRecordTuple)
 
 	return &ContentRecord{
 		ContentID:   out.ContentID,

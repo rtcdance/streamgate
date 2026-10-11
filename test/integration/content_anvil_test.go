@@ -70,9 +70,11 @@ func TestAnvil_ContentRegistry_RegisterAndReadBack(t *testing.T) {
 	require.NoError(t, err, "RegisterContent tx must be accepted by the deployed contract")
 	require.True(t, len(txHash) >= 66, "tx hash must look like a hash: %s", txHash)
 
-	existsAfter, err := binding.ContentExists(ctx, contentID)
-	require.NoError(t, err)
-	require.True(t, existsAfter, "content must exist on-chain after registration")
+	// Anvil mines with a ~2s block time; poll until the tx lands.
+	require.Eventually(t, func() bool {
+		exists, err := binding.ContentExists(ctx, contentID)
+		return err == nil && exists
+	}, 15*time.Second, 500*time.Millisecond, "content must exist on-chain after registration")
 
 	record, err := binding.GetContent(ctx, contentID)
 	require.NoError(t, err)
