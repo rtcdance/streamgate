@@ -464,8 +464,6 @@ func TestSvcCov_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	assert.Error(t, err)
 }
 
-
-
 func TestSvcCov_VerifySolanaTokenAccount_NilVerifier(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	_, err := svc.VerifySolanaTokenAccount(context.Background(), "token", "owner")
@@ -488,7 +486,6 @@ func TestSvcCov_GetSolanaVerifier_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	assert.Nil(t, svc.GetSolanaVerifier())
 }
-
 
 func TestSvcCov_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
@@ -564,7 +561,6 @@ func TestSvcCov_Web3Service_GetTransactionQueue_Set(t *testing.T) {
 	svc.transactionQueue = q
 	assert.Equal(t, q, svc.GetTransactionQueue())
 }
-
 
 func TestSvcCov_Web3Service_SendTransaction_ContextWithDeadline(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}

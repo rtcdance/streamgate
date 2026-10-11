@@ -348,8 +348,6 @@ func TestWeb3Service_CancelPendingTransaction_NilManager(t *testing.T) {
 	assert.Contains(t, err.Error(), "multiChainManager not initialized")
 }
 
-
-
 func TestW3TxExt_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	_, err := svc.GetGasPriceLevels(context.Background(), 1)
@@ -410,7 +408,6 @@ func TestW3TxExt_GetGasMonitor_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
 	assert.Nil(t, svc.GetGasMonitor())
 }
-
 
 func TestW3TxExt_GetTransactionQueue_Nil(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop()}
