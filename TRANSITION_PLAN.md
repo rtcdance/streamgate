@@ -384,7 +384,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   1. 覆盖率门槛从 **10%** 提到真实值（2026-10-10 实测 **74.4%**，建议设 60% 留余量）
   2. `build.yml` 的 Trivy `exit-code: '0'` → `'1'`，去掉 job 级 `continue-on-error`
   3. `ci.yml` 的 Slither 去掉 `continue-on-error: true`
-  4. 新增 `govulncheck` 步骤（当前完全没有）
+  4. 新增 `govulncheck` 步骤（当前完全没有）。**2026-10-11 修订**：首次实测发现 50 个可达发现（约 29 个 Go 标准库 + x/net/grpc/otel 依赖）——依赖集被 chainpulse 对齐锁定，硬门禁会常红。CI 中先以**报告模式**运行（输出进 step summary），偿清漏洞债务（依赖升级是独立任务）后再转阻塞门禁。
   5. `:216` 的 docker job 依赖加入 security，使其真正成为门禁
 - **验收判据**：故意引入一个漏洞依赖 → CI 必须失败
 

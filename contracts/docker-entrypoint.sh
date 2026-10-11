@@ -27,16 +27,37 @@ done
 
 # Deploy DemoNFT if not present
 CODE=$(cast code --rpc-url "$ANVIL_RPC" "$CONTRACT" 2>/dev/null || echo "")
+# forge must run from /contracts so foundry.toml remappings resolve lib/
+# imports (ContentRegistry imports OpenZeppelin Ownable).
+cd /contracts
 if [ "$CODE" = "0x" ] || [ -z "$CODE" ]; then
   echo "[entrypoint] Deploying DemoNFT..."
   forge create \
     --rpc-url "$ANVIL_RPC" \
     --private-key "$DEPLOYER_KEY" \
-    /contracts/src/DemoNFT.sol:DemoNFT \
+    src/DemoNFT.sol:DemoNFT \
     --out /tmp/forge-out \
     --cache-path /tmp/forge-cache \
     --legacy --broadcast 2>&1 | grep -E "Deployed to|Error"
 fi
+
+# Deploy ContentRegistry if not present — the Go backend registers content
+# here (STREAMGATE_CONTENT_REGISTRY_ADDRESS points at the deterministic
+# address below; deployer key == contract owner, matching the backend signer).
+REGISTRY=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+REG_CODE=$(cast code --rpc-url "$ANVIL_RPC" "$REGISTRY" 2>/dev/null || echo "")
+if [ "$REG_CODE" = "0x" ] || [ -z "$REG_CODE" ]; then
+  echo "[entrypoint] Deploying ContentRegistry..."
+  forge create \
+    --rpc-url "$ANVIL_RPC" \
+    --private-key "$DEPLOYER_KEY" \
+    src/ContentRegistry.sol:ContentRegistry \
+    --out /tmp/forge-out \
+    --cache-path /tmp/forge-cache \
+    --legacy --broadcast 2>&1 | grep -E "Deployed to|Error"
+fi
+echo "[entrypoint] ContentRegistry at: $REGISTRY"
+echo "$REGISTRY" > /tmp/forge-out/content_registry_address 2>/dev/null || true
 
 # Mint 3 NFTs
 BALANCE=$(cast call --rpc-url "$ANVIL_RPC" "$CONTRACT" "balanceOf(address)(uint256)" "$WALLET" 2>/dev/null || echo 0)

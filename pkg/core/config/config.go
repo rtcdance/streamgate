@@ -376,6 +376,7 @@ func LoadConfig() (*Config, error) {
 	_ = viper.BindEnv("web3.transaction.private_key_hex", "STREAMGATE_PRIVATE_KEY_HEX")
 	_ = viper.BindEnv("web3.anvil_demo_contract", "STREAMGATE_ANVIL_DEMO_CONTRACT")
 	_ = viper.BindEnv("web3.anvil_deployer_key", "STREAMGATE_ANVIL_DEPLOYER_KEY")
+	_ = viper.BindEnv("web3.content_registry_address", "STREAMGATE_CONTENT_REGISTRY_ADDRESS")
 
 	// Auth
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
@@ -650,6 +651,7 @@ func setDefaults() {
 	viper.SetDefault("web3.solana_rpc", "https://api.devnet.solana.com")
 	viper.SetDefault("web3.chain_id", 11155111) // Sepolia
 	viper.SetDefault("web3.block_tag", "safe")
+	viper.SetDefault("web3.content_registry_address", "")
 
 	// Monitoring defaults
 	viper.SetDefault("monitoring.prometheus_port", 9090)
