@@ -577,7 +577,7 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 | 目标                    | 位置                                                                                                                      | 理由                                                                                                         |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 流媒体桩实现                | `pkg/plugins/streaming/handler.go:76`（返回字面量 `"#EXTM3U\n#EXT-X-VERSION:3\n"`）、`:98`（`<MPD></MPD>`）；`hls.go`/`dash.go` 空壳 | 字面量桩                                                                                                       |
-| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`                                                                  |
+| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`。**⚠️ 2026-10-11 复核决定保留，未删除**：它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`，且 `pkg/plugins/transcoder/{server,handler}.go` 全部依赖它，是 standalone transcoder 微服务的真实实现。删除等价于把该微服务改接 `service.TranscodingService`（约 700 行），属**架构改动而非删除**，须单独立项。详见附录 F                                                                  |
 | 1 行空文件                | `pkg/plugins/transcoder/scaler.go`、`pkg/plugins/worker/executor.go`                                                     | 仅 `package` 声明                                                                                             |
 | 未接入的 IPFS             | `pkg/web3/ipfs.go` + `pkg/service/web3.go:53`、`pkg/service/web3_tx.go:66,77` 对 `IPFSClient` 类型的引用                       | 从未实例化（运行时恒 nil）。**直接删文件会编译失败**，需连引用一起清（2026-10-10 评审实测更正）                                                  |
 | 未调用的转码方法              | `TranscodeToDASH`、`ExtractAudio`、`ConcatVideos`                                                                         | 无调用者                                                                                                       |
@@ -589,6 +589,10 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 **注意**：删除后必须重跑 `go build ./...` 与 `go test ./...`，并**记录非测试源码行数的前后值**（G2）。
 
 **G2 实测记录（2026-10-11，独立复核后口径）**：B4 单提交删除 **301** 行；因 Track A/B3/收尾提交新增约 200 行，全流程净变化 **−105** 行（基线 61,633 → 61,528）。两个数并列记录，避免「减法」叙事被误读。
+
+**G2 行数收官值（2026-10-11 末）**：**61,512** 行（基线 61,633 → 净 **−121**）。
+
+**B4 执行状态（2026-10-11 复核）**：上表 13 个目标中 **12 个已执行并实测**（文件全部 gone，`go build` / `go test ./...` / `forge test` 12/12 通过）；仅「并行且自标 Deprecated 的调度器」一行按上表说明**保留**，并已在本表内写明理由（非死代码 + 需架构改动）。
 
 ---
 
@@ -619,3 +623,71 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 2. **"能解释才保留"** 优于"功能完整"。宁可项目变小。
 3. **不要为了完成清单而降低验收标准。** 若某判据无法达成，报告失败原因，这比伪造通过有价值得多。
 4. **HLS AES-128 不是 DRM。** 任何对外表述都必须遵守这条。
+
+---
+
+## 附录 F：2026-10-11 CI/CD 收官与复核记录
+
+> 本附录替代此前的两份过程文档（`docs/reviews/2026-10-11-transition-plan-acceptance.md`、
+> `docs/HANDOVER_2026-10-11.md`）。按附录 D「本文件是唯一计划文档」，过程性文档已删除，
+> **仍有长期价值的结论在此留存**。
+
+### F.1 基线修订:Go 1.25 → 1.26(已获人工批准)
+
+见本文档开头基线声明的 2026-10-11 修订条目。触发原因:Docker Trivy 门禁报出 **6 个 HIGH**,
+其中 4 个的修复版本**要求 Go ≥ 1.26**:
+
+| CVE | 组件 | 需修至 | 为什么 Go 1.25 修不了 |
+|-----|------|--------|----------------------|
+| CVE-2026-78669 | `golang.org/x/net` | v0.60.0 | 该模块声明 `go 1.26.0` |
+| CVE-2026-78667 | stdlib (net/http) | 1.26.9 / 1.27.2 | Go 1.25 线不再出补丁 |
+| CVE-2026-78669 | stdlib (net/http http2) | 1.26.9 / 1.27.2 | 同上 |
+| CVE-2026-97031 | stdlib (crypto/tls) | 1.26.9 / 1.27.2 | 同上 |
+
+选择**上调基线**而非加 `.trivyignore` —— 不为已知 HIGH 开盲区。另 2 个(`x/crypto` CVE-2026-56854、
+`grpc` CVE-2026-84304/CVE-2026-84445)也随之闭合。**收官:Trivy CRITICAL/HIGH = 0**
+(`streamgate-monolith:scan (alpine 3.21.8) | alpine | 0`;Docker run `38122905154`,11 个 job 全绿)。
+
+`go.mod` 增 `toolchain go1.26.9`,把 CVE 修复下限**写死**,避免用 1.26.0 编译器产出有漏洞的二进制。
+
+### F.2 教训:修依赖 CVE 要校验目标版本是否落在**其他** CVE 的区间
+
+本次 `grpc` 就踩了这个坑:原 `v1.82.2` **不在** CVE-2026-84445 的受影响范围(修复列表里含 1.82.2),
+为修 CVE-2026-84304 升到 `v1.83.1` 反而进入 84445 区间,最终需 `v1.83.2`。
+**「升到更高版本就完事」不是充分推理。**
+
+### F.3 Go 1.26 暴露的一个既有生产缺陷(已修)
+
+`pkg/monitoring/alerts.go` 用 `time.Now().UnixNano()` 当 alert ID。Go 1.26 下 darwin 连续调用
+**返回相同值**,两条规则同瞬触发时 ID 碰撞,`am.alerts[alert.ID] = alert` **静默覆盖第一条**。
+
+A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**1.26.9** → 3 个测试间歇失败。
+修复:加 `seq atomic.Uint64` 后缀。既有测试即回归测试。
+
+### F.4 门禁判据的实证状态
+
+| 判据 | 状态 |
+|------|------|
+| **G1** 授权不可绕过 | ✅ **三重证明**:worktree `f6dcf20`(A2 前)`AUTHZ_RED=1` → 恰好 **4 FAIL**;修复后 → **7 PASS / 0 FAIL / 0 SKIP**;`requireRED` 已清除 |
+| **G2** 无死代码 | ✅ **12/13 项执行**(见附录 B 说明 + F.5) |
+| **G3** 文档无矛盾 | ✅ 附录 A.6 九项全消解;Go 1.26 相关数字已同步 |
+| **G4** 数字可复现 | ✅ 覆盖率 73.4%、测试文件 254/203、迁移 **35 up / 19 down**、build-all **11** 二进制,均实测吻合 |
+| **B6** 「故意引入漏洞依赖 → CI 必须失败」 | ⚠️ **以真实失败实证,未做刻意注入**:本日 Docker 门禁在 `Scan Monolith Image` → Trivy 步骤**两次真实失败**(run `38112149624` 6 HIGH、`38122049710` 1 HIGH,`exit-code: '1'` + `severity: CRITICAL,HIGH`),证明该门禁**不是空转**。刻意注入一个已知 CVE 依赖的演练**未执行** |
+
+### F.5 已知未完成 / 有意保留
+
+| 项 | 说明 |
+|----|------|
+| 附录 B「并行且自标 Deprecated 的调度器」 | **有意保留**。非死代码(`cmd/microservices/transcoder/main.go:58` 真实调用),删除 = 把 standalone transcoder 微服务改接 `service.TranscodingService`(约 700 行),属架构改动,**须单独立项** |
+| `git.go`/同类 `UnixNano()` 当唯一 key 的写法 | 尚存于 `pkg/plugins/worker/handler.go:72`、`worker/scheduler.go:659`、`streaming/range.go:179`、`gateway/errors.go:146`。当前无测试覆盖到碰撞,**未改**(避免顺手改对) |
+| `auto-fix.yml:206` | 用 v1 模块路径 `github.com/golangci/golangci-lint/cmd/...@latest`,v2 应为 `/v2/cmd/...`。该步骤带 `|| true`,不阻塞但已失效 |
+| `C4` / `C5` / `D1` / `D2` / `G5` | 人工任务,见 §4 Track C 与 §5 Track D |
+
+### F.6 环境注意(复现时必读)
+
+1. **本机 `golangci-lint` 需 ≥ 用 Go 1.26 构建的版本**。本机 PATH 上的 v2.8.0(built with go1.25.5)对 go1.26 模块会直接报错;CI 用 v2.12.2(built with go1.26.9)不受影响。
+2. **`golangci-lint v2` 残留锁** `${TMPDIR}/golangci-lint.lock` 会报 `parallel golangci-lint is running` 并**以 exit code 0 退出且无输出** —— 脚本里必须检查输出,不能只看退出码。用 `--allow-parallel-runners` 绕开。
+3. 本机基础 Go 是 **1.24.13**,在仓库内会被 `go.mod` 自动切到声明版本(易误判 `go version` 结果)。
+4. `/Users/mingo/.gitignore_global` 含一条全局 `docs` 忽略规则 → 含 `docs/...` 的 `git add` 会**非零退出**并掐断 `git add && git commit` 链路(已跟踪的 docs 文件其实仍会 stage)。`git add` 与 `git commit` 应分开执行。
+5. 本机 Docker Hub 被 mirror 封锁、无 `trivy` → Trivy 结论**只能由 CI 产出**。
+
