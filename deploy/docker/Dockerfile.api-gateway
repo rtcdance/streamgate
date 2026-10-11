@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -trimpath -installs
 # Final stage
 FROM alpine:3.21
 
-RUN apk --no-cache add ca-certificates wget ffmpeg
+RUN apk add --no-cache --upgrade ca-certificates wget ffmpeg
 
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
