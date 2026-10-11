@@ -42,10 +42,39 @@ cd scripts/h5-demo-acceptance && node run.mjs --report-dir=reports/ci-$(date +%Y
 
 ## Requirements
 
-- Live full chain stack on `localhost:18000` (h5-demo) and `localhost:28080` (api-gateway). Start with `make fullchain-deploy`.
-- Playwright Node bindings installed: `cd scripts/h5-demo-acceptance && npm install` (committed `package-lock.json` is enough).
-- System Chrome (macOS: `/Applications/Google Chrome.app`). The harness launches `chromium` with `channel: 'chrome'` to avoid Playwright's chromium download.
-- Run on a host that can reach the Anvil RPC at `http://localhost:18545` and the NFT dev-mint endpoint at `http://localhost:28080/api/v1/nft/dev/mint`.
+- A live stack: `make fullchain-deploy`, or any equivalent running stack. Endpoints are
+  resolved from the environment (below), not hardcoded.
+- Playwright Node bindings: `cd scripts/h5-demo-acceptance && npm install` (the committed
+  `package-lock.json` is enough). Host runs only — see the Docker section.
+- Browser: `PW_CHANNEL='chrome'` (default) uses the host's Google Chrome and avoids a
+  Playwright chromium download. Inside a container set `PW_CHANNEL=` to use the bundled
+  Chromium instead.
+
+### Endpoints (env-driven)
+
+`lib/urls.mjs` is the single place endpoints are resolved, so the same specs run on the
+host and inside a container with no edits:
+
+| Env var | Host default | Inside the compose network |
+|---|---|---|
+| `H5_BASE` | `http://localhost:18000` | `http://h5-demo:8080` |
+| `API_BASE` | `http://localhost:28080` | `http://api-gateway:8080` |
+| `MONOLITH_BASE` | `http://localhost:18080` | `http://monolith:8080` |
+| `ANVIL_BASE` | `http://localhost:18545` | `http://anvil:8545` |
+
+### Docker (preferred)
+
+Per the project's rule that build/run/acceptance happen in Docker, run both the stack and
+the browser in containers:
+
+```bash
+~/.workbuddy/skills/streamgate-docker-acceptance/scripts/docker-acceptance.sh --repo <repo-root>
+```
+
+That script copies this suite into a Playwright container attached to the compose network
+and points the env vars above at the service names. **Do not `npm install` on the host in
+order to run in Docker** — the image is Linux, and installing over the host's
+`node_modules` replaces the macOS Playwright binaries and breaks later host runs.
 
 ## What is filtered as transient
 
@@ -56,6 +85,30 @@ The console + network probes record everything to `console.json` / `network.json
 - `favicon.ico` 404s
 
 If any of those patterns change in the real app, the filters here should be updated in `lib/common.mjs`.
+
+## What a pass does not prove
+
+Read this before reporting a green run as "the stack is fine":
+
+- **The health probes only assert that `/health` returns JSON containing a `status`
+  field** (`lib/stack.mjs`) — they do **not** assert the status is `healthy`. A stack
+  with a degraded dependency, which returns `503 {"status":"unhealthy",...}`, passes
+  the pre-check.
+- **`503` on `/health` is filtered as transient** in the console probe ("cold-start
+  race"), so a persistent dependency outage does not fail a spec either.
+- No media pipeline coverage: nothing is uploaded or transcoded, so HLS manifest
+  generation and segment delivery are untested (`404` on manifests is expected and
+  filtered).
+- The demo-wallet path is exercised, not a real injected wallet extension.
+
+To actually verify dependency health, inspect `/health` yourself:
+
+```bash
+curl -s http://localhost:18080/health | jq -r '.status, (.checks | to_entries[] | "\(.key)=\(.value.status)")'
+```
+
+Tightening the pre-check to require `status == "healthy"` would be a behaviour change
+to this suite — propose it rather than assuming it.
 
 ## Exit codes
 

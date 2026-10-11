@@ -1,9 +1,9 @@
 // Spec 03: debug.html — Run the full auto flow, exercising health → auth → NFT → upload.
 
 import { check } from '../lib/common.mjs';
+import { API_BASE as BACKEND_URL, H5_BASE } from '../lib/urls.mjs';
 
-const BACKEND_URL = 'http://localhost:28080';
-const PAGE = 'http://localhost:18000/debug.html';
+const PAGE = `${H5_BASE}/debug.html`;
 
 export default async function spec03Debug({ page, reportDir, snap, sleep }) {
     const checks = [];
