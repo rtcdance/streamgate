@@ -37,7 +37,7 @@
 |       门       | 判据                                                                 | 验证方式                                                                    |
 | :-----------: | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | **G1** 授权不可绕过 | **`AUTHZ_RED=1` 下**，A1 的 **4 个 RED** 测试必须全绿，且**在 Track A 修复前必须失败** | ⚠️ **不能直接跑 `go test`**——RED 测试默认 `t.Skip`（为保 CI 绿）。见下方「G1 正确验法」         |
-|  **G2** 无死代码  | 附录 B 的删除清单已按表执行（13 项中 **12 项删除**；1 项经 2026-10-11 复核**决定保留**，理由见附录 B 与附录 F）；非测试源码行数下降并记录 | `find . -name '*.go' -not -name '*_test.go' \| xargs cat \| wc -l` 前后对比 |
+|  **G2** 无死代码  | 附录 B 的删除清单已按表执行（13 项中 **12 项删除**；1 项经 2026-10-11 复核**判定应从清单撤销**，理由见附录 B 与附录 F.5）；非测试源码行数下降并记录 | `find . -name '*.go' -not -name '*_test.go' \| xargs cat \| wc -l` 前后对比 |
 |  **G3** 文档无矛盾 | 附录 A.6 的 **9 处**矛盾全部修正；CLAUDE.md 不再引用不存在的文件                            | 逐条核对                                                                    |
 |  **G4** 数字可复现 | README 中每个数字都有对应命令                                                 | 逐条执行                                                                    |
 |  **G5** 简历已产出 | 3 个真人读过并回答"你会面这个人吗"                                                | 见 C2                                                                    |
@@ -442,13 +442,13 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **步骤**：按附录 C 的方向优先级投递。**每周 ≥5 份。**
 - **验收判据**：J1 / J2 / J3
 
-### [ ] C5 仓库门面（2026-10-10 评审新增）
+### [~] C5 仓库门面（2026-10-10 评审新增）—— **步骤 2 已完成（2026-10-11）；步骤 1（录屏）待人工**
 
 - **依赖**：B5（先保证文档真实）
 - **步骤**：
-  1. 2 分钟录屏（钱包登录 → NFT 验证 → 门控播放），压成 GIF/MP4 存 `docs/`（或 release asset 外链）
-  2. README 首屏：3 行 quickstart（`make fullchain-deploy` → 打开 h5-demo）+ 一张架构图（README 是既有文件，不违反附录 D）
-- **验收判据**：从未见过项目的人 30 秒内看懂"这是什么、怎么跑起来"
+  1. ⏳ 2 分钟录屏（钱包登录 → NFT 验证 → 门控播放），压成 GIF/MP4 存 `docs/`（或 release asset 外链）—— **人工**
+  2. ✅ README 首屏：`## Quick Start` 段（`make fullchain-deploy` → `http://localhost:18000`；附 `curl` 未认证 → 401 的自证命令）+ mermaid 架构图 + 两条关键性质（授权主体仅来自服务端 / 门禁 fail-closed）。**端口与命令均从 `docker-compose.fullchain.yml` 与 `Makefile` 实测取得，非推测**。顺带修好了原本悬空的 `[Quick Start](#quick-start)` / `[快速开始](#quick-start)` 锚点
+- **验收判据**：从未见过项目的人 30 秒内看懂"这是什么、怎么跑起来" —— 步骤 2 已满足文本侧要求；**录屏缺口意味着该项不能整体判为通过**
 
 ---
 
@@ -578,7 +578,7 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 | 目标                    | 位置                                                                                                                      | 理由                                                                                                         |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 流媒体桩实现                | `pkg/plugins/streaming/handler.go:76`（返回字面量 `"#EXTM3U\n#EXT-X-VERSION:3\n"`）、`:98`（`<MPD></MPD>`）；`hls.go`/`dash.go` 空壳 | 字面量桩                                                                                                       |
-| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`。**⚠️ 2026-10-11 复核决定保留，未删除**：它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`，且 `pkg/plugins/transcoder/{server,handler}.go` 全部依赖它，是 standalone transcoder 微服务的真实实现。删除等价于把该微服务改接 `service.TranscodingService`（约 700 行），属**架构改动而非删除**，须单独立项。详见附录 F                                                                  |
+| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`。**⚠️ 2026-10-11 复核判定应从清单撤销，未删除**：它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`，且 `pkg/plugins/transcoder/{server,handler}.go` 全部依赖它，是 standalone transcoder 微服务的真实实现。删除等价于把该微服务改接 `service.TranscodingService`（约 700 行），属**架构改动而非删除**，须单独立项。详见附录 F                                                                  |
 | 1 行空文件                | `pkg/plugins/transcoder/scaler.go`、`pkg/plugins/worker/executor.go`                                                     | 仅 `package` 声明                                                                                             |
 | 未接入的 IPFS             | `pkg/web3/ipfs.go` + `pkg/service/web3.go:53`、`pkg/service/web3_tx.go:66,77` 对 `IPFSClient` 类型的引用                       | 从未实例化（运行时恒 nil）。**直接删文件会编译失败**，需连引用一起清（2026-10-10 评审实测更正）                                                  |
 | 未调用的转码方法              | `TranscodeToDASH`、`ExtractAudio`、`ConcatVideos`                                                                         | 无调用者                                                                                                       |
@@ -593,7 +593,7 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 
 **G2 行数收官值（2026-10-11 末）**：**61,512** 行（基线 61,633 → 净 **−121**）。
 
-**B4 执行状态（2026-10-11 复核）**：上表 13 个目标中 **12 个已执行并实测**（文件全部 gone，`go build` / `go test ./...` / `forge test` 12/12 通过）；仅「并行且自标 Deprecated 的调度器」一行按上表说明**保留**，并已在本表内写明理由（非死代码 + 需架构改动）。
+**B4 执行状态（2026-10-11 复核）**：上表 13 个目标中 **12 个已执行并实测**（文件全部 gone，`go build` / `go test ./...` / `forge test` 12/12 通过）；仅「并行且自标 Deprecated 的调度器」一行按上表说明**判定应从清单撤销**（注意:**不是「延后」**—— 其删除前提不成立:它不是死代码,且照字面删除会给 standalone 微服务强加 DB + 队列依赖)。
 
 ---
 
@@ -679,7 +679,7 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 
 | 项 | 说明 |
 |----|------|
-| 附录 B「并行且自标 Deprecated 的调度器」 | **有意保留**。非死代码(`cmd/microservices/transcoder/main.go:58` 真实调用),删除 = 把 standalone transcoder 微服务改接 `service.TranscodingService`(约 700 行),属架构改动,**须单独立项** |
+| 附录 B「并行且自标 Deprecated 的调度器」 | **保留,且建议把该删除项从计划中撤销(非"延后")**。理由(2026-10-11 复核实测):① 它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`,`server.go`/`handler.go` 全部依赖它;② 改接 `service.TranscodingService` **不是机械替换**:后者签名是 `NewTranscodingService(db storage.DB, queue TranscodingQueue, ...)`(`pkg/service/transcoding/transcoding.go:64`),**需要 DB + 队列**;而 standalone transcoder 现在是无 DB 依赖的内存 worker pool。照字面"删除"等于给一个微服务**强加数据库与队列运行时依赖**,是**架构变更**,与附录 E 第 2 条「能解释才保留、宁可项目变小」的减法意图相反。**结论:该项的删除前提不成立,应从附录 B 撤销而非延后。** |
 | `git.go`/同类 `UnixNano()` 当唯一 key 的写法 | 尚存于 `pkg/plugins/worker/handler.go:72`、`worker/scheduler.go:659`、`streaming/range.go:179`、`gateway/errors.go:146`。当前无测试覆盖到碰撞,**未改**(避免顺手改对) |
 | `auto-fix.yml:206` | 用 v1 模块路径 `github.com/golangci/golangci-lint/cmd/...@latest`,v2 应为 `/v2/cmd/...`。该步骤带 `|| true`,不阻塞但已失效 |
 | `C4` / `C5` / `D1` / `D2` / `G5` | 人工任务,见 §4 Track C 与 §5 Track D |
