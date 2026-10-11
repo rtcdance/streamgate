@@ -6,8 +6,8 @@
 import { H5_BASE, API_BASE, MONOLITH_BASE, ANVIL_BASE } from './urls.mjs';
 
 const TARGETS = [
-    { name: 'monolith-health', url: `${MONOLITH_BASE}/health`, expect: { has: 'status' } },
-    { name: 'api-gateway-health', url: `${API_BASE}/health`, expect: { has: 'status' } },
+    { name: 'monolith-health', url: `${MONOLITH_BASE}/health`, expect: { has: 'status', jsonStatus: 'healthy' } },
+    { name: 'api-gateway-health', url: `${API_BASE}/health`, expect: { has: 'status', jsonStatus: 'healthy' } },
     { name: 'h5-demo-index', url: `${H5_BASE}/`, expect: { status: 200 } },
     { name: 'h5-demo-flow', url: `${H5_BASE}/flow.html`, expect: { status: 200 } },
     { name: 'h5-demo-debug', url: `${H5_BASE}/debug.html`, expect: { status: 200 } },
@@ -34,8 +34,16 @@ export async function checkStack({ timeout = 5000 } = {}) {
             const body = text ? safeParse(text) : null;
             const statusOk = t.expect.status == null || res.status === t.expect.status;
             const hasOk = !t.expect.has || (body && body[t.expect.has] != null);
-            const ok = statusOk && hasOk;
-            checks.push({ name: t.name, ok, status: res.status, latency_ms: Date.now() - start, detail: ok ? 'OK' : `status=${res.status} expected=${t.expect.status}` });
+            // A /health endpoint that answers 503 {"status":"unhealthy"} carries the
+            // dependency failure; only the HTTP status was ever checked, so a degraded
+            // stack used to pass. Require the reported status to be healthy too.
+            const jsonOk = t.expect.jsonStatus == null || (body && body.status === t.expect.jsonStatus);
+            const ok = statusOk && hasOk && jsonOk;
+            const detail = ok ? 'OK' : [
+                `http=${res.status}` + (t.expect.status != null ? ` expected=${t.expect.status}` : ''),
+                body && body.status ? `body.status=${body.status}` + (t.expect.jsonStatus ? ` expected=${t.expect.jsonStatus}` : '') : null,
+            ].filter(Boolean).join(' ');
+            checks.push({ name: t.name, ok, status: res.status, latency_ms: Date.now() - start, detail });
         } catch (e) {
             checks.push({ name: t.name, ok: false, status: 0, latency_ms: Date.now() - start, detail: e.message });
         }

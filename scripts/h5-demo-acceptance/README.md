@@ -88,27 +88,28 @@ If any of those patterns change in the real app, the filters here should be upda
 
 ## What a pass does not prove
 
-Read this before reporting a green run as "the stack is fine":
+Read this before reporting a green run as more than it is:
 
-- **The health probes only assert that `/health` returns JSON containing a `status`
-  field** (`lib/stack.mjs`) — they do **not** assert the status is `healthy`. A stack
-  with a degraded dependency, which returns `503 {"status":"unhealthy",...}`, passes
-  the pre-check.
-- **`503` on `/health` is filtered as transient** in the console probe ("cold-start
-  race"), so a persistent dependency outage does not fail a spec either.
-- No media pipeline coverage: nothing is uploaded or transcoded, so HLS manifest
+- **Dependency health is now enforced.** The `monolith-health` and
+  `api-gateway-health` probes require `status == "healthy"` in the body, so a
+  `503 {"status":"unhealthy"}` fails the pre-check and aborts the run. A `503`
+  console error from `/health` is also no longer filtered as transient
+  (`lib/common.mjs`) — only `/health` is exempt from the 503 filter, and no longer.
+- **No media pipeline coverage.** Nothing is uploaded or transcoded, so HLS manifest
   generation and segment delivery are untested (`404` on manifests is expected and
   filtered).
-- The demo-wallet path is exercised, not a real injected wallet extension.
+- **The demo-wallet path is exercised, not a real injected wallet extension.**
+- `03-debug` reports `click raced — non-blocking` when the auto-flow buttons lose a
+  race; those checks are recorded but never fail the spec.
 
-To actually verify dependency health, inspect `/health` yourself:
+When the pre-check fails on health, read the detail rather than the summary — it
+carries both numbers, e.g. `http=503 body.status=unhealthy expected=healthy`.
+
+To inspect a dependency directly:
 
 ```bash
 curl -s http://localhost:18080/health | jq -r '.status, (.checks | to_entries[] | "\(.key)=\(.value.status)")'
 ```
-
-Tightening the pre-check to require `status == "healthy"` would be a behaviour change
-to this suite — propose it rather than assuming it.
 
 ## Exit codes
 

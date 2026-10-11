@@ -26,8 +26,10 @@ export function attachProbes(page, reportDir) {
             const text = msg.text();
             const url = msg.location()?.url || '';
             if (text.includes('favicon.ico')) return;
-            // 503 noise during cold start is expected — flag but don't fail.
-            if (text.includes('503') || text.includes('Service Unavailable')) return;
+            // 503 noise during cold start is expected — but never for /health,
+            // where a 503 means a dependency is down. Hiding it there would mask
+            // a mid-run outage that the now-strict pre-check would otherwise catch.
+            if ((text.includes('503') || text.includes('Service Unavailable')) && !url.includes('/health')) return;
             // 404 on streaming manifest is expected when no real video was uploaded.
             if (text.includes('404') && url.includes('/streaming/') && url.includes('/manifest.m3u8')) return;
             // 401/403 on streaming manifest are the EXPECTED fail-closed
