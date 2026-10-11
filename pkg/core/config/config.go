@@ -461,12 +461,12 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Web3: Web3Config{
-			EthereumRPC:       viper.GetString("web3.ethereum_rpc"),
-			EthereumWSURL:     viper.GetString("web3.ethereum_ws_url"),
-			SolanaRPC:         viper.GetString("web3.solana_rpc"),
-			ChainID:           viper.GetInt64("web3.chain_id"),
-			BlockTag:          viper.GetString("web3.block_tag"),
-			AnvilDemoContract: viper.GetString("web3.anvil_demo_contract"),
+			EthereumRPC:            viper.GetString("web3.ethereum_rpc"),
+			EthereumWSURL:          viper.GetString("web3.ethereum_ws_url"),
+			SolanaRPC:              viper.GetString("web3.solana_rpc"),
+			ChainID:                viper.GetInt64("web3.chain_id"),
+			BlockTag:               viper.GetString("web3.block_tag"),
+			AnvilDemoContract:      viper.GetString("web3.anvil_demo_contract"),
 			AnvilDeployerKey:       viper.GetString("web3.anvil_deployer_key"),
 			ContentRegistryAddress: viper.GetString("web3.content_registry_address"),
 			Transaction: TransactionConfig{
