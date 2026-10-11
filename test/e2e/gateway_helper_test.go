@@ -147,6 +147,9 @@ func (s *mockSegmentStorage) CreateBucket(ctx context.Context, bucket string) er
 func testConfig() *config.Config {
 	cfg := &config.Config{}
 	cfg.Auth.JWTSecret = "test-secret-that-is-at-least-32-chars"
+	// The e2e workflow tests assert NFT_REQUIRED/403 semantics — the gate must
+	// be ON (since the flag became reachable in the P2 remediation).
+	cfg.Features.NFTGating = true
 	cfg.Web3.ChainID = 11155111
 	cfg.Server.Port = 0
 	cfg.Database.Host = "localhost"
@@ -185,19 +188,30 @@ func testJWT(walletAddress string) string {
 	return s
 }
 
+// staticGatingRuleResolver serves one server-side rule for any content —
+// mirrors the production contract where the authorization subject comes from
+// server-side rules, never from the request (A9).
+type staticGatingRuleResolver struct {
+	rules []middleware.GatingRule
+}
+
+func (s staticGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ string) ([]middleware.GatingRule, error) {
+	return s.rules, nil
+}
+
 // setupE2EServer creates an httptest.Server backed by gateway.SetupRouter
 // with mock dependencies injected.
-func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, segStorage service.SegmentStorage) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
+func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, segStorage service.SegmentStorage, opts ...gateway.RouterOption) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {
 	t.Helper()
 	authService, verifier := newTestAuthService()
 	cfg := testConfig()
 
-	opts := []gateway.RouterOption{
+	opts = append(opts, []gateway.RouterOption{
 		gateway.WithAuthService(authService),
 		gateway.WithChallengeStore(storage.NewMemoryChallengeStore()),
 		gateway.WithSegmentStorage(segStorage),
 		gateway.WithNFTVerifier(checker),
-	}
+	}...)
 
 	router, resources, err := gateway.SetupRouter(cfg, zap.NewNop(), opts...)
 	if err != nil {
