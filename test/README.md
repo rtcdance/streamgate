@@ -66,31 +66,16 @@ go test -bench=. ./test/performance/...
 
 ### 2. Load Tests
 
-**File**: `test/load/load_test.go`
+**Not currently implemented.** `test/load/load_test.go` was deleted: every case began with
+`t.Skip("requires external service")`, so it never ran and occupied ~1800 lines of CI-time
+without producing signal.
 
-Tests that simulate realistic load scenarios and validate system behavior under stress.
+Load and acceptance testing against a live stack goes through the Docker targets instead:
+`make fullchain-test` and `make h5-demo-acceptance`. Use `test/performance/` for in-process
+benchmarks.
 
-**Tests**:
-- `TestUploadServiceLoad` - 50 concurrent, 500 req/sec
-- `TestStreamingServiceLoad` - 100 concurrent, 1000 req/sec
-- `TestMetadataServiceLoad` - 50 concurrent, 500 req/sec
-- `TestAuthServiceLoad` - 30 concurrent, 300 req/sec
-- `TestCacheServiceLoad` - 100 concurrent, 2000 req/sec
-- `TestConcurrentUserSimulation` - 1000 concurrent users
-- `TestSpikeLoad` - Spike handling (200 concurrent, 2000 req/sec)
-- `TestSustainedLoad` - 60-second sustained load
-
-**Metrics Collected**:
-- Throughput (requests per second)
-- Error rate (percentage)
-- Latency percentiles (P50, P95, P99)
-- Memory usage
-- CPU usage
-
-**Run**:
-```bash
-go test -v ./test/load/...
-```
+If a load suite is reintroduced, it must be runnable against the compose stack rather than
+skipped — a test that cannot fail is not a test.
 
 ### 3. Security Audit
 
@@ -190,9 +175,6 @@ go test -v ./test/...
 ```bash
 # Performance tests
 go test -v ./test/performance/...
-
-# Load tests
-go test -v ./test/load/...
 
 # Security audit
 go test -v ./test/security/...
@@ -344,11 +326,12 @@ If performance tests are slow:
 
 ### Load Test Issues
 
-If load tests fail:
-1. Check network connectivity
-2. Check service availability
-3. Check resource limits
-4. Increase timeout: `go test -v -timeout 60s ./test/load/...`
+There is no load-test suite in this repo (see section 2). For stack-level load and
+acceptance, run the Docker targets and inspect their reports:
+
+```bash
+make fullchain-deploy && make fullchain-test
+```
 
 ## Best Practices
 
