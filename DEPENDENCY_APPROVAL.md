@@ -55,7 +55,70 @@ exceptions — the gate keeps blocking on real, fixable findings.
 on that very commit (38112149624) reported `golang.org/x/net v0.57.0` as **still vulnerable**, fixed in
 `0.60.0`. The claim was not supported by its own artifact — corrected by this bump.
 
+## Open — chainpulse alignment divergences (recorded 2026-10-11)
 
+The project was aligned to the sibling `chainpulse` module's Go version and dependency set
+(`bc54689`). Go version and most shared modules are now identical; the items below are the
+**remaining, deliberate divergences**. They are recorded here because the alignment goal was
+"各模块不自行维护不同版本依赖" — and **an unrecorded divergence is indistinguishable from an oversight**.
+
+**Alignment status: 46 / 65 shared modules identical.** Differences are not all the same kind;
+the three cases below are deliberately separated.
+
+### 1. Two major-version divergences (module path differs, not just the version)
+
+| Capability | streamgate | chainpulse | Importers | Status |
+|---|---|---|---|---|
+| Redis client | `github.com/go-redis/redis/v8` v8.11.5 | `github.com/redis/go-redis/v9` v9.17.2 | 13 files | **Not migrated** |
+| JWT | `github.com/golang-jwt/jwt/v4` v4.5.2 | `github.com/golang-jwt/jwt/v5` v5.3.1 | 16 files | **Not migrated** |
+
+These are **different module paths** — the Redis one also changed org
+(`go-redis/redis` → `redis/go-redis`). They therefore **cannot** be reconciled by editing a version
+string: a `go.mod` version edit alone leaves both modules in the graph. This is the substantive part
+of "各模块自行维护不同版本依赖".
+
+**Assessed migration cost — lower than the file count suggests.** The API surface actually used is
+small and exists in both majors with unchanged signatures (verified by grep, 2026-10-11):
+
+- **`golang-jwt`**: uses `jwt.MapClaims`, `jwt.NewParser`, `jwt.WithoutClaimsValidation()`,
+  `jwt.WithValidMethods`, `jwt.ParseWithClaims`, `jwt.SigningMethodHMAC`/`SigningMethodRSA`, and
+  already uses `jwt.RegisteredClaims` (`pkg/service/auth.go:187`) — the type v5 promoted to primary.
+  **`StandardClaims` (removed in v5) is not referenced anywhere** (positive control: `RegisteredClaims`
+  matches, so the empty result is real). Expiry/claims validation is already handled explicitly via
+  `WithoutClaimsValidation()`, which is also v5's stricter default.
+- **`go-redis`**: uses `redis.NewClient`, `redis.Options`, `redis.Nil`, `client.Eval`
+  (`pkg/storage/redis.go`, `pkg/storage/redis_challenge.go`, `pkg/gateway/providers.go`,
+  `pkg/middleware/ratelimit.go`). The v9 breaking changes (`HSet` signature, `ZAdd` argument shape,
+  `SetNX` shape) are **not exercised** by any current call site.
+
+⇒ Realistically an import-path + `go.mod` swap across ~29 files, then `go build ./...` and
+`go test ./...`. **Not an API rewrite.**
+
+**Decision: deferred — not rejected, and not overlooked.** Rationale: the alignment task carried a
+second hard requirement, "CI/CD 流水线均能通过". Both swaps touch the auth and rate-limiting hot
+paths; the current tree is CI-green with a live-verified security fix. Bundling an unrelated module
+migration into the same change set would risk that for no functional gain. **To be done as its own
+change with its own CI run.** Until then, this entry is the record that the divergence is known.
+
+### 2. Nineteen shared modules still differ — but the direction has inverted
+
+Of the 19 differing shared modules, **18 are streamgate being *newer***, because the security bumps
+above outrank literal alignment. Notable: `grpc v1.80.0 → v1.83.2`, `x/net v0.52.0 → v0.60.0`,
+`x/crypto v0.49.0 → v0.57.0`, `otel* v1.43.0 → v1.44.0`.
+
+**Accepted trade-off:** a CVE fix is not something to forgo in order to match a sibling repo's
+version string. Note also that one of these cannot be aligned down at all — `klauspost/compress`
+stays at `v1.18.3` because go-ethereum requires `≥ v1.18`; MVS rejects the downgrade to chainpulse's
+`v1.17.8`.
+
+Remaining *non-security* divergences: `fsnotify` (v1.9.0 vs v1.6.0) and
+`decred/dcrd/dcrec/secp256k1/v4` (v4.1.0 vs v4.4.0).
+
+### 3. `toolchain` directive
+
+`streamgate/go.mod` declares `toolchain go1.26.9`; `chainpulse/go.mod` declares only `go 1.26.0`.
+This is **not** a mismatch — it is the deliberate floor set by the Go 1.26 entry above. Recorded so
+the difference is not later mistaken for drift.
 
 ## Approved Dependencies
 
