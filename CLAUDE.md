@@ -2,9 +2,8 @@
 
 NFT-gated streaming platform in Go. Core flow: **wallet sign-in → NFT ownership check → protected HLS streaming**.
 
-- **Go 1.26** (`toolchain` pinned in `go.mod`) · Gin · go-ethereum + solana-go · PostgreSQL · Redis · MinIO · NATS
 - Microkernel plugin architecture, dual-mode: monolith (dev) or 9 microservices (prod)
-- 11 build targets (`make build-all`); 254 test files, ~73.4% coverage, 60% CI floor
+- 11 build targets (`make build-all`) · 254 test files · ~73.4% coverage · 60% CI floor
 
 ## Stack
 
@@ -16,7 +15,7 @@ Go 1.26 · Gin · go-ethereum + solana-go · PostgreSQL 15 · Redis 7 · MinIO/S
 # Build / run
 make build-monolith        # single binary
 make build-all             # all 11 binaries
-make run-monolith          # build + run on :8080
+make run-monolith          # build + run on :8080 (also: dev, dev-setup)
 make demo                  # infra (PG+Redis+MinIO) + monolith on :8080
 
 # Test
@@ -32,9 +31,10 @@ make proto-gen             # protobuf stubs
 
 # Docker / deploy
 make fullchain-deploy      # PG+Redis+MinIO+NATS+Anvil(+DemoNFT)+monolith+microservices+h5-demo
-make docker-build          # 10 images
+make docker-up             # compose stack (also: docker-down, docker-build, docker-bake)
+make demo-down             # stop demo infra and clean up
 make migrate-up            # also: migrate-down, migrate-reset
-make k8s-deploy
+make k8s-deploy            # also: k8s-status
 
 # Contracts (Foundry)
 make contracts-test        # also: contracts-build, contracts-deploy-anvil
@@ -49,7 +49,7 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 | `pkg/core/` | microkernel, `GenericPlugin`, config, event bus, logger |
 | `pkg/plugins/` | 9 thin plugin wrappers — delegate to `pkg/service/` |
 | `pkg/service/` | business logic; subpackages `content/ transcoding/ streamingsvc/ gating/ upload/ category/ playbackstats/ sigchain/` |
-| `pkg/gateway/` | REST handlers; `routes.go` is the single registration point |
+| `pkg/gateway/` | REST handlers, one file per domain (`<domain>_handlers.go`); `routes.go` is the single registration point |
 | `pkg/middleware/` | auth, `nft_gate`, `playback_token_auth`, cors, circuitbreaker, ratelimit, tracing |
 | `pkg/web3/` | signature, `nft/` verifier, `contract/`, `solana/`, reorg, gas, events |
 | `pkg/storage/` | PostgreSQL, Redis, MinIO/S3, NATS, cache |
