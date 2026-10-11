@@ -351,7 +351,7 @@ func RegisterNFTDevMintRoute(router gin.IRouter, minter *service.DemoNFTMinter, 
 		log.Info("Dev mint endpoint disabled (no minter configured)")
 		return
 	}
-	router.Group(APIPrefix + "/nft/dev").POST("/mint", func(c *gin.Context) {
+	router.Group(APIPrefix+"/nft/dev").POST("/mint", func(c *gin.Context) {
 		handleMintDemoNFT(c, minter, log)
 	})
 	log.Info("Dev mint endpoint registered at /nft/dev/mint")
@@ -402,11 +402,11 @@ func handleMintDemoNFT(c *gin.Context, minter *service.DemoNFTMinter, log *zap.L
 	}
 
 	respondOK(c, gin.H{
-		"wallet":          wallet,
-		"contract":        minter.FromAddress().Hex(),
-		"tx_hashes":       result.TxHashes,
-		"total_minted":    result.TotalMinted,
-		"balance":         result.Balance.String(),
+		"wallet":           wallet,
+		"contract":         minter.FromAddress().Hex(),
+		"tx_hashes":        result.TxHashes,
+		"total_minted":     result.TotalMinted,
+		"balance":          result.Balance.String(),
 		"previous_balance": preBalance.String(),
 	})
 }

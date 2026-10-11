@@ -119,6 +119,11 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
 		svc.GatingRuleResolver = NewGatingRuleResolverAdapter(svc.GatingRuleSvc)
 		resources.GatingRuleResolver = svc.GatingRuleResolver
+	}
+	// An explicitly injected resolver (RouterOption) wins over the DB-backed one.
+	if rc.GatingRuleResolver != nil {
+		svc.GatingRuleResolver = rc.GatingRuleResolver
+		resources.GatingRuleResolver = rc.GatingRuleResolver
 		svc.PlaybackStatsSvc = service.NewPlaybackStatsService(db, log.Named("playback-stats"))
 		svc.CategorySvc = service.NewCategoryService(db, log.Named("category"))
 	}
