@@ -63,6 +63,7 @@ streamgate/
 - **Code generation**: `go generate ./...` for mocks (uber/mock)
 - **Comments**: Default is no comments; MUST comment security-sensitive operations (signature verification, replay protection), complex regex, and third-party workarounds
 - **Testing**: testify for assertions; build tags (`anvil`, `testnet`) for chain-dependent tests; 60% coverage minimum (CI)
+- **Documentation**: `TRANSITION_PLAN.md` is the **only** plan document. **NEVER** create temporary/process docs (review reports, handovers, status files, dated `*.md` scratch files) — durable conclusions go into `TRANSITION_PLAN.md`. Clean up generated artifacts when done (`bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`). Full rule in `CLAUDE.md` → Documentation.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
@@ -71,6 +72,7 @@ streamgate/
 - NEVER use single RPC endpoint (must have fallback chain)
 - NEVER introduce speculative features or premature abstractions
 - NEVER add unnecessary comments (see CONVENTIONS above for allowed exceptions)
+- NEVER create temporary or process documents, or leave generated artifacts behind (see `CLAUDE.md` → Documentation)
 
 ## COMMANDS
 
