@@ -121,8 +121,8 @@
 
 ## 四、演示脚本(若可现场跑)
 
-1. `make demo`(或 `make fullchain-deploy`)起栈。
+1. `make demo`(或 `make fullchain-deploy`)起栈——部署脚本会自动为 `demo` 内容种服务端 gating rule(`scripts/docker-deploy.sh` [4b/5] 步),fail-closed 门控因此对 demo 保持可用。
 2. 打开 h5-demo → demo 钱包连接 → 签名登录 → 自动 mint → NFT verify(显示余额)。
-3. `curl` 未认证拉 manifest → **401**(安全探针,`scripts/h5-demo-acceptance/specs/01-index.mjs` 里也有)。
-4. 持有者拉 manifest → 200,内嵌 playback_token;带 token 拉 segment。
+3. `curl` 未认证拉 manifest → **401**;无 NFT 钱包 → **403 NFT_REQUIRED**(安全探针,`scripts/h5-demo-acceptance/specs/01-index.mjs` 里也有)。
+4. 持有者拉 manifest → **通过门控**:内容已转码时返回 200 + playback_token;尚未转码时返回 404 CONTENT_NOT_FOUND(注意:这说明请求已经通过了 JWT + 链上 NFT 校验,404 只是没有分片)。要演示 200,先上传并转码一个样例视频。
 5. 指出 `pkg/gateway/authz_regression_test.go`:"这 7 个测试以前 4 个是红的"。

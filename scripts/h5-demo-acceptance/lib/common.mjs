@@ -28,13 +28,16 @@ export function attachProbes(page, reportDir) {
             if (text.includes('503') || text.includes('Service Unavailable')) return;
             // 404 on streaming manifest is expected when no real video was uploaded.
             if (text.includes('404') && url.includes('/streaming/') && url.includes('/manifest.m3u8')) return;
-            // 403 on streaming manifest is the EXPECTED fail-closed denial
-            // (TRANSITION_PLAN A8/A9): the gate refuses unauthenticated or
-            // unowned manifest requests by design — evidence of the fix.
-            if (text.includes('403') && url.includes('/streaming/') && url.includes('/manifest.m3u8')) return;
-            // 401 on streaming manifest is the EXPECTED result of the 01-index
-            // security probe (manifest-unauth-401): unauthenticated => 401.
-            if (text.includes('401') && url.includes('/streaming/') && url.includes('/manifest.m3u8')) return;
+            // 401/403 on streaming manifest are the EXPECTED fail-closed
+            // denials (TRANSITION_PLAN A8/A9): unauthenticated => 401,
+            // unowned/unruled => 403. Specs assert these explicitly (01-index
+            // manifest-unauth-401 / manifest-holder differential); here they
+            // are only marked transient so the expected denial stays visible
+            // in the report without failing the spec.
+            if ((text.includes('401') || text.includes('403')) && url.includes('/streaming/') && url.includes('/manifest.m3u8')) {
+                errors.push({ kind: 'console', text, transient: true, note: 'expected fail-closed denial (asserted explicitly by the spec)' });
+                return;
+            }
             errors.push({ kind: 'console', text });
         }
     });

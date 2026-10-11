@@ -62,7 +62,7 @@ streamgate/
 - **Service naming**: Lowercase with dashes (api-gateway, transcoder)
 - **Code generation**: `go generate ./...` for mocks (uber/mock)
 - **Comments**: Default is no comments; MUST comment security-sensitive operations (signature verification, replay protection), complex regex, and third-party workarounds
-- **Testing**: testify for assertions; build tags (`anvil`, `testnet`) for chain-dependent tests; 40% coverage minimum (CI)
+- **Testing**: testify for assertions; build tags (`anvil`, `testnet`) for chain-dependent tests; 60% coverage minimum (CI)
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
@@ -78,7 +78,7 @@ streamgate/
 make build-monolith       # Build single binary
 make build-all            # Build all 10 binaries (1 monolith + 9 services)
 make test                 # Run tests with race detection + coverage HTML
-make test-ci              # CI mode with 40% coverage threshold
+make test-ci              # CI mode with 60% coverage threshold
 make test-anvil           # Foundry Anvil Web3 integration tests
 make test-testnet         # Testnet integration tests (needs SEPOLIA_RPC)
 make docker-up            # Start Docker Compose

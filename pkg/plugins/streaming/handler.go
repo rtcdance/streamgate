@@ -52,56 +52,6 @@ func (h *StreamingHandler) ReadyHandler(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
-// GetSegmentHandler handles segment requests
-func (h *StreamingHandler) GetSegmentHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	contentID := r.URL.Query().Get("content_id")
-	segmentID := r.URL.Query().Get("segment_id")
-
-	if contentID == "" || segmentID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing content_id or segment_id"})
-		return
-	}
-
-	h.logger.Info("Retrieving segment", zap.String("content_id", contentID), zap.String("segment_id", segmentID))
-
-	w.Header().Set("Content-Type", "video/mp2t")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte{})
-}
-
-// GetStreamInfoHandler handles stream info requests
-func (h *StreamingHandler) GetStreamInfoHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	contentID := r.URL.Query().Get("content_id")
-	if contentID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing content_id"})
-		return
-	}
-
-	h.logger.Info("Getting stream info", zap.String("content_id", contentID))
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"content_id": contentID,
-		"formats":    []string{"hls", "dash"},
-		"bitrates":   []int{1000, 2500, 5000},
-	})
-}
-
 // NotFoundHandler handles 404 requests
 func (h *StreamingHandler) NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
