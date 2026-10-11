@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/models"
 	stg "github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
 
@@ -832,4 +833,22 @@ func TestParsePlaybackToken_UnboundTokenNoFingerprintRequired(t *testing.T) {
 	claims, err := auth.ParsePlaybackToken(context.Background(), token, "content-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "content-1", claims.ContentID)
+}
+
+func TestParsePlaybackToken_AuthJWTRejected(t *testing.T) {
+	// An auth JWT has Subject = wallet address and no token_type claim; it
+	// must NEVER validate as a playback credential (explicit discriminator).
+	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
+
+	authJWT, err := auth.generateToken(&models.User{
+		Username:      "holder",
+		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+	})
+	require.NoError(t, err)
+
+	// Subject would even match a content ID named after the wallet — the
+	// explicit token_type check is what rejects it.
+	_, err = auth.ParsePlaybackToken(context.Background(), authJWT, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a playback token")
 }

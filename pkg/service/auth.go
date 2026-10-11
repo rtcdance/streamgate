@@ -172,7 +172,11 @@ type AuthStorage interface {
 
 // Claims represents JWT claims
 type Claims struct {
-	Username          string `json:"username"`
+	Username string `json:"username"`
+	// TokenType discriminates credential kinds: "playback" for playback
+	// tokens; empty for auth JWTs. ParsePlaybackToken enforces it so an auth
+	// JWT can never be replayed as a playback credential.
+	TokenType         string `json:"token_type,omitempty"`
 	WalletAddress     string `json:"wallet_address,omitempty"`
 	ContentID         string `json:"content_id,omitempty"`
 	Contract          string `json:"contract,omitempty"`

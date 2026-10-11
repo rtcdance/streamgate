@@ -383,6 +383,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 
 	claims := &Claims{
 		Username:          walletAddress,
+		TokenType:         "playback",
 		WalletAddress:     walletAddress,
 		ContentID:         contentID,
 		Contract:          contract,
@@ -426,6 +427,10 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 	if err != nil {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, err
+	}
+	if claims.TokenType != "playback" {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, errors.New("not a playback token")
 	}
 	if claims.Subject != contentID {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()

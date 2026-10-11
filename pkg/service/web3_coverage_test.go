@@ -122,7 +122,6 @@ func TestWeb3Service_Coverage_SetNFTAccessCache(t *testing.T) {
 	assert.Equal(t, cache, ws.nftAccessCache)
 }
 
-
 func TestWeb3Service_Coverage_GetTransactionQueue_Set(t *testing.T) {
 	tq := web3.NewTransactionQueue(50)
 	ws := &Web3Service{
@@ -318,8 +317,6 @@ func TestWeb3Service_Coverage_VerifySolanaMetaplexNFT_NilV(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "solana verifier not initialized")
 }
-
-
 
 func TestWeb3Service_Coverage_GetGasPriceLevels_NilMonitor(t *testing.T) {
 	ws := &Web3Service{logger: zap.NewNop()}
