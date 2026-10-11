@@ -1,9 +1,9 @@
 // Spec 05: trace.html — Select a request scenario, run it, verify middleware chain + response populated.
 
 import { waitForText, check } from '../lib/common.mjs';
+import { API_BASE as BACKEND_URL, H5_BASE } from '../lib/urls.mjs';
 
-const BACKEND_URL = 'http://localhost:28080';
-const PAGE = 'http://localhost:18000/trace.html';
+const PAGE = `${H5_BASE}/trace.html`;
 
 export default async function spec05Trace({ page, reportDir, snap, sleep }) {
     const checks = [];

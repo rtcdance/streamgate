@@ -2,9 +2,9 @@
 // Flow: switch to Workflow view → backend URL → demo mode wallet → sign & login → auto-mint → verify NFT.
 
 import { waitForText, check } from '../lib/common.mjs';
+import { API_BASE as BACKEND_URL, H5_BASE } from '../lib/urls.mjs';
 
-const BACKEND_URL = 'http://localhost:28080';
-const PAGE = 'http://localhost:18000/';
+const PAGE = `${H5_BASE}/`;
 
 export default async function spec01Index({ page, reportDir, snap, sleep }) {
     const checks = [];

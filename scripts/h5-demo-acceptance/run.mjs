@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import { checkStack } from './lib/stack.mjs';
 import { newContext, attachProbes, snap, sleep } from './lib/common.mjs';
+import { PW_CHANNEL } from './lib/urls.mjs';
 import { reportSpec, reportSummary } from './lib/reporter.mjs';
 
 import specIndex from './specs/01-index.mjs';
@@ -51,7 +52,9 @@ if (!stackResult.passed) {
 }
 
 // 2. Browser specs
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+// PW_CHANNEL='chrome' uses the host's Google Chrome (no download). Inside the
+// Playwright image set PW_CHANNEL='' to use the bundled Chromium instead.
+const browser = await chromium.launch(PW_CHANNEL ? { channel: PW_CHANNEL, headless: true } : { headless: true });
 try {
     for (const s of specs) {
         console.log(`\n--- spec: ${s.name} ---`);

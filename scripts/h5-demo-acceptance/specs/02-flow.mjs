@@ -1,9 +1,9 @@
 // Spec 02: flow.html — Verify upload UI; MetaMask flow is exercised only as a click (headless has none).
 
 import { check } from '../lib/common.mjs';
+import { API_BASE as BACKEND_URL, H5_BASE } from '../lib/urls.mjs';
 
-const BACKEND_URL = 'http://localhost:28080';
-const PAGE = 'http://localhost:18000/flow.html';
+const PAGE = `${H5_BASE}/flow.html`;
 
 export default async function spec02Flow({ page, reportDir, snap, sleep }) {
     const checks = [];

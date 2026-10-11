@@ -1,9 +1,9 @@
 // Spec 04: playground.html — Refresh the Web3 status dashboard (chains, RPCs, events, reorg).
 
 import { waitForText, check } from '../lib/common.mjs';
+import { API_BASE as BACKEND_URL, H5_BASE } from '../lib/urls.mjs';
 
-const BACKEND_URL = 'http://localhost:28080';
-const PAGE = 'http://localhost:18000/playground.html';
+const PAGE = `${H5_BASE}/playground.html`;
 
 export default async function spec04Playground({ page, reportDir, snap, sleep }) {
     const checks = [];
