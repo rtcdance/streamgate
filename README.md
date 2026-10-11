@@ -20,6 +20,51 @@
 
 ---
 
+## Quick Start
+
+```bash
+make fullchain-deploy             # Postgres + Redis + MinIO + NATS + Anvil(+DemoNFT) + monolith + microservices + h5-demo
+open http://localhost:18000       # connect wallet → sign in → mint DemoNFT → verify → play
+```
+
+Confirm the gate is actually closed before you authenticate:
+
+```bash
+curl -i http://localhost:18080/api/v1/streaming/demo/manifest.m3u8    # → 401 Unauthorized
+```
+
+For API-level work with no chain involved, `make demo` starts Postgres + Redis + MinIO and runs the
+monolith on `:8080` (h5-demo then served at `http://localhost:8080/demo`). See [DEPLOY.md](DEPLOY.md).
+
+That is the entire loop: **wallet sign-in → on-chain NFT ownership check → protected HLS playback.**
+`make fullchain-deploy` starts Anvil and deploys `DemoNFT` for you — no chain setup needed to try it.
+
+### Architecture
+
+```mermaid
+flowchart LR
+  U["h5-demo (browser)<br/>hls.js"] -->|"1. SIWE / EIP-191 signature"| GW["API Gateway"]
+  U -->|"2. manifest + .ts<br/>carrying playback_token"| GW
+  GW --> AUTH["Auth<br/>challenge → JWT"]
+  GW --> GATE["NFT gate middleware<br/>FAIL-CLOSED"]
+  GATE -->|"ownerOf / balanceOf<br/>'safe' block tag"| RPC[("EVM RPC<br/>+ fallback chain")]
+  GATE --> RULES[("content_gating_rules<br/>server-side only")]
+  GW --> STREAM["Streaming<br/>manifest + per-user token"]
+  STREAM --> OBJ[("Object storage<br/>HLS segments")]
+  UP["Upload"] --> Q[["NATS JetStream + DLQ"]]
+  Q --> TR["Transcoder worker<br/>FFmpeg ABR ladder"] --> OBJ
+  RPC --> REG["ContentRegistry<br/>on-chain content log"]
+```
+
+Two properties worth knowing before you read the code:
+
+- **Authorization subject is server-side only.** The NFT contract, token id and chain come from
+  `content_gating_rules` via `RuleResolver` — never from request query parameters.
+- **The gate fails closed.** No rules → `403 GATING_REQUIRED`; rule resolution error → `500`;
+  gate disabled → `503`. The permanent regression tests live in `pkg/gateway/authz_regression_test.go`.
+
+---
+
 ## 💡 The Problem
 
 Content creators lose revenue to piracy. Access control is either:
