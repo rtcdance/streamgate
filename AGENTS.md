@@ -30,7 +30,7 @@ streamgate/
 │   ├── models/         # Data models (Content, NFT, User, Task, Transaction, Transcoding)
 │   ├── storage/        # Storage layer: PostgreSQL, Redis, MinIO, S3, NATS, cache
 │   ├── resilience/     # Circuit breaker (gobreaker-backed), retry helpers
-│   ├── monitoring/     # Prometheus, Grafana, alerts, OTEL tracing
+│   ├── monitoring/     # Prometheus metrics, alerts, OTEL tracing
 │   └── api/            # protobuf-generated gRPC stubs
 ├── config/             # Multi-env configs (dev, test, prod)
 ├── deploy/             # Docker + K8s deployment manifests
@@ -46,8 +46,8 @@ streamgate/
 |------|----------|-------|
 | Wallet sign-in | `pkg/service/auth_wallet.go` | EIP-191/712/SIWE, Solana ed25519 |
 | NFT verification | `pkg/web3/nft/` | ERC-721/1155, ERC-165 detection |
-| Transcoding | `pkg/service/transcoding.go` | FFmpeg worker pipeline, HLS output |
-| Streaming | `pkg/service/streaming.go` | HLS/DASH manifest delivery |
+| Transcoding | `pkg/service/transcoding/transcoding.go` | FFmpeg worker pipeline, HLS output |
+| Streaming | `pkg/service/streamingsvc/streaming.go` | HLS/DASH manifest delivery |
 | API routes | `pkg/gateway/` | REST handlers (auth_handlers, content_handlers, etc.) |
 | NFT-gated access | `pkg/middleware/nft_gate.go` | Middleware that blocks unauthenticated streaming |
 | Web3 utils | `pkg/web3/` | 50+ files: signature, multichain, reorg, gas, wallet, events |
