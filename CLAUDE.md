@@ -11,6 +11,8 @@ Go 1.26 · Gin · go-ethereum + solana-go · PostgreSQL 15 · Redis 7 · MinIO/S
 
 ## Commands
 
+**Build, run and acceptance all happen in Docker.** The host targets below are for fast local edits only — acceptance evidence comes from the Docker stack or CI, never from a host build.
+
 ```bash
 # Build / run
 make build-monolith        # single binary
@@ -97,12 +99,13 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 ## Task Completion Checklist
 
 ```
-[ ] go build ./cmd/monolith/streamgate
+[ ] go build ./cmd/monolith/streamgate   # fast compile check only
 [ ] make fmt && make lint
 [ ] make test          # pre-existing failures: document, do not chase
 [ ] make test-anvil    # if touching pkg/web3/
 [ ] go mod tidy
 ```
+**Authoritative gate: CI (`ci.yml` + `build.yml`)** — it compiles, lints, tests and Trivy-scans inside containers. A green host run is a pre-check, not acceptance.
 
 ## Known Pitfalls
 
@@ -115,8 +118,8 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 | go-ethereum RPC timeout | no RPC, or rate limited | set `WEB3_ETHEREUM_RPC` in `.env` |
 | `go mod tidy` drops needed packages | stale `go.sum` | `go mod download && go mod tidy` |
 | Docker build fails | BuildKit disabled | `DOCKER_BUILDKIT=1` |
-| Local `golangci-lint` refuses the module | binary built with Go ≤ 1.25 | use a v2.12+ build (CI pins v2.12.2) |
-| Microservice events error locally | `make build-all` does not set `-tags nats_integration`, so `NATSEventBus` compiles to the stub | build the image (every Dockerfile passes the tag) or add `-tags nats_integration` |
+| Host `golangci-lint` refuses the module | host binary built with Go ≤ 1.25 | use a v2.12+ build, or let CI lint |
+| Microservice events error outside Docker | the Dockerfiles pass `-tags nats_integration`; a host `make build-all` does not, so `NATSEventBus` is the stub | run the service from its image |
 
 ## Anti-Patterns
 
@@ -125,7 +128,6 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 - **NEVER** use a single RPC endpoint — always a fallback chain.
 - **NEVER** introduce speculative features or premature abstractions.
 - **NEVER** take the authorization subject (contract, token id, chain) from the request — it comes from server-side `content_gating_rules` only.
-- **NEVER** create process documents, or leave generated artifacts behind.
 
 ## Key Design Decisions
 
@@ -193,6 +195,5 @@ JWT-protected:
 Microservice mains do their own wiring (89 lines each; api-gateway 118) — `core.RunMicroservice()` exists but has no callers.
 
 ### Workflow
-- `grep` before LSP when locating a symbol; `pkg/service/` is the primary logic layer.
-- Use relative paths in file references.
-- Test conventions are documented above — run `make test` to verify rather than reading test files to infer patterns.
+- `grep` before LSP when locating a symbol; `pkg/service/` is the primary logic layer. Use relative paths in file references.
+- Verify locally with `make test`, but take acceptance from CI or the Docker stack — not from a host build.
