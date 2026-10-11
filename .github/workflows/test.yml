@@ -169,7 +169,7 @@ jobs:
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            bitnamilegacy/minio:2025.6.4-debian-12-r0
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to be ready..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
@@ -285,7 +285,7 @@ jobs:
             -p 9000:9000 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            bitnamilegacy/minio:2025.6.4-debian-12-r0
+            bitnamilegacy/minio:2025.7.23-debian-12-r5
           echo "Waiting for MinIO to be ready..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
