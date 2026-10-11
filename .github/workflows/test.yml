@@ -161,14 +161,15 @@ jobs:
       - name: Start MinIO
         run: |
           mkdir -p /tmp/minio
+          # minio/minio was removed from Docker Hub (2025-06); bitnami/minio is
+          # the still-public equivalent (auto-starts the server on :9000 with
+          # MINIO_ROOT_USER/PASSWORD).
           docker run -d \
             --name minio \
             -p 9000:9000 \
-            -p 9001:9001 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            -v /tmp/minio:/data \
-            minio/minio:latest server /data --console-address ":9001"
+            bitnami/minio:latest
           echo "Waiting for MinIO to be ready..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
@@ -276,14 +277,15 @@ jobs:
       - name: Start MinIO
         run: |
           mkdir -p /tmp/minio
+          # minio/minio was removed from Docker Hub (2025-06); bitnami/minio is
+          # the still-public equivalent (auto-starts the server on :9000 with
+          # MINIO_ROOT_USER/PASSWORD).
           docker run -d \
             --name minio \
             -p 9000:9000 \
-            -p 9001:9001 \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            -v /tmp/minio:/data \
-            minio/minio:latest server /data --console-address ":9001"
+            bitnami/minio:latest
           echo "Waiting for MinIO to be ready..."
           for i in $(seq 1 30); do
             if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
