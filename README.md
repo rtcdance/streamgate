@@ -2,7 +2,7 @@
 
 > **Token-gated video delivery.** Users prove NFT ownership to watch — no password, no piracy, no middleware.
 >
-> English: [Overview](#overview) · [Quick Start](#quick-start) · [API Docs](docs/api/API_DOCUMENTATION.md)
+> English: [Overview](#-project-overview) · [Quick Start](#quick-start) · [API Docs](docs/api/API_DOCUMENTATION.md)
 >
 > 中文: [一句话介绍](#-一句话介绍) · [快速开始](#quick-start)
 
@@ -67,12 +67,19 @@ Two properties worth knowing before you read the code:
 
 ## 💡 The Problem
 
-Content creators lose revenue to piracy. Access control is either:
+Content creators lose revenue to piracy. Access control is usually one of:
 - **Passwords** (shared, stolen, phished)
-- **DRM** (proprietary, requires licensing fees, locked to platforms)
 - **Manual whitelists** (doesn't scale, no transparency)
+- **DRM** (proprietary, requires licensing fees, locked to platforms)
 
-StreamGate replaces all three with **on-chain NFT ownership**: hold the token, watch the video. No shared passwords. No DRM licensing. Programmable, transparent, permissionless.
+StreamGate replaces the first two with **on-chain NFT ownership**: hold the token, watch the video.
+No shared passwords, no manual whitelists — programmable, transparent, permissionless.
+
+> **Scope note — this is access authorization, not DRM.** DRM protects content against the
+> *endpoint* (hardware trust root, keys that never leave the trusted execution environment).
+> StreamGate's HLS delivery uses short-lived, content-bound playback tokens, which stops direct
+> segment scraping and link sharing, but does **not** stop a determined viewer from capturing
+> playback. It is not a DRM substitute; see [What StreamGate Is Not](#-what-streamgate-is-not).
 
 ## 🎯 一句话介绍
 
@@ -84,29 +91,26 @@ StreamGate replaces all three with **on-chain NFT ownership**: hold the token, w
 
 ---
 
-## 📖 你要讲清楚的 4 件事
+## 📖 四个核心环节
 
-### 1. Wallet Sign-In
+### 1. 钱包签名登录
 - 用户不需要密码，通过钱包签名登录
-- 服务端做 `EIP-191` 验签、`nonce`、过期校验和防重放
-- 这是项目里最关键的 Web3 身份入口
+- 服务端做 `EIP-191` 验签、`nonce`、过期校验和防重放（challenge 用 Redis Lua 原子消费）
 
-### 2. NFT Verify
-- 服务端通过真实链上调用校验用户是否持有指定 NFT
+### 2. NFT 所有权校验
+- 服务端通过真实链上调用校验持有权（`ownerOf`/`balanceOf`，ERC-721/1155，ERC-165 自动探测）
 - 只有持有 NFT，才允许访问受保护内容
-- 这一步把链上所有权接到了业务访问控制上
+- 读链固定用 `safe` block tag；检测到重组自动失效缓存；正结果缓存 TTL 上限 15 秒
 
-### 3. Protected Streaming
-- 用户通过验证后，才能获取 HLS manifest 或播放地址
-- 流媒体主线是这个项目最像企业场景的地方
-- 这里也是音视频经验和 Web3 能力结合最自然的点
+### 3. 受保护的 HLS 投递
+- 通过校验后才下发 manifest；分片用内容绑定、短 TTL 的 playback token 投递
+- 令牌绑定钱包与客户端指纹，跨用户复用会被拒绝；链上 RPC 不进播放热路径
 
-### 4. Transcoding Worker
-- 视频上传后通过 FFmpeg 转码为 HLS
-- Worker 负责任务排队、执行、重试和状态更新
-- 这是最能体现音视频后端经验的模块
+### 4. 转码 Worker
+- 视频上传后通过 FFmpeg 转码为 HLS（4 档 ABR 阶梯 + 实时进度解析）
+- 任务经 NATS JetStream 分发，带重试、超时与卡死 worker 回收，失败任务进 DLQ
 
-### 一条主链路
+### 主链路
 
 ```text
 钱包签名登录 -> NFT 所有权校验 -> 放行 manifest -> 播放 HLS 视频
@@ -116,19 +120,20 @@ StreamGate replaces all three with **on-chain NFT ownership**: hold the token, w
 
 ## 📖 Project Overview
 
-StreamGate is a Go-based NFT-gated streaming project for learning and interview preparation. It combines a video distribution pipeline you would expect in a media backend with Web3 capabilities such as wallet sign-in, NFT ownership verification, and RPC reliability handling.
+StreamGate is a Go-based NFT-gated streaming backend. It combines a video distribution pipeline you would expect in a media backend with Web3 capabilities such as wallet sign-in, NFT ownership verification, and RPC reliability handling.
 
 ### 🎯 Why StreamGate?
 
-**Token-based access replaces passwords, DRM, and whitelists.**
+**Token-based access replaces passwords and manual whitelists.**
 
-| Problem | Traditional Solution | StreamGate |
-|---------|-------------------|------------|
-| Password sharing | Rate limiting, MFA | **Impossible** — access = wallet signature |
-| DRM licensing fees | $50K+/yr Widevine/FairPlay | **Free** — open source MIT |
-| Manual access management | Admin dashboards, CSV exports | **Automatic** — own the NFT = get access |
-| Piracy | Legal threats, DMCA takedowns | **Programmatic** — token validity is on-chain |
+| Problem | Traditional approach | StreamGate |
+|---------|---------------------|------------|
+| Password sharing | Rate limiting, MFA | Access requires a wallet signature — no shared secret to leak. Sharing the wallet itself still works; the platform rate-limits per wallet. |
+| Manual access management | Admin dashboards, CSV exports | Own the NFT → access is derived from on-chain state, no per-user admin work |
 | Cross-platform | Multiple SDKs per platform | **One API** — REST/gRPC/OpenAPI |
+
+> DRM solves a different problem (content protection at the endpoint), not this one more cheaply.
+> StreamGate does not claim to replace it — see the scope note above.
 
 ### 🚫 What StreamGate Is Not
 
@@ -151,7 +156,7 @@ StreamGate is a Go-based NFT-gated streaming project for learning and interview 
 
 #### P0 — Core Flow (Implemented, hardening)
 
-Core authentication, NFT verification, and streaming pipeline — implemented and covered by tests, and actively being hardened: the authorization path recently went through a fail-closed security audit and is now pinned by permanent regression tests (`pkg/gateway/authz_regression_test.go`); some components remain skeletons or partially wired (see [Project Status](#-project-status) below).
+Core authentication, NFT verification, and streaming pipeline — implemented and covered by tests. The authorization path went through a fail-closed security audit and is now pinned by permanent regression tests (`pkg/gateway/authz_regression_test.go`). Known gaps are listed under [Project Status](#-project-status).
 
 - [x] **Wallet Sign-In** — EIP-191 / EIP-712 / SIWE (EIP-4361) + Solana ed25519
 - [x] **NFT Ownership Verification** — ERC-721, ERC-1155, ERC-165 auto-detect
@@ -200,18 +205,18 @@ Features planned for future releases.
 
 ## 📊 Performance Metrics
 
-### Target Metrics
+> **These are design targets, not measured results.** No load, soak, or capacity test has been
+> run against this repository. They describe the shape of the design; they are not evidence.
 
-| Metric | Target | Status |
-|--------|--------|--------|
-| API response time (P95) | < 200ms | ✅ Designed |
-| Video playback startup | < 2 seconds | ✅ Designed |
-| Concurrent users | 10,000+ | ✅ Designed |
-| Cache hit rate | > 80% | ✅ Designed |
-| Service availability | > 99.9% | ✅ Designed |
-| RPC uptime | > 99.5% | ✅ Designed |
-| IPFS upload success | > 95% | ✅ Designed |
-| Transaction confirmation | < 2 minutes | ✅ Designed |
+| Metric | Design target |
+|--------|---------------|
+| API response time (P95) | < 200ms |
+| Video playback startup | < 2 seconds |
+| Concurrent users | 10,000+ |
+| Cache hit rate | > 80% |
+| Service availability | > 99.9% |
+| RPC uptime | > 99.5% |
+| Transaction confirmation | < 2 minutes |
 
 ### Monitoring & Observability
 
@@ -273,73 +278,39 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 - [Consul](https://www.consul.io/) - Service discovery
 - [OpenTelemetry](https://opentelemetry.io/) - Observability
 
-## 📞 Support
-
-If you have questions or need help:
-
-1. **Documentation**: Check [docs/](docs/) directory
-2. **Examples**: See [examples/](examples/) directory
-3. **Issues**: Submit an [Issue](https://github.com/rtcdance/streamgate/issues)
-4. **Discussions**: Start a [Discussion](https://github.com/rtcdance/streamgate/discussions)
-
-## 🚀 Roadmap
-
-### Phase 1: Identity + Ownership (Completed ✅)
-- Wallet sign-in
-- Real NFT verification
-- API wiring for `/api/v1/nft/verify`
-
-### Phase 2: Protected Streaming
-- Gate manifest access by NFT ownership
-- Add Redis cache to the verification path
-- Expose core metrics for auth and playback
-
-### Phase 3: Media Pipeline
-- Worker execution pipeline
-- FFmpeg transcoding to HLS
-- Retry, timeout, and queue visibility
-
-### Phase 4: Interview Packaging
-- Architecture cleanup
-- Demo path and talking points
-- README, architecture guide, and mock interview prep
-
-See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) for the current execution plan.
-
 ## 📈 Project Status
 
-> Development in progress. The repository already contains architecture skeletons and several working components, but the interview-critical business flow is still being tightened into a real end-to-end path.
+> Core flow (wallet sign-in → NFT ownership check → protected HLS playback) is implemented
+> end-to-end and pinned by regression tests. The authorization path was audited and reworked to
+> fail closed; CI is green on `master`.
 
 ### Current Priorities
 
-| Priority | Focus | Why it matters |
-|----------|-------|----------------|
-| **P0** | Wallet sign-in + NFT verification + protected HLS access | This is the core Web3 business loop |
-| **P1** | Redis cache + RPC failover + metrics | This makes the project look like enterprise practice |
-| **P1** | Worker + FFmpeg pipeline | This is where audio/video engineering experience stands out |
-| **P2** | Further microservice split and polish | Useful later, not the current proof point |
+| Priority | Focus | Status |
+|----------|-------|--------|
+| **P0** | Wallet sign-in + NFT verification + protected HLS access | Implemented, tested |
+| **P1** | Redis cache + RPC failover + metrics | Implemented |
+| **P1** | Worker + FFmpeg pipeline | Implemented |
+| **P2** | Further microservice split and polish | Deferred — not a current proof point |
 
-### What Is Already Valuable
+### Known Limitations
 
 | Area | Current state |
 |------|---------------|
-| **Architecture** | Microkernel + dual deployment model are in place |
-| **Media direction** | HLS/DASH, storage, and worker-related components exist |
-| **Web3 direction** | Signature, NFT, and multichain modules exist, but some paths are still placeholders |
-| **Deployment** | Docker/K8s assets exist for later expansion |
+| **Account abstraction (ERC-4337)** | Not implemented — `pkg/web3/account_abstraction.go` returns an explicit error |
+| **Observability stack** | `/metrics` (RED) on every service; the Grafana/Jaeger scrape stack was removed during simplification |
+| **IPFS** | Not wired into the upload path |
+| **Decentralization** | Self-hosted infrastructure, not a peer-to-peer network — ownership checks read the chain, the platform itself is centralized |
+| **Load testing** | No load or soak test has been run; the metrics table above is design targets only |
 
-### What This README Assumes
+See `TRANSITION_PLAN.md` for the engineering plan and `docs/ARCHITECTURE.md` for the architecture.
 
-- Some components are still skeletons or partially wired
-- The goal is a credible interview project, not a fully productized platform
-- The recommended path is monolith-first for the main flow, then selective service extraction
-
-See [docs/ARCHITECTURE_GUIDE.md](docs/ARCHITECTURE_GUIDE.md) and [docs/web3-faq.md](docs/web3-faq.md) for the current development plan.
-
-## 📬 Contact & Community
+## 📬 Support & Community
 
 | Channel | Purpose |
 |---------|---------|
+| **Documentation** | [docs/](docs/) — architecture, API reference, deployment, runbook |
+| **Examples** | [examples/](examples/) — signature verify, NFT verify, streaming, upload |
 | **GitHub Issues** | Bug reports, feature requests |
 | **GitHub Discussions** | Q&A, ideas, show and tell |
 | **Discord** | Real-time discussion: [Join](https://discord.gg/streamgate) |

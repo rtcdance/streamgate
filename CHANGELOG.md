@@ -7,6 +7,36 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Authorization bypass closed.** A forged `playback_token` query parameter used to skip JWT
+  validation and reach a playback-token mint for an empty wallet. `PlaybackTokenAuth` now
+  cryptographically validates the token before setting `playback_auth` — the parameter's mere
+  presence grants nothing. Pinned by `pkg/gateway/authz_regression_test.go` (10 tests).
+- **The NFT gate fails closed.** No rules → `403 GATING_REQUIRED`; rule-resolution error → `500`;
+  gate disabled → `503`. It previously failed open.
+- **Authorization subject is server-side only.** The contract / tokenId / chain to verify against
+  now comes exclusively from `content_gating_rules`; the caller-supplied `?contract=` override
+  (HTTP) and the equivalent gRPC metadata override were removed.
+- `ValidatePlaybackToken` now requires an explicit wallet — the variadic form let callers silently
+  skip the wallet check.
+
+### Changed
+
+- Go toolchain 1.25 → **1.26** (`toolchain go1.26.9`); dependency set aligned with the sibling
+  `chainpulse` module where compatible. See `DEPENDENCY_APPROVAL.md`.
+- Security bumps: `grpc` → v1.83.2, `golang.org/x/net` → v0.60.0, `golang.org/x/crypto` → v0.57.0.
+- Removed the unreferenced `NFTGate` / `StreamNFT` contracts; the on-chain content registry
+  (`ContentRegistry`) is now wired into the content service at runtime instead of being dead code.
+- Deleted dead code and coverage-padding tests (~1,800 lines); the CI coverage floor was raised
+  from 10% to 60%.
+
+### Added
+
+- `make h5-demo-acceptance` — Playwright end-to-end suite (5 specs + stack pre-check), including a
+  probe asserting an unauthenticated manifest request returns `401`.
+- `make fullchain-deploy` now deploys `ContentRegistry` and seeds a server-side demo gating rule.
+
 ## [1.0.0] — 2026-05-19
 
 StreamGate v1.0.0 marks the first stable release after 20 rounds of architecture hardening, security review, and production readiness optimization. All P0 core features are stable and tested.
@@ -79,7 +109,10 @@ StreamGate v1.0.0 marks the first stable release after 20 rounds of architecture
 - User personas: Platform Developer / Content Creator / Node Operator
 - Product roadmap: P0 Core / P1 Usability / P2 Ecosystem
 
-## [1.0.0] — 2025-05-16
+## [0.10.0] — 2025-05-16
+
+> Renumbered from a duplicate `[1.0.0]` heading: this entry predates `1.0.0` (2026-05-19) and
+> follows `0.9.0` (2025-04-01), so it was mislabelled.
 
 ### Added
 - Request trace visualizer — middleware chain animation, flame graph, code path display
