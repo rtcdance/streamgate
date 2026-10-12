@@ -371,7 +371,24 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 }
 
 // GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
-func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration, clientFingerprint string) (string, error) {
+// PlaybackTokenOption customises capability issuance.
+type PlaybackTokenOption func(*playbackTokenOptions)
+
+type playbackTokenOptions struct {
+	sessionID string
+	authEpoch int64
+}
+
+// WithSessionBinding ties a capability to the session that requested it, so
+// revoking that session (a logout) stops media already in flight instead of
+// letting the capability run out its full TTL.
+func WithSessionBinding(sessionID string, epoch int64) PlaybackTokenOption {
+	return func(o *playbackTokenOptions) {
+		o.sessionID, o.authEpoch = sessionID, epoch
+	}
+}
+
+func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, contentID, contract, tokenID string, chainID int64, ttl time.Duration, clientFingerprint string, options ...PlaybackTokenOption) (string, error) {
 	// A playback token is a wallet-bound capability proving prior NFT
 	// authorization; issuing one to an empty wallet would mint an
 	// unattributable credential.
@@ -392,6 +409,24 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		ttl = s.PlaybackTokenTTL()
 	}
 
+	opts := playbackTokenOptions{}
+	for _, apply := range options {
+		apply(&opts)
+	}
+	if opts.sessionID == "" {
+		// A capability must always name a session, because every playlist and
+		// segment resolves it through ParsePlaybackToken, which requires the
+		// binding. With no caller-supplied session it gets its own — valid, but
+		// only revocable by revoking that session. The production path always
+		// supplies the requesting session so a logout reaches media in flight.
+		sessionID, err := s.StartSession()
+		if err != nil {
+			monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+			return "", err
+		}
+		opts.sessionID, opts.authEpoch = sessionID, 1
+	}
+
 	claims := &Claims{
 		Username:          walletAddress,
 		TokenType:         "playback",
@@ -402,6 +437,8 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		ChainID:           chainID,
 		JTI:               generateID(),
 		ClientFingerprint: clientFingerprint,
+		SessionID:         opts.sessionID,
+		AuthEpoch:         opts.authEpoch,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: "streamgate",
 			// A capability and an access token are signed with the same key, so
@@ -468,6 +505,23 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 			monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 			return nil, ErrTokenRevoked
 		}
+	}
+	// The revocation version. Every playlist, segment, init and key request
+	// resolves the capability through here, so this is the one place that has to
+	// hold for revocation to reach media already in flight. Without it, logging
+	// out would only stop the exact token presented and a capability already
+	// handed to a player would keep working for its whole TTL.
+	//
+	// Presence is required, not defaulted: a capability minted before sessions
+	// existed has no epoch, and treating "absent" as "current" would let such a
+	// credential bypass revocation entirely.
+	if claims.SessionID == "" {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, errors.New("playback token is not bound to a session")
+	}
+	if !s.SessionValid(claims.SessionID, claims.AuthEpoch) {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, ErrTokenRevoked
 	}
 	monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "success").Inc()
 	return claims, nil
