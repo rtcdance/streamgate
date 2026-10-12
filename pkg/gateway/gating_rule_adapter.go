@@ -22,11 +22,32 @@ type gatingRuleResolverAdapter struct {
 }
 
 func NewGatingRuleResolverAdapter(svc *service.GatingRuleService) middleware.GatingRuleResolver {
-	return &gatingRuleResolverAdapter{
+	a := &gatingRuleResolverAdapter{
 		svc:      svc,
 		cache:    make(map[string]cachedRules),
 		cacheTTL: 30 * time.Second,
 	}
+	// Rule writes must be visible immediately. Relying on the TTL alone means an
+	// owner can change a rule and still be authorised by the previous one for up
+	// to 30s - and a rule retargeted at a different contract keeps authorising
+	// against the old one for that whole window.
+	if svc != nil {
+		svc.SetInvalidator(a.Invalidate)
+	}
+	return a
+}
+
+// Invalidate drops cached rules. An empty contentID drops everything, which is
+// what a delete needs: the rule is gone before we can learn which content it
+// belonged to.
+func (a *gatingRuleResolverAdapter) Invalidate(contentID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if contentID == "" {
+		a.cache = make(map[string]cachedRules)
+		return
+	}
+	delete(a.cache, contentID)
 }
 
 func (a *gatingRuleResolverAdapter) GetActiveRulesForContent(ctx context.Context, contentID string) ([]middleware.GatingRule, error) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/models"
@@ -30,6 +31,29 @@ var (
 type GatingRuleService struct {
 	db     storage.DB
 	logger *zap.Logger
+
+	invalidatorMu sync.RWMutex
+	// invalidator is notified after a rule write so caches holding the previous
+	// rule set cannot keep authorising against it.
+	invalidator func(contentID string)
+}
+
+// SetInvalidator registers a callback invoked after every successful rule write.
+// The callback receives the affected contentID, or "" when the whole rule set
+// should be dropped (a delete no longer knows which content it belonged to).
+func (s *GatingRuleService) SetInvalidator(fn func(contentID string)) {
+	s.invalidatorMu.Lock()
+	defer s.invalidatorMu.Unlock()
+	s.invalidator = fn
+}
+
+func (s *GatingRuleService) notifyInvalidate(contentID string) {
+	s.invalidatorMu.RLock()
+	fn := s.invalidator
+	s.invalidatorMu.RUnlock()
+	if fn != nil {
+		fn(contentID)
+	}
 }
 
 func NewGatingRuleService(db storage.DB, logger *zap.Logger) *GatingRuleService {
@@ -243,6 +267,7 @@ func (s *GatingRuleService) CreateRuleForOwner(ctx context.Context, rule *models
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return "", s.classifyContentDenial(ctx, rule.ContentID)
 	}
+	s.notifyInvalidate(rule.ContentID)
 	return rule.ID, nil
 }
 
@@ -277,6 +302,7 @@ func (s *GatingRuleService) UpdateRuleForOwner(ctx context.Context, rule *models
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return s.classifyRuleDenial(ctx, rule.ID)
 	}
+	s.notifyInvalidate(rule.ContentID)
 	return nil
 }
 
@@ -303,6 +329,9 @@ func (s *GatingRuleService) DeleteRuleForOwner(ctx context.Context, id, actorWal
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		return s.classifyRuleDenial(ctx, id)
 	}
+	// The row is gone, so the content it belonged to is no longer resolvable
+	// here; drop the whole rule cache rather than guess.
+	s.notifyInvalidate("")
 	return nil
 }
 
