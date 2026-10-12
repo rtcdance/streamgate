@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/rtcdance/streamgate/pkg/web3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -119,6 +121,67 @@ func (p *shiftingBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) 
 
 func (p *shiftingBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*BlockHeaderInfo, error) {
 	return p.numberHeader, nil
+}
+
+// The anchor is always resolved at a finality tag, never at "latest": reading
+// the head would let a block that is not yet final authorize a request.
+func TestResolveQuantity_NeverAnchorsAtLatest(t *testing.T) {
+	cases := []struct {
+		configured string
+		want       string
+	}{
+		{configured: "safe", want: "safe"},
+		{configured: "finalized", want: "finalized"},
+		// An unset tag must default to safe, not to latest.
+		{configured: "", want: "safe"},
+		{configured: "   ", want: "safe"},
+	}
+	for _, tc := range cases {
+		t.Run("tag="+tc.configured, func(t *testing.T) {
+			prover := &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xh"}}
+			config := NFTGateConfig{
+				Verifier:       &recordingBlockVerifier{quantity: big.NewInt(1)},
+				BlockProver:    prover,
+				DefaultChainID: 1,
+				BlockTag:       web3.BlockTag(tc.configured),
+			}
+
+			_, _, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, prover.gotTag)
+			assert.NotEqual(t, "latest", prover.gotTag, "the anchor must never be the chain head")
+		})
+	}
+}
+
+// A reorg event drops that chain's cached evidence and marks the gate, so the
+// next request re-reads at a fresh anchor instead of trusting pre-reorg
+// evidence. Another chain's evidence must survive.
+func TestInvalidateNFTEvidence_DropsOnlyThatChainsEvidence(t *testing.T) {
+	cache := &mockNFTAccessCacheOld{entries: map[string]NFTAccessEntry{
+		"1:0xA:0xC1:__collection__:erc721": {Balance: big.NewInt(1), Expires: time.Now().Add(time.Minute), ObservedAt: time.Now()},
+		"2:0xA:0xC2:__collection__:erc721": {Balance: big.NewInt(1), Expires: time.Now().Add(time.Minute), ObservedAt: time.Now()},
+	}}
+	config := &NFTGateConfig{Cache: cache}
+
+	InvalidateNFTEvidence(config, 1)
+
+	assert.True(t, config.reorgActive.Load(), "the gate must record the reorg")
+	assert.NotZero(t, config.reorgDetectedAt.Load())
+	assert.NotContains(t, cache.entries, "1:0xA:0xC1:__collection__:erc721",
+		"the reorged chain's evidence must be dropped")
+	assert.Contains(t, cache.entries, "2:0xA:0xC2:__collection__:erc721",
+		"another chain's evidence must survive")
+}
+
+// Invalidation must not panic on a partially-wired config.
+func TestInvalidateNFTEvidence_NilSafe(t *testing.T) {
+	assert.NotPanics(t, func() { InvalidateNFTEvidence(nil, 1) })
+
+	config := &NFTGateConfig{}
+	assert.NotPanics(t, func() { InvalidateNFTEvidence(config, 1) })
+	assert.True(t, config.reorgActive.Load())
 }
 
 // An allow must be traceable to a specific chain and block: the response says
