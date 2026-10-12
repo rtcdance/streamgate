@@ -375,8 +375,13 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 type PlaybackTokenOption func(*playbackTokenOptions)
 
 type playbackTokenOptions struct {
-	sessionID string
-	authEpoch int64
+	sessionID   string
+	authEpoch   int64
+	ruleVersion int64
+	// ruleVersionSet distinguishes "the caller supplied version 0" from "the
+	// caller supplied nothing", because 0 is a legal version (a content that has
+	// never had a rule written).
+	ruleVersionSet bool
 }
 
 // WithSessionBinding ties a capability to the session that requested it, so
@@ -385,6 +390,14 @@ type playbackTokenOptions struct {
 func WithSessionBinding(sessionID string, epoch int64) PlaybackTokenOption {
 	return func(o *playbackTokenOptions) {
 		o.sessionID, o.authEpoch = sessionID, epoch
+	}
+}
+
+// WithRuleVersion records the rule version the capability was issued under, so a
+// later rule change makes it stale without any per-segment chain query.
+func WithRuleVersion(version int64) PlaybackTokenOption {
+	return func(o *playbackTokenOptions) {
+		o.ruleVersion, o.ruleVersionSet = version, true
 	}
 }
 
@@ -426,6 +439,18 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		}
 		opts.sessionID, opts.authEpoch = sessionID, 1
 	}
+	if !opts.ruleVersionSet {
+		// The version the capability is issued under comes from the authority, so
+		// a capability is never minted with a version that was guessed. If the
+		// authority cannot be read the issuance FAILS: a capability with no
+		// version could never be invalidated by a rule change.
+		version, err := s.currentRuleVersion(ctx, contentID)
+		if err != nil {
+			monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+			return "", fmt.Errorf("failed to read the rule version for content %s: %w", contentID, err)
+		}
+		opts.ruleVersion = version
+	}
 
 	claims := &Claims{
 		Username:          walletAddress,
@@ -439,6 +464,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		ClientFingerprint: clientFingerprint,
 		SessionID:         opts.sessionID,
 		AuthEpoch:         opts.authEpoch,
+		RuleVersion:       opts.ruleVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: "streamgate",
 			// A capability and an access token are signed with the same key, so
@@ -520,6 +546,18 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 		return nil, errors.New("playback token is not bound to a session")
 	}
 	if !s.SessionValid(claims.SessionID, claims.AuthEpoch) {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, ErrTokenRevoked
+	}
+	// The authorization-rule version. A segment request cannot afford a chain
+	// query, so the capability carries the version it was issued under and is
+	// refused once the content's rules move. Without this, raising a rule's
+	// threshold or retargeting it would not reach media already in flight until
+	// the capability's TTL happened to expire.
+	if current, err := s.currentRuleVersion(ctx, claims.Subject); err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, fmt.Errorf("failed to read the rule version: %w", err)
+	} else if current != claims.RuleVersion {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, ErrTokenRevoked
 	}
