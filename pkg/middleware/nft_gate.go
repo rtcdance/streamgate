@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -67,6 +68,13 @@ type NFTOwnershipChecker interface {
 	VerifyNFTOwnershipAutoDetect(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
 	VerifyNFTCollectionAutoDetect(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error)
 	GetNFTInfo(ctx context.Context, chainID int64, contractAddress, tokenID string) (*NFTMetadata, error)
+	// GetNFTOwnershipQuantity is the ONLY signal the gate authorizes on: the
+	// collection balance when tokenID is empty, otherwise the token quantity
+	// (ERC-721 → 0/1, ERC-1155 → on-chain uint256). It MUST return an error —
+	// never a permissive value — for unknown contracts, unsupported standards,
+	// or an unreadable chain. A boolean "holds some NFT" answer is deliberately
+	// absent here: it cannot express a min_balance greater than 1.
+	GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error)
 }
 
 type NFTMetadata struct {
@@ -97,6 +105,15 @@ type GatingRule struct {
 	Standard        string
 	MinBalance      int
 }
+
+// invalidGatingRuleError marks a rule that is malformed, as opposed to a rule
+// whose verification could not be performed. The gate answers 400 for the
+// former and 503 for the latter, so the two must never be conflated — a
+// misconfigured rule must not be reported as "the chain is down", and an RPC
+// outage must not be reported as "no NFT".
+type invalidGatingRuleError struct{ reason string }
+
+func (e *invalidGatingRuleError) Error() string { return "invalid gating rule: " + e.reason }
 
 type NFTGateConfig struct {
 	Verifier           NFTOwnershipChecker
@@ -219,9 +236,9 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		contract, chainID, tokenID, contentID := parseNFTParams(c, config)
+		contentID := c.Param("id")
 
-		resolvedRules, minBalance, gatingRequired, errStatus, errResp := resolveNFTGateRules(c, config, logger, contentID, &contract, &tokenID, &chainID)
+		rules, errStatus, errResp := resolveGatingRules(c, config, logger, contentID)
 		if errResp != nil {
 			if errStatus == 0 {
 				errStatus = http.StatusBadRequest
@@ -230,7 +247,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		if !gatingRequired {
+		if len(rules) == 0 {
 			if config.GatingMode == "open" {
 				c.Set("nft_verified", true)
 				c.Set("nft_bypass_reason", "no_gating_rules")
@@ -246,6 +263,11 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
+		// Reported subject for the denial body / audit trail.
+		contract := rules[0].ContractAddress
+		tokenID := rules[0].TokenID
+		chainID := rules[0].ChainID
+
 		if !common.IsHexAddress(contract) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "invalid contract address format",
@@ -254,13 +276,21 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		autoDetect := resolveAutoDetect(c, config, contract, resolvedRules)
-
-		cacheKey := nftCacheKey(chainID, walletAddress, contract, tokenID)
-		hasNFT, err := resolveOwnershipWithAutoDetect(c.Request.Context(), config, logger, cacheKey, chainID, contract, tokenID, walletAddress, minBalance, autoDetect)
-		if err != nil {
-			logger.Error("NFT verification failed", zap.Error(err))
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+		allowed, evalErr := evaluateGatingRules(c.Request.Context(), config, logger, rules, walletAddress)
+		if evalErr != nil {
+			var invalid *invalidGatingRuleError
+			if errors.As(evalErr, &invalid) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+					"error": invalid.Error(),
+					"code":  "INVALID_GATING_RULE",
+				})
+				return
+			}
+			// No rule verified true AND at least one rule could not be verified:
+			// this is a service failure, not a denial. Answering 403 here would
+			// disguise an RPC outage as "you hold no NFT".
+			logger.Error("NFT verification failed", zap.Error(evalErr))
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 				"error":      "verification service unavailable",
 				"code":       "NFT_VERIFY_ERROR",
 				"chain_id":   chainID,
@@ -269,11 +299,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		if !hasNFT {
-			hasNFT, contract, tokenID, chainID = tryFallbackGatingRules(c, config, logger, walletAddress, contract, tokenID, chainID)
-		}
-
-		if !hasNFT {
+		if !allowed {
 			nftGateDenied(c, config, walletAddress, contract, tokenID, chainID, contentID)
 			return
 		}
@@ -289,102 +315,264 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 	}
 }
 
-func parseNFTParams(c *gin.Context, config *NFTGateConfig) (contract string, chainID int64, tokenID, contentID string) {
-	// The authorization subject MUST come from server-side gating rules, never
-	// from the request: a caller-supplied ?contract= would let anyone pass the
-	// gate by naming a contract they happen to hold an NFT in. RuleResolver is
-	// the only source; resolveNFTGateRules applies the first resolved rule.
-	contract = ""
-	chainID = config.DefaultChainID
-	tokenID = ""
-	contentID = c.Param("id")
-	return
+// resolveGatingRules loads the server-side rule set. The authorization subject
+// MUST come from server-side gating rules, never from the request: a
+// caller-supplied ?contract= would let anyone pass the gate by naming a
+// contract they happen to hold an NFT in.
+func resolveGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string) (rules []GatingRule, errStatus int, errorBody gin.H) {
+	if contentID == "" || config.RuleResolver == nil {
+		// No resolver (or no content ID): there are no server-side rules to
+		// authorize against. An empty rule set hands the decision to the
+		// GatingMode check (closed denies, open allows).
+		return nil, 0, nil
+	}
+
+	resolved, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
+	if err != nil {
+		// Fail closed: an unresolvable rule set must not become a bypass.
+		logger.Error("failed to resolve gating rules; denying request",
+			zap.String("content_id", contentID), zap.Error(err))
+		return nil, http.StatusInternalServerError, gin.H{
+			"error": "failed to resolve gating rules",
+			"code":  "GATING_RULES_ERROR",
+		}
+	}
+
+	c.Set("gating_rules", resolved)
+	c.Set("gating_rule_id", contentID)
+	c.Set("gating_rules_count", len(resolved))
+	return resolved, 0, nil
 }
 
-func resolveNFTGateRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, contentID string, contract, tokenID *string, chainID *int64) (rules []GatingRule, minBalance int, hasAccess bool, errStatus int, errorBody gin.H) {
-	var resolvedRules []GatingRule
-	rulesFetched := false
-	if contentID != "" && config.RuleResolver != nil {
-		rules, err := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
+// validateGatingRule rejects rules that cannot be evaluated meaningfully, so a
+// malformed rule surfaces as 400 instead of being defaulted into a laxer rule.
+func validateGatingRule(rule GatingRule) error {
+	if !common.IsHexAddress(rule.ContractAddress) {
+		return &invalidGatingRuleError{reason: "contract address is not a valid hex address"}
+	}
+	if rule.ChainID == 0 {
+		return &invalidGatingRuleError{reason: "chain_id is required"}
+	}
+	if _, err := normalizedMinBalance(rule.MinBalance); err != nil {
+		return err
+	}
+	if rule.TokenID != "" {
+		if _, ok := new(big.Int).SetString(rule.TokenID, 10); !ok {
+			return &invalidGatingRuleError{reason: "token_id must be a decimal uint256"}
+		}
+	} else if strings.EqualFold(rule.Standard, "erc1155") {
+		// ERC-1155 has no collection-wide quantity, so "holds any 1" can never
+		// satisfy min_balance > 1. Reject at evaluation time rather than
+		// inventing a total.
+		return &invalidGatingRuleError{reason: "ERC-1155 rules require a token_id"}
+	}
+	return nil
+}
+
+// normalizedMinBalance applies the default of 1 and rejects negatives.
+func normalizedMinBalance(minBalance int) (int64, error) {
+	switch {
+	case minBalance == 0:
+		return 1, nil
+	case minBalance < 0:
+		return 0, &invalidGatingRuleError{reason: "min_balance must not be negative"}
+	default:
+		return int64(minBalance), nil
+	}
+}
+
+// evaluateGatingRules applies OR semantics over the active rules: any rule that
+// verifies to a sufficient quantity grants access. If no rule grants access, a
+// rule that could not be verified at all produces a service error so the caller
+// answers 503 rather than a misleading 403.
+func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (bool, error) {
+	var firstUnverifiable error
+
+	for _, rule := range rules {
+		if err := validateGatingRule(rule); err != nil {
+			return false, err
+		}
+		minBalance, _ := normalizedMinBalance(rule.MinBalance)
+
+		cacheKey := nftCacheKey(rule.ChainID, walletAddress, rule.ContractAddress, rule.TokenID, rule.Standard)
+		quantity, err := resolveQuantity(ctx, config, logger, cacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
 		if err != nil {
-			// Fail closed: an unresolvable rule set must not become a bypass.
-			logger.Error("failed to resolve gating rules; denying request",
-				zap.String("content_id", contentID), zap.Error(err))
-			return nil, 0, false, http.StatusInternalServerError, gin.H{
-				"error": "failed to resolve gating rules",
-				"code":  "GATING_RULES_ERROR",
+			logger.Warn("gating rule could not be verified",
+				zap.String("contract", rule.ContractAddress),
+				zap.Int64("chain_id", rule.ChainID),
+				zap.Error(err))
+			if firstUnverifiable == nil {
+				firstUnverifiable = err
+			}
+			continue
+		}
+
+		if quantity.Cmp(big.NewInt(minBalance)) >= 0 {
+			return true, nil
+		}
+	}
+
+	if firstUnverifiable != nil {
+		return false, firstUnverifiable
+	}
+	return false, nil
+}
+
+// resolveQuantity returns the holder's quantity EVIDENCE for one subject. The
+// cache stores the evidence (the balance), never the verdict: the comparison
+// against min_balance happens per request, so two rules with different
+// thresholds over the same subject can never share a stale decision.
+func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, error) {
+	start := time.Now()
+
+	if config.Cache != nil {
+		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
+			if quantity, usable := cachedQuantity(config, logger, cacheKey, entry); usable {
+				nftCacheHits.WithLabelValues("l1_l2").Inc()
+				return quantity, nil
 			}
 		}
-		resolvedRules = rules
-		rulesFetched = true
-		c.Set("gating_rules", rules)
-		c.Set("gating_rule_id", contentID)
-		c.Set("gating_rules_count", len(rules))
 	}
 
-	if !rulesFetched {
-		// No resolver (or no content ID): there are no server-side rules to
-		// authorize against. GatingRequired=false hands the decision to the
-		// GatingMode check (closed denies, open allows).
-		return nil, 0, false, 0, nil
-	}
-
-	if len(resolvedRules) == 0 {
-		return nil, 0, false, 0, nil
-	}
-
-	if *contract == "" && len(resolvedRules) > 0 {
-		rule := resolvedRules[0]
-		*contract = rule.ContractAddress
-		*tokenID = rule.TokenID
-		*chainID = rule.ChainID
-		minBalance = rule.MinBalance
-	}
-
-	if *contract == "" {
-		return nil, 0, false, 0, gin.H{
-			"error": "contract address is required",
-			"code":  "MISSING_CONTRACT",
-			"hint":  "provide 'contract' query parameter with the NFT contract address",
+	v, err, _ := nftSF.Do(cacheKey, func() (interface{}, error) {
+		if config.CircuitBreaker != nil && !config.CircuitBreaker.Allow() {
+			return nil, fmt.Errorf("nft verification circuit breaker is open for chain %d", chainID)
 		}
+
+		quantity, verifyErr := config.Verifier.GetNFTOwnershipQuantity(ctx, chainID, contract, tokenID, walletAddress)
+		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
+
+		if verifyErr != nil {
+			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			if config.CircuitBreaker != nil {
+				config.CircuitBreaker.RecordFailure()
+			}
+			return nil, verifyErr
+		}
+		if quantity == nil || quantity.Sign() < 0 {
+			// A nil or negative quantity is not evidence of ownership; treat it
+			// as an unusable answer rather than a permissive one.
+			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			return nil, fmt.Errorf("verifier returned no usable quantity for chain %d contract %s", chainID, contract)
+		}
+
+		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "true").Inc()
+		if config.CircuitBreaker != nil {
+			config.CircuitBreaker.RecordSuccess()
+		}
+		if config.Cache != nil {
+			setCachedEntry(ctx, config, logger, cacheKey, quantity)
+		}
+		return quantity, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return resolvedRules, minBalance, true, 0, nil
+
+	quantity, ok := v.(*big.Int)
+	if !ok || quantity == nil {
+		return nil, fmt.Errorf("unexpected quantity result for chain %d", chainID)
+	}
+	return quantity, nil
 }
 
-func resolveAutoDetect(c *gin.Context, config *NFTGateConfig, contract string, resolvedRules []GatingRule) bool {
-	autoDetect := config.AutoDetectStandard
-	if config.RuleResolver == nil {
-		return autoDetect
+// cachedQuantity decides whether a cached entry can be trusted and, if so,
+// returns a copy of its balance evidence. A nil balance is never usable.
+func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, entry NFTAccessEntry) (*big.Int, bool) {
+	if entry.Balance == nil {
+		return nil, false
 	}
-	// resolvedRules already fetched by resolveNFTGateRules — no need to re-fetch
-	for _, r := range resolvedRules {
-		if r.ContractAddress == contract && r.Standard != "" && r.Standard != "erc721" {
-			return true
+	if entry.BlockHash == "" || config.BlockProver == nil {
+		return new(big.Int).Set(entry.Balance), true
+	}
+
+	if cachedHash, ok := config.BlockVerifyCache.Get(entry.BlockNumber); ok && cachedHash == entry.BlockHash {
+		nftBlockHashCacheHits.Inc()
+		return new(big.Int).Set(entry.Balance), true
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	header, err := config.BlockProver.HeaderByNumber(ctx, big.NewInt(int64(entry.BlockNumber)))
+	if err == nil && header != nil {
+		config.BlockVerifyCache.Set(entry.BlockNumber, header.Hash)
+		if header.Hash != entry.BlockHash {
+			nftVerifyReorgInvalidated.Inc()
+			logger.Warn("NFT cache entry invalidated by reorg",
+				zap.String("cache_key", cacheKey),
+				zap.Uint64("block", entry.BlockNumber),
+				zap.String("cached_hash", entry.BlockHash),
+				zap.String("actual_hash", header.Hash))
+			config.reorgActive.Store(true)
+			config.reorgDetectedAt.Store(time.Now().UnixNano())
+			return nil, false
 		}
+		return new(big.Int).Set(entry.Balance), true
 	}
-	return autoDetect
+
+	// Block prover unavailable: serve the entry only inside a degraded window.
+	logger.Warn("Block prover RPC failed during reorg check, using degraded cache TTL",
+		zap.Uint64("block", entry.BlockNumber),
+		zap.Error(err))
+	degradedTTL := config.ReorgTTL
+	if degradedTTL == 0 {
+		degradedTTL = 5 * time.Second
+	}
+	degradedExpiry := entry.Expires.Add(-config.CacheTTL).Add(degradedTTL)
+	if time.Now().Before(degradedExpiry) {
+		nftCacheHits.WithLabelValues("l1_l2_degraded").Inc()
+		return new(big.Int).Set(entry.Balance), true
+	}
+	logger.Warn("Degraded cache TTL expired, refusing to serve stale NFT verification",
+		zap.String("cache_key", cacheKey))
+	return nil, false
 }
 
-func tryFallbackGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logger, walletAddress, contract, tokenID string, chainID int64) (allowed bool, outContract, outTokenID string, outChainID int64) {
-	if config.RuleResolver == nil {
-		return false, contract, tokenID, chainID
-	}
-	contentID := c.Param("id")
-	if contentID == "" {
-		return false, contract, tokenID, chainID
-	}
-	rules, rErr := config.RuleResolver.GetActiveRulesForContent(c.Request.Context(), contentID)
-	if rErr != nil || len(rules) <= 1 {
-		return false, contract, tokenID, chainID
-	}
-	for _, rule := range rules[1:] {
-		ruleCacheKey := nftCacheKey(rule.ChainID, walletAddress, rule.ContractAddress, rule.TokenID)
-		altHasNFT, altErr := resolveOwnership(c.Request.Context(), config, logger, ruleCacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress, rule.MinBalance)
-		if altErr == nil && altHasNFT {
-			return true, rule.ContractAddress, rule.TokenID, rule.ChainID
+func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, quantity *big.Int) {
+	var blockNumber uint64
+	var blockHash string
+	if config.BlockProver != nil {
+		header, err := config.BlockProver.HeaderByNumber(ctx, nil)
+		if err == nil && header != nil {
+			blockNumber = header.Number
+			blockHash = header.Hash
+		} else {
+			logger.Debug("Failed to fetch block header for cache entry", zap.Error(err))
 		}
 	}
-	return false, contract, tokenID, chainID
+
+	hasNFT := quantity != nil && quantity.Sign() > 0
+	ttl := config.CacheTTL
+	if hasNFT {
+		positiveTTL := config.CacheTTL / 4
+		if positiveTTL < 5*time.Second {
+			positiveTTL = 5 * time.Second
+		}
+		if positiveTTL > 15*time.Second {
+			positiveTTL = 15 * time.Second
+		}
+		ttl = positiveTTL
+	}
+	if config.reorgActive.Load() && config.ReorgTTL > 0 {
+		detectedAt := time.Unix(0, config.reorgDetectedAt.Load())
+		if time.Since(detectedAt) < config.CacheTTL {
+			ttl = config.ReorgTTL
+		} else {
+			config.reorgActive.Store(false)
+		}
+	}
+
+	var balance *big.Int
+	if quantity != nil {
+		balance = new(big.Int).Set(quantity)
+	}
+	config.Cache.Set(ctx, key, NFTAccessEntry{
+		HasNFT:      hasNFT,
+		Balance:     balance,
+		BlockNumber: blockNumber,
+		BlockHash:   blockHash,
+		Expires:     time.Now().Add(ttl),
+	})
 }
 
 func nftGateDenied(c *gin.Context, config *NFTGateConfig, walletAddress, contract, tokenID string, chainID int64, contentID string) {
@@ -411,171 +599,6 @@ func nftGateDenied(c *gin.Context, config *NFTGateConfig, walletAddress, contrac
 	c.AbortWithStatusJSON(http.StatusForbidden, resp)
 }
 
-func resolveOwnership(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string, minBalance int) (bool, error) {
-	return resolveOwnershipWithAutoDetect(ctx, config, logger, cacheKey, chainID, contract, tokenID, walletAddress, minBalance, config.AutoDetectStandard)
-}
-
-func resolveOwnershipWithAutoDetect(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string, minBalance int, autoDetect bool) (bool, error) {
-	start := time.Now()
-
-	if config.Cache != nil {
-		if entry, ok := config.Cache.Get(ctx, cacheKey); ok {
-			if entry.Expires.After(time.Now()) {
-				if entry.BlockHash != "" && config.BlockProver != nil {
-					if cachedHash, ok := config.BlockVerifyCache.Get(entry.BlockNumber); ok && cachedHash == entry.BlockHash {
-						nftBlockHashCacheHits.Inc()
-						nftCacheHits.WithLabelValues("l1_l2").Inc()
-						return entry.HasNFT, nil
-					}
-					header, err := config.BlockProver.HeaderByNumber(ctx, big.NewInt(int64(entry.BlockNumber)))
-					if err == nil && header != nil {
-						config.BlockVerifyCache.Set(entry.BlockNumber, header.Hash)
-						if header.Hash != entry.BlockHash {
-							nftVerifyReorgInvalidated.Inc()
-							logger.Warn("NFT cache entry invalidated by reorg",
-								zap.String("cache_key", cacheKey),
-								zap.Uint64("block", entry.BlockNumber),
-								zap.String("cached_hash", entry.BlockHash),
-								zap.String("actual_hash", header.Hash))
-							config.reorgActive.Store(true)
-							config.reorgDetectedAt.Store(time.Now().UnixNano())
-						} else {
-							nftCacheHits.WithLabelValues("l1_l2").Inc()
-							return entry.HasNFT, nil
-						}
-					} else {
-						logger.Warn("Block prover RPC failed during reorg check, using degraded cache TTL",
-							zap.Uint64("block", entry.BlockNumber),
-							zap.Error(err))
-						degradedTTL := config.ReorgTTL
-						if degradedTTL == 0 {
-							degradedTTL = 5 * time.Second
-						}
-						degradedExpiry := entry.Expires.Add(-config.CacheTTL).Add(degradedTTL)
-						if time.Now().Before(degradedExpiry) {
-							nftCacheHits.WithLabelValues("l1_l2_degraded").Inc()
-							return entry.HasNFT, nil
-						}
-						logger.Warn("Degraded cache TTL expired, refusing to serve stale NFT verification",
-							zap.String("cache_key", cacheKey))
-						return false, fmt.Errorf("block prover unavailable and degraded cache expired for chain %d", chainID)
-					}
-				} else {
-					nftCacheHits.WithLabelValues("l1_l2").Inc()
-					return entry.HasNFT, nil
-				}
-			}
-		}
-	}
-
-	v, err, _ := nftSF.Do(cacheKey, func() (interface{}, error) {
-		var hasNFT bool
-		var verifyErr error
-		var balance *big.Int
-
-		if config.CircuitBreaker != nil && !config.CircuitBreaker.Allow() {
-			return false, fmt.Errorf("nft verification circuit breaker is open for chain %d", chainID)
-		}
-
-		if tokenID != "" {
-			if autoDetect {
-				hasNFT, verifyErr = config.Verifier.VerifyNFTOwnershipAutoDetect(ctx, chainID, contract, tokenID, walletAddress)
-			} else {
-				hasNFT, verifyErr = config.Verifier.VerifyNFTOwnership(ctx, chainID, contract, tokenID, walletAddress)
-			}
-			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), boolStr(hasNFT && verifyErr == nil)).Inc()
-			nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
-			if verifyErr != nil {
-				if config.CircuitBreaker != nil {
-					config.CircuitBreaker.RecordFailure()
-				}
-				return false, verifyErr
-			}
-			if config.CircuitBreaker != nil {
-				config.CircuitBreaker.RecordSuccess()
-			}
-			if config.Cache != nil {
-				setCachedEntry(ctx, config, logger, cacheKey, hasNFT, big.NewInt(1))
-			}
-			return hasNFT, nil
-		}
-
-		if autoDetect {
-			hasNFT, verifyErr = config.Verifier.VerifyNFTCollectionAutoDetect(ctx, chainID, contract, walletAddress)
-		} else {
-			balance, verifyErr = config.Verifier.GetNFTBalance(ctx, chainID, contract, walletAddress)
-			if minBalance > 1 {
-				hasNFT = balance != nil && balance.Cmp(big.NewInt(int64(minBalance))) >= 0
-			} else {
-				hasNFT = balance != nil && balance.Sign() > 0
-			}
-		}
-		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), boolStr(hasNFT && verifyErr == nil)).Inc()
-		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
-		if verifyErr != nil {
-			if config.CircuitBreaker != nil {
-				config.CircuitBreaker.RecordFailure()
-			}
-			return false, verifyErr
-		}
-		if config.CircuitBreaker != nil {
-			config.CircuitBreaker.RecordSuccess()
-		}
-		if config.Cache != nil {
-			cacheBalance := balance
-			if cacheBalance == nil && hasNFT {
-				cacheBalance = big.NewInt(1)
-			}
-			setCachedEntry(ctx, config, logger, cacheKey, hasNFT, cacheBalance)
-		}
-		return hasNFT, nil
-	})
-	if err != nil {
-		return false, err
-	}
-	return v.(bool), nil
-}
-
-func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, hasNFT bool, balance *big.Int) {
-	var blockNumber uint64
-	var blockHash string
-	if config.BlockProver != nil {
-		header, err := config.BlockProver.HeaderByNumber(ctx, nil)
-		if err == nil && header != nil {
-			blockNumber = header.Number
-			blockHash = header.Hash
-		} else {
-			logger.Debug("Failed to fetch block header for cache entry", zap.Error(err))
-		}
-	}
-	ttl := config.CacheTTL
-	if hasNFT {
-		positiveTTL := config.CacheTTL / 4
-		if positiveTTL < 5*time.Second {
-			positiveTTL = 5 * time.Second
-		}
-		if positiveTTL > 15*time.Second {
-			positiveTTL = 15 * time.Second
-		}
-		ttl = positiveTTL
-	}
-	if config.reorgActive.Load() && config.ReorgTTL > 0 {
-		detectedAt := time.Unix(0, config.reorgDetectedAt.Load())
-		if time.Since(detectedAt) < config.CacheTTL {
-			ttl = config.ReorgTTL
-		} else {
-			config.reorgActive.Store(false)
-		}
-	}
-	config.Cache.Set(ctx, key, NFTAccessEntry{
-		HasNFT:      hasNFT,
-		Balance:     balance,
-		BlockNumber: blockNumber,
-		BlockHash:   blockHash,
-		Expires:     time.Now().Add(ttl),
-	})
-}
-
 func GetNFTVerified(c *gin.Context) bool {
 	v, _ := c.Get("nft_verified")
 	verified, _ := v.(bool)
@@ -588,11 +611,19 @@ func GetNFTContract(c *gin.Context) string {
 	return contract
 }
 
-func nftCacheKey(chainID int64, wallet, contract, tokenID string) string {
+// nftCacheKey isolates every axis that changes what a cached balance means:
+// chain, subject wallet, contract, token and standard. min_balance is
+// deliberately absent — the cached value is the balance itself, so a different
+// threshold is a different comparison over the same evidence, not a different
+// cache entry.
+func nftCacheKey(chainID int64, wallet, contract, tokenID, standard string) string {
 	if tokenID == "" {
 		tokenID = "__collection__"
 	}
-	return fmt.Sprintf("%d:%s:%s:%s", chainID, wallet, contract, tokenID)
+	if standard == "" {
+		standard = "__auto__"
+	}
+	return fmt.Sprintf("%d:%s:%s:%s:%s", chainID, wallet, contract, tokenID, strings.ToLower(standard))
 }
 
 func parseInt64(s string) (int64, error) {

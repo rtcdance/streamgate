@@ -197,6 +197,13 @@ func (e *errNFTOwnershipChecker) GetNFTInfo(_ context.Context, _ int64, _, _ str
 	return nil, nil
 }
 
+func (e *errNFTOwnershipChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+	if e.balanceErr != nil {
+		return nil, e.balanceErr
+	}
+	return big.NewInt(1), nil
+}
+
 func TestNFTExt_BalanceError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

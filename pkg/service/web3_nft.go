@@ -153,6 +153,32 @@ func (ws *Web3Service) VerifyNFTCollectionAutoDetect(ctx context.Context, chainI
 	return verifier.VerifyNFTCollectionAutoDetect(ctx, contractAddress, ownerAddress)
 }
 
+// GetNFTOwnershipQuantity returns the holder's quantity for the gating subject
+// on the given chain: the collection balance when tokenID is empty, otherwise
+// the token quantity (ERC-721 → 0/1, ERC-1155 → on-chain uint256). Unknown /
+// non-NFT contracts return an error, never a permissive value.
+// Implements middleware.NFTOwnershipChecker.GetNFTOwnershipQuantity.
+func (ws *Web3Service) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+	// Solana NFTs are 1:1 mint→token-account, so ownership maps to quantity 1.
+	if chainID < 0 {
+		owned, err := ws.VerifyNFTOwnership(ctx, chainID, contractAddress, tokenID, ownerAddress)
+		if err != nil {
+			return nil, err
+		}
+		if owned {
+			return big.NewInt(1), nil
+		}
+		return big.NewInt(0), nil
+	}
+
+	client, err := ws.multiChainManager.GetClient(chainID)
+	if err != nil {
+		return nil, err
+	}
+	verifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger).WithBlockTag(client.GetFinality().BlockTag())
+	return verifier.GetNFTQuantityAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
+}
+
 // GetNFT gets NFT metadata by contract and token ID on the given chain.
 func (ws *Web3Service) GetNFT(ctx context.Context, chainID int64, contractAddress, tokenID string) (*web3.NFTInfo, error) {
 	ws.logger.Debug("Getting NFT", zap.Int64("chain_id", chainID), zap.String("contract", contractAddress), zap.String("token_id", tokenID))

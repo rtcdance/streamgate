@@ -99,6 +99,25 @@ func (m *mockNFTAccessVerifier) GetNFTInfo(ctx context.Context, chainID int64, c
 	return nil, nil
 }
 
+func (m *mockNFTAccessVerifier) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+	if m.balanceErr != nil {
+		return nil, m.balanceErr
+	}
+	if tokenID != "" {
+		if m.verifyErr != nil {
+			return nil, m.verifyErr
+		}
+		if m.verifyResult {
+			return big.NewInt(1), nil
+		}
+		return big.NewInt(0), nil
+	}
+	if m.balance == nil {
+		return big.NewInt(0), nil
+	}
+	return m.balance, nil
+}
+
 func (m *mockWeb3StatusProvider) GetRPCStatuses() map[int64][]web3.RPCStatus {
 	return map[int64][]web3.RPCStatus{
 		11155111: {

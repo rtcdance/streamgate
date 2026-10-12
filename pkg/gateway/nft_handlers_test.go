@@ -223,6 +223,10 @@ func (m *mockNFTOwnershipChecker) GetNFTInfo(_ context.Context, _ int64, _, _ st
 	return nil, nil
 }
 
+func (m *mockNFTOwnershipChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+	return big.NewInt(1), nil
+}
+
 // mockNFTCache implements middleware.NFTAccessCache for tests.
 type mockNFTCache struct{}
 

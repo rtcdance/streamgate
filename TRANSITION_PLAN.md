@@ -190,7 +190,7 @@ flowchart LR
 
 **验收**：全新 checkout（含 submodules）无主机 Go / Foundry / Node 环境也能运行；初期 all 可因后续任务未完成而失败，但已实现阶段不得假绿。Anvil 基础测试 PASS 且无必需 SKIP，Forge 实际部署 / mint 成功；H5 lock 文件被跟踪；端口冲突与缺工具测试明确失败。后续任务补齐后 all 必须通过。
 
-### [ ] SG-01 / P0：NFT 数量、规则与缓存隔离
+### [x] SG-01 / P0：NFT 数量、规则与缓存隔离
 
 **依赖**：SG-00、SG-11。**文件范围**：`pkg/middleware/nft_gate.go` / `nft_cache.go` 与新策略回归；`pkg/service/web3_nft.go`、`pkg/web3/nft/verifier.go` 及对应测试。
 
@@ -594,7 +594,8 @@ make verify-docker
 | SG-10 | **设计基线完成（见 §8.1）** | 事实清单（wired/tested/scaffold/disabled）、2 张图、六类主体权限矩阵、四类 profile、R01～R12 入口映射、路由正负例→SG 映射 |
 | SG-00 | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞） | 见 §8.2 |
 | SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
-| SG-01～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
+| SG-02～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -804,6 +805,30 @@ sequenceDiagram
 | 回归 | PASS | `go test ./...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空；`go test -tags=anvil -race ./test/integration/...` 全绿 |
 
 **限制（本项未覆盖）**：Forge invariant 尚未纳入 CI 门禁、gas snapshot 未生成、Slither 未重跑 —— 均属 SG-02 / SG-08 范围。
+
+### 8.4 SG-01 执行证据（NFT 数量、规则与缓存隔离）
+
+**基线**：`4d7bdf4`（SG-11 完成）+ 工作区未提交的 SG-01 改动。用户未提交的交易 API 工作**原样保留**，未并入本项提交。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 缓存存**证据**而非裁决 | PASS | `resolveQuantity` 只缓存余额 `NFTAccessEntry.Balance`；`evaluateGatingRules` 在请求规则下逐条比较 `quantity >= min`。同一主体 min=1→2 不再继承 allow |
+| 缓存键隔离 | PASS | `nftCacheKey` 扩展为 `chain:wallet:contract:token:standard`（`TestNftCacheKey_StandardIsolates`、`TestNFTGate_StandardIsolatesCache`）；min_balance **不入键**（同证据不同阈值是不同比较） |
+| 两种顺序回归 | PASS | `TestNFTGate_CacheOrderLowThenHigh_Denies` / `TestNFTGate_CacheOrderHighThenLow_Allows`；冷暖一致 `TestNFTGate_WarmAndColdAgree`（断言第二次命中缓存且缓存存的是真实余额 3，非归一化 1） |
+| 并发不同门槛 | PASS | `TestNFTGate_ConcurrentDifferentThresholds`（20 轮 × 2 内容并发，min=1 恒 200 / min=2 恒 403） |
+| 统一数量语义 | PASS | 新增 `GetNFTOwnershipQuantity`（唯一授权信号）：collection→`balanceOf`；指定 token→ERC-721 0/1、ERC-1155 链上 uint256。`TestNFTGate_MinEqualsBalance_Allows`、`MinGreaterThanBalance_Denies`、`ERC721SpecificToken_ZeroAndOne`、`ERC1155Quantity_OneRejected_TwoAllowed` |
+| 标准识别拒绝 fallback | PASS | `DetectTokenStandard` 删除 `try1155BalanceOf`/`try721BalanceOf` 探测：ERC-165 为唯一真源，balanceOf 探测会把 ERC-20 误判为 NFT。`verifier_extended_test.go` 两个旧用例（期望 ERC-721/1155）改为 `TokenStandardUnknown`——**修复前红、修复后绿** |
+| 失败模式不放行 | PASS | nil / 负值 / RPC 错误 → 503（`NilQuantityIsRejected`、`NegativeQuantityIsRejected`、`RPCErrorIsServiceError`）；不可核验规则集从 500 改为 **503**（`NFT_VERIFY_ERROR`），区别于 400 规则非法 |
+| 非法规则 → 400 | PASS | `validateGatingRule`：非法合约地址、chainID=0、负 min_balance、非十进制 tokenID、ERC-1155 无 tokenID 的 collection 规则一律 400 `INVALID_GATING_RULE`，且**不触链**（`TestNFTGate_NegativeMinBalanceIsRejected` 断言 `verifier.calls==0`） |
+| 缺省 min_balance=1 | PASS | `normalizedMinBalance`（0→1、负数报错）；`TestNFTGate_DefaultMinBalanceIsOne` |
+| OR 语义 | PASS | 任一规则真值即放行；全明确无持仓 403；无真值且有不可核验 → 503（`ORRules_OneTrueAllows` / `AllFalseDenies` / `UnverifiableWithNoTrueIsServiceError`） |
+| 请求参数不改变主体 | PASS | 删除 `parseNFTParams` / `?contract=` 覆盖；`TestNFTGateMiddleware_QueryParamsDoNotChangeSubject` 端到端断言主体只来自服务端规则 |
+| 真实 ERC-1155 集成 | PASS | `TestAnvil_ERC1155_Web3Service_NFTGate`：真实部署 DemoERC1155 → mint token 7 数量 1 → 经真实 `Web3Service.GetNFTOwnershipQuantity` → 真实 `NFTGateMiddleware`：min=1 放行 / min=2 拒绝；再 mint 到 2 → min=2 放行。**ERC-1155 无 tokenID 的 collection 查询必须 error**（断言） |
+| 主机回归 | PASS | `go test ./...` 全绿；`go test -race ./pkg/middleware/... ./pkg/service/... ./pkg/web3/...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空 |
+| 合约回归 | PASS | `forge build` + `forge test`：46 passed / 0 failed / 0 skipped |
+| Anvil 套件 | PASS | `go test -tags=anvil -race -count=1 ./test/integration/web3/...` 全绿（含新用例，实测 21.1s） |
+
+**限制（本项未覆盖）**：Docker 内 `make verify-docker VERIFY_STAGE=unit` 未执行（沿用 SG-00 的本机网络阻塞）；`min_balance > 1` 的 HTTP 层输入校验（负数返回 400 的 **API 层**）属 SG-03 路由边界；5 秒证据总 age 的实测上界属 SG-04。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
