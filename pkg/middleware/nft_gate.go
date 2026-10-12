@@ -255,12 +255,23 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		if _, ok := c.Get("playback_auth"); ok {
+		if _, ok := c.Get("playback_auth"); ok && !isPlaylistRequest(c) {
+			// A capability authorizes media DELIVERY: a segment, init or key is
+			// served on the capability's own validity, with no chain query, which
+			// is what keeps playback cheap.
 			c.Set("nft_verified", true)
 			c.Set("nft_bypass_reason", "playback_token")
 			c.Next()
 			return
 		}
+		// A PLAYLIST is different: it is the renewal point, so even a request
+		// carrying a valid capability re-checks the CURRENT holding against the
+		// ≤5s evidence. Otherwise a capability alone would keep re-authorizing
+		// playback indefinitely, and a transferred or rule-blocked holding would
+		// never be noticed until the capability expired.
+		//
+		// PlaybackTokenAuth has already run at this point and set the wallet, so
+		// falling through here is safe on both credential paths.
 
 		walletAddress := GetWalletAddress(c)
 		if walletAddress == "" {
@@ -488,6 +499,18 @@ func InvalidateNFTEvidence(config *NFTGateConfig, chainID int64) {
 		return
 	}
 	config.Cache.DeleteByPrefix(context.Background(), fmt.Sprintf("%d:", chainID))
+}
+
+// playlistRouteSuffix identifies the playlist (manifest) route. Matched on the
+// ROUTE PATTERN rather than the URL, so a query string or a path segment that
+// merely looks like it cannot change the decision.
+const playlistRouteSuffix = "/manifest.m3u8"
+
+// isPlaylistRequest reports whether this request is for a playlist rather than
+// for a media object. Playlists re-check the holding; segments, init and key do
+// not, because they are authorized by the capability alone.
+func isPlaylistRequest(c *gin.Context) bool {
+	return strings.HasSuffix(c.FullPath(), playlistRouteSuffix)
 }
 
 // resolveAnchor picks the ONE block an authorization reads at: the header at the
