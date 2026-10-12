@@ -99,7 +99,7 @@ func (m *mockNFTAccessVerifier) GetNFTInfo(ctx context.Context, chainID int64, c
 	return nil, nil
 }
 
-func (m *mockNFTAccessVerifier) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+func (m *mockNFTAccessVerifier) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string, block *big.Int) (*big.Int, error) {
 	if m.balanceErr != nil {
 		return nil, m.balanceErr
 	}
@@ -205,6 +205,9 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		nftGateConfig := middleware.NFTGateConfig{
 			Verifier: verifier,
 			Cache:    &gateway.NFTAccessCacheAdapter{Cache: cache},
+			// The gate pins every authorization to one block, so it needs a
+			// prover; without one it fails closed rather than reading at latest.
+			BlockProver: staticBlockProver{},
 			RuleResolver: staticGatingRuleResolver{rules: []middleware.GatingRule{
 				{ContractAddress: "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", TokenID: "", ChainID: 11155111, Standard: "erc721", MinBalance: 1},
 			}},
@@ -744,6 +747,18 @@ func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
 // server-side source of the authorization subject (post-A9 contract).
 type staticGatingRuleResolver struct {
 	rules []middleware.GatingRule
+}
+
+// staticBlockProver supplies the block anchor the gate requires. Both lookups
+// return the same header so the unchanged-block check passes.
+type staticBlockProver struct{}
+
+func (staticBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*middleware.BlockHeaderInfo, error) {
+	return &middleware.BlockHeaderInfo{Number: 100, Hash: "0xstatic"}, nil
+}
+
+func (staticBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) (*middleware.BlockHeaderInfo, error) {
+	return &middleware.BlockHeaderInfo{Number: 100, Hash: "0xstatic"}, nil
 }
 
 func (s staticGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ string) ([]middleware.GatingRule, error) {

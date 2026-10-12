@@ -71,7 +71,7 @@ func (v *countingQuantityVerifier) quantity(contract, tokenID string) (*big.Int,
 	return v.fn(contract, tokenID)
 }
 
-func (v *countingQuantityVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, contract, tokenID, _ string) (*big.Int, error) {
+func (v *countingQuantityVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, contract, tokenID, _ string, block *big.Int) (*big.Int, error) {
 	return v.quantity(contract, tokenID)
 }
 
@@ -89,7 +89,7 @@ func (v *countingQuantityVerifier) VerifyNFTCollectionAutoDetect(ctx context.Con
 }
 
 func (v *countingQuantityVerifier) GetNFTBalance(ctx context.Context, chainID int64, contract, owner string) (*big.Int, error) {
-	return v.GetNFTOwnershipQuantity(ctx, chainID, contract, "", owner)
+	return v.GetNFTOwnershipQuantity(ctx, chainID, contract, "", owner, nil)
 }
 
 func (v *countingQuantityVerifier) GetNFTInfo(context.Context, int64, string, string) (*NFTMetadata, error) {
@@ -153,6 +153,7 @@ func TestNFTGate_CacheOrderLowThenHigh_Denies(t *testing.T) {
 	resolver := &switchableRuleResolver{}
 	config := NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver:   resolver,
 		Cache:          newQuantityCache(),
 		DefaultChainID: 1,
@@ -173,6 +174,7 @@ func TestNFTGate_CacheOrderHighThenLow_Allows(t *testing.T) {
 	resolver := &switchableRuleResolver{}
 	config := NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver:   resolver,
 		Cache:          newQuantityCache(),
 		DefaultChainID: 1,
@@ -193,6 +195,7 @@ func TestNFTGate_WarmAndColdAgree(t *testing.T) {
 	resolver := &switchableRuleResolver{}
 	config := NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver:   resolver,
 		Cache:          newQuantityCache(),
 		DefaultChainID: 1,
@@ -226,6 +229,7 @@ func TestNFTGate_ConcurrentDifferentThresholds(t *testing.T) {
 	}}
 	config := NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver:   resolver,
 		Cache:          newQuantityCache(),
 		DefaultChainID: 1,
@@ -261,7 +265,8 @@ func TestNFTGate_ConcurrentDifferentThresholds(t *testing.T) {
 func TestNFTGate_MinEqualsBalance_Allows(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(2), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 2},
 		}},
@@ -274,7 +279,8 @@ func TestNFTGate_MinEqualsBalance_Allows(t *testing.T) {
 func TestNFTGate_MinGreaterThanBalance_Denies(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 2},
 		}},
@@ -293,7 +299,8 @@ func TestNFTGate_ERC721SpecificToken_ZeroAndOne(t *testing.T) {
 		return big.NewInt(0), nil
 	}}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, TokenID: "42", ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -303,7 +310,8 @@ func TestNFTGate_ERC721SpecificToken_ZeroAndOne(t *testing.T) {
 	assert.Equal(t, http.StatusOK, doGate(t, router, "/stream/c1/manifest.m3u8"))
 
 	config2 := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, TokenID: "43", ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -326,7 +334,8 @@ func TestNFTGate_ERC1155Quantity_OneRejected_TwoAllowed(t *testing.T) {
 		held := tc.held
 		verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(held), nil }}
 		config := NFTGateConfig{
-			Verifier: verifier,
+			Verifier:    verifier,
+			BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 			RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 				{ContractAddress: gateContractA, TokenID: "7", ChainID: 1, Standard: "erc1155", MinBalance: 2},
 			}},
@@ -341,7 +350,8 @@ func TestNFTGate_ERC1155Quantity_OneRejected_TwoAllowed(t *testing.T) {
 func TestNFTGate_AutoDetectStandard_SameComparison(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, TokenID: "7", ChainID: 1, Standard: "", MinBalance: 2},
 		}},
@@ -356,7 +366,8 @@ func TestNFTGate_AutoDetectStandard_SameComparison(t *testing.T) {
 func TestNFTGate_NilQuantityIsRejected(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return nil, nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -370,7 +381,8 @@ func TestNFTGate_NilQuantityIsRejected(t *testing.T) {
 func TestNFTGate_NegativeQuantityIsRejected(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(-1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -385,7 +397,8 @@ func TestNFTGate_RPCErrorIsServiceError(t *testing.T) {
 		return nil, context.DeadlineExceeded
 	}}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -405,7 +418,8 @@ func TestNFTGate_ORRules_OneTrueAllows(t *testing.T) {
 		return big.NewInt(0), nil
 	}}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 			{ContractAddress: gateContractB, ChainID: 1, Standard: "erc721", MinBalance: 1},
@@ -419,7 +433,8 @@ func TestNFTGate_ORRules_OneTrueAllows(t *testing.T) {
 func TestNFTGate_ORRules_AllFalseDenies(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(0), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 			{ContractAddress: gateContractB, ChainID: 1, Standard: "erc721", MinBalance: 1},
@@ -440,7 +455,8 @@ func TestNFTGate_ORRules_UnverifiableWithNoTrueIsServiceError(t *testing.T) {
 		return big.NewInt(0), nil
 	}}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 1},
 			{ContractAddress: gateContractB, ChainID: 1, Standard: "erc721", MinBalance: 1},
@@ -456,7 +472,8 @@ func TestNFTGate_ORRules_UnverifiableWithNoTrueIsServiceError(t *testing.T) {
 func TestNFTGate_NegativeMinBalanceIsRejected(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: -1},
 		}},
@@ -470,7 +487,8 @@ func TestNFTGate_NegativeMinBalanceIsRejected(t *testing.T) {
 func TestNFTGate_ERC1155CollectionRuleWithoutTokenIDIsRejected(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc1155", MinBalance: 2},
 		}},
@@ -484,7 +502,8 @@ func TestNFTGate_ERC1155CollectionRuleWithoutTokenIDIsRejected(t *testing.T) {
 func TestNFTGate_NonNumericTokenIDIsRejected(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(1), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, TokenID: "not-a-number", ChainID: 1, Standard: "erc721", MinBalance: 1},
 		}},
@@ -498,7 +517,8 @@ func TestNFTGate_NonNumericTokenIDIsRejected(t *testing.T) {
 func TestNFTGate_DefaultMinBalanceIsOne(t *testing.T) {
 	verifier := &countingQuantityVerifier{fn: func(_, _ string) (*big.Int, error) { return big.NewInt(0), nil }}
 	config := NFTGateConfig{
-		Verifier: verifier,
+		Verifier:    verifier,
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
 			{ContractAddress: gateContractA, ChainID: 1, Standard: "erc721", MinBalance: 0},
 		}},
@@ -514,6 +534,7 @@ func TestNFTGate_StandardIsolatesCache(t *testing.T) {
 	resolver := &switchableRuleResolver{}
 	config := NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		RuleResolver:   resolver,
 		Cache:          newQuantityCache(),
 		DefaultChainID: 1,

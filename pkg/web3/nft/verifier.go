@@ -35,11 +35,22 @@ type NFTVerifier struct {
 	erc1155ABI     abi.ABI
 	KnownOperators []string
 	blockTag       BlockTag
-	standardCache  sync.Map
+	// blockNumber, when set, pins every decision query to one exact block. It
+	// takes precedence over blockTag: a tag is resolved by the node on each
+	// call, so a new block arriving mid-read would let the ERC-165 probe and the
+	// balance query answer from different blocks.
+	blockNumber   *big.Int
+	standardCache sync.Map
 }
 
 type BlockTagCaller interface {
 	CallContractAtBlock(ctx context.Context, msg ethereum.CallMsg, blockTag BlockTag) ([]byte, error)
+}
+
+// BlockNumberCaller is implemented by clients that can pin a call to an exact
+// block number.
+type BlockNumberCaller interface {
+	CallContractAtBlockNumber(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
 }
 
 var DefaultKnownOperators = []string{
@@ -76,6 +87,17 @@ func NewNFTVerifier(client EthCaller, logger *zap.Logger) *NFTVerifier {
 
 func (nv *NFTVerifier) WithBlockTag(tag BlockTag) *NFTVerifier {
 	nv.blockTag = tag
+	return nv
+}
+
+// WithBlockNumber pins every decision query to an exact block. Passing nil
+// clears the pin and returns the verifier to tag-based reads.
+func (nv *NFTVerifier) WithBlockNumber(blockNumber *big.Int) *NFTVerifier {
+	if blockNumber == nil {
+		nv.blockNumber = nil
+		return nv
+	}
+	nv.blockNumber = new(big.Int).Set(blockNumber)
 	return nv
 }
 
@@ -357,6 +379,15 @@ func (nv *NFTVerifier) detectTokenStandardCached(ctx context.Context, contractAd
 		}
 	}
 	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	if nv.blockNumber != nil {
+		if bnc, ok := nv.client.(BlockNumberCaller); ok {
+			standard = DetectTokenStandardAtBlock(ctx, bnc, contractAddress, nv.blockNumber, nv.logger)
+		} else {
+			// Cannot pin the ERC-165 probe: do not fall back to a latest-block
+			// probe, which could disagree with the pinned balance query.
+			standard = TokenStandardUnknown
+		}
+	}
 	if standard != TokenStandardUnknown {
 		nv.standardCache.Store(contractAddress, &tokenStandardEntry{
 			standard: standard,
@@ -400,6 +431,18 @@ func (nv *NFTVerifier) GetNFTBalanceAutoDetect(ctx context.Context, contractAddr
 }
 
 func (nv *NFTVerifier) callContract(ctx context.Context, contract common.Address, data []byte) ([]byte, error) {
+	// A pinned block wins over the tag. If the client cannot pin, refuse: falling
+	// back to a tag (or to latest) would break the guarantee the pin exists for.
+	if nv.blockNumber != nil {
+		bnc, ok := nv.client.(BlockNumberCaller)
+		if !ok {
+			return nil, fmt.Errorf("client cannot pin calls to block %s; refusing to read at a tag or latest", nv.blockNumber)
+		}
+		return bnc.CallContractAtBlockNumber(ctx, ethereum.CallMsg{
+			To:   &contract,
+			Data: data,
+		}, nv.blockNumber)
+	}
 	if nv.blockTag != "" && nv.blockTag != BlockTagLatest {
 		if btc, ok := nv.client.(BlockTagCaller); ok {
 			return btc.CallContractAtBlock(ctx, ethereum.CallMsg{
@@ -602,6 +645,47 @@ func callSupportsInterface(ctx context.Context, caller EthCaller, parsedABI abi.
 		To:   &contract,
 		Data: data,
 	}, nil)
+	if err != nil {
+		return false, err
+	}
+
+	var supported bool
+	if err := parsedABI.UnpackIntoInterface(&supported, "supportsInterface", result); err != nil {
+		return false, err
+	}
+	return supported, nil
+}
+
+// DetectTokenStandardAtBlock is DetectTokenStandard pinned to one exact block,
+// so the ERC-165 probe reads the same state as the balance query that follows.
+// It has the same ERC-165-only rule: a balanceOf probe is never a fallback.
+func DetectTokenStandardAtBlock(ctx context.Context, caller BlockNumberCaller, contractAddress string, blockNumber *big.Int, logger *zap.Logger) TokenStandard {
+	if !common.IsHexAddress(contractAddress) {
+		return TokenStandardUnknown
+	}
+	contract := common.HexToAddress(contractAddress)
+
+	if supports165, err := callSupportsInterfaceAtBlock(ctx, caller, erc165ParsedABI, contract, erc165InterfaceID, blockNumber); err == nil && supports165 {
+		if supports1155, err := callSupportsInterfaceAtBlock(ctx, caller, erc165ParsedABI, contract, erc1155InterfaceID, blockNumber); err == nil && supports1155 {
+			return TokenStandardERC1155
+		}
+		if supports721, err := callSupportsInterfaceAtBlock(ctx, caller, erc165ParsedABI, contract, erc721InterfaceID, blockNumber); err == nil && supports721 {
+			return TokenStandardERC721
+		}
+	}
+	return TokenStandardUnknown
+}
+
+func callSupportsInterfaceAtBlock(ctx context.Context, caller BlockNumberCaller, parsedABI abi.ABI, contract common.Address, interfaceID [4]byte, blockNumber *big.Int) (bool, error) {
+	data, err := parsedABI.Pack("supportsInterface", interfaceID)
+	if err != nil {
+		return false, err
+	}
+
+	result, err := caller.CallContractAtBlockNumber(ctx, ethereum.CallMsg{
+		To:   &contract,
+		Data: data,
+	}, blockNumber)
 	if err != nil {
 		return false, err
 	}

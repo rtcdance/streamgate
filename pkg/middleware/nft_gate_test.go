@@ -31,7 +31,7 @@ type mockNFTOwnershipCheckerOld struct {
 // for the subject. When quantityFn is not set it derives one from the legacy
 // fields so existing cases keep their meaning (collection → balanceFn,
 // specific token → 0/1 from verifyFn).
-func (m *mockNFTOwnershipCheckerOld) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+func (m *mockNFTOwnershipCheckerOld) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string, block *big.Int) (*big.Int, error) {
 	if m.quantityFn != nil {
 		return m.quantityFn(ctx, chainID, contractAddress, tokenID, ownerAddress)
 	}
@@ -143,6 +143,7 @@ func authRequestWithWallet(path, walletAddr string) *http.Request {
 
 func TestNFTGateMiddleware_Owner(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
 				return big.NewInt(3), nil
@@ -167,6 +168,7 @@ func TestNFTGateMiddleware_Owner(t *testing.T) {
 
 func TestNFTGateMiddleware_NotOwner(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -190,6 +192,7 @@ func TestNFTGateMiddleware_NotOwner(t *testing.T) {
 
 func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier:       &mockNFTOwnershipCheckerOld{},
 		DefaultChainID: 1,
 	}
@@ -206,6 +209,7 @@ func TestNFTGateMiddleware_MissingWalletAddress(t *testing.T) {
 // an unlisted content is protected by default (TRANSITION_PLAN A8).
 func TestNFTGateMiddleware_NoRules_FailsClosed(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier:       &mockNFTOwnershipCheckerOld{},
 		DefaultChainID: 1,
 	}
@@ -224,6 +228,7 @@ func TestNFTGateMiddleware_NoRules_FailsClosed(t *testing.T) {
 // An explicitly public deployment opts out via GatingMode "open".
 func TestNFTGateMiddleware_NoRules_OpenModeAllows(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier:       &mockNFTOwnershipCheckerOld{},
 		GatingMode:     "open",
 		DefaultChainID: 1,
@@ -240,7 +245,8 @@ func TestNFTGateMiddleware_NoRules_OpenModeAllows(t *testing.T) {
 // A server rule with a malformed contract address must still be rejected.
 func TestNFTGateMiddleware_InvalidContractAddress(t *testing.T) {
 	config := NFTGateConfig{
-		Verifier: &mockNFTOwnershipCheckerOld{},
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
+		Verifier:    &mockNFTOwnershipCheckerOld{},
 		RuleResolver: &mockGatingRuleResolver{
 			rules: []GatingRule{
 				{ContractAddress: "not-a-hex-address", TokenID: "", ChainID: 1, Standard: "erc721"},
@@ -262,6 +268,7 @@ func TestNFTGateMiddleware_InvalidContractAddress(t *testing.T) {
 
 func TestNFTGateMiddleware_VerifierError(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
 				return big.NewInt(0), context.DeadlineExceeded
@@ -288,6 +295,7 @@ func TestNFTGateMiddleware_VerifierError(t *testing.T) {
 func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 	verifierCalled := false
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
 				verifierCalled = true
@@ -323,6 +331,7 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 
 func TestNFTGateMiddleware_WithTokenID(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			verifyFn: func(ctx context.Context, chainID int64, contractAddress string, tokenID string, ownerAddress string) (bool, error) {
 				assert.Equal(t, "42", tokenID)
@@ -351,6 +360,7 @@ func TestNFTGateMiddleware_WithTokenID(t *testing.T) {
 // caller names a contract they own.
 func TestNFTGateMiddleware_ContractQueryParams_Ignored(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(ctx context.Context, chainID int64, contractAddress string, ownerAddress string) (*big.Int, error) {
 				return big.NewInt(1), nil
@@ -536,6 +546,7 @@ func TestBoolStr(t *testing.T) {
 
 func TestNFTGateMiddleware_Disabled(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -569,10 +580,25 @@ type mockBlockProver struct {
 	byChain   map[int64]*BlockHeaderInfo
 	gotChain  int64
 	gotNumber *big.Int
+	gotTag    string
 }
 
 func (m *mockBlockProver) HeaderByNumber(_ context.Context, chainID int64, number *big.Int) (*BlockHeaderInfo, error) {
 	m.gotChain, m.gotNumber = chainID, number
+	if m.byChain != nil {
+		header, ok := m.byChain[chainID]
+		if !ok {
+			return nil, errors.New("no header for chain")
+		}
+		return header, nil
+	}
+	return m.header, m.err
+}
+
+// HeaderByTag resolves the anchor block. It returns the same header as
+// HeaderByNumber so the unchanged-block check passes.
+func (m *mockBlockProver) HeaderByTag(_ context.Context, chainID int64, tag string) (*BlockHeaderInfo, error) {
+	m.gotChain, m.gotTag = chainID, tag
 	if m.byChain != nil {
 		header, ok := m.byChain[chainID]
 		if !ok {
@@ -595,6 +621,7 @@ func (m *mockAuditLogger) Close() error { return nil }
 
 func TestNFTGateMiddleware_WithRuleResolver(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(1), nil
@@ -618,6 +645,7 @@ func TestNFTGateMiddleware_WithRuleResolver(t *testing.T) {
 
 func TestNFTGateMiddleware_RuleResolverFails(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(1), nil
@@ -643,6 +671,7 @@ func TestNFTGateMiddleware_RuleResolverFails(t *testing.T) {
 
 func TestNFTGateMiddleware_NoGatingRules_DeniedByDefault(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -666,6 +695,7 @@ func TestNFTGateMiddleware_NoGatingRules_DeniedByDefault(t *testing.T) {
 // server rules exist (A8+A9).
 func TestNFTGateMiddleware_NoGatingRules_WithContractParam_Denied(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -687,6 +717,7 @@ func TestNFTGateMiddleware_NoGatingRules_WithContractParam_Denied(t *testing.T) 
 
 func TestNFTGateMiddleware_RuleResolverWithAutoDetect(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			autoDetectFn: func(_ context.Context, _ int64, _ string, _ string, _ string) (bool, error) {
 				return true, nil
@@ -710,6 +741,7 @@ func TestNFTGateMiddleware_RuleResolverWithAutoDetect(t *testing.T) {
 
 func TestNFTGateMiddleware_FallbackGatingRules(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			verifyFn: func(_ context.Context, _ int64, _ string, tokenID string, _ string) (bool, error) {
 				if tokenID == "fallback-token" {
@@ -743,6 +775,7 @@ func TestNFTGateMiddleware_FallbackGatingRules(t *testing.T) {
 
 func TestNFTGateMiddleware_NftGateDeniedWithMarketplaceURL(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			verifyFn: func(_ context.Context, _ int64, _ string, _ string, _ string) (bool, error) {
 				return false, nil
@@ -770,6 +803,7 @@ func TestNFTGateMiddleware_NftGateDeniedWithMarketplaceURL(t *testing.T) {
 func TestNFTGateMiddleware_AuditLoggerOnDenied(t *testing.T) {
 	audit := &mockAuditLogger{}
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -796,6 +830,7 @@ func TestNFTGateMiddleware_AuditLoggerOnDenied(t *testing.T) {
 func TestNFTGateMiddleware_AuditLoggerOnPassed(t *testing.T) {
 	audit := &mockAuditLogger{}
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(1), nil
@@ -821,6 +856,7 @@ func TestNFTGateMiddleware_AuditLoggerOnPassed(t *testing.T) {
 
 func TestResolveQuantity_Wrapper(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(2), nil
@@ -844,7 +880,7 @@ func TestSetCachedEntry_WithBlockProver(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", 1, time.Now(), big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", time.Now(), &BlockHeaderInfo{Number: 100, Hash: "0xblockhash"}, big.NewInt(1))
 
 	entry, ok := cache.entries["test-key"]
 	assert.True(t, ok)
@@ -864,7 +900,7 @@ func TestSetCachedEntry_WithBlockProverError(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", 1, time.Now(), big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", time.Now(), nil, big.NewInt(1))
 
 	entry, ok := cache.entries["test-key-err"]
 	assert.True(t, ok)
@@ -875,12 +911,13 @@ func TestSetCachedEntry_WithBlockProverError(t *testing.T) {
 func TestSetCachedEntry_NegativeResultShorterTTL(t *testing.T) {
 	cache := &mockNFTAccessCacheOld{entries: map[string]NFTAccessEntry{}}
 	config := NFTGateConfig{
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier:       &mockNFTOwnershipCheckerOld{},
 		Cache:          cache,
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", 1, time.Now(), big.NewInt(0))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", time.Now(), &BlockHeaderInfo{Number: 7, Hash: "0xneg"}, big.NewInt(0))
 
 	entry, ok := cache.entries["neg-key"]
 	assert.True(t, ok)
@@ -898,6 +935,7 @@ func TestNFTGateMiddleware_CircuitBreakerOpen(t *testing.T) {
 	})
 
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
 				return big.NewInt(0), nil
@@ -973,6 +1011,7 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 // instead of a helper.
 func TestNFTGateMiddleware_QueryParamsDoNotChangeSubject(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier: &mockNFTOwnershipCheckerOld{
 			quantityFn: func(_ context.Context, chainID int64, contract, tokenID, _ string) (*big.Int, error) {
 				assert.Equal(t, int64(1), chainID, "gate must use the rule's chain, not ?chain_id")
@@ -999,6 +1038,7 @@ func TestNFTGateMiddleware_QueryParamsDoNotChangeSubject(t *testing.T) {
 
 func TestNFTGateMiddleware_EmptyBearerToken(t *testing.T) {
 	config := NFTGateConfig{
+		BlockProver:    &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
 		Verifier:       &mockNFTOwnershipCheckerOld{},
 		DefaultChainID: 1,
 	}
