@@ -28,6 +28,8 @@ func signWithClaims(t *testing.T, secret string, method jwt.SigningMethod, claim
 func baseAccessClaims(extra map[string]interface{}) jwt.MapClaims {
 	claims := jwt.MapClaims{
 		"wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),
 		"iss":            "streamgate",

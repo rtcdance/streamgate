@@ -25,6 +25,17 @@ type JWTAuthConfig struct {
 	Issuer string
 	// Audience, when set, must be present in the token's `aud`.
 	Audience string
+	// SessionValidator checks a credential's session POSITIVELY: the session
+	// must exist and its epoch must be current. A nil validator still requires
+	// the session fields to be present, so a token predating the scheme is
+	// refused rather than grandfathered in.
+	SessionValidator SessionValidator
+}
+
+// SessionValidator reports whether a credential's session is live and its epoch
+// still current. *service.AuthService implements it.
+type SessionValidator interface {
+	SessionValid(sessionID string, epoch int64) bool
 }
 
 // TokenBlacklistChecker checks if a JWT ID has been revoked.
@@ -175,6 +186,31 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
+		// Every credential must be bound to a live session. A token without the
+		// fields predates the scheme, so it is refused outright rather than
+		// grandfathered in — otherwise revocation could be bypassed by simply
+		// presenting an older token.
+		sessionID, _ := claims["session_id"].(string)
+		if sessionID == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "token is not bound to a session", "code": "UNAUTHORIZED",
+			})
+			return
+		}
+		epoch, hasEpoch := numericClaim(claims["auth_epoch"])
+		if !hasEpoch {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "token carries no auth epoch", "code": "UNAUTHORIZED",
+			})
+			return
+		}
+		if config.SessionValidator != nil && !config.SessionValidator.SessionValid(sessionID, epoch) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "session is no longer valid", "code": "UNAUTHORIZED",
+			})
+			return
+		}
+
 		if config.Blacklist != nil {
 			jti, _ := claims["jti"].(string)
 			if jti != "" && config.Blacklist.IsTokenRevoked(c.Request.Context(), jti) {
@@ -212,6 +248,19 @@ func GetJWTClaims(c *gin.Context) jwt.MapClaims {
 		return nil
 	}
 	return claims.(jwt.MapClaims)
+}
+
+// numericClaim reads a JSON number claim, which jwt decodes as float64.
+func numericClaim(raw interface{}) (int64, bool) {
+	switch v := raw.(type) {
+	case float64:
+		return int64(v), true
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	}
+	return 0, false
 }
 
 // audienceContains reports whether a token's `aud` claim includes want.

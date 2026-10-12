@@ -35,6 +35,8 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 	// Test with valid JWT
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"wallet_address": "0xTest",
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})
 	tokenStr, _ := tok.SignedString([]byte("test-secret-key-at-least-32-chars!"))

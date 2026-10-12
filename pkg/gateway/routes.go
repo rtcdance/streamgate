@@ -56,6 +56,10 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 		// even though its signature verifies.
 		Issuer:   service.AccessTokenIssuer,
 		Audience: service.AccessTokenAudience,
+		// Sessions are checked positively: a credential is valid only while its
+		// session is live and its epoch is current, so a logout invalidates every
+		// credential of that session at once.
+		SessionValidator: svc.AuthService,
 		SkipPaths: []string{
 			APIPrefix + "/auth/challenge",
 			APIPrefix + "/auth/login",

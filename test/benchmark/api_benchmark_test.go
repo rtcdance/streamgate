@@ -114,6 +114,8 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"wallet_address": "0xBench",
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})
 	tokenStr, _ := tok.SignedString([]byte("bench-secret-key"))

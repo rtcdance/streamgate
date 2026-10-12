@@ -281,9 +281,12 @@ func TestAuthService_RefreshToken_WithBlacklist(t *testing.T) {
 		WithTokenBlacklist(bl),
 	)
 
+	sessionID := auth.StartSession()
 	claims := &Claims{
-		Username: "refresh-user",
-		JTI:      "refresh-jti",
+		Username:  "refresh-user",
+		JTI:       "refresh-jti",
+		SessionID: sessionID,
+		AuthEpoch: 1,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

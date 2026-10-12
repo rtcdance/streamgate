@@ -217,6 +217,8 @@ func makeTestJWT(t *testing.T, secret, wallet string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"wallet_address": wallet,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	s, err := token.SignedString([]byte(secret))
