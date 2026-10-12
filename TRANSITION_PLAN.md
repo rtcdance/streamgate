@@ -598,7 +598,8 @@ make verify-docker
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
 | SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
 | SG-04 | **完成** | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄） |
-| SG-05～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-05 | **部分完成（步骤 1～6 大半）** | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、B 钱包负例。**未做**：Range 206（**实测端点不支持，已作为产品缺陷记录**）、浏览器时间推进断言、api-gateway 模式复跑、CI 专用栈与阶段 deadline |
+| SG-06～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -983,7 +984,40 @@ sequenceDiagram
 - **步骤 4 的"规则版本进缓存键"**：缓存键 `nftCacheKey(chainID, wallet, contract, tokenID, standard)` **不含规则版本**。这是 SG-01 的有意设计——缓存里存的是**证据（余额）而非判定**，每次请求都按 `min_balance` 重新比较，故不存在"共享过期判定"，规则版本对正确性非必需。
 - **合约元数据缓存**（`detectTokenStandardCached`，1h）命中时不重新探测：按计划"合约元数据与授权数据分开处理"是有意为之，但意味着**元数据**层面并非每次都读在授权块上。
 
+### 8.10 SG-05 执行证据（**部分完成**：真实钱包 → 真实 HLS）
+
+**入口**：`bash scripts/fullchain-acceptance.sh`（对着运行中的 fullchain 栈跑）。最近一次实测：**31 项断言，29 PASS / 2 FAIL**（两处 FAIL 都是同一个产品缺陷，见下）。
+
+**先修掉的两个"验收根本不验"的问题**：
+1. 旧脚本**自己伪造 HS256 JWT**（硬编码 secret `fullchain-acceptance-secret`），**从不走认证路径**——而且它给 challenge 传的是 `{"address":...}`（端点要 `{"wallet":...}`），所以连 challenge_id 都拿不到。**现在所有 token 都来自服务**：`challenge → cast wallet sign（EIP-191 personal_sign，真私钥）→ /auth/login`，并带上端点要求的 `wallet` 与 `chain_id`。
+2. 旧脚本上传 **1KB 全零字节**当 `acceptance-test.mp4`。现在是**真实可解码媒体**：10s testsrc+sine，640x360@30，H.264 + AAC，编码器从本机 ffmpeg 实际具备的编码器中选择并**记录在输出里**，同时打印 sha256 / 字节数 / 编解码 / 分辨率 / 时长，并**强制整段解码通过**。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 真实签名登录（双钱包） | PASS | A（持有者）与 B（无 NFT）各自完成 challenge → personal_sign → login；A 的 token 调 `/auth/profile` 得 200 |
+| 自签 token 被拒 | PASS | 用假 secret 伪造的 HS256 token 调 `/auth/profile` → **401** |
+| 真实媒体 fixture | PASS | 506106B / h264+aac / 640x360 / 10.000s；**完整解码通过** |
+| 真实上传 → 内容 | PASS | 上传真实媒体 → complete-upload → content_id |
+| 铸造 + 链上 receipt | PASS | dev-mint 成功；**轮询 `eth_getTransactionReceipt` 直到 `status=0x1`**（服务先返回 tx hash，交易未必已上链） |
+| 服务端规则 | PASS | 通过公开 API 在内容上写 gating rule（min_balance=1） |
+| 转码就绪 | PASS | **complete-upload 本身会经 upload hook 触发转码**；因此不重复提交（重复提交会与自动任务冲突并被报 failed，而自动任务其实成功）。断言"内容在 180s 内变为可播放"——只有真转码产出真 HLS 才可能为真 |
+| 持有者拿到 manifest | PASS | Wallet A（持有者）→ **200** |
+| HLS 递归取流 | PASS | 走完入口 playlist → 分片，**相对 URI 按来源 URL 解析**；下载全部分片 375624B |
+| 全分片 FFmpeg 解码 | PASS | 拼接后**完整解码通过** |
+| 无 NFT 钱包被拒且无媒体字节 | PASS | Wallet B → **403**，且响应体**不含 `#EXTM3U`**（267B 错误 JSON） |
+| 未认证 / 越权删除 | PASS | 无 token → 401；B 删 A 的内容 → 403 |
+
+**🔎 实测发现的产品缺陷（未绕过，验收如实报 FAIL）**：**分片端点忽略 `Range` 头**。请求 `bytes=0-99` 返回 **200 且整段内容、无 `Content-Range`**；计划步骤 4 要求正确的 **206**。验收把它记为失败而不是迁就——这正是这条断言存在的意义。
+
+**本轮修掉的两个"验收脚本自身"的缺陷**：
+- `'#EXT-X-MEDIA'` 是 `'#EXT-X-MEDIA-SEQUENCE'` 的**子串**，而每个 media playlist 都带后者 ⇒ media playlist 被误判为 master，其**分片字节被当成 playlist 解析**。改为带冒号匹配。
+- `set -o pipefail` 下**无匹配的 grep 返回 1 会中止整个脚本**，把后面所有断言全部吞掉。
+
+**未做（SG-05 判据）**：Range 206（依赖上面的产品修复）；浏览器侧 `loadedmetadata` / 实际解码帧 / `currentTime ≥3s` 的断言；`api-gateway` 模式的复跑；CI 专用栈 + 阶段 deadline（基础 120s / 转码 180s / 浏览器 90s）与失败日志脱敏上传；路径遍历 / 跨内容 token / 过期 token / 篡改 contract / 无规则等更宽的篡改矩阵。
+**另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
+
 
 | 决策 / 需求 | 默认选定设计 | 必须补充的实证 |
 |---|---|---|
