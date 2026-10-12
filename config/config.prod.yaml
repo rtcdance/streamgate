@@ -158,3 +158,5 @@ features:
   resumable_upload: true
   adaptive_bitrate: true
   multi_codec: true
+  # Production never exposes the server-side demo signer.
+  demo_tx_signer: false
