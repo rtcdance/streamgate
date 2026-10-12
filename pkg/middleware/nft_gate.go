@@ -468,6 +468,28 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 // two rules with different thresholds over the same subject can never share a
 // stale decision.
 //
+// InvalidateNFTEvidence drops cached evidence for one chain and marks the gate
+// as having observed a reorg, so the next request on that chain re-reads at a
+// fresh anchor instead of serving evidence from a chain state that no longer
+// exists.
+//
+// The whole chain is flushed rather than the affected addresses alone: cache
+// keys are "<chainID>:<wallet>:<contract>:<tokenID>:<standard>", so a wallet
+// sits between the chain and the contract and a prefix cannot select by
+// contract. A reorg is a chain-level event anyway, so dropping all of that
+// chain's evidence is both simpler and safer.
+func InvalidateNFTEvidence(config *NFTGateConfig, chainID int64) {
+	if config == nil {
+		return
+	}
+	config.reorgActive.Store(true)
+	config.reorgDetectedAt.Store(time.Now().UnixNano())
+	if config.Cache == nil {
+		return
+	}
+	config.Cache.DeleteByPrefix(context.Background(), fmt.Sprintf("%d:", chainID))
+}
+
 // resolveAnchor picks the ONE block an authorization reads at: the header at the
 // configured finality tag, resolved once. Every decision query in the request
 // then names that block number, so the node never gets to re-resolve a tag

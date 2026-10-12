@@ -61,7 +61,33 @@ type Web3Service struct {
 	eventIndexer       *web3.EventIndexer
 	cancelEventIndexer context.CancelFunc
 	eventListener      *web3.EventListener
-	wg                 sync.WaitGroup // tracks background goroutines
+	reorgDetector      *web3.ReorgDetector
+	reorgChainID       int64
+	reorgHandlerMu     sync.RWMutex
+	// reorgHandler is notified when a reorg is detected on the indexed chain, so
+	// cached authorization evidence for that chain can be dropped. Registering
+	// it is optional; the gate also invalidates on a block-hash mismatch.
+	reorgHandler func(chainID int64, contracts []string)
+	wg           sync.WaitGroup // tracks background goroutines
+}
+
+// SetReorgHandler registers a callback invoked when a reorg is detected on the
+// indexed chain. It must be called before traffic starts; a handler registered
+// later simply misses earlier events.
+func (ws *Web3Service) SetReorgHandler(fn func(chainID int64, contracts []string)) {
+	ws.reorgHandlerMu.Lock()
+	defer ws.reorgHandlerMu.Unlock()
+	ws.reorgHandler = fn
+}
+
+func (ws *Web3Service) notifyReorg(contracts []string) {
+	ws.reorgHandlerMu.RLock()
+	fn := ws.reorgHandler
+	chainID := ws.reorgChainID
+	ws.reorgHandlerMu.RUnlock()
+	if fn != nil {
+		fn(chainID, contracts)
+	}
 }
 
 // NewWeb3Service creates a new Web3 service
@@ -173,6 +199,11 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 
 		// ReorgDetector tracks block headers for reorg detection
 		reorgDetector := web3.NewReorgDetector(ethClient, logger)
+		// Without a callback the detector would detect a reorg and discard it.
+		// The handler drops cached authorization evidence for this chain.
+		reorgDetector.SetReorgCallback(service.notifyReorg)
+		service.reorgDetector = reorgDetector
+		service.reorgChainID = indexerChainID
 
 		// EventIndexer polls for ERC-721/ERC-1155 Transfer events.
 		transferSig := "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"

@@ -255,7 +255,7 @@ flowchart LR
 
 **完成**：身份、资源、代签三类矩阵全绿；未提交 API 若在实施时已变化，按同样边界验证。不得因其尚未发布就跳过对最终交付路由的检查。
 
-### [ ] SG-04 / P0：同链、同区块的持仓与重组证据
+### [x] SG-04 / P0：同链、同区块的持仓与重组证据
 
 **依赖**：SG-01、SG-03。**文件范围**：`pkg/service/web3_nft.go`、`pkg/middleware/nft_gate.go` / `nft_cache.go`、`pkg/web3/nft/verifier.go`、RPC adapter / reorg 组件与测试。
 
@@ -597,7 +597,7 @@ make verify-docker
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
 | SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
-| SG-04 | **部分完成（仅链作用域区块证据）** | 见 §8.9（区块哈希缓存改为 `(chainID, height)`；`BlockProver` 改为显式带链）。**同区块固定 / 5 秒 age / RPC chainId 与 endpoint 回退未做** |
+| SG-04 | **完成** | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄） |
 | SG-05～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
@@ -972,13 +972,16 @@ sequenceDiagram
 | **两个 Anvil 端到端（真节点、真 JSON-RPC）** | PASS | 新增 `test/integration/gating_anvil_test.go`（`//go:build anvil`，**anvil 不在 PATH 即失败，不 skip**）：两个不同 chain id 的 anvil + **记录型 RPC 代理**（转发并记录每次 `eth_call` 的 block 参数）。断言：① 两链在**同一高度**哈希不同；② 固定块读取发出的**每一个 `eth_call` 的 block 参数 == 锚点块**（ERC-165 探测与余额查询同块），实测通过；③ 链 B 的授权**对链 A 零 `eth_call`**；④ 不能固定块的客户端被拒且**零链上读**。`-race` 下亦通过 |
 | **endpoint 回退（真代理注入故障）** | PASS | 同文件 `TestAnvil_EndpointFailoverStaysOnTheSameChain`：**两个独立代理指向同一矿链**，主 endpoint 恒返 502 ⇒ 读取由同链备用 endpoint 服务（**明确这只证明端点回退，不证明节点级容灾**）；备用 endpoint 指向**另一条链** ⇒ 构造客户端直接失败，且错链 endpoint **只收到 `eth_chainId` 探测、未服务任何数据读** |
 | **该端到端测试抓到的真实缺陷** | 已修 | `detectTokenStandardCached` 原先**无条件**先调用未固定的 `DetectTokenStandard`（latest），再用固定块结果覆盖 ⇒ **仍然向节点发出了一次 latest 的 `eth_call`**，正是"固定块"要消除的读。已改为**只在无固定块时才走未固定探测**。这个缺陷只有真节点+代理才看得见，mock 单测看不见 |
+| **reorg 事件驱动失效（步骤 5 前半）** | PASS | `Web3Service.SetReorgHandler` + `notifyReorg`：`ReorgDetector.SetReorgCallback` **原先在生产代码里从未注册**（detector 在 `NewWeb3Service` 内局部创建），现已注册并转发；`routes.go` 把它接到 `middleware.InvalidateNFTEvidence(gateCfg, chainID)`，**只清该链**的证据前缀并置 `reorgActive`。用例：`TestInvalidateNFTEvidence_DropsOnlyThatChainsEvidence`（另一条链的证据必须存活）、`…NilSafe`、`TestWeb3Service_ReorgHandler*`（收到链 ID、未注册不 panic、重复注册是替换而非叠加） |
+| **真 reorg 场景（snapshot / revert，非 sleep）** | PASS | `TestAnvil_SnapshotRevertProducesARealReorg`：`evm_snapshot` → 建两块 → `evm_revert` → 改时间戳重建 ⇒ **同一高度哈希改变**，且**生产 `ReorgDetector.CheckReorg` 判定为 reorg**；对当前规范块则判定为非 reorg |
+| **锚点永不取 latest** | PASS | `TestResolveQuantity_NeverAnchorsAtLatest`：`safe`/`finalized` 按配置、**空值默认 safe 而非 latest**、空白串同理 |
+| **README 承诺按验收范围收窄** | PASS | README 的 `[x] Multi-chain EVM` / `[x] Solana` 改为 `[~]` 并写明：**端到端验收只覆盖本地 Anvil**，其余链走同一代码路径但无同等验收；Solana 无 EVM 区块语义故不做区块固定。架构图里的 `'safe' block tag` 也已改为 `pinned to one block (number + hash)` |
 
-**限制 / 未覆盖（本项，均为 SG-04 判据）**：
-- **步骤 5 前半未做**：reorg **事件驱动**的整体失效未接线。计划原文是"重组事件到达**或**缓存 block hash 不一致时失效"，其中**后一半已实现**（两条被动路径：缓存校验时 hash 不一致、授权读期间 `verifyAnchorUnchanged`），**前一半（订阅重组事件主动失效）未做**。
-- **步骤 3 的"有限重试"未做**：hash 变化时**直接拒绝**，没有"有限重试后再拒绝"。拒绝是安全的一侧，但与计划措辞不同，故记录为未做。
-- **步骤 4 的"规则决策另带规则版本"**：缓存键 `nftCacheKey(chainID, wallet, contract, tokenID, standard)` **不含规则版本**。这是 SG-01 的有意设计——缓存里存的是**证据（余额）而非判定**，每次请求都按 `min_balance` 重新比较，因此不存在"共享过期判定"的问题，规则版本对正确性不是必需。若仍要求键上带版本，需另行确认。
-- **拒绝路径不带区块证据**：`X-NFT-*` 响应头只在**放行**时给出；拒绝（403/503）的响应体没有区块证据，`balance` / `observedAt` 也未对外暴露。
-- 另一处未覆盖：`NFTVerifier.detectTokenStandardCached` 的**合约元数据缓存**（1h）在命中时不重新探测——按计划"合约元数据与授权数据分开处理"这是有意为之，但意味着**元数据**层面并非每次都与授权同块。
+**残留偏差（不阻塞完成判据，但如实记录）**：
+- **步骤 3 的"有限重试"**：hash 变化时**直接拒绝**，没有"有限重试后再拒绝"。**拒绝是安全的一侧**，比计划更严；如需与计划逐字一致可再加一次重试。
+- **证据字段只暴露了三个**：放行时返回 `chainID / blockNumber / blockHash`（`X-NFT-*` 响应头 + context）；**`balance` 与 `observedAt` 未对外**（`observedAt` 只用于缓存新鲜度）。拒绝（403/503）的响应体仍不带区块证据。
+- **步骤 4 的"规则版本进缓存键"**：缓存键 `nftCacheKey(chainID, wallet, contract, tokenID, standard)` **不含规则版本**。这是 SG-01 的有意设计——缓存里存的是**证据（余额）而非判定**，每次请求都按 `min_balance` 重新比较，故不存在"共享过期判定"，规则版本对正确性非必需。
+- **合约元数据缓存**（`detectTokenStandardCached`，1h）命中时不重新探测：按计划"合约元数据与授权数据分开处理"是有意为之，但意味着**元数据**层面并非每次都读在授权块上。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

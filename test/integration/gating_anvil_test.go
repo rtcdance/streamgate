@@ -340,6 +340,59 @@ func TestAnvil_EndpointFailoverStaysOnTheSameChain(t *testing.T) {
 	assert.Empty(t, methods, "no data read may be served from the wrong chain")
 }
 
+// SG-04 step 5: an explicit Anvil snapshot/revert produces a REAL reorg - the
+// same height ends up with a different hash - and the production ReorgDetector
+// reports it. No sleep, no waiting on uncertain finality.
+func TestAnvil_SnapshotRevertProducesARealReorg(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	anvil := startAnvilOnChain(t, 31337)
+	ethClient, err := ethclient.Dial(anvil)
+	require.NoError(t, err)
+	defer ethClient.Close()
+
+	mineTo(t, anvil, 4)
+	height := blockNumber(t, anvil)
+	require.Greater(t, height, uint64(1))
+
+	// Snapshot at the current tip, build two more blocks on it, then rewind and
+	// rebuild. The blocks ABOVE the snapshot get rewritten, so height+1 comes
+	// back with a different hash.
+	var snapshot string
+	require.NoError(t, json.Unmarshal(rpcCall(t, anvil, "evm_snapshot"), &snapshot))
+	mineTo(t, anvil, height+2)
+
+	before, err := ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(height+1))
+	require.NoError(t, err)
+	require.Equal(t, height+1, before.Number.Uint64())
+
+	reverted := false
+	require.NoError(t, json.Unmarshal(rpcCall(t, anvil, "evm_revert", snapshot), &reverted))
+	require.True(t, reverted, "evm_revert must succeed")
+
+	// A different timestamp makes the rebuilt blocks differ from the originals.
+	rpcCall(t, anvil, "anvil_setNextBlockTimestamp", fmt.Sprintf("0x%x", time.Now().Unix()+3600))
+	mineTo(t, anvil, height+2)
+
+	after, err := ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(height+1))
+	require.NoError(t, err)
+	require.Equal(t, before.Number.Uint64(), after.Number.Uint64(), "same height")
+	require.NotEqual(t, before.Hash().Hex(), after.Hash().Hex(),
+		"the snapshot/revert must have produced a different block at the same height")
+
+	// The production detector must agree that this is a reorg.
+	detector := web3.NewReorgDetector(ethClient, zap.NewNop())
+	reorged, err := detector.CheckReorg(ctx, height+1, before.Hash())
+	require.NoError(t, err)
+	assert.True(t, reorged, "the production ReorgDetector must report the rewrite as a reorg")
+
+	// And an unchanged block is not reported as one.
+	reorged, err = detector.CheckReorg(ctx, height+1, after.Hash())
+	require.NoError(t, err)
+	assert.False(t, reorged, "the current canonical block must not read as a reorg")
+}
+
 func TestAnvil_BlockEvidenceIsPinnedAndChainScoped(t *testing.T) {
 	anvilA := startAnvilOnChain(t, 31337)
 	anvilB := startAnvilOnChain(t, 31338)

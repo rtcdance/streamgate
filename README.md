@@ -47,7 +47,7 @@ flowchart LR
   U -->|"2. manifest + .ts<br/>carrying playback_token"| GW
   GW --> AUTH["Auth<br/>challenge → JWT"]
   GW --> GATE["NFT gate middleware<br/>FAIL-CLOSED"]
-  GATE -->|"ownerOf / balanceOf<br/>'safe' block tag"| RPC[("EVM RPC<br/>+ fallback chain")]
+  GATE -->|"ownerOf / balanceOf<br/>pinned to one block<br/>(number + hash)"| RPC[("EVM RPC<br/>+ fallback chain")]
   GATE --> RULES[("content_gating_rules<br/>server-side only")]
   GW --> STREAM["Streaming<br/>manifest + per-user token"]
   STREAM --> OBJ[("Object storage<br/>HLS segments")]
@@ -164,8 +164,14 @@ Core authentication, NFT verification, and streaming pipeline — implemented an
 - [x] **HLS Streaming** — Manifest generation + per-user playback tokens
 - [x] **Video Upload** — Chunked resumable upload with integrity checks
 - [x] **FFmpeg Transcoding** — Multi-profile HLS/DASH with worker pool
-- [x] **Multi-chain EVM** — Ethereum, Polygon, BSC, Arbitrum, Optimism with RPC failover
-- [x] **Solana Integration** — Multi-endpoint RPC failover, Metaplex NFT
+- [~] **Multi-chain EVM** — Ethereum, Polygon, BSC, Arbitrum, Optimism with RPC failover.
+  **Acceptance is narrower than the chain list**: the end-to-end evidence (real nodes, pinned
+  block, hash re-check, endpoint failover, reorg) is run against a local Anvil chain only
+  (`test/integration/gating_anvil_test.go`). The other chains are wired through the same
+  code path but have no equivalent acceptance run.
+- [~] **Solana Integration** — Multi-endpoint RPC failover, Metaplex NFT. Same caveat: wired,
+  but no end-to-end acceptance run; Solana ownership is not block-pinned (it has no EVM block
+  semantics — ownership maps 1:1 mint→token-account).
 - [x] **JWT Auth** — HS256/RS256 with key rotation support
 - [x] **Rate Limiting** — Global + per-wallet (10 req/min)
 - [x] **Configuration Management** — Viper YAML + env vars with hot reload

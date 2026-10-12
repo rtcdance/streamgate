@@ -242,6 +242,16 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	// [PlaybackTokenAuth, JWT, NFTGate] — the group was created before the
 	// global JWT Use in registerRoutes.
 	nftGate := middleware.NFTGateMiddleware(&nftGateConfig, log)
+	// A reorg on the indexed chain must drop cached authorization evidence, so a
+	// later request cannot be authorized from a chain state that no longer
+	// exists. The middleware also invalidates on a block-hash mismatch; this is
+	// the event-driven half.
+	if svc.Web3Service != nil {
+		gateCfg := &nftGateConfig
+		svc.Web3Service.SetReorgHandler(func(chainID int64, _ []string) {
+			middleware.InvalidateNFTEvidence(gateCfg, chainID)
+		})
+	}
 	// NFTGateMiddleware defaults to enabled; apply the operator flag AFTER
 	// construction (the middleware reads config.Enabled per request), so
 	// features.nft_gating=false really disables the gate — and since the gate
