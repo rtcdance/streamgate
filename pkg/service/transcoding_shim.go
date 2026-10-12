@@ -21,6 +21,10 @@ var (
 	NewTranscodingService     = transcoding.NewTranscodingService
 	NewMemoryTranscodingQueue = transcoding.NewMemoryTranscodingQueue
 	DefaultProfiles           = transcoding.DefaultProfiles
+	// ErrInputTooLarge is returned when an original exceeds the ceiling, so a
+	// caller can answer 413 rather than a generic failure.
+	ErrInputTooLarge              = transcoding.ErrInputTooLarge
+	DefaultMaxTranscodeInputBytes = transcoding.DefaultMaxTranscodeInputBytes
 )
 
 func WithTranscoder(t VideoTranscoder) TranscodingOption {
@@ -33,4 +37,10 @@ func WithStorage(st SegmentStorage) TranscodingOption {
 
 func WithLogger(l *zap.Logger) TranscodingOption {
 	return transcoding.WithLogger(l)
+}
+
+// WithMaxInputBytes bounds an ORIGINAL. A non-positive value leaves the default
+// in place: "no limit" is not an option this service offers.
+func WithMaxInputBytes(n int64) TranscodingOption {
+	return transcoding.WithMaxInputBytes(n)
 }
