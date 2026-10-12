@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"math/big"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ func TestCachedQuantity_BlockHashEvidenceIsChainScoped(t *testing.T) {
 		BlockNumber: 100,
 		BlockHash:   "0xchain-two-hash",
 		Expires:     time.Now().Add(time.Minute),
+		ObservedAt:  time.Now(),
 	}
 
 	quantity, usable := cachedQuantity(config, zap.NewNop(), "2:0xOwner:0xC:__collection__:erc721", 2, entry)
@@ -52,6 +54,7 @@ func TestCachedQuantity_ReorgStillDetectedWithinChain(t *testing.T) {
 		BlockNumber: 100,
 		BlockHash:   "0xold",
 		Expires:     time.Now().Add(time.Minute),
+		ObservedAt:  time.Now(),
 	}
 
 	_, usable := cachedQuantity(config, zap.NewNop(), "1:0xOwner:0xC:__collection__:erc721", 1, entry)
@@ -74,6 +77,7 @@ func TestCachedQuantity_SameChainCacheHitSkipsProver(t *testing.T) {
 		BlockNumber: 100,
 		BlockHash:   "0xsame",
 		Expires:     time.Now().Add(time.Minute),
+		ObservedAt:  time.Now(),
 	}
 
 	quantity, usable := cachedQuantity(config, zap.NewNop(), "2:0xOwner:0xC:__collection__:erc721", 2, entry)
@@ -81,4 +85,91 @@ func TestCachedQuantity_SameChainCacheHitSkipsProver(t *testing.T) {
 	assert.True(t, usable)
 	assert.Equal(t, 0, quantity.Cmp(big.NewInt(7)))
 	assert.Equal(t, int64(0), prover.gotChain, "the prover must not have been consulted")
+}
+
+// ---------------------------------------------------------------------------
+// Evidence freshness bound
+// ---------------------------------------------------------------------------
+
+func evidenceConfig(prover *mockBlockProver) *NFTGateConfig {
+	return &NFTGateConfig{
+		BlockProver:      prover,
+		BlockVerifyCache: NewBlockHashCache(5 * time.Minute),
+		MaxEvidenceAge:   5 * time.Second,
+	}
+}
+
+// Evidence older than the bound must be re-read, whatever the cache TTL says.
+func TestCachedQuantity_EvidenceOlderThanBoundIsRejected(t *testing.T) {
+	prover := &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xabc"}}
+	config := evidenceConfig(prover)
+	entry := NFTAccessEntry{
+		Balance:     big.NewInt(1),
+		BlockNumber: 100,
+		BlockHash:   "0xabc",
+		Expires:     time.Now().Add(time.Minute), // still "unexpired"
+		ObservedAt:  time.Now().Add(-10 * time.Second),
+	}
+
+	_, usable := cachedQuantity(config, zap.NewNop(), "1:0xOwner:0xC:__collection__:erc721", 1, entry)
+
+	assert.False(t, usable, "10s-old evidence must not be served")
+	assert.Equal(t, int64(0), prover.gotChain, "stale evidence is dropped before any reorg check")
+}
+
+func TestCachedQuantity_EvidenceWithinBoundIsUsable(t *testing.T) {
+	prover := &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xabc"}}
+	config := evidenceConfig(prover)
+	entry := NFTAccessEntry{
+		Balance:     big.NewInt(2),
+		BlockNumber: 100,
+		BlockHash:   "0xabc",
+		Expires:     time.Now().Add(time.Minute),
+		ObservedAt:  time.Now().Add(-1 * time.Second),
+	}
+
+	quantity, usable := cachedQuantity(config, zap.NewNop(), "1:0xOwner:0xC:__collection__:erc721", 1, entry)
+
+	assert.True(t, usable)
+	assert.Equal(t, 0, quantity.Cmp(big.NewInt(2)))
+}
+
+// An entry with no recorded observation time cannot be aged, so it fails closed
+// rather than being treated as fresh.
+func TestCachedQuantity_ZeroObservedAtIsRejected(t *testing.T) {
+	prover := &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xabc"}}
+	config := evidenceConfig(prover)
+	entry := NFTAccessEntry{
+		Balance:     big.NewInt(1),
+		BlockNumber: 100,
+		BlockHash:   "0xabc",
+		Expires:     time.Now().Add(time.Minute),
+	}
+
+	_, usable := cachedQuantity(config, zap.NewNop(), "1:0xOwner:0xC:__collection__:erc721", 1, entry)
+
+	assert.False(t, usable, "evidence with no observation time must not be trusted")
+}
+
+// Writing the entry must record the QUERY's start time, not "now": otherwise a
+// slow read (or a re-write into a lower cache) would make old evidence look
+// fresh again.
+func TestSetCachedEntry_ObservedAtIsNotRefreshed(t *testing.T) {
+	cache := &mockNFTAccessCacheOld{entries: map[string]NFTAccessEntry{}}
+	prover := &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xabc"}}
+	config := &NFTGateConfig{
+		BlockProver:      prover,
+		BlockVerifyCache: NewBlockHashCache(5 * time.Minute),
+		Cache:            cache,
+		CacheTTL:         time.Minute,
+	}
+	// The query started 4 seconds ago and only now finished writing.
+	observedAt := time.Now().Add(-4 * time.Second)
+
+	setCachedEntry(context.Background(), config, zap.NewNop(), "k", 1, observedAt, big.NewInt(1))
+
+	stored, ok := cache.entries["k"]
+	assert.True(t, ok)
+	assert.WithinDuration(t, observedAt, stored.ObservedAt, 100*time.Millisecond,
+		"the entry must carry the query's start time, not the write time")
 }

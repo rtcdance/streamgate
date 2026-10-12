@@ -120,6 +120,9 @@ func handleNFTVerify(c *gin.Context, log *zap.Logger, verifier middleware.NFTOwn
 	if chainID == 0 {
 		chainID = defaultChainID
 	}
+	// The freshness clock for the evidence this request produces starts before
+	// any cache is consulted.
+	observedAt := time.Now()
 	var hasNFT bool
 	var balance *big.Int
 	var err error
@@ -157,7 +160,7 @@ func handleNFTVerify(c *gin.Context, log *zap.Logger, verifier middleware.NFTOwn
 	// Skip writing to the cache when bypassCache is set, so a fresh
 	// on-chain state is not immediately poisoned by a transient result.
 	if cache != nil && !cacheHit && !bypassCache {
-		entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
+		entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL), ObservedAt: observedAt}
 		if blockProver != nil {
 			if header, err := blockProver.HeaderByNumber(c.Request.Context(), chainID, nil); err == nil && header != nil {
 				entry.BlockNumber = header.Number
@@ -181,6 +184,8 @@ type CachedNFTAccess struct {
 	BlockNumber uint64
 	BlockHash   string
 	ExpiresAt   time.Time
+	// ObservedAt is when the underlying on-chain evidence was gathered.
+	ObservedAt time.Time
 }
 
 // NFTAccessCache is a thread-safe in-memory cache for NFT access checks.
