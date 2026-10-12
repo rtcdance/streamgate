@@ -82,6 +82,20 @@ login() {
     printf '%s' "$token"
 }
 
+# wait_for_manifest <want> <deadline-seconds> — polls the holder's manifest until
+# it answers <want>. Defined at the top level because several phases use it, and
+# a rule change propagates through a cache, so an immediate check is flaky.
+wait_for_manifest() {
+    local want="$1" deadline=$((SECONDS + $2)) code=""
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
+            "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
+        [ "$code" = "$want" ] && break
+        sleep 2
+    done
+    printf '%s' "$code"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Infrastructure
 # ---------------------------------------------------------------------------
@@ -624,17 +638,6 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
 
     # wait_for_manifest <want> <deadline-seconds> — polls until the manifest
     # answers <want>, so a cached rule set cannot make this flaky.
-    wait_for_manifest() {
-        local want="$1" deadline=$((SECONDS + $2)) code=""
-        while [ "$SECONDS" -lt "$deadline" ]; do
-            code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
-                "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
-            [ "$code" = "$want" ] && break
-            sleep 2
-        done
-        printf '%s' "$code"
-    }
-
     put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":1}"
     RESTORED="$(wait_for_manifest 200 15)"
     [ "$RESTORED" = "200" ] && p "Holder is served again once the rule points back at the real contract" \
@@ -758,6 +761,134 @@ if [ -n "$KEY_A" ]; then
     fi
 else
     f "Skipped logout: no wallet key"
+fi
+
+# ---------------------------------------------------------------------------
+# 12. Transfer: invalidated holding evidence must not renew access
+# ---------------------------------------------------------------------------
+# A transfer is the case the plan names: the evidence that authorised the request
+# stops being true, and the next manifest must be denied rather than renewed off
+# the cached decision. This runs LAST because it moves the holder's tokens, and
+# the earlier phases all need the holder to keep them.
+printf '\n=== Transfer ===\n'
+
+if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$KEY_A" ]; then
+    # Enumerate the holder's tokens from the chain rather than assuming ids: the
+    # stack accumulates mints across runs, so "token 0" is not necessarily his.
+    #
+    # The scan covers 0..totalSupply INCLUSIVE. DemoNFT's ids start at 1 while
+    # totalSupply counts them, so a 0..totalSupply-1 loop silently misses the
+    # newest token — which is exactly the one this run just minted, leaving the
+    # holder with a balance and making the denial below unreachable.
+    #
+    # ownerOf REVERTS for an id that does not exist, and under `set -e` a failing
+    # command substitution would abort the whole run — hence the `|| true`.
+    TOTAL_SUPPLY="$(cast call --rpc-url "$ANVIL_URL" "$DEMO_CONTRACT" 'totalSupply()(uint256)' 2>/dev/null | awk '{print $1}' || true)"
+    HELD_IDS=""
+    if [ -n "$TOTAL_SUPPLY" ]; then
+        i=0
+        while [ "$i" -le "$TOTAL_SUPPLY" ]; do
+            OWNER="$(cast call --rpc-url "$ANVIL_URL" "$DEMO_CONTRACT" 'ownerOf(uint256)(address)' "$i" 2>/dev/null | tr -d ' ' || true)"
+            if [ -n "$OWNER" ] && [ "$(printf '%s' "$OWNER" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$WALLET_A" | tr 'A-Z' 'a-z')" ]; then
+                HELD_IDS="$HELD_IDS $i"
+            fi
+            i=$((i + 1))
+        done
+    fi
+
+    # transfer_ids <owner> <signing-key> <to> <ids...>
+    #
+    # The SIGNING KEY must be the owner's: transferFrom reverts unless the caller
+    # owns the token or is approved, so signing the return trip with the
+    # original holder's key silently reverts every transfer and leaves the other
+    # wallet holding the tokens — which then makes that wallet a legitimate
+    # holder and quietly turns the "non-holder is refused" check into a pass.
+    transfer_ids() {
+        local owner="$1" key="$2" to="$3"; shift 3
+        local moved=0
+        for id in $@; do
+            if cast send --rpc-url "$ANVIL_URL" --private-key "$key" "$DEMO_CONTRACT" \
+                'transferFrom(address,address,uint256)' "$owner" "$to" "$id" >/dev/null 2>&1; then
+                moved=$((moved + 1))
+            fi
+        done
+        printf '%s' "$moved"
+    }
+
+    # advance_safe — mine until the SAFE view includes the transfers just made.
+    #
+    # The gate reads at the configured finality tag (safe), and `safe` lags
+    # `latest` by a fixed depth. Anvil only mines when there is a transaction, so
+    # with no traffic `safe` never advances and the gate keeps reading a block
+    # from BEFORE the transfer — correctly, because that block really does still
+    # show the old balance. The plan measures the bound from "after the trusted
+    # RPC's safe view contains the transfer", so the safe view has to be brought
+    # forward before the denial can be asserted.
+    advance_safe() {
+        local want="$1" i=0
+        cast rpc --rpc-url "$ANVIL_URL" anvil_mine 0x40 >/dev/null 2>&1 || true
+        while [ "$i" -lt 6 ]; do
+            local safe
+            safe="$(cast block safe --rpc-url "$ANVIL_URL" --field number 2>/dev/null || true)"
+            if [ -n "$safe" ] && [ "$safe" -ge "$want" ] 2>/dev/null; then
+                printf '%s' "$safe"
+                return
+            fi
+            cast rpc --rpc-url "$ANVIL_URL" anvil_mine 0x20 >/dev/null 2>&1 || true
+            i=$((i + 1))
+        done
+        printf '%s' "${safe:-unknown}"
+    }
+
+    if [ -n "$HELD_IDS" ]; then
+        HELD_COUNT="$(printf '%s' "$HELD_IDS" | wc -w | tr -d ' ')"
+        MOVED="$(transfer_ids "$WALLET_A" "$KEY_A" "$WALLET_B" $HELD_IDS)"
+        TRANSFER_BLOCK="$(cast block-number --rpc-url "$ANVIL_URL" 2>/dev/null || echo 0)"
+
+        # A transfer that did not actually land is not evidence about the gate.
+        # Assert the balance moved before reading anything into the manifest.
+        LEFT="$(cast call --rpc-url "$ANVIL_URL" "$DEMO_CONTRACT" 'balanceOf(address)(uint256)' "$WALLET_A" 2>/dev/null | awk '{print $1}' || true)"
+        if [ "$MOVED" = "$HELD_COUNT" ] && [ "$LEFT" = "0" ]; then
+            p "Transferred the holder's $HELD_COUNT token(s) away (balance now 0)"
+        else
+            f "Transfer did not empty the holder (moved=$MOVED/$HELD_COUNT, balance=${LEFT:-?})"
+        fi
+
+        SAFE_NOW="$(advance_safe "$TRANSFER_BLOCK")"
+        if [ "$SAFE_NOW" != "unknown" ] && [ "$SAFE_NOW" -ge "$TRANSFER_BLOCK" ] 2>/dev/null; then
+            p "The safe view now includes the transfer (safe=$SAFE_NOW >= block $TRANSFER_BLOCK)"
+        else
+            f "The safe view did not reach the transfer block (safe=$SAFE_NOW, need >= $TRANSFER_BLOCK)"
+        fi
+
+        # The holding is gone and the safe view says so, so the next manifest must
+        # be refused. The ≤5s evidence bound is why this polls rather than
+        # demanding it on the very next request.
+        MOVED_CODE="$(wait_for_manifest 403 15)"
+        case "$MOVED_CODE" in
+            403) p "Transferring the holding away denies the next manifest (403)" ;;
+            503) f "After the transfer the gate could not verify (503) — not attributable to the transfer" ;;
+            *)   f "Holder still served after transferring the holding away (last=$MOVED_CODE)" ;;
+        esac
+
+        # ...and transferring them back must restore access, which proves the
+        # denial above came from the chain state and not from a broken gate.
+        BACK_MOVED="$(transfer_ids "$WALLET_B" "$KEY_B" "$WALLET_A" $HELD_IDS)"
+        BACK_BLOCK="$(cast block-number --rpc-url "$ANVIL_URL" 2>/dev/null || echo 0)"
+        advance_safe "$BACK_BLOCK" >/dev/null
+        BACK="$(wait_for_manifest 200 15)"
+        [ "$BACK" = "200" ] && p "Transferring the holding back restores access (200)" \
+            || f "Holder still denied after the holding came back (last=$BACK)"
+
+        # Leave the non-holder holding nothing, or the next run's "non-holder is
+        # refused" check would be asserting about a holder.
+        B_LEFT="$(cast call --rpc-url "$ANVIL_URL" "$DEMO_CONTRACT" 'balanceOf(address)(uint256)' "$WALLET_B" 2>/dev/null | awk '{print $1}' || true)"
+        [ "$BACK_MOVED" = "$HELD_COUNT" ] && [ "$B_LEFT" = "0" ] \
+            && p "The non-holder holds nothing again ($BACK_MOVED token(s) returned)" \
+            || f "The non-holder still holds tokens (returned=$BACK_MOVED/$HELD_COUNT, balance=${B_LEFT:-?})"
+    else
+        f "The holder owns no tokens, so the transfer case could not run"
+    fi
 fi
 
 # ---------------------------------------------------------------------------
