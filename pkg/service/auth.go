@@ -107,6 +107,7 @@ type AuthService struct {
 	blacklist         stg.TokenBlacklist
 	auditLogger       stg.AuditLogger
 	jwtExpiry         time.Duration
+	playbackTokenTTL  time.Duration
 	eip712Verifier    web3.EIP712VerifierInterface
 	siweDomain        string
 	siweURI           string
@@ -208,6 +209,38 @@ func accessTokenClaims(subject string, expiry time.Duration) jwt.RegisteredClaim
 	}
 }
 
+// DefaultPlaybackTokenTTL is the capability lifetime the policy allows. A
+// playback capability is a bearer credential in a URL, so it is deliberately
+// short: it is the window in which a revoked or transferred holding still plays.
+const DefaultPlaybackTokenTTL = 60 * time.Second
+
+// MaxPlaybackTokenTTL is the hard policy ceiling. Production configuration may
+// not exceed it; see the config validation.
+const MaxPlaybackTokenTTL = 60 * time.Second
+
+// WithPlaybackTokenTTL overrides the capability lifetime. Values above
+// MaxPlaybackTokenTTL are clamped here as well as rejected at config load, so a
+// caller that bypasses config cannot widen the window.
+func WithPlaybackTokenTTL(ttl time.Duration) AuthServiceOption {
+	return func(s *AuthService) {
+		if ttl <= 0 {
+			return
+		}
+		if ttl > MaxPlaybackTokenTTL {
+			ttl = MaxPlaybackTokenTTL
+		}
+		s.playbackTokenTTL = ttl
+	}
+}
+
+// PlaybackTokenTTL reports the configured capability lifetime.
+func (s *AuthService) PlaybackTokenTTL() time.Duration {
+	if s.playbackTokenTTL <= 0 {
+		return DefaultPlaybackTokenTTL
+	}
+	return s.playbackTokenTTL
+}
+
 // AuthServiceOption applies RSA signing configuration.
 type AuthServiceSigningOption func(*AuthService)
 
@@ -240,6 +273,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		challengeStore:    stg.NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
+		playbackTokenTTL:  DefaultPlaybackTokenTTL,
 		siweDomain:        "streamgate.io",
 		siweURI:           "https://streamgate.io/login",
 	}

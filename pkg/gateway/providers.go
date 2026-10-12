@@ -113,6 +113,9 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		service.WithTokenBlacklist(tokenBlacklist),
 		service.WithJWTExpiry(jwtExpiry),
 		service.WithSIWEDomain(cfg.Auth.SIWEDomain, cfg.Auth.SIWEURI),
+		// The playback capability lifetime comes from the policy rather than a
+		// constant buried in the handler.
+		service.WithPlaybackTokenTTL(cfg.Features.CapabilityTTL),
 	)
 }
 
