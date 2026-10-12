@@ -960,16 +960,21 @@ sequenceDiagram
 | **证据 age 上界（5 秒）** | PASS | `NFTGateConfig.MaxEvidenceAge`（0/负 → `defaultMaxEvidenceAge = 5s`，**0 不等于"无上界"**）；`cachedQuantity` 对 `ObservedAt` 为零或 `age > 上界` 的条目**直接拒用**（在 reorg 校验之前），日志记录 age 与上界 |
 | **observedAt 在查询开始捕获、写入不刷新** | PASS | `resolveQuantity` 在任何缓存查询**之前**取 `observedAt := start`，透传 `setCachedEntry`，写入 `NFTAccessEntry.ObservedAt = observedAt`（**不是 `time.Now()`**）⇒ 插入下层缓存不能把旧证据"洗新"；gateway 侧 `handleNFTVerify` 同样在缓存查询前捕获 |
 | 证据跨层序列化保留 age | PASS | `CachedNFTAccess.ObservedAt` + `to/fromMiddlewareNFTAccessEntry` 双向映射（Redis L2 走 `json.Marshal(NFTAccessEntry)`，字段自动往返） |
-| 新增用例 | PASS | `TestCachedQuantity_EvidenceOlderThanBoundIsRejected`（10s 旧证据被拒，且**在 reorg 校验前**就丢弃）；`…EvidenceWithinBoundIsUsable`；`…ZeroObservedAtIsRejected`（无观测时间 → fail closed）；`TestSetCachedEntry_ObservedAtIsNotRefreshed`（写入不刷新 age） |
-| 回归 | PASS | `go test ./...` 全绿；`-race ./pkg/middleware/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+| **授权固定到单一区块** | PASS | 新增 `resolveAnchor`：按配置的 finality tag 经 `BlockProver.HeaderByTag` **解析一次**得到 `(number, hash)`；`resolveQuantity` 把该 **block number** 传给 verifier。节点不再逐次解析标签 |
+| **verifier 收到的是区块号而非标签** | PASS | `NFTOwnershipChecker.GetNFTOwnershipQuantity` 增加 **`block *big.Int`** 参数（**必填**，不是可选接口，故无法"悄悄回落 latest"）；`Web3Service.GetNFTOwnershipQuantity` 用 `NFTVerifier.WithBlockNumber` 把该块传给 ERC-165 探测与余额查询 |
+| **ERC-165 探测同区块** | PASS | 新增 `DetectTokenStandardAtBlock` / `callSupportsInterfaceAtBlock`，与余额查询读同一块；客户端不支持固定块时**返回 Unknown 而非回落到最新块探测** |
+| **读期间区块变化 → 拒绝** | PASS | 新增 `verifyAnchorUnchanged`：读完后再按 number 取一次 header 比对 hash，不一致即拒绝、置 `reorgActive`、**不写缓存**（这正是步骤 3 的"查询前后核对 hash"） |
+| **无 prover / 无法解析锚点 → fail closed** | PASS | `resolveAnchor` 在 `BlockProver == nil`、tag 解析失败、或返回空 hash 时一律报错；`TestResolveQuantity_WithoutProverFailsClosed` 断言**根本没发生链上读** |
+| **缓存锚点 = 实际读取的块** | PASS | `setCachedEntry` 不再用 `HeaderByNumber(ctx, chainID, nil)`（该链最新块），改为接收 `anchor`；`TestSetCachedEntry_StoresTheAnchor` |
+| 新增用例 | PASS | `TestResolveQuantity_PinsTheAnchorBlock`（断言 verifier 收到的块号 == 锚点、且锚点取自配置 tag）、`…WithoutProverFailsClosed`、`…BlockChangedDuringReadIsRejected`、`…UnresolvableAnchorFailsClosed`；`TestSetCachedEntry_StoresTheAnchor` |
+| 回归 | PASS | `go test ./...` 全绿（含 gateway / cmd 的 NFT 门禁路径）；`-race ./pkg/middleware/... ./pkg/web3/nft/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
 
 **限制 / 未覆盖（本项，均为 SG-04 判据）**：
-- **步骤 2 未做（部分）**：没有"先解析该链 safe/finalized 的 `number`+`hash`，再把本次所有 `balanceOf` / `ownerOf` / ERC-165 查询**固定到同一个区块**"；当前仍是按 `safe` **标签**查询（`ChainClient.CallContractAtBlock(ctx, msg, blockTag)`），节点逐次解析标签，**读期间出新块仍会污染证据**。也**没有返回** `observedAt` / `blockHash` 作为对外证据字段（`observedAt` 已用于缓存新鲜度，但未出现在响应里）。
+- **对外证据元组未返回**：`chainID / blockNumber / blockHash / balance / observedAt` 目前只用于**内部**决策与缓存，未出现在 HTTP 响应里（计划步骤 2 的"返回 …"这一半未做）。
 - **步骤 1 未做**：每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性未验证（错链拒绝的连接期语义已存在，见上）。
-- **步骤 3 未做**：仅按 number 查询时查询前后核对 hash 的"有限重试后拒绝"路径未实现。
-- **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（当前只有"缓存校验时发现 hash 不一致"这一条被动路径）。
-- **验证方式未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次为**单元级**验证（mock prover），未起 Anvil，也未断言真实 RPC 的 block 参数。
-- 因此"没有 silent latest 路径"这一完成判据**尚不成立**（`setCachedEntry` 仍用 `HeaderByNumber(ctx, chainID, nil)` 取该链最新块作为证据锚点；age 上界只约束"多久算旧"，不改变"锚点是最新块"这一事实）。
+- **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（现在有两条**被动**路径：缓存校验时 hash 不一致、以及授权读期间的 `verifyAnchorUnchanged`）。
+- **验证方式仍未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次仍是**单元级**（mock prover + 断言 verifier 收到的块号），未起 Anvil、未断言真实 RPC 报文里的 `eth_call` block 参数。
+- 另一处未覆盖：`NFTVerifier.detectTokenStandardCached` 的**合约元数据缓存**（1h）在命中时不重新探测——按计划"合约元数据与授权数据分开处理"这是有意为之，但意味着**元数据**层面并非每次都与授权同块。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

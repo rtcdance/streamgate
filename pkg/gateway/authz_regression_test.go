@@ -118,7 +118,7 @@ func (f fakeOwnership) GetNFTBalance(_ context.Context, _ int64, contract, _ str
 }
 
 // GetNFTOwnershipQuantity mirrors the ownership map as a 0/1 quantity.
-func (f fakeOwnership) GetNFTOwnershipQuantity(_ context.Context, _ int64, contract, _, _ string) (*big.Int, error) {
+func (f fakeOwnership) GetNFTOwnershipQuantity(_ context.Context, _ int64, contract, _, _ string, block *big.Int) (*big.Int, error) {
 	if f.isOwned(contract) {
 		return big.NewInt(1), nil
 	}
@@ -132,6 +132,18 @@ func (f fakeOwnership) GetNFTInfo(context.Context, int64, string, string) (*midd
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
+
+// authzBlockProver supplies the block anchor the gate requires. Both lookups
+// return the same header so the unchanged-block check passes.
+type authzBlockProver struct{}
+
+func (authzBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*middleware.BlockHeaderInfo, error) {
+	return &middleware.BlockHeaderInfo{Number: 100, Hash: "0xauthz"}, nil
+}
+
+func (authzBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) (*middleware.BlockHeaderInfo, error) {
+	return &middleware.BlockHeaderInfo{Number: 100, Hash: "0xauthz"}, nil
+}
 
 func mustValidJWT(t *testing.T, wallet string) string {
 	t.Helper()
@@ -178,6 +190,9 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 	gateCfg := middleware.NFTGateConfig{
 		Verifier:     fakeOwnership{owned: owned},
 		RuleResolver: fakeRuleResolver{rules: rules},
+		// The gate pins every authorization to one block, so it needs a prover.
+		// Without one it fails closed (503) rather than reading at latest.
+		BlockProver: authzBlockProver{},
 		// Cache is NOT defaulted inside NFTGateMiddleware — must be set explicitly
 		// or the gate panics.
 		// NOTE: it must go through NFTAccessCacheAdapter. The concrete

@@ -74,7 +74,12 @@ type NFTOwnershipChecker interface {
 	// never a permissive value — for unknown contracts, unsupported standards,
 	// or an unreadable chain. A boolean "holds some NFT" answer is deliberately
 	// absent here: it cannot express a min_balance greater than 1.
-	GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error)
+	//
+	// block pins every read behind the answer (ERC-165 probe included) to one
+	// exact block. The gate always passes a resolved block: an implementation
+	// that cannot read at a specific block must fail rather than answer from
+	// "latest", because two reads at different heights are not one authorization.
+	GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string, block *big.Int) (*big.Int, error)
 }
 
 type NFTMetadata struct {
@@ -91,6 +96,11 @@ type NFTMetadata struct {
 // chain B, and two chains at the same height have different hashes.
 type BlockProver interface {
 	HeaderByNumber(ctx context.Context, chainID int64, number *big.Int) (*BlockHeaderInfo, error)
+	// HeaderByTag resolves a finality tag ("latest", "safe", "finalized") to a
+	// concrete header. This is how the gate picks the ONE block an
+	// authorization reads at, instead of letting the node re-resolve a tag on
+	// every individual call.
+	HeaderByTag(ctx context.Context, chainID int64, tag string) (*BlockHeaderInfo, error)
 }
 
 type BlockHeaderInfo struct {
@@ -444,6 +454,47 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 // cache stores the evidence (the balance), never the verdict: the comparison
 // against min_balance happens per request, so two rules with different
 // thresholds over the same subject can never share a stale decision.
+// resolveAnchor picks the ONE block an authorization reads at: the header at the
+// configured finality tag, resolved once. Every decision query in the request
+// then names that block number, so the node never gets to re-resolve a tag
+// mid-read and hand back two different chain states.
+func resolveAnchor(ctx context.Context, config *NFTGateConfig, chainID int64) (*BlockHeaderInfo, error) {
+	if config.BlockProver == nil {
+		return nil, fmt.Errorf("no block prover configured; refusing to authorize without block evidence")
+	}
+	tag := strings.TrimSpace(string(config.BlockTag))
+	if tag == "" {
+		// Fail-closed default: the safe tag, never "latest".
+		tag = "safe"
+	}
+	header, err := config.BlockProver.HeaderByTag(ctx, chainID, tag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve %s block on chain %d: %w", tag, chainID, err)
+	}
+	if header == nil || header.Hash == "" {
+		return nil, fmt.Errorf("resolved %s block on chain %d carries no hash", tag, chainID)
+	}
+	return header, nil
+}
+
+// verifyAnchorUnchanged re-reads the anchor after the decision queries and
+// refuses if its hash moved. A block that changed under the read means the
+// evidence was assembled from a chain state that no longer exists.
+func verifyAnchorUnchanged(ctx context.Context, config *NFTGateConfig, chainID int64, anchor *BlockHeaderInfo) error {
+	after, err := config.BlockProver.HeaderByNumber(ctx, chainID, big.NewInt(int64(anchor.Number)))
+	if err != nil {
+		return fmt.Errorf("failed to re-read block %d on chain %d: %w", anchor.Number, chainID, err)
+	}
+	if after == nil {
+		return fmt.Errorf("block %d on chain %d disappeared during the read", anchor.Number, chainID)
+	}
+	if after.Hash != anchor.Hash {
+		return fmt.Errorf("block %d on chain %d changed during the read (%s -> %s)",
+			anchor.Number, chainID, anchor.Hash, after.Hash)
+	}
+	return nil
+}
+
 func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, error) {
 	start := time.Now()
 	// The freshness clock for whatever evidence this request ends up using
@@ -465,7 +516,20 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 			return nil, fmt.Errorf("nft verification circuit breaker is open for chain %d", chainID)
 		}
 
-		quantity, verifyErr := config.Verifier.GetNFTOwnershipQuantity(ctx, chainID, contract, tokenID, walletAddress)
+		// One block for the whole authorization. If it cannot be resolved, the
+		// request fails: reading at "latest" instead would silently reintroduce
+		// the mixed-height evidence this exists to prevent.
+		anchor, anchorErr := resolveAnchor(ctx, config, chainID)
+		if anchorErr != nil {
+			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			if config.CircuitBreaker != nil {
+				config.CircuitBreaker.RecordFailure()
+			}
+			return nil, anchorErr
+		}
+		pinnedBlock := new(big.Int).SetUint64(anchor.Number)
+
+		quantity, verifyErr := config.Verifier.GetNFTOwnershipQuantity(ctx, chainID, contract, tokenID, walletAddress, pinnedBlock)
 		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
 
 		if verifyErr != nil {
@@ -482,12 +546,23 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 			return nil, fmt.Errorf("verifier returned no usable quantity for chain %d contract %s", chainID, contract)
 		}
 
+		// The anchor must not have moved while we were reading it.
+		if reorgErr := verifyAnchorUnchanged(ctx, config, chainID, anchor); reorgErr != nil {
+			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			config.reorgActive.Store(true)
+			config.reorgDetectedAt.Store(time.Now().UnixNano())
+			logger.Warn("Block changed under an NFT authorization read",
+				zap.String("cache_key", cacheKey),
+				zap.Error(reorgErr))
+			return nil, reorgErr
+		}
+
 		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "true").Inc()
 		if config.CircuitBreaker != nil {
 			config.CircuitBreaker.RecordSuccess()
 		}
 		if config.Cache != nil {
-			setCachedEntry(ctx, config, logger, cacheKey, chainID, observedAt, quantity)
+			setCachedEntry(ctx, config, logger, cacheKey, observedAt, anchor, quantity)
 		}
 		return quantity, nil
 	})
@@ -580,17 +655,16 @@ func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, 
 	return nil, false
 }
 
-func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, chainID int64, observedAt time.Time, quantity *big.Int) {
+func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, observedAt time.Time, anchor *BlockHeaderInfo, quantity *big.Int) {
+	// The evidence anchor is the block the authorization actually read at, not
+	// whatever "latest" happens to be by the time the entry is written.
 	var blockNumber uint64
 	var blockHash string
-	if config.BlockProver != nil {
-		header, err := config.BlockProver.HeaderByNumber(ctx, chainID, nil)
-		if err == nil && header != nil {
-			blockNumber = header.Number
-			blockHash = header.Hash
-		} else {
-			logger.Debug("Failed to fetch block header for cache entry", zap.Error(err))
-		}
+	if anchor != nil {
+		blockNumber = anchor.Number
+		blockHash = anchor.Hash
+	} else {
+		logger.Debug("Caching NFT evidence without a block anchor")
 	}
 
 	hasNFT := quantity != nil && quantity.Sign() > 0

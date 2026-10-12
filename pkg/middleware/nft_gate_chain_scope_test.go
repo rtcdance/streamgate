@@ -166,7 +166,7 @@ func TestSetCachedEntry_ObservedAtIsNotRefreshed(t *testing.T) {
 	// The query started 4 seconds ago and only now finished writing.
 	observedAt := time.Now().Add(-4 * time.Second)
 
-	setCachedEntry(context.Background(), config, zap.NewNop(), "k", 1, observedAt, big.NewInt(1))
+	setCachedEntry(context.Background(), config, zap.NewNop(), "k", observedAt, &BlockHeaderInfo{Number: 100, Hash: "0xabc"}, big.NewInt(1))
 
 	stored, ok := cache.entries["k"]
 	assert.True(t, ok)

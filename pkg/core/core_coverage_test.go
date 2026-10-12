@@ -423,14 +423,18 @@ func (m *coreCovMockNFTVerifier) GetNFTBalance(_ context.Context, _ int64, _, _ 
 func (m *coreCovMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return nil, nil
 }
-func (m *coreCovMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+func (m *coreCovMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
 	return big.NewInt(1), nil
 }
 
 type coreCovMockBlockProver struct{}
 
 func (m *coreCovMockBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*middleware.BlockHeaderInfo, error) {
-	return &middleware.BlockHeaderInfo{Number: 1}, nil
+	return &middleware.BlockHeaderInfo{Number: 1, Hash: "0xcorecov"}, nil
+}
+
+func (m *coreCovMockBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) (*middleware.BlockHeaderInfo, error) {
+	return &middleware.BlockHeaderInfo{Number: 1, Hash: "0xcorecov"}, nil
 }
 
 type coreCovMockCache struct{}

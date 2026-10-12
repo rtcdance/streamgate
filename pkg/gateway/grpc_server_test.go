@@ -79,7 +79,7 @@ func (m *grpcMockNFTChecker) VerifyNFTCollectionAutoDetect(_ context.Context, _ 
 func (m *grpcMockNFTChecker) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return nil, nil
 }
-func (m *grpcMockNFTChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+func (m *grpcMockNFTChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
 	if m.ownsErr != nil {
 		return nil, m.ownsErr
 	}

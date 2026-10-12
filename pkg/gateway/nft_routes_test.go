@@ -40,7 +40,7 @@ func (m *nftRouteMockChecker) VerifyNFTCollectionAutoDetect(_ context.Context, _
 func (m *nftRouteMockChecker) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return nil, nil
 }
-func (m *nftRouteMockChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+func (m *nftRouteMockChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
 	if m.ownsErr != nil {
 		return nil, m.ownsErr
 	}

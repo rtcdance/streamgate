@@ -68,6 +68,24 @@ func (cc *ChainClient) CallContractAtBlock(ctx context.Context, msg ethereum.Cal
 	return result, err
 }
 
+// CallContractAtBlockNumber executes a contract call pinned to an exact block
+// number. Unlike CallContractAtBlock, the node cannot resolve anything: every
+// call in an authorization that passes the same number reads the same block.
+// A nil number is refused rather than silently read at latest.
+func (cc *ChainClient) CallContractAtBlockNumber(ctx context.Context, msg ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
+	if blockNumber == nil || blockNumber.Sign() < 0 {
+		return nil, fmt.Errorf("a concrete block number is required for a pinned call, got %v", blockNumber)
+	}
+	result, err := withChainClient(ctx, cc, "CallContractAtBlockNumber", func(client *ethclient.Client) ([]byte, error) {
+		return client.CallContract(ctx, msg, blockNumber)
+	})
+	if err != nil {
+		// Never fall back to latest: that is the whole point of pinning.
+		return nil, fmt.Errorf("CallContract at block %s failed: %w (fallback to latest disabled for reorg safety)", blockNumber, err)
+	}
+	return result, nil
+}
+
 // VerifyNFTOwnershipByRequest verifies if a wallet owns an NFT
 func (cc *ChainClient) VerifyNFTOwnershipByRequest(ctx context.Context, req VerifyRequest) (bool, error) {
 	cc.logger.Debug("Verifying NFT ownership",

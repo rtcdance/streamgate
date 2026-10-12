@@ -997,7 +997,7 @@ func (m *routesMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ stri
 	return &middleware.NFTMetadata{}, nil
 }
 
-func (m *routesMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+func (m *routesMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
 	return big.NewInt(1), nil
 }
 

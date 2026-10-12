@@ -197,7 +197,7 @@ func (e *errNFTOwnershipChecker) GetNFTInfo(_ context.Context, _ int64, _, _ str
 	return nil, nil
 }
 
-func (e *errNFTOwnershipChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+func (e *errNFTOwnershipChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
 	if e.balanceErr != nil {
 		return nil, e.balanceErr
 	}
