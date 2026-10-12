@@ -294,7 +294,7 @@ flowchart LR
 
 **完成**：实际签名、真实转码、服务端 gate、解码与浏览器时间推进均通过，入口一次执行可复现；没有 fixture / 关键测试没有运行 / holder 404 必须失败。
 
-### [ ] SG-06 / P1：续期、转移与规则 / 会话撤销
+### [x] SG-06 / P1：续期、转移与规则 / 会话撤销
 
 **依赖**：SG-04、SG-05、SG-13。**文件范围**：playback token issuer / auth middleware、`auth_wallet.go`、`nft_gate.go`、规则与会话 Redis 版本、H5 播放续期及测试。
 
@@ -603,7 +603,7 @@ make verify-docker
 | SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
-| SG-06                | **部分完成（步骤 1～6 均已落地；差必需用例的两个依赖故障场景与嵌套 playlist 重查）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s）；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据（含 capability）绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**；**epoch 持久化（Redis，缓存 ≤5s 无滑动续期）**；**登出撤销整个会话 + 已发出的能力在 5s 界内失效**；**续期重查链上持仓（抬阈值即 403，降回即 200）**；**ruleVersion 以 Postgres 为权威源、与规则写入同一条语句提交、Redis 不倒退、总 age ≤5s**；**capability 携带 ruleVersion ⇒ 规则变更在界内拒绝已发能力**；**转移后不得续期（实测 403/200 双向）**。**未做**：RPC 全故障 / Redis 故障下的拒绝实测；嵌套 playlist 另查当前 NFT；`clock_skew` 接线 |
+| SG-06                | **完成**                                                                                              | 见 §8.11。步骤 1～6 与**全部必需用例**均已落地并实测：能力 TTL 配置化 + 生产上界校验；capability 独立 audience；承载响应硬化；**70s 上界推导、配置约束并实测（67s）**；JWT/capability 钱包不一致拒绝；播放器区分权限结束与网络故障；凭据绑定 sessionID + authEpoch（正向存在校验、旧 token 缺字段即拒）；epoch 持久化（Redis，缓存 ≤5s 无滑动续期）；登出撤销整个会话 + 已发能力 5s 内失效；续期重查链上持仓；ruleVersion 以 Postgres 为权威、与写入同语句提交、不倒退、总 age ≤5s；capability 携带 ruleVersion ⇒ 规则变更界内拒绝已发能力；**嵌套 playlist 也重查持仓**；转移后不得续期（403/200 双向）；**RPC 全故障 / Redis 故障**两个依赖故障场景（独立入口 16 项全绿）；重放到管理 API 与条件请求均拒绝；**clock_skew 真正接线**（修掉硬编码 30s ⇒ 实际窗口曾达 90s、超出推导上界）。两种部署模式各 **ALL 58 PASSED** |
 | SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
@@ -1046,7 +1046,7 @@ sequenceDiagram
 **未做 / 推迟（SG-05 判据）**：步骤 6 的"**过期 token**"——实测**manifest 签发的播放 token 存活 >120s**，与计划预期的 60s 能力不符；能力 TTL 属 **SG-06**（"将第三节的 60 秒能力…落实为配置校验"），故**连同该实测数据一并登记为 SG-06 的输入**，而非在验收里用无限等待糊过去。步骤 8 的 CI job 本机无法执行。  
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
-### 8.11 SG-06 执行证据（**部分完成**：步骤 1～6 均已落地；差必需用例的两个依赖故障场景与嵌套 playlist 重查）
+### 8.11 SG-06 执行证据（**完成**：步骤 1～6 与全部必需用例均已落地并实测）
 
 **步骤 1**：把"60 秒能力"从散落的常量变成**配置 + 生产上界校验**。
 
@@ -1174,7 +1174,48 @@ sequenceDiagram
 | 转移本身必须先验证落地 | PASS | 断言持有人余额确实变为 0 之后才读 manifest；否则一次失败的转移会被误读成"gate 忽略了它"。**转回必须用对方的私钥签名**——`transferFrom` 在调用方不是持有人时会 revert，用原持有人私钥签转回会静默失败并把 token 留在对方手里，从而把"非持有人被拒"变成 PASS |
 | 其余步骤 5 判据 | 部分 | "已发能力在 70s 内失效"由 capability TTL（60s）+ 上界推导保证，并由既有"能力过期"断言实测；"服务器停止返回后续字节"由过期/撤销后 segment 返回 401 覆盖；"播放器区分权限结束 / 网络故障"已在真实浏览器实测。**未做**：以 snapshot/revert 构造的**重组**形态（本次是转移形态，机制相同） |
 
-**未做（SG-06 判据）**：**必需用例里的两个依赖故障场景未实测** —— ①"RPC 全故障时新申请 / 续期 / manifest 拒绝，已有能力的 segment 只按原有效期与撤销状态执行"；②"Redis / epoch 必要依赖故障则所有受保护资源拒绝"。这两条需要停依赖后断言拒绝，属可做但本轮未做。另：步骤 4 的"**嵌套 playlist 另用 ≤5s 证据检查当前 NFT**"未做（当前嵌套 playlist 只校验能力与撤销版本，不重查链）；`clock_skew` 仍未接到使用点（中间件里仍是 30s leeway）。
+**步骤 4 剩余的嵌套 playlist 重查已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **嵌套 playlist 也重查当前持仓** | PASS | 原先 capability 直接**整条绕过** gate，于是**media playlist（播放器取分片用的嵌套 playlist）只凭 capability 就发**——只有 master manifest 会重查链。修复：bypass 改为**按路由判定**，只适用于 segment / init / key，**不适用于 playlist 路由**；playlist 是续期点，因此用与 master 相同的 ≤5s 证据重查持仓，segment 仍只凭 capability（计划明确要求 segment 不重复链查询） |
+| 按**路由模式**判定而非 URL 文本 | PASS | 用 `c.FullPath()` 判定，因此一个名字里含 `manifest.m3u8` 的分片仍是分片，无法借此换取免链查询 |
+| 单元用例 | PASS | playlist 带 capability 仍查一次 verifier；segment 带 capability **完全不查**；非持有人持有效 capability 在 playlist 被拒；名字里含 `manifest.m3u8` 的分片仍判为分片 |
+
+**必需用例的两个依赖故障场景已落地**（新增独立入口 `scripts/dependency-fault-acceptance.sh`，**ALL 16 PASSED**）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **RPC 全故障** | PASS | 新 manifest **503 NFT_VERIFY_ERROR**（续期必须重读链）；**已发出的 capability 的 segment 仍 200**（分片只凭 capability，不得依赖链）；且**在 RPC 不通期间仍按自己的有效期到期**（链不可达不能延长它）；RPC 恢复后新 manifest 重新 200 |
+| **Redis / epoch 故障** | PASS | 受保护资源全部拒绝（profile / content list / manifest 均 401）；**`/health` 仍 200**（拒绝受保护资源不等于进程已死）；Redis 恢复后受保护读恢复 200 |
+| 入口设计 | 说明 | 需要停容器，因此**独立脚本**而非并入主验收（主验收保持非破坏、快速）；单个 EXIT trap 恢复全部依赖，且**只挂一个 trap**（两个 EXIT trap 会互相覆盖，中间的清理命令会冲掉退出码） |
+| 调试中踩的两个坑 | 记录 | 推进 safe 视图的挖块若发生在**重新部署之前**，会把部署推到该视图之后且再无流量使其前进 ⇒ 永久 403；**只等合约代码仍太早**（部署先落地、mint 稍后），最终改为**等持有人被重新 mint 到** |
+
+**`clock_skew` 接线已落地（并修掉一个真实缺陷）**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **修掉硬编码 30s 容差** | PASS | `ParseToken` 原先**硬编码 30 秒** exp 容差，而策略值是 5 秒 ⇒ **实际窗口是 60+30 = 90 秒，超出推导并校验的 70 秒上界**。上界是**按 5 秒推导**的，代码却用了从未参与推导的 30 秒 |
+| 接线 | PASS | `AuthService` 持有容差（`DefaultClockSkew = 5s`，在 `MaxClockSkew` 处钳制），`ParseToken` 对 exp / nbf 都用它；`providers` 接 `cfg.Features.ClockSkew` |
+| 常量不漂移 | PASS | service 侧策略常量与 `pkg/core/config` 的镜像，并有**用例断言两者相等**（默认值比策略松就会像那 30 秒一样放宽上界） |
+| 单元用例 | PASS | 默认即策略值；超上界被钳制；负值忽略；**3s 过期被接受、10s 过期被拒**（容差真的作用于 exp 而非只是存着） |
+
+**必需用例剩余的收口（已落地）**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **70s 上界改为实测** | PASS | 原先的过期检查轮询的是一个**早先抓取**的 capability，起点未知 ⇒ **95 秒也会通过**。现改为**现铸一份**、记录铸造时刻、断言到期落在界内：实测 `PASS: The capability expired inside the 70s revocation bound (67s)`（= 60s TTL + 5s 容差 + 一个轮询间隔）。该检查还必须**移位**：它原先跑在规则被指向 revert 合约的期间，那时**无法铸出 capability** |
+| **重放到管理 API 被拒** | PASS | 把 capability 当 Bearer 打到 `/api/v1/content` ⇒ **401** |
+| **条件请求不能绕过授权** | PASS | 先**剥掉 query**（带着 capability 的条件请求证明不了任何事），再带 `If-None-Match` / `If-Modified-Since` ⇒ **401** |
+| 上界断言覆盖缓存恰好命中边界 | PASS | `TestCachingRuleVersionStore_ExactlyAtTheBoundIsUsable`（恰好 5s 仍是命中） |
+| 可注入 clock 测边界 | PASS | rule version 存储的用例用注入时钟在边界上取值（含"读缓存不刷新 age ⇒ 6s 累计越界"） |
+
+**SG-06 全部落地**：步骤 1～6、全部必需用例、以及计划点名的那条误判（播放器不把 buffer 播放当成服务器仍在授权）。两种部署模式各 **ALL 58 PASSED**，依赖故障入口 **ALL 16 PASSED**。
+
+**仍存的偏差（如实记录，不阻塞本项完成）**：
+- 重组形态（snapshot/revert）**未单独做**：步骤 5 用的是**转移**形态，而计划必需用例的原话正是"safe 视图包含 NFT **转移**后"；重组的事件驱动失效在 SG-04 已接线并以 snapshot/revert 实测。
+- `positive_cache_ttl` 已接到 rule version；NFT 证据年龄仍用 gate 内的 `MaxEvidenceAge`（同为 5s 策略值），未合并为同一常量。
+- CI 专用栈 job 与依赖故障入口**只能在 GitHub runner / 本机 Docker 上跑**，本机已验证后者。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
