@@ -32,16 +32,20 @@ type PostTranscodeHook func(ctx context.Context, contentID, profile, outputURL s
 
 // TranscodingService handles transcoding operations
 type TranscodingService struct {
-	db                storage.DB
-	queue             TranscodingQueue
-	transcoder        VideoTranscoder
-	storage           SegmentStorage
-	log               *zap.Logger
-	mu                sync.RWMutex
-	tasks             map[string]*TranscodingTask
-	cancel            context.CancelFunc
-	cancelMu          sync.Mutex
-	httpClient        *http.Client
+	db         storage.DB
+	queue      TranscodingQueue
+	transcoder VideoTranscoder
+	storage    SegmentStorage
+	log        *zap.Logger
+	mu         sync.RWMutex
+	tasks      map[string]*TranscodingTask
+	cancel     context.CancelFunc
+	cancelMu   sync.Mutex
+	httpClient *http.Client
+	// maxInputBytes bounds the ORIGINAL media this service will accept. It is
+	// enforced while fetching and while the object is staged, not by trusting a
+	// declared length.
+	maxInputBytes     int64
 	workerCount       int
 	uploadConcurrency int
 	transcodeHooks    []PostTranscodeHook
@@ -59,6 +63,45 @@ type TranscodingService struct {
 }
 
 const defaultUploadConcurrency = 5
+
+// DefaultMaxTranscodeInputBytes is the default ceiling on an ORIGINAL. A
+// transcode input is untrusted media that gets written to disk and handed to
+// FFmpeg, so the default is deliberately modest rather than "as large as the
+// upload endpoint allows".
+const DefaultMaxTranscodeInputBytes int64 = 100 << 20 // 100 MiB
+
+// ErrInputTooLarge is returned when an input exceeds the configured ceiling. It
+// is a distinct error so callers can answer 413 rather than a generic failure.
+var ErrInputTooLarge = errors.New("transcode input exceeds the configured size limit")
+
+// WithMaxInputBytes sets the ceiling on an original. A non-positive value leaves
+// the default in place: "no limit" is not an option this service offers.
+func WithMaxInputBytes(n int64) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.maxInputBytes = n
+		}
+	}
+}
+
+// SetMaxInputBytes sets the ceiling on an original.
+func (s *TranscodingService) SetMaxInputBytes(n int64) {
+	if n > 0 {
+		s.mu.Lock()
+		s.maxInputBytes = n
+		s.mu.Unlock()
+	}
+}
+
+// MaxInputBytes reports the ceiling on an original.
+func (s *TranscodingService) MaxInputBytes() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.maxInputBytes <= 0 {
+		return DefaultMaxTranscodeInputBytes
+	}
+	return s.maxInputBytes
+}
 
 // NewTranscodingService creates a new transcoding service
 func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...TranscodingOption) *TranscodingService {
@@ -863,6 +906,13 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 		}
 	}
 
+	// A declared length larger than the ceiling is refused BEFORE reading, so an
+	// honest server never causes us to buffer an oversized body.
+	maxBytes := s.MaxInputBytes()
+	if resp.ContentLength > maxBytes {
+		return "", fmt.Errorf("%w: declared %d bytes, limit %d", ErrInputTooLarge, resp.ContentLength, maxBytes)
+	}
+
 	// inputURL may be a presigned URL with query params
 	parsedURL, parseErr := url.Parse(inputURL)
 	pathPart := inputURL
@@ -879,9 +929,18 @@ func (s *TranscodingService) downloadInputFile(ctx context.Context, inputURL str
 	}
 	defer func() { _ = f.Close() }()
 
-	if _, err := io.Copy(f, io.LimitReader(resp.Body, 2<<30)); err != nil {
+	// Read one byte PAST the ceiling: reaching it means the body is over the
+	// limit, and the object is refused rather than silently truncated to the
+	// first maxBytes. A chunked or lying Content-Length is caught here, which is
+	// the case the declared-length check above cannot see.
+	written, err := io.Copy(f, io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
 		_ = os.Remove(f.Name())
 		return "", fmt.Errorf("write temp file: %w", err)
+	}
+	if written > maxBytes {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("%w: read more than %d bytes", ErrInputTooLarge, maxBytes)
 	}
 
 	return f.Name(), nil

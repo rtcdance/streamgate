@@ -314,6 +314,10 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		service.WithTranscoder(videoTranscoder),
 		service.WithStorage(objStorage),
 		service.WithLogger(log),
+		// An original is untrusted media written to disk and handed to FFmpeg, so
+		// the ceiling comes from config rather than from whatever the upload
+		// endpoint happens to allow.
+		service.WithMaxInputBytes(cfg.Transcoding.MaxInputSize),
 	)
 	svc.StartWorker(log.Named("transcode-worker"))
 	return svc
