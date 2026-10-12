@@ -613,9 +613,50 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         fi
     fi
 
-    # Restore so the rest of the run (and the next one) sees a valid rule.
-    curl -s -X PUT "$BASE_URL/api/v1/gating-rules/$RULE_ID" -H "Authorization: Bearer $TOKEN_A" \
-        -H 'Content-Type: application/json' -d "{\"contract_address\":\"$DEMO_CONTRACT\"}" >/dev/null 2>&1 || true
+    # Point the rule back at the real contract FIRST, so each denial below is
+    # attributable to one changed field rather than to leftover damage. Asserting
+    # the threshold while the contract was still the reverting one would "pass"
+    # on a 503 that had nothing to do with min_balance.
+    put_rule() {
+        curl -s -X PUT "$BASE_URL/api/v1/gating-rules/$RULE_ID" -H "Authorization: Bearer $TOKEN_A" \
+            -H 'Content-Type: application/json' -d "$1" >/dev/null 2>&1 || true
+    }
+
+    # wait_for_manifest <want> <deadline-seconds> — polls until the manifest
+    # answers <want>, so a cached rule set cannot make this flaky.
+    wait_for_manifest() {
+        local want="$1" deadline=$((SECONDS + $2)) code=""
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
+                "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
+            [ "$code" = "$want" ] && break
+            sleep 2
+        done
+        printf '%s' "$code"
+    }
+
+    put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":1}"
+    RESTORED="$(wait_for_manifest 200 15)"
+    [ "$RESTORED" = "200" ] && p "Holder is served again once the rule points back at the real contract" \
+        || f "Holder still denied after restoring the contract (last=$RESTORED)"
+
+    # Raising the bar must re-check the holder on the next request: renewal is a
+    # manifest re-request, and the gate re-reads the chain rather than trusting
+    # the capability it already handed out. With the contract unchanged, a denial
+    # here can only come from the threshold.
+    put_rule '{"min_balance":999999}'
+    BAR_CODE="$(wait_for_manifest 403 15)"
+    case "$BAR_CODE" in
+        403) p "Raising the rule threshold denies the holder on re-request (403)" ;;
+        503) f "Threshold change could not be verified (503) — the denial is not attributable to min_balance" ;;
+        *)   f "Holder still served after the threshold was raised (last=$BAR_CODE)" ;;
+    esac
+
+    # ...and the holder is served again once the bar is back down.
+    put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":1}"
+    RESTORED="$(wait_for_manifest 200 15)"
+    [ "$RESTORED" = "200" ] && p "Holder is served again once the threshold is restored" \
+        || f "Holder still denied after restoring the rule (last=$RESTORED)"
 fi
 
 # ---------------------------------------------------------------------------
