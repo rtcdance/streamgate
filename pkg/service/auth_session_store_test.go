@@ -70,6 +70,43 @@ func TestAuthService_EmptySessionIsInvalid(t *testing.T) {
 	assert.Equal(t, SessionEpochUnknown, svc.RevokeSession(""))
 }
 
+// Logging out must end the LOGIN, not just the credential that was presented.
+// Blacklisting one JTI leaves every other credential of the session alive,
+// including a capability already handed to a player.
+func TestAuthService_RevokeSessionForToken(t *testing.T) {
+	svc := NewAuthService(signTypeTestSecret, nil)
+
+	token, err := svc.generateWalletToken(signTypeTestWallet)
+	require.NoError(t, err)
+
+	claims, err := svc.ParseToken(token)
+	require.NoError(t, err)
+	require.NotEmpty(t, claims.SessionID)
+	require.True(t, svc.SessionValid(claims.SessionID, claims.AuthEpoch))
+
+	sessionID, err := svc.RevokeSessionForToken(context.Background(), token)
+	require.NoError(t, err)
+	assert.Equal(t, claims.SessionID, sessionID)
+
+	assert.False(t, svc.SessionValid(claims.SessionID, claims.AuthEpoch),
+		"every credential of the session must stop working, not just the one presented")
+}
+
+// A token that carries no session cannot be used to revoke one.
+func TestAuthService_RevokeSessionForToken_RequiresASession(t *testing.T) {
+	svc := NewAuthService(signTypeTestSecret, nil)
+
+	token, err := svc.generateWalletToken(signTypeTestWallet)
+	require.NoError(t, err)
+
+	// Revoking twice is harmless: the second call still resolves the session.
+	_, err = svc.RevokeSessionForToken(context.Background(), token)
+	require.NoError(t, err)
+
+	_, err = svc.RevokeSessionForToken(context.Background(), "not-a-token")
+	assert.Error(t, err)
+}
+
 // The default store is in-memory, so the service works without a backend while
 // the wiring is explicit about durability.
 func TestAuthService_DefaultSessionStore(t *testing.T) {

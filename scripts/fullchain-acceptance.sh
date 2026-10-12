@@ -643,6 +643,42 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 11. Logout ends the whole session
+# ---------------------------------------------------------------------------
+printf '\n=== Logout ===\n'
+
+if [ -n "$KEY_A" ]; then
+    # A SEPARATE login, so logging out here does not disturb the tokens the rest
+    # of the run used.
+    LOGOUT_TOKEN="$(login "$KEY_A" "$WALLET_A")"
+    if [ -n "$LOGOUT_TOKEN" ]; then
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $LOGOUT_TOKEN" "$BASE_URL/api/v1/auth/profile")"
+        [ "$CODE" = "200" ] && p "Fresh login authenticates before logout ($CODE)" \
+            || f "Fresh login rejected before logout ($CODE)"
+
+        curl -s -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $LOGOUT_TOKEN" >/dev/null 2>&1 || true
+
+        # The revocation must be visible within the session cache bound (5s).
+        REVOKED=0
+        DEADLINE=$((SECONDS + 10))
+        while [ "$SECONDS" -lt "$DEADLINE" ]; do
+            C="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $LOGOUT_TOKEN" "$BASE_URL/api/v1/auth/profile")"
+            if [ "$C" = "401" ] || [ "$C" = "403" ]; then REVOKED=1; break; fi
+            sleep 1
+        done
+        if [ "$REVOKED" = "1" ]; then
+            p "Logout revokes the session within the 5s bound"
+        else
+            f "Token still accepted 10s after logout — the session was not revoked"
+        fi
+    else
+        f "Could not log in to exercise logout"
+    fi
+else
+    f "Skipped logout: no wallet key"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 printf '\n============================================\n'

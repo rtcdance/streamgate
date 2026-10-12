@@ -358,6 +358,27 @@ func (s *AuthService) RevokeSession(sessionID string) int64 {
 	return epoch
 }
 
+// RevokeSessionForToken ends the whole session a token belongs to, not just the
+// token itself.
+//
+// Blacklisting one JTI only kills the credential that was presented, so any
+// other credential issued for the same login keeps working - including a
+// capability already handed to a player. Logging out means ending the login, so
+// the session's epoch moves and every credential of that session dies at once.
+func (s *AuthService) RevokeSessionForToken(ctx context.Context, tokenString string) (string, error) {
+	claims, err := s.ParseToken(tokenString)
+	if err != nil {
+		return "", err
+	}
+	if claims.SessionID == "" {
+		return "", fmt.Errorf("token is not bound to a session")
+	}
+	if s.RevokeSession(claims.SessionID) == SessionEpochUnknown {
+		return "", fmt.Errorf("failed to revoke session: %s", claims.SessionID)
+	}
+	return claims.SessionID, nil
+}
+
 // SessionValid reports whether a credential's session is live and its epoch is
 // still current.
 func (s *AuthService) SessionValid(sessionID string, epoch int64) bool {
