@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -384,30 +385,54 @@ func TestNewBlockHashCache_ZeroTTL(t *testing.T) {
 
 func TestBlockHashCache_Get_Miss(t *testing.T) {
 	bhc := NewBlockHashCache()
-	_, ok := bhc.Get(12345)
+	_, ok := bhc.Get(1, 12345)
 	assert.False(t, ok)
 }
 
 func TestBlockHashCache_Set_Get(t *testing.T) {
 	bhc := NewBlockHashCache()
-	bhc.Set(100, "0xabc")
-	hash, ok := bhc.Get(100)
+	bhc.Set(1, 100, "0xabc")
+	hash, ok := bhc.Get(1, 100)
 	assert.True(t, ok)
 	assert.Equal(t, "0xabc", hash)
 }
 
+// Two chains routinely have a block at the same height with different hashes.
+// The cache is keyed by (chainID, height), so an entry recorded on one chain
+// must not answer for another.
+func TestBlockHashCache_IsScopedToChain(t *testing.T) {
+	bhc := NewBlockHashCache()
+	bhc.Set(1, 100, "0xchain-one")
+
+	hash, ok := bhc.Get(1, 100)
+	assert.True(t, ok)
+	assert.Equal(t, "0xchain-one", hash)
+
+	_, ok = bhc.Get(2, 100)
+	assert.False(t, ok, "chain 2 must not see chain 1's hash at the same height")
+
+	// And the other chain's own hash is tracked independently.
+	bhc.Set(2, 100, "0xchain-two")
+	hash, ok = bhc.Get(2, 100)
+	assert.True(t, ok)
+	assert.Equal(t, "0xchain-two", hash)
+	hash, ok = bhc.Get(1, 100)
+	assert.True(t, ok)
+	assert.Equal(t, "0xchain-one", hash, "chain 1's entry must be untouched")
+}
+
 func TestBlockHashCache_Get_Expired(t *testing.T) {
 	bhc := NewBlockHashCache()
-	bhc.entries[100] = blockHashEntry{hash: "0xexpired", expiresAt: time.Now().Add(-1 * time.Hour)}
-	_, ok := bhc.Get(100)
+	bhc.entries[blockHashKey{chainID: 1, number: 100}] = blockHashEntry{hash: "0xexpired", expiresAt: time.Now().Add(-1 * time.Hour)}
+	_, ok := bhc.Get(1, 100)
 	assert.False(t, ok)
 }
 
 func TestBlockHashCache_Set_Overwrite(t *testing.T) {
 	bhc := NewBlockHashCache()
-	bhc.Set(100, "0xfirst")
-	bhc.Set(100, "0xsecond")
-	hash, ok := bhc.Get(100)
+	bhc.Set(1, 100, "0xfirst")
+	bhc.Set(1, 100, "0xsecond")
+	hash, ok := bhc.Get(1, 100)
 	assert.True(t, ok)
 	assert.Equal(t, "0xsecond", hash)
 }
@@ -416,7 +441,7 @@ func TestBlockHashCache_Set_Eviction(t *testing.T) {
 	bhc := NewBlockHashCache()
 	bhc.maxEntries = 5
 	for i := uint64(0); i < 10; i++ {
-		bhc.Set(i, "0xhash")
+		bhc.Set(1, i, "0xhash")
 	}
 	assert.LessOrEqual(t, len(bhc.entries), bhc.maxEntries)
 }
@@ -538,11 +563,22 @@ func (m *mockGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ s
 }
 
 type mockBlockProver struct {
-	header *BlockHeaderInfo
-	err    error
+	header    *BlockHeaderInfo
+	err       error
+	byChain   map[int64]*BlockHeaderInfo
+	gotChain  int64
+	gotNumber *big.Int
 }
 
-func (m *mockBlockProver) HeaderByNumber(_ context.Context, _ *big.Int) (*BlockHeaderInfo, error) {
+func (m *mockBlockProver) HeaderByNumber(_ context.Context, chainID int64, number *big.Int) (*BlockHeaderInfo, error) {
+	m.gotChain, m.gotNumber = chainID, number
+	if m.byChain != nil {
+		header, ok := m.byChain[chainID]
+		if !ok {
+			return nil, errors.New("no header for chain")
+		}
+		return header, nil
+	}
 	return m.header, m.err
 }
 
@@ -807,7 +843,7 @@ func TestSetCachedEntry_WithBlockProver(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", 1, big.NewInt(1))
 
 	entry, ok := cache.entries["test-key"]
 	assert.True(t, ok)
@@ -827,7 +863,7 @@ func TestSetCachedEntry_WithBlockProverError(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", 1, big.NewInt(1))
 
 	entry, ok := cache.entries["test-key-err"]
 	assert.True(t, ok)
@@ -843,7 +879,7 @@ func TestSetCachedEntry_NegativeResultShorterTTL(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", big.NewInt(0))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", 1, big.NewInt(0))
 
 	entry, ok := cache.entries["neg-key"]
 	assert.True(t, ok)
@@ -888,7 +924,7 @@ func TestNFTGateMiddleware_CircuitBreakerOpen(t *testing.T) {
 func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 	cache := &mockNFTAccessCacheOld{entries: map[string]NFTAccessEntry{}}
 	blockVerifyCache := NewBlockHashCache(5 * time.Minute)
-	blockVerifyCache.Set(100, "0xoriginalhash")
+	blockVerifyCache.Set(1, 100, "0xoriginalhash")
 
 	cacheKey := "1:0xOwner:" + testContractAddr + ":__collection__:erc721"
 	cache.entries[cacheKey] = NFTAccessEntry{

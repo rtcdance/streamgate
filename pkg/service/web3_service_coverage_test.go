@@ -147,7 +147,7 @@ func TestSvcCov_GetNFTInfo_ChainNotFound(t *testing.T) {
 
 func TestSvcCov_HeaderByNumber_ChainNotFound(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop(), multiChainManager: newSvcCovMCM(), config: &config.Config{}}
-	_, err := svc.HeaderByNumber(context.Background(), nil)
+	_, err := svc.HeaderByNumber(context.Background(), 0, nil)
 	assert.Error(t, err)
 }
 

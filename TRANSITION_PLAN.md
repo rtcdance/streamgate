@@ -597,7 +597,8 @@ make verify-docker
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
 | SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
-| SG-04～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-04 | **部分完成（仅链作用域区块证据）** | 见 §8.9（区块哈希缓存改为 `(chainID, height)`；`BlockProver` 改为显式带链）。**同区块固定 / 5 秒 age / RPC chainId 与 endpoint 回退未做** |
+| SG-05～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -937,6 +938,32 @@ sequenceDiagram
 - `GET /content/:id/gating-rules`（列表）**未加 owner 校验**：它位于 JWT 保护组内、需要登录，但会返回他人内容的规则配置。计划 B.1 明确要求的是**写路径**；读路径的收敛（是否限 owner / 是否只返回公开字段）留待与 SG-14 的 API 边界一并处理。
 - B.3 要求的"交易状态 actor 隔离"由 **C 的删除动作**直接满足（该路由已不存在）。
 - 跨资源的完整 A/B 矩阵依赖既有测试（已核对存在），本次未重复编写。
+
+### 8.9 SG-04 执行证据（**部分完成**：链作用域区块证据）
+
+**本项只完成了"证据必须属于某条链"这一块；同区块固定、5 秒 age 上界、RPC chainId 校验与 endpoint 回退、两个 Anvil 的端到端用例**均未实施**，SG-04 保持未勾选。**
+
+**核查出的真实缺陷（两条，同源）**：授权证据的"区块"维度**完全没有链身份**。
+1. `BlockHashCache.entries` 是 `map[uint64]blockHashEntry` —— **只按高度索引**。两条链在同一高度有不同哈希（常态），缓存会互相覆盖 / 互相命中。
+2. `BlockProver.HeaderByNumber(ctx, number)` **没有链参数**，`Web3Service.HeaderByNumber` 硬用 `ws.config.Web3.ChainID`（默认链）。即：**针对链 B 的规则，其区块证据取自默认链**，跨链证据混用。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 区块哈希缓存按 `(chainID, height)` | PASS | 新增 `blockHashKey{chainID, number}`；`Get(chainID, height)` / `Set(chainID, height, hash)` |
+| `BlockProver` 显式带链 | PASS | 接口改为 `HeaderByNumber(ctx, chainID int64, number *big.Int)`；`Web3Service.HeaderByNumber` 按 `chainID` 取该链 client（`0` = 配置的默认链，保持既有调用可用） |
+| 调用链传递真实链 ID | PASS | `resolveQuantity` 已持有规则所属 `chainID`，透传给 `cachedQuantity` / `setCachedEntry`；`nft_handlers.go` 传 `parseChainID(...)` 的结果 |
+| 跨链证据不互用 | PASS | `TestBlockHashCache_IsScopedToChain`（同高度、两链各自命中自己的哈希，互不覆盖）；`TestCachedQuantity_BlockHashEvidenceIsChainScoped`（链 1 在高度 100 的哈希**不会**把链 2 的同高度证据误判成 reorg，且断言 prover 收到的 chainID == 2） |
+| 同链 reorg 仍能识别 | PASS | `TestCachedQuantity_ReorgStillDetectedWithinChain`：同链同高度哈希变化 → 证据失效且置 `reorgActive` |
+| 同链缓存命中不查 prover | PASS | `TestCachedQuantity_SameChainCacheHitSkipsProver` |
+| 回归 | PASS | `go test ./...` 全绿；`-race ./pkg/middleware/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+
+**限制 / 未覆盖（本项，均为 SG-04 判据）**：
+- **步骤 2 未做**：没有"先解析该链 safe/finalized 的 `number`+`hash`，再把本次所有 `balanceOf` / `ownerOf` / ERC-165 查询**固定到同一个区块**"；当前仍是按 `safe` **标签**查询（`ChainClient.CallContractAtBlock(ctx, msg, blockTag)`），节点逐次解析标签，**读期间出新块会污染证据**。也没有返回 `observedAt`、没有"header/balance/singleflight 缓存合计 age ≤5 秒"的上界。
+- **步骤 1 未做**：RPC endpoint 初始化 / reconnect 的 `eth_chainId` 校验、错链剔除、每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性 —— 全部未做。
+- **步骤 3 未做**：仅按 number 查询时查询前后核对 hash 的"有限重试后拒绝"路径未实现。
+- **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（当前只有"缓存校验时发现 hash 不一致"这一条被动路径）。
+- **验证方式未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次为**单元级**验证（mock prover），未起 Anvil，也未断言真实 RPC 的 block 参数。
+- 因此"没有 silent latest 路径"这一完成判据**尚不成立**（`setCachedEntry` 仍用 `HeaderByNumber(ctx, chainID, nil)` 取该链最新块作为证据锚点）。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

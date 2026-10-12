@@ -236,9 +236,15 @@ func (ws *Web3Service) GetNFTInfo(ctx context.Context, chainID int64, contractAd
 	}, nil
 }
 
-// HeaderByNumber returns the block header for the given block number on the default chain.
-func (ws *Web3Service) HeaderByNumber(ctx context.Context, number *big.Int) (*middleware.BlockHeaderInfo, error) {
-	client, err := ws.multiChainManager.GetClient(ws.config.Web3.ChainID)
+// HeaderByNumber returns the block header for the given block number on the
+// named chain. The chain is explicit so block evidence can never be read from
+// one chain and used to justify an authorization on another; a zero chainID
+// means "the configured default chain".
+func (ws *Web3Service) HeaderByNumber(ctx context.Context, chainID int64, number *big.Int) (*middleware.BlockHeaderInfo, error) {
+	if chainID == 0 {
+		chainID = ws.config.Web3.ChainID
+	}
+	client, err := ws.multiChainManager.GetClient(chainID)
 	if err != nil {
 		return nil, err
 	}
