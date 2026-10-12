@@ -281,7 +281,7 @@ func TestAuthService_RefreshToken_WithBlacklist(t *testing.T) {
 		WithTokenBlacklist(bl),
 	)
 
-	sessionID := auth.StartSession()
+	sessionID, _ := auth.StartSession()
 	claims := &Claims{
 		Username:  "refresh-user",
 		JTI:       "refresh-jti",
