@@ -522,24 +522,37 @@ if [ -n "$PB_TOKEN" ]; then
         *)               f "Cross-content playback token returned $CODE" ;;
     esac
 
-    # An expired capability must stop working. The policy bound is 60s, so this
-    # waits for the real expiry rather than hand-crafting an "old" token. While
-    # the token is still valid the segment answers 200/206; a 404 means the token
-    # was accepted and only the object was missing, which is still an acceptance.
-    if [ -n "${P_SEGURL:-}" ]; then
-        EXPIRED=0
-        EXPIRY_DEADLINE=$((SECONDS + 100))
-        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
-            C="$(curl -s -o /dev/null -w '%{http_code}' "$P_SEGURL")"
-            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
-            sleep 5
-        done
-        if [ "$EXPIRED" = "1" ]; then
-            p "Playback capability stops working once its policy TTL passes"
-        else
-            f "Playback capability still accepted after 100s — it outlives the 60s policy bound"
-        fi
+    # A capability rides in these URLs, so the response must not be stored by a
+    # shared cache and must not hand the URL to another origin via Referer.
+    if [ -n "$P_SEGURL" ]; then
+        HDRS="$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TOKEN_A" "$P_SEGURL" 2>/dev/null || true)"
+        REF="$(printf '%s' "$HDRS" | grep -i '^referrer-policy:' | tr -d '\r' | head -1 || true)"
+        case "$REF" in
+            *no-referrer*) p "Segment response sets Referrer-Policy: no-referrer" ;;
+            *)             f "Segment Referrer-Policy=${REF#*: } — a capability URL must not be forwarded" ;;
+        esac
     fi
+    if [ -n "$CONTENT_ID" ]; then
+        MHDRS="$(curl -s -D - -o /dev/null -H "Authorization: Bearer $TOKEN_A" \
+            "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+        MCACHE="$(printf '%s' "$MHDRS" | grep -i '^cache-control:' | tr -d '\r' | head -1 || true)"
+        MREF="$(printf '%s' "$MHDRS" | grep -i '^referrer-policy:' | tr -d '\r' | head -1 || true)"
+        case "$MCACHE" in
+            *no-store*) p "Manifest is Cache-Control: private, no-store" ;;
+            *)          f "Manifest Cache-Control=${MCACHE#*: } — a capability in the body must not be stored" ;;
+        esac
+        case "$MREF" in
+            *no-referrer*) p "Manifest sets Referrer-Policy: no-referrer" ;;
+            *)             f "Manifest Referrer-Policy=${MREF#*: } — a capability URL must not be forwarded" ;;
+        esac
+    fi
+
+    # An error must not echo the capability back to the caller.
+    ERR_BODY="$(curl -s "$BASE_URL/api/v1/streaming/$CONTENT_ID/segment/0.ts?playback_token=$PB_TOKEN-tampered" 2>/dev/null || true)"
+    case "$ERR_BODY" in
+        *"$PB_TOKEN"*) f "An error response echoed the playback capability" ;;
+        *)             p "Rejection does not echo the playback capability" ;;
+    esac
 else
     f "No playback token to tamper with — the tampering matrix did not run"
 fi
@@ -569,6 +582,25 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         503) p "Rule retargeted → refused, dependency unverifiable (503)" ;;
         *)   f "Tampered contract still served after 30s (last=$TAMPER_CODE)" ;;
     esac
+
+    # An expired capability must stop working. The policy bound is 60s, so this
+    # waits for the real expiry rather than hand-crafting an "old" token. While
+    # the token is still valid the segment answers 200/206; a 404 means the token
+    # was accepted and only the object was missing, which is still an acceptance.
+    if [ -n "${P_SEGURL:-}" ]; then
+        EXPIRED=0
+        EXPIRY_DEADLINE=$((SECONDS + 100))
+        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
+            C="$(curl -s -o /dev/null -w '%{http_code}' "$P_SEGURL")"
+            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
+            sleep 5
+        done
+        if [ "$EXPIRED" = "1" ]; then
+            p "Playback capability stops working once its policy TTL passes"
+        else
+            f "Playback capability still accepted after 100s — it outlives the 60s policy bound"
+        fi
+    fi
 
     # Restore so the rest of the run (and the next one) sees a valid rule.
     curl -s -X PUT "$BASE_URL/api/v1/gating-rules/$RULE_ID" -H "Authorization: Bearer $TOKEN_A" \

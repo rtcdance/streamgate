@@ -234,7 +234,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			}
 			manifest := service.BuildMediaPlaylist(contentID, quality, segs, playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			c.Header("Cache-Control", "private, max-age=30")
+			setCapabilityResponseHeaders(c)
 			c.String(http.StatusOK, manifest)
 			return
 		}
@@ -281,6 +281,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
+			setCapabilityResponseHeaders(c)
 			c.String(http.StatusOK, rendered)
 			return
 		}
@@ -343,7 +344,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			manifest := service.BuildMediaPlaylist(contentID, quality, segs, "{{PLAYBACK_TOKEN}}")
 			rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			c.Header("Cache-Control", "private, max-age=30")
+			setCapabilityResponseHeaders(c)
 			c.String(http.StatusOK, rendered)
 			return
 		}
@@ -358,10 +359,20 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
-		c.Header("Cache-Control", "private, max-age=30") // per-user token in body; browser-only cache
+		setCapabilityResponseHeaders(c)
 		c.String(http.StatusOK, rendered)
 	})
 	log.Info("Streaming routes registered")
+}
+
+// setCapabilityResponseHeaders marks a response whose body carries a playback
+// capability. Such a response is per-user and single-use-ish, so a shared cache
+// must never store it, and the URL (which contains the capability) must not be
+// forwarded to another origin in a Referer header.
+func setCapabilityResponseHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
 }
 
 func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, bucket ...string) {
@@ -483,6 +494,9 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			c.Header("Cache-Control", "private, max-age=86400")
 			c.Header("Vary", "Authorization")
 			c.Header("X-Content-Type-Options", "nosniff")
+			// The capability rides in this URL; never hand it to another origin
+			// through the Referer header.
+			c.Header("Referrer-Policy", "no-referrer")
 			// Advertise range support on every segment response, including 200s,
 			// so players know they may seek.
 			c.Header("Accept-Ranges", "bytes")
