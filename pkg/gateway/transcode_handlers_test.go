@@ -19,6 +19,11 @@ func newTestTranscodingService() *service.TranscodingService {
 }
 
 func setupTranscodeRouterWithService(walletAddr string, svc *service.TranscodingService) *gin.Engine {
+	// The zero policy is the production default: no allowlist, external refused.
+	return setupTranscodeRouterWithPolicy(walletAddr, svc, TranscodeInputPolicy{})
+}
+
+func setupTranscodeRouterWithPolicy(walletAddr string, svc *service.TranscodingService, policy TranscodeInputPolicy) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
@@ -27,7 +32,7 @@ func setupTranscodeRouterWithService(walletAddr string, svc *service.Transcoding
 		c.Next()
 	})
 
-	RegisterTranscodingRoutes(r, zap.NewNop(), svc)
+	RegisterTranscodingRoutes(r, zap.NewNop(), svc, policy)
 	return r
 }
 
