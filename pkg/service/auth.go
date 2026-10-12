@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -108,6 +109,8 @@ type AuthService struct {
 	auditLogger       stg.AuditLogger
 	jwtExpiry         time.Duration
 	playbackTokenTTL  time.Duration
+	sessionMu         sync.RWMutex
+	sessions          map[string]int64
 	eip712Verifier    web3.EIP712VerifierInterface
 	siweDomain        string
 	siweURI           string
@@ -185,6 +188,15 @@ type Claims struct {
 	ChainID           int64  `json:"chain_id,omitempty"`
 	JTI               string `json:"jti,omitempty"`
 	ClientFingerprint string `json:"client_fingerprint,omitempty"`
+	// SessionID identifies the login session a credential belongs to, and
+	// AuthEpoch is the session's generation counter. Together they let a logout
+	// or a bulk revocation invalidate every credential of a session without
+	// tracking each token: the epoch moves and every older credential is stale.
+	//
+	// Both are REQUIRED on credentials this service issues. A token without them
+	// predates the scheme and is refused rather than grandfathered in.
+	SessionID string `json:"session_id,omitempty"`
+	AuthEpoch int64  `json:"auth_epoch,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -257,6 +269,53 @@ func (s *AuthService) PlaybackTokenTTL() time.Duration {
 	return s.playbackTokenTTL
 }
 
+// SessionEpochUnknown means the session is not live.
+const SessionEpochUnknown int64 = 0
+
+// StartSession creates a live session and returns its id. Every credential
+// issued for that login carries the id plus the session's epoch.
+func (s *AuthService) StartSession() string {
+	id := generateID()
+	s.sessionMu.Lock()
+	s.sessions[id] = 1
+	s.sessionMu.Unlock()
+	return id
+}
+
+// SessionEpoch reports the current epoch for a session.
+//
+// Availability is checked POSITIVELY: a credential is valid only when its
+// session exists here and its epoch matches. The absence of a revocation record
+// is deliberately NOT treated as evidence of validity.
+func (s *AuthService) SessionEpoch(sessionID string) (int64, bool) {
+	if sessionID == "" {
+		return SessionEpochUnknown, false
+	}
+	s.sessionMu.RLock()
+	defer s.sessionMu.RUnlock()
+	epoch, ok := s.sessions[sessionID]
+	return epoch, ok
+}
+
+// RevokeSession invalidates every credential of a session at once by moving its
+// epoch, so no per-token bookkeeping is needed. It returns the new epoch.
+func (s *AuthService) RevokeSession(sessionID string) int64 {
+	if sessionID == "" {
+		return SessionEpochUnknown
+	}
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	s.sessions[sessionID]++
+	return s.sessions[sessionID]
+}
+
+// SessionValid reports whether a credential's session is live and its epoch is
+// still current.
+func (s *AuthService) SessionValid(sessionID string, epoch int64) bool {
+	current, ok := s.SessionEpoch(sessionID)
+	return ok && epoch == current
+}
+
 // AuthServiceOption applies RSA signing configuration.
 type AuthServiceSigningOption func(*AuthService)
 
@@ -290,6 +349,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
 		playbackTokenTTL:  DefaultPlaybackTokenTTL,
+		sessions:          make(map[string]int64),
 		siweDomain:        "streamgate.io",
 		siweURI:           "https://streamgate.io/login",
 	}
@@ -519,10 +579,19 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		}
 	}
 
+	// A refresh renews a still-valid session; it does not mint a new one. A
+	// revoked session must not be extendable by presenting an old token.
+	epoch, ok := s.SessionEpoch(claims.SessionID)
+	if !ok || epoch != claims.AuthEpoch {
+		return "", fmt.Errorf("session is no longer valid")
+	}
+
 	newClaims := &Claims{
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
 		JTI:           generateID(),
+		SessionID:     claims.SessionID,
+		AuthEpoch:     epoch,
 	}
 	newClaims.RegisteredClaims = accessTokenClaims(claims.Subject, s.jwtExpiry)
 	newClaims.RegisteredClaims.ID = generateID()
@@ -575,10 +644,13 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 
 // generateToken generates a JWT token for a user
 func (s *AuthService) generateToken(user *models.User) (string, error) {
+	sessionID := s.StartSession()
 	claims := &Claims{
 		Username:         user.Username,
 		WalletAddress:    user.WalletAddress,
 		JTI:              generateID(),
+		SessionID:        sessionID,
+		AuthEpoch:        1,
 		RegisteredClaims: accessTokenClaims(user.ID, s.jwtExpiry),
 	}
 

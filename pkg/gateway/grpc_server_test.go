@@ -185,6 +185,8 @@ func generateTestJWT(t *testing.T, wallet, secret, jti string) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"wallet_address": wallet,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"jti":            jti,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),

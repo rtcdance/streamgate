@@ -615,9 +615,12 @@ func TestAuthService_ParseToken_NotYetValid(t *testing.T) {
 func TestAuthService_RefreshToken_GracePeriod(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
+	sessionID := auth.StartSession()
 	claims := &Claims{
-		Username: "grace",
-		JTI:      generateID(),
+		Username:  "grace",
+		JTI:       generateID(),
+		SessionID: sessionID,
+		AuthEpoch: 1,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-2 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Hour)),

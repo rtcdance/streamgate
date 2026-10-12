@@ -16,6 +16,8 @@ import (
 func generateTestJWT(secret, walletAddress string, expiresAt time.Time) string {
 	claims := jwt.MapClaims{
 		"wallet_address": walletAddress,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"username":       walletAddress,
 		"sub":            walletAddress,
 		"exp":            expiresAt.Unix(),
@@ -198,7 +200,7 @@ func TestGetJWTClaims(t *testing.T) {
 
 	t.Run("with context value", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
-		claims := jwt.MapClaims{"wallet_address": "0xABC"}
+		claims := jwt.MapClaims{"wallet_address": "0xABC", "session_id": "test-session", "auth_epoch": 1}
 		c.Set("jwt_claims", claims)
 		result := GetJWTClaims(c)
 		require.NotNil(t, result)

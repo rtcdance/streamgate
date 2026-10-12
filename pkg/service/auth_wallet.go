@@ -354,10 +354,13 @@ func (s *AuthService) buildEIP712Challenge(challenge *stg.WalletChallenge) *web3
 }
 
 func (s *AuthService) generateWalletToken(walletAddress string) (string, error) {
+	sessionID := s.StartSession()
 	claims := &Claims{
 		Username:         walletAddress,
 		WalletAddress:    walletAddress,
 		JTI:              generateID(),
+		SessionID:        sessionID,
+		AuthEpoch:        1,
 		RegisteredClaims: accessTokenClaims(walletAddress, s.jwtExpiry),
 	}
 
