@@ -194,7 +194,23 @@ type Claims struct {
 const (
 	AccessTokenIssuer   = "streamgate"
 	AccessTokenAudience = "streamgate-api"
+
+	// PlaybackCapabilityAudience is the audience stamped on playback
+	// capabilities. It is deliberately distinct from AccessTokenAudience: both
+	// are signed with the same key, so the audience is what stops a capability
+	// being presented where an access token is expected, or the reverse.
+	PlaybackCapabilityAudience = "streamgate-playback"
 )
+
+// claimAudienceContains reports whether a token's `aud` claim includes want.
+func claimAudienceContains(aud jwt.ClaimStrings, want string) bool {
+	for _, a := range aud {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
 
 // accessTokenClaims builds the registered claims shared by every access token.
 func accessTokenClaims(subject string, expiry time.Duration) jwt.RegisteredClaims {

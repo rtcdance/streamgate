@@ -381,7 +381,9 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	defer span.End()
 
 	if ttl <= 0 {
-		ttl = 30 * time.Minute
+		// The policy default, not a second hardcoded window: a caller that
+		// forgets the TTL must not get a 30-minute capability by accident.
+		ttl = s.PlaybackTokenTTL()
 	}
 
 	claims := &Claims{
@@ -395,7 +397,11 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		JTI:               generateID(),
 		ClientFingerprint: clientFingerprint,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "streamgate",
+			Issuer: "streamgate",
+			// A capability and an access token are signed with the same key, so
+			// the audience is what stops one being presented where the other is
+			// expected.
+			Audience:  jwt.ClaimStrings{PlaybackCapabilityAudience},
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
@@ -434,6 +440,12 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 	if claims.TokenType != "playback" {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, errors.New("not a playback token")
+	}
+	// The audience keeps a credential minted for one purpose from being spent on
+	// another. Both are signed with the same key, so this is the discriminator.
+	if !claimAudienceContains(claims.Audience, PlaybackCapabilityAudience) {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, errors.New("playback token audience mismatch")
 	}
 	if claims.Subject != contentID {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
