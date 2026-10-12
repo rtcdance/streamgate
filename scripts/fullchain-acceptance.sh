@@ -645,6 +645,16 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
 
     # Raising the bar must re-check the holder on the next request: renewal is a
     # manifest re-request, and the gate re-reads the chain rather than trusting
+    # Capture a capability BEFORE the change, so the check below is about a
+    # credential that was already handed to a player — not about a fresh request.
+    PRE_CAP_URL=""
+    if [ -n "$CONTENT_ID" ]; then
+        PRE_MASTER="$(curl -s -H "Authorization: Bearer $TOKEN_A" \
+            "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+        PRE_URI="$(printf '%s' "$PRE_MASTER" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1)"
+        [ -n "$PRE_URI" ] && PRE_CAP_URL="$BASE_URL$PRE_URI"
+    fi
+
     # the capability it already handed out. With the contract unchanged, a denial
     # here can only come from the threshold.
     put_rule '{"min_balance":999999}'
@@ -655,11 +665,41 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         *)   f "Holder still served after the threshold was raised (last=$BAR_CODE)" ;;
     esac
 
+    # A segment cannot re-read the chain, so the capability carries the rule
+    # version it was issued under. That is what makes a rule change reach media
+    # already in flight instead of waiting out the capability's TTL.
+    if [ -n "$PRE_CAP_URL" ]; then
+        CAP_REVOKED=0
+        CAP_DEADLINE=$((SECONDS + 10))
+        while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
+            C="$(curl -s -o /dev/null -w '%{http_code}' "$PRE_CAP_URL")"
+            if [ "$C" = "401" ] || [ "$C" = "403" ]; then CAP_REVOKED=1; break; fi
+            sleep 1
+        done
+        if [ "$CAP_REVOKED" = "1" ]; then
+            p "A capability issued BEFORE the rule change is refused within the bound"
+        else
+            f "A capability issued before the rule change is still accepted after 10s"
+        fi
+    else
+        f "Could not obtain a pre-change capability"
+    fi
+
     # ...and the holder is served again once the bar is back down.
     put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":1}"
     RESTORED="$(wait_for_manifest 200 15)"
     [ "$RESTORED" = "200" ] && p "Holder is served again once the threshold is restored" \
         || f "Holder still denied after restoring the rule (last=$RESTORED)"
+
+    # The restored rule has a NEW version, so the capability captured before the
+    # change stays dead and a fresh one is issued on the next manifest.
+    if [ -n "$PRE_CAP_URL" ]; then
+        C="$(curl -s -o /dev/null -w '%{http_code}' "$PRE_CAP_URL")"
+        case "$C" in
+            401|403) p "The pre-change capability stays refused after the rule is restored ($C)" ;;
+            *)       f "The pre-change capability came back to life ($C) — a stale capability must not revive" ;;
+        esac
+    fi
 fi
 
 # ---------------------------------------------------------------------------
