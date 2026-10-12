@@ -86,20 +86,19 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          if [ ! -f coverage.out ] || [ ! -s coverage.out ]; then
-            echo "No coverage data generated (possibly no test files)"
-            exit 0
-          fi
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${COVERAGE}%"
-          if echo "${{ matrix.test-path }}" | grep -qE "test-unit-models|test-unit-storage"; then
-            echo "Skipping coverage threshold for ${{ matrix.test-path }} (expected low coverage)"
-            exit 0
-          fi
-          if [ "$(echo "$COVERAGE < 10" | bc -l)" = "1" ]; then
-            echo "Coverage ${COVERAGE}% is below 10% threshold"
-            exit 1
-          fi
+          # PER-PATH rule (10%), independent of the repo-wide 60% gate in
+          # ci.yml — not every package is held to 60%. Missing / empty /
+          # malformed coverage is now a FAILURE, not an `exit 0` skip: a path
+          # that produced no usable profile is a broken job.
+          case "${{ matrix.test-path }}" in
+            test-unit-models|test-unit-storage)
+              echo "No per-path floor for ${{ matrix.test-path }} (expected low coverage); profile must still be usable"
+              ./scripts/check-coverage.sh coverage.out 1
+              ;;
+            *)
+              ./scripts/check-coverage.sh coverage.out 10
+              ;;
+          esac
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -186,9 +185,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          for f in $(ls migrations/*.sql | grep -v '.down.sql' | sort); do
+          # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
+          # swallow broken SQL, so a bad migration could never fail this job.
+          for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
-            psql -h localhost -U streamgate -d streamgate < "$f" || true
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate < "$f"
           done
 
       - name: Set test path
@@ -302,9 +303,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          for f in $(ls migrations/*.sql | grep -v '.down.sql' | sort); do
+          # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
+          # swallow broken SQL, so a bad migration could never fail this job.
+          for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
-            psql -h localhost -U streamgate -d streamgate < "$f" || true
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate < "$f"
           done
 
       - name: Clear Go build cache

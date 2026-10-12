@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-all-parallel build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn clean test test-ci test-anvil test-testnet h5-demo-acceptance h5-demo-acceptance-spec bench fullchain-test docker-build docker-bake docker-bake-load docker-push docker-up docker-down lint lint-fix lint-verbose fmt migrate-up migrate-down migrate-down-all migrate-reset proto-gen mocks contracts-install contracts-build contracts-test contracts-coverage contracts-deploy-anvil contracts-deploy-sepolia contracts-gas-report fullchain-deploy fullchain-teardown deploy-monolith deploy-microservices deploy-status deploy-teardown deploy-logs one-click-deploy demo demo-down challenge run-monolith run-api-gateway run-transcoder run-upload run-streaming run-learn dev dev-setup version tree profile
+.PHONY: help build build-all build-all-parallel build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn clean test test-ci test-coverage-gate test-anvil test-testnet h5-demo-acceptance h5-demo-acceptance-spec bench fullchain-test docker-build docker-bake docker-bake-load docker-push docker-up docker-down lint lint-fix lint-verbose fmt migrate-up migrate-down migrate-down-all migrate-reset proto-gen mocks contracts-install contracts-build contracts-test contracts-coverage contracts-deploy-anvil contracts-deploy-sepolia contracts-gas-report fullchain-deploy fullchain-teardown deploy-monolith deploy-microservices deploy-status deploy-teardown deploy-logs one-click-deploy demo demo-down challenge run-monolith run-api-gateway run-transcoder run-upload run-streaming run-learn dev dev-setup version tree profile
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -16,6 +16,11 @@ GO := go
 GOFLAGS := -v
 VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(shell date -u '+%Y-%m-%d_%H:%M:%S')"
+
+# Coverage gate. The floor and the package set are shared with CI through
+# scripts/ci-packages.sh + scripts/check-coverage.sh so the local and CI gates
+# cannot drift (previously the Makefile used 40% while CI used 60%).
+COVERAGE_MIN ?= 60
 
 # Default target
 help:
@@ -39,7 +44,8 @@ help:
 	@echo ""
 	@echo "Test:"
 	@echo "  make test                    - Run all tests with -race + coverage HTML"
-	@echo "  make test-ci                 - Run tests with coverage threshold check (default: 40%)"
+	@echo "  make test-ci                 - Run tests with coverage threshold check (default: 60%, same as CI)"
+	@echo "  make test-coverage-gate      - Prove the coverage gate fails on bad inputs"
 	@echo "  make test-anvil              - Foundry Anvil Web3 integration tests"
 	@echo "  make test-testnet            - Testnet integration tests (needs SEPOLIA_RPC)"
 	@echo "  make bench                   - Run benchmarks"
@@ -204,18 +210,18 @@ test:
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "✓ Tests complete (coverage: coverage.html)"
 
-# Run tests with coverage threshold check
-test-ci: COVERAGE_MIN ?= 40
+# Run tests with coverage threshold check.
+# Same floor and package set as CI (see COVERAGE_MIN + scripts/ci-packages.sh).
 test-ci:
 	@echo "Running tests with coverage check (min: $(COVERAGE_MIN)%)..."
-	$(GO) test -race -coverprofile=coverage.out ./...
-	@COVERAGE=$($(GO) tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//'); \
-	echo "Total coverage: $COVERAGE%"; \
-	if [ "$(echo "$COVERAGE < $(COVERAGE_MIN)" | bc -l)" = "1" ]; then \
-		echo "✗ Coverage $COVERAGE% is below minimum $(COVERAGE_MIN)%"; \
-		exit 1; \
-	fi; \
-	echo "✓ Coverage $COVERAGE% meets minimum $(COVERAGE_MIN)%"
+	$(GO) test -race -coverprofile=coverage.out $$(./scripts/ci-packages.sh)
+	@./scripts/check-coverage.sh coverage.out $(COVERAGE_MIN)
+
+# Prove the coverage gate itself fails on bad inputs (missing / empty /
+# malformed profile, sub-threshold ratios, invalid floor). A gate that cannot
+# fail is not a gate.
+test-coverage-gate:
+	@bash scripts/check-coverage_test.sh
 
 # Build Docker images (legacy — uses per-service Dockerfiles in deploy/docker/)
 # Prefer `make docker-bake` which uses a single parameterized Dockerfile via BuildKit.

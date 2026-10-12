@@ -93,9 +93,11 @@ stage_unit() {
     diff -u /tmp/go.sum.before go.sum
     echo "== golangci-lint =="
     golangci-lint run ./...
-    echo "== race tests + coverage =="
-    go test -race -covermode=atomic -coverprofile=/artifacts/coverage.out ./...
-    go tool cover -func=/artifacts/coverage.out | tail -1
+    echo "== race tests + coverage (same gate as make test-ci and CI) =="
+    go test -race -covermode=atomic -coverprofile=/artifacts/coverage.out $(./scripts/ci-packages.sh)
+    ./scripts/check-coverage.sh /artifacts/coverage.out "${COVERAGE_MIN:-60}"
+    echo "== coverage gate self-test (the gate must be able to fail) =="
+    bash scripts/check-coverage_test.sh
   '
 }
 
