@@ -116,7 +116,23 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		// The playback capability lifetime comes from the policy rather than a
 		// constant buried in the handler.
 		service.WithPlaybackTokenTTL(cfg.Features.CapabilityTTL),
+		// Session epochs must outlive the process: an in-memory store would
+		// forget every session on restart and silently un-revoke them.
+		service.WithSessionStore(provideSessionStore(log, redisClient)),
 	)
+}
+
+func provideSessionStore(log *zap.Logger, redisClient *redis.Client) storage.SessionStore {
+	if redisClient == nil {
+		log.Warn("Redis unavailable, session epochs will not survive a restart")
+		return storage.NewMemorySessionStore()
+	}
+	store, err := storage.NewRedisSessionStore(redisClient)
+	if err != nil {
+		log.Warn("Redis session store init failed, session epochs will not survive a restart", zap.Error(err))
+		return storage.NewMemorySessionStore()
+	}
+	return store
 }
 
 func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB) {

@@ -615,7 +615,7 @@ func TestAuthService_ParseToken_NotYetValid(t *testing.T) {
 func TestAuthService_RefreshToken_GracePeriod(t *testing.T) {
 	auth := NewAuthService("test-secret-that-is-at-least-32-chars", NewMockAuthStorage())
 
-	sessionID := auth.StartSession()
+	sessionID, _ := auth.StartSession()
 	claims := &Claims{
 		Username:  "grace",
 		JTI:       generateID(),
