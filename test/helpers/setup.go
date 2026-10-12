@@ -24,11 +24,19 @@ type TestConfig struct {
 	RedisAddr       string
 }
 
-// DefaultTestConfig returns default test configuration
+// DefaultTestConfig returns default test configuration.
+//
+// STREAMGATE_TEST_DB_DSN overrides the database DSN, so the integration suite
+// can be pointed at a throwaway database (a CI service container, a local
+// acceptance stack) instead of whatever happens to listen on 5432.
 func DefaultTestConfig() TestConfig {
+	dsn := os.Getenv("STREAMGATE_TEST_DB_DSN")
+	if dsn == "" {
+		dsn = "postgres://streamgate:streamgate@localhost:5432/streamgate?sslmode=disable"
+	}
 	return TestConfig{
 		DBType:          "postgres",
-		DBDSN:           "postgres://streamgate:streamgate@localhost:5432/streamgate?sslmode=disable",
+		DBDSN:           dsn,
 		StorageType:     "minio",
 		StorageEndpoint: "localhost:9000",
 		StorageKey:      "minioadmin",
@@ -102,6 +110,28 @@ func CleanupTestData(t *testing.T, db *storage.Database) {
 }
 
 // ApplyMigrations applies all database migrations
+// findMigrationsDir walks up from the test's working directory to the module
+// root and returns the migrations directory. A hard-coded relative path only
+// resolved from one specific test depth, so every other package silently
+// skipped with "failed to read migrations directory".
+func findMigrationsDir() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve working directory: %w", err)
+	}
+	for {
+		candidate := filepath.Join(dir, "migrations")
+		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("migrations directory not found above %s", dir)
+		}
+		dir = parent
+	}
+}
+
 func ApplyMigrations(t *testing.T, db *storage.Database) error {
 	t.Helper()
 
@@ -111,23 +141,62 @@ func ApplyMigrations(t *testing.T, db *storage.Database) error {
 	}
 
 	// Find all migration files
-	migrationsDir := "../../migrations"
+	migrationsDir, err := findMigrationsDir()
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
 	}
 
-	// Filter and sort migration files
+	// Filter and sort migration files. Down-migrations are excluded: applying
+	// them as if they were up-migrations both breaks the schema and is the
+	// opposite of what a fresh test database needs.
 	var migrationFiles []string
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
-			migrationFiles = append(migrationFiles, entry.Name())
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".sql") {
+			continue
 		}
+		if strings.HasSuffix(name, ".down.sql") {
+			continue
+		}
+		migrationFiles = append(migrationFiles, name)
 	}
 	sort.Strings(migrationFiles)
 
+	// Track what has been applied. SetupTestDB runs once per test against the
+	// same persistent database, and the migration set is not idempotent as a
+	// whole (033 adds an FK on content_id as UUID, 035 later retypes that column
+	// to VARCHAR, so replaying 033 fails with "cannot be implemented"). Record
+	// each file the first time it succeeds and skip it afterwards.
+	if _, err := sqlDB.Exec(
+		`CREATE TABLE IF NOT EXISTS test_applied_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+	); err != nil {
+		return fmt.Errorf("failed to create migration tracking table: %w", err)
+	}
+
+	alreadyApplied := func(file string) bool {
+		var n int
+		if err := sqlDB.QueryRow(
+			`SELECT COUNT(*) FROM test_applied_migrations WHERE filename = $1`, file).Scan(&n); err == nil && n > 0 {
+			return true
+		}
+		// Also honour the application's own migrator, so the helper is usable
+		// against a database the app has already migrated.
+		if err := sqlDB.QueryRow(
+			`SELECT COUNT(*) FROM schema_migrations WHERE filename = $1`, file).Scan(&n); err == nil && n > 0 {
+			return true
+		}
+		return false
+	}
+
 	// Apply each migration
 	for _, file := range migrationFiles {
+		if alreadyApplied(file) {
+			continue
+		}
 		migrationPath := filepath.Join(migrationsDir, file)
 		content, err := os.ReadFile(migrationPath)
 		if err != nil {
@@ -137,11 +206,31 @@ func ApplyMigrations(t *testing.T, db *storage.Database) error {
 		// Execute migration
 		_, err = sqlDB.Exec(string(content))
 		if err != nil {
+			// A duplicate object means the migration was already applied by
+			// some other path, which is the state we want.
+			if isDuplicateObjectErr(err) {
+				_, _ = sqlDB.Exec(`INSERT INTO test_applied_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, file)
+				continue
+			}
 			return fmt.Errorf("failed to apply migration %s: %w", file, err)
 		}
+		_, _ = sqlDB.Exec(`INSERT INTO test_applied_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, file)
 	}
 
 	return nil
+}
+
+// isDuplicateObjectErr reports whether err is Postgres refusing to create an
+// object that already exists (SQLSTATE 42P07 duplicate_table, 42710
+// duplicate_object, 42701 duplicate_column, 42P06 duplicate_schema, 42P16
+// invalid_table_definition for a conflicting constraint).
+func isDuplicateObjectErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "already exists") ||
+		strings.Contains(msg, "duplicate key value")
 }
 
 // SetupTestStorage creates test object storage
