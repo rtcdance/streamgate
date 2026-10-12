@@ -235,8 +235,12 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		// Content routes (auth required)
 		gateway.RegisterContentRoutes(authGroup, zap.NewNop(), nil)
 
-		// Transcoding routes (auth required)
-		gateway.RegisterTranscodingRoutes(authGroup, zap.NewNop(), transcodingSvc)
+		// Transcoding routes (auth required). The input policy admits only the
+		// configured object store, so these tests — which are about routing,
+		// status and listing, not about the fetch guard — allowlist the host they
+		// submit. The guard itself is covered by the gateway tests.
+		gateway.RegisterTranscodingRoutes(authGroup, zap.NewNop(), transcodingSvc,
+			gateway.TranscodeInputPolicy{AllowedHosts: []string{"example.com"}})
 	}
 	return router
 }

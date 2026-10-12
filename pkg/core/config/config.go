@@ -246,6 +246,13 @@ type FeaturesConfig struct {
 	// therefore cannot expose server-side signing even if this is true.
 	DemoTxSigner bool
 
+	// AllowExternalTranscodeInput opts in to accepting PUBLIC internet URLs as a
+	// transcode input. It is off by default: the API takes uploaded objects and
+	// internal object-store URLs, and an arbitrary caller-supplied URL makes the
+	// server fetch something of the caller's choosing. Even when enabled, private,
+	// loopback, link-local and CGNAT targets stay refused.
+	AllowExternalTranscodeInput bool
+
 	// CapabilityTTL bounds how long an issued playback capability stays valid.
 	// A capability is a bearer credential carried in a URL, so the window is
 	// deliberately short; production may not exceed MaxCapabilityTTL.
@@ -424,6 +431,9 @@ func LoadConfig() (*Config, error) {
 	// Features — the demo signer opt-in is security-relevant, so bind it
 	// explicitly rather than relying on AutomaticEnv's key derivation.
 	_ = viper.BindEnv("features.demo_tx_signer", "FEATURES_DEMO_TX_SIGNER")
+	// Security-relevant, so bound explicitly rather than left to AutomaticEnv's
+	// key derivation.
+	_ = viper.BindEnv("features.allow_external_transcode_input", "FEATURES_ALLOW_EXTERNAL_TRANSCODE_INPUT")
 
 	// CORS
 	_ = viper.BindEnv("cors.allowed_origins", "STREAMGATE_CORS_ORIGINS")
@@ -577,17 +587,18 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Features: FeaturesConfig{
-			NFTGating:        viper.GetBool("features.nft_gating"),
-			GatingMode:       viper.GetString("features.gating_mode"),
-			SignatureAuth:    viper.GetBool("features.signature_auth"),
-			ChunkedUpload:    viper.GetBool("features.chunked_upload"),
-			ResumableUpload:  viper.GetBool("features.resumable_upload"),
-			AdaptiveBitrate:  viper.GetBool("features.adaptive_bitrate"),
-			MultiCodec:       viper.GetBool("features.multi_codec"),
-			DemoTxSigner:     viper.GetBool("features.demo_tx_signer"),
-			CapabilityTTL:    viper.GetDuration("features.capability_ttl"),
-			PositiveCacheTTL: viper.GetDuration("features.positive_cache_ttl"),
-			ClockSkew:        viper.GetDuration("features.clock_skew"),
+			NFTGating:                   viper.GetBool("features.nft_gating"),
+			GatingMode:                  viper.GetString("features.gating_mode"),
+			SignatureAuth:               viper.GetBool("features.signature_auth"),
+			ChunkedUpload:               viper.GetBool("features.chunked_upload"),
+			ResumableUpload:             viper.GetBool("features.resumable_upload"),
+			AdaptiveBitrate:             viper.GetBool("features.adaptive_bitrate"),
+			MultiCodec:                  viper.GetBool("features.multi_codec"),
+			DemoTxSigner:                viper.GetBool("features.demo_tx_signer"),
+			AllowExternalTranscodeInput: viper.GetBool("features.allow_external_transcode_input"),
+			CapabilityTTL:               viper.GetDuration("features.capability_ttl"),
+			PositiveCacheTTL:            viper.GetDuration("features.positive_cache_ttl"),
+			ClockSkew:                   viper.GetDuration("features.clock_skew"),
 		},
 
 		Auth: AuthConfig{
@@ -756,6 +767,8 @@ func setDefaults() {
 	viper.SetDefault("transcode.profiles", []string{"720p"})
 	viper.SetDefault("features.adaptive_bitrate", true)
 	viper.SetDefault("features.multi_codec", true)
+	// Default-deny: the transcode API does not fetch arbitrary external URLs.
+	viper.SetDefault("features.allow_external_transcode_input", false)
 	// Capability policy. These are the defaults the policy mandates; production
 	// may tighten them but not exceed the maxima (see Validate).
 	viper.SetDefault("features.capability_ttl", DefaultCapabilityTTL.String())
@@ -1090,7 +1103,8 @@ func DefaultConfig() *Config {
 			AdaptiveBitrate: true,
 			MultiCodec:      true,
 			// Off by default: server-side demo signing must be an explicit opt-in.
-			DemoTxSigner: false,
+			DemoTxSigner:                false,
+			AllowExternalTranscodeInput: false,
 			// Policy defaults; see Validate for the production ceilings.
 			CapabilityTTL:    DefaultCapabilityTTL,
 			PositiveCacheTTL: DefaultPositiveCacheTTL,

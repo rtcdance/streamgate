@@ -3,8 +3,10 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rtcdance/streamgate/docs"
@@ -279,7 +281,15 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
 
 	RegisterContentRoutes(router, log, svc.ContentService)
-	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc, cfg.Debug)
+	// The transcode API fetches the input itself, so its accepted sources are an
+	// allowlist: the configured object store, plus public internet URLs only if
+	// the deployment explicitly opted in. "Debug mode allows localhost" is NOT
+	// used here — that would open every private address to a caller-supplied URL
+	// just to make a local object store reachable.
+	RegisterTranscodingRoutes(router, log, svc.TranscodingSvc, TranscodeInputPolicy{
+		AllowedHosts:  transcodeInputAllowlist(cfg),
+		AllowExternal: cfg.Features.AllowExternalTranscodeInput,
+	})
 
 	// Use a root sub-group for RouteGroup-specific registrations
 	rootG := router.Group("/")
@@ -303,4 +313,33 @@ func parseBlockTag(s string) web3.BlockTag {
 	default:
 		return web3.BlockTagSafe
 	}
+}
+
+// transcodeInputAllowlist lists the hosts a transcode input URL may name without
+// being treated as external input. It is the configured object store, in both
+// "host:port" and bare "host" form, because a presigned URL may carry the port
+// and an internal one may not.
+//
+// This is deliberately narrow. The previous behaviour ("debug mode allows
+// localhost") allowed EVERY private address whenever the flag was on, which is a
+// far larger hole than making one object store reachable.
+func transcodeInputAllowlist(cfg *config.Config) []string {
+	endpoint := strings.TrimSpace(cfg.Storage.Endpoint)
+	if endpoint == "" {
+		return nil
+	}
+	// Strip any scheme: Endpoint is documented as host[:port] but a deployment
+	// may write it with one.
+	if idx := strings.Index(endpoint, "://"); idx >= 0 {
+		endpoint = endpoint[idx+3:]
+	}
+	endpoint = strings.TrimSuffix(endpoint, "/")
+	if endpoint == "" {
+		return nil
+	}
+	hosts := []string{endpoint}
+	if host, _, err := net.SplitHostPort(endpoint); err == nil && host != "" {
+		hosts = append(hosts, host)
+	}
+	return hosts
 }
