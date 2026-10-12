@@ -15,6 +15,7 @@ import specFlow from './specs/02-flow.mjs';
 import specDebug from './specs/03-debug.mjs';
 import specPlayground from './specs/04-playground.mjs';
 import specTrace from './specs/05-trace.mjs';
+import specPlayback from './specs/06-playback.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -27,6 +28,7 @@ const allSpecs = [
     { name: '03-debug', fn: specDebug },
     { name: '04-playground', fn: specPlayground },
     { name: '05-trace', fn: specTrace },
+    { name: '06-playback', fn: specPlayback },
 ];
 
 const only = args.only ? args.only.split(',').map((s) => s.trim()) : null;

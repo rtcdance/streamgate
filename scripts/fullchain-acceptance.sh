@@ -493,6 +493,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 9. Browser playback: real hls.js, real time advance
+# ---------------------------------------------------------------------------
+printf '\n=== Browser playback ===\n'
+
+if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
+    cat > /tmp/sg-playback.json <<JSON
+{"contentId":"$CONTENT_ID","entryUrl":"$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8","jwt":"$TOKEN_A"}
+JSON
+    HARNESS="$(cd "$(dirname "$0")/h5-demo-acceptance" 2>/dev/null && pwd || echo '')"
+    if [ -n "$HARNESS" ] && [ -d "$HARNESS/node_modules/playwright" ]; then
+        if (cd "$HARNESS" && SG_PLAYBACK_FILE=/tmp/sg-playback.json node run.mjs --only=06-playback >"$WORKDIR/playback.log" 2>&1); then
+            ADV="$(grep -oE 'currentTime=[0-9.]+s' "$WORKDIR/playback.log" | head -1)"
+            p "Browser played the stream and time advanced (${ADV:-ok})"
+        else
+            f "Browser playback failed: $(grep -m1 -E 'FAIL|Error' "$WORKDIR/playback.log" 2>/dev/null | head -c 200)"
+        fi
+    else
+        f "Playwright not installed under scripts/h5-demo-acceptance (run npm install)"
+    fi
+else
+    f "Skipped browser playback: missing content or token"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 printf '\n============================================\n'
