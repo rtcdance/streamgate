@@ -199,6 +199,11 @@ type TranscodingConfig struct {
 	MaxWorkers    int
 	QueueSize     int
 	OutputFormats []string
+	// MaxInputSize bounds an ORIGINAL: untrusted media that is written to disk
+	// and handed to FFmpeg. The default is deliberately modest rather than "as
+	// large as the upload endpoint allows", and production may not exceed
+	// MaxTranscodeInputSize.
+	MaxInputSize int64
 }
 
 // StreamingConfig holds streaming configuration
@@ -284,6 +289,15 @@ const (
 	// 60 + 5 + 5 = 70s. Changing any component without re-deriving this bound is
 	// how the guarantee silently stops holding, so the sum is validated.
 	MaxTransferRevocationBound = 70 * time.Second
+)
+
+// Transcode input ceiling. 100 MiB is the policy default for an ORIGINAL; the
+// hard ceiling is what a production deployment may configure. An original is
+// untrusted media written to disk and handed to FFmpeg, so the default is
+// deliberately modest rather than "as large as the upload endpoint allows".
+const (
+	DefaultMaxTranscodeInputSize int64 = 100 << 20
+	MaxTranscodeInputSize        int64 = 2 << 30
 )
 
 // NATSConfig holds NATS configuration
@@ -549,6 +563,7 @@ func LoadConfig() (*Config, error) {
 			MaxWorkers:    viper.GetInt("transcoding.max_workers"),
 			QueueSize:     viper.GetInt("transcoding.queue_size"),
 			OutputFormats: splitCommaSlice(viper.GetStringSlice("transcoding.output_formats")),
+			MaxInputSize:  viper.GetInt64("transcoding.max_input_size"),
 		},
 
 		Streaming: StreamingConfig{
@@ -720,6 +735,10 @@ func setDefaults() {
 	viper.SetDefault("transcoding.max_workers", 4)
 	viper.SetDefault("transcoding.queue_size", 100)
 	viper.SetDefault("transcoding.output_formats", []string{"hls", "dash"})
+	viper.SetDefault("transcoding.max_input_size", DefaultMaxTranscodeInputSize)
+	// Security-relevant, so bound explicitly rather than left to AutomaticEnv's
+	// key derivation.
+	_ = viper.BindEnv("transcoding.max_input_size", "STREAMGATE_TRANSCODING_MAX_INPUT_SIZE")
 
 	// Streaming defaults
 	viper.SetDefault("streaming.hls_segment_duration", 10)
@@ -907,6 +926,14 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		"your-secret-key-change-in-production",
 		"dev-secret-key-not-for-production",
 	}
+	// An original is untrusted media: it is written to disk and handed to FFmpeg.
+	// A ceiling above the hard limit is refused rather than warned about, because
+	// the consequence is unbounded disk and worker time on attacker-sized input.
+	if c.Transcoding.MaxInputSize > MaxTranscodeInputSize {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"transcoding.max_input_size is %d bytes — maximum %d in production",
+			c.Transcoding.MaxInputSize, MaxTranscodeInputSize))
+	}
 	for _, s := range insecureSecrets {
 		if c.Auth.JWTSecret == s {
 			ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret uses insecure default '%s'", s))
@@ -1055,6 +1082,7 @@ func DefaultConfig() *Config {
 		Transcoding: TranscodingConfig{
 			Enabled:       true,
 			MaxWorkers:    4,
+			MaxInputSize:  DefaultMaxTranscodeInputSize,
 			QueueSize:     100,
 			OutputFormats: []string{"hls", "dash"},
 		},
