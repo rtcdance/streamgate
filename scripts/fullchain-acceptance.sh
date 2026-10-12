@@ -496,7 +496,68 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Browser playback: real hls.js, real time advance
+# 9. Tampering matrix
+# ---------------------------------------------------------------------------
+printf '\n=== Tampering ===\n'
+
+PB_TOKEN="$(printf '%s' "${P_SEGURL:-}" | sed -n 's/.*playback_token=\([^&]*\).*/\1/p')"
+
+if [ -n "$PB_TOKEN" ]; then
+    # A segment name is not a path. Traversal must be refused outright. 401 is
+    # an acceptable refusal: the router normalises the path, the token then no
+    # longer matches the route, and the request never reaches storage - which is
+    # the property under test (no file outside the segment namespace is served).
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+        "$BASE_URL/api/v1/streaming/$CONTENT_ID/segment/..%2F..%2Fetc%2Fpasswd?playback_token=$PB_TOKEN")"
+    case "$CODE" in
+        400|401|403|404) p "Path traversal in the segment name refused ($CODE)" ;;
+        *)               f "Path traversal returned $CODE — expected 400/401/403/404" ;;
+    esac
+
+    # A playback capability is bound to one content: it must not work elsewhere.
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+        "$BASE_URL/api/v1/streaming/00000000-0000-0000-0000-000000000000/segment/0.ts?playback_token=$PB_TOKEN")"
+    case "$CODE" in
+        400|401|403|404) p "Playback token refused for another content ($CODE)" ;;
+        *)               f "Cross-content playback token returned $CODE" ;;
+    esac
+else
+    f "No playback token to tamper with — the tampering matrix did not run"
+fi
+
+# Retargeting the rule at a contract the holder owns nothing in must deny, not
+# allow. This is the "tampered contract" case: the gate must read the rule's
+# contract, not anything the caller supplies.
+#
+# Rule changes propagate through a cache, so this polls rather than assuming the
+# change is visible on the next request. What it does NOT tolerate is the change
+# never taking effect.
+if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
+    TAMPER_CONTRACT=0x000000000000000000000000000000000000dEaD
+    curl -s -X PUT "$BASE_URL/api/v1/gating-rules/$RULE_ID" -H "Authorization: Bearer $TOKEN_A" \
+        -H 'Content-Type: application/json' -d "{\"contract_address\":\"$TAMPER_CONTRACT\"}" >/dev/null 2>&1 || true
+
+    TAMPER_CODE=""
+    TAMPER_DEADLINE=$((SECONDS + 30))
+    while [ "$SECONDS" -lt "$TAMPER_DEADLINE" ]; do
+        TAMPER_CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
+            "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
+        [ "$TAMPER_CODE" != "200" ] && break
+        sleep 3
+    done
+    case "$TAMPER_CODE" in
+        403) p "Rule retargeted to a contract the holder lacks → denied (403)" ;;
+        503) p "Rule retargeted → refused, dependency unverifiable (503)" ;;
+        *)   f "Tampered contract still served after 30s (last=$TAMPER_CODE)" ;;
+    esac
+
+    # Restore so the rest of the run (and the next one) sees a valid rule.
+    curl -s -X PUT "$BASE_URL/api/v1/gating-rules/$RULE_ID" -H "Authorization: Bearer $TOKEN_A" \
+        -H 'Content-Type: application/json' -d "{\"contract_address\":\"$DEMO_CONTRACT\"}" >/dev/null 2>&1 || true
+fi
+
+# ---------------------------------------------------------------------------
+# 10. Browser playback: real hls.js, real time advance
 # ---------------------------------------------------------------------------
 printf '\n=== Browser playback ===\n'
 
