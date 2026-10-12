@@ -187,6 +187,27 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// Access-token identity. Stamped on every access JWT so the middleware can
+// reject a credential minted for another purpose (a playback capability) or
+// another service (audience) even when the signature is valid.
+const (
+	AccessTokenIssuer   = "streamgate"
+	AccessTokenAudience = "streamgate-api"
+)
+
+// accessTokenClaims builds the registered claims shared by every access token.
+func accessTokenClaims(subject string, expiry time.Duration) jwt.RegisteredClaims {
+	now := time.Now()
+	return jwt.RegisteredClaims{
+		Issuer:    AccessTokenIssuer,
+		Subject:   subject,
+		Audience:  jwt.ClaimStrings{AccessTokenAudience},
+		ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+		IssuedAt:  jwt.NewNumericDate(now),
+		NotBefore: jwt.NewNumericDate(now),
+	}
+}
+
 // AuthServiceOption applies RSA signing configuration.
 type AuthServiceSigningOption func(*AuthService)
 
@@ -452,14 +473,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		Username:      claims.Username,
 		WalletAddress: claims.WalletAddress,
 		JTI:           generateID(),
-		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        generateID(),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-			Subject:   claims.Subject,
-		},
 	}
+	newClaims.RegisteredClaims = accessTokenClaims(claims.Subject, s.jwtExpiry)
+	newClaims.RegisteredClaims.ID = generateID()
 
 	newTokenString, err := s.signToken(newClaims)
 	if err != nil {
@@ -510,15 +526,10 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 // generateToken generates a JWT token for a user
 func (s *AuthService) generateToken(user *models.User) (string, error) {
 	claims := &Claims{
-		Username:      user.Username,
-		WalletAddress: user.WalletAddress,
-		JTI:           generateID(),
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-			Subject:   user.ID,
-		},
+		Username:         user.Username,
+		WalletAddress:    user.WalletAddress,
+		JTI:              generateID(),
+		RegisteredClaims: accessTokenClaims(user.ID, s.jwtExpiry),
 	}
 
 	return s.signToken(claims)

@@ -596,7 +596,7 @@ make verify-docker
 | SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
-| SG-03 | **部分完成（仅 C 代签边界）** | 见 §8.6（删除通用代签入口；唯一服务端签名面改为 dev + 31337 + 显式 flag 三重门；A 身份 / B 资源所有权待实施） |
+| SG-03 | **部分完成（C 代签边界 + A 签名 / 路由边界）** | 见 §8.6 / §8.7（C：删除通用代签入口 + 三重门；A：playback 能力不可当 access token、算法精确固定、iss/aud 强制、未知签名类型拒绝）。**B 资源所有权待实施** |
 | SG-04～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
@@ -881,6 +881,28 @@ sequenceDiagram
 - **B（资源所有权）未做**：gating-rule 的 owner 校验（POST/PUT/DELETE）、内容/上传/转码/交易状态的 actor 隔离、A/B 双钱包越权负例 —— 全部待实施。
 - C.3 的"持久化 intent / nonce / receipt"按计划归 **SG-13**；本项只落路由、signer 与 actor 边界。
 - 未验证：`FEATURES_DEMO_TX_SIGNER` 在**生产**（`APP_DEBUG=false`）下的启动行为（生产校验会 FATAL，需完整 secrets 才能启动），故生产面由 `DemoSignerAllowed` 的单元用例覆盖而非实跑。
+
+### 8.7 SG-03 A 执行证据（签名 / 路由边界，**部分完成**）
+
+**A 只完成"签名与路由边界"部分**（A.1～A.3 的边界语义）；A.4 明确把 sessionID / authEpoch 的统一与持久撤销留给 **SG-06**。**B（资源所有权）仍未实施，SG-03 保持未勾选。**
+
+**先做事实核查（避免重复劳动）**：A 的相当一部分**已存在**——SIWE（EIP-4361）挑战生成与 `ValidateSIWEMessage`（domain/URI/chain/nonce/address）、challenge 的地址与链绑定 / 过期 / 已用检查、`MarkChallengeUsed` 的原子消费（TOCTOU 防护）、nonce 16 字节（=128 bit）、`defaultChallengeTTL = 5m`（=300s）。本项只补**确实缺失的**部分。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **playback 能力不得当 access token** | PASS（修复真实缺陷） | 原 `JWTAuthMiddleware` **从不检查 `token_type`** ⇒ 一个 `token_type=playback` 的能力若带 `wallet_address`，可当 Bearer 直接调管理 API。现改为**白名单**（`""`/`access` 通过，其余一律 401），未来新增凭据类型默认被拒 |
+| 算法**精确**固定 | PASS | 原 keyfunc 只校验 `*jwt.SigningMethodHMAC` / `*jwt.SigningMethodRSA` 家族 ⇒ **HS384/HS512 会被接受**。现按 `Alg()` 精确要求 `HS256`（secret 模式）或 `RS256`（公钥模式） |
+| issuer / audience 强制 | PASS | `JWTAuthConfig` 新增 `Issuer` / `Audience`（配置即强制）；中间件校验 `iss` 与 `aud`（支持字符串与数组两种 JWT 形式，新增 `audienceContains`）；`routes.go` 传入 `service.AccessTokenIssuer` / `AccessTokenAudience` |
+| access token 携带 iss/aud/sub | PASS | 新增 `accessTokenClaims(subject, ttl)` 统一构造，三处签发路径（钱包登录 / 刷新 / 密码登录）全部改用；`iss=streamgate`、`aud=streamgate-api` |
+| 未知签名类型拒绝 | PASS | `GenerateWalletChallenge` 原对任何非 `siwe`/`eip712` 的 `signType` **静默落到默认明文 personal_sign**。现先做白名单（`siwe`/`personal_sign`/`eip712`），其余返回 `ErrNotSupported` |
+| 新增用例 | PASS | `pkg/middleware/auth_token_kind_test.go`：playback 被拒 / 未知 token_type 被拒 / access 与缺省通过 / iss 强制（错+缺+对）/ aud 强制（字符串+数组+错+缺）/ **HS384+HS512 被拒**。`pkg/service/auth_wallet_signtype_test.go`：未知签名类型拒绝、受支持类型接受、access token 携带 iss/aud/sub、**nonce 128-bit 且不重复**、**TTL ≤300s** |
+| 回归 | PASS | `go test ./...` 全绿（含全部既有 middleware / service / gateway / e2e）；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+| 兼容性核查 | PASS | 既有测试用手工 token（无 iss/aud）且**未配置** Issuer/Audience ⇒ 不受影响（配置即强制）；脚本侧确认**无任何自签 JWT**（`grep HS256\|jwt.sign\|createHmac` over `scripts/` 为空），故不会打断验收脚本 |
+
+**限制 / 未覆盖（A）**：
+- **A.2 的"错误签名不能换 nonce / 地址后通过"**：现有代码已按 challenge 记录比对地址与链并原子消费；**未新增**针对该场景的专项用例（属可补强项，非遗漏结论）。
+- **A.4 明确不在本项**：access / refresh / capability 统一 `sessionID` + `authEpoch`、旧 token 缺字段拒绝、restore 后整体失效 —— 按计划由 **SG-06** 落实、**SG-14** 验证 restore。
+- 其他签名模式（`personal_sign` / `eip712` / Solana ed25519）**保留并已有回归**，支持边界已在代码注释与本表说明；未收窄。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

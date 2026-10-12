@@ -124,7 +124,16 @@ func (s *AuthService) GenerateWalletChallenge(ctx context.Context, walletAddress
 
 	st := "siwe"
 	if len(signType) > 0 && signType[0] != "" {
-		st = signType[0]
+		st = strings.ToLower(strings.TrimSpace(signType[0]))
+	}
+	// Fail closed on an unrecognised signing type. Previously anything other
+	// than "siwe"/"eip712" silently fell through to the plain personal_sign
+	// message, so a typo or an unsupported wallet type would be accepted under
+	// a weaker scheme than the caller asked for.
+	switch st {
+	case "siwe", "personal_sign", "eip712":
+	default:
+		return nil, fmt.Errorf("%w: unsupported signing type %q (want siwe, personal_sign or eip712)", ErrNotSupported, st)
 	}
 
 	challenge := &stg.WalletChallenge{
@@ -346,16 +355,10 @@ func (s *AuthService) buildEIP712Challenge(challenge *stg.WalletChallenge) *web3
 
 func (s *AuthService) generateWalletToken(walletAddress string) (string, error) {
 	claims := &Claims{
-		Username:      walletAddress,
-		WalletAddress: walletAddress,
-		JTI:           generateID(),
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "streamgate",
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-			Subject:   walletAddress,
-		},
+		Username:         walletAddress,
+		WalletAddress:    walletAddress,
+		JTI:              generateID(),
+		RegisteredClaims: accessTokenClaims(walletAddress, s.jwtExpiry),
 	}
 
 	return s.signToken(claims)

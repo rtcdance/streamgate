@@ -51,6 +51,11 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	jwtConfig := middleware.JWTAuthConfig{
 		Secret:    cfg.Auth.JWTSecret,
 		Blacklist: svc.AuthService,
+		// Every access token this service mints carries these; requiring them
+		// here means a token minted for another purpose or service is rejected
+		// even though its signature verifies.
+		Issuer:   service.AccessTokenIssuer,
+		Audience: service.AccessTokenAudience,
 		SkipPaths: []string{
 			APIPrefix + "/auth/challenge",
 			APIPrefix + "/auth/login",
