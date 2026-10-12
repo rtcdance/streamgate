@@ -274,7 +274,7 @@ flowchart LR
 
 **完成**：每个允许结果可对应具体链与所查区块；没有 silent latest 路径。其他链没有同等验收时收窄 README 承诺。
 
-### [ ] SG-05 / P1：真实钱包到真实 HLS 的自动化闭环
+### [x] SG-05 / P1：真实钱包到真实 HLS 的自动化闭环
 
 **依赖**：SG-00～04、SG-10～13。**文件范围**：`scripts/fullchain-acceptance.sh` 或已有 runner、媒体 seed、H5 specs / index、gateway / upload / transcoding / streaming 实际路径与 CI 专门 job。
 
@@ -602,8 +602,9 @@ make verify-docker
 | SG-02                | **完成**                                                                                              | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke）                                                                                                                                                                |
 | SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
-| SG-05                | **部分完成（步骤 1～8 均已落地；两种模式各 35/35 全绿）**                                                              | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、**Range 206 + Content-Range**、**浏览器真实播放推进 ≥3s**、**api-gateway 模式同循环复跑**、**篡改矩阵**、**CI 专用栈 job**。**未勾选原因**：步骤 6 的"**过期 token**"推迟给 SG-06（能力 TTL 属其"60 秒能力落实为配置校验"），且实测 token 存活 **>120s** 与预期 60s 不符（已登记为 SG-06 输入）；步骤 8 的 CI job **只能在 GitHub 上真正运行**，本机未执行 |
-| SG-06～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
+| SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
+| SG-06                | **部分完成（步骤 1）**                                                                                   | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s），修掉 handler 里硬编码 30 分钟的缺陷（SG-05 实测 token 存活 >120s 即由此而来）。**步骤 2～6 未做**：sessionID/authEpoch、ruleVersion 权威源、每条 playlist/segment 的能力与撤销校验、reorg 导致的不可续期、query capability 硬化 |
+| SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
 
@@ -1045,7 +1046,24 @@ sequenceDiagram
 **未做 / 推迟（SG-05 判据）**：步骤 6 的"**过期 token**"——实测**manifest 签发的播放 token 存活 >120s**，与计划预期的 60s 能力不符；能力 TTL 属 **SG-06**（"将第三节的 60 秒能力…落实为配置校验"），故**连同该实测数据一并登记为 SG-06 的输入**，而非在验收里用无限等待糊过去。步骤 8 的 CI job 本机无法执行。  
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
+### 8.11 SG-06 执行证据（**部分完成**：步骤 1 能力 TTL 策略）
+
+**步骤 1**：把"60 秒能力"从散落的常量变成**配置 + 生产上界校验**。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 修掉实测缺陷 | PASS | manifest 原以**硬编码 `30 * time.Minute`** 签发播放能力（`streaming_handlers.go:270`）—— 这正是 SG-05 实测"token 存活 >120s"的根因。现改为 `authService.PlaybackTokenTTL()` |
+| TTL 成为策略值 | PASS | `AuthService` 新增 `playbackTokenTTL`（默认 `DefaultPlaybackTokenTTL = 60s`）+ `WithPlaybackTokenTTL` + getter。**`WithPlaybackTokenTTL` 会在 `MaxPlaybackTokenTTL` 处钳制**，绕过配置的调用方也无法放宽窗口 |
+| 配置与生产上界 | PASS | `features.capability_ttl` / `positive_cache_ttl` / `clock_skew`，默认即策略值，`MaxCapabilityTTL` / `MaxPositiveCacheTTL` / `MaxClockSkew` 为生产上界；`ValidateProduction` 超界即 **Critical → 启动失败**（不是告警：窗口过宽从外部看不出来） |
+| 接线 | PASS | `providers.go` 把 `cfg.Features.CapabilityTTL` 传入 `NewAuthService` |
+| 单元用例 | PASS | TTL 默认值 / 配置值生效 / 超上界被钳制 / 非正值忽略；`ValidateProduction` 对三个上界分别拒绝、对默认值不报、**恰好等于上界允许** |
+| **端到端实测** | PASS | 验收里"能力过期"断言**重新启用并通过**：`PASS: Playback capability stops working once its policy TTL passes`。整体 **ALL 36 PASSED** |
+
+**未做（SG-06 判据）**：步骤 2（capability 覆盖 wallet/content/用途/audience/ruleVersion/sessionID/authEpoch/exp；JWT、refresh、capability 统一携带并校验 sessionID/authEpoch；旧 token 缺字段拒绝；正向存在校验 + Postgres 权威 epoch，缓存 ≤5s 且无滑动续期；续期需重查 NFT）；步骤 3（Postgres 为 ruleVersion 权威源、同事务单调递增、Redis 只缓存已提交版本且不倒退、各层 age 合计 ≤5s、权威源不可读则拒绝）；步骤 4（每条 playlist / segment / init / key 都校验能力与撤销版本；嵌套 playlist 另用 ≤5s 证据检查当前 NFT；申请与续期复用同一次 gate 证据；JWT 与 capability 并存时校验 wallet/session 相同；`Cache-Control: private, no-store`；转移后 70s 上界）；步骤 5（reorg 使证据失效时不可续期、已发能力同一上界内失效、服务器停发后续字节、播放器区分权限结束与网络故障）；步骤 6（Header 优先、query capability 的 `Referrer-Policy: no-referrer`、日志脱敏、错误不回显 token、redirect 不跨 origin 带凭据）。
+**另注**：`positive_cache_ttl` 与 `clock_skew` 已进入配置与校验，但**尚未接到实际使用点**（正缓存目前仍是 NFT gate 内的 `MaxEvidenceAge`；时钟容差仍是中间件里的 30s leeway）—— 接线属于步骤 2/4。
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
+
 
 | 决策 / 需求       | 默认选定设计                                                 | 必须补充的实证                                         |
 | ------------- | ------------------------------------------------------ | ----------------------------------------------- |
