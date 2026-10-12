@@ -22,6 +22,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// AnvilChainID is the local development chain. Server-side signing is only ever
+// exposed on it.
+const AnvilChainID int64 = 31337
+
+// DemoSignerAllowed reports whether the development-only server-side signer
+// routes may be registered. ALL of the following must hold:
+//
+//   - the process runs in development mode (cfg.Debug),
+//   - the configured chain is the local Anvil chain,
+//   - the operator explicitly opted in (features.demo_tx_signer).
+//
+// Missing any one means the routes are not registered at all, so a production
+// deployment cannot be probed for them and cannot enable them by accident.
+func DemoSignerAllowed(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.Debug && cfg.Web3.ChainID == AnvilChainID && cfg.Features.DemoTxSigner
+}
+
 func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, res *AppResources) {
 	registerInfrastructureRoutes(router, log, svc.DB, svc.SegmentStorage, res.MiddlewareSvc, cfg)
 
@@ -198,7 +218,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		FailureThreshold: 5, SuccessThreshold: 3, Timeout: 30 * time.Second,
 	}))
 	RegisterNFTRoutes(nftGroup, log, svc.NFTVerifier, svc.NFTCacheBackend, cfg.Web3.ChainID, 60*time.Second)
-	RegisterNFTDevMintRoute(router, svc.DemoNFTMinter, log)
+	RegisterNFTDevMintRoute(router, svc.DemoNFTMinter, log, DemoSignerAllowed(cfg))
 
 	RegisterUploadRoutes(router, log, svc.UploadService)
 

@@ -245,3 +245,7 @@ features:
   resumable_upload: true
   adaptive_bitrate: true
   multi_codec: true
+  # Server-side demo signing (the dev NFT mint) is off in the base config. It is
+  # enabled per-environment in config.dev.yaml and additionally requires
+  # development mode + chain 31337 at runtime.
+  demo_tx_signer: false

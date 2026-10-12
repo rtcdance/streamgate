@@ -596,7 +596,8 @@ make verify-docker
 | SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
-| SG-03～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-03 | **部分完成（仅 C 代签边界）** | 见 §8.6（删除通用代签入口；唯一服务端签名面改为 dev + 31337 + 显式 flag 三重门；A 身份 / B 资源所有权待实施） |
+| SG-04～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -852,6 +853,34 @@ sequenceDiagram
 **本机实测**（非采信）：`make test-coverage-gate` 15/15；`make test-ci` 绿、`COVERAGE_MIN=99` 红；真实 profile 上 `check-coverage.sh` 输出 `491/590 = 83%`；4 个 workflow YAML 经解析合法（`ci.yml` jobs = lint,test-go,test-contracts,build,security,test-anvil,docker）；提取出的 smoke 脚本 `bash -n` 通过；**smoke 的就绪机制**在真实依赖栈上验证：候选镜像对 postgres/redis/minio/nats **6 秒变 healthy、`/health` 200**。
 
 **限制（本项未覆盖）**：① 新增/改写的 CI job（`test-anvil`、`docker` 依赖、smoke）只能在 GitHub 上执行，本机未跑；smoke 的**依赖镜像供给**部分未在本机验证（本地 registry 镜像对 `minio/minio:latest` 返回 403），但**镜像就绪→健康→`/health` 200 的逻辑已在真实依赖栈实测**。② SG-02 步骤 4/5 的"**同产物**候选镜像扫描（PR 也扫同一 digest）与完整 DAG 接线"按计划归 **SG-08**（`scan-monolith` 目前仍只跑非 PR 且自行重建镜像）。③ 必需测试 ID 解析（步骤 7）随 SG-05/07/08 的媒体/性能/恢复 job 一并落地。
+
+### 8.6 SG-03 C 执行证据（代签边界，**部分完成**）
+
+**本项只完成 C（代签边界）；A（钱包身份 / 会话）与 B（资源所有权）未实施，SG-03 保持未勾选。**
+
+**起点**：工作区存在一份**未提交**的交易 API（`pkg/gateway/web3_handlers.go` + `pkg/service/web3_tx_track.go` + 测试），即 §2 表格中那条 P0：
+
+> 未提交交易 API 可让 JWT 用户指定服务器代签的 `to/value/data`
+
+**处置**：按用户决定**原位重写**，不是原样提交。重写后该未提交代码**不进入历史**（从未提交，故 diff 上表现为"新增门禁"而非"删除路由"）。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 通用代签入口被移除 | PASS | `POST /web3/tx/send`（接受任意 `to/value/data` 并用服务端私钥签名）与 `GET /web3/tx/status` 一并移除；`RegisterWeb3Routes` 回到只读三参签名；`Web3TxProvider` 接口与 `web3_tx_track.go` 删除（不保留无调用方的死代码） |
+| 唯一签名面三重门 | PASS | 新增 `gateway.DemoSignerAllowed(cfg)`：**必须同时** `cfg.Debug`（development）+ `web3.chain_id == 31337`（`AnvilChainID`）+ `features.demo_tx_signer`（显式 opt-in）。任一缺失即**不注册路由** |
+| 生产无法探测 | PASS | 未注册时返回 **404**（不是 401/403 —— 后者会暴露"存在一个受保护的签名器"） |
+| 动作不可被客户端参数化 | PASS | 存活的 `/nft/dev/mint` 本就固定合约 + 固定 `mint(address)` selector + **value 恒为 0** + 铸给**已认证钱包**（`middleware.GetWalletAddress`），请求体只有 `count`（1..10 有界）；无 `to/value/data` 入参 |
+| 显式 opt-in 的配置与来源 | PASS | 新增 `FeaturesConfig.DemoTxSigner`；显式 `viper.BindEnv("features.demo_tx_signer","FEATURES_DEMO_TX_SIGNER")`（安全相关，不依赖 AutomaticEnv 推导）；`config.yaml`/`config.prod.yaml` 默认 **false**，`config.dev.yaml`/`config.test.yaml` 为 true；代码默认值 false |
+| 单元用例 | PASS | 新增 `pkg/gateway/demo_signer_gate_test.go`：`TestDemoSignerAllowed`（5 子例：全满足 / 关 debug / 非 31337 / 缺 flag / nil cfg）、`TestRegisterNFTDevMintRoute_OnlyWhenAllowed`、`…_NotAllowedIsNotFound`（HTTP 404）、`…_NilMinter` |
+| **端到端实测** | PASS | 用**真实二进制 + 真实配置 + 真实 Anvil** 启动 monolith 两次，只差 `FEATURES_DEMO_TX_SIGNER`：<br>· flag 开 → 日志 `DEV-ONLY server-side signer registered at /nft/dev/mint`<br>· flag 关 → 日志 `Dev mint endpoint disabled (requires development mode + chain 31337 + features.demo_tx_signer)` |
+| 回归 | PASS | `go test ./...` 全绿；`-race ./pkg/gateway/... ./pkg/core/config/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+| 顺带修复（既有违例） | PASS | `cmd/microservices/api-gateway/main_test.go` 的 struct 对齐在基线 `6ded977` 即不符合 gofmt（本次核实：`git show 6ded977:… \| gofmt -l` 命中）。已 `gofmt -w` 修正，使 `gofmt -l` 真正为空 |
+
+**限制 / 未覆盖（本项）**：
+- **A（身份与会话）未做**：EIP-4361 消息字段校验、nonce ≥128-bit / TTL≤300s / 原子消费、JWT 固定 alg+iss+aud+type、capability 与 sessionID/authEpoch 的绑定 —— 全部待实施。
+- **B（资源所有权）未做**：gating-rule 的 owner 校验（POST/PUT/DELETE）、内容/上传/转码/交易状态的 actor 隔离、A/B 双钱包越权负例 —— 全部待实施。
+- C.3 的"持久化 intent / nonce / receipt"按计划归 **SG-13**；本项只落路由、signer 与 actor 边界。
+- 未验证：`FEATURES_DEMO_TX_SIGNER` 在**生产**（`APP_DEBUG=false`）下的启动行为（生产校验会 FATAL，需完整 secrets 才能启动），故生产面由 `DemoSignerAllowed` 的单元用例覆盖而非实跑。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

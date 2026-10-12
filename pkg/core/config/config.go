@@ -239,6 +239,12 @@ type FeaturesConfig struct {
 	ResumableUpload bool
 	AdaptiveBitrate bool
 	MultiCodec      bool
+	// DemoTxSigner opts in to the development-only server-side signer routes
+	// (the demo NFT mint). Setting it is NOT sufficient on its own: the routes
+	// are only registered when the process is also in development mode on the
+	// Anvil chain — see gateway.DemoSignerAllowed. A production deployment
+	// therefore cannot expose server-side signing even if this is true.
+	DemoTxSigner bool
 }
 
 // NATSConfig holds NATS configuration
@@ -382,6 +388,10 @@ func LoadConfig() (*Config, error) {
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
 	_ = viper.BindEnv("app.debug", "APP_DEBUG")
 	_ = viper.BindEnv("server.port", "STREAMGATE_SERVER_PORT")
+
+	// Features — the demo signer opt-in is security-relevant, so bind it
+	// explicitly rather than relying on AutomaticEnv's key derivation.
+	_ = viper.BindEnv("features.demo_tx_signer", "FEATURES_DEMO_TX_SIGNER")
 
 	// CORS
 	_ = viper.BindEnv("cors.allowed_origins", "STREAMGATE_CORS_ORIGINS")
@@ -542,6 +552,7 @@ func LoadConfig() (*Config, error) {
 			ResumableUpload: viper.GetBool("features.resumable_upload"),
 			AdaptiveBitrate: viper.GetBool("features.adaptive_bitrate"),
 			MultiCodec:      viper.GetBool("features.multi_codec"),
+			DemoTxSigner:    viper.GetBool("features.demo_tx_signer"),
 		},
 
 		Auth: AuthConfig{
@@ -1012,6 +1023,8 @@ func DefaultConfig() *Config {
 			ResumableUpload: true,
 			AdaptiveBitrate: true,
 			MultiCodec:      true,
+			// Off by default: server-side demo signing must be an explicit opt-in.
+			DemoTxSigner: false,
 		},
 
 		Auth: AuthConfig{

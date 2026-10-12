@@ -203,8 +203,8 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		// Server-side gating rule: the authorization subject must come from the
 		// resolver, never from the request (A8/A9).
 		nftGateConfig := middleware.NFTGateConfig{
-			Verifier:     verifier,
-			Cache:        &gateway.NFTAccessCacheAdapter{Cache: cache},
+			Verifier: verifier,
+			Cache:    &gateway.NFTAccessCacheAdapter{Cache: cache},
 			RuleResolver: staticGatingRuleResolver{rules: []middleware.GatingRule{
 				{ContractAddress: "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", TokenID: "", ChainID: 11155111, Standard: "erc721", MinBalance: 1},
 			}},
