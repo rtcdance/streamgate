@@ -121,17 +121,20 @@ type invalidGatingRuleError struct{ reason string }
 func (e *invalidGatingRuleError) Error() string { return "invalid gating rule: " + e.reason }
 
 type NFTGateConfig struct {
-	Verifier           NFTOwnershipChecker
-	BlockProver        BlockProver
-	Cache              NFTAccessCache
-	RuleResolver       GatingRuleResolver
-	AuditLogger        storage.AuditLogger
-	CircuitBreaker     *CircuitBreaker
-	BlockVerifyCache   *BlockHashCache
-	DefaultChainID     int64
-	CacheTTL           time.Duration
-	ReorgTTL           time.Duration
-	BlockVerifyTTL     time.Duration
+	Verifier         NFTOwnershipChecker
+	BlockProver      BlockProver
+	Cache            NFTAccessCache
+	RuleResolver     GatingRuleResolver
+	AuditLogger      storage.AuditLogger
+	CircuitBreaker   *CircuitBreaker
+	BlockVerifyCache *BlockHashCache
+	DefaultChainID   int64
+	CacheTTL         time.Duration
+	ReorgTTL         time.Duration
+	BlockVerifyTTL   time.Duration
+	// MaxEvidenceAge caps how old the on-chain evidence behind a decision may
+	// be, measured from when the query started. Zero means the 5s default.
+	MaxEvidenceAge     time.Duration
 	MarketplaceURL     string
 	BlockTag           web3.BlockTag
 	AutoDetectStandard bool
@@ -216,6 +219,11 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 	}
 	if config.BlockVerifyTTL == 0 {
 		config.BlockVerifyTTL = 5 * time.Second
+	}
+	// The freshness bound on on-chain evidence. Whatever the cache TTLs say,
+	// evidence older than this is re-read rather than trusted.
+	if config.MaxEvidenceAge <= 0 {
+		config.MaxEvidenceAge = defaultMaxEvidenceAge
 	}
 	if config.BlockVerifyCache == nil {
 		config.BlockVerifyCache = NewBlockHashCache()
@@ -438,6 +446,10 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 // thresholds over the same subject can never share a stale decision.
 func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, error) {
 	start := time.Now()
+	// The freshness clock for whatever evidence this request ends up using
+	// starts HERE, before any cache is consulted, so a cache write further down
+	// the stack cannot make the evidence look younger than it is.
+	observedAt := start
 
 	if config.Cache != nil {
 		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
@@ -475,7 +487,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 			config.CircuitBreaker.RecordSuccess()
 		}
 		if config.Cache != nil {
-			setCachedEntry(ctx, config, logger, cacheKey, chainID, quantity)
+			setCachedEntry(ctx, config, logger, cacheKey, chainID, observedAt, quantity)
 		}
 		return quantity, nil
 	})
@@ -490,10 +502,36 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 	return quantity, nil
 }
 
+// defaultMaxEvidenceAge is the freshness bound applied to on-chain evidence
+// when the operator has not chosen one.
+const defaultMaxEvidenceAge = 5 * time.Second
+
+// evidenceAgeBound returns the configured freshness bound. A zero or negative
+// value means "use the default" rather than "no bound at all", so a config that
+// never passed through NFTGateMiddleware cannot silently disable the check.
+func evidenceAgeBound(config *NFTGateConfig) time.Duration {
+	if config.MaxEvidenceAge <= 0 {
+		return defaultMaxEvidenceAge
+	}
+	return config.MaxEvidenceAge
+}
+
 // cachedQuantity decides whether a cached entry can be trusted and, if so,
 // returns a copy of its balance evidence. A nil balance is never usable.
 func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, entry NFTAccessEntry) (*big.Int, bool) {
 	if entry.Balance == nil {
+		return nil, false
+	}
+	// Evidence has a freshness bound that is independent of the cache TTL, and
+	// it is measured from when the query STARTED. An entry written at T and read
+	// at T+10s is re-read, and re-writing the entry into a lower cache does not
+	// reset that clock.
+	bound := evidenceAgeBound(config)
+	if entry.ObservedAt.IsZero() || time.Since(entry.ObservedAt) > bound {
+		logger.Debug("NFT evidence past its freshness bound, re-reading",
+			zap.String("cache_key", cacheKey),
+			zap.Duration("age", time.Since(entry.ObservedAt)),
+			zap.Duration("max_age", bound))
 		return nil, false
 	}
 	if entry.BlockHash == "" || config.BlockProver == nil {
@@ -542,7 +580,7 @@ func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, 
 	return nil, false
 }
 
-func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, chainID int64, quantity *big.Int) {
+func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, chainID int64, observedAt time.Time, quantity *big.Int) {
 	var blockNumber uint64
 	var blockHash string
 	if config.BlockProver != nil {
@@ -586,6 +624,9 @@ func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logg
 		BlockNumber: blockNumber,
 		BlockHash:   blockHash,
 		Expires:     time.Now().Add(ttl),
+		// The query's own start time, not "now": writing the entry must not
+		// reset the evidence's freshness clock.
+		ObservedAt: observedAt,
 	})
 }
 

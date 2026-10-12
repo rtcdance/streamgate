@@ -957,15 +957,19 @@ sequenceDiagram
 | 跨链证据不互用 | PASS | `TestBlockHashCache_IsScopedToChain`（同高度、两链各自命中自己的哈希，互不覆盖）；`TestCachedQuantity_BlockHashEvidenceIsChainScoped`（链 1 在高度 100 的哈希**不会**把链 2 的同高度证据误判成 reorg，且断言 prover 收到的 chainID == 2） |
 | 同链 reorg 仍能识别 | PASS | `TestCachedQuantity_ReorgStillDetectedWithinChain`：同链同高度哈希变化 → 证据失效且置 `reorgActive` |
 | 同链缓存命中不查 prover | PASS | `TestCachedQuantity_SameChainCacheHitSkipsProver` |
+| **证据 age 上界（5 秒）** | PASS | `NFTGateConfig.MaxEvidenceAge`（0/负 → `defaultMaxEvidenceAge = 5s`，**0 不等于"无上界"**）；`cachedQuantity` 对 `ObservedAt` 为零或 `age > 上界` 的条目**直接拒用**（在 reorg 校验之前），日志记录 age 与上界 |
+| **observedAt 在查询开始捕获、写入不刷新** | PASS | `resolveQuantity` 在任何缓存查询**之前**取 `observedAt := start`，透传 `setCachedEntry`，写入 `NFTAccessEntry.ObservedAt = observedAt`（**不是 `time.Now()`**）⇒ 插入下层缓存不能把旧证据"洗新"；gateway 侧 `handleNFTVerify` 同样在缓存查询前捕获 |
+| 证据跨层序列化保留 age | PASS | `CachedNFTAccess.ObservedAt` + `to/fromMiddlewareNFTAccessEntry` 双向映射（Redis L2 走 `json.Marshal(NFTAccessEntry)`，字段自动往返） |
+| 新增用例 | PASS | `TestCachedQuantity_EvidenceOlderThanBoundIsRejected`（10s 旧证据被拒，且**在 reorg 校验前**就丢弃）；`…EvidenceWithinBoundIsUsable`；`…ZeroObservedAtIsRejected`（无观测时间 → fail closed）；`TestSetCachedEntry_ObservedAtIsNotRefreshed`（写入不刷新 age） |
 | 回归 | PASS | `go test ./...` 全绿；`-race ./pkg/middleware/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
 
 **限制 / 未覆盖（本项，均为 SG-04 判据）**：
-- **步骤 2 未做**：没有"先解析该链 safe/finalized 的 `number`+`hash`，再把本次所有 `balanceOf` / `ownerOf` / ERC-165 查询**固定到同一个区块**"；当前仍是按 `safe` **标签**查询（`ChainClient.CallContractAtBlock(ctx, msg, blockTag)`），节点逐次解析标签，**读期间出新块会污染证据**。也没有返回 `observedAt`、没有"header/balance/singleflight 缓存合计 age ≤5 秒"的上界。
-- **步骤 1 未做**：RPC endpoint 初始化 / reconnect 的 `eth_chainId` 校验、错链剔除、每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性 —— 全部未做。
+- **步骤 2 未做（部分）**：没有"先解析该链 safe/finalized 的 `number`+`hash`，再把本次所有 `balanceOf` / `ownerOf` / ERC-165 查询**固定到同一个区块**"；当前仍是按 `safe` **标签**查询（`ChainClient.CallContractAtBlock(ctx, msg, blockTag)`），节点逐次解析标签，**读期间出新块仍会污染证据**。也**没有返回** `observedAt` / `blockHash` 作为对外证据字段（`observedAt` 已用于缓存新鲜度，但未出现在响应里）。
+- **步骤 1 未做**：每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性未验证（错链拒绝的连接期语义已存在，见上）。
 - **步骤 3 未做**：仅按 number 查询时查询前后核对 hash 的"有限重试后拒绝"路径未实现。
 - **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（当前只有"缓存校验时发现 hash 不一致"这一条被动路径）。
 - **验证方式未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次为**单元级**验证（mock prover），未起 Anvil，也未断言真实 RPC 的 block 参数。
-- 因此"没有 silent latest 路径"这一完成判据**尚不成立**（`setCachedEntry` 仍用 `HeaderByNumber(ctx, chainID, nil)` 取该链最新块作为证据锚点）。
+- 因此"没有 silent latest 路径"这一完成判据**尚不成立**（`setCachedEntry` 仍用 `HeaderByNumber(ctx, chainID, nil)` 取该链最新块作为证据锚点；age 上界只约束"多久算旧"，不改变"锚点是最新块"这一事实）。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

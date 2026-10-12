@@ -103,7 +103,8 @@ func toMiddlewareNFTAccessEntry(e CachedNFTAccess) middleware.NFTAccessEntry {
 	return middleware.NFTAccessEntry{
 		HasNFT: e.HasNFT, Balance: e.Balance,
 		BlockNumber: e.BlockNumber, BlockHash: e.BlockHash,
-		Expires: e.ExpiresAt,
+		Expires:    e.ExpiresAt,
+		ObservedAt: e.ObservedAt,
 	}
 }
 
@@ -111,6 +112,7 @@ func fromMiddlewareNFTAccessEntry(e middleware.NFTAccessEntry) CachedNFTAccess {
 	return CachedNFTAccess{
 		HasNFT: e.HasNFT, Balance: e.Balance,
 		BlockNumber: e.BlockNumber, BlockHash: e.BlockHash,
-		ExpiresAt: e.Expires,
+		ExpiresAt:  e.Expires,
+		ObservedAt: e.ObservedAt,
 	}
 }

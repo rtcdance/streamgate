@@ -302,9 +302,10 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		Cache: &mockNFTAccessCacheOld{
 			entries: map[string]NFTAccessEntry{
 				"1:0xOwner:" + testContractAddr + ":__collection__:erc721": {
-					HasNFT:  true,
-					Balance: big.NewInt(5),
-					Expires: time.Now().Add(time.Minute),
+					HasNFT:     true,
+					Balance:    big.NewInt(5),
+					Expires:    time.Now().Add(time.Minute),
+					ObservedAt: time.Now(),
 				},
 			},
 		},
@@ -843,7 +844,7 @@ func TestSetCachedEntry_WithBlockProver(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", 1, big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", 1, time.Now(), big.NewInt(1))
 
 	entry, ok := cache.entries["test-key"]
 	assert.True(t, ok)
@@ -863,7 +864,7 @@ func TestSetCachedEntry_WithBlockProverError(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", 1, big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", 1, time.Now(), big.NewInt(1))
 
 	entry, ok := cache.entries["test-key-err"]
 	assert.True(t, ok)
@@ -879,7 +880,7 @@ func TestSetCachedEntry_NegativeResultShorterTTL(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", 1, big.NewInt(0))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", 1, time.Now(), big.NewInt(0))
 
 	entry, ok := cache.entries["neg-key"]
 	assert.True(t, ok)
@@ -933,6 +934,7 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 		BlockNumber: 100,
 		BlockHash:   "0xoriginalhash",
 		Expires:     time.Now().Add(time.Minute),
+		ObservedAt:  time.Now(),
 	}
 
 	config := NFTGateConfig{
