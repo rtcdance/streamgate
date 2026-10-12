@@ -129,6 +129,17 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		})
 		svc.GatingRuleResolver = NewVersionedGatingRuleResolverAdapter(svc.GatingRuleSvc, ruleVersions)
 		resources.GatingRuleResolver = svc.GatingRuleResolver
+		// Capabilities carry the rule version they were issued under, so a rule
+		// change reaches media already in flight without a per-segment chain read.
+		if authService != nil {
+			authService.SetRuleVersionReader(func(ctx context.Context, contentID string) (int64, error) {
+				v, err := ruleVersions.Read(ctx, contentID)
+				if err != nil {
+					return 0, err
+				}
+				return v.Version, nil
+			})
+		}
 	}
 	// An explicitly injected resolver (RouterOption) wins over the DB-backed one.
 	if rc.GatingRuleResolver != nil {

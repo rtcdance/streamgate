@@ -112,6 +112,8 @@ type AuthService struct {
 	sessionMu         sync.RWMutex
 	sessionCache      map[string]cachedSession
 	sessionStore      stg.SessionStore
+	ruleVersionMu     sync.RWMutex
+	ruleVersionReader RuleVersionReader
 	eip712Verifier    web3.EIP712VerifierInterface
 	siweDomain        string
 	siweURI           string
@@ -198,6 +200,11 @@ type Claims struct {
 	// predates the scheme and is refused rather than grandfathered in.
 	SessionID string `json:"session_id,omitempty"`
 	AuthEpoch int64  `json:"auth_epoch,omitempty"`
+	// RuleVersion is the authorization-rule version the capability was issued
+	// under. A segment request cannot re-read the chain, so this is how a rule
+	// change reaches media already in flight: the capability is stale the moment
+	// the content's rules move, without any per-segment chain query.
+	RuleVersion int64 `json:"rule_version,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -400,6 +407,34 @@ func WithSessionStore(store stg.SessionStore) AuthServiceOption {
 
 // AuthServiceOption applies RSA signing configuration.
 type AuthServiceSigningOption func(*AuthService)
+
+// RuleVersionReader reports the current authorization-rule version for a content.
+// *storage.CachingRuleVersionStore satisfies it.
+//
+// It is injected as a function type rather than an interface so pkg/service does
+// not depend on the storage layer's concrete store.
+type RuleVersionReader func(ctx context.Context, contentID string) (int64, error)
+
+// SetRuleVersionReader wires the authority a capability's RuleVersion is checked
+// against. Without it, an already-issued capability survives a rule change until
+// its TTL expires — the check simply cannot run.
+func (s *AuthService) SetRuleVersionReader(read RuleVersionReader) {
+	s.ruleVersionMu.Lock()
+	defer s.ruleVersionMu.Unlock()
+	s.ruleVersionReader = read
+}
+
+func (s *AuthService) currentRuleVersion(ctx context.Context, contentID string) (int64, error) {
+	s.ruleVersionMu.RLock()
+	read := s.ruleVersionReader
+	s.ruleVersionMu.RUnlock()
+	if read == nil {
+		// No authority configured: the version cannot be checked, so it is not
+		// enforced here. The wiring warns when this happens.
+		return 0, nil
+	}
+	return read(ctx, contentID)
+}
 
 // WithRSASigning configures the AuthService to use RS256 instead of HS256.
 // The private key is used for signing; the public key is embedded for verification.
