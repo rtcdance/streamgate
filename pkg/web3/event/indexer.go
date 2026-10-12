@@ -850,11 +850,16 @@ func (el *EventListener) ProcessAllEvents(ctx context.Context) error {
 	return nil
 }
 
+// ContentRegisteredEvent carries only what the indexed topics can prove.
+//
+// ContentRegistry emits ContentRegistered(bytes32 indexed contentKey,
+// string contentId, address indexed creator, bytes32 contentDigest, ...).
+// A dynamic `string` cannot be recovered from an indexed topic, so contentId is
+// deliberately absent here — callers that need it must decode the data payload
+// against the ABI. ContentKey is keccak256(contentId), NOT the contentId.
 type ContentRegisteredEvent struct {
-	ContentHash string
-	Owner       string
-	Timestamp   int64
-	Metadata    string
+	ContentKey string
+	Creator    string
 }
 
 func DecodeContentRegisteredEvent(event *IndexedEvent) (*ContentRegisteredEvent, error) {
@@ -862,8 +867,8 @@ func DecodeContentRegisteredEvent(event *IndexedEvent) (*ContentRegisteredEvent,
 		return nil, fmt.Errorf("ContentRegisteredEvent: expected at least 3 topics, got %d", len(event.Topics))
 	}
 	return &ContentRegisteredEvent{
-		ContentHash: event.Topics[1],
-		Owner:       event.Topics[2],
+		ContentKey: event.Topics[1],
+		Creator:    event.Topics[2],
 	}, nil
 }
 

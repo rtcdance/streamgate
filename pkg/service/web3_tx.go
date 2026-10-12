@@ -329,12 +329,17 @@ func (ws *Web3Service) WaitForReceipt(ctx context.Context, chainID int64, txHash
 	return receipt, nil
 }
 
-// RegisterContent registers content on the ContentRegistry contract on the given chain.
-// It packs the ABI call data, sends the transaction, and waits for the receipt.
-func (ws *Web3Service) RegisterContent(ctx context.Context, chainID int64, contractAddress, contentHash, metadataURI string) (string, error) {
+// RegisterContent attests content on the ContentRegistry contract on the given
+// chain. `creator` is the verified content owner (distinct from the platform
+// attestor that signs the transaction) and `contentDigest` is the SHA-256 of
+// the original bytes.
+func (ws *Web3Service) RegisterContent(ctx context.Context, chainID int64, contractAddress, contentID, creator string, contentDigest [32]byte, metadataURI string) (string, error) {
 	txConfig := ws.config.Web3.Transaction
 	if txConfig.PrivateKeyHex == "" {
 		return "", fmt.Errorf("transaction private key not configured")
+	}
+	if !common.IsHexAddress(creator) {
+		return "", fmt.Errorf("invalid creator address %q", creator)
 	}
 
 	client, err := ws.multiChainManager.GetClient(chainID)
@@ -348,7 +353,7 @@ func (ws *Web3Service) RegisterContent(ctx context.Context, chainID int64, contr
 		ABI:     web3.ContentRegistryABI,
 	}
 	ci := web3.NewContractInteractor(client.GetEthClient(), ws.logger)
-	callData, err := registry.RegisterContent(ctx, ci, contentHash, "", metadataURI)
+	callData, err := registry.RegisterContent(ctx, ci, contentID, common.HexToAddress(creator), contentDigest, metadataURI)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack registerContent call: %w", err)
 	}
@@ -374,7 +379,8 @@ func (ws *Web3Service) RegisterContent(ctx context.Context, chainID int64, contr
 
 	ws.logger.Info("Content registered on-chain",
 		zap.String("tx_hash", txHash),
-		zap.String("content_hash", contentHash),
+		zap.String("content_id", contentID),
+		zap.String("creator", creator),
 		zap.Uint64("block", receipt.BlockNumber))
 
 	return txHash, nil
