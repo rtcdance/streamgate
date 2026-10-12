@@ -82,17 +82,22 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
-          for f in $(ls migrations/*.sql | grep -v '.down.sql' | sort); do
+          # Apply every up-migration in filename order and stop at the first
+          # error (ON_ERROR_STOP=1). The previous `|| true` swallowed bad SQL,
+          # so a broken migration could never fail this job.
+          for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
-            psql -h localhost -U streamgate -d streamgate_test < "$f" || true
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test < "$f"
           done
 
       - name: Run tests
         run: |
-          go test -race -coverprofile=coverage.out \
-            $(go list ./... | grep -v '/test/e2e' | grep -v '/test/load' | grep -v '/test/integration/web3')
+          # Package set is shared with `make test-ci` (scripts/ci-packages.sh)
+          # so the local and CI coverage gates cannot drift apart.
+          go test -race -coverprofile=coverage.out $(./scripts/ci-packages.sh)
         env:
           STREAMGATE_DB_HOST: localhost
           STREAMGATE_DB_PORT: 5432
@@ -102,26 +107,24 @@ jobs:
           STREAMGATE_REDIS_HOST: localhost
           STREAMGATE_REDIS_PORT: 6379
 
+      - name: Verify the coverage gate can fail
+        run: bash scripts/check-coverage_test.sh
+
       - name: Check coverage
         run: |
-          if [ ! -f coverage.out ] || [ ! -s coverage.out ]; then
-            echo "No coverage data generated"
-            exit 0
-          fi
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-          echo "Total coverage: ${COVERAGE}%"
-          # Write coverage to job summary (visible at bottom of workflow page)
-          echo "## Coverage Report" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Total coverage: ${COVERAGE}%**" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          go tool cover -func=coverage.out 2>/dev/null >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          if [ "$(echo "$COVERAGE < 60" | bc -l)" = "1" ]; then
-            echo "Coverage ${COVERAGE}% is below 60% threshold"
-            exit 1
-          fi
+          # Human-readable summary only — never the gate itself.
+          {
+            echo "## Coverage Report"
+            echo ""
+            echo '```'
+            go tool cover -func=coverage.out 2>/dev/null | tail -n 1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true
+          # The gate, shared with `make test-ci`: integer maths over the
+          # profile's own statement counts, and a hard failure on a
+          # missing/empty/malformed profile (previously: "No coverage data
+          # generated" + exit 0, i.e. no coverage could not fail the job).
+          ./scripts/check-coverage.sh coverage.out 60
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -230,11 +233,37 @@ jobs:
           # carries timestamp fields. Reviewed and accepted (2026-10-11).
           slither-args: --filter-paths "lib|test" --exclude incorrect-equality,timestamp
 
+  test-anvil:
+    name: Anvil Integration (Web3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build contracts (Forge artifacts the Anvil suite loads)
+        working-directory: contracts
+        run: |
+          forge install || true
+          forge build
+
+      - name: Run Anvil integration tests
+        run: go test -tags=anvil -race -count=1 ./test/integration/web3/...
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [test-go, build, security]
-    if: always() && needs.build.result == 'success' && needs.security.result == 'success'
+    # Every upstream gate must pass before a candidate image is built. The
+    # previous `if: always() && needs.build… && needs.security…` let this job
+    # build an image even when the Go tests had failed.
+    needs: [lint, test-go, test-contracts, test-anvil, build, security]
     steps:
       - uses: actions/checkout@v4
 
@@ -251,7 +280,89 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test monolith
+      - name: Smoke test monolith (real readiness, not "file exists")
         run: |
-          docker run --rm streamgate-monolith:ci \
-            sh -c "ls -la /app/streamgate && echo 'Binary exists and is executable'" || echo "Smoke test completed with warnings (expected without config)"
+          set -euo pipefail
+          net=ci-smoke-net
+          docker network create "$net"
+
+          cleanup() {
+            docker rm -f ci-monolith ci-postgres ci-redis ci-minio ci-nats >/dev/null 2>&1 || true
+            docker network rm "$net" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          # Minimal dependency set, addressed by container name on a private
+          # network — the same wiring the fullchain stack uses. The monolith
+          # cannot serve without these, so the smoke must bring them up; a bare
+          # container is not a readiness test.
+          docker run -d --name ci-postgres --network "$net" \
+            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=streamgate \
+            postgres:15-alpine
+          docker run -d --name ci-redis --network "$net" redis:7-alpine
+          docker run -d --name ci-minio --network "$net" \
+            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          docker run -d --name ci-nats --network "$net" nats:2.10-alpine -js
+
+          wait_for() {  # wait_for <label> <cmd...>
+            local label="$1"; shift
+            for _ in $(seq 1 60); do
+              if "$@" >/dev/null 2>&1; then echo "$label ready"; return 0; fi
+              sleep 1
+            done
+            echo "::error::$label did not become ready"
+            return 1
+          }
+          wait_for postgres docker exec ci-postgres pg_isready -U postgres
+          wait_for redis docker exec ci-redis redis-cli ping
+          wait_for minio docker exec ci-minio curl -fsS http://localhost:9000/minio/health/live
+
+          # The candidate image under test, pointed at those dependencies.
+          docker run -d --name ci-monolith --network "$net" -p 18080:8080 \
+            -e APP_DEBUG=true \
+            -e STREAMGATE_JWT_SECRET=ci-smoke-jwt-secret-0123456789-abcdef \
+            -e STREAMGATE_DB_HOST=ci-postgres -e STREAMGATE_DB_PORT=5432 \
+            -e STREAMGATE_DB_USER=postgres -e STREAMGATE_DB_PASSWORD=postgres \
+            -e STREAMGATE_DB_NAME=streamgate -e STREAMGATE_DB_SSLMODE=disable \
+            -e STREAMGATE_REDIS_HOST=ci-redis -e STREAMGATE_REDIS_PORT=6379 \
+            -e STREAMGATE_STORAGE_TYPE=minio -e STREAMGATE_STORAGE_ENDPOINT=ci-minio:9000 \
+            -e STREAMGATE_STORAGE_ACCESS_KEY=minioadmin -e STREAMGATE_STORAGE_SECRET_KEY=minioadmin \
+            -e STREAMGATE_STORAGE_BUCKET=streamgate \
+            -e STREAMGATE_NATS_URL=nats://ci-nats:4222 \
+            streamgate-monolith:ci
+
+          # Wait for the image's own HEALTHCHECK (wget /health) to report
+          # healthy. A container that starts but never serves must fail here.
+          healthy=false
+          for i in $(seq 1 60); do
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ci-monolith 2>/dev/null || echo missing)"
+            case "$health" in
+              healthy)
+                echo "monolith healthcheck: healthy after ${i}s"
+                healthy=true
+                break
+                ;;
+              unhealthy)
+                echo "::error::monolith healthcheck reported unhealthy"
+                docker logs ci-monolith || true
+                exit 1
+                ;;
+            esac
+            if [ "$(docker inspect -f '{{.State.Running}}' ci-monolith 2>/dev/null || echo false)" != "true" ]; then
+              echo "::error::monolith exited before becoming healthy"
+              docker logs ci-monolith || true
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$healthy" != "true" ]; then
+            echo "::error::monolith did not become healthy within 60s"
+            docker logs ci-monolith || true
+            exit 1
+          fi
+
+          # Minimal business request against the real service.
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health)"
+          echo "GET /health -> $code"
+          [ "$code" = "200" ] || { echo "::error::/health returned $code"; docker logs ci-monolith || true; exit 1; }
