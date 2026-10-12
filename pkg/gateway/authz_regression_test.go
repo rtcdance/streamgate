@@ -117,6 +117,14 @@ func (f fakeOwnership) GetNFTBalance(_ context.Context, _ int64, contract, _ str
 	return big.NewInt(0), nil
 }
 
+// GetNFTOwnershipQuantity mirrors the ownership map as a 0/1 quantity.
+func (f fakeOwnership) GetNFTOwnershipQuantity(_ context.Context, _ int64, contract, _, _ string) (*big.Int, error) {
+	if f.isOwned(contract) {
+		return big.NewInt(1), nil
+	}
+	return big.NewInt(0), nil
+}
+
 func (f fakeOwnership) GetNFTInfo(context.Context, int64, string, string) (*middleware.NFTMetadata, error) {
 	return &middleware.NFTMetadata{}, nil
 }

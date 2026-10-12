@@ -53,6 +53,27 @@ func (m *mockNFTChecker) GetNFTInfo(ctx context.Context, chainID int64, contract
 	return nil, nil
 }
 
+// GetNFTOwnershipQuantity reports the mock's balance for collection subjects
+// and 0/1 for a specific token, matching the legacy fields' meaning.
+func (m *mockNFTChecker) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contract, tokenID, owner string) (*big.Int, error) {
+	if m.balanceErr != nil {
+		return nil, m.balanceErr
+	}
+	if tokenID != "" {
+		if m.verifyErr != nil {
+			return nil, m.verifyErr
+		}
+		if m.verifyResult {
+			return big.NewInt(1), nil
+		}
+		return big.NewInt(0), nil
+	}
+	if m.balance == nil {
+		return big.NewInt(0), nil
+	}
+	return m.balance, nil
+}
+
 // mockWeb3StatusProvider implements gateway.Web3StatusProvider for E2E tests.
 type mockWeb3StatusProvider struct{}
 

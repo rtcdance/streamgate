@@ -997,6 +997,10 @@ func (m *routesMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ stri
 	return &middleware.NFTMetadata{}, nil
 }
 
+func (m *routesMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+	return big.NewInt(1), nil
+}
+
 type routesMockWeb3StatusProvider struct {
 	statuses map[int64][]web3.RPCStatus
 	chains   []*web3.ChainConfig
