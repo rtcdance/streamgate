@@ -16,11 +16,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// TranscodeInputPolicy is how the transcode API decides which input_url values
+// it will accept. The zero value is the safe default: no allowlist, external
+// input refused.
+type TranscodeInputPolicy struct {
+	// AllowedHosts is an exact host or host:port allowlist — the configured
+	// object store. Matching it is the ONLY way an internal address is permitted,
+	// so the store can be reached without opening every private address to a
+	// caller-supplied URL.
+	AllowedHosts []string
+	// AllowExternal permits public internet URLs. Off by default: the API takes
+	// uploaded objects and internal object-store URLs, not arbitrary external
+	// input.
+	AllowExternal bool
+}
+
 // RegisterTranscodingRoutes registers video transcoding management routes.
-func RegisterTranscodingRoutes(router gin.IRouter, log *zap.Logger, svc *service.TranscodingService, allowLocalhost ...bool) {
-	allowLocal := len(allowLocalhost) > 0 && allowLocalhost[0]
+func RegisterTranscodingRoutes(router gin.IRouter, log *zap.Logger, svc *service.TranscodingService, policy ...TranscodeInputPolicy) {
+	inputPolicy := TranscodeInputPolicy{}
+	if len(policy) > 0 {
+		inputPolicy = policy[0]
+	}
 	transcode := router.Group(APIPrefix + "/transcode")
-	transcode.POST("/submit", handleTranscodeSubmit(svc, log, allowLocal))
+	transcode.POST("/submit", handleTranscodeSubmit(svc, log, inputPolicy))
 	transcode.GET("/status/:id", handleTranscodeStatus(svc, log))
 	transcode.POST("/cancel/:id", handleTranscodeCancel(svc, log))
 	transcode.GET("/tasks", handleTranscodeTasks(svc, log))
@@ -35,7 +53,7 @@ type transcodeSubmitRequest struct {
 	Priority  int    `json:"priority"`
 }
 
-func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger, allowLocalhost bool) gin.HandlerFunc {
+func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger, policy TranscodeInputPolicy) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if svc == nil {
 			abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "transcoding service unavailable")
@@ -57,12 +75,14 @@ func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger, all
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "priority must be between 0 and 10")
 			return
 		}
-		if !util.IsValidURL(req.InputURL) {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url must be a valid http/https URL")
-			return
-		}
-		if err := util.IsSafeURLWithOptions(req.InputURL, util.SafeURLOptions{AllowLocalhost: allowLocalhost}); err != nil {
-			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url targets a private or internal network")
+		// One guard decides scheme, host allowlist, external policy and the
+		// resolved addresses. The message stays generic so the response does not
+		// become a probe for which internal names exist.
+		if err := util.ValidateFetchTarget(req.InputURL, util.FetchTargetOptions{
+			AllowedHosts:  policy.AllowedHosts,
+			AllowExternal: policy.AllowExternal,
+		}); err != nil {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "input_url is not an acceptable source")
 			return
 		}
 		wallet := middleware.GetWalletAddress(c)
