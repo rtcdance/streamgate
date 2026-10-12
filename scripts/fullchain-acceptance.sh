@@ -15,7 +15,10 @@
 set -euo pipefail
 
 BASE_URL="${1:-http://localhost:18080}"
-DEMO_URL="${BASE_URL}/demo/"
+# The H5 demo is served by the monolith. In api-gateway mode the gateway does not
+# serve static files, so point this at the h5-demo service instead of treating a
+# 404 as a product failure.
+DEMO_URL="${H5_DEMO_URL:-${BASE_URL}/demo/}"
 ANVIL_URL="${ANVIL_URL:-http://localhost:18545}"
 CHAIN_ID=31337
 
