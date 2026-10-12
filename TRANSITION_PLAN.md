@@ -947,6 +947,8 @@ sequenceDiagram
 1. `BlockHashCache.entries` 是 `map[uint64]blockHashEntry` —— **只按高度索引**。两条链在同一高度有不同哈希（常态），缓存会互相覆盖 / 互相命中。
 2. `BlockProver.HeaderByNumber(ctx, number)` **没有链参数**，`Web3Service.HeaderByNumber` 硬用 `ws.config.Web3.ChainID`（默认链）。即：**针对链 B 的规则，其区块证据取自默认链**，跨链证据混用。
 
+**核查后确认已存在、无需改动的部分**：`ChainClient.connectAt`（`pkg/web3/client.go:380-383`）**已经**在连接时比对 `eth_chainId` 与配置链，不一致即关闭连接并返回 `unexpected chain id from …: got X want Y`；`connectAny` / `failover` 都经由它，因此**错链 endpoint 会被跳过并最终失败**（"fallback 错链拒绝"这一必需用例的**连接期**语义已满足）。`connectAny` 中那行只打印 `rpc_chain_id` 的日志因此是**冗余信息**，不是缺失校验。
+
 | 项 | 结果 | 证据 |
 |---|---|---|
 | 区块哈希缓存按 `(chainID, height)` | PASS | 新增 `blockHashKey{chainID, number}`；`Get(chainID, height)` / `Set(chainID, height, hash)` |
