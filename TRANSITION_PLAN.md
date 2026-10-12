@@ -603,7 +603,7 @@ make verify-docker
 | SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
-| SG-06                | **部分完成（步骤 1、2、3、4、6 完成；步骤 5 未做）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s）；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据（含 capability）绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**；**epoch 持久化（Redis，缓存 ≤5s 无滑动续期）**；**登出撤销整个会话 + 已发出的能力在 5s 界内失效**；**续期重查链上持仓（抬阈值即 403，降回即 200）**；**ruleVersion 以 Postgres 为权威源、与规则写入同一条语句提交、Redis 只缓存已提交版本且不倒退、总 age ≤5s（`positive_cache_ttl` 已真正接线）、权威不可读即拒**。**未做**：步骤 5（reorg 禁止续期、转移场景实测） |
+| SG-06                | **部分完成（步骤 1～6 均已落地；差必需用例的两个依赖故障场景与嵌套 playlist 重查）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s）；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据（含 capability）绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**；**epoch 持久化（Redis，缓存 ≤5s 无滑动续期）**；**登出撤销整个会话 + 已发出的能力在 5s 界内失效**；**续期重查链上持仓（抬阈值即 403，降回即 200）**；**ruleVersion 以 Postgres 为权威源、与规则写入同一条语句提交、Redis 不倒退、总 age ≤5s**；**capability 携带 ruleVersion ⇒ 规则变更在界内拒绝已发能力**；**转移后不得续期（实测 403/200 双向）**。**未做**：RPC 全故障 / Redis 故障下的拒绝实测；嵌套 playlist 另查当前 NFT；`clock_skew` 接线 |
 | SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
@@ -1046,7 +1046,7 @@ sequenceDiagram
 **未做 / 推迟（SG-05 判据）**：步骤 6 的"**过期 token**"——实测**manifest 签发的播放 token 存活 >120s**，与计划预期的 60s 能力不符；能力 TTL 属 **SG-06**（"将第三节的 60 秒能力…落实为配置校验"），故**连同该实测数据一并登记为 SG-06 的输入**，而非在验收里用无限等待糊过去。步骤 8 的 CI job 本机无法执行。  
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
-### 8.11 SG-06 执行证据（**部分完成**：步骤 1、2、3、4、6；步骤 5 未做）
+### 8.11 SG-06 执行证据（**部分完成**：步骤 1～6 均已落地；差必需用例的两个依赖故障场景与嵌套 playlist 重查）
 
 **步骤 1**：把"60 秒能力"从散落的常量变成**配置 + 生产上界校验**。
 
@@ -1155,7 +1155,26 @@ sequenceDiagram
 | **接线** | PASS | `provideRuleVersionStore` 接 Postgres + Redis，上界取 `cfg.Features.PositiveCacheTTL`——**`positive_cache_ttl` 从"只被校验"变成真正接到使用点**。Redis 不可用时回退内存并**显式告警**（那正是跨进程写入看不见的场景） |
 | **端到端实测** | PASS | 迁移 036 随 monolith 启动**自动应用**；**ALL 48 PASSED**；Postgres 中该内容版本为 **5**（验收恰好 5 次规则写入），Redis 为 `5:1791839251650796721` |
 
-**未做（SG-06 判据）**：步骤 5（reorg 使证据失效时禁止续期、已发能力在 70s 内失效的**转移场景**实测）；步骤 4 剩余（嵌套 playlist 另用 ≤5s 证据检查当前 NFT、申请与续期复用同一次 gate 证据、转移后 70s 的**实测**上界）；步骤 2 的 `clock_skew` 仍未接到使用点（中间件里仍是 30s leeway）。
+**步骤 2 的 `ruleVersion` 部分（capability 覆盖规则版本）已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **capability 携带签发时的规则版本** | PASS | `Claims.RuleVersion`。**签发时读权威；读不到就签发失败**——没有版本的 capability 永远无法被规则变更失效，铸出来比拒绝更糟 |
+| **规则变更 5 秒内拒绝已发能力** | PASS | `ParsePlaybackToken` 比对当前版本，不一致即拒。这是所有播放路径的**唯一收口**，代价是**一次带缓存的版本读**而不是每分片一次链查询 |
+| 复用同一次 gate 证据 | PASS | 接线让 `AuthService` 的版本读取器指向 **gate 解析规则用的同一个 store**，签发与校验因此一致；`WithRuleVersion` 供已持有版本的调用方在**签发**时钉住（校验仍必查权威） |
+| 单元用例 | PASS | capability 带当前版本；**版本变动后旧 capability 被拒**；权威不可读则拒绝；签发时版本读不到则失败；显式版本只跳过**签发**读、不跳过校验读 |
+| **端到端实测** | PASS | 验收新增：在**抬高阈值之前**抓一份能力 ⇒ 抬高后该 URL 在界内被拒（`PASS: A capability issued BEFORE the rule change is refused within the bound`），且**规则还原后它仍然被拒**（`PASS: The pre-change capability stays refused after the rule is restored (401)`）——还原后的规则是**新版本**，旧 capability 不得复活 |
+
+**步骤 5 的转移场景已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **转移使原持仓证据失效后不得续期** | PASS | 验收把持有人的 token 转给非持有人再转回（**从链上枚举持有者实际拥有的 id**，不假设 id 范围）：转移后 manifest **403**，转回后 **200**。实测 `PASS: Transferring the holding away denies the next manifest (403)` / `PASS: Transferring the holding back restores access (200)` |
+| **safe 视图的滞后是必须显式处理的** | 记录 | gate 按 finality tag（safe）读，而 **safe 比 latest 落后一个固定深度**（本机 Anvil 实测 32 块）。Anvil 只在有交易时出块，因此**没有流量时 safe 永不前进**，gate 会一直读到**转移之前**的块——**这是正确的**，因为那个块确实还显示旧余额。计划的原话是"**safe 视图包含 NFT 转移后**"，所以断言前必须把 safe 推进（`anvil_mine`），并且**断言 safe 确实越过了转移块**而不是假设 |
+| 转移本身必须先验证落地 | PASS | 断言持有人余额确实变为 0 之后才读 manifest；否则一次失败的转移会被误读成"gate 忽略了它"。**转回必须用对方的私钥签名**——`transferFrom` 在调用方不是持有人时会 revert，用原持有人私钥签转回会静默失败并把 token 留在对方手里，从而把"非持有人被拒"变成 PASS |
+| 其余步骤 5 判据 | 部分 | "已发能力在 70s 内失效"由 capability TTL（60s）+ 上界推导保证，并由既有"能力过期"断言实测；"服务器停止返回后续字节"由过期/撤销后 segment 返回 401 覆盖；"播放器区分权限结束 / 网络故障"已在真实浏览器实测。**未做**：以 snapshot/revert 构造的**重组**形态（本次是转移形态，机制相同） |
+
+**未做（SG-06 判据）**：**必需用例里的两个依赖故障场景未实测** —— ①"RPC 全故障时新申请 / 续期 / manifest 拒绝，已有能力的 segment 只按原有效期与撤销状态执行"；②"Redis / epoch 必要依赖故障则所有受保护资源拒绝"。这两条需要停依赖后断言拒绝，属可做但本轮未做。另：步骤 4 的"**嵌套 playlist 另用 ≤5s 证据检查当前 NFT**"未做（当前嵌套 playlist 只校验能力与撤销版本，不重查链）；`clock_skew` 仍未接到使用点（中间件里仍是 30s leeway）。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
