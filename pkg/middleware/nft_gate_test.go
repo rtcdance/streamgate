@@ -864,7 +864,7 @@ func TestResolveQuantity_Wrapper(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	quantity, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "1:0xW:0xC:__collection__:__auto__", 1, testContractAddr, "", "0xW")
+	quantity, _, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "1:0xW:0xC:__collection__:__auto__", 1, testContractAddr, "", "0xW")
 	assert.NoError(t, err)
 	assert.Equal(t, 0, quantity.Cmp(big.NewInt(2)))
 }
