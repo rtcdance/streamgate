@@ -1107,6 +1107,8 @@ sequenceDiagram
 | **旧 token 缺字段即拒** | PASS | 中间件要求两字段**必须存在**（配置了 validator 时还要求会话存活且 epoch 当前）。缺字段的 token 属"方案之前"的凭据，**拒绝而非兼容放行**——否则只要拿旧 token 就能绕过撤销。`routes.go` 把 `AuthService` 作为 validator 传入 |
 | 续期不新建会话 | PASS | refresh **复用同一会话**并校验 epoch：已撤销会话不能靠旧 token 续命 |
 | 用例 | PASS | 无 session / 无 epoch 被拒；存活会话通过；**epoch 过期被拒**；**未知会话被拒**；会话校验**不取代过期校验** |
+| **登出撤销整个会话** | PASS（修掉一个真实缺口） | **epoch 原本没有生产调用方**：`handleAuthLogout` 只调 `RevokeToken`（拉黑一个 JTI），**同一登录的其它凭据全部继续有效**——包括**已经发给播放器的能力**，正是计划点名的情况。新增 `RevokeSessionForToken`（解析 token → 定位会话 → 推高 epoch），logout 在 `RevokeToken` 之后调用它 |
+| **logout 5 秒内拒绝** | PASS | 验收新增登出阶段（**用另一次登录**，不干扰其余检查）：新登录先 200 → 调 logout → 断言 token 在 5s 缓存界内被拒。实测 `PASS: Logout revokes the session within the 5s bound`，整体 **ALL 43 PASSED** |
 | 端到端 | PASS | 加上会话强制后真实签名登录、gate、播放、能力过期全部照常：**ALL 41 PASSED** |
 
 **步骤 2 剩余的持久化部分已落地**：
