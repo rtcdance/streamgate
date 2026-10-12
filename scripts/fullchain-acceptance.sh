@@ -697,7 +697,48 @@ if [ -n "$KEY_A" ]; then
         [ "$CODE" = "200" ] && p "Fresh login authenticates before logout ($CODE)" \
             || f "Fresh login rejected before logout ($CODE)"
 
+        # A capability this login has ALREADY been handed. Logout must revoke it
+        # immediately — waiting for its 60s TTL is the failure mode the whole
+        # session binding exists to prevent. This is what proves the issued
+        # capability really inherited the session rather than getting its own.
+        #
+        # The URL is taken from the playlist itself rather than constructed: the
+        # entry point may be a master or a media playlist, and hardcoding
+        # "?quality=..." produced a 404 that looked like a capability failure.
+        CAP_URL=""
+        if [ -n "$CONTENT_ID" ]; then
+            MASTER="$(curl -s -H "Authorization: Bearer $LOGOUT_TOKEN" \
+                "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+            CAP_URI="$(printf '%s' "$MASTER" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1)"
+            [ -n "$CAP_URI" ] && CAP_URL="$BASE_URL$CAP_URI"
+        fi
+
+        if [ -n "$CAP_URL" ]; then
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' "$CAP_URL")"
+            case "$CODE" in
+                200|206) p "An issued capability works before logout ($CODE)" ;;
+                *)       f "An issued capability failed before logout ($CODE)" ;;
+            esac
+        else
+            f "Could not obtain a capability to test revocation against"
+        fi
+
         curl -s -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $LOGOUT_TOKEN" >/dev/null 2>&1 || true
+
+        if [ -n "$CAP_URL" ]; then
+            CAP_DEAD=0
+            CAP_DEADLINE=$((SECONDS + 10))
+            while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
+                C="$(curl -s -o /dev/null -w '%{http_code}' "$CAP_URL")"
+                if [ "$C" = "401" ] || [ "$C" = "403" ]; then CAP_DEAD=1; break; fi
+                sleep 1
+            done
+            if [ "$CAP_DEAD" = "1" ]; then
+                p "Logout revokes an ALREADY-ISSUED capability within the 5s bound"
+            else
+                f "Capability still accepted 10s after logout — it did not inherit the session"
+            fi
+        fi
 
         # The revocation must be visible within the session cache bound (5s).
         REVOKED=0

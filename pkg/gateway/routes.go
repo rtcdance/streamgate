@@ -86,12 +86,16 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	// JWT and the NFT gate are appended to this group explicitly afterwards to
 	// get the chain [PlaybackTokenAuth, JWT, NFTGate].
 	playbackAuth := middleware.PlaybackTokenAuth(middleware.PlaybackTokenAuthConfig{
-		Validate: func(ctx context.Context, token, contentID, fingerprint string) (string, error) {
+		Validate: func(ctx context.Context, token, contentID, fingerprint string) (*middleware.PlaybackIdentity, error) {
 			claims, err := svc.AuthService.ParsePlaybackToken(ctx, token, contentID, fingerprint)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
-			return claims.WalletAddress, nil
+			return &middleware.PlaybackIdentity{
+				Wallet:    claims.WalletAddress,
+				SessionID: claims.SessionID,
+				AuthEpoch: claims.AuthEpoch,
+			}, nil
 		},
 	}, log)
 	streamGroup := router.Group("/")

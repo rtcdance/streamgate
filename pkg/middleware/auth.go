@@ -227,8 +227,31 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 
 		c.Set("wallet_address", walletAddress)
 		c.Set("jwt_claims", claims)
+		SetSessionBinding(c, sessionID, epoch)
 		c.Next()
 	}
+}
+
+// SetSessionBinding records which session (and epoch) a request is acting under.
+// Both the JWT path and the validated-capability path set it, so a capability
+// minted from this request can inherit the same session and be revoked with it.
+func SetSessionBinding(c *gin.Context, sessionID string, epoch int64) {
+	if sessionID == "" {
+		return
+	}
+	c.Set("session_id", sessionID)
+	c.Set("auth_epoch", epoch)
+}
+
+// GetSessionBinding returns the session a request is acting under, or empty if
+// the request carries none. An empty session is not an error here: callers that
+// need one must decide what to do about its absence.
+func GetSessionBinding(c *gin.Context) (string, int64) {
+	sessionID, _ := c.Get("session_id")
+	epoch, _ := c.Get("auth_epoch")
+	id, _ := sessionID.(string)
+	e, _ := epoch.(int64)
+	return id, e
 }
 
 // GetWalletAddress extracts the wallet address from the gin context.
