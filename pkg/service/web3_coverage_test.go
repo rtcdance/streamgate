@@ -454,7 +454,7 @@ func TestWeb3Service_Coverage_HeaderByNumber_NoChain(t *testing.T) {
 		multiChainManager: web3.NewMultiChainManager(zap.NewNop()),
 		config:            &config.Config{Web3: config.Web3Config{ChainID: 99999}},
 	}
-	_, err := ws.HeaderByNumber(context.Background(), big.NewInt(1))
+	_, err := ws.HeaderByNumber(context.Background(), 0, big.NewInt(1))
 	assert.Error(t, err)
 }
 

@@ -84,8 +84,13 @@ type NFTMetadata struct {
 	TokenID         string
 }
 
+// BlockProver supplies the block evidence an authorization is anchored to.
+//
+// The chain is an explicit parameter rather than an implicit "default chain":
+// evidence read from chain A must never be used to validate a rule that targets
+// chain B, and two chains at the same height have different hashes.
 type BlockProver interface {
-	HeaderByNumber(ctx context.Context, number *big.Int) (*BlockHeaderInfo, error)
+	HeaderByNumber(ctx context.Context, chainID int64, number *big.Int) (*BlockHeaderInfo, error)
 }
 
 type BlockHeaderInfo struct {
@@ -145,9 +150,18 @@ type blockHashEntry struct {
 	expiresAt time.Time
 }
 
+// blockHashKey scopes a block hash to the chain it came from. A height alone is
+// not an identity: two chains routinely have a block at the same height with
+// different hashes, and sharing an entry between them would let evidence from
+// one chain validate an authorization on another.
+type blockHashKey struct {
+	chainID int64
+	number  uint64
+}
+
 type BlockHashCache struct {
 	mu         sync.RWMutex
-	entries    map[uint64]blockHashEntry
+	entries    map[blockHashKey]blockHashEntry
 	ttl        time.Duration
 	maxEntries int
 }
@@ -157,12 +171,12 @@ func NewBlockHashCache(ttl ...time.Duration) *BlockHashCache {
 	if len(ttl) > 0 && ttl[0] > 0 {
 		d = ttl[0]
 	}
-	return &BlockHashCache{entries: make(map[uint64]blockHashEntry), ttl: d, maxEntries: 2048}
+	return &BlockHashCache{entries: make(map[blockHashKey]blockHashEntry), ttl: d, maxEntries: 2048}
 }
 
-func (bhc *BlockHashCache) Get(blockNumber uint64) (string, bool) {
+func (bhc *BlockHashCache) Get(chainID int64, blockNumber uint64) (string, bool) {
 	bhc.mu.RLock()
-	entry, ok := bhc.entries[blockNumber]
+	entry, ok := bhc.entries[blockHashKey{chainID: chainID, number: blockNumber}]
 	bhc.mu.RUnlock()
 	if !ok || time.Now().After(entry.expiresAt) {
 		return "", false
@@ -170,13 +184,13 @@ func (bhc *BlockHashCache) Get(blockNumber uint64) (string, bool) {
 	return entry.hash, true
 }
 
-func (bhc *BlockHashCache) Set(blockNumber uint64, hash string) {
+func (bhc *BlockHashCache) Set(chainID int64, blockNumber uint64, hash string) {
 	bhc.mu.Lock()
 	defer bhc.mu.Unlock()
 	if bhc.entries == nil {
-		bhc.entries = make(map[uint64]blockHashEntry)
+		bhc.entries = make(map[blockHashKey]blockHashEntry)
 	}
-	bhc.entries[blockNumber] = blockHashEntry{hash: hash, expiresAt: time.Now().Add(bhc.ttl)}
+	bhc.entries[blockHashKey{chainID: chainID, number: blockNumber}] = blockHashEntry{hash: hash, expiresAt: time.Now().Add(bhc.ttl)}
 	if len(bhc.entries) > bhc.maxEntries {
 		now := time.Now()
 		for k, v := range bhc.entries {
@@ -427,7 +441,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 
 	if config.Cache != nil {
 		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
-			if quantity, usable := cachedQuantity(config, logger, cacheKey, entry); usable {
+			if quantity, usable := cachedQuantity(config, logger, cacheKey, chainID, entry); usable {
 				nftCacheHits.WithLabelValues("l1_l2").Inc()
 				return quantity, nil
 			}
@@ -461,7 +475,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 			config.CircuitBreaker.RecordSuccess()
 		}
 		if config.Cache != nil {
-			setCachedEntry(ctx, config, logger, cacheKey, quantity)
+			setCachedEntry(ctx, config, logger, cacheKey, chainID, quantity)
 		}
 		return quantity, nil
 	})
@@ -478,7 +492,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 
 // cachedQuantity decides whether a cached entry can be trusted and, if so,
 // returns a copy of its balance evidence. A nil balance is never usable.
-func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, entry NFTAccessEntry) (*big.Int, bool) {
+func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, entry NFTAccessEntry) (*big.Int, bool) {
 	if entry.Balance == nil {
 		return nil, false
 	}
@@ -486,16 +500,16 @@ func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, 
 		return new(big.Int).Set(entry.Balance), true
 	}
 
-	if cachedHash, ok := config.BlockVerifyCache.Get(entry.BlockNumber); ok && cachedHash == entry.BlockHash {
+	if cachedHash, ok := config.BlockVerifyCache.Get(chainID, entry.BlockNumber); ok && cachedHash == entry.BlockHash {
 		nftBlockHashCacheHits.Inc()
 		return new(big.Int).Set(entry.Balance), true
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	header, err := config.BlockProver.HeaderByNumber(ctx, big.NewInt(int64(entry.BlockNumber)))
+	header, err := config.BlockProver.HeaderByNumber(ctx, chainID, big.NewInt(int64(entry.BlockNumber)))
 	if err == nil && header != nil {
-		config.BlockVerifyCache.Set(entry.BlockNumber, header.Hash)
+		config.BlockVerifyCache.Set(chainID, entry.BlockNumber, header.Hash)
 		if header.Hash != entry.BlockHash {
 			nftVerifyReorgInvalidated.Inc()
 			logger.Warn("NFT cache entry invalidated by reorg",
@@ -528,11 +542,11 @@ func cachedQuantity(config *NFTGateConfig, logger *zap.Logger, cacheKey string, 
 	return nil, false
 }
 
-func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, quantity *big.Int) {
+func setCachedEntry(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, key string, chainID int64, quantity *big.Int) {
 	var blockNumber uint64
 	var blockHash string
 	if config.BlockProver != nil {
-		header, err := config.BlockProver.HeaderByNumber(ctx, nil)
+		header, err := config.BlockProver.HeaderByNumber(ctx, chainID, nil)
 		if err == nil && header != nil {
 			blockNumber = header.Number
 			blockHash = header.Hash
