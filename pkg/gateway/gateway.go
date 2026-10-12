@@ -117,7 +117,17 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	if db != nil {
 		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
-		svc.GatingRuleResolver = NewGatingRuleResolverAdapter(svc.GatingRuleSvc)
+		// Rules are resolved through the version authority so a change made in
+		// another process is noticed within the version's age bound, not after a
+		// local TTL expires.
+		ruleVersions := provideRuleVersionStore(cfg, log, db, sharedRedis, resources)
+		svc.GatingRuleSvc.SetVersionPublisher(func(contentID string, version int64) {
+			// The write already bumped the version inside its own statement, so
+			// this only publishes it; a context is needed for the cache write and
+			// the request's is already gone by the time the callback runs.
+			ruleVersions.Publish(context.Background(), contentID, version)
+		})
+		svc.GatingRuleResolver = NewVersionedGatingRuleResolverAdapter(svc.GatingRuleSvc, ruleVersions)
 		resources.GatingRuleResolver = svc.GatingRuleResolver
 	}
 	// An explicitly injected resolver (RouterOption) wins over the DB-backed one.

@@ -27,19 +27,22 @@ type AppResources struct {
 	RateLimiter     middleware.RateLimiter
 	AuthRateLimiter middleware.RateLimiter
 	SharedRedis     *redis.Client
-	OTelShutdown    func(ctx context.Context) error
-	AuthService     *service.AuthService
-	Web3Service     *service.Web3Service
-	NFTVerifier     middleware.NFTOwnershipChecker
-	StreamingSvc    *service.StreamingService
-	ContentService  *service.ContentService
-	SegmentStorage  service.SegmentStorage
-	UploadService   *service.UploadService
-	TranscodingSvc  *service.TranscodingService
-	NFTCache        *NFTAccessCache
-	StreamingCache  *StreamingCache
-	NATSQueue       io.Closer
-	MiddlewareSvc   *middleware.Service
+	// RuleVersionStore is the authority for "have this content's rules changed?",
+	// used to invalidate cached rule sets by version rather than by TTL alone.
+	RuleVersionStore storage.RuleVersionStore
+	OTelShutdown     func(ctx context.Context) error
+	AuthService      *service.AuthService
+	Web3Service      *service.Web3Service
+	NFTVerifier      middleware.NFTOwnershipChecker
+	StreamingSvc     *service.StreamingService
+	ContentService   *service.ContentService
+	SegmentStorage   service.SegmentStorage
+	UploadService    *service.UploadService
+	TranscodingSvc   *service.TranscodingService
+	NFTCache         *NFTAccessCache
+	StreamingCache   *StreamingCache
+	NATSQueue        io.Closer
+	MiddlewareSvc    *middleware.Service
 	// GatingRuleResolver feeds the gRPC streaming server (the HTTP gate reads
 	// it via serviceInit); nil means gRPC manifest access is denied (fail-closed).
 	GatingRuleResolver middleware.GatingRuleResolver

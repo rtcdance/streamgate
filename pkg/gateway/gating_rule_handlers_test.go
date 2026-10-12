@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,8 +130,8 @@ func TestListGatingRules_DBError(t *testing.T) {
 
 func TestCreateGatingRule_Success(t *testing.T) {
 	db := &gatingMockDB{
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 1}, nil
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return gatingWriteRow(1, 1)
 		},
 	}
 	svc := service.NewGatingRuleService(db, zap.NewNop())
@@ -231,16 +232,67 @@ func (r *gatingRuleRowScanner) Scan(dest ...interface{}) error {
 func (r *gatingRuleRowScanner) Close() error { return nil }
 func (r *gatingRuleRowScanner) Err() error   { return nil }
 
+// gatingWriteRowScanner answers a rule-write CTE's result columns. The write is
+// one statement returning "did it apply" plus the version it committed, so a
+// plain rowsAffected result no longer describes it.
+type gatingWriteRowScanner struct{ values []interface{} }
+
+func (r *gatingWriteRowScanner) Scan(dest ...interface{}) error {
+	if len(dest) != len(r.values) {
+		return fmt.Errorf("gating write: expected %d destinations, got %d", len(r.values), len(dest))
+	}
+	for i, v := range r.values {
+		switch d := dest[i].(type) {
+		case *int64:
+			switch n := v.(type) {
+			case int64:
+				*d = n
+			case int:
+				*d = int64(n)
+			default:
+				return fmt.Errorf("gating write: cannot scan %T into *int64", v)
+			}
+		case *string:
+			sv, ok := v.(string)
+			if !ok {
+				return fmt.Errorf("gating write: cannot scan %T into *string", v)
+			}
+			*d = sv
+		default:
+			return fmt.Errorf("gating write: unsupported destination %T", dest[i])
+		}
+	}
+	return nil
+}
+
+// gatingWriteRow builds the row a rule write returns: how many rows it applied
+// and the version it committed.
+func gatingWriteRow(applied int64, version int64) *stg.CancelRow {
+	return stg.NewTestCancelRow(&gatingWriteRowScanner{values: []interface{}{applied, version}})
+}
+
+// gatingWriteRowWithContent is the delete variant, which also returns the
+// content id so the version bump and cache flush can name it.
+func gatingWriteRowWithContent(contentID string, version int64) *stg.CancelRow {
+	return stg.NewTestCancelRow(&gatingWriteRowScanner{values: []interface{}{contentID, version}})
+}
+
+// isRuleWriteQuery reports whether a query is the rule-write CTE rather than a
+// classification read, so one queryRowFn can serve both.
+func isRuleWriteQuery(query string) bool {
+	return strings.Contains(query, "content_rule_versions")
+}
+
 func TestUpdateGatingRule_Success(t *testing.T) {
 	db := &gatingMockDB{
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return gatingWriteRow(1, 1)
+			}
 			return stg.NewTestCancelRow(&gatingRuleQueryRowScanner{
 				id: "r1", contentID: "c1", contractAddr: "0xabc",
 				tokenID: "1", chainID: 1, standard: "erc721", minBalance: 1, isActive: true,
 			})
-		},
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 1}, nil
 		},
 	}
 	svc := service.NewGatingRuleService(db, zap.NewNop())
@@ -290,13 +342,13 @@ func TestUpdateGatingRule_InvalidBody(t *testing.T) {
 func TestUpdateGatingRule_DBError(t *testing.T) {
 	db := &gatingMockDB{
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return stg.NewErrorCancelRow(errors.New("update failed"))
+			}
 			return stg.NewTestCancelRow(&gatingRuleQueryRowScanner{
 				id: "r1", contentID: "c1", contractAddr: "0xabc",
 				tokenID: "1", chainID: 1, standard: "erc721", minBalance: 1, isActive: true,
 			})
-		},
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return nil, errors.New("update failed")
 		},
 	}
 	svc := service.NewGatingRuleService(db, zap.NewNop())
@@ -311,8 +363,8 @@ func TestUpdateGatingRule_DBError(t *testing.T) {
 
 func TestDeleteGatingRule_Success(t *testing.T) {
 	db := &gatingMockDB{
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 1}, nil
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return gatingWriteRowWithContent("c1", 2)
 		},
 	}
 	svc := service.NewGatingRuleService(db, zap.NewNop())
@@ -330,12 +382,12 @@ func TestDeleteGatingRule_Success(t *testing.T) {
 
 func TestDeleteGatingRule_NotFound(t *testing.T) {
 	db := &gatingMockDB{
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 0}, nil
-		},
 		// The owner-conditioned DELETE affected nothing; resolving the rule then
 		// finds no such row, which is a 404.
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return gatingWriteRowWithContent("", 0)
+			}
 			return stg.NewErrorCancelRow(sql.ErrNoRows)
 		},
 	}
@@ -351,10 +403,10 @@ func TestDeleteGatingRule_NotFound(t *testing.T) {
 // is authenticated and the resource is real, they just may not touch it.
 func TestDeleteGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
 	db := &gatingMockDB{
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 0}, nil
-		},
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return gatingWriteRowWithContent("", 0)
+			}
 			return stg.NewTestCancelRow(&gatingRuleContentRowScanner{contentID: "someone-elses-content"})
 		},
 	}
@@ -369,10 +421,10 @@ func TestDeleteGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
 func TestCreateGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
 	db := &gatingMockDB{
 		// The owner-conditioned INSERT matched no owned content.
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 0}, nil
-		},
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return gatingWriteRow(0, 0)
+			}
 			return stg.NewTestCancelRow(&gatingRuleOwnerRowScanner{owner: "0xsomeone-else"})
 		},
 	}
@@ -388,10 +440,10 @@ func TestCreateGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
 
 func TestCreateGatingRule_ContentMissingIsNotFound(t *testing.T) {
 	db := &gatingMockDB{
-		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
-			return &gatingMockResult{rowsAffected: 0}, nil
-		},
 		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			if isRuleWriteQuery(query) {
+				return gatingWriteRow(0, 0)
+			}
 			return stg.NewErrorCancelRow(sql.ErrNoRows)
 		},
 	}
