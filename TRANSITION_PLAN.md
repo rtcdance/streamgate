@@ -603,7 +603,7 @@ make verify-docker
 | SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
-| SG-06                | **部分完成（步骤 1、6；步骤 2/4/5 部分）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s），修掉 handler 里硬编码 30 分钟的缺陷；**capability 拥有独立 audience**（access token 不能当 capability 用）；**零 TTL 回落到策略值**而非第二个 30 分钟常量；capability 承载响应硬化；**70s 上界改为"三项之和"的推导并被校验**；**JWT 与 capability 钱包不一致时拒绝**；**播放器区分"权限结束"与"网络故障"**。**未做**：sessionID/authEpoch 与 Postgres 权威 epoch、ruleVersion 权威源、撤销版本校验、reorg 不可续期实测 |
+| SG-06                | **部分完成（步骤 1、6；步骤 2/4/5 部分）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s），修掉 handler 里硬编码 30 分钟的缺陷；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**。**未做**：Postgres 权威 epoch（重启后仍有效、缓存 ≤5s 无滑动续期）、续期重查 NFT、ruleVersion 权威源、撤销版本校验、reorg 不可续期实测 |
 | SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
@@ -1096,6 +1096,20 @@ sequenceDiagram
 | **零 TTL 回落策略值** | PASS | `GeneratePlaybackToken` 里还留着 `ttl <= 0 → 30 * time.Minute` 的**第二个硬编码窗口**——它会绕过刚建立的策略上界。现改为回落 `s.PlaybackTokenTTL()`（60s）。用例断言零 TTL 得到的是策略值而非 30 分钟 |
 | 端到端 | PASS | 加上 audience 强制后真实播放仍正常：**ALL 41 PASSED** |
 | 步骤 2 剩余 | 未做 | sessionID / authEpoch 的统一携带与校验、正向存在校验、Postgres 权威 epoch（缓存 ≤5s、无滑动续期）、续期重查 NFT、旧 token 缺字段拒绝 |
+
+**步骤 2 的 sessionID / authEpoch 部分**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 凭据绑定会话 | PASS | `Claims` 新增 `SessionID` + `AuthEpoch`；access token、refresh、capability **全部盖戳**。`AuthService` 持有活跃会话表与每会话 epoch |
+| **正向存在校验** | PASS | `SessionValid` 要求**会话存在**且 **epoch 相符**——**刻意不以"不在黑名单里"表示可用** |
+| 撤销粒度 | PASS | `RevokeSession` 推高 epoch ⇒ **一次失效该会话的全部凭据**，无需逐 token 记账 |
+| **旧 token 缺字段即拒** | PASS | 中间件要求两字段**必须存在**（配置了 validator 时还要求会话存活且 epoch 当前）。缺字段的 token 属"方案之前"的凭据，**拒绝而非兼容放行**——否则只要拿旧 token 就能绕过撤销。`routes.go` 把 `AuthService` 作为 validator 传入 |
+| 续期不新建会话 | PASS | refresh **复用同一会话**并校验 epoch：已撤销会话不能靠旧 token 续命 |
+| 用例 | PASS | 无 session / 无 epoch 被拒；存活会话通过；**epoch 过期被拒**；**未知会话被拒**；会话校验**不取代过期校验** |
+| 端到端 | PASS | 加上会话强制后真实签名登录、gate、播放、能力过期全部照常：**ALL 41 PASSED** |
+
+**步骤 2 剩余**：Postgres 权威 epoch（**重启后仍有效**、缓存 ≤5s 且无滑动续期）、续期时重查 NFT。当前会话表是**进程内**的——重启即丢失，这是与"Postgres 为权威源"之间的差距。
 
 **未做（SG-06 判据）**：步骤 2 剩余项（见上）；步骤 3（Postgres 为 ruleVersion 权威源、同事务单调递增、Redis 只缓存已提交版本且不倒退、各层 age 合计 ≤5s、权威源不可读则拒绝）；步骤 4 剩余的**撤销版本校验**（每条 playlist / segment / init / key）；步骤 5 剩余的 reorg 禁止续期与转移场景实测。
 **另注**：`positive_cache_ttl` 与 `clock_skew` 已进入配置与校验，但**尚未接到实际使用点**（正缓存目前仍是 NFT gate 内的 `MaxEvidenceAge`；时钟容差仍是中间件里的 30s leeway）—— 接线属于步骤 2/4。
