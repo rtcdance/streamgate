@@ -21,6 +21,10 @@ type JWTAuthConfig struct {
 	PublicKey       *rsa.PublicKey
 	SkipPaths       []string
 	Blacklist       TokenBlacklistChecker
+	// Issuer, when set, is required to match the token's `iss` exactly.
+	Issuer string
+	// Audience, when set, must be present in the token's `aud`.
+	Audience string
 }
 
 // TokenBlacklistChecker checks if a JWT ID has been revoked.
@@ -84,13 +88,16 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 
 		buildKeyFunc := func(k interface{}) jwt.Keyfunc {
 			return func(t *jwt.Token) (interface{}, error) {
+				// Pin the algorithm EXACTLY, not just its family: accepting any
+				// *SigningMethodHMAC would also accept HS384/HS512, which are
+				// not what this service issues.
 				if config.PublicKey != nil {
-					if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+					if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
 						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 					}
 					return config.PublicKey, nil
 				}
-				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 				}
 				return k, nil
@@ -136,6 +143,38 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
+		// A playback capability is NOT an access token. It is issued to be spent
+		// on the streaming routes only (where PlaybackTokenAuth validates it),
+		// so it must never authorise a management API call through this
+		// middleware. Whitelist the acceptable kinds rather than blacklisting
+		// the known-bad ones, so a future credential type is rejected by
+		// default instead of silently accepted.
+		switch tokenType, _ := claims["token_type"].(string); tokenType {
+		case "", "access":
+		default:
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "token is not an access token", "code": "UNAUTHORIZED",
+			})
+			return
+		}
+
+		if config.Issuer != "" {
+			iss, _ := claims["iss"].(string)
+			if iss != config.Issuer {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error": "token issuer mismatch", "code": "UNAUTHORIZED",
+				})
+				return
+			}
+		}
+
+		if config.Audience != "" && !audienceContains(claims["aud"], config.Audience) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "token audience mismatch", "code": "UNAUTHORIZED",
+			})
+			return
+		}
+
 		if config.Blacklist != nil {
 			jti, _ := claims["jti"].(string)
 			if jti != "" && config.Blacklist.IsTokenRevoked(c.Request.Context(), jti) {
@@ -173,4 +212,26 @@ func GetJWTClaims(c *gin.Context) jwt.MapClaims {
 		return nil
 	}
 	return claims.(jwt.MapClaims)
+}
+
+// audienceContains reports whether a token's `aud` claim includes want.
+// JWT allows `aud` to be a single string or an array of strings.
+func audienceContains(raw interface{}, want string) bool {
+	switch v := raw.(type) {
+	case string:
+		return v == want
+	case []string:
+		for _, s := range v {
+			if s == want {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok && s == want {
+				return true
+			}
+		}
+	}
+	return false
 }
