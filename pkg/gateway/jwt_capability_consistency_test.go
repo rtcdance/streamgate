@@ -33,6 +33,8 @@ func TestRejectMismatchedJWTCapability(t *testing.T) {
 		t.Helper()
 		claims := jwt.MapClaims{
 			"wallet_address": wallet,
+			"session_id":     "test-session",
+			"auth_epoch":     1,
 			"sub":            wallet,
 			"iss":            service.AccessTokenIssuer,
 			"aud":            []string{service.AccessTokenAudience},

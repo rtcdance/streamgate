@@ -198,6 +198,8 @@ func newTestAuthService() (svc *service.AuthService, verifier *web3.SignatureVer
 func testJWT(walletAddress string) string {
 	claims := jwt.MapClaims{
 		"wallet_address": walletAddress,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"username":       walletAddress,
 		"sub":            walletAddress,
 		"jti":            fmt.Sprintf("test-jti-%d", time.Now().UnixNano()),

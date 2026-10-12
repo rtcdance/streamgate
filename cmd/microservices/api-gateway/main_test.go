@@ -259,6 +259,8 @@ func testJWT(walletAddress string) string {
 		"wallet_address": walletAddress,
 		"username":       walletAddress,
 		"sub":            walletAddress,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),
 	}

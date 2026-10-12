@@ -149,6 +149,8 @@ func mustValidJWT(t *testing.T, wallet string) string {
 	t.Helper()
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"wallet_address": wallet,
+		"session_id":     "test-session",
+		"auth_epoch":     1,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Add(-time.Minute).Unix(),
 	})
