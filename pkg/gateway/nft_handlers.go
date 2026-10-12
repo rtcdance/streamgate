@@ -346,15 +346,29 @@ func (a *NFTAccessCacheAdapter) DeleteByPrefix(_ context.Context, prefix string)
 	a.Cache.DeleteByPrefix(prefix)
 }
 
-func RegisterNFTDevMintRoute(router gin.IRouter, minter *service.DemoNFTMinter, log *zap.Logger) {
+// RegisterNFTDevMintRoute wires the development-only server-side signer route.
+//
+// This is the ONLY route that signs with a server key, and it is deliberately
+// not parameterisable by the caller: the destination contract, the selector and
+// the amount are fixed here, `value` is always 0, and the mint target is the
+// authenticated wallet — never an address taken from the request body. The
+// route is only registered when `allowed` is true (development mode + chain
+// 31337 + the explicit features.demo_tx_signer opt-in), so a production
+// deployment cannot even be probed for it.
+func RegisterNFTDevMintRoute(router gin.IRouter, minter *service.DemoNFTMinter, log *zap.Logger, allowed bool) {
 	if minter == nil {
 		log.Info("Dev mint endpoint disabled (no minter configured)")
+		return
+	}
+	if !allowed {
+		log.Info("Dev mint endpoint disabled (requires development mode + chain 31337 + features.demo_tx_signer)")
 		return
 	}
 	router.Group(APIPrefix+"/nft/dev").POST("/mint", func(c *gin.Context) {
 		handleMintDemoNFT(c, minter, log)
 	})
-	log.Info("Dev mint endpoint registered at /nft/dev/mint")
+	log.Warn("DEV-ONLY server-side signer registered at /nft/dev/mint " +
+		"(fixed contract, value 0, mints to the authenticated wallet)")
 }
 
 type mintDemoRequest struct {

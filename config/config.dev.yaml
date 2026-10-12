@@ -150,3 +150,6 @@ features:
   resumable_upload: true
   adaptive_bitrate: false
   multi_codec: false
+  # Dev only: allow the server-side demo signer. Still requires APP_DEBUG=true
+  # and web3.chain_id == 31337 at runtime (see gateway.DemoSignerAllowed).
+  demo_tx_signer: true
