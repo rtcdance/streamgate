@@ -110,7 +110,8 @@ type AuthService struct {
 	jwtExpiry         time.Duration
 	playbackTokenTTL  time.Duration
 	sessionMu         sync.RWMutex
-	sessions          map[string]int64
+	sessionCache      map[string]cachedSession
+	sessionStore      stg.SessionStore
 	eip712Verifier    web3.EIP712VerifierInterface
 	siweDomain        string
 	siweURI           string
@@ -272,41 +273,89 @@ func (s *AuthService) PlaybackTokenTTL() time.Duration {
 // SessionEpochUnknown means the session is not live.
 const SessionEpochUnknown int64 = 0
 
-// StartSession creates a live session and returns its id. Every credential
-// issued for that login carries the id plus the session's epoch.
-func (s *AuthService) StartSession() string {
-	id := generateID()
-	s.sessionMu.Lock()
-	s.sessions[id] = 1
-	s.sessionMu.Unlock()
-	return id
+// sessionCacheTTL bounds how long a session lookup may be reused. It is short
+// because the cached value is what authorizes requests: a revoked session must
+// stop working within this window, not eventually.
+const sessionCacheTTL = 5 * time.Second
+
+type cachedSession struct {
+	epoch      int64
+	known      bool
+	verifiedAt time.Time
 }
 
-// SessionEpoch reports the current epoch for a session.
+// StartSession creates a live session and returns its id. Every credential
+// issued for that login carries the id plus the session's epoch.
+func (s *AuthService) StartSession() (string, error) {
+	id := generateID()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if s.sessionStore != nil {
+		if err := s.sessionStore.Create(ctx, id); err != nil {
+			return "", fmt.Errorf("failed to start session: %w", err)
+		}
+	}
+	// Seed the cache: a lookup immediately after login must not miss and reject
+	// the token it was just issued.
+	s.sessionMu.Lock()
+	s.sessionCache[id] = cachedSession{epoch: 1, known: true, verifiedAt: time.Now()}
+	s.sessionMu.Unlock()
+	return id, nil
+}
+
+// SessionEpoch reports the current epoch for a session, reading through a short
+// cache.
 //
 // Availability is checked POSITIVELY: a credential is valid only when its
-// session exists here and its epoch matches. The absence of a revocation record
-// is deliberately NOT treated as evidence of validity.
+// session exists and its epoch matches. The absence of a revocation record is
+// deliberately NOT treated as evidence of validity.
 func (s *AuthService) SessionEpoch(sessionID string) (int64, bool) {
 	if sessionID == "" {
 		return SessionEpochUnknown, false
 	}
+
 	s.sessionMu.RLock()
-	defer s.sessionMu.RUnlock()
-	epoch, ok := s.sessions[sessionID]
-	return epoch, ok
+	cached, hit := s.sessionCache[sessionID]
+	s.sessionMu.RUnlock()
+	// The cache is NOT refreshed on read: a session that is merely being used
+	// must not have its verifiedAt pushed forward, or a stale answer would live
+	// forever.
+	if hit && time.Since(cached.verifiedAt) <= sessionCacheTTL {
+		return cached.epoch, cached.known
+	}
+
+	if s.sessionStore == nil {
+		return SessionEpochUnknown, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	epoch, known := s.sessionStore.Epoch(ctx, sessionID)
+	// A backend that cannot be read is not evidence either way; report "not
+	// known" so the caller refuses rather than allows.
+	s.sessionMu.Lock()
+	s.sessionCache[sessionID] = cachedSession{epoch: epoch, known: known, verifiedAt: time.Now()}
+	s.sessionMu.Unlock()
+	return epoch, known
 }
 
 // RevokeSession invalidates every credential of a session at once by moving its
 // epoch, so no per-token bookkeeping is needed. It returns the new epoch.
 func (s *AuthService) RevokeSession(sessionID string) int64 {
-	if sessionID == "" {
+	if sessionID == "" || s.sessionStore == nil {
 		return SessionEpochUnknown
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	epoch, err := s.sessionStore.Bump(ctx, sessionID)
+	if err != nil {
+		return SessionEpochUnknown
+	}
+	// Drop the cached answer so the bump is visible on the next request rather
+	// than up to sessionCacheTTL later.
 	s.sessionMu.Lock()
-	defer s.sessionMu.Unlock()
-	s.sessions[sessionID]++
-	return s.sessions[sessionID]
+	delete(s.sessionCache, sessionID)
+	s.sessionMu.Unlock()
+	return epoch
 }
 
 // SessionValid reports whether a credential's session is live and its epoch is
@@ -314,6 +363,18 @@ func (s *AuthService) RevokeSession(sessionID string) int64 {
 func (s *AuthService) SessionValid(sessionID string, epoch int64) bool {
 	current, ok := s.SessionEpoch(sessionID)
 	return ok && epoch == current
+}
+
+// WithSessionStore makes session epochs durable. Without it the service falls
+// back to an in-memory store, and losing that on restart would silently
+// un-revoke every session: the credentials would still be signed correctly and
+// the session would simply look unknown.
+func WithSessionStore(store stg.SessionStore) AuthServiceOption {
+	return func(s *AuthService) {
+		if store != nil {
+			s.sessionStore = store
+		}
+	}
 }
 
 // AuthServiceOption applies RSA signing configuration.
@@ -349,7 +410,8 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
 		playbackTokenTTL:  DefaultPlaybackTokenTTL,
-		sessions:          make(map[string]int64),
+		sessionCache:      make(map[string]cachedSession),
+		sessionStore:      stg.NewMemorySessionStore(),
 		siweDomain:        "streamgate.io",
 		siweURI:           "https://streamgate.io/login",
 	}
@@ -644,7 +706,10 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 
 // generateToken generates a JWT token for a user
 func (s *AuthService) generateToken(user *models.User) (string, error) {
-	sessionID := s.StartSession()
+	sessionID, err := s.StartSession()
+	if err != nil {
+		return "", err
+	}
 	claims := &Claims{
 		Username:         user.Username,
 		WalletAddress:    user.WalletAddress,
