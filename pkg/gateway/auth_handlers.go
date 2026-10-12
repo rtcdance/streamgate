@@ -201,6 +201,15 @@ func handleAuthLogout(authService *service.AuthService, log *zap.Logger) gin.Han
 		if err := authService.RevokeToken(c.Request.Context(), tokenStr); err != nil {
 			middleware.GetLogger(c, log).Warn("failed to revoke token on logout", zap.Error(err))
 		}
+		// Blacklisting the presented JTI only kills that one credential. Logging
+		// out ends the login, so the session's epoch moves too and every
+		// credential issued for it stops working - including a capability
+		// already handed to a player.
+		if sessionID, err := authService.RevokeSessionForToken(c.Request.Context(), tokenStr); err != nil {
+			middleware.GetLogger(c, log).Warn("failed to revoke session on logout", zap.Error(err))
+		} else {
+			middleware.GetLogger(c, log).Info("session revoked on logout", zap.String("session_id", sessionID))
+		}
 		monitoring.AuthOperationsTotal.WithLabelValues("logout", "success").Inc()
 		respondOK(c, gin.H{"message": "logged out"})
 	}
