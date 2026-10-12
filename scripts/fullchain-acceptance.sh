@@ -521,6 +521,12 @@ if [ -n "$PB_TOKEN" ]; then
         400|401|403|404) p "Playback token refused for another content ($CODE)" ;;
         *)               f "Cross-content playback token returned $CODE" ;;
     esac
+
+    # Expiry is deliberately NOT asserted here. The capability TTL is the subject
+    # of SG-06 ("60 秒能力 … 落实为配置校验"); this run observed a token minted by
+    # the manifest still being accepted well past 120s, which is recorded in the
+    # plan as a finding for that item rather than papered over with an unbounded
+    # wait here. What IS asserted is that a capability cannot be reused elsewhere.
 else
     f "No playback token to tamper with — the tampering matrix did not run"
 fi
