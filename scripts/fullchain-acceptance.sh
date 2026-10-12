@@ -522,11 +522,24 @@ if [ -n "$PB_TOKEN" ]; then
         *)               f "Cross-content playback token returned $CODE" ;;
     esac
 
-    # Expiry is deliberately NOT asserted here. The capability TTL is the subject
-    # of SG-06 ("60 秒能力 … 落实为配置校验"); this run observed a token minted by
-    # the manifest still being accepted well past 120s, which is recorded in the
-    # plan as a finding for that item rather than papered over with an unbounded
-    # wait here. What IS asserted is that a capability cannot be reused elsewhere.
+    # An expired capability must stop working. The policy bound is 60s, so this
+    # waits for the real expiry rather than hand-crafting an "old" token. While
+    # the token is still valid the segment answers 200/206; a 404 means the token
+    # was accepted and only the object was missing, which is still an acceptance.
+    if [ -n "${P_SEGURL:-}" ]; then
+        EXPIRED=0
+        EXPIRY_DEADLINE=$((SECONDS + 100))
+        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
+            C="$(curl -s -o /dev/null -w '%{http_code}' "$P_SEGURL")"
+            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
+            sleep 5
+        done
+        if [ "$EXPIRED" = "1" ]; then
+            p "Playback capability stops working once its policy TTL passes"
+        else
+            f "Playback capability still accepted after 100s — it outlives the 60s policy bound"
+        fi
+    fi
 else
     f "No playback token to tamper with — the tampering matrix did not run"
 fi

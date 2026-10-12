@@ -245,7 +245,29 @@ type FeaturesConfig struct {
 	// Anvil chain — see gateway.DemoSignerAllowed. A production deployment
 	// therefore cannot expose server-side signing even if this is true.
 	DemoTxSigner bool
+
+	// CapabilityTTL bounds how long an issued playback capability stays valid.
+	// A capability is a bearer credential carried in a URL, so the window is
+	// deliberately short; production may not exceed MaxCapabilityTTL.
+	CapabilityTTL time.Duration
+	// PositiveCacheTTL bounds how long a positive NFT verification may be
+	// reused. Production may not exceed MaxPositiveCacheTTL.
+	PositiveCacheTTL time.Duration
+	// ClockSkew is the tolerance applied when checking capability expiry.
+	// Production may not exceed MaxClockSkew.
+	ClockSkew time.Duration
 }
+
+// Capability policy bounds. The defaults are the policy; the maxima are what a
+// production deployment is allowed to configure.
+const (
+	DefaultCapabilityTTL    = 60 * time.Second
+	MaxCapabilityTTL        = 60 * time.Second
+	DefaultPositiveCacheTTL = 5 * time.Second
+	MaxPositiveCacheTTL     = 5 * time.Second
+	DefaultClockSkew        = 5 * time.Second
+	MaxClockSkew            = 5 * time.Second
+)
 
 // NATSConfig holds NATS configuration
 type NATSConfig struct {
@@ -545,14 +567,17 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Features: FeaturesConfig{
-			NFTGating:       viper.GetBool("features.nft_gating"),
-			GatingMode:      viper.GetString("features.gating_mode"),
-			SignatureAuth:   viper.GetBool("features.signature_auth"),
-			ChunkedUpload:   viper.GetBool("features.chunked_upload"),
-			ResumableUpload: viper.GetBool("features.resumable_upload"),
-			AdaptiveBitrate: viper.GetBool("features.adaptive_bitrate"),
-			MultiCodec:      viper.GetBool("features.multi_codec"),
-			DemoTxSigner:    viper.GetBool("features.demo_tx_signer"),
+			NFTGating:        viper.GetBool("features.nft_gating"),
+			GatingMode:       viper.GetString("features.gating_mode"),
+			SignatureAuth:    viper.GetBool("features.signature_auth"),
+			ChunkedUpload:    viper.GetBool("features.chunked_upload"),
+			ResumableUpload:  viper.GetBool("features.resumable_upload"),
+			AdaptiveBitrate:  viper.GetBool("features.adaptive_bitrate"),
+			MultiCodec:       viper.GetBool("features.multi_codec"),
+			DemoTxSigner:     viper.GetBool("features.demo_tx_signer"),
+			CapabilityTTL:    viper.GetDuration("features.capability_ttl"),
+			PositiveCacheTTL: viper.GetDuration("features.positive_cache_ttl"),
+			ClockSkew:        viper.GetDuration("features.clock_skew"),
 		},
 
 		Auth: AuthConfig{
@@ -721,6 +746,11 @@ func setDefaults() {
 	viper.SetDefault("transcode.profiles", []string{"720p"})
 	viper.SetDefault("features.adaptive_bitrate", true)
 	viper.SetDefault("features.multi_codec", true)
+	// Capability policy. These are the defaults the policy mandates; production
+	// may tighten them but not exceed the maxima (see Validate).
+	viper.SetDefault("features.capability_ttl", DefaultCapabilityTTL.String())
+	viper.SetDefault("features.positive_cache_ttl", DefaultPositiveCacheTTL.String())
+	viper.SetDefault("features.clock_skew", DefaultClockSkew.String())
 
 	// Auth defaults: must set via AUTH_JWT_SECRET env var
 	viper.SetDefault("auth.jwt_secret", "")
@@ -821,6 +851,23 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	}
 	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < 32 {
 		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret is only %d bytes — minimum 32 bytes required for HS256", len(c.Auth.JWTSecret)))
+	}
+
+	// Capability policy. A production deployment may tighten these, but not
+	// exceed them: each one widens the window in which a revoked, transferred or
+	// rule-blocked holding still plays. Exceeding a bound is a startup failure,
+	// not a warning, because a too-long window cannot be noticed from outside.
+	if c.Features.CapabilityTTL > MaxCapabilityTTL {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"features.capability_ttl is %s — maximum %s in production", c.Features.CapabilityTTL, MaxCapabilityTTL))
+	}
+	if c.Features.PositiveCacheTTL > MaxPositiveCacheTTL {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"features.positive_cache_ttl is %s — maximum %s in production", c.Features.PositiveCacheTTL, MaxPositiveCacheTTL))
+	}
+	if c.Features.ClockSkew > MaxClockSkew {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"features.clock_skew is %s — maximum %s in production", c.Features.ClockSkew, MaxClockSkew))
 	}
 	insecureSecrets := []string{
 		"streamgate-dev-secret-32chars!!",
@@ -1025,6 +1072,10 @@ func DefaultConfig() *Config {
 			MultiCodec:      true,
 			// Off by default: server-side demo signing must be an explicit opt-in.
 			DemoTxSigner: false,
+			// Policy defaults; see Validate for the production ceilings.
+			CapabilityTTL:    DefaultCapabilityTTL,
+			PositiveCacheTTL: DefaultPositiveCacheTTL,
+			ClockSkew:        DefaultClockSkew,
 		},
 
 		Auth: AuthConfig{

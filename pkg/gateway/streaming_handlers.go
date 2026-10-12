@@ -267,7 +267,10 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
-		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, 30*time.Minute, c.GetHeader("X-Client-Fingerprint"))
+		// The capability lifetime comes from the policy (60s by default). It used
+		// to be hardcoded to 30 minutes, which meant a revoked or transferred
+		// holding kept playing for half an hour.
+		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return
