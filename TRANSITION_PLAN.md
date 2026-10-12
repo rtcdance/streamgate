@@ -604,7 +604,8 @@ make verify-docker
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
 | SG-06                | **完成**                                                                                              | 见 §8.11。步骤 1～6 与**全部必需用例**均已落地并实测：能力 TTL 配置化 + 生产上界校验；capability 独立 audience；承载响应硬化；**70s 上界推导、配置约束并实测（67s）**；JWT/capability 钱包不一致拒绝；播放器区分权限结束与网络故障；凭据绑定 sessionID + authEpoch（正向存在校验、旧 token 缺字段即拒）；epoch 持久化（Redis，缓存 ≤5s 无滑动续期）；登出撤销整个会话 + 已发能力 5s 内失效；续期重查链上持仓；ruleVersion 以 Postgres 为权威、与写入同语句提交、不倒退、总 age ≤5s；capability 携带 ruleVersion ⇒ 规则变更界内拒绝已发能力；**嵌套 playlist 也重查持仓**；转移后不得续期（403/200 双向）；**RPC 全故障 / Redis 故障**两个依赖故障场景（独立入口 16 项全绿）；重放到管理 API 与条件请求均拒绝；**clock_skew 真正接线**（修掉硬编码 30s ⇒ 实际窗口曾达 90s、超出推导上界）。两种部署模式各 **ALL 58 PASSED** |
-| SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
+| SG-12                | **部分完成（步骤 2 完成；步骤 3 部分）**                                                                          | 见 §8.12：SSRF 守卫重写（**解析主机**后逐地址判定；**精确 host/host:port 白名单**取代"debug 放开全部私网"；**默认拒绝任意外部 inputURL**；非 http(s) 方案 / IPv4-mapped / CGNAT 全拒），并以"目标实际收到 **0** 请求"实测；原件上界落地（默认 100 MiB、`maxBytes+1` 判超限、**修掉 2 GiB 静默截断后成功**）。**未做**：原件 digest/封存（步骤 1）、时长/分辨率/编码探测、worker 隔离、任务幂等与 DLQ、generation 发布 |
+| SG-07～09、SG-13～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
 
@@ -1216,6 +1217,35 @@ sequenceDiagram
 - 重组形态（snapshot/revert）**未单独做**：步骤 5 用的是**转移**形态，而计划必需用例的原话正是"safe 视图包含 NFT **转移**后"；重组的事件驱动失效在 SG-04 已接线并以 snapshot/revert 实测。
 - `positive_cache_ttl` 已接到 rule version；NFT 证据年龄仍用 gate 内的 `MaxEvidenceAge`（同为 5s 策略值），未合并为同一常量。
 - CI 专用栈 job 与依赖故障入口**只能在 GitHub runner / 本机 Docker 上跑**，本机已验证后者。
+
+### 8.12 SG-12 执行证据（**部分完成**：步骤 2 完成；步骤 3 部分）
+
+**步骤 2（SSRF / 拉取目标）已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **解析主机后逐地址判定** | PASS | 原守卫只把 host 当**字符串**看，因此一个解析到 `127.0.0.1`、私网或 **云 metadata** 的名字可以通过。现在**解析后检查每一个地址**：一个既有公网又有内网记录的名字被**整体拒绝**（不能"半信半疑"），**解析失败也拒绝**（不当作安全） |
+| **精确白名单取代"放开全部私网"** | PASS | 原先 `AllowLocalhost` 一个开关同时放开了**所有私网段**——为了让 MinIO 可达却打开整个内网。现在对象存储由**精确 host / host:port 白名单**准入，别的内网主机不受影响 |
+| **默认拒绝任意外部 inputURL** | PASS | `features.allow_external_transcode_input`（默认 **false**，显式 `BindEnv`）：API 只接受上传对象与内部对象存储 URL。即使开启，loopback / 私网 / link-local / CGNAT / unspecified 仍拒绝 |
+| 方案与地址类别 | PASS | 只允许 http(s)；`file` / `data` / `ftp` / `gopher` / `javascript` 全拒；IPv4-mapped（`::ffff:127.0.0.1`）与 `100.64/10` 也拒 |
+| 不成为探测面 | PASS | 拒绝信息对调用方保持通用，不暴露"哪个内网名字存在" |
+| **"目标实际收到 0 请求"实测** | PASS | 计划完成判据写的是"SSRF 目标服务**实际收到 0 请求**"，因此测试**起一个真实 listener** 并断言它被访问 **0 次**（外部输入开与关两种配置都测）——只断言 4xx 不够：那样"先校验、后照样去 fetch"的重构仍会通过 |
+| 线上实测（部署后的 monolith） | PASS | `http://169.254.169.254/latest/meta-data/` → **400**；`http://127.0.0.1:9000/x.mp4` → **400**；`https://example.com/v.mp4` → **400**；`file:///etc/passwd` → **400** |
+
+**步骤 3 的原件上界已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **修掉静默截断后成功** | PASS | 原下载用 `io.Copy(f, io.LimitReader(resp.Body, 2<<30))`：超过 2 GiB 时 `io.Copy` **在 2 GiB 处停下并返回 nil** ⇒ 服务**转码了一个被截断的原件并报告成功**。这比"没有上界"更糟——产物是坏的而没有任何错误。计划原文正是禁止"`LimitReader` 静默截断后成功" |
+| 上界存在且是策略值 | PASS | 新增 `maxInputBytes`，默认 **100 MiB**（而非"上传端允许多大就多大"）；非正值**保留默认**——"无上限"不是本服务提供的选项 |
+| `maxBytes+1` 判超限 | PASS | 声明 `Content-Length` 超限**读之前**即拒（诚实服务端不会让我们缓冲超大 body）；拷贝时**多读一个字节**并在读到即失败，因此**分块传输 / 谎报长度**这种声明检查看不见的情况也会被拒，且语义是"超限"而不是"留下前 N 字节" |
+| 失败不留垃圾 | PASS | 被拒的下载会删掉临时文件（用例断言临时目录里的输入文件数不变） |
+| 错误可映射 | PASS | `ErrInputTooLarge` 是独立错误，调用方可据此答 413 |
+| 配置与生产上界 | PASS | `transcoding.max_input_size`（默认 100 MiB，硬上界 2 GiB，显式 `BindEnv` 到 `STREAMGATE_TRANSCODING_MAX_INPUT_SIZE`）；超硬上界**启动失败**——攻击者尺寸的输入导致磁盘与 worker 时间无界，不是告警级别的问题 |
+| 单元用例 | PASS | 默认值与覆盖值（含"传 0 不等于无上限"）；声明超限被拒；**未声明超限被拒而非截断**；恰好等于上界接受；超一字节被拒；被拒后不留临时文件 |
+| 端到端 | PASS | 重新构建并部署后 **ALL 58 PASSED**（验收 fixture 约 506 KB，远低于 100 MiB） |
+
+**未做（SG-12 判据）**：步骤 1（原件 digest / 唯一 key / 封存与 409 冲突）、步骤 3 剩余（时长 10 分钟、1080p、只支持探测过的 MP4/H.264/AAC）、步骤 4（FFmpeg 进程树终止 / worker 与队列上界）、步骤 5（worker 隔离与真实消费）、步骤 6～7（DB 权威状态、lease、幂等、DLQ）、步骤 8（generation 原子发布）、步骤 9（playlist 真实 EXTINF）。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
