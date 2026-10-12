@@ -109,6 +109,9 @@ type AuthService struct {
 	auditLogger       stg.AuditLogger
 	jwtExpiry         time.Duration
 	playbackTokenTTL  time.Duration
+	// clockSkew is the tolerance applied to exp/nbf checks. It is a real input to
+	// the revocation bound, so it comes from config rather than a constant.
+	clockSkew         time.Duration
 	sessionMu         sync.RWMutex
 	sessionCache      map[string]cachedSession
 	sessionStore      stg.SessionStore
@@ -254,6 +257,17 @@ const DefaultPlaybackTokenTTL = 60 * time.Second
 // not exceed it; see the config validation.
 const MaxPlaybackTokenTTL = 60 * time.Second
 
+// Clock tolerance policy. These mirror pkg/core/config's values, which remain
+// the runtime source of truth (wired in through WithClockSkew); they are
+// repeated here so the service's own default is bounded even without config. A
+// test asserts the two stay in step, because a tolerance larger than the policy
+// would silently widen the revocation bound past what was computed and
+// validated.
+const (
+	DefaultClockSkew = 5 * time.Second
+	MaxClockSkew     = 5 * time.Second
+)
+
 // WithPlaybackTokenTTL overrides the capability lifetime. Values above
 // MaxPlaybackTokenTTL are clamped here as well as rejected at config load, so a
 // caller that bypasses config cannot widen the window.
@@ -267,6 +281,32 @@ func WithPlaybackTokenTTL(ttl time.Duration) AuthServiceOption {
 		}
 		s.playbackTokenTTL = ttl
 	}
+}
+
+// WithClockSkew sets the tolerance applied to exp/nbf checks.
+//
+// This is the value the revocation bound is DERIVED from, so it must be the
+// configured one: a hardcoded tolerance that is larger than the policy value
+// silently makes the realised window bigger than the bound that was computed and
+// validated. It is clamped to MaxClockSkew for the same reason the TTL is.
+func WithClockSkew(skew time.Duration) AuthServiceOption {
+	return func(s *AuthService) {
+		if skew < 0 {
+			return
+		}
+		if skew > MaxClockSkew {
+			skew = MaxClockSkew
+		}
+		s.clockSkew = skew
+	}
+}
+
+// ClockSkew reports the tolerance applied to exp/nbf checks.
+func (s *AuthService) ClockSkew() time.Duration {
+	if s.clockSkew <= 0 {
+		return DefaultClockSkew
+	}
+	return s.clockSkew
 }
 
 // PlaybackTokenTTL reports the configured capability lifetime.
@@ -466,6 +506,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
 		playbackTokenTTL:  DefaultPlaybackTokenTTL,
+		clockSkew:         DefaultClockSkew,
 		sessionCache:      make(map[string]cachedSession),
 		sessionStore:      stg.NewMemorySessionStore(),
 		siweDomain:        "streamgate.io",
@@ -555,9 +596,11 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 		validMethods = []string{"RS256"}
 	}
 
-	// Parse with signature verification but skip automatic claims
-	// validation. Claims are checked manually below with 30s leeway
-	// to tolerate clock skew between services.
+	// Parse with signature verification but skip automatic claims validation.
+	// Claims are checked manually below, with the CONFIGURED clock skew rather
+	// than a hardcoded tolerance: the revocation bound is derived from that
+	// value, so a larger hardcoded one would make the realised window exceed the
+	// bound that was computed and validated.
 	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
 	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		switch s.signingType {
@@ -579,11 +622,12 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	// With WithoutClaimsValidation, token.Valid is based on signature only.
-	// Manually check exp/nbf with 30s clock skew tolerance.
-	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+	// Manually check exp/nbf with the configured clock skew tolerance.
+	skew := s.ClockSkew()
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
-	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-skew)) {
 		return nil, fmt.Errorf("token not yet valid")
 	}
 
