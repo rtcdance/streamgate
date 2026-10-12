@@ -69,7 +69,25 @@ type gatingMockResult struct {
 func (m *gatingMockResult) LastInsertId() (int64, error) { return 0, nil }
 func (m *gatingMockResult) RowsAffected() (int64, error) { return m.rowsAffected, nil }
 
+const gatingTestWallet = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
+
+// setupGatingRouter mounts the routes behind a stub that injects the
+// authenticated wallet, mirroring the production order (the global JWT
+// middleware runs before these handlers and is what sets wallet_address).
 func setupGatingRouter(svc *service.GatingRuleService) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("wallet_address", gatingTestWallet)
+		c.Next()
+	})
+	RegisterGatingRuleRoutes(r.Group("/"), svc)
+	return r
+}
+
+// setupGatingRouterNoAuth mounts the same routes WITHOUT an authenticated
+// wallet, to prove the handlers refuse to act for an anonymous caller.
+func setupGatingRouterNoAuth(svc *service.GatingRuleService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	RegisterGatingRuleRoutes(r.Group("/"), svc)
@@ -315,6 +333,11 @@ func TestDeleteGatingRule_NotFound(t *testing.T) {
 		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 			return &gatingMockResult{rowsAffected: 0}, nil
 		},
+		// The owner-conditioned DELETE affected nothing; resolving the rule then
+		// finds no such row, which is a 404.
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return stg.NewErrorCancelRow(sql.ErrNoRows)
+		},
 	}
 	svc := service.NewGatingRuleService(db, zap.NewNop())
 	r := setupGatingRouter(svc)
@@ -322,4 +345,107 @@ func TestDeleteGatingRule_NotFound(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodDelete, "/api/v1/gating-rules/missing", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// A rule that exists but belongs to someone else's content is a 403: the caller
+// is authenticated and the resource is real, they just may not touch it.
+func TestDeleteGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
+	db := &gatingMockDB{
+		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+			return &gatingMockResult{rowsAffected: 0}, nil
+		},
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return stg.NewTestCancelRow(&gatingRuleContentRowScanner{contentID: "someone-elses-content"})
+		},
+	}
+	svc := service.NewGatingRuleService(db, zap.NewNop())
+	r := setupGatingRouter(svc)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodDelete, "/api/v1/gating-rules/r1", http.NoBody)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestCreateGatingRule_ForbiddenWhenNotOwner(t *testing.T) {
+	db := &gatingMockDB{
+		// The owner-conditioned INSERT matched no owned content.
+		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+			return &gatingMockResult{rowsAffected: 0}, nil
+		},
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return stg.NewTestCancelRow(&gatingRuleOwnerRowScanner{owner: "0xsomeone-else"})
+		},
+	}
+	svc := service.NewGatingRuleService(db, zap.NewNop())
+	r := setupGatingRouter(svc)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/content/c1/gating-rules",
+		strings.NewReader(`{"contract_address":"0xabc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestCreateGatingRule_ContentMissingIsNotFound(t *testing.T) {
+	db := &gatingMockDB{
+		execFn: func(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+			return &gatingMockResult{rowsAffected: 0}, nil
+		},
+		queryRowFn: func(ctx context.Context, query string, args ...interface{}) *stg.CancelRow {
+			return stg.NewErrorCancelRow(sql.ErrNoRows)
+		},
+	}
+	svc := service.NewGatingRuleService(db, zap.NewNop())
+	r := setupGatingRouter(svc)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/content/missing/gating-rules",
+		strings.NewReader(`{"contract_address":"0xabc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// Without an authenticated wallet the handlers must refuse outright rather than
+// falling through to a service call with an empty actor.
+func TestGatingRuleMutations_RequireWallet(t *testing.T) {
+	db := &gatingMockDB{}
+	svc := service.NewGatingRuleService(db, zap.NewNop())
+	r := setupGatingRouterNoAuth(svc)
+
+	cases := []struct {
+		method, path, body string
+	}{
+		{http.MethodPost, "/api/v1/content/c1/gating-rules", `{"contract_address":"0xabc"}`},
+		{http.MethodPut, "/api/v1/gating-rules/r1", `{"contract_address":"0xabc"}`},
+		{http.MethodDelete, "/api/v1/gating-rules/r1", ""},
+	}
+	for _, tc := range cases {
+		var reader *strings.Reader
+		if tc.body == "" {
+			reader = strings.NewReader("")
+		} else {
+			reader = strings.NewReader(tc.body)
+		}
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(tc.method, tc.path, reader)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "%s %s", tc.method, tc.path)
+	}
+}
+
+// gatingRuleContentRowScanner backs the "does this rule exist" lookup.
+type gatingRuleContentRowScanner struct{ contentID string }
+
+func (s *gatingRuleContentRowScanner) Scan(dest ...interface{}) error {
+	*dest[0].(*string) = s.contentID
+	return nil
+}
+
+// gatingRuleOwnerRowScanner backs the "who owns this content" lookup.
+type gatingRuleOwnerRowScanner struct{ owner string }
+
+func (s *gatingRuleOwnerRowScanner) Scan(dest ...interface{}) error {
+	*dest[0].(*string) = s.owner
+	return nil
 }
