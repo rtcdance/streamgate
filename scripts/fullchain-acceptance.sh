@@ -608,25 +608,6 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         *)   f "Tampered contract still served after 30s (last=$TAMPER_CODE)" ;;
     esac
 
-    # An expired capability must stop working. The policy bound is 60s, so this
-    # waits for the real expiry rather than hand-crafting an "old" token. While
-    # the token is still valid the segment answers 200/206; a 404 means the token
-    # was accepted and only the object was missing, which is still an acceptance.
-    if [ -n "${P_SEGURL:-}" ]; then
-        EXPIRED=0
-        EXPIRY_DEADLINE=$((SECONDS + 100))
-        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
-            C="$(curl -s -o /dev/null -w '%{http_code}' "$P_SEGURL")"
-            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
-            sleep 5
-        done
-        if [ "$EXPIRED" = "1" ]; then
-            p "Playback capability stops working once its policy TTL passes"
-        else
-            f "Playback capability still accepted after 100s — it outlives the 60s policy bound"
-        fi
-    fi
-
     # Point the rule back at the real contract FIRST, so each denial below is
     # attributable to one changed field rather than to leftover damage. Asserting
     # the threshold while the contract was still the reverting one would "pass"
@@ -690,6 +671,73 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
     RESTORED="$(wait_for_manifest 200 15)"
     [ "$RESTORED" = "200" ] && p "Holder is served again once the threshold is restored" \
         || f "Holder still denied after restoring the rule (last=$RESTORED)"
+
+    # --- The 70s revocation bound, measured rather than asserted ---------------
+    # The bound is DERIVED: capability TTL (60s) + positive cache (5s) + clock
+    # tolerance (5s). Measuring it needs a capability whose mint time is known,
+    # so this mints a fresh one and times the expiry from that moment. The rule
+    # is back at min_balance 1 here, so the holder is authorized to mint.
+    FRESH_MASTER="$(curl -s -H "Authorization: Bearer $TOKEN_A" \
+        "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+    FRESH_URI="$(printf '%s' "$FRESH_MASTER" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1)"
+    if [ -n "$FRESH_URI" ]; then
+        FRESH_URL="$BASE_URL$FRESH_URI"
+        MINT_AT=$SECONDS
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' "$FRESH_URL")"
+        case "$CODE" in
+            200|206) p "A freshly minted capability works ($CODE)" ;;
+            *)       f "A freshly minted capability failed ($CODE)" ;;
+        esac
+
+        EXPIRED=0
+        EXPIRY_DEADLINE=$((SECONDS + 100))
+        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
+            C="$(curl -s -o /dev/null -w '%{http_code}' "$FRESH_URL")"
+            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
+            sleep 3
+        done
+        ELAPSED=$((SECONDS - MINT_AT))
+        if [ "$EXPIRED" = "1" ]; then
+            # 70s plus one poll interval: the assertion is about the BOUND, not
+            # about the polling granularity.
+            if [ "$ELAPSED" -le 75 ]; then
+                p "The capability expired inside the 70s revocation bound (${ELAPSED}s)"
+            else
+                f "The capability outlived the 70s bound (${ELAPSED}s)"
+            fi
+        else
+            f "The capability was still accepted 100s after mint"
+        fi
+
+        # --- Replaying the capability against a management API ------------------
+        # A capability is a bearer credential, so it must not be spendable where
+        # an access token is expected.
+        CAP_TOKEN="$(printf '%s' "$FRESH_URI" | grep -oE 'playback_token=[A-Za-z0-9._-]+' | head -1 | cut -d= -f2)"
+        if [ -n "$CAP_TOKEN" ]; then
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $CAP_TOKEN" \
+                "$BASE_URL/api/v1/content")"
+            case "$CODE" in
+                401|403) p "A capability replayed as a Bearer token on a management API is refused ($CODE)" ;;
+                *)       f "A capability was accepted as an access token on /content ($CODE)" ;;
+            esac
+        else
+            f "Could not extract the capability for the replay check"
+        fi
+
+        # --- A conditional request cannot bypass authorization ------------------
+        # The query string is stripped first: a conditional request that still
+        # carried the capability would prove nothing about bypassing.
+        NO_CAP_URL="${FRESH_URL%%\?*}"
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' -H 'If-None-Match: "anything"' \
+            -H 'If-Modified-Since: Wed, 01 Jan 2020 00:00:00 GMT' "$NO_CAP_URL")"
+        case "$CODE" in
+            401|403) p "A conditional request without a capability is refused ($CODE)" ;;
+            200|206) f "A conditional request served media without a capability ($CODE)" ;;
+            *)       f "A conditional request without a capability returned $CODE" ;;
+        esac
+    else
+        f "Could not mint a capability to measure the bound against"
+    fi
 
     # The restored rule has a NEW version, so the capability captured before the
     # change stays dead and a fresh one is issued on the next manifest.
