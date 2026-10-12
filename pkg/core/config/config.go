@@ -267,6 +267,16 @@ const (
 	MaxPositiveCacheTTL     = 5 * time.Second
 	DefaultClockSkew        = 5 * time.Second
 	MaxClockSkew            = 5 * time.Second
+
+	// MaxTransferRevocationBound is how long a holding that has been transferred
+	// away can still play. It is not a free parameter: it is the SUM of the three
+	// windows above, because a capability issued just before the transfer stays
+	// valid for its TTL, may be backed by a positive verification cached for the
+	// positive-cache window, and expiry is evaluated with clock-skew tolerance.
+	//
+	// 60 + 5 + 5 = 70s. Changing any component without re-deriving this bound is
+	// how the guarantee silently stops holding, so the sum is validated.
+	MaxTransferRevocationBound = 70 * time.Second
 )
 
 // NATSConfig holds NATS configuration
@@ -868,6 +878,15 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	if c.Features.ClockSkew > MaxClockSkew {
 		ve.Critical = append(ve.Critical, fmt.Sprintf(
 			"features.clock_skew is %s — maximum %s in production", c.Features.ClockSkew, MaxClockSkew))
+	}
+
+	// The transfer-revocation bound is the SUM of the three windows, so each
+	// individual check above is not enough: three values that are each within
+	// their own limit can still add up past 70s.
+	if total := c.Features.CapabilityTTL + c.Features.PositiveCacheTTL + c.Features.ClockSkew; total > MaxTransferRevocationBound {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"capability window totals %s (ttl %s + positive cache %s + clock skew %s) — maximum %s for the transfer-revocation bound",
+			total, c.Features.CapabilityTTL, c.Features.PositiveCacheTTL, c.Features.ClockSkew, MaxTransferRevocationBound))
 	}
 	insecureSecrets := []string{
 		"streamgate-dev-secret-32chars!!",

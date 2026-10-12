@@ -408,6 +408,9 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
 			return
 		}
+		if rejectMismatchedJWTCapability(c, authService, wallet) {
+			return
+		}
 		if claims.Contract != "" || claims.TokenID != "" {
 			// Playback token carries NFT contract/tokenID; verify it matches
 			// the NFT gate context to prevent token reuse across content.
@@ -614,6 +617,45 @@ func parseByteRange(header string, size int64) (int64, int64, bool) {
 		}
 	}
 	return start, end, true
+}
+
+// rejectMismatchedJWTCapability refuses a request that presents BOTH an access
+// JWT and a playback capability for DIFFERENT wallets.
+//
+// A segment request carries its capability in the query string, and the JWT
+// middleware deliberately steps aside when a capability has already been
+// validated. Without this check, a caller could pair their own JWT with someone
+// else's capability and the mismatch would go unnoticed - the capability would
+// be honoured while the request claims a different identity.
+//
+// Returns true when the request has been refused.
+func rejectMismatchedJWTCapability(c *gin.Context, authService *service.AuthService, capabilityWallet string) bool {
+	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return false
+	}
+	presented := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	// On segment requests the header may legitimately carry the capability
+	// itself rather than a JWT; that is the same credential, not a conflict.
+	if presented == "" || presented == extractPlaybackToken(c) {
+		return false
+	}
+
+	claims, err := authService.ParseToken(presented)
+	if err != nil {
+		// Not an access token. It was already ignored by the JWT middleware
+		// because a capability was present, so there is nothing to reconcile.
+		return false
+	}
+	if claims.WalletAddress == "" {
+		return false
+	}
+	if !strings.EqualFold(claims.WalletAddress, capabilityWallet) {
+		abortWithError(c, http.StatusUnauthorized, ErrUnauthorized,
+			"the access token and the playback capability belong to different wallets")
+		return true
+	}
+	return false
 }
 
 func extractPlaybackToken(c *gin.Context) string {

@@ -547,6 +547,17 @@ if [ -n "$PB_TOKEN" ]; then
         esac
     fi
 
+    # A capability in the query plus an access JWT for a DIFFERENT wallet must be
+    # refused. The JWT middleware steps aside once a capability is validated, so
+    # nothing else would notice the mismatch.
+    if [ -n "$P_SEGURL" ] && [ -n "$TOKEN_B" ]; then
+        MIX_CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_B" "$P_SEGURL")"
+        case "$MIX_CODE" in
+            401|403) p "A capability paired with another wallet's JWT is refused ($MIX_CODE)" ;;
+            *)       f "Cross-wallet capability+JWT returned $MIX_CODE — expected 401/403" ;;
+        esac
+    fi
+
     # An error must not echo the capability back to the caller.
     ERR_BODY="$(curl -s "$BASE_URL/api/v1/streaming/$CONTENT_ID/segment/0.ts?playback_token=$PB_TOKEN-tampered" 2>/dev/null || true)"
     case "$ERR_BODY" in
