@@ -66,7 +66,7 @@ func TestWeb3Service_RegisterContent_NoManager(t *testing.T) {
 		multiChainManager: mcm,
 		config:            &config.Config{Web3: config.Web3Config{Transaction: config.TransactionConfig{PrivateKeyHex: "key"}}},
 	}
-	_, err := svc.RegisterContent(context.Background(), 1, "0xcontract", "hash", "uri")
+	_, err := svc.RegisterContent(context.Background(), 1, "0xcontract", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 }
 
@@ -454,7 +454,7 @@ func TestWeb3Service_RegisterContent_EmptyKey(t *testing.T) {
 		logger: zap.NewNop(),
 		config: &config.Config{},
 	}
-	_, err := svc.RegisterContent(context.Background(), 1, "0xcontract", "hash", "uri")
+	_, err := svc.RegisterContent(context.Background(), 1, "0xcontract", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "private key not configured")
 }

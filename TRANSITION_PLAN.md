@@ -384,7 +384,7 @@ flowchart LR
 
 **完成**：第 1.1 节 R01～R12 的架构入口全部映射，主线 / 条件 / 不支持三类承诺明确；没有“准备接入”写成“已经实现”。SG-10 设计基线完成不等于 M8 的 runtime 已通过；后者必须等对应任务实际验证。
 
-### [ ] SG-11 / P0：合约标准完整性、状态机与 ABI 一致
+### [x] SG-11 / P0：合约标准完整性、状态机与 ABI 一致
 
 **依赖**：SG-00、SG-10。**文件范围**：`contracts/src/DemoNFT.sol / ContentRegistry.sol`、Foundry tests / script；`pkg/web3/contract/binding.go` 及全部 ContentRegistry ABI / 调用点、content service 与 gateway registry provider。
 
@@ -593,7 +593,8 @@ make verify-docker
 | 既有 Production Deploy | [38138403111](https://github.com/rtcdance/streamgate/actions/runs/38138403111) 显示 success，但缺凭据 skip | **不能证明生产部署成功** |
 | SG-10 | **设计基线完成（见 §8.1）** | 事实清单（wired/tested/scaffold/disabled）、2 张图、六类主体权限矩阵、四类 profile、R01～R12 入口映射、路由正负例→SG 映射 |
 | SG-00 | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞） | 见 §8.2 |
-| SG-01～09、SG-11～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
+| SG-01～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -779,6 +780,30 @@ sequenceDiagram
 | **Docker 镜像构建** | **BLOCKED（本机网络）** | `deploy/docker/Dockerfile.verify` 首次构建在拉取 `golang:1.26-bookworm` 时报 `short read: expected 86641718 bytes but got 0: unexpected EOF`；重拉成功后二次构建运行 28 分钟未完成。属环境网络问题而非 Dockerfile 缺陷，但**未验证**，故 SG-00 不勾选 |
 
 **结论**：SG-00 的测试与入口已落地，本机可验证部分全部通过；**Docker 镜像实跑未完成**，SG-00 保持未勾选。网络可用时执行 `make verify-docker VERIFY_STAGE=unit` 复验后补记，再进入 SG-11。
+
+### 8.3 SG-11 执行证据（合约标准、状态机、ABI 一致）
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| DemoNFT 真 ERC-721 | PASS | 改用 OZ `ERC721` + `ERC721URIStorage`；两个 `safeTransferFrom` 重载 + receiver 校验；**不继承** Enumerable（0x780e9d63 仍为 false） |
+| receiver 行为 | PASS | 接受 / 错误返回（`ERC721InvalidReceiver`）/ revert（原因透传）三类；`mint` 到非 receiver 亦 revert |
+| 审批清除 + 余额守恒 | PASS | `testTransferClearsApproval`；invariant handler 每次转账后断言 `getApproved==0`；`invariant_NFTBalancesAndApproval` |
+| ContentRegistry 新 ABI | PASS | `registerContent(string,address,bytes32,string)` onlyOwner；`creator` 为传入的**已验证内容 owner**，与 registrar 分离 |
+| 状态机 | PASS | Active↔Flagged 仅 owner；Active/Flagged→Removed 由 owner 或 creator；**Removed 为终态**；`updateContentStatus` 到 Removed/Nonexistent 一律 revert |
+| 墓碑 | PASS | `testRemovedId_CannotBeReused`、`testRemovedRecord_CannotBeRevived` |
+| 事件 | PASS | `ContentRegistered(bytes32 indexed contentKey, string contentId, address indexed creator, bytes32 contentDigest, string metadataURI, uint256)`；解析器只暴露可证明字段（contentKey/creator），**不声称**从 indexed topic 还原动态 string |
+| 输入边界 | PASS | 空/超长 id、零 creator、零 digest、超长 URI 均 revert |
+| 分页与计数 | PASS | `getContentIds(offset,limit)` / `getContentsByCreatorPaged`；count = 唯一登记数（含 Removed） |
+| 所有权 | PASS | `Ownable2Step`；`renounceOwnership` 显式禁用 |
+| 合约不变量 | PASS | `invariant_RegistryUniqueAndTerminalState`；两条 invariant 均 **256 runs × depth 32，0 reverts** |
+| Foundry 总量 | PASS | `forge test`：**46 passed / 0 failed / 0 skipped**（4 suites） |
+| ABI 防漂移 | PASS | `TestContentRegistryABI_MatchesForgeArtifact` / `TestERC721ABI_MatchesDemoNFTArtifact` 逐项比对 Forge 产物的 selector / 输入 / 输出 / stateMutability / event / error；**当场抓出**旧 `ERC721ABI` 把 `mint` 写成 `(address,uint256)` 的既有漂移 |
+| Go 同步 | PASS | binding / interactor / content 接口 / `web3_tx` / event indexer / mocks / 集成测试全部切到新 ABI |
+| 假 digest 关闭 | PASS | 删除 `contentContentHash`（URL/ID 的 SHA-256）；`CreateContentWithTx` 不再自动登记，改为记录「等待 SG-12 的可信原件 digest」 |
+| Anvil 实证 | PASS | `TestAnvil_ContentRegistry_RegisterAndReadBack`：真实部署 → `registerContent` → 真实 receipt + `ContentRegistered` topic 校验 → `getContent` 回读 creator/digest 一致 |
+| 回归 | PASS | `go test ./...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空；`go test -tags=anvil -race ./test/integration/...` 全绿 |
+
+**限制（本项未覆盖）**：Forge invariant 尚未纳入 CI 门禁、gas snapshot 未生成、Slither 未重跑 —— 均属 SG-02 / SG-08 范围。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

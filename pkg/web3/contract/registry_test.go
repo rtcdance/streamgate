@@ -101,7 +101,7 @@ func TestNewContentRegistry(t *testing.T) {
 	assert.Equal(t, ContentRegistryABI, cr.ABI)
 	assert.NotNil(t, cr.Events)
 	assert.Contains(t, cr.Events, "ContentRegistered")
-	assert.Contains(t, cr.Events, "ContentRemoved")
+	assert.Contains(t, cr.Events, "ContentStatusUpdated")
 }
 
 func TestNewNFTContract(t *testing.T) {

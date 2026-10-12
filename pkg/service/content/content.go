@@ -2,9 +2,7 @@ package content
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,12 +28,13 @@ type ContentService struct {
 	sf          singleflight.Group
 }
 
-// ContentRegistry defines the interface for on-chain content registration.
-// Signatures mirror registerContent(string,string,string) in
-// contracts/src/ContentRegistry.sol (implemented by web3.ContentRegistryBinding);
-// nil means on-chain registration is disabled.
+// ContentRegistry defines the interface for on-chain content attestation.
+// It mirrors registerContent(string contentId, address creator,
+// bytes32 contentDigest, string metadataURI) in contracts/src/ContentRegistry.sol
+// (implemented by web3.ContentRegistryBinding); nil means on-chain registration
+// is disabled.
 type ContentRegistry interface {
-	RegisterContent(ctx context.Context, contentID, contentHash, metadataURI string) (string, error)
+	RegisterContent(ctx context.Context, contentID, creator string, contentDigest [32]byte, metadataURI string) (string, error)
 }
 
 // ContentObjectStorage defines the interface for object storage
@@ -361,21 +360,14 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 		return "", fmt.Errorf("commit tx: %w", err)
 	}
 
-	// Optionally register on-chain after successful DB commit. The chain is
-	// the ownership/existence truth source; a failed registration must not
-	// fail the DB insert (degrade, never crash).
+	// On-chain attestation is deliberately NOT performed here. The previous
+	// path registered SHA-256(media URL or content ID), which is not the digest
+	// of the original bytes and therefore attested to nothing. SG-12 supplies
+	// the verified original digest and SG-13 the durable outbox that retries
+	// registration; until that digest exists the intent is only recorded.
 	if s.registry != nil {
-		contentHash := contentContentHash(content)
-		metadataURI, _ := content.Metadata["metadata_uri"].(string)
-		if txHash, err := s.registry.RegisterContent(ctx, content.ID, contentHash, metadataURI); err != nil {
-			s.logger.Warn("On-chain registration failed (content still in DB)",
-				zap.String("id", content.ID),
-				zap.Error(err))
-		} else {
-			s.logger.Info("Content registered on-chain",
-				zap.String("id", content.ID),
-				zap.String("tx_hash", txHash))
-		}
+		s.logger.Info("On-chain content registration deferred until a verified original digest exists",
+			zap.String("id", content.ID))
 	}
 
 	s.logger.Info("Content created with tx", zap.String("id", content.ID))
@@ -664,14 +656,6 @@ func (s *ContentService) UpdateContentStatus(ctx context.Context, id, status str
 	return nil
 }
 
-// contentContentHash derives the deterministic content fingerprint registered
-// on-chain: SHA-256 of the media URL when set, else of the content ID. A real
-// media hash replaces this once uploads carry one.
-func contentContentHash(c *Content) string {
-	source := c.URL
-	if source == "" {
-		source = c.ID
-	}
-	sum := sha256.Sum256([]byte(source))
-	return hex.EncodeToString(sum[:])
-}
+// contentContentHash was removed in SG-11: it derived a "content hash" from the
+// media URL or content ID, which is not the digest of the original bytes. The
+// trustworthy digest is computed by SG-12 from the sealed original object.

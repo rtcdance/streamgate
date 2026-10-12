@@ -215,15 +215,15 @@ type ContractContentRegistry struct {
 	ABI     string
 }
 
-// RegisterContent packs the registerContent(string,string,string) calldata,
-// mirroring contracts/src/ContentRegistry.sol.
-func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentID, contentHash, metadataURI string) ([]byte, error) {
+// RegisterContent packs the registerContent(string,address,bytes32,string)
+// calldata, mirroring contracts/src/ContentRegistry.sol.
+func (cr *ContractContentRegistry) RegisterContent(ctx context.Context, ci *ContractInteractor, contentID string, creator common.Address, contentDigest [32]byte, metadataURI string) ([]byte, error) {
 	parsedABI, err := abiutil.GetOrParseABI(cr.ABI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse content registry ABI: %w", err)
 	}
 
-	data, err := parsedABI.Pack("registerContent", contentID, contentHash, metadataURI)
+	data, err := parsedABI.Pack("registerContent", contentID, creator, contentDigest, metadataURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack registerContent call: %w", err)
 	}
@@ -297,13 +297,13 @@ func (cr *ContractContentRegistry) GetContent(ctx context.Context, ci *ContractI
 	out := abi.ConvertType(raw[0], new(contentRecordTuple)).(*contentRecordTuple)
 
 	return &ContentRecord{
-		ContentID:   out.ContentID,
-		Creator:     out.Creator.Hex(),
-		ContentHash: out.ContentHash,
-		MetadataURI: out.MetadataURI,
-		Status:      out.Status,
-		CreatedAt:   out.CreatedAt.Int64(),
-		UpdatedAt:   out.UpdatedAt.Int64(),
+		ContentID:     out.ContentID,
+		Creator:       out.Creator.Hex(),
+		ContentDigest: out.ContentDigest,
+		MetadataURI:   out.MetadataURI,
+		Status:        out.Status,
+		CreatedAt:     out.CreatedAt.Int64(),
+		UpdatedAt:     out.UpdatedAt.Int64(),
 	}, nil
 }
 
