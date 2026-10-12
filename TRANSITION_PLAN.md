@@ -598,7 +598,7 @@ make verify-docker
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
 | SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
 | SG-04 | **完成** | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄） |
-| SG-05 | **部分完成（步骤 1～6 大半）** | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、B 钱包负例。**未做**：Range 206（**实测端点不支持，已作为产品缺陷记录**）、浏览器时间推进断言、api-gateway 模式复跑、CI 专用栈与阶段 deadline |
+| SG-05 | **部分完成（步骤 1～6 大半，入口实测 31/31 全绿）** | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、**Range 206 + Content-Range**、B 钱包负例。**未做**：浏览器时间推进断言、api-gateway 模式复跑、CI 专用栈与阶段 deadline、更宽篡改矩阵 |
 | SG-06～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
@@ -986,7 +986,7 @@ sequenceDiagram
 
 ### 8.10 SG-05 执行证据（**部分完成**：真实钱包 → 真实 HLS）
 
-**入口**：`bash scripts/fullchain-acceptance.sh`（对着运行中的 fullchain 栈跑）。最近一次实测：**31 项断言，29 PASS / 2 FAIL**（两处 FAIL 都是同一个产品缺陷，见下）。
+**入口**：`bash scripts/fullchain-acceptance.sh`（对着运行中的 fullchain 栈跑）。最近一次实测：**31 项断言全部 PASS**（`RESULT: ALL 31 PASSED`）。
 
 **先修掉的两个"验收根本不验"的问题**：
 1. 旧脚本**自己伪造 HS256 JWT**（硬编码 secret `fullchain-acceptance-secret`），**从不走认证路径**——而且它给 challenge 传的是 `{"address":...}`（端点要 `{"wallet":...}`），所以连 challenge_id 都拿不到。**现在所有 token 都来自服务**：`challenge → cast wallet sign（EIP-191 personal_sign，真私钥）→ /auth/login`，并带上端点要求的 `wallet` 与 `chain_id`。
@@ -1006,14 +1006,17 @@ sequenceDiagram
 | 全分片 FFmpeg 解码 | PASS | 拼接后**完整解码通过** |
 | 无 NFT 钱包被拒且无媒体字节 | PASS | Wallet B → **403**，且响应体**不含 `#EXTM3U`**（267B 错误 JSON） |
 | 未认证 / 越权删除 | PASS | 无 token → 401；B 删 A 的内容 → 403 |
+| **Range 206 + Content-Range** | PASS | 修好后实测：`206` 且 `Content-Range: bytes 0-99/312080`（修复前为 `200` + 整段 + 无 `Content-Range`） |
 
-**🔎 实测发现的产品缺陷（未绕过，验收如实报 FAIL）**：**分片端点忽略 `Range` 头**。请求 `bytes=0-99` 返回 **200 且整段内容、无 `Content-Range`**；计划步骤 4 要求正确的 **206**。验收把它记为失败而不是迁就——这正是这条断言存在的意义。
+**🔎 实测发现并已修的产品缺陷（两个，都由"真跑一次"暴露）**：
+1. **分片端点完全忽略 `Range` 头**（恒 200 + 整段）。已实现单区间解析：206 + `Content-Range` + `Content-Length`，所有响应带 `Accept-Ranges`，不可满足时 416 + `bytes */<size>`；多区间请求**拒绝**而非返回其中一段；需要总长故缓冲，缓冲有上限。
+2. **SG-04 引入的回归**：`Web3Service.GetNFTOwnershipQuantity` 用 `client.GetEthClient()`（裸 `*ethclient.Client`）构造 verifier，而**它无法把调用固定到某个区块** ⇒ verifier 的 fail-closed 分支把**每个合约**都判成 "not a recognised ERC-721/ERC-1155 contract"，**持有者被拒绝**。改为传 `ChainClient`（同时满足 `EthCaller` 与 `BlockNumberCaller`）。**这个回归只有把新二进制真的部署起来跑一遍才会暴露**——单测与 mock 都看不见。
 
 **本轮修掉的两个"验收脚本自身"的缺陷**：
 - `'#EXT-X-MEDIA'` 是 `'#EXT-X-MEDIA-SEQUENCE'` 的**子串**，而每个 media playlist 都带后者 ⇒ media playlist 被误判为 master，其**分片字节被当成 playlist 解析**。改为带冒号匹配。
 - `set -o pipefail` 下**无匹配的 grep 返回 1 会中止整个脚本**，把后面所有断言全部吞掉。
 
-**未做（SG-05 判据）**：Range 206（依赖上面的产品修复）；浏览器侧 `loadedmetadata` / 实际解码帧 / `currentTime ≥3s` 的断言；`api-gateway` 模式的复跑；CI 专用栈 + 阶段 deadline（基础 120s / 转码 180s / 浏览器 90s）与失败日志脱敏上传；路径遍历 / 跨内容 token / 过期 token / 篡改 contract / 无规则等更宽的篡改矩阵。
+**未做（SG-05 判据）**：**浏览器侧时间推进断言**（`loadedmetadata` / 实际解码帧 / `currentTime ≥3s` —— 计划完成判据明确要求"浏览器时间推进"，**因此 SG-05 仍未勾选**）；`api-gateway` 模式的复跑；CI 专用栈 + 阶段 deadline（基础 120s / 转码 180s / 浏览器 90s）与失败日志脱敏上传；路径遍历 / 跨内容 token / 过期 token / 篡改 contract / 无规则等更宽的篡改矩阵。
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
