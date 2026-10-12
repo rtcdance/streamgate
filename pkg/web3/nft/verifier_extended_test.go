@@ -64,7 +64,11 @@ func TestDetectTokenStandard_TableDriven(t *testing.T) {
 			TokenStandardERC1155,
 		},
 		{
-			"ERC-165 says no",
+			// A contract that answers ERC-165 with "no" but exposes an
+			// ERC-1155-shaped balanceOf must NOT be classified: the balanceOf
+			// probe is not a fallback. Returning ERC-1155 here would let any
+			// contract that happens to expose that selector satisfy gating.
+			"ERC-165 says no - no balanceOf fallback",
 			func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 				selector := common.Bytes2Hex(call.Data[:4])
 				switch selector {
@@ -76,7 +80,7 @@ func TestDetectTokenStandard_TableDriven(t *testing.T) {
 					return nil, fmt.Errorf("unsupported")
 				}
 			},
-			TokenStandardERC1155,
+			TokenStandardUnknown,
 		},
 		{
 			"unknown - all fail",
@@ -86,7 +90,10 @@ func TestDetectTokenStandard_TableDriven(t *testing.T) {
 			TokenStandardUnknown,
 		},
 		{
-			"ERC-721 via fallback balanceOf",
+			// balanceOf(address) is exposed identically by ERC-20 and ERC-721,
+			// so probing it cannot distinguish an NFT from a fungible token.
+			// Without ERC-165 the contract is rejected, never assumed ERC-721.
+			"balanceOf-only contract is not classified",
 			func(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error) {
 				selector := common.Bytes2Hex(call.Data[:4])
 				switch selector {
@@ -100,7 +107,7 @@ func TestDetectTokenStandard_TableDriven(t *testing.T) {
 					return nil, fmt.Errorf("unsupported")
 				}
 			},
-			TokenStandardERC721,
+			TokenStandardUnknown,
 		},
 	}
 

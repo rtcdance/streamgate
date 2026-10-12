@@ -585,13 +585,10 @@ func DetectTokenStandard(ctx context.Context, caller EthCaller, contractAddress 
 		}
 	}
 
-	if try1155BalanceOf(ctx, caller, contract) {
-		return TokenStandardERC1155
-	}
-	if try721BalanceOf(ctx, caller, contract) {
-		return TokenStandardERC721
-	}
-
+	// ERC-165 is the only accepted source of truth. A balanceOf probe is NOT a
+	// fallback: ERC-20 exposes balanceOf(address) exactly like ERC-721, so
+	// probing would classify a fungible token as an NFT and let it satisfy NFT
+	// gating. Unknown / non-ERC-165 contracts are rejected instead.
 	return TokenStandardUnknown
 }
 
@@ -616,38 +613,45 @@ func callSupportsInterface(ctx context.Context, caller EthCaller, parsedABI abi.
 	return supported, nil
 }
 
-func try1155BalanceOf(ctx context.Context, caller EthCaller, contract common.Address) bool {
-	selector := common.Hex2Bytes("00fdd58e")
-	zeroAddr := common.Address{}
-	paddedAddr := common.LeftPadBytes(zeroAddr.Bytes(), 32)
-	paddedID := common.LeftPadBytes(big.NewInt(0).Bytes(), 32)
+// GetNFTQuantityAutoDetect returns the holder's quantity for the gating
+// subject, using one consistent semantic across standards:
+//
+//   - tokenID == "" : collection balance (ERC-721 balanceOf). ERC-1155 has no
+//     collection-wide total, so it errors instead of inventing one.
+//   - tokenID != "" : ERC-721 yields 0 or 1 (ownerOf match); ERC-1155 yields
+//     the on-chain uint256 quantity for that id.
+//
+// Unknown / non-NFT contracts error. A nil result or an error must never be
+// treated as "holds enough" by callers.
+func (nv *NFTVerifier) GetNFTQuantityAutoDetect(ctx context.Context, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+	if !common.IsHexAddress(contractAddress) {
+		return nil, fmt.Errorf("invalid contract address: %s", contractAddress)
+	}
+	if !common.IsHexAddress(ownerAddress) {
+		return nil, fmt.Errorf("invalid owner address: %s", ownerAddress)
+	}
 
-	data := make([]byte, 0, 4+32+32)
-	data = append(data, selector...)
-	data = append(data, paddedAddr...)
-	data = append(data, paddedID...)
-
-	result, err := caller.CallContract(ctx, ethereum.CallMsg{
-		To:   &contract,
-		Data: data,
-	}, nil)
-	return err == nil && len(result) >= 32
-}
-
-func try721BalanceOf(ctx context.Context, caller EthCaller, contract common.Address) bool {
-	selector := common.Hex2Bytes("70a08231")
-	zeroAddr := common.Address{}
-	paddedAddr := common.LeftPadBytes(zeroAddr.Bytes(), 32)
-
-	data := make([]byte, 0, 4+32)
-	data = append(data, selector...)
-	data = append(data, paddedAddr...)
-
-	result, err := caller.CallContract(ctx, ethereum.CallMsg{
-		To:   &contract,
-		Data: data,
-	}, nil)
-	return err == nil && len(result) >= 32
+	switch nv.detectTokenStandardCached(ctx, contractAddress) {
+	case TokenStandardERC1155:
+		if tokenID == "" {
+			return nil, fmt.Errorf("ERC-1155 has no collection-wide balance; a tokenID is required")
+		}
+		return nv.GetERC1155Balance(ctx, contractAddress, ownerAddress, tokenID)
+	case TokenStandardERC721:
+		if tokenID == "" {
+			return nv.GetNFTBalance(ctx, contractAddress, ownerAddress)
+		}
+		owned, err := nv.VerifyNFTOwnership(ctx, contractAddress, tokenID, ownerAddress)
+		if err != nil {
+			return nil, err
+		}
+		if owned {
+			return big.NewInt(1), nil
+		}
+		return big.NewInt(0), nil
+	default:
+		return nil, fmt.Errorf("contract %s is not a recognised ERC-721/ERC-1155 contract", contractAddress)
+	}
 }
 
 type BlockTag string

@@ -423,6 +423,9 @@ func (m *coreCovMockNFTVerifier) GetNFTBalance(_ context.Context, _ int64, _, _ 
 func (m *coreCovMockNFTVerifier) GetNFTInfo(_ context.Context, _ int64, _, _ string) (*middleware.NFTMetadata, error) {
 	return nil, nil
 }
+func (m *coreCovMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string) (*big.Int, error) {
+	return big.NewInt(1), nil
+}
 
 type coreCovMockBlockProver struct{}
 

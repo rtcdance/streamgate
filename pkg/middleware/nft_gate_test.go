@@ -22,6 +22,39 @@ type mockNFTOwnershipCheckerOld struct {
 	autoDetectFn     func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error)
 	collectionAutoFn func(ctx context.Context, chainID int64, contractAddress, ownerAddress string) (bool, error)
 	getNFTInfoFn     func(ctx context.Context, chainID int64, contractAddress, tokenID string) (*NFTMetadata, error)
+	// quantityFn, when set, is the authoritative quantity source for the gate.
+	quantityFn func(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error)
+}
+
+// GetNFTOwnershipQuantity mirrors what a real verifier would report: a quantity
+// for the subject. When quantityFn is not set it derives one from the legacy
+// fields so existing cases keep their meaning (collection → balanceFn,
+// specific token → 0/1 from verifyFn).
+func (m *mockNFTOwnershipCheckerOld) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+	if m.quantityFn != nil {
+		return m.quantityFn(ctx, chainID, contractAddress, tokenID, ownerAddress)
+	}
+	if tokenID == "" {
+		if m.balanceFn == nil {
+			return big.NewInt(0), nil
+		}
+		return m.balanceFn(ctx, chainID, contractAddress, ownerAddress)
+	}
+	fn := m.verifyFn
+	if fn == nil {
+		fn = m.autoDetectFn
+	}
+	if fn == nil {
+		return big.NewInt(0), nil
+	}
+	ok, err := fn(ctx, chainID, contractAddress, tokenID, ownerAddress)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return big.NewInt(1), nil
+	}
+	return big.NewInt(0), nil
 }
 
 func (m *mockNFTOwnershipCheckerOld) VerifyNFTOwnership(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (bool, error) {
@@ -246,7 +279,9 @@ func TestNFTGateMiddleware_VerifierError(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	// An unverifiable rule set is a service failure, not a denial: answering
+	// 403 here would disguise an RPC outage as "you hold no NFT".
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestNFTGateMiddleware_CacheHit(t *testing.T) {
@@ -265,7 +300,7 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		},
 		Cache: &mockNFTAccessCacheOld{
 			entries: map[string]NFTAccessEntry{
-				"1:0xOwner:" + testContractAddr + ":__collection__": {
+				"1:0xOwner:" + testContractAddr + ":__collection__:erc721": {
 					HasNFT:  true,
 					Balance: big.NewInt(5),
 					Expires: time.Now().Add(time.Minute),
@@ -425,13 +460,21 @@ func TestGetNFTContract_Missing(t *testing.T) {
 }
 
 func TestNftCacheKey(t *testing.T) {
-	key := nftCacheKey(1, "0xWallet", "0xContract", "42")
-	assert.Equal(t, "1:0xWallet:0xContract:42", key)
+	key := nftCacheKey(1, "0xWallet", "0xContract", "42", "erc721")
+	assert.Equal(t, "1:0xWallet:0xContract:42:erc721", key)
 }
 
 func TestNftCacheKey_Collection(t *testing.T) {
-	key := nftCacheKey(1, "0xWallet", "0xContract", "")
-	assert.Equal(t, "1:0xWallet:0xContract:__collection__", key)
+	key := nftCacheKey(1, "0xWallet", "0xContract", "", "")
+	assert.Equal(t, "1:0xWallet:0xContract:__collection__:__auto__", key)
+}
+
+// The standard is part of the key: the same subject read as ERC-721 vs
+// ERC-1155 is different evidence and must not collide.
+func TestNftCacheKey_StandardIsolates(t *testing.T) {
+	erc721 := nftCacheKey(1, "0xWallet", "0xContract", "42", "erc721")
+	erc1155 := nftCacheKey(1, "0xWallet", "0xContract", "42", "erc1155")
+	assert.NotEqual(t, erc721, erc1155)
 }
 
 func TestParseInt64(t *testing.T) {
@@ -638,7 +681,7 @@ func TestNFTGateMiddleware_FallbackGatingRules(t *testing.T) {
 				return false, nil
 			},
 			balanceFn: func(_ context.Context, _ int64, contract string, _ string) (*big.Int, error) {
-				if contract == "0xAlternate7890123456789012345678901234567890123" {
+				if contract == "0x9999999999999999999999999999999999999999" {
 					return big.NewInt(1), nil
 				}
 				return big.NewInt(0), nil
@@ -647,7 +690,7 @@ func TestNFTGateMiddleware_FallbackGatingRules(t *testing.T) {
 		RuleResolver: &mockGatingRuleResolver{
 			rules: []GatingRule{
 				{ContractAddress: testContractAddr, TokenID: "42", ChainID: 1, MinBalance: 0},
-				{ContractAddress: "0xAlternate7890123456789012345678901234567890123", TokenID: "", ChainID: 1, MinBalance: 0},
+				{ContractAddress: "0x9999999999999999999999999999999999999999", TokenID: "", ChainID: 1, MinBalance: 0},
 			},
 		},
 		DefaultChainID: 1,
@@ -739,7 +782,7 @@ func TestNFTGateMiddleware_AuditLoggerOnPassed(t *testing.T) {
 	assert.Contains(t, audit.logs, "nft.gate_passed")
 }
 
-func TestResolveOwnership_Wrapper(t *testing.T) {
+func TestResolveQuantity_Wrapper(t *testing.T) {
 	config := NFTGateConfig{
 		Verifier: &mockNFTOwnershipCheckerOld{
 			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
@@ -748,9 +791,9 @@ func TestResolveOwnership_Wrapper(t *testing.T) {
 		},
 		DefaultChainID: 1,
 	}
-	hasNFT, err := resolveOwnership(context.Background(), &config, zap.NewNop(), "1:0xW:0xC:__collection__", 1, testContractAddr, "", "0xW", 0)
+	quantity, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "1:0xW:0xC:__collection__:__auto__", 1, testContractAddr, "", "0xW")
 	assert.NoError(t, err)
-	assert.True(t, hasNFT)
+	assert.Equal(t, 0, quantity.Cmp(big.NewInt(2)))
 }
 
 func TestSetCachedEntry_WithBlockProver(t *testing.T) {
@@ -764,7 +807,7 @@ func TestSetCachedEntry_WithBlockProver(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", true, big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key", big.NewInt(1))
 
 	entry, ok := cache.entries["test-key"]
 	assert.True(t, ok)
@@ -784,7 +827,7 @@ func TestSetCachedEntry_WithBlockProverError(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", true, big.NewInt(1))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "test-key-err", big.NewInt(1))
 
 	entry, ok := cache.entries["test-key-err"]
 	assert.True(t, ok)
@@ -800,7 +843,7 @@ func TestSetCachedEntry_NegativeResultShorterTTL(t *testing.T) {
 		CacheTTL:       60 * time.Second,
 		DefaultChainID: 1,
 	}
-	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", false, big.NewInt(0))
+	setCachedEntry(context.Background(), &config, zap.NewNop(), "neg-key", big.NewInt(0))
 
 	entry, ok := cache.entries["neg-key"]
 	assert.True(t, ok)
@@ -837,7 +880,9 @@ func TestNFTGateMiddleware_CircuitBreakerOpen(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	// A tripped circuit breaker means the chain cannot be read: that is a
+	// service failure (503), not a denial.
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
@@ -845,7 +890,7 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 	blockVerifyCache := NewBlockHashCache(5 * time.Minute)
 	blockVerifyCache.Set(100, "0xoriginalhash")
 
-	cacheKey := "1:0xOwner:" + testContractAddr + ":__collection__"
+	cacheKey := "1:0xOwner:" + testContractAddr + ":__collection__:erc721"
 	cache.entries[cacheKey] = NFTAccessEntry{
 		HasNFT:      true,
 		Balance:     big.NewInt(1),
@@ -883,34 +928,35 @@ func TestNFTGateMiddleware_CacheWithBlockHashReorg(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestParseNFTParams_QueryParamsIgnored(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+// Caller-supplied contract / chain_id / token_id query parameters must never
+// influence the authorization subject: it comes only from server-side gating
+// rules. Exercised end-to-end — the internal param parser was removed when the
+// gate moved to a rule-only subject, so this asserts the observable behaviour
+// instead of a helper.
+func TestNFTGateMiddleware_QueryParamsDoNotChangeSubject(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier: &mockNFTOwnershipCheckerOld{
+			quantityFn: func(_ context.Context, chainID int64, contract, tokenID, _ string) (*big.Int, error) {
+				assert.Equal(t, int64(1), chainID, "gate must use the rule's chain, not ?chain_id")
+				assert.Equal(t, testContractAddr, contract, "gate must use the rule's contract, not ?contract")
+				assert.Empty(t, tokenID, "gate must use the rule's token id, not ?token_id")
+				return big.NewInt(1), nil
+			},
+		},
+		RuleResolver: &mockGatingRuleResolver{
+			rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			},
+		},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(&config)
+
+	req := authRequestWithWallet("/stream/abc/manifest.m3u8?contract=0xABC&chain_id=137&token_id=99", "0xOwner")
 	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	// Caller-supplied contract/chain_id/token_id must be ignored (A9):
-	c.Request = httptest.NewRequest("GET", "/stream/abc/manifest.m3u8?contract=0xABC&chain_id=137&token_id=99", http.NoBody)
-	c.Params = gin.Params{{Key: "id", Value: "abc"}}
+	router.ServeHTTP(w, req)
 
-	config := NFTGateConfig{DefaultChainID: 1}
-	contract, chainID, tokenID, contentID := parseNFTParams(c, &config)
-
-	assert.Empty(t, contract)
-	assert.Equal(t, int64(1), chainID)
-	assert.Empty(t, tokenID)
-	assert.Equal(t, "abc", contentID)
-}
-
-func TestParseNFTParams_InvalidChainID(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/stream/abc/manifest.m3u8?contract=0xABC&chain_id=invalid", http.NoBody)
-	c.Params = gin.Params{{Key: "id", Value: "abc"}}
-
-	config := NFTGateConfig{DefaultChainID: 1}
-	_, chainID, _, _ := parseNFTParams(c, &config)
-
-	assert.Equal(t, int64(1), chainID)
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestNFTGateMiddleware_EmptyBearerToken(t *testing.T) {
