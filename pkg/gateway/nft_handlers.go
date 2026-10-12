@@ -159,7 +159,7 @@ func handleNFTVerify(c *gin.Context, log *zap.Logger, verifier middleware.NFTOwn
 	if cache != nil && !cacheHit && !bypassCache {
 		entry := middleware.NFTAccessEntry{HasNFT: hasNFT, Balance: balance, Expires: time.Now().Add(cacheTTL)}
 		if blockProver != nil {
-			if header, err := blockProver.HeaderByNumber(c.Request.Context(), nil); err == nil && header != nil {
+			if header, err := blockProver.HeaderByNumber(c.Request.Context(), chainID, nil); err == nil && header != nil {
 				entry.BlockNumber = header.Number
 				entry.BlockHash = header.Hash
 			}

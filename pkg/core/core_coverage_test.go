@@ -429,7 +429,7 @@ func (m *coreCovMockNFTVerifier) GetNFTOwnershipQuantity(_ context.Context, _ in
 
 type coreCovMockBlockProver struct{}
 
-func (m *coreCovMockBlockProver) HeaderByNumber(_ context.Context, _ *big.Int) (*middleware.BlockHeaderInfo, error) {
+func (m *coreCovMockBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*middleware.BlockHeaderInfo, error) {
 	return &middleware.BlockHeaderInfo{Number: 1}, nil
 }
 
