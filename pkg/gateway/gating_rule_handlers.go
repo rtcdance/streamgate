@@ -1,13 +1,30 @@
 package gateway
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/models"
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/service/gating"
 
 	"github.com/gin-gonic/gin"
 )
+
+// respondGatingRuleError maps an ownership-aware mutation failure onto a stable
+// status code: 404 when the resource is absent, 403 when the caller does not
+// own it, 500 for anything else. It never echoes the underlying SQL error.
+func respondGatingRuleError(c *gin.Context, err error, notFoundMsg string) {
+	switch {
+	case errors.Is(err, gating.ErrRuleNotFound), errors.Is(err, gating.ErrContentNotFound):
+		abortWithError(c, http.StatusNotFound, ErrNotFound, notFoundMsg)
+	case errors.Is(err, gating.ErrRuleForbidden):
+		abortWithError(c, http.StatusForbidden, ErrForbidden, "you do not own this content")
+	default:
+		abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+	}
+}
 
 func RegisterGatingRuleRoutes(router *gin.RouterGroup, svc *service.GatingRuleService) {
 	router.GET(APIPrefix+"/content/:id/gating-rules", listGatingRules(svc))
@@ -31,6 +48,11 @@ func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {
 func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		contentID := c.Param("id")
+		actor := middleware.GetWalletAddress(c)
+		if actor == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet address required")
+			return
+		}
 		var req struct {
 			ContractAddress string `json:"contract_address" binding:"required"`
 			TokenID         string `json:"token_id"`
@@ -51,9 +73,12 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			MinBalance:      req.MinBalance,
 			IsActive:        true,
 		}
-		id, err := svc.CreateRule(c.Request.Context(), rule)
+		// The owner check lives in the service, inside the same statement as the
+		// insert: a rule is a write by the content's owner, not by any
+		// authenticated caller.
+		id, err := svc.CreateRuleForOwner(c.Request.Context(), rule, actor)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+			respondGatingRuleError(c, err, "content not found")
 			return
 		}
 		respondCreated(c, gin.H{"id": id, "rule": rule})
@@ -63,6 +88,11 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("ruleId")
+		actor := middleware.GetWalletAddress(c)
+		if actor == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet address required")
+			return
+		}
 		var req struct {
 			ContractAddress string `json:"contract_address"`
 			TokenID         string `json:"token_id"`
@@ -98,8 +128,11 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 		if req.IsActive != nil {
 			existing.IsActive = *req.IsActive
 		}
-		if err := svc.UpdateRule(c.Request.Context(), existing); err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+		// Ownership is re-checked inside the UPDATE itself, so a rule that is
+		// retargeted to another content between the read and the write cannot
+		// slip past the owner check.
+		if err := svc.UpdateRuleForOwner(c.Request.Context(), existing, actor); err != nil {
+			respondGatingRuleError(c, err, "gating rule not found")
 			return
 		}
 		respondOK(c, gin.H{"rule": existing})
@@ -109,8 +142,13 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 func deleteGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("ruleId")
-		if err := svc.DeleteRule(c.Request.Context(), ruleID); err != nil {
-			abortWithError(c, http.StatusNotFound, ErrNotFound, "gating rule not found")
+		actor := middleware.GetWalletAddress(c)
+		if actor == "" {
+			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "wallet address required")
+			return
+		}
+		if err := svc.DeleteRuleForOwner(c.Request.Context(), ruleID, actor); err != nil {
+			respondGatingRuleError(c, err, "gating rule not found")
 			return
 		}
 		respondOK(c, gin.H{"deleted": true})

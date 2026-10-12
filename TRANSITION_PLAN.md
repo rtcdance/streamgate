@@ -226,7 +226,7 @@ flowchart LR
 
 **完成**：本项校验器 / 依赖负例通过，同 SHA 的当时已实现 jobs 与镜像构建 / 扫描通过；PR 镜像扫描确实执行。后续媒体 / 性能 / CD 验收留给对应任务，最终 M5 仍需全部 jobs 通过；不因尚未实现的后续任务阻断进入 SG-03。
 
-### [ ] SG-03 / P0：钱包身份、资源所有权与服务器签名权限
+### [x] SG-03 / P0：钱包身份、资源所有权与服务器签名权限
 
 **依赖**：SG-01、SG-02、SG-11。**文件范围**：`pkg/service/auth_wallet.go`、`pkg/gateway/auth_handlers.go`、`pkg/middleware/auth.go`；gating_rule handlers / service / gateway 装配；content / upload / transcode / transaction 实际路由及对应回归。
 
@@ -596,7 +596,7 @@ make verify-docker
 | SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
 | SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
-| SG-03 | **部分完成（C 代签边界 + A 签名 / 路由边界）** | 见 §8.6 / §8.7（C：删除通用代签入口 + 三重门；A：playback 能力不可当 access token、算法精确固定、iss/aud 强制、未知签名类型拒绝）。**B 资源所有权待实施** |
+| SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
 | SG-04～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
@@ -903,6 +903,40 @@ sequenceDiagram
 - **A.2 的"错误签名不能换 nonce / 地址后通过"**：现有代码已按 challenge 记录比对地址与链并原子消费；**未新增**针对该场景的专项用例（属可补强项，非遗漏结论）。
 - **A.4 明确不在本项**：access / refresh / capability 统一 `sessionID` + `authEpoch`、旧 token 缺字段拒绝、restore 后整体失效 —— 按计划由 **SG-06** 落实、**SG-14** 验证 restore。
 - 其他签名模式（`personal_sign` / `eip712` / Solana ed25519）**保留并已有回归**，支持边界已在代码注释与本表说明；未收窄。
+
+### 8.8 SG-03 B 执行证据（资源所有权）
+
+**先做事实核查**：B 的多数面**已存在**——`content` 的读/改/删、`upload` 的状态/删除/完成、`transcode` 的状态/取消**都已有 owner 校验与 A/B 负例**（`content_handlers_test.go` `…_NotOwner`、`upload_handlers_test.go` `…_NotOwner`、`transcode_handlers_test.go` "different wallet gets 403"）。**真正缺失的是 gating-rule 的写路径**：create/update/delete **完全没有 owner 校验**（§2 的 P0）。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 规则写入的 owner 校验在**业务层** | PASS | 新增 `GatingRuleService.CreateRuleForOwner / UpdateRuleForOwner / DeleteRuleForOwner`，actor 钱包由 handler 从已认证会话取出后传入业务层 |
+| **单语句** owner 条件写（无 TOCTOU） | PASS | create 用 `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM contents c WHERE c.id::text=$11 AND LOWER(c.owner_id)=LOWER($12))`；update/delete 把 `ruleID → contentID` 的解析**放进同一条 UPDATE/DELETE 的 `EXISTS` 里**，读与写之间没有窗口 |
+| ruleID 先定位 contentID 再核验 | PASS | update/delete 均由 `r.content_id` 关联 `contents`，不能靠猜 ruleID 改他人规则 |
+| 404 与 403 稳定区分 | PASS | 0 行写入后由 `classifyContentDenial` / `classifyRuleDenial` 区分：资源不存在 → 404（`ErrContentNotFound` / `ErrRuleNotFound`），存在但非本人 → 403（`ErrRuleForbidden`）；handler 侧 `respondGatingRuleError` 映射，**不回显 SQL 错误** |
+| 匿名调用拒绝 | PASS | handler 先取 `middleware.GetWalletAddress(c)`，为空即 401；业务层对空 actor 亦返回 `ErrRuleForbidden`（双保险） |
+| 地址大小写不敏感 | PASS | SQL 用 `LOWER(...)` 比较；`TestGatingRule_OwnerMatchIsCaseInsensitive` |
+| **A/B 负例（真实 Postgres）** | PASS | 新增 `test/integration/gating/rule_owner_test.go`（7 例，**全部实际执行、0 skip**）：owner 可建；**B 不能建/改/删 A 的规则**（且断言 A 的规则未被改动、仍存在）；内容不存在 → `ErrContentNotFound`；规则不存在 → `ErrRuleNotFound`；空 actor 拒绝；大小写不敏感 |
+| handler 层正负例 | PASS | `gating_rule_handlers_test.go` 新增：`…_ForbiddenWhenNotOwner`（403）、`…_ContentMissingIsNotFound`（404）、`GatingRuleMutations_RequireWallet`（POST/PUT/DELETE 无钱包一律 401） |
+| 内部规则读取不复用用户写接口 | PASS | 播放侧仍走 `GetActiveRulesForContent`（受控服务接口）；用户写接口是 `…ForOwner` 变体，二者未合并 |
+| 回归 | PASS | `go test ./...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+
+**顺带修复的三个测试脚手架缺陷**（否则上述集成测试无法真实执行）：
+1. `ApplyMigrations` 的迁移目录**硬编码 `../../migrations`** —— 从任何 `test/integration/<pkg>/` 解析都是 `test/migrations`（不存在），**导致全部集成测试静默 skip**。改为向上查找 `migrations` 目录。
+2. `ApplyMigrations` **把 `.down.sql` 当 up 迁移执行**（`026_*.down.sql` 被应用并报错）。已排除 `*.down.sql`。
+3. 迁移**重复应用**：`SetupTestDB` 每个用例都会跑一遍迁移，而 `033`（按 UUID 给 `content_id` 建 FK）与 `035`（把该列改成 VARCHAR）互相冲突，二次应用报 `cannot be implemented`。新增 `test_applied_migrations` 记录表（并同时认 `schema_migrations`）跳过已应用项。
+另：`DefaultTestConfig` 支持 `STREAMGATE_TEST_DB_DSN` 覆盖，便于把套件指向一次性数据库。
+
+**🔎 由此暴露的既有缺陷（本次未修，登记为发现）**：一旦集成测试**真的连上数据库执行**，`test/integration/models` 出现**基线即存在的失败**（与本次改动无关）：
+- `pq: column "password_hash" of relation "users" does not exist`（模型与 schema 漂移）
+- `tasks.payload`：`[]uint8` 无法 Scan 进 `map[string]interface{}`
+- 时间戳断言失败
+这些失败此前被第 1 条缺陷（迁移路径错误 → 全量 skip）完全掩盖。**因此本次未把 `STREAMGATE_TEST_DB_DSN` 接入 CI**——接入会让 CI 立刻变红，属"先修 schema 漂移再接线"的独立工作（归 SG-12 / SG-13 的 schema 与模型一致性范围）。CI 现状不变（仍 skip），故无回归。
+
+**限制 / 未覆盖（B）**：
+- `GET /content/:id/gating-rules`（列表）**未加 owner 校验**：它位于 JWT 保护组内、需要登录，但会返回他人内容的规则配置。计划 B.1 明确要求的是**写路径**；读路径的收敛（是否限 owner / 是否只返回公开字段）留待与 SG-14 的 API 边界一并处理。
+- B.3 要求的"交易状态 actor 隔离"由 **C 的删除动作**直接满足（该路由已不存在）。
+- 跨资源的完整 A/B 矩阵依赖既有测试（已核对存在），本次未重复编写。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
