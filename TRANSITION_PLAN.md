@@ -966,11 +966,12 @@ sequenceDiagram
 | **读期间区块变化 → 拒绝** | PASS | 新增 `verifyAnchorUnchanged`：读完后再按 number 取一次 header 比对 hash，不一致即拒绝、置 `reorgActive`、**不写缓存**（这正是步骤 3 的"查询前后核对 hash"） |
 | **无 prover / 无法解析锚点 → fail closed** | PASS | `resolveAnchor` 在 `BlockProver == nil`、tag 解析失败、或返回空 hash 时一律报错；`TestResolveQuantity_WithoutProverFailsClosed` 断言**根本没发生链上读** |
 | **缓存锚点 = 实际读取的块** | PASS | `setCachedEntry` 不再用 `HeaderByNumber(ctx, chainID, nil)`（该链最新块），改为接收 `anchor`；`TestSetCachedEntry_StoresTheAnchor` |
+| **允许结果携带链与区块** | PASS | `resolveQuantity` / `evaluateGatingRules` 回传 `(quantity, anchor)`；放行时写入 context（`nft_block_number` / `nft_block_hash`）**并设置响应头** `X-NFT-Chain-Id` / `X-NFT-Block-Number` / `X-NFT-Block-Hash`；`TestNFTGateMiddleware_AllowReportsBlockEvidence` 断言 200 响应的三个头（缓存命中路径由条目自身重建锚点，见 `entryAnchor`） |
 | 新增用例 | PASS | `TestResolveQuantity_PinsTheAnchorBlock`（断言 verifier 收到的块号 == 锚点、且锚点取自配置 tag）、`…WithoutProverFailsClosed`、`…BlockChangedDuringReadIsRejected`、`…UnresolvableAnchorFailsClosed`；`TestSetCachedEntry_StoresTheAnchor` |
 | 回归 | PASS | `go test ./...` 全绿（含 gateway / cmd 的 NFT 门禁路径）；`-race ./pkg/middleware/... ./pkg/web3/nft/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
 
 **限制 / 未覆盖（本项，均为 SG-04 判据）**：
-- **对外证据元组未返回**：`chainID / blockNumber / blockHash / balance / observedAt` 目前只用于**内部**决策与缓存，未出现在 HTTP 响应里（计划步骤 2 的"返回 …"这一半未做）。
+- **证据只覆盖"允许"路径**：`X-NFT-*` 响应头在**放行**时给出；**拒绝（403/503）的响应体里没有**区块证据（拒绝时 `evaluateGatingRules` 不返回锚点）。计划步骤 2 的"返回 `chainID, blockNumber, blockHash, balance, observedAt`"因此只完成了"allow 可对应具体链与区块"，未把 `balance` / `observedAt` 也对外暴露。
 - **步骤 1 未做**：每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性未验证（错链拒绝的连接期语义已存在，见上）。
 - **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（现在有两条**被动**路径：缓存校验时 hash 不一致、以及授权读期间的 `verifyAnchorUnchanged`）。
 - **验证方式仍未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次仍是**单元级**（mock prover + 断言 verifier 收到的块号），未起 Anvil、未断言真实 RPC 报文里的 `eth_call` block 参数。

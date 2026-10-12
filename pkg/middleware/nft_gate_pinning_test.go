@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -49,13 +51,16 @@ func TestResolveQuantity_PinsTheAnchorBlock(t *testing.T) {
 		BlockTag:       "safe",
 	}
 
-	quantity, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
+	quantity, anchor, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, quantity.Cmp(big.NewInt(3)))
 	require.NotNil(t, verifier.gotBlock, "the verifier must receive a block, never a bare tag")
 	assert.Equal(t, int64(4242), verifier.gotBlock.Int64(), "the verifier must be pinned to the anchor block")
 	assert.Equal(t, "safe", prover.gotTag, "the anchor must be resolved from the configured finality tag")
+	require.NotNil(t, anchor, "the evidence must name the block it was read at")
+	assert.Equal(t, uint64(4242), anchor.Number)
+	assert.Equal(t, "0xanchor", anchor.Hash)
 }
 
 // Without a block prover there is no anchor, so there is no authorization:
@@ -64,7 +69,7 @@ func TestResolveQuantity_WithoutProverFailsClosed(t *testing.T) {
 	verifier := &recordingBlockVerifier{quantity: big.NewInt(1)}
 	config := NFTGateConfig{Verifier: verifier, DefaultChainID: 1}
 
-	_, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
+	_, _, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
 
 	require.Error(t, err)
 	assert.Nil(t, verifier.gotBlock, "no chain read may happen without a resolved anchor")
@@ -80,7 +85,7 @@ func TestResolveQuantity_BlockChangedDuringReadIsRejected(t *testing.T) {
 	verifier := &recordingBlockVerifier{quantity: big.NewInt(5)}
 	config := NFTGateConfig{Verifier: verifier, BlockProver: prover, DefaultChainID: 1}
 
-	_, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
+	_, _, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
 
 	require.Error(t, err, "a block that changed under the read must not authorize")
 	assert.True(t, config.reorgActive.Load(), "the gate must record that it saw a reorg")
@@ -95,7 +100,7 @@ func TestResolveQuantity_UnresolvableAnchorFailsClosed(t *testing.T) {
 		DefaultChainID: 1,
 	}
 
-	_, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
+	_, _, err := resolveQuantity(context.Background(), &config, zap.NewNop(), "k", 1, "0xC", "", "0xW")
 
 	require.Error(t, err)
 	assert.Nil(t, verifier.gotBlock)
@@ -114,4 +119,27 @@ func (p *shiftingBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) 
 
 func (p *shiftingBlockProver) HeaderByNumber(_ context.Context, _ int64, _ *big.Int) (*BlockHeaderInfo, error) {
 	return p.numberHeader, nil
+}
+
+// An allow must be traceable to a specific chain and block: the response says
+// which chain state authorized it, instead of leaving the caller to guess.
+func TestNFTGateMiddleware_AllowReportsBlockEvidence(t *testing.T) {
+	config := NFTGateConfig{
+		Verifier:    &recordingBlockVerifier{quantity: big.NewInt(1)},
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 777, Hash: "0xevidence"}},
+		RuleResolver: &mockGatingRuleResolver{rules: []GatingRule{
+			{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+		}},
+		Cache:          &mockNFTAccessCacheOld{entries: map[string]NFTAccessEntry{}},
+		DefaultChainID: 1,
+	}
+	router := setupNFTGateRouter(&config)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "777", w.Header().Get("X-NFT-Block-Number"))
+	assert.Equal(t, "0xevidence", w.Header().Get("X-NFT-Block-Hash"))
+	assert.Equal(t, "1", w.Header().Get("X-NFT-Chain-Id"))
 }

@@ -308,7 +308,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			return
 		}
 
-		allowed, evalErr := evaluateGatingRules(c.Request.Context(), config, logger, rules, walletAddress)
+		allowed, anchor, evalErr := evaluateGatingRules(c.Request.Context(), config, logger, rules, walletAddress)
 		if evalErr != nil {
 			var invalid *invalidGatingRuleError
 			if errors.As(evalErr, &invalid) {
@@ -340,6 +340,15 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		c.Set("wallet_address", walletAddress)
 		c.Set("nft_contract", contract)
 		c.Set("nft_chain_id", chainID)
+		// Report WHICH chain state authorized the request, so every allow can be
+		// traced to a specific chain and block rather than "some recent state".
+		if anchor != nil {
+			c.Set("nft_block_number", anchor.Number)
+			c.Set("nft_block_hash", anchor.Hash)
+			c.Header("X-NFT-Chain-Id", fmt.Sprintf("%d", chainID))
+			c.Header("X-NFT-Block-Number", fmt.Sprintf("%d", anchor.Number))
+			c.Header("X-NFT-Block-Hash", anchor.Hash)
+		}
 		if config.AuditLogger != nil {
 			config.AuditLogger.Log(c.Request.Context(), "nft.gate_passed", walletAddress, "content", contentID, true, "", fmt.Sprintf("%s:%d", contract, chainID))
 		}
@@ -417,17 +426,20 @@ func normalizedMinBalance(minBalance int) (int64, error) {
 // verifies to a sufficient quantity grants access. If no rule grants access, a
 // rule that could not be verified at all produces a service error so the caller
 // answers 503 rather than a misleading 403.
-func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (bool, error) {
+//
+// On success it also returns the block the granting rule was read at, so the
+// caller can report which chain state authorized the request.
+func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (bool, *BlockHeaderInfo, error) {
 	var firstUnverifiable error
 
 	for _, rule := range rules {
 		if err := validateGatingRule(rule); err != nil {
-			return false, err
+			return false, nil, err
 		}
 		minBalance, _ := normalizedMinBalance(rule.MinBalance)
 
 		cacheKey := nftCacheKey(rule.ChainID, walletAddress, rule.ContractAddress, rule.TokenID, rule.Standard)
-		quantity, err := resolveQuantity(ctx, config, logger, cacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
+		quantity, anchor, err := resolveQuantity(ctx, config, logger, cacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
 		if err != nil {
 			logger.Warn("gating rule could not be verified",
 				zap.String("contract", rule.ContractAddress),
@@ -440,20 +452,22 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 		}
 
 		if quantity.Cmp(big.NewInt(minBalance)) >= 0 {
-			return true, nil
+			return true, anchor, nil
 		}
 	}
 
 	if firstUnverifiable != nil {
-		return false, firstUnverifiable
+		return false, nil, firstUnverifiable
 	}
-	return false, nil
+	return false, nil, nil
 }
 
-// resolveQuantity returns the holder's quantity EVIDENCE for one subject. The
-// cache stores the evidence (the balance), never the verdict: the comparison
-// against min_balance happens per request, so two rules with different
-// thresholds over the same subject can never share a stale decision.
+// resolveQuantity returns the holder's quantity EVIDENCE for one subject, along
+// with the block it was read at. The cache stores the evidence (the balance),
+// never the verdict: the comparison against min_balance happens per request, so
+// two rules with different thresholds over the same subject can never share a
+// stale decision.
+//
 // resolveAnchor picks the ONE block an authorization reads at: the header at the
 // configured finality tag, resolved once. Every decision query in the request
 // then names that block number, so the node never gets to re-resolve a tag
@@ -495,7 +509,23 @@ func verifyAnchorUnchanged(ctx context.Context, config *NFTGateConfig, chainID i
 	return nil
 }
 
-func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, error) {
+// entryAnchor reconstructs the block a cached entry was read at. An entry with
+// no recorded block carries no anchor to report.
+func entryAnchor(entry NFTAccessEntry) *BlockHeaderInfo {
+	if entry.BlockHash == "" {
+		return nil
+	}
+	return &BlockHeaderInfo{Number: entry.BlockNumber, Hash: entry.BlockHash}
+}
+
+// quantityEvidence pairs a quantity with the block it was read at, so the caller
+// can report WHICH chain state authorized the request.
+type quantityEvidence struct {
+	quantity *big.Int
+	anchor   *BlockHeaderInfo
+}
+
+func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, *BlockHeaderInfo, error) {
 	start := time.Now()
 	// The freshness clock for whatever evidence this request ends up using
 	// starts HERE, before any cache is consulted, so a cache write further down
@@ -506,7 +536,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
 			if quantity, usable := cachedQuantity(config, logger, cacheKey, chainID, entry); usable {
 				nftCacheHits.WithLabelValues("l1_l2").Inc()
-				return quantity, nil
+				return quantity, entryAnchor(entry), nil
 			}
 		}
 	}
@@ -564,17 +594,17 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		if config.Cache != nil {
 			setCachedEntry(ctx, config, logger, cacheKey, observedAt, anchor, quantity)
 		}
-		return quantity, nil
+		return &quantityEvidence{quantity: quantity, anchor: anchor}, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	quantity, ok := v.(*big.Int)
-	if !ok || quantity == nil {
-		return nil, fmt.Errorf("unexpected quantity result for chain %d", chainID)
+	evidence, ok := v.(*quantityEvidence)
+	if !ok || evidence == nil || evidence.quantity == nil {
+		return nil, nil, fmt.Errorf("unexpected quantity result for chain %d", chainID)
 	}
-	return quantity, nil
+	return evidence.quantity, evidence.anchor, nil
 }
 
 // defaultMaxEvidenceAge is the freshness bound applied to on-chain evidence
