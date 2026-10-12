@@ -180,7 +180,11 @@ func (ws *Web3Service) GetNFTOwnershipQuantity(ctx context.Context, chainID int6
 	if err != nil {
 		return nil, err
 	}
-	verifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger).
+	// Pass the ChainClient, not its raw ethclient: only the ChainClient can pin
+	// a call to a specific block, and the verifier refuses to probe at a tag or
+	// latest when a block is pinned. Handing it the raw client would make every
+	// pinned read fail closed as "not a recognised ERC-721/ERC-1155 contract".
+	verifier := web3.NewNFTVerifier(client, ws.logger).
 		WithBlockTag(client.GetFinality().BlockTag()).
 		WithBlockNumber(block)
 	return verifier.GetNFTQuantityAutoDetect(ctx, contractAddress, tokenID, ownerAddress)

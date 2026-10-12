@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -479,6 +480,49 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			c.Header("Cache-Control", "private, max-age=86400")
 			c.Header("Vary", "Authorization")
 			c.Header("X-Content-Type-Options", "nosniff")
+			// Advertise range support on every segment response, including 200s,
+			// so players know they may seek.
+			c.Header("Accept-Ranges", "bytes")
+
+			// A range request must be answered with a range. Serving 200 and the
+			// whole segment ignores what the client asked for, breaks seeking and
+			// forces a re-download of bytes the client already has.
+			rangeHeader := strings.TrimSpace(c.GetHeader("Range"))
+			if rangeHeader != "" {
+				// The total size is needed for a correct Content-Range, so a
+				// range request is buffered. Bounded: a segment larger than the
+				// cap is a malformed object, not a reason to exhaust memory.
+				data, readErr := io.ReadAll(io.LimitReader(best.rc, maxRangeableSegmentBytes+1))
+				cancel()
+				if readErr != nil || int64(len(data)) > maxRangeableSegmentBytes {
+					middleware.GetLogger(c, log).Warn("segment too large to serve a range from",
+						zap.String("content_id", contentID),
+						zap.String("segment", segName),
+						zap.Int("bytes", len(data)))
+					abortWithError(c, http.StatusServiceUnavailable, ErrContentUnavailable, "segment unavailable")
+					return
+				}
+				rangeStart, rangeEnd, ok := parseByteRange(rangeHeader, int64(len(data)))
+				if !ok {
+					c.Header("Content-Range", fmt.Sprintf("bytes */%d", len(data)))
+					abortWithError(c, http.StatusRequestedRangeNotSatisfiable, ErrInvalidRequest, "unsatisfiable range")
+					return
+				}
+				c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(data)))
+				c.Header("Content-Length", strconv.FormatInt(rangeEnd-rangeStart+1, 10))
+				c.Status(http.StatusPartialContent)
+				if _, err := c.Writer.Write(data[rangeStart : rangeEnd+1]); err != nil {
+					log.Warn("segment range write interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
+				}
+				monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
+				q := c.Query("quality")
+				if q == "" {
+					q = "default"
+				}
+				monitoring.StreamingSegmentsTotal.WithLabelValues(q).Inc()
+				return
+			}
+
 			c.Status(http.StatusOK)
 			if _, err := io.Copy(c.Writer, best.rc); err != nil {
 				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
@@ -495,6 +539,64 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		_ = claims
 		abortWithError(c, http.StatusNotFound, ErrNotFound, "segment not found")
 	})
+}
+
+// maxRangeableSegmentBytes caps how large a segment may be before a range
+// request is refused. Answering a range needs the total size, so the object is
+// buffered; this keeps a malformed or hostile object from exhausting memory.
+// Real HLS segments are orders of magnitude smaller.
+const maxRangeableSegmentBytes = 64 << 20
+
+// parseByteRange parses a single-range HTTP Range header ("bytes=0-99",
+// "bytes=100-", "bytes=-100") against a known size, returning an inclusive
+// [start, end].
+//
+// Multi-range requests are rejected rather than answered with one of the
+// ranges: replying 200/206 with the wrong bytes is worse than saying the request
+// cannot be satisfied.
+func parseByteRange(header string, size int64) (int64, int64, bool) {
+	const prefix = "bytes="
+	if !strings.HasPrefix(header, prefix) || size <= 0 {
+		return 0, 0, false
+	}
+	spec := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+	if spec == "" || strings.Contains(spec, ",") {
+		return 0, 0, false
+	}
+	dash := strings.Index(spec, "-")
+	if dash < 0 {
+		return 0, 0, false
+	}
+	startStr := strings.TrimSpace(spec[:dash])
+	endStr := strings.TrimSpace(spec[dash+1:])
+
+	if startStr == "" {
+		// Suffix form: the final N bytes.
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		if n > size {
+			n = size
+		}
+		return size - n, size - 1, true
+	}
+
+	start, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || start < 0 || start >= size {
+		return 0, 0, false
+	}
+	end := size - 1
+	if endStr != "" {
+		end, err = strconv.ParseInt(endStr, 10, 64)
+		if err != nil || end < start {
+			return 0, 0, false
+		}
+		if end >= size {
+			end = size - 1
+		}
+	}
+	return start, end, true
 }
 
 func extractPlaybackToken(c *gin.Context) string {
