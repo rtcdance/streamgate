@@ -157,8 +157,13 @@ func (ws *Web3Service) VerifyNFTCollectionAutoDetect(ctx context.Context, chainI
 // on the given chain: the collection balance when tokenID is empty, otherwise
 // the token quantity (ERC-721 → 0/1, ERC-1155 → on-chain uint256). Unknown /
 // non-NFT contracts return an error, never a permissive value.
+//
+// block pins the ERC-165 probe and the balance query to one exact block, so an
+// authorization cannot be assembled from two different chain states. A nil
+// block keeps the previous tag-based behaviour for callers that are not making
+// an authorization decision.
 // Implements middleware.NFTOwnershipChecker.GetNFTOwnershipQuantity.
-func (ws *Web3Service) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string) (*big.Int, error) {
+func (ws *Web3Service) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contractAddress, tokenID, ownerAddress string, block *big.Int) (*big.Int, error) {
 	// Solana NFTs are 1:1 mint→token-account, so ownership maps to quantity 1.
 	if chainID < 0 {
 		owned, err := ws.VerifyNFTOwnership(ctx, chainID, contractAddress, tokenID, ownerAddress)
@@ -175,7 +180,9 @@ func (ws *Web3Service) GetNFTOwnershipQuantity(ctx context.Context, chainID int6
 	if err != nil {
 		return nil, err
 	}
-	verifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger).WithBlockTag(client.GetFinality().BlockTag())
+	verifier := web3.NewNFTVerifier(client.GetEthClient(), ws.logger).
+		WithBlockTag(client.GetFinality().BlockTag()).
+		WithBlockNumber(block)
 	return verifier.GetNFTQuantityAutoDetect(ctx, contractAddress, tokenID, ownerAddress)
 }
 
@@ -248,6 +255,48 @@ func (ws *Web3Service) HeaderByNumber(ctx context.Context, chainID int64, number
 	if err != nil {
 		return nil, err
 	}
+	header, err := client.HeaderByNumber(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	if header == nil {
+		return nil, nil
+	}
+	return &middleware.BlockHeaderInfo{
+		Number:     header.Number.Uint64(),
+		Hash:       header.Hash().Hex(),
+		ParentHash: header.ParentHash.Hex(),
+	}, nil
+}
+
+// HeaderByTag resolves a finality tag ("latest", "safe", "finalized") to a
+// concrete header on the named chain. The NFT gate uses it to choose the ONE
+// block an authorization reads at, instead of letting the node re-resolve a tag
+// on every individual call. An unknown tag is refused rather than treated as
+// latest.
+func (ws *Web3Service) HeaderByTag(ctx context.Context, chainID int64, tag string) (*middleware.BlockHeaderInfo, error) {
+	if chainID == 0 {
+		chainID = ws.config.Web3.ChainID
+	}
+	client, err := ws.multiChainManager.GetClient(chainID)
+	if err != nil {
+		return nil, err
+	}
+
+	// go-ethereum's sentinels: -4 = safe, -3 = finalized, nil = latest. These are
+	// the same values ChainClient.CallContractAtBlock uses for its tags.
+	var number *big.Int
+	switch tag {
+	case "safe":
+		number = big.NewInt(-4)
+	case "finalized":
+		number = big.NewInt(-3)
+	case "latest", "":
+		number = nil
+	default:
+		return nil, fmt.Errorf("unsupported block tag %q on chain %d", tag, chainID)
+	}
+
 	header, err := client.HeaderByNumber(ctx, number)
 	if err != nil {
 		return nil, err
