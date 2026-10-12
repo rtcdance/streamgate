@@ -208,7 +208,7 @@ flowchart LR
 
 **完成**：实际路由冷、暖、并发结果一致；不能只修 collection 就勾选整个任务。保留缺陷修复前失败与修复后通过的证据。
 
-### [ ] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁
+### [x] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁
 
 **依赖**：SG-00。**文件范围**：`Makefile`、`scripts/check-coverage.sh` 与其回归；`.github/workflows/ci.yml`、`test.yml`、`build.yml`、数据库迁移步骤。
 
@@ -595,7 +595,8 @@ make verify-docker
 | SG-00 | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞） | 见 §8.2 |
 | SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
 | SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
-| SG-02～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
+| SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
+| SG-03～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
 | SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
 | M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
 
@@ -829,6 +830,28 @@ sequenceDiagram
 | Anvil 套件 | PASS | `go test -tags=anvil -race -count=1 ./test/integration/web3/...` 全绿（含新用例，实测 21.1s） |
 
 **限制（本项未覆盖）**：Docker 内 `make verify-docker VERIFY_STAGE=unit` 未执行（沿用 SG-00 的本机网络阻塞）；`min_balance > 1` 的 HTTP 层输入校验（负数返回 400 的 **API 层**）属 SG-03 路由边界；5 秒证据总 age 的实测上界属 SG-04。
+
+### 8.5 SG-02 执行证据（CI 必须真实失败，所有入口同一门禁）
+
+**基线**：`2055677`（SG-01 完成）+ 工作区。用户未提交的交易 API 工作仍原样保留，未并入本项提交。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 统一覆盖率门 | PASS | 新增 `scripts/check-coverage.sh`：**整数比较** `covered*100 >= total*60`，不再用 `bc -l`；`make test-ci` 的 `COVERAGE_MIN` 由 **40 → 60**，与 CI 一致 |
+| 缺失/空/非法即失败 | PASS | 该脚本对 **缺失文件 / 空文件 / 仅 header / 无 `mode:` / 0 statement / 非整数下限 / 越界下限** 全部非零退出（原先 CI 是 "No coverage data generated" + `exit 0`，即**没有覆盖率也能绿**） |
+| 门禁自证可失败 | PASS | 新增 `scripts/check-coverage_test.sh`（`make test-coverage-gate`）：**15 passed / 0 failed**。含计划点名的用例：**59.9% 失败、60% 通过、6000/10001 失败**；另加 **5996/10000 = 59.96%（`go tool cover` 会显示 60.0%）仍失败** |
+| 同一包集合 | PASS | 新增 `scripts/ci-packages.sh`（单一真源，87 个包，排除 `test/e2e`、`test/load`、`test/integration/web3`）；`Makefile` / `ci.yml` / `scripts/verify-docker.sh` 三处共用 |
+| 真实跑通（正例） | PASS | `make test-ci`：**`✓ coverage gate: 16533/22560 statements = 73% meets 60%`，exit 0**（`-race`，87 包全绿） |
+| 真实跑通（负例） | PASS | `make test-ci COVERAGE_MIN=99`：`✗ coverage gate: … 73% is below 99%`，**make exit 2** |
+| SQL 迁移不再吞错 | PASS | `ci.yml` 与 `test.yml`（2 处）：删除 `\|\| true`，改 `psql -v ON_ERROR_STOP=1`，并锚定 `\.down\.sql$` 排除 down；坏 SQL 现在会让 job 红 |
+| 候选镜像依赖补齐 | PASS（静态） | `docker` job 的 `needs` 由 `[test-go, build, security]` 改为 **`[lint, test-go, test-contracts, test-anvil, build, security]`**，并**删除 `if: always() && …`** —— 原写法允许 Go 测试失败后仍构建镜像 |
+| Anvil 进入候选门禁 | PASS（静态） | 新增 `test-anvil` job：`forge install` + `forge build` + `go test -tags=anvil -race -count=1 ./test/integration/web3/...` |
+| smoke 不再是"文件存在" | PASS（部分实测） | 删除 `docker run … ls /app/streamgate \|\| echo warnings`；改为拉起最小依赖栈（postgres/redis/minio/nats，私有网络、按容器名寻址）+ 候选镜像，**等待镜像自带 HEALTHCHECK 变 healthy** 再断言 `GET /health == 200`，失败打印容器日志并非零退出 |
+| 分包阈值独立 | PASS | `test.yml` 保留 **10% 分包**规则（独立于总体 60%），但缺失覆盖率由 `exit 0` 改为**失败**；`test-unit-models`/`test-unit-storage` 显式降为"profile 必须可用" |
+
+**本机实测**（非采信）：`make test-coverage-gate` 15/15；`make test-ci` 绿、`COVERAGE_MIN=99` 红；真实 profile 上 `check-coverage.sh` 输出 `491/590 = 83%`；4 个 workflow YAML 经解析合法（`ci.yml` jobs = lint,test-go,test-contracts,build,security,test-anvil,docker）；提取出的 smoke 脚本 `bash -n` 通过；**smoke 的就绪机制**在真实依赖栈上验证：候选镜像对 postgres/redis/minio/nats **6 秒变 healthy、`/health` 200**。
+
+**限制（本项未覆盖）**：① 新增/改写的 CI job（`test-anvil`、`docker` 依赖、smoke）只能在 GitHub 上执行，本机未跑；smoke 的**依赖镜像供给**部分未在本机验证（本地 registry 镜像对 `minio/minio:latest` 返回 403），但**镜像就绪→健康→`/health` 200 的逻辑已在真实依赖栈实测**。② SG-02 步骤 4/5 的"**同产物**候选镜像扫描（PR 也扫同一 digest）与完整 DAG 接线"按计划归 **SG-08**（`scan-monolith` 目前仍只跑非 PR 且自行重建镜像）。③ 必需测试 ID 解析（步骤 7）随 SG-05/07/08 的媒体/性能/恢复 job 一并落地。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
