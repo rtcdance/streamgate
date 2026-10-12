@@ -969,12 +969,15 @@ sequenceDiagram
 | **允许结果携带链与区块** | PASS | `resolveQuantity` / `evaluateGatingRules` 回传 `(quantity, anchor)`；放行时写入 context（`nft_block_number` / `nft_block_hash`）**并设置响应头** `X-NFT-Chain-Id` / `X-NFT-Block-Number` / `X-NFT-Block-Hash`；`TestNFTGateMiddleware_AllowReportsBlockEvidence` 断言 200 响应的三个头（缓存命中路径由条目自身重建锚点，见 `entryAnchor`） |
 | 新增用例 | PASS | `TestResolveQuantity_PinsTheAnchorBlock`（断言 verifier 收到的块号 == 锚点、且锚点取自配置 tag）、`…WithoutProverFailsClosed`、`…BlockChangedDuringReadIsRejected`、`…UnresolvableAnchorFailsClosed`；`TestSetCachedEntry_StoresTheAnchor` |
 | 回归 | PASS | `go test ./...` 全绿（含 gateway / cmd 的 NFT 门禁路径）；`-race ./pkg/middleware/... ./pkg/web3/nft/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+| **两个 Anvil 端到端（真节点、真 JSON-RPC）** | PASS | 新增 `test/integration/gating_anvil_test.go`（`//go:build anvil`，**anvil 不在 PATH 即失败，不 skip**）：两个不同 chain id 的 anvil + **记录型 RPC 代理**（转发并记录每次 `eth_call` 的 block 参数）。断言：① 两链在**同一高度**哈希不同；② 固定块读取发出的**每一个 `eth_call` 的 block 参数 == 锚点块**（ERC-165 探测与余额查询同块），实测通过；③ 链 B 的授权**对链 A 零 `eth_call`**；④ 不能固定块的客户端被拒且**零链上读**。`-race` 下亦通过 |
+| **endpoint 回退（真代理注入故障）** | PASS | 同文件 `TestAnvil_EndpointFailoverStaysOnTheSameChain`：**两个独立代理指向同一矿链**，主 endpoint 恒返 502 ⇒ 读取由同链备用 endpoint 服务（**明确这只证明端点回退，不证明节点级容灾**）；备用 endpoint 指向**另一条链** ⇒ 构造客户端直接失败，且错链 endpoint **只收到 `eth_chainId` 探测、未服务任何数据读** |
+| **该端到端测试抓到的真实缺陷** | 已修 | `detectTokenStandardCached` 原先**无条件**先调用未固定的 `DetectTokenStandard`（latest），再用固定块结果覆盖 ⇒ **仍然向节点发出了一次 latest 的 `eth_call`**，正是"固定块"要消除的读。已改为**只在无固定块时才走未固定探测**。这个缺陷只有真节点+代理才看得见，mock 单测看不见 |
 
 **限制 / 未覆盖（本项，均为 SG-04 判据）**：
-- **证据只覆盖"允许"路径**：`X-NFT-*` 响应头在**放行**时给出；**拒绝（403/503）的响应体里没有**区块证据（拒绝时 `evaluateGatingRules` 不返回锚点）。计划步骤 2 的"返回 `chainID, blockNumber, blockHash, balance, observedAt`"因此只完成了"allow 可对应具体链与区块"，未把 `balance` / `observedAt` 也对外暴露。
-- **步骤 1 未做**：每链 ≥2 同链 endpoint 的 fallback 及其 block 策略一致性未验证（错链拒绝的连接期语义已存在，见上）。
-- **步骤 5 未做**：reorg **事件驱动**的整体失效未接线（现在有两条**被动**路径：缓存校验时 hash 不一致、以及授权读期间的 `verifyAnchorUnchanged`）。
-- **验证方式仍未达计划要求**：计划要求"两个本地 Anvil 的端到端测试，断言实际查询 block 参数 / 返回 hash"；本次仍是**单元级**（mock prover + 断言 verifier 收到的块号），未起 Anvil、未断言真实 RPC 报文里的 `eth_call` block 参数。
+- **步骤 5 前半未做**：reorg **事件驱动**的整体失效未接线。计划原文是"重组事件到达**或**缓存 block hash 不一致时失效"，其中**后一半已实现**（两条被动路径：缓存校验时 hash 不一致、授权读期间 `verifyAnchorUnchanged`），**前一半（订阅重组事件主动失效）未做**。
+- **步骤 3 的"有限重试"未做**：hash 变化时**直接拒绝**，没有"有限重试后再拒绝"。拒绝是安全的一侧，但与计划措辞不同，故记录为未做。
+- **步骤 4 的"规则决策另带规则版本"**：缓存键 `nftCacheKey(chainID, wallet, contract, tokenID, standard)` **不含规则版本**。这是 SG-01 的有意设计——缓存里存的是**证据（余额）而非判定**，每次请求都按 `min_balance` 重新比较，因此不存在"共享过期判定"的问题，规则版本对正确性不是必需。若仍要求键上带版本，需另行确认。
+- **拒绝路径不带区块证据**：`X-NFT-*` 响应头只在**放行**时给出；拒绝（403/503）的响应体没有区块证据，`balance` / `observedAt` 也未对外暴露。
 - 另一处未覆盖：`NFTVerifier.detectTokenStandardCached` 的**合约元数据缓存**（1h）在命中时不重新探测——按计划"合约元数据与授权数据分开处理"这是有意为之，但意味着**元数据**层面并非每次都与授权同块。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）

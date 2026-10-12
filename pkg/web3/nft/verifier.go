@@ -378,7 +378,10 @@ func (nv *NFTVerifier) detectTokenStandardCached(ctx context.Context, contractAd
 			return entry.standard
 		}
 	}
-	standard := DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
+	// When a block is pinned, the probe MUST go out at that block. Calling the
+	// unpinned probe first and discarding its answer would still send a
+	// latest-block eth_call to the node - a read the pin exists to prevent.
+	var standard TokenStandard
 	if nv.blockNumber != nil {
 		if bnc, ok := nv.client.(BlockNumberCaller); ok {
 			standard = DetectTokenStandardAtBlock(ctx, bnc, contractAddress, nv.blockNumber, nv.logger)
@@ -387,6 +390,8 @@ func (nv *NFTVerifier) detectTokenStandardCached(ctx context.Context, contractAd
 			// probe, which could disagree with the pinned balance query.
 			standard = TokenStandardUnknown
 		}
+	} else {
+		standard = DetectTokenStandard(ctx, nv.client, contractAddress, nv.logger)
 	}
 	if standard != TokenStandardUnknown {
 		nv.standardCache.Store(contractAddress, &tokenStandardEntry{
