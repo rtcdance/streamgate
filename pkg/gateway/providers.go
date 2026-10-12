@@ -116,6 +116,11 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		// The playback capability lifetime comes from the policy rather than a
 		// constant buried in the handler.
 		service.WithPlaybackTokenTTL(cfg.Features.CapabilityTTL),
+		// The clock tolerance is an input to the revocation bound, so it is the
+		// configured value too: a hardcoded tolerance larger than the policy would
+		// make the realised window exceed the bound that was computed and
+		// validated.
+		service.WithClockSkew(cfg.Features.ClockSkew),
 		// Session epochs must outlive the process: an in-memory store would
 		// forget every session on restart and silently un-revoke them.
 		service.WithSessionStore(provideSessionStore(log, redisClient)),
