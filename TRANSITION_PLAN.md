@@ -12,12 +12,12 @@
 
 **建议定位：Web3 后端工程师，突出钱包身份、链上权限一致性与媒体交付经验。** 主线展示为：真实钱包签名 → 一次性挑战 → 服务端 NFT 规则 → 同链同区块持仓证据 → 有时限的播放能力 → 真实 HLS 解码 → NFT 转移后权限失效 → RPC 故障与发布恢复。此定位基于背景与项目适配度，不是职位数量或录用概率预测。
 
-| 已有能力 | 本项目需要补齐的 Web3 证据 | 求职时可展示的结果 |
-|---|---|---|
-| C++ / 服务端系统与并发 | Go 并发、缓存隔离、RPC 回退、链状态一致性 | 一个能复现的授权缺陷、修复及竞态回归 |
-| 转码、HLS 与流媒体交付 | NFT 规则真正控制 manifest / segment / key | 实际上传、转码、解码、拒绝未授权媒体字节 |
-| iOS / Android 播放器 | 播放能力注入、续期、撤销、错误分类 | 主线有浏览器闭环；条件扩展有原生真机闭环 |
-| 工程排障经验 | 链最终性、重组、失效窗口、发布版本追溯 | 故障注入、指标、明确的安全边界和恢复证据 |
+| 已有能力              | 本项目需要补齐的 Web3 证据                    | 求职时可展示的结果            |
+| ----------------- | ----------------------------------- | -------------------- |
+| C++ / 服务端系统与并发    | Go 并发、缓存隔离、RPC 回退、链状态一致性            | 一个能复现的授权缺陷、修复及竞态回归   |
+| 转码、HLS 与流媒体交付     | NFT 规则真正控制 manifest / segment / key | 实际上传、转码、解码、拒绝未授权媒体字节 |
+| iOS / Android 播放器 | 播放能力注入、续期、撤销、错误分类                   | 主线有浏览器闭环；条件扩展有原生真机闭环 |
+| 工程排障经验            | 链最终性、重组、失效窗口、发布版本追溯                 | 故障注入、指标、明确的安全边界和恢复证据 |
 
 **两个项目分工**：StreamGate 证明“链上权限如何影响真实媒体访问”；ChainPulse 用于补充链上数据处理与恢复能力。此次未完成 ChainPulse 代码审计，不为其正确性或 CI/CD 背书；不为版本对齐而强行绑定两个项目发布。SG-09 只整理可由其现有证据支持的简历描述。
 
@@ -32,20 +32,20 @@
 
 本次将求职项目的必要工程范围一次明确。执行中发现用例失败属于实现 / 修复工作，不能以失败为理由反复扩张功能范围。新增需求、实际生产目标或岗位方向变化才进入单独变更；主线完成后停止加功能，把精力转到本人演示和面试。
 
-| 需求 ID | 必须达到的能力 | 实施任务 | 验收门 |
-|---|---|---|---|
-| R01 | 核心 flow 真正运行，部署 / 构建 / 页面可用与业务可用明确区分 | SG-00、05、10 | M0、M2、M8 |
-| R02 | 真钱包身份、nonce / session 正确，资源写入不越权 | SG-03、06 | M1、M3 |
-| R03 | ERC-721 / 1155 数量、接口、规则与缓存语义一致 | SG-01、11 | M1、M7 |
-| R04 | 多 RPC 同链回退，同区块授权，重组 / 断流不错误授予权限 | SG-04、13 | M1、M7 |
-| R05 | 每种实际媒体资源受保护，续期与撤销有上界 | SG-05、06 | M2、M3 |
-| R06 | 原件 digest 真实，内容登记具有准确可信语义 | SG-11、12、13 | M7 |
-| R07 | 转码 / 上传 / 消息重复、崩溃、超时可恢复，资源有界 | SG-12、14 | M2、M8 |
-| R08 | 链写入幂等、nonce 唯一、广播未知状态和重启可恢复 | SG-03、13 | M7 |
-| R09 | 生产模式不隐式回退内存；配置、密钥、运维与 API 边界明确 | SG-10、14 | M8 |
-| R10 | 真实吞吐、播放器质量、RPC / queue / 转码指标有测量证据 | SG-07、14 | M4、M8 |
-| R11 | CI 可失败，版本与镜像可追溯，临时 CD / schema / 恢复验证完成 | SG-02、08、14 | M5、M8 |
-| R12 | 能解释取舍、个人贡献诚实、简历数字可证实 | SG-09、10、15 | M6、M8 |
+| 需求 ID | 必须达到的能力                                 | 实施任务        | 验收门      |
+| ----- | --------------------------------------- | ----------- | -------- |
+| R01   | 核心 flow 真正运行，部署 / 构建 / 页面可用与业务可用明确区分    | SG-00、05、10 | M0、M2、M8 |
+| R02   | 真钱包身份、nonce / session 正确，资源写入不越权        | SG-03、06    | M1、M3    |
+| R03   | ERC-721 / 1155 数量、接口、规则与缓存语义一致          | SG-01、11    | M1、M7    |
+| R04   | 多 RPC 同链回退，同区块授权，重组 / 断流不错误授予权限         | SG-04、13    | M1、M7    |
+| R05   | 每种实际媒体资源受保护，续期与撤销有上界                    | SG-05、06    | M2、M3    |
+| R06   | 原件 digest 真实，内容登记具有准确可信语义               | SG-11、12、13 | M7       |
+| R07   | 转码 / 上传 / 消息重复、崩溃、超时可恢复，资源有界            | SG-12、14    | M2、M8    |
+| R08   | 链写入幂等、nonce 唯一、广播未知状态和重启可恢复             | SG-03、13    | M7       |
+| R09   | 生产模式不隐式回退内存；配置、密钥、运维与 API 边界明确          | SG-10、14    | M8       |
+| R10   | 真实吞吐、播放器质量、RPC / queue / 转码指标有测量证据      | SG-07、14    | M4、M8    |
+| R11   | CI 可失败，版本与镜像可追溯，临时 CD / schema / 恢复验证完成 | SG-02、08、14 | M5、M8    |
+| R12   | 能解释取舍、个人贡献诚实、简历数字可证实                    | SG-09、10、15 | M6、M8    |
 
 **信任边界**：这是“链上 NFT 权限 + 平台媒体服务”。平台控制内容规则、服务端播放能力、存储、转码和管理；RPC provider 提供链状态。多 RPC 回退不等于轻客户端的密码学证明；NFT 持有不等于媒体版权或上传者身份；平台登记合约只证明平台对内容信息的登记。禁止描述为完全去中心化、无需信任、生产高可用已经验证或版权确权系统。
 
@@ -57,31 +57,31 @@
 
 评审基线：提交 `6ded9771be9e4ba6039b4ea060be9f6c639df0c9`；工作区另有未提交交易 API、路由及测试变更，实施时必须重新确认。以下是代码检查与隔离诊断发现，**诊断中的试验修复不属于交付，不能据此勾选任务**。
 
-| 优先级 | 发现与影响 | 当前代码入口 | 对应任务 |
-|---|---|---|---|
-| P0 | `min_balance` 未进入缓存 / singleflight 决策键；同钱包低门槛→高门槛可能交叉放行，高→低可能交叉拒绝 | `pkg/middleware/nft_gate.go`：`nftCacheKey`、`resolveOwnershipWithAutoDetect` | SG-01 |
-| P0 | collection 自动识别忽略数量门槛；特定 token 的 bool ownership 不能表达 ERC-1155 数量 | 同上；`pkg/service/web3_nft.go`、`pkg/web3/nft/verifier.go` | SG-01 |
-| P0 | gating-rule 创建 / 修改 / 删除没有校验内容所有者；全局 JWT 只提供登录校验 | `pkg/gateway/gating_rule_handlers.go`、`pkg/service/gating/rule.go`、`pkg/gateway/routes.go` | SG-03 |
-| P0 | 未提交交易 API 可让 JWT 用户指定服务器代签的 to/value/data；JWT 不构成钱包支出授权，跟踪链与请求链可能不一致 | 工作区 `pkg/gateway/web3_handlers.go`、`pkg/service/web3_tx_track.go`；不是已提交基线功能 | SG-03 |
-| P0 | block prover 使用默认链，block hash cache 只按高度索引；持仓读取与缓存 header 分别取值 | `pkg/service/web3_nft.go:HeaderByNumber`、`pkg/middleware/nft_gate.go:setCachedEntry` | SG-04 |
-| P0 | caller 不支持 block-tag 接口时 NFT 读取退回 latest，与 safe/finalized 承诺不一致 | `pkg/web3/nft/verifier.go:callContract` | SG-04 |
-| P0 | Anvil 标签测试有 `os.Discard`、`auth.PrivateKey` 编译问题，使用占位字节码 / 不匹配 mint ABI，依赖缺失会 skip，固定端口且未接入主 CI | `test/integration/web3/anvil_test.go` | SG-00 |
-| P0 | 缺失覆盖率可成功退出，Makefile 40% 与主 CI 60% 不一致，Docker job 条件没有要求 Go 测试成功 | `Makefile:test-ci`、`.github/workflows/ci.yml` | SG-02 |
-| P0 | 数据库迁移忽略失败；Docker smoke 只检查文件且忽略失败；PR 不扫描 monolith，镜像独立发布早于完整门禁 | `.github/workflows/ci.yml`、`build.yml` | SG-02 / SG-08 |
-| P0 | CD 缺凭据 success；set image / rollout 忽略错误；拉取 master、部署标签与发布标签不一致 | `.github/workflows/deploy.yml` | SG-08 |
-| P1 | fullchain 验收自行签 JWT、使用无效媒体；H5 连接探针不足以证明登录与播放，Demo 将 holder 的 404 当成 gate 通过 | `scripts/fullchain-acceptance.sh`、H5 flow、`h5-demo/index.html` | SG-05 |
-| P1 | H5 验收的 package.json / lock 本机存在但未跟踪，干净 checkout 不可复现安装 | `scripts/h5-demo-acceptance/`；全局 ignore 会忽略新脚本 | SG-00 |
-| P1 | 并发测试以 sleep 模拟处理，不能作为请求 QPS 或真实播放并发 | `test/performance/performance_test.go:TestConcurrentRequests` | SG-07 |
-| P0 | DemoNFT 声称 ERC-721，却未实现 safeTransferFrom 的两种重载；现有标准测试只检查支持 ID / approve / transferFrom | `contracts/src/DemoNFT.sol`、`contracts/test/DemoNFT.t.sol`；按 ERC-721 标准复核 | SG-11 |
-| P0 | ContentRegistry 可将状态设为 Nonexistent 后再次注册，Removed 也可复活；creator 实为 onlyOwner 的平台签名地址 | `contracts/src/ContentRegistry.sol`；creator 不能当成已验证上传者 | SG-11 |
-| P1 | 所谓 content hash 为 URL / ID 的 SHA-256，不是媒体字节；DB 提交后链注册仅日志告警，无持久重试状态 | `pkg/service/content/content.go:contentContentHash / CreateContentWithTx` | SG-12 / SG-13 |
-| P0 | challenge / blacklist / NATS queue 不可用时隐式退回进程内存，多实例 / 重启的安全与持久性承诺失效 | `pkg/gateway/providers.go`：相关 provider | SG-10 / SG-14 |
-| P1 | nonce 初次获取并发路径有重复分配风险；transaction lifecycle 为内存 map，confirmed 会被清理；registry writer 未统一接入持久跟踪 | `pkg/web3/tx/nonce.go`、`lifecycle.go`、`pkg/gateway/providers.go` | SG-13 |
-| P1 | 队列消息 / status 本地 map 与 DB 状态存在多处来源；仅有 redelivery 不证明业务无重复副作用 | `pkg/storage/nats_queue.go`、`pkg/service/transcoding/transcoding.go` | SG-12 |
-| P0 | 转码从 inputURL 发起 HTTP，MIME 检查不足以限制目标；LimitReader 到 2 GiB 会截断而未证明拒绝超限 | `pkg/service/transcoding/transcoding.go:downloadInputFile`；需补 SSRF / 上界负例 | SG-12 |
-| P1 | 手工媒体 playlist 将每个分片 EXTINF 固定为 6 秒，未用实际 FFmpeg 分片时长 | `pkg/service/streamingsvc/streaming.go:BuildSimplePlaylist / BuildMediaPlaylist` | SG-12 |
-| P1 | event ID 未带 chainID / blockHash，checkpoint 与查询过滤的持久性需审查；Web3 事件装配未展示限制 active contract 的配置 | `pkg/web3/event/indexer.go / store.go`、`pkg/service/web3.go`；部分是待验证风险，不作已利用结论 | SG-10 / SG-13 |
-| P2 | 缺少 HLS 密钥门控和原生播放器实际闭环 | 历史 D1 / D2；不影响主线先完成 | SG-16 / SG-17 |
+| 优先级 | 发现与影响                                                                                          | 当前代码入口                                                                                     | 对应任务          |
+| --- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------- |
+| P0  | `min_balance` 未进入缓存 / singleflight 决策键；同钱包低门槛→高门槛可能交叉放行，高→低可能交叉拒绝                              | `pkg/middleware/nft_gate.go`：`nftCacheKey`、`resolveOwnershipWithAutoDetect`                | SG-01         |
+| P0  | collection 自动识别忽略数量门槛；特定 token 的 bool ownership 不能表达 ERC-1155 数量                               | 同上；`pkg/service/web3_nft.go`、`pkg/web3/nft/verifier.go`                                    | SG-01         |
+| P0  | gating-rule 创建 / 修改 / 删除没有校验内容所有者；全局 JWT 只提供登录校验                                               | `pkg/gateway/gating_rule_handlers.go`、`pkg/service/gating/rule.go`、`pkg/gateway/routes.go` | SG-03         |
+| P0  | 未提交交易 API 可让 JWT 用户指定服务器代签的 to/value/data；JWT 不构成钱包支出授权，跟踪链与请求链可能不一致                           | 工作区 `pkg/gateway/web3_handlers.go`、`pkg/service/web3_tx_track.go`；不是已提交基线功能                | SG-03         |
+| P0  | block prover 使用默认链，block hash cache 只按高度索引；持仓读取与缓存 header 分别取值                                 | `pkg/service/web3_nft.go:HeaderByNumber`、`pkg/middleware/nft_gate.go:setCachedEntry`       | SG-04         |
+| P0  | caller 不支持 block-tag 接口时 NFT 读取退回 latest，与 safe/finalized 承诺不一致                                | `pkg/web3/nft/verifier.go:callContract`                                                    | SG-04         |
+| P0  | Anvil 标签测试有 `os.Discard`、`auth.PrivateKey` 编译问题，使用占位字节码 / 不匹配 mint ABI，依赖缺失会 skip，固定端口且未接入主 CI | `test/integration/web3/anvil_test.go`                                                      | SG-00         |
+| P0  | 缺失覆盖率可成功退出，Makefile 40% 与主 CI 60% 不一致，Docker job 条件没有要求 Go 测试成功                                | `Makefile:test-ci`、`.github/workflows/ci.yml`                                              | SG-02         |
+| P0  | 数据库迁移忽略失败；Docker smoke 只检查文件且忽略失败；PR 不扫描 monolith，镜像独立发布早于完整门禁                                 | `.github/workflows/ci.yml`、`build.yml`                                                     | SG-02 / SG-08 |
+| P0  | CD 缺凭据 success；set image / rollout 忽略错误；拉取 master、部署标签与发布标签不一致                                 | `.github/workflows/deploy.yml`                                                             | SG-08         |
+| P1  | fullchain 验收自行签 JWT、使用无效媒体；H5 连接探针不足以证明登录与播放，Demo 将 holder 的 404 当成 gate 通过                    | `scripts/fullchain-acceptance.sh`、H5 flow、`h5-demo/index.html`                             | SG-05         |
+| P1  | H5 验收的 package.json / lock 本机存在但未跟踪，干净 checkout 不可复现安装                                         | `scripts/h5-demo-acceptance/`；全局 ignore 会忽略新脚本                                             | SG-00         |
+| P1  | 并发测试以 sleep 模拟处理，不能作为请求 QPS 或真实播放并发                                                            | `test/performance/performance_test.go:TestConcurrentRequests`                              | SG-07         |
+| P0  | DemoNFT 声称 ERC-721，却未实现 safeTransferFrom 的两种重载；现有标准测试只检查支持 ID / approve / transferFrom         | `contracts/src/DemoNFT.sol`、`contracts/test/DemoNFT.t.sol`；按 ERC-721 标准复核                  | SG-11         |
+| P0  | ContentRegistry 可将状态设为 Nonexistent 后再次注册，Removed 也可复活；creator 实为 onlyOwner 的平台签名地址             | `contracts/src/ContentRegistry.sol`；creator 不能当成已验证上传者                                     | SG-11         |
+| P1  | 所谓 content hash 为 URL / ID 的 SHA-256，不是媒体字节；DB 提交后链注册仅日志告警，无持久重试状态                             | `pkg/service/content/content.go:contentContentHash / CreateContentWithTx`                  | SG-12 / SG-13 |
+| P0  | challenge / blacklist / NATS queue 不可用时隐式退回进程内存，多实例 / 重启的安全与持久性承诺失效                            | `pkg/gateway/providers.go`：相关 provider                                                     | SG-10 / SG-14 |
+| P1  | nonce 初次获取并发路径有重复分配风险；transaction lifecycle 为内存 map，confirmed 会被清理；registry writer 未统一接入持久跟踪   | `pkg/web3/tx/nonce.go`、`lifecycle.go`、`pkg/gateway/providers.go`                           | SG-13         |
+| P1  | 队列消息 / status 本地 map 与 DB 状态存在多处来源；仅有 redelivery 不证明业务无重复副作用                                   | `pkg/storage/nats_queue.go`、`pkg/service/transcoding/transcoding.go`                       | SG-12         |
+| P0  | 转码从 inputURL 发起 HTTP，MIME 检查不足以限制目标；LimitReader 到 2 GiB 会截断而未证明拒绝超限                            | `pkg/service/transcoding/transcoding.go:downloadInputFile`；需补 SSRF / 上界负例                  | SG-12         |
+| P1  | 手工媒体 playlist 将每个分片 EXTINF 固定为 6 秒，未用实际 FFmpeg 分片时长                                            | `pkg/service/streamingsvc/streaming.go:BuildSimplePlaylist / BuildMediaPlaylist`           | SG-12         |
+| P1  | event ID 未带 chainID / blockHash，checkpoint 与查询过滤的持久性需审查；Web3 事件装配未展示限制 active contract 的配置     | `pkg/web3/event/indexer.go / store.go`、`pkg/service/web3.go`；部分是待验证风险，不作已利用结论              | SG-10 / SG-13 |
+| P2  | 缺少 HLS 密钥门控和原生播放器实际闭环                                                                          | 历史 D1 / D2；不影响主线先完成                                                                        | SG-16 / SG-17 |
 
 已经完成的历史授权修复（伪播放 token、无规则默认拒绝、客户端合约不覆盖服务端规则等）应保留为常驻回归测试，不再重新引入 RED 开关。评审发现若在后续代码中已修复，只需补齐规定证据；不能重复修改，也不能仅凭代码存在跳过验收。
 
@@ -103,18 +103,18 @@
 
 ### 固定默认语义，避免执行 AI 自行猜测
 
-| 项目 | 默认要求 |
-|---|---|
-| 内容规则 | 活跃规则按 OR 判断；零活跃规则拒绝。规则错误不能退回客户端 contract 参数或全局公共规则 |
-| 数量 | ERC-721 collection 用 balanceOf；指定 ERC-721 token 为 0/1；ERC-1155 必须有 tokenID 并读取 uint256 数量。不能虚构 ERC-1155 “全 collection 总数” |
-| 链状态 | provider 是明确的信任前提，确认观测延迟单列，过期证据不可授予新能力。默认 safe；配置 finalized 时严格使用 finalized。无法支持所选策略则拒绝，不能静默 latest。不同链按该链的已声明策略执行 |
-| 缓存 | 余额证据与规则决策分离；header / balance / decision / 单次核验的正证据 age 合计最多 5 秒（从原始 observedAt 算），负缓存最多 2 秒，不做授权结果的过期容错。并发键隔离链、主体、合约、token、区块 / 策略 |
-| 播放能力 | TTL 默认 60 秒，时钟容差最多 5 秒；绑定钱包、内容、用途、audience、规则版本、session 与 authEpoch。它仍是 bearer capability；若请求另带 JWT，两者钱包 / session 必须一致。申请、续期和每次 manifest 交付均检查 NFT（证据 age ≤5 秒）；segment / init / key 验能力与撤销状态，不为每段重复链查询 |
-| 权限撤销 | 健康可信 RPC 的 safe/finalized 视图已包含转移后，旧能力最晚 70 秒失效（5 秒正证据总 age + 60 秒能力 + 最多 5 秒时钟容差）；所有缓存层都纳入此上界 |
-| 规则 / 退出撤销 | 用现有 Redis 维护版本 / 会话存在与撤销，Postgres 持久化 authEpoch，restore 后整体失效。最长 5 秒传播；丢失必要版本 / 撤销依赖时拒绝。不能为每个分片重复发链 RPC |
-| 支持范围 | 主线真实链验收为 EVM / Anvil；其他已启用链保留构建与已有回归，未具备同等证据时不得写成“多链完整验收” |
-| Demo 代签 | 默认关闭；只可 development + 31337 + 显式启用 + 固定合约 / selector + value=0 + 业务资源所有者。生产不注册通用代签路由 |
-| 必需 CD | 每次候选发布在临时 Docker 环境真实部署、播放 smoke、失败恢复。无需生产 secrets；生产 / K8s 部署仅有明确目标和发布授权时执行 |
+| 项目        | 默认要求                                                                                                                                                                                                     |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 内容规则      | 活跃规则按 OR 判断；零活跃规则拒绝。规则错误不能退回客户端 contract 参数或全局公共规则                                                                                                                                                       |
+| 数量        | ERC-721 collection 用 balanceOf；指定 ERC-721 token 为 0/1；ERC-1155 必须有 tokenID 并读取 uint256 数量。不能虚构 ERC-1155 “全 collection 总数”                                                                                |
+| 链状态       | provider 是明确的信任前提，确认观测延迟单列，过期证据不可授予新能力。默认 safe；配置 finalized 时严格使用 finalized。无法支持所选策略则拒绝，不能静默 latest。不同链按该链的已声明策略执行                                                                                       |
+| 缓存        | 余额证据与规则决策分离；header / balance / decision / 单次核验的正证据 age 合计最多 5 秒（从原始 observedAt 算），负缓存最多 2 秒，不做授权结果的过期容错。并发键隔离链、主体、合约、token、区块 / 策略                                                                       |
+| 播放能力      | TTL 默认 60 秒，时钟容差最多 5 秒；绑定钱包、内容、用途、audience、规则版本、session 与 authEpoch。它仍是 bearer capability；若请求另带 JWT，两者钱包 / session 必须一致。申请、续期和每次 manifest 交付均检查 NFT（证据 age ≤5 秒）；segment / init / key 验能力与撤销状态，不为每段重复链查询 |
+| 权限撤销      | 健康可信 RPC 的 safe/finalized 视图已包含转移后，旧能力最晚 70 秒失效（5 秒正证据总 age + 60 秒能力 + 最多 5 秒时钟容差）；所有缓存层都纳入此上界                                                                                                           |
+| 规则 / 退出撤销 | 用现有 Redis 维护版本 / 会话存在与撤销，Postgres 持久化 authEpoch，restore 后整体失效。最长 5 秒传播；丢失必要版本 / 撤销依赖时拒绝。不能为每个分片重复发链 RPC                                                                                                  |
+| 支持范围      | 主线真实链验收为 EVM / Anvil；其他已启用链保留构建与已有回归，未具备同等证据时不得写成“多链完整验收”                                                                                                                                                |
+| Demo 代签   | 默认关闭；只可 development + 31337 + 显式启用 + 固定合约 / selector + value=0 + 业务资源所有者。生产不注册通用代签路由                                                                                                                     |
+| 必需 CD     | 每次候选发布在临时 Docker 环境真实部署、播放 smoke、失败恢复。无需生产 secrets；生产 / K8s 部署仅有明确目标和发布授权时执行                                                                                                                             |
 
 70 秒从健康可信 RPC 的策略确认视图已包含转移起计算；RPC 确认观测延迟与 freshness 单独记录，超时 / 无法满足新授权 freshness 时拒绝。它是服务器授权窗口，不能保证链本身在 70 秒内确认。短期 capability 被复制后，在撤销 / 到期前可能被另一客户端使用；钱包字段绑定不等于客户端持有私钥证明。跨钱包负例指 JWT 主体冲突或签名字段篡改，不能宣称阻止 bearer token 分享。已下载的媒体、播放器缓冲和已获得的密钥不能远程收回；项目不宣称 DRM 或防录屏。
 
@@ -145,17 +145,18 @@ flowchart LR
   K --> L[SG-17 原生播放器]
 ```
 
-| 阶段 | 必须得到的产物 | 出阶段门 |
-|---|---|---|
-| 架构基线 SG-10 | 信任边界、真实接线、角色 / 权限矩阵、架构决策 | M8 的架构部分 |
-| 可复现基础 SG-00～02 | 新 checkout 可执行的 Docker 验收入口、真实合约 fixture、会失败的 CI 校验 | M0、M1 基础部分 |
-| 合约与一致性 SG-11～13 | 合约不变量、媒体任务恢复、交易 / 事件幂等与重启 | M7、M8 的恢复部分 |
-| 权限正确性 SG-03～04 | 身份与资源隔离、代签边界、同链同区块余额证据 | M1 |
-| 媒体闭环 SG-05～06 | 真签名 / 真转码 / 真解码、续期与转移撤销 | M2、M3 |
-| 运行边界 SG-14 | 生产模式依赖、密钥 / API / 资源约束、备份恢复 | M8 |
-| 工程证据 SG-07～08 | 实测负载、指标、同 digest 发布与故障恢复 | M4、M5 |
-| 求职成品 SG-09 | 中英文项目条目、讲述脚本、演示步骤和个人贡献映射 | M6 的 AI 交付部分 |
-| 最终收口 SG-15 | 需求到代码 / 测试 / SHA / 产物的映射，无未关闭必需项 | M0～M8（人工事项另列） |
+
+| 阶段              | 必须得到的产物                                             | 出阶段门          |
+| --------------- | --------------------------------------------------- | ------------- |
+| 架构基线 SG-10      | 信任边界、真实接线、角色 / 权限矩阵、架构决策                            | M8 的架构部分      |
+| 可复现基础 SG-00～02  | 新 checkout 可执行的 Docker 验收入口、真实合约 fixture、会失败的 CI 校验 | M0、M1 基础部分    |
+| 合约与一致性 SG-11～13 | 合约不变量、媒体任务恢复、交易 / 事件幂等与重启                           | M7、M8 的恢复部分   |
+| 权限正确性 SG-03～04  | 身份与资源隔离、代签边界、同链同区块余额证据                              | M1            |
+| 媒体闭环 SG-05～06   | 真签名 / 真转码 / 真解码、续期与转移撤销                             | M2、M3         |
+| 运行边界 SG-14      | 生产模式依赖、密钥 / API / 资源约束、备份恢复                         | M8            |
+| 工程证据 SG-07～08   | 实测负载、指标、同 digest 发布与故障恢复                            | M4、M5         |
+| 求职成品 SG-09      | 中英文项目条目、讲述脚本、演示步骤和个人贡献映射                            | M6 的 AI 交付部分  |
+| 最终收口 SG-15      | 需求到代码 / 测试 / SHA / 产物的映射，无未关闭必需项                    | M0～M8（人工事项另列） |
 
 ## 5. 逐项执行任务书
 
@@ -177,16 +178,16 @@ flowchart LR
 
 **新增入口的接口契约**（此表是待实现接口，当前不能假设这些 target 已存在）：
 
-| 命令 | 必需行为 |
-|---|---|
-| `make verify-docker` | 默认执行 `VERIFY_STAGE=all`，按第七节 DAG 完成所有门；只启动专用验收栈，输出每阶段状态及日志路径。候选构建一次后各运行阶段共享产物清单，不逐阶段重建 |
-| `make verify-docker VERIFY_STAGE=unit` | Docker 内 fmt 检查、lint、vet、主 CI 包集的 race / cover、覆盖率校验、全 cmd 构建、go mod tidy 无 diff；按运行镜像真实的 nats_integration 等 tags 另做 build 与受影响包回归，不能只验证 stub |
-| `make verify-docker VERIFY_STAGE=chain` | Docker 内 Forge + `go test -tags=anvil -race -count=1 ./test/integration/web3/... ./pkg/service/...`；验证要求的测试确实运行 |
-| `make verify-docker VERIFY_STAGE=durability` | SG-12 / 13 的真实任务、outbox、tx / event checkpoint 故障 / 重启矩阵 |
-| `make verify-docker VERIFY_STAGE=ops` | SG-10 / 14 的 profile / API / secret / deadline / SIGTERM / 备份恢复与短 fuzz |
-| `make verify-docker VERIFY_STAGE=media` | SG-05 / 06 的真实登录、媒体解码与浏览器测试，两种入口按下方要求验证 |
-| `make verify-docker VERIFY_STAGE=perf` | 固定资源、真实请求、生成包含 SHA 与 fixture hash 的结果 |
-| `make verify-docker VERIFY_STAGE=release` | 同镜像 digest 的临时部署、smoke、故障恢复演练；不需要生产凭据 |
+| 命令                                           | 必需行为                                                                                                                                          |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make verify-docker`                         | 默认执行 `VERIFY_STAGE=all`，按第七节 DAG 完成所有门；只启动专用验收栈，输出每阶段状态及日志路径。候选构建一次后各运行阶段共享产物清单，不逐阶段重建                                                        |
+| `make verify-docker VERIFY_STAGE=unit`       | Docker 内 fmt 检查、lint、vet、主 CI 包集的 race / cover、覆盖率校验、全 cmd 构建、go mod tidy 无 diff；按运行镜像真实的 nats_integration 等 tags 另做 build 与受影响包回归，不能只验证 stub |
+| `make verify-docker VERIFY_STAGE=chain`      | Docker 内 Forge + `go test -tags=anvil -race -count=1 ./test/integration/web3/... ./pkg/service/...`；验证要求的测试确实运行                               |
+| `make verify-docker VERIFY_STAGE=durability` | SG-12 / 13 的真实任务、outbox、tx / event checkpoint 故障 / 重启矩阵                                                                                       |
+| `make verify-docker VERIFY_STAGE=ops`        | SG-10 / 14 的 profile / API / secret / deadline / SIGTERM / 备份恢复与短 fuzz                                                                        |
+| `make verify-docker VERIFY_STAGE=media`      | SG-05 / 06 的真实登录、媒体解码与浏览器测试，两种入口按下方要求验证                                                                                                       |
+| `make verify-docker VERIFY_STAGE=perf`       | 固定资源、真实请求、生成包含 SHA 与 fixture hash 的结果                                                                                                         |
+| `make verify-docker VERIFY_STAGE=release`    | 同镜像 digest 的临时部署、smoke、故障恢复演练；不需要生产凭据                                                                                                         |
 
 **验收**：全新 checkout（含 submodules）无主机 Go / Foundry / Node 环境也能运行；初期 all 可因后续任务未完成而失败，但已实现阶段不得假绿。Anvil 基础测试 PASS 且无必需 SKIP，Forge 实际部署 / mint 成功；H5 lock 文件被跟踪；端口冲突与缺工具测试明确失败。后续任务补齐后 all 必须通过。
 
@@ -287,6 +288,7 @@ flowchart LR
 6. 测试直接 URL、嵌套 playlist、segment、Range、路径遍历 / 跨内容 token、伪 token、过期、请求 contract 篡改、无规则。未经授权响应不含媒体字节；MinIO 与源站不公开，签名 URL 不能成为 holder 可分享的绕过入口。
 7. monolith 做全部播放闭环；api-gateway 模式至少复跑真实 challenge/login、gate 正负例、manifest 与实际 segment，避免双部署模式授权接线漂移。
 8. CI 由本仓库 checkout 启动专用栈，所有必需服务 health-ready 后运行，阶段 deadline：基础服务 120 秒、转码 180 秒、浏览器 90 秒。失败上传有限脱敏日志和 trace，再清理本次 project。
+
 
 **响应矩阵**：无登录 / 伪能力 401；真实无 NFT 403；依赖无法核验 503 / 明确服务错误但媒体字节为 0；合法 holder 的 playlist / segment 200（Range 206）；跨内容 / 跨钱包能力拒绝。不要用“不是 401 就通过”判断。
 
@@ -403,6 +405,7 @@ flowchart LR
 7. `indexed string` 只能提供 hash topic，事件需要可读 contentId 时另带 non-indexed 值；建议 `bytes32 indexed contentKey + string contentId + indexed creator + bytes32 digest`。解析器用 ABI 严格校验 topics / data，不能声称能逆向还原动态类型的 indexed topic。
 8. 采用无代理合约；owner 变更用现有 Ownable2Step / 明确双步确认并测试错误接管；默认禁用误操作 renounce。此控制仅为平台管理边界，不能描述成 DAO / 多签治理已经部署。
 
+
 **必需验证**：Forge 单测 + fuzz / invariant：NFT holder 余额守恒、转移清审批、两个 safe-transfer overload 的 receiver 行为、无授权转移拒绝；registry ID 唯一 / tombstone 不复活 / creator 不漂移 / 非法状态拒绝 / 分页计数一致；真实 Anvil receipt / events / Go ABI roundtrip。critical invariant 在 Foundry CI 执行，至少 128 runs × 32 depth；保留 Slither 及必要明确例外，记录真实 gas snapshot，不编造百分比。
 
 **完成**：不能再以“ERC-165 返回 true”证明标准合规；旧假标准 / 重用 ID 用例修复前红、修复后绿；绑定契约与服务输入一致。参考 [ERC-721](https://eips.ethereum.org/EIPS/eip-721)、[ERC-165](https://eips.ethereum.org/EIPS/eip-165)、[OpenZeppelin ERC721](https://docs.openzeppelin.com/contracts/5.x/api/token/erc721) 和 [Solidity ABI](https://docs.soliditylang.org/en/latest/abi-spec.html)。
@@ -470,6 +473,7 @@ flowchart LR
 
 **验收**：production 缺 Redis / NATS 不 memory fallback，Demo signer 关闭；旧 key 与错误 audience 不接受；pprof / metrics / 内部 RPC 不可绕过管理权限；rate limit / body / RPC timeout 生效；SIGTERM / kill / backup→restore 后可恢复原权限与媒体，不把已撤销 session 重新放行。
 
+
 **完成**：约束落实为配置 / 接线 / 测试，完整恢复使用自己专用环境且不触碰现有用户数据。运行图、指标和失败行为可在面试现场解释。参考 [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)、[OWASP XSS Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)。
 
 ### [ ] SG-15 / P1：一次收口、需求追溯与交付冻结
@@ -511,17 +515,17 @@ flowchart LR
 
 ## 6. 最终验收矩阵：全部必需门通过才算主线完成
 
-| 门 | 必需检查 | 成功判据 | 不能作为成功证据 |
-|---|---|---|---|
-| M0 可复现 | 全新 checkout + submodules，统一 Docker runner，工具 / lock / fixture | `make verify-docker` 在独立栈完整执行；无隐藏主机依赖；必需测试 0 skip | 当前 healthy 栈、本机 override、主机 build |
-| M1 权限 | 真签名、nonce 双消费、A/B owner、数量阈值、同链区块、RPC / 重组 / 代签负例 | 所有必需矩阵 PASS；未授权媒体字节 0；未允许代签次数 0 | helper 单测、client 校验、全局 JWT 已登录 |
-| M2 媒体 | 上传 / 转码 / playlists / segments / Range / FFmpeg / 浏览器，两入口接线 | holder 实际播放与解码；无 NFT 403；合法资源 200 / 206 | 空文件、假 JWT、holder 404、页面可打开 |
-| M3 生命周期 | NFT 转移、续期、规则 / session revoke、依赖故障 | 可信 RPC 的策略确认视图包含转移后 ≤70 秒能力失效，观测延迟另列；规则 / 会话 ≤5 秒；所有层 TTL 有界 | 无声明窗口、仅清缓存、已下载内容停止播放 |
-| M4 性能 | 同资源的真实请求与实际 bytes，固定播放节奏 / rendition / 限流，正常 / fallback / 故障矩阵 | 50 观众 ≥99% 成功、hash 正确、安全负例放行 0；同 runner 固定 reference 的 p95 回归 ≤20%；有实际条件与数据 | sleep QPS、handler benchmark、关限流保绿、跨机器无条件比较 |
-| M5 CI/CD | 同 SHA 全 gate、同候选 digest 扫描 / 临时部署、三类恢复演练 | 所有必需 jobs 成功且未 skip；临时发布 smoke 和恢复通过 | 旧 run、独立未依赖的绿 build、无 secrets 的生产 success |
-| M6 求职成品 | 中英文条目 / 脚本 / 每条证据 / 个人贡献确认 | AI 物料完整且不夸大；人工讲述 / 演示另行确认 | AI 批量写简历、代码行数、推测录用结果 |
-| M7 合约与链外一致性 | 完整 ERC 接口 / 状态不变量 / ABI、原件 digest / creator、outbox / nonce / receipt / 事件恢复 | 合约 invariant 与 Anvil 实证；并发 / timeout / restart / reorg 无重复业务效果、无丢失的权威状态 | ERC-165 自报、URL 哈希、内存 tx map、日志 txHash、永不失效 checkpoint |
-| M8 架构与运行可靠性 | 实际组件 / 权限矩阵 / profile；SSRF / 上界 / 任务幂等；secret / API / SIGTERM / backup restore | 真实接线与承诺一致；必要依赖无隐式 fallback；任务恢复、权限恢复及原件 hash 复核通过 | 九个二进制、只启动不接线、仅配置文件存在、blacklist 丢失后放行旧 JWT |
+| 门           | 必需检查                                                                           | 成功判据                                                                        | 不能作为成功证据                                              |
+| ----------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------- |
+| M0 可复现      | 全新 checkout + submodules，统一 Docker runner，工具 / lock / fixture                  | `make verify-docker` 在独立栈完整执行；无隐藏主机依赖；必需测试 0 skip                           | 当前 healthy 栈、本机 override、主机 build                     |
+| M1 权限       | 真签名、nonce 双消费、A/B owner、数量阈值、同链区块、RPC / 重组 / 代签负例                              | 所有必需矩阵 PASS；未授权媒体字节 0；未允许代签次数 0                                             | helper 单测、client 校验、全局 JWT 已登录                        |
+| M2 媒体       | 上传 / 转码 / playlists / segments / Range / FFmpeg / 浏览器，两入口接线                    | holder 实际播放与解码；无 NFT 403；合法资源 200 / 206                                     | 空文件、假 JWT、holder 404、页面可打开                            |
+| M3 生命周期     | NFT 转移、续期、规则 / session revoke、依赖故障                                             | 可信 RPC 的策略确认视图包含转移后 ≤70 秒能力失效，观测延迟另列；规则 / 会话 ≤5 秒；所有层 TTL 有界                | 无声明窗口、仅清缓存、已下载内容停止播放                                  |
+| M4 性能       | 同资源的真实请求与实际 bytes，固定播放节奏 / rendition / 限流，正常 / fallback / 故障矩阵                 | 50 观众 ≥99% 成功、hash 正确、安全负例放行 0；同 runner 固定 reference 的 p95 回归 ≤20%；有实际条件与数据 | sleep QPS、handler benchmark、关限流保绿、跨机器无条件比较            |
+| M5 CI/CD    | 同 SHA 全 gate、同候选 digest 扫描 / 临时部署、三类恢复演练                                       | 所有必需 jobs 成功且未 skip；临时发布 smoke 和恢复通过                                        | 旧 run、独立未依赖的绿 build、无 secrets 的生产 success             |
+| M6 求职成品     | 中英文条目 / 脚本 / 每条证据 / 个人贡献确认                                                     | AI 物料完整且不夸大；人工讲述 / 演示另行确认                                                   | AI 批量写简历、代码行数、推测录用结果                                  |
+| M7 合约与链外一致性 | 完整 ERC 接口 / 状态不变量 / ABI、原件 digest / creator、outbox / nonce / receipt / 事件恢复    | 合约 invariant 与 Anvil 实证；并发 / timeout / restart / reorg 无重复业务效果、无丢失的权威状态     | ERC-165 自报、URL 哈希、内存 tx map、日志 txHash、永不失效 checkpoint |
+| M8 架构与运行可靠性 | 实际组件 / 权限矩阵 / profile；SSRF / 上界 / 任务幂等；secret / API / SIGTERM / backup restore | 真实接线与承诺一致；必要依赖无隐式 fallback；任务恢复、权限恢复及原件 hash 复核通过                           | 九个二进制、只启动不接线、仅配置文件存在、blacklist 丢失后放行旧 JWT             |
 
 ### 必需测试清单的落地要求
 
@@ -585,49 +589,50 @@ make verify-docker
 
 **计划编写完成，SG 实施与 M 验收均待执行。** 本次只保留 `TRANSITION_PLAN.md` 文档变更，隔离诊断改动不进入实施交付。既有用户工作区变更保留。
 
-| 范围 | 目前状态 / 链接 | 可以证明什么 |
-|---|---|---|
-| 已提交基线 | `6ded9771be9e4ba6039b4ea060be9f6c639df0c9` | 评审入口；不是本方案实施提交 |
-| 既有 CI | [38138399120](https://github.com/rtcdance/streamgate/actions/runs/38138399120) success | 该历史 SHA 在当时门禁下通过；本轮已发现门禁缺口 |
-| 既有 Docker Build | [38138403126](https://github.com/rtcdance/streamgate/actions/runs/38138403126) success | 历史构建结果；不是本轮同 digest 发布验收 |
-| 既有 Production Deploy | [38138403111](https://github.com/rtcdance/streamgate/actions/runs/38138403111) 显示 success，但缺凭据 skip | **不能证明生产部署成功** |
-| SG-10 | **设计基线完成（见 §8.1）** | 事实清单（wired/tested/scaffold/disabled）、2 张图、六类主体权限矩阵、四类 profile、R01～R12 入口映射、路由正负例→SG 映射 |
-| SG-00 | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞） | 见 §8.2 |
-| SG-11 | **完成** | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护） |
-| SG-01 | **完成** | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS） |
-| SG-02 | **完成** | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke） |
-| SG-03 | **完成（A 边界 + B 所有权 + C 代签）** | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06 |
-| SG-04 | **完成** | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄） |
-| SG-05 | **部分完成（步骤 1～7 全部完成并实测；两种部署模式各 32/32）** | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、**Range 206 + Content-Range**、**浏览器真实播放推进 ≥3s**、**api-gateway 模式同循环复跑**。**未做**：步骤 8（CI 专用栈 + 阶段 deadline + 失败日志脱敏上传）、步骤 6 的更宽篡改矩阵（路径遍历 / 跨内容 token / 过期 token / 篡改 contract） |
-| SG-06～09、SG-12～15 | 全部待实施 | 无任务被本次计划写作提前勾选 |
-| SG-16～17 | 条件任务，未启动 | 不列为主线完成条件 |
-| M0～M8 | 待对应证据 | 工程门与人工项分别记录，不混合状态 |
+| 范围                   | 目前状态 / 链接                                                                                           | 可以证明什么                                                                                                                                                                                                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 已提交基线                | `6ded9771be9e4ba6039b4ea060be9f6c639df0c9`                                                          | 评审入口；不是本方案实施提交                                                                                                                                                                                                                                                     |
+| 既有 CI                | [38138399120](https://github.com/rtcdance/streamgate/actions/runs/38138399120) success              | 该历史 SHA 在当时门禁下通过；本轮已发现门禁缺口                                                                                                                                                                                                                                         |
+| 既有 Docker Build      | [38138403126](https://github.com/rtcdance/streamgate/actions/runs/38138403126) success              | 历史构建结果；不是本轮同 digest 发布验收                                                                                                                                                                                                                                           |
+| 既有 Production Deploy | [38138403111](https://github.com/rtcdance/streamgate/actions/runs/38138403111) 显示 success，但缺凭据 skip | **不能证明生产部署成功**                                                                                                                                                                                                                                                     |
+| SG-10                | **设计基线完成（见 §8.1）**                                                                                  | 事实清单（wired/tested/scaffold/disabled）、2 张图、六类主体权限矩阵、四类 profile、R01～R12 入口映射、路由正负例→SG 映射                                                                                                                                                                             |
+| SG-00                | **部分完成**（测试 + 入口落地并本机通过；Docker 镜像构建受本机网络阻塞）                                                         | 见 §8.2                                                                                                                                                                                                                                                             |
+| SG-11                | **完成**                                                                                              | 见 §8.3（Forge 46 passed / 0 skipped；2 条 invariant 256×32；Anvil 回读实证；ABI 防漂移守护）                                                                                                                                                                                      |
+| SG-01                | **完成**                                                                                              | 见 §8.4（缓存证据化、数量语义、标准拒绝 fallback；中间件 530 行新用例 + 真实 ERC-1155 → Web3Service → gate 集成 PASS）                                                                                                                                                                           |
+| SG-02                | **完成**                                                                                              | 见 §8.5（统一 60% 覆盖率门 + 整数比较 + 负例 harness 15/15；迁移 `ON_ERROR_STOP`；docker job 依赖补齐；真实 readiness smoke）                                                                                                                                                                |
+| SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
+| SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
+| SG-05                | **部分完成（步骤 1～8 均已落地；两种模式各 35/35 全绿）**                                                              | 见 §8.10：真实签名登录（A/B 双钱包，禁用自签 JWT）、真实可解码媒体、gate/mint/receipt、转码就绪、HLS 递归取流 + FFmpeg 全解码、**Range 206 + Content-Range**、**浏览器真实播放推进 ≥3s**、**api-gateway 模式同循环复跑**、**篡改矩阵**、**CI 专用栈 job**。**未勾选原因**：步骤 6 的"**过期 token**"推迟给 SG-06（能力 TTL 属其"60 秒能力落实为配置校验"），且实测 token 存活 **>120s** 与预期 60s 不符（已登记为 SG-06 输入）；步骤 8 的 CI job **只能在 GitHub 上真正运行**，本机未执行 |
+| SG-06～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
+| SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
+| M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
+
 
 ### 8.1 SG-10 架构基线：真实接线、权限矩阵与设计取舍
 
-> **依据（2026-10-11 实读，基线 `6ded9771` + 工作区未提交变更）**：`pkg/gateway/{gateway,providers,resources,routes,grpc_server}.go`、`pkg/plugins/api/gateway.go`、`cmd/monolith/streamgate/main.go`、`pkg/core/microservice.go`、`pkg/core/event/*`、`deploy/docker/Dockerfile.*`。
+> **依据（2026-10-11 实读，基线 `6ded9771` + 工作区未提交变更）**：`pkg/gateway/{gateway,providers,resources,routes,grpc_server}.go`、`pkg/plugins/api/gateway.go`、`cmd/monolith/streamgate/main.go`、`pkg/core/microservice.go`、`pkg/core/event/*`、`deploy/docker/Dockerfile.*`。  
 > **状态口径**：**wired**=有生产调用方；**tested**=有回归测试；**scaffold**=代码在但无生产接线；**disabled**=无调用方或默认关闭。本清单只登记事实，修复留给对应 SG。
 
 #### A. 能力 → 入口 → 依赖（失败行为） → profile → 状态
 
-| # | 能力 | 真实入口 | 依赖（不可用时的实际行为） | 状态 |
-|---|---|---|---|---|
-| 1 | 钱包挑战/登录 | `POST /api/v1/auth/{challenge,login,register,refresh}` → `pkg/gateway/auth_handlers.go` → `service.AuthService` | Redis challenge store；`provideChallengeStore` Redis 不可用 → **回退 `NewMemoryChallengeStore()`**（`providers.go:67-72`） | wired+tested |
-| 2 | NFT 读校验 | `/api/v1/nft{,/verify,/:id}` → `pkg/gateway/nft_handlers.go` → `middleware.NFTOwnershipChecker`（默认 `web3Svc`） | RPC + NFT 访问缓存；Redis 可用→`NewRedisNFTAccessCache`，否则→内存 `NFTAccessCacheAdapter`（`gateway.go:50-55`） | wired+tested |
-| 3 | NFT gate（流媒体） | `streamGroup` 链 `[PlaybackTokenAuth, JWT, NFTGate, draining]` → `pkg/middleware/nft_gate.go` | `GatingRuleResolver`(Postgres)、`BlockProver`=`Web3Service`、`NFTAccessCache`；fail-closed（零规则→403，disabled→503） | wired+tested |
-| 4 | HLS manifest/segment | `GET /api/v1/streaming/:id/{manifest.m3u8,segment/:num}` → `pkg/service/streamingsvc/streaming.go` | MinIO；`provideObjectStorage` 失败 → nil → **"segment serving disabled"** | wired |
-| 5 | 转码 | `POST /api/v1/transcode/submit` → `service.TranscodingService`（monolith 内嵌 `StartWorker`） | FFmpeg、NATS JetStream 队列（NATS 失败 → **回退 `NewMemoryTranscodingQueue()`**，`providers.go:281-283`）、Postgres | wired |
-| 6 | 上传 | `/api/v1/upload/*` → `service.UploadService` | MinIO + presigner；`db==nil‖objStorage==nil` → service nil（`providers.go:302-304`） | wired |
-| 7 | 内容规则 CRUD | `/api/v1/gating-rules{,/:id}` → `GatingRuleService` | Postgres；**当前无 owner 校验**（缺陷，SG-03） | wired |
-| 8 | 播放统计 | `/api/v1/playback/{stats,events}` → `PlaybackStatsService` | **仅在 `rc.GatingRuleResolver != nil` 时构造**（`gateway.go:124-129`）；默认 monolith `pkg/plugins/api/gateway.go:83` 调用 `SetupRouter(cfg, log)` **不传 RouterOption** → service 为 nil → 路由不注册（`routes.go:248-250`） | **scaffold（条件接线）** |
-| 9 | 分类 | `/api/v1/categories{,/:id}` → `CategoryService` | 同上，同一条件分支构造 | **scaffold（条件接线）** |
-| 10 | 链上内容登记 | `ProvideContentRegistry`（`providers.go:181-232`）→ `SetContentRegistry` | 缺 address / deployer key / RPC / dial / chainID 任一 → **返回 nil 且仅日志** | 可选/降级 |
-| 11 | gRPC 流媒体 | `SetupGRPCServer`（`grpc_server.go:56`） | 含 `grpcAuthInterceptor` / `grpcStreamAuthInterceptor` | wired |
-| 12 | DASH | `streamingsvc.GenerateDASHManifest`（`streaming.go:324`）产出静态 `<MPD>` | **HTTP 只注册 m3u8 / segment** → 端到端 DASH 未接线 | **scaffold** |
-| 13 | ERC-4337 AA | `pkg/web3/account_abstraction.go` | `NewAAProvider` **仅测试调用** | **disabled** |
-| 14 | SmartContractRegistry | `pkg/web3/contract/registry.go` | `NewSmartContractRegistry` **仅测试调用** | **disabled** |
-| 15 | `core.RunMicroservice` | `pkg/core/microservice.go:19` | **零生产调用方**（微服务 main 各自装配） | **disabled** |
-| 16 | NATS 事件总线 | `pkg/core/event/nats.go`（`//go:build nats_integration`）/ `nats_stub.go`（无 tag → 返回 error） | Dockerfile 传 `-tags nats_integration`；宿主 `make build-all` 不传 → stub | tag-gated |
+| #  | 能力                     | 真实入口                                                                                                            | 依赖（不可用时的实际行为）                                                                                                                                                                                           | 状态                 |
+| -- | ---------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| 1  | 钱包挑战/登录                | `POST /api/v1/auth/{challenge,login,register,refresh}` → `pkg/gateway/auth_handlers.go` → `service.AuthService` | Redis challenge store；`provideChallengeStore` Redis 不可用 → **回退 `NewMemoryChallengeStore()`**（`providers.go:67-72`）                                                                                      | wired+tested       |
+| 2  | NFT 读校验                | `/api/v1/nft{,/verify,/:id}` → `pkg/gateway/nft_handlers.go` → `middleware.NFTOwnershipChecker`（默认 `web3Svc`）   | RPC + NFT 访问缓存；Redis 可用→`NewRedisNFTAccessCache`，否则→内存 `NFTAccessCacheAdapter`（`gateway.go:50-55`）                                                                                                      | wired+tested       |
+| 3  | NFT gate（流媒体）          | `streamGroup` 链 `[PlaybackTokenAuth, JWT, NFTGate, draining]` → `pkg/middleware/nft_gate.go`                    | `GatingRuleResolver`(Postgres)、`BlockProver`=`Web3Service`、`NFTAccessCache`；fail-closed（零规则→403，disabled→503）                                                                                           | wired+tested       |
+| 4  | HLS manifest/segment   | `GET /api/v1/streaming/:id/{manifest.m3u8,segment/:num}` → `pkg/service/streamingsvc/streaming.go`              | MinIO；`provideObjectStorage` 失败 → nil → **"segment serving disabled"**                                                                                                                                  | wired              |
+| 5  | 转码                     | `POST /api/v1/transcode/submit` → `service.TranscodingService`（monolith 内嵌 `StartWorker`）                       | FFmpeg、NATS JetStream 队列（NATS 失败 → **回退 `NewMemoryTranscodingQueue()`**，`providers.go:281-283`）、Postgres                                                                                                | wired              |
+| 6  | 上传                     | `/api/v1/upload/*` → `service.UploadService`                                                                    | MinIO + presigner；`db==nil‖objStorage==nil` → service nil（`providers.go:302-304`）                                                                                                                       | wired              |
+| 7  | 内容规则 CRUD              | `/api/v1/gating-rules{,/:id}` → `GatingRuleService`                                                             | Postgres；**当前无 owner 校验**（缺陷，SG-03）                                                                                                                                                                     | wired              |
+| 8  | 播放统计                   | `/api/v1/playback/{stats,events}` → `PlaybackStatsService`                                                      | **仅在 `rc.GatingRuleResolver != nil` 时构造**（`gateway.go:124-129`）；默认 monolith `pkg/plugins/api/gateway.go:83` 调用 `SetupRouter(cfg, log)` **不传 RouterOption** → service 为 nil → 路由不注册（`routes.go:248-250`） | **scaffold（条件接线）** |
+| 9  | 分类                     | `/api/v1/categories{,/:id}` → `CategoryService`                                                                 | 同上，同一条件分支构造                                                                                                                                                                                             | **scaffold（条件接线）** |
+| 10 | 链上内容登记                 | `ProvideContentRegistry`（`providers.go:181-232`）→ `SetContentRegistry`                                          | 缺 address / deployer key / RPC / dial / chainID 任一 → **返回 nil 且仅日志**                                                                                                                                    | 可选/降级              |
+| 11 | gRPC 流媒体               | `SetupGRPCServer`（`grpc_server.go:56`）                                                                          | 含 `grpcAuthInterceptor` / `grpcStreamAuthInterceptor`                                                                                                                                                   | wired              |
+| 12 | DASH                   | `streamingsvc.GenerateDASHManifest`（`streaming.go:324`）产出静态 `<MPD>`                                             | **HTTP 只注册 m3u8 / segment** → 端到端 DASH 未接线                                                                                                                                                              | **scaffold**       |
+| 13 | ERC-4337 AA            | `pkg/web3/account_abstraction.go`                                                                               | `NewAAProvider` **仅测试调用**                                                                                                                                                                               | **disabled**       |
+| 14 | SmartContractRegistry  | `pkg/web3/contract/registry.go`                                                                                 | `NewSmartContractRegistry` **仅测试调用**                                                                                                                                                                    | **disabled**       |
+| 15 | `core.RunMicroservice` | `pkg/core/microservice.go:19`                                                                                   | **零生产调用方**（微服务 main 各自装配）                                                                                                                                                                               | **disabled**       |
+| 16 | NATS 事件总线              | `pkg/core/event/nats.go`（`//go:build nats_integration`）/ `nats_stub.go`（无 tag → 返回 error）                       | Dockerfile 传 `-tags nats_integration`；宿主 `make build-all` 不传 → stub                                                                                                                                     | tag-gated          |
 
 #### B. 部署组件图（实际接线，不用九个 binary 证明九个生产服务）
 
@@ -707,106 +712,106 @@ sequenceDiagram
 
 #### D. 权限矩阵（六类主体）
 
-| 能力 \ 主体 | 访客 | 已登录无 NFT | NFT holder | 内容 owner | 平台 operator | 内部 worker |
-|---|---|---|---|---|---|---|
-| `/health` `/ready` `/metrics` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| challenge / login / refresh | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 受保护 manifest / segment | ❌ 401 | ❌ 403 | ✅ 200/206 | ✅ | ✅ | ❌ |
-| 内容写 / 规则写 / 上传 / 转码提交 | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ |
-| `/api/v1/nft/dev/mint` | ❌ | ❌ | ❌ | ❌ | dev-only（需 `AnvilDeployerKey`） | ❌ |
-| 链上 registry 登记 | ❌ | ❌ | ❌ | 经 outbox（平台 attestor 签名） | ✅ | 内部 |
-| 内部 gRPC / 转码 worker | ❌ | ❌ | ❌ | ❌ | ❌ | ✅（**不因"内网"接受客户端伪造 actor**） |
+| 能力 \ 主体                       | 访客    | 已登录无 NFT | NFT holder | 内容 owner                 | 平台 operator                    | 内部 worker                  |
+| ----------------------------- | ----- | -------- | ---------- | ------------------------ | ------------------------------ | -------------------------- |
+| `/health` `/ready` `/metrics` | ✅     | ✅        | ✅          | ✅                        | ✅                              | ✅                          |
+| challenge / login / refresh   | ✅     | ✅        | ✅          | ✅                        | ✅                              | ❌                          |
+| 受保护 manifest / segment        | ❌ 401 | ❌ 403    | ✅ 200/206  | ✅                        | ✅                              | ❌                          |
+| 内容写 / 规则写 / 上传 / 转码提交         | ❌     | ❌        | ❌          | ✅                        | ✅                              | ❌                          |
+| `/api/v1/nft/dev/mint`        | ❌     | ❌        | ❌          | ❌                        | dev-only（需 `AnvilDeployerKey`） | ❌                          |
+| 链上 registry 登记                | ❌     | ❌        | ❌          | 经 outbox（平台 attestor 签名） | ✅                              | 内部                         |
+| 内部 gRPC / 转码 worker           | ❌     | ❌        | ❌          | ❌                        | ❌                              | ✅（**不因"内网"接受客户端伪造 actor**） |
 
 > **内容 owner 与 NFT holder 是不同身份**：前者是平台内容归属，后者是观看资格；两者都不能替代对方的校验。**内部 service / worker 不因网络位置被信任**。
 
 #### E. 运行 profiles（SG-14 落地为显式配置）
 
-| profile | 依赖 | 允许的降级 | 禁止 |
-|---|---|---|---|
-| unit | 注入 test double | 全部内存 | 断言依赖真实中间件 |
-| demo | 显式 opt-in 内存 / 测试钱包 | 内存 challenge / queue | 生产密钥 |
-| durable acceptance | 真实 PG / Redis / MinIO / NATS / Anvil | 无 | 隐式回退 |
-| production | 严格依赖 + 密钥校验 | registry 可显式 disabled | **静默回退内存、nil registry 后声称登记成功、编译 stub 冒充 NATS** |
+| profile            | 依赖                                   | 允许的降级                 | 禁止                                              |
+| ------------------ | ------------------------------------ | --------------------- | ----------------------------------------------- |
+| unit               | 注入 test double                       | 全部内存                  | 断言依赖真实中间件                                       |
+| demo               | 显式 opt-in 内存 / 测试钱包                  | 内存 challenge / queue  | 生产密钥                                            |
+| durable acceptance | 真实 PG / Redis / MinIO / NATS / Anvil | 无                     | 隐式回退                                            |
+| production         | 严格依赖 + 密钥校验                          | registry 可显式 disabled | **静默回退内存、nil registry 后声称登记成功、编译 stub 冒充 NATS** |
 
 #### F. 已登记的现有违例（本阶段不修，留给对应 SG）
 
-| 违例 | 位置 | 处理任务 |
-|---|---|---|
-| Redis / DB / NATS 不可用隐式回退内存 | `providers.go`（`provideRedis`/`provideChallengeStore`/`provideTokenBlacklist`/`provideDatabase`/`provideTranscodingService`） | SG-14 |
-| `/circuit-breakers`、`/demo`、`/docs/openapi.yaml` 在 `router.Use(JWT)` **之前**注册 → 公开 | `routes.go:26,166-191` | SG-14 |
-| playback-stats / categories 条件接线（默认 monolith 不注册） | `gateway.go:124-129` + `pkg/plugins/api/gateway.go:83` | SG-10 记录 → SG-03/14 |
-| DASH 生成存在但无 HTTP 交付路径 | `streaming.go:324` | SG-12 |
-| AA / SmartContractRegistry / `RunMicroservice` 无调用方 | `pkg/web3/account_abstraction.go`、`contract/registry.go`、`core/microservice.go` | SG-10 收窄文档承诺 |
+| 违例                                                                                 | 位置                                                                                                                           | 处理任务                |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| Redis / DB / NATS 不可用隐式回退内存                                                        | `providers.go`（`provideRedis`/`provideChallengeStore`/`provideTokenBlacklist`/`provideDatabase`/`provideTranscodingService`） | SG-14               |
+| `/circuit-breakers`、`/demo`、`/docs/openapi.yaml` 在 `router.Use(JWT)` **之前**注册 → 公开 | `routes.go:26,166-191`                                                                                                       | SG-14               |
+| playback-stats / categories 条件接线（默认 monolith 不注册）                                  | `gateway.go:124-129` + `pkg/plugins/api/gateway.go:83`                                                                       | SG-10 记录 → SG-03/14 |
+| DASH 生成存在但无 HTTP 交付路径                                                              | `streaming.go:324`                                                                                                           | SG-12               |
+| AA / SmartContractRegistry / `RunMicroservice` 无调用方                                | `pkg/web3/account_abstraction.go`、`contract/registry.go`、`core/microservice.go`                                              | SG-10 收窄文档承诺        |
 
 #### G. R01～R12 架构入口映射（SG-10 部分）
 
-| 需求 | 架构入口（已查到的接线） |
-|---|---|
-| R01 核心 flow 真实运行 | A#1-6；D 矩阵 |
-| R02 真钱包身份 / 不越权 | A#1-2；D 矩阵（owner 列） |
-| R03 ERC-721/1155 数量一致 | A#2-3；`pkg/web3/nft/verifier.go` |
-| R04 多 RPC 同链回退 / 同区块 | A#2-3；`Web3Service` / `BlockProver` |
-| R05 每种媒体资源受保护 | A#3-4；D 矩阵（manifest/segment 行） |
-| R06 原件 digest 真实 | A#5-6,10；`contentContentHash`（缺陷，SG-12） |
-| R07 任务重复/崩溃可恢复 | A#5,16；`nats_queue.go` / `transcoding.go` |
-| R08 链写入幂等 / nonce 唯一 | A#10,13；`pkg/web3/tx/` |
-| R09 生产不隐式回退内存 | E profiles；F 违例 |
-| R10 吞吐 / 指标有测量 | A#4-5；`pkg/monitoring/` |
-| R11 CI 可失败 / 可追溯 | 本计划 §7；`.github/workflows/` |
-| R12 取舍可解释 / 数字可证实 | §8.1 B-F；SG-09 |
+| 需求                    | 架构入口（已查到的接线）                              |
+| --------------------- | ----------------------------------------- |
+| R01 核心 flow 真实运行      | A#1-6；D 矩阵                                |
+| R02 真钱包身份 / 不越权       | A#1-2；D 矩阵（owner 列）                       |
+| R03 ERC-721/1155 数量一致 | A#2-3；`pkg/web3/nft/verifier.go`          |
+| R04 多 RPC 同链回退 / 同区块  | A#2-3；`Web3Service` / `BlockProver`       |
+| R05 每种媒体资源受保护         | A#3-4；D 矩阵（manifest/segment 行）            |
+| R06 原件 digest 真实      | A#5-6,10；`contentContentHash`（缺陷，SG-12）   |
+| R07 任务重复/崩溃可恢复        | A#5,16；`nats_queue.go` / `transcoding.go` |
+| R08 链写入幂等 / nonce 唯一  | A#10,13；`pkg/web3/tx/`                    |
+| R09 生产不隐式回退内存         | E profiles；F 违例                           |
+| R10 吞吐 / 指标有测量        | A#4-5；`pkg/monitoring/`                   |
+| R11 CI 可失败 / 可追溯      | 本计划 §7；`.github/workflows/`               |
+| R12 取舍可解释 / 数字可证实     | §8.1 B-F；SG-09                            |
 
 #### H. 实际路由 / profile 必需正负例 → SG 映射（SG-10 本项验收要求）
 
-| 实际入口 | 必需正例 | 必需负例 | 归属 |
-|---|---|---|---|
-| `POST /api/v1/auth/{challenge,login}` | 真实签名登录成功 | 错误 domain/URI/chain/nonce/signer/过期；challenge 重放；双并发仅一成功 | SG-03 |
-| `/api/v1/gating-rules{,/:id}` | owner 写成功 | 非 owner 403 且无 DB 写入 | SG-03 |
-| `GET /api/v1/streaming/:id/manifest.m3u8` | holder 200 | 无登录 401 / 无 NFT 403 / 依赖不可核验 503 且媒体字节 0 | SG-05 |
-| `GET /api/v1/streaming/:id/segment/:num` | holder 200 / Range 206 | 伪 token 401 / 跨内容 token 拒绝 / 非法 Range 明确错误 | SG-05,06 |
-| `/api/v1/upload/*` + `/api/v1/transcode/*` | owner 提交→done | 非 owner 403 / 超限 413 / SSRF 目标 0 请求 | SG-12 |
-| production profile 启动 | 依赖齐全启动成功 | 缺 Redis/NATS **不** memory fallback；Demo signer 关闭 | SG-14 |
-| `GET /ready` | 全依赖健康 200 | 全部 RPC 坏 → 503；单 endpoint 坏而 fallback 可用不误判 | SG-14 |
-| `/metrics` `/pprof` 内部 gRPC | 授权可达 | 公网无认证拒绝 | SG-14 |
+| 实际入口                                       | 必需正例                   | 必需负例                                                     | 归属       |
+| ------------------------------------------ | ---------------------- | -------------------------------------------------------- | -------- |
+| `POST /api/v1/auth/{challenge,login}`      | 真实签名登录成功               | 错误 domain/URI/chain/nonce/signer/过期；challenge 重放；双并发仅一成功 | SG-03    |
+| `/api/v1/gating-rules{,/:id}`              | owner 写成功              | 非 owner 403 且无 DB 写入                                     | SG-03    |
+| `GET /api/v1/streaming/:id/manifest.m3u8`  | holder 200             | 无登录 401 / 无 NFT 403 / 依赖不可核验 503 且媒体字节 0                 | SG-05    |
+| `GET /api/v1/streaming/:id/segment/:num`   | holder 200 / Range 206 | 伪 token 401 / 跨内容 token 拒绝 / 非法 Range 明确错误               | SG-05,06 |
+| `/api/v1/upload/*` + `/api/v1/transcode/*` | owner 提交→done          | 非 owner 403 / 超限 413 / SSRF 目标 0 请求                      | SG-12    |
+| production profile 启动                      | 依赖齐全启动成功               | 缺 Redis/NATS **不** memory fallback；Demo signer 关闭        | SG-14    |
+| `GET /ready`                               | 全依赖健康 200              | 全部 RPC 坏 → 503；单 endpoint 坏而 fallback 可用不误判              | SG-14    |
+| `/metrics` `/pprof` 内部 gRPC                | 授权可达                   | 公网无认证拒绝                                                  | SG-14    |
 
 ### 8.2 SG-00 执行证据（部分完成）
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| Anvil 测试编译修复 | PASS | 移除 `os.Discard`、`auth.PrivateKey` 误用；改用 `io.Discard`、`bind.NewKeyedTransactorWithChainID`、`bind.DeployContract`、`BoundContract.Transact/Call` |
-| 真实合约 fixture | PASS | `forge build` 产出 `contracts/out/DemoNFT.sol/DemoNFT.json`；测试运行时加载真实 ABI/bytecode，按真实 `mint(address)` 调用（不再用截断占位 bytecode / 手写 selector） |
-| ERC-1155 fixture | PASS | 新增 `contracts/src/DemoERC1155.sol`（OpenZeppelin 5.6.1）；`TestAnvil_ERC1155Quantity` 证明同钱包 token 7 持有 1 → 2 |
-| Anvil 套件运行 | **PASS 8/8、0 skip** | `go test -tags=anvil -race -count=1 ./test/integration/web3/`（约 12.5s） |
-| 动态端口 + Fatal | PASS | `net.Listen(":0")` 分配端口；缺 anvil / 启动失败 / readiness 超时一律 `t.Fatalf`（不再 `t.Skip`） |
-| safe/finalized 语义 | PASS（含关键发现） | **Anvil 默认把 `safe`/`finalized` 钉在创世块**；须 `--slots-in-an-epoch 1` 才会推进。新增 `mineUntilSafe` 保证只断言已进入 safe 视图的状态，未把 verifier 降级为 latest |
-| H5 lock 跟踪 | PASS | `scripts/h5-demo-acceptance/{package.json,package-lock.json}` 已 `git add -f`，出现在 `git ls-files`（全局 ignore 命中 `scripts`） |
-| 验收 Compose | PASS（静态） | `deploy/docker/compose.acceptance.yml` 无 `container_name`、无固定宿主端口；`docker compose config -q` 通过 |
-| 统一入口 | PASS（静态） | `scripts/verify-docker.sh` + `make verify-docker [VERIFY_STAGE=…]`；未实现阶段（durability/ops/media/perf/release）**显式失败**，不假绿 |
-| 主机预检 | PASS | `gofmt -l` 空、`go vet ./...` 干净、`go build ./...` 与 `-tags nats_integration` 干净、`forge test` 12/12 |
-| **Docker 镜像构建** | **BLOCKED（本机网络）** | `deploy/docker/Dockerfile.verify` 首次构建在拉取 `golang:1.26-bookworm` 时报 `short read: expected 86641718 bytes but got 0: unexpected EOF`；重拉成功后二次构建运行 28 分钟未完成。属环境网络问题而非 Dockerfile 缺陷，但**未验证**，故 SG-00 不勾选 |
+| 项                 | 结果                  | 证据                                                                                                                                                                                                    |
+| ----------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Anvil 测试编译修复      | PASS                | 移除 `os.Discard`、`auth.PrivateKey` 误用；改用 `io.Discard`、`bind.NewKeyedTransactorWithChainID`、`bind.DeployContract`、`BoundContract.Transact/Call`                                                         |
+| 真实合约 fixture      | PASS                | `forge build` 产出 `contracts/out/DemoNFT.sol/DemoNFT.json`；测试运行时加载真实 ABI/bytecode，按真实 `mint(address)` 调用（不再用截断占位 bytecode / 手写 selector）                                                               |
+| ERC-1155 fixture  | PASS                | 新增 `contracts/src/DemoERC1155.sol`（OpenZeppelin 5.6.1）；`TestAnvil_ERC1155Quantity` 证明同钱包 token 7 持有 1 → 2                                                                                             |
+| Anvil 套件运行        | **PASS 8/8、0 skip** | `go test -tags=anvil -race -count=1 ./test/integration/web3/`（约 12.5s）                                                                                                                                |
+| 动态端口 + Fatal      | PASS                | `net.Listen(":0")` 分配端口；缺 anvil / 启动失败 / readiness 超时一律 `t.Fatalf`（不再 `t.Skip`）                                                                                                                       |
+| safe/finalized 语义 | PASS（含关键发现）         | **Anvil 默认把 `safe`/`finalized` 钉在创世块**；须 `--slots-in-an-epoch 1` 才会推进。新增 `mineUntilSafe` 保证只断言已进入 safe 视图的状态，未把 verifier 降级为 latest                                                                   |
+| H5 lock 跟踪        | PASS                | `scripts/h5-demo-acceptance/{package.json,package-lock.json}` 已 `git add -f`，出现在 `git ls-files`（全局 ignore 命中 `scripts`）                                                                               |
+| 验收 Compose        | PASS（静态）            | `deploy/docker/compose.acceptance.yml` 无 `container_name`、无固定宿主端口；`docker compose config -q` 通过                                                                                                       |
+| 统一入口              | PASS（静态）            | `scripts/verify-docker.sh` + `make verify-docker [VERIFY_STAGE=…]`；未实现阶段（durability/ops/media/perf/release）**显式失败**，不假绿                                                                               |
+| 主机预检              | PASS                | `gofmt -l` 空、`go vet ./...` 干净、`go build ./...` 与 `-tags nats_integration` 干净、`forge test` 12/12                                                                                                      |
+| **Docker 镜像构建**   | **BLOCKED（本机网络）**   | `deploy/docker/Dockerfile.verify` 首次构建在拉取 `golang:1.26-bookworm` 时报 `short read: expected 86641718 bytes but got 0: unexpected EOF`；重拉成功后二次构建运行 28 分钟未完成。属环境网络问题而非 Dockerfile 缺陷，但**未验证**，故 SG-00 不勾选 |
 
 **结论**：SG-00 的测试与入口已落地，本机可验证部分全部通过；**Docker 镜像实跑未完成**，SG-00 保持未勾选。网络可用时执行 `make verify-docker VERIFY_STAGE=unit` 复验后补记，再进入 SG-11。
 
 ### 8.3 SG-11 执行证据（合约标准、状态机、ABI 一致）
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| DemoNFT 真 ERC-721 | PASS | 改用 OZ `ERC721` + `ERC721URIStorage`；两个 `safeTransferFrom` 重载 + receiver 校验；**不继承** Enumerable（0x780e9d63 仍为 false） |
-| receiver 行为 | PASS | 接受 / 错误返回（`ERC721InvalidReceiver`）/ revert（原因透传）三类；`mint` 到非 receiver 亦 revert |
-| 审批清除 + 余额守恒 | PASS | `testTransferClearsApproval`；invariant handler 每次转账后断言 `getApproved==0`；`invariant_NFTBalancesAndApproval` |
-| ContentRegistry 新 ABI | PASS | `registerContent(string,address,bytes32,string)` onlyOwner；`creator` 为传入的**已验证内容 owner**，与 registrar 分离 |
-| 状态机 | PASS | Active↔Flagged 仅 owner；Active/Flagged→Removed 由 owner 或 creator；**Removed 为终态**；`updateContentStatus` 到 Removed/Nonexistent 一律 revert |
-| 墓碑 | PASS | `testRemovedId_CannotBeReused`、`testRemovedRecord_CannotBeRevived` |
-| 事件 | PASS | `ContentRegistered(bytes32 indexed contentKey, string contentId, address indexed creator, bytes32 contentDigest, string metadataURI, uint256)`；解析器只暴露可证明字段（contentKey/creator），**不声称**从 indexed topic 还原动态 string |
-| 输入边界 | PASS | 空/超长 id、零 creator、零 digest、超长 URI 均 revert |
-| 分页与计数 | PASS | `getContentIds(offset,limit)` / `getContentsByCreatorPaged`；count = 唯一登记数（含 Removed） |
-| 所有权 | PASS | `Ownable2Step`；`renounceOwnership` 显式禁用 |
-| 合约不变量 | PASS | `invariant_RegistryUniqueAndTerminalState`；两条 invariant 均 **256 runs × depth 32，0 reverts** |
-| Foundry 总量 | PASS | `forge test`：**46 passed / 0 failed / 0 skipped**（4 suites） |
-| ABI 防漂移 | PASS | `TestContentRegistryABI_MatchesForgeArtifact` / `TestERC721ABI_MatchesDemoNFTArtifact` 逐项比对 Forge 产物的 selector / 输入 / 输出 / stateMutability / event / error；**当场抓出**旧 `ERC721ABI` 把 `mint` 写成 `(address,uint256)` 的既有漂移 |
-| Go 同步 | PASS | binding / interactor / content 接口 / `web3_tx` / event indexer / mocks / 集成测试全部切到新 ABI |
-| 假 digest 关闭 | PASS | 删除 `contentContentHash`（URL/ID 的 SHA-256）；`CreateContentWithTx` 不再自动登记，改为记录「等待 SG-12 的可信原件 digest」 |
-| Anvil 实证 | PASS | `TestAnvil_ContentRegistry_RegisterAndReadBack`：真实部署 → `registerContent` → 真实 receipt + `ContentRegistered` topic 校验 → `getContent` 回读 creator/digest 一致 |
-| 回归 | PASS | `go test ./...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空；`go test -tags=anvil -race ./test/integration/...` 全绿 |
+| 项                     | 结果   | 证据                                                                                                                                                                                                                     |
+| --------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| DemoNFT 真 ERC-721     | PASS | 改用 OZ `ERC721` + `ERC721URIStorage`；两个 `safeTransferFrom` 重载 + receiver 校验；**不继承** Enumerable（0x780e9d63 仍为 false）                                                                                                     |
+| receiver 行为           | PASS | 接受 / 错误返回（`ERC721InvalidReceiver`）/ revert（原因透传）三类；`mint` 到非 receiver 亦 revert                                                                                                                                         |
+| 审批清除 + 余额守恒           | PASS | `testTransferClearsApproval`；invariant handler 每次转账后断言 `getApproved==0`；`invariant_NFTBalancesAndApproval`                                                                                                             |
+| ContentRegistry 新 ABI | PASS | `registerContent(string,address,bytes32,string)` onlyOwner；`creator` 为传入的**已验证内容 owner**，与 registrar 分离                                                                                                                |
+| 状态机                   | PASS | Active↔Flagged 仅 owner；Active/Flagged→Removed 由 owner 或 creator；**Removed 为终态**；`updateContentStatus` 到 Removed/Nonexistent 一律 revert                                                                                  |
+| 墓碑                    | PASS | `testRemovedId_CannotBeReused`、`testRemovedRecord_CannotBeRevived`                                                                                                                                                     |
+| 事件                    | PASS | `ContentRegistered(bytes32 indexed contentKey, string contentId, address indexed creator, bytes32 contentDigest, string metadataURI, uint256)`；解析器只暴露可证明字段（contentKey/creator），**不声称**从 indexed topic 还原动态 string      |
+| 输入边界                  | PASS | 空/超长 id、零 creator、零 digest、超长 URI 均 revert                                                                                                                                                                             |
+| 分页与计数                 | PASS | `getContentIds(offset,limit)` / `getContentsByCreatorPaged`；count = 唯一登记数（含 Removed）                                                                                                                                   |
+| 所有权                   | PASS | `Ownable2Step`；`renounceOwnership` 显式禁用                                                                                                                                                                                |
+| 合约不变量                 | PASS | `invariant_RegistryUniqueAndTerminalState`；两条 invariant 均 **256 runs × depth 32，0 reverts**                                                                                                                            |
+| Foundry 总量            | PASS | `forge test`：**46 passed / 0 failed / 0 skipped**（4 suites）                                                                                                                                                            |
+| ABI 防漂移               | PASS | `TestContentRegistryABI_MatchesForgeArtifact` / `TestERC721ABI_MatchesDemoNFTArtifact` 逐项比对 Forge 产物的 selector / 输入 / 输出 / stateMutability / event / error；**当场抓出**旧 `ERC721ABI` 把 `mint` 写成 `(address,uint256)` 的既有漂移 |
+| Go 同步                 | PASS | binding / interactor / content 接口 / `web3_tx` / event indexer / mocks / 集成测试全部切到新 ABI                                                                                                                                  |
+| 假 digest 关闭           | PASS | 删除 `contentContentHash`（URL/ID 的 SHA-256）；`CreateContentWithTx` 不再自动登记，改为记录「等待 SG-12 的可信原件 digest」                                                                                                                     |
+| Anvil 实证              | PASS | `TestAnvil_ContentRegistry_RegisterAndReadBack`：真实部署 → `registerContent` → 真实 receipt + `ContentRegistered` topic 校验 → `getContent` 回读 creator/digest 一致                                                               |
+| 回归                    | PASS | `go test ./...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空；`go test -tags=anvil -race ./test/integration/...` 全绿                                                                                                |
 
 **限制（本项未覆盖）**：Forge invariant 尚未纳入 CI 门禁、gas snapshot 未生成、Slither 未重跑 —— 均属 SG-02 / SG-08 范围。
 
@@ -814,23 +819,23 @@ sequenceDiagram
 
 **基线**：`4d7bdf4`（SG-11 完成）+ 工作区未提交的 SG-01 改动。用户未提交的交易 API 工作**原样保留**，未并入本项提交。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 缓存存**证据**而非裁决 | PASS | `resolveQuantity` 只缓存余额 `NFTAccessEntry.Balance`；`evaluateGatingRules` 在请求规则下逐条比较 `quantity >= min`。同一主体 min=1→2 不再继承 allow |
-| 缓存键隔离 | PASS | `nftCacheKey` 扩展为 `chain:wallet:contract:token:standard`（`TestNftCacheKey_StandardIsolates`、`TestNFTGate_StandardIsolatesCache`）；min_balance **不入键**（同证据不同阈值是不同比较） |
-| 两种顺序回归 | PASS | `TestNFTGate_CacheOrderLowThenHigh_Denies` / `TestNFTGate_CacheOrderHighThenLow_Allows`；冷暖一致 `TestNFTGate_WarmAndColdAgree`（断言第二次命中缓存且缓存存的是真实余额 3，非归一化 1） |
-| 并发不同门槛 | PASS | `TestNFTGate_ConcurrentDifferentThresholds`（20 轮 × 2 内容并发，min=1 恒 200 / min=2 恒 403） |
-| 统一数量语义 | PASS | 新增 `GetNFTOwnershipQuantity`（唯一授权信号）：collection→`balanceOf`；指定 token→ERC-721 0/1、ERC-1155 链上 uint256。`TestNFTGate_MinEqualsBalance_Allows`、`MinGreaterThanBalance_Denies`、`ERC721SpecificToken_ZeroAndOne`、`ERC1155Quantity_OneRejected_TwoAllowed` |
-| 标准识别拒绝 fallback | PASS | `DetectTokenStandard` 删除 `try1155BalanceOf`/`try721BalanceOf` 探测：ERC-165 为唯一真源，balanceOf 探测会把 ERC-20 误判为 NFT。`verifier_extended_test.go` 两个旧用例（期望 ERC-721/1155）改为 `TokenStandardUnknown`——**修复前红、修复后绿** |
-| 失败模式不放行 | PASS | nil / 负值 / RPC 错误 → 503（`NilQuantityIsRejected`、`NegativeQuantityIsRejected`、`RPCErrorIsServiceError`）；不可核验规则集从 500 改为 **503**（`NFT_VERIFY_ERROR`），区别于 400 规则非法 |
-| 非法规则 → 400 | PASS | `validateGatingRule`：非法合约地址、chainID=0、负 min_balance、非十进制 tokenID、ERC-1155 无 tokenID 的 collection 规则一律 400 `INVALID_GATING_RULE`，且**不触链**（`TestNFTGate_NegativeMinBalanceIsRejected` 断言 `verifier.calls==0`） |
-| 缺省 min_balance=1 | PASS | `normalizedMinBalance`（0→1、负数报错）；`TestNFTGate_DefaultMinBalanceIsOne` |
-| OR 语义 | PASS | 任一规则真值即放行；全明确无持仓 403；无真值且有不可核验 → 503（`ORRules_OneTrueAllows` / `AllFalseDenies` / `UnverifiableWithNoTrueIsServiceError`） |
-| 请求参数不改变主体 | PASS | 删除 `parseNFTParams` / `?contract=` 覆盖；`TestNFTGateMiddleware_QueryParamsDoNotChangeSubject` 端到端断言主体只来自服务端规则 |
-| 真实 ERC-1155 集成 | PASS | `TestAnvil_ERC1155_Web3Service_NFTGate`：真实部署 DemoERC1155 → mint token 7 数量 1 → 经真实 `Web3Service.GetNFTOwnershipQuantity` → 真实 `NFTGateMiddleware`：min=1 放行 / min=2 拒绝；再 mint 到 2 → min=2 放行。**ERC-1155 无 tokenID 的 collection 查询必须 error**（断言） |
-| 主机回归 | PASS | `go test ./...` 全绿；`go test -race ./pkg/middleware/... ./pkg/service/... ./pkg/web3/...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空 |
-| 合约回归 | PASS | `forge build` + `forge test`：46 passed / 0 failed / 0 skipped |
-| Anvil 套件 | PASS | `go test -tags=anvil -race -count=1 ./test/integration/web3/...` 全绿（含新用例，实测 21.1s） |
+| 项                | 结果   | 证据                                                                                                                                                                                                                                                  |
+| ---------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 缓存存**证据**而非裁决    | PASS | `resolveQuantity` 只缓存余额 `NFTAccessEntry.Balance`；`evaluateGatingRules` 在请求规则下逐条比较 `quantity >= min`。同一主体 min=1→2 不再继承 allow                                                                                                                         |
+| 缓存键隔离            | PASS | `nftCacheKey` 扩展为 `chain:wallet:contract:token:standard`（`TestNftCacheKey_StandardIsolates`、`TestNFTGate_StandardIsolatesCache`）；min_balance **不入键**（同证据不同阈值是不同比较）                                                                                  |
+| 两种顺序回归           | PASS | `TestNFTGate_CacheOrderLowThenHigh_Denies` / `TestNFTGate_CacheOrderHighThenLow_Allows`；冷暖一致 `TestNFTGate_WarmAndColdAgree`（断言第二次命中缓存且缓存存的是真实余额 3，非归一化 1）                                                                                           |
+| 并发不同门槛           | PASS | `TestNFTGate_ConcurrentDifferentThresholds`（20 轮 × 2 内容并发，min=1 恒 200 / min=2 恒 403）                                                                                                                                                                |
+| 统一数量语义           | PASS | 新增 `GetNFTOwnershipQuantity`（唯一授权信号）：collection→`balanceOf`；指定 token→ERC-721 0/1、ERC-1155 链上 uint256。`TestNFTGate_MinEqualsBalance_Allows`、`MinGreaterThanBalance_Denies`、`ERC721SpecificToken_ZeroAndOne`、`ERC1155Quantity_OneRejected_TwoAllowed` |
+| 标准识别拒绝 fallback  | PASS | `DetectTokenStandard` 删除 `try1155BalanceOf`/`try721BalanceOf` 探测：ERC-165 为唯一真源，balanceOf 探测会把 ERC-20 误判为 NFT。`verifier_extended_test.go` 两个旧用例（期望 ERC-721/1155）改为 `TokenStandardUnknown`——**修复前红、修复后绿**                                             |
+| 失败模式不放行          | PASS | nil / 负值 / RPC 错误 → 503（`NilQuantityIsRejected`、`NegativeQuantityIsRejected`、`RPCErrorIsServiceError`）；不可核验规则集从 500 改为 **503**（`NFT_VERIFY_ERROR`），区别于 400 规则非法                                                                                     |
+| 非法规则 → 400       | PASS | `validateGatingRule`：非法合约地址、chainID=0、负 min_balance、非十进制 tokenID、ERC-1155 无 tokenID 的 collection 规则一律 400 `INVALID_GATING_RULE`，且**不触链**（`TestNFTGate_NegativeMinBalanceIsRejected` 断言 `verifier.calls==0`）                                         |
+| 缺省 min_balance=1 | PASS | `normalizedMinBalance`（0→1、负数报错）；`TestNFTGate_DefaultMinBalanceIsOne`                                                                                                                                                                               |
+| OR 语义            | PASS | 任一规则真值即放行；全明确无持仓 403；无真值且有不可核验 → 503（`ORRules_OneTrueAllows` / `AllFalseDenies` / `UnverifiableWithNoTrueIsServiceError`）                                                                                                                           |
+| 请求参数不改变主体        | PASS | 删除 `parseNFTParams` / `?contract=` 覆盖；`TestNFTGateMiddleware_QueryParamsDoNotChangeSubject` 端到端断言主体只来自服务端规则                                                                                                                                         |
+| 真实 ERC-1155 集成   | PASS | `TestAnvil_ERC1155_Web3Service_NFTGate`：真实部署 DemoERC1155 → mint token 7 数量 1 → 经真实 `Web3Service.GetNFTOwnershipQuantity` → 真实 `NFTGateMiddleware`：min=1 放行 / min=2 拒绝；再 mint 到 2 → min=2 放行。**ERC-1155 无 tokenID 的 collection 查询必须 error**（断言）      |
+| 主机回归             | PASS | `go test ./...` 全绿；`go test -race ./pkg/middleware/... ./pkg/service/... ./pkg/web3/...` 全绿；`go vet ./...` 与 `-tags=anvil` 干净；`gofmt -l` 空                                                                                                          |
+| 合约回归             | PASS | `forge build` + `forge test`：46 passed / 0 failed / 0 skipped                                                                                                                                                                                       |
+| Anvil 套件         | PASS | `go test -tags=anvil -race -count=1 ./test/integration/web3/...` 全绿（含新用例，实测 21.1s）                                                                                                                                                                  |
 
 **限制（本项未覆盖）**：Docker 内 `make verify-docker VERIFY_STAGE=unit` 未执行（沿用 SG-00 的本机网络阻塞）；`min_balance > 1` 的 HTTP 层输入校验（负数返回 400 的 **API 层**）属 SG-03 路由边界；5 秒证据总 age 的实测上界属 SG-04。
 
@@ -838,19 +843,19 @@ sequenceDiagram
 
 **基线**：`2055677`（SG-01 完成）+ 工作区。用户未提交的交易 API 工作仍原样保留，未并入本项提交。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 统一覆盖率门 | PASS | 新增 `scripts/check-coverage.sh`：**整数比较** `covered*100 >= total*60`，不再用 `bc -l`；`make test-ci` 的 `COVERAGE_MIN` 由 **40 → 60**，与 CI 一致 |
-| 缺失/空/非法即失败 | PASS | 该脚本对 **缺失文件 / 空文件 / 仅 header / 无 `mode:` / 0 statement / 非整数下限 / 越界下限** 全部非零退出（原先 CI 是 "No coverage data generated" + `exit 0`，即**没有覆盖率也能绿**） |
-| 门禁自证可失败 | PASS | 新增 `scripts/check-coverage_test.sh`（`make test-coverage-gate`）：**15 passed / 0 failed**。含计划点名的用例：**59.9% 失败、60% 通过、6000/10001 失败**；另加 **5996/10000 = 59.96%（`go tool cover` 会显示 60.0%）仍失败** |
-| 同一包集合 | PASS | 新增 `scripts/ci-packages.sh`（单一真源，87 个包，排除 `test/e2e`、`test/load`、`test/integration/web3`）；`Makefile` / `ci.yml` / `scripts/verify-docker.sh` 三处共用 |
-| 真实跑通（正例） | PASS | `make test-ci`：**`✓ coverage gate: 16533/22560 statements = 73% meets 60%`，exit 0**（`-race`，87 包全绿） |
-| 真实跑通（负例） | PASS | `make test-ci COVERAGE_MIN=99`：`✗ coverage gate: … 73% is below 99%`，**make exit 2** |
-| SQL 迁移不再吞错 | PASS | `ci.yml` 与 `test.yml`（2 处）：删除 `\|\| true`，改 `psql -v ON_ERROR_STOP=1`，并锚定 `\.down\.sql$` 排除 down；坏 SQL 现在会让 job 红 |
-| 候选镜像依赖补齐 | PASS（静态） | `docker` job 的 `needs` 由 `[test-go, build, security]` 改为 **`[lint, test-go, test-contracts, test-anvil, build, security]`**，并**删除 `if: always() && …`** —— 原写法允许 Go 测试失败后仍构建镜像 |
-| Anvil 进入候选门禁 | PASS（静态） | 新增 `test-anvil` job：`forge install` + `forge build` + `go test -tags=anvil -race -count=1 ./test/integration/web3/...` |
-| smoke 不再是"文件存在" | PASS（部分实测） | 删除 `docker run … ls /app/streamgate \|\| echo warnings`；改为拉起最小依赖栈（postgres/redis/minio/nats，私有网络、按容器名寻址）+ 候选镜像，**等待镜像自带 HEALTHCHECK 变 healthy** 再断言 `GET /health == 200`，失败打印容器日志并非零退出 |
-| 分包阈值独立 | PASS | `test.yml` 保留 **10% 分包**规则（独立于总体 60%），但缺失覆盖率由 `exit 0` 改为**失败**；`test-unit-models`/`test-unit-storage` 显式降为"profile 必须可用" |
+| 项               | 结果         | 证据                                                                                                                                                                                          |
+| --------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 统一覆盖率门          | PASS       | 新增 `scripts/check-coverage.sh`：**整数比较** `covered*100 >= total*60`，不再用 `bc -l`；`make test-ci` 的 `COVERAGE_MIN` 由 **40 → 60**，与 CI 一致                                                         |
+| 缺失/空/非法即失败      | PASS       | 该脚本对 **缺失文件 / 空文件 / 仅 header / 无 `mode:` / 0 statement / 非整数下限 / 越界下限** 全部非零退出（原先 CI 是 "No coverage data generated" + `exit 0`，即**没有覆盖率也能绿**）                                               |
+| 门禁自证可失败         | PASS       | 新增 `scripts/check-coverage_test.sh`（`make test-coverage-gate`）：**15 passed / 0 failed**。含计划点名的用例：**59.9% 失败、60% 通过、6000/10001 失败**；另加 **5996/10000 = 59.96%（`go tool cover` 会显示 60.0%）仍失败** |
+| 同一包集合           | PASS       | 新增 `scripts/ci-packages.sh`（单一真源，87 个包，排除 `test/e2e`、`test/load`、`test/integration/web3`）；`Makefile` / `ci.yml` / `scripts/verify-docker.sh` 三处共用                                           |
+| 真实跑通（正例）        | PASS       | `make test-ci`：**`✓ coverage gate: 16533/22560 statements = 73% meets 60%`，exit 0**（`-race`，87 包全绿）                                                                                         |
+| 真实跑通（负例）        | PASS       | `make test-ci COVERAGE_MIN=99`：`✗ coverage gate: … 73% is below 99%`，**make exit 2**                                                                                                        |
+| SQL 迁移不再吞错      | PASS       | `ci.yml` 与 `test.yml`（2 处）：删除 `\|\| true`，改 `psql -v ON_ERROR_STOP=1`，并锚定 `\.down\.sql$` 排除 down；坏 SQL 现在会让 job 红                                                                           |
+| 候选镜像依赖补齐        | PASS（静态）   | `docker` job 的 `needs` 由 `[test-go, build, security]` 改为 **`[lint, test-go, test-contracts, test-anvil, build, security]`**，并**删除 `if: always() && …`** —— 原写法允许 Go 测试失败后仍构建镜像              |
+| Anvil 进入候选门禁    | PASS（静态）   | 新增 `test-anvil` job：`forge install` + `forge build` + `go test -tags=anvil -race -count=1 ./test/integration/web3/...`                                                                      |
+| smoke 不再是"文件存在" | PASS（部分实测） | 删除 `docker run … ls /app/streamgate \|\| echo warnings`；改为拉起最小依赖栈（postgres/redis/minio/nats，私有网络、按容器名寻址）+ 候选镜像，**等待镜像自带 HEALTHCHECK 变 healthy** 再断言 `GET /health == 200`，失败打印容器日志并非零退出      |
+| 分包阈值独立          | PASS       | `test.yml` 保留 **10% 分包**规则（独立于总体 60%），但缺失覆盖率由 `exit 0` 改为**失败**；`test-unit-models`/`test-unit-storage` 显式降为"profile 必须可用"                                                                   |
 
 **本机实测**（非采信）：`make test-coverage-gate` 15/15；`make test-ci` 绿、`COVERAGE_MIN=99` 红；真实 profile 上 `check-coverage.sh` 输出 `491/590 = 83%`；4 个 workflow YAML 经解析合法（`ci.yml` jobs = lint,test-go,test-contracts,build,security,test-anvil,docker）；提取出的 smoke 脚本 `bash -n` 通过；**smoke 的就绪机制**在真实依赖栈上验证：候选镜像对 postgres/redis/minio/nats **6 秒变 healthy、`/health` 200**。
 
@@ -866,19 +871,20 @@ sequenceDiagram
 
 **处置**：按用户决定**原位重写**，不是原样提交。重写后该未提交代码**不进入历史**（从未提交，故 diff 上表现为"新增门禁"而非"删除路由"）。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 通用代签入口被移除 | PASS | `POST /web3/tx/send`（接受任意 `to/value/data` 并用服务端私钥签名）与 `GET /web3/tx/status` 一并移除；`RegisterWeb3Routes` 回到只读三参签名；`Web3TxProvider` 接口与 `web3_tx_track.go` 删除（不保留无调用方的死代码） |
-| 唯一签名面三重门 | PASS | 新增 `gateway.DemoSignerAllowed(cfg)`：**必须同时** `cfg.Debug`（development）+ `web3.chain_id == 31337`（`AnvilChainID`）+ `features.demo_tx_signer`（显式 opt-in）。任一缺失即**不注册路由** |
-| 生产无法探测 | PASS | 未注册时返回 **404**（不是 401/403 —— 后者会暴露"存在一个受保护的签名器"） |
-| 动作不可被客户端参数化 | PASS | 存活的 `/nft/dev/mint` 本就固定合约 + 固定 `mint(address)` selector + **value 恒为 0** + 铸给**已认证钱包**（`middleware.GetWalletAddress`），请求体只有 `count`（1..10 有界）；无 `to/value/data` 入参 |
-| 显式 opt-in 的配置与来源 | PASS | 新增 `FeaturesConfig.DemoTxSigner`；显式 `viper.BindEnv("features.demo_tx_signer","FEATURES_DEMO_TX_SIGNER")`（安全相关，不依赖 AutomaticEnv 推导）；`config.yaml`/`config.prod.yaml` 默认 **false**，`config.dev.yaml`/`config.test.yaml` 为 true；代码默认值 false |
-| 单元用例 | PASS | 新增 `pkg/gateway/demo_signer_gate_test.go`：`TestDemoSignerAllowed`（5 子例：全满足 / 关 debug / 非 31337 / 缺 flag / nil cfg）、`TestRegisterNFTDevMintRoute_OnlyWhenAllowed`、`…_NotAllowedIsNotFound`（HTTP 404）、`…_NilMinter` |
-| **端到端实测** | PASS | 用**真实二进制 + 真实配置 + 真实 Anvil** 启动 monolith 两次，只差 `FEATURES_DEMO_TX_SIGNER`：<br>· flag 开 → 日志 `DEV-ONLY server-side signer registered at /nft/dev/mint`<br>· flag 关 → 日志 `Dev mint endpoint disabled (requires development mode + chain 31337 + features.demo_tx_signer)` |
-| 回归 | PASS | `go test ./...` 全绿；`-race ./pkg/gateway/... ./pkg/core/config/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
-| 顺带修复（既有违例） | PASS | `cmd/microservices/api-gateway/main_test.go` 的 struct 对齐在基线 `6ded977` 即不符合 gofmt（本次核实：`git show 6ded977:… \| gofmt -l` 命中）。已 `gofmt -w` 修正，使 `gofmt -l` 真正为空 |
+| 项                | 结果   | 证据                                                                                                                                                                                                                                                                         |
+| ---------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 通用代签入口被移除        | PASS | `POST /web3/tx/send`（接受任意 `to/value/data` 并用服务端私钥签名）与 `GET /web3/tx/status` 一并移除；`RegisterWeb3Routes` 回到只读三参签名；`Web3TxProvider` 接口与 `web3_tx_track.go` 删除（不保留无调用方的死代码）                                                                                                     |
+| 唯一签名面三重门         | PASS | 新增 `gateway.DemoSignerAllowed(cfg)`：**必须同时** `cfg.Debug`（development）+ `web3.chain_id == 31337`（`AnvilChainID`）+ `features.demo_tx_signer`（显式 opt-in）。任一缺失即**不注册路由**                                                                                                       |
+| 生产无法探测           | PASS | 未注册时返回 **404**（不是 401/403 —— 后者会暴露"存在一个受保护的签名器"）                                                                                                                                                                                                                           |
+| 动作不可被客户端参数化      | PASS | 存活的 `/nft/dev/mint` 本就固定合约 + 固定 `mint(address)` selector + **value 恒为 0** + 铸给**已认证钱包**（`middleware.GetWalletAddress`），请求体只有 `count`（1..10 有界）；无 `to/value/data` 入参                                                                                                        |
+| 显式 opt-in 的配置与来源 | PASS | 新增 `FeaturesConfig.DemoTxSigner`；显式 `viper.BindEnv("features.demo_tx_signer","FEATURES_DEMO_TX_SIGNER")`（安全相关，不依赖 AutomaticEnv 推导）；`config.yaml`/`config.prod.yaml` 默认 **false**，`config.dev.yaml`/`config.test.yaml` 为 true；代码默认值 false                                   |
+| 单元用例             | PASS | 新增 `pkg/gateway/demo_signer_gate_test.go`：`TestDemoSignerAllowed`（5 子例：全满足 / 关 debug / 非 31337 / 缺 flag / nil cfg）、`TestRegisterNFTDevMintRoute_OnlyWhenAllowed`、`…_NotAllowedIsNotFound`（HTTP 404）、`…_NilMinter`                                                          |
+| **端到端实测**        | PASS | 用**真实二进制 + 真实配置 + 真实 Anvil** 启动 monolith 两次，只差 `FEATURES_DEMO_TX_SIGNER`：<br />· flag 开 → 日志 `DEV-ONLY server-side signer registered at /nft/dev/mint`<br />· flag 关 → 日志 `Dev mint endpoint disabled (requires development mode + chain 31337 + features.demo_tx_signer)` |
+| 回归               | PASS | `go test ./...` 全绿；`-race ./pkg/gateway/... ./pkg/core/config/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空                                                                                                                                                          |
+| 顺带修复（既有违例）       | PASS | `cmd/microservices/api-gateway/main_test.go` 的 struct 对齐在基线 `6ded977` 即不符合 gofmt（本次核实：`git show 6ded977:… \| gofmt -l` 命中）。已 `gofmt -w` 修正，使 `gofmt -l` 真正为空                                                                                                               |
 
 **限制 / 未覆盖（本项）**：
+
 - **A（身份与会话）未做**：EIP-4361 消息字段校验、nonce ≥128-bit / TTL≤300s / 原子消费、JWT 固定 alg+iss+aud+type、capability 与 sessionID/authEpoch 的绑定 —— 全部待实施。
 - **B（资源所有权）未做**：gating-rule 的 owner 校验（POST/PUT/DELETE）、内容/上传/转码/交易状态的 actor 隔离、A/B 双钱包越权负例 —— 全部待实施。
 - C.3 的"持久化 intent / nonce / receipt"按计划归 **SG-13**；本项只落路由、signer 与 actor 边界。
@@ -890,18 +896,19 @@ sequenceDiagram
 
 **先做事实核查（避免重复劳动）**：A 的相当一部分**已存在**——SIWE（EIP-4361）挑战生成与 `ValidateSIWEMessage`（domain/URI/chain/nonce/address）、challenge 的地址与链绑定 / 过期 / 已用检查、`MarkChallengeUsed` 的原子消费（TOCTOU 防护）、nonce 16 字节（=128 bit）、`defaultChallengeTTL = 5m`（=300s）。本项只补**确实缺失的**部分。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| **playback 能力不得当 access token** | PASS（修复真实缺陷） | 原 `JWTAuthMiddleware` **从不检查 `token_type`** ⇒ 一个 `token_type=playback` 的能力若带 `wallet_address`，可当 Bearer 直接调管理 API。现改为**白名单**（`""`/`access` 通过，其余一律 401），未来新增凭据类型默认被拒 |
-| 算法**精确**固定 | PASS | 原 keyfunc 只校验 `*jwt.SigningMethodHMAC` / `*jwt.SigningMethodRSA` 家族 ⇒ **HS384/HS512 会被接受**。现按 `Alg()` 精确要求 `HS256`（secret 模式）或 `RS256`（公钥模式） |
-| issuer / audience 强制 | PASS | `JWTAuthConfig` 新增 `Issuer` / `Audience`（配置即强制）；中间件校验 `iss` 与 `aud`（支持字符串与数组两种 JWT 形式，新增 `audienceContains`）；`routes.go` 传入 `service.AccessTokenIssuer` / `AccessTokenAudience` |
-| access token 携带 iss/aud/sub | PASS | 新增 `accessTokenClaims(subject, ttl)` 统一构造，三处签发路径（钱包登录 / 刷新 / 密码登录）全部改用；`iss=streamgate`、`aud=streamgate-api` |
-| 未知签名类型拒绝 | PASS | `GenerateWalletChallenge` 原对任何非 `siwe`/`eip712` 的 `signType` **静默落到默认明文 personal_sign**。现先做白名单（`siwe`/`personal_sign`/`eip712`），其余返回 `ErrNotSupported` |
-| 新增用例 | PASS | `pkg/middleware/auth_token_kind_test.go`：playback 被拒 / 未知 token_type 被拒 / access 与缺省通过 / iss 强制（错+缺+对）/ aud 强制（字符串+数组+错+缺）/ **HS384+HS512 被拒**。`pkg/service/auth_wallet_signtype_test.go`：未知签名类型拒绝、受支持类型接受、access token 携带 iss/aud/sub、**nonce 128-bit 且不重复**、**TTL ≤300s** |
-| 回归 | PASS | `go test ./...` 全绿（含全部既有 middleware / service / gateway / e2e）；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
-| 兼容性核查 | PASS | 既有测试用手工 token（无 iss/aud）且**未配置** Issuer/Audience ⇒ 不受影响（配置即强制）；脚本侧确认**无任何自签 JWT**（`grep HS256\|jwt.sign\|createHmac` over `scripts/` 为空），故不会打断验收脚本 |
+| 项                               | 结果           | 证据                                                                                                                                                                                                                                                                          |
+| ------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **playback 能力不得当 access token** | PASS（修复真实缺陷） | 原 `JWTAuthMiddleware` **从不检查 `token_type`** ⇒ 一个 `token_type=playback` 的能力若带 `wallet_address`，可当 Bearer 直接调管理 API。现改为**白名单**（`""`/`access` 通过，其余一律 401），未来新增凭据类型默认被拒                                                                                                        |
+| 算法**精确**固定                      | PASS         | 原 keyfunc 只校验 `*jwt.SigningMethodHMAC` / `*jwt.SigningMethodRSA` 家族 ⇒ **HS384/HS512 会被接受**。现按 `Alg()` 精确要求 `HS256`（secret 模式）或 `RS256`（公钥模式）                                                                                                                                |
+| issuer / audience 强制            | PASS         | `JWTAuthConfig` 新增 `Issuer` / `Audience`（配置即强制）；中间件校验 `iss` 与 `aud`（支持字符串与数组两种 JWT 形式，新增 `audienceContains`）；`routes.go` 传入 `service.AccessTokenIssuer` / `AccessTokenAudience`                                                                                             |
+| access token 携带 iss/aud/sub     | PASS         | 新增 `accessTokenClaims(subject, ttl)` 统一构造，三处签发路径（钱包登录 / 刷新 / 密码登录）全部改用；`iss=streamgate`、`aud=streamgate-api`                                                                                                                                                                |
+| 未知签名类型拒绝                        | PASS         | `GenerateWalletChallenge` 原对任何非 `siwe`/`eip712` 的 `signType` **静默落到默认明文 personal_sign**。现先做白名单（`siwe`/`personal_sign`/`eip712`），其余返回 `ErrNotSupported`                                                                                                                      |
+| 新增用例                            | PASS         | `pkg/middleware/auth_token_kind_test.go`：playback 被拒 / 未知 token_type 被拒 / access 与缺省通过 / iss 强制（错+缺+对）/ aud 强制（字符串+数组+错+缺）/ **HS384+HS512 被拒**。`pkg/service/auth_wallet_signtype_test.go`：未知签名类型拒绝、受支持类型接受、access token 携带 iss/aud/sub、**nonce 128-bit 且不重复**、**TTL ≤300s** |
+| 回归                              | PASS         | `go test ./...` 全绿（含全部既有 middleware / service / gateway / e2e）；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空                                                                                                                                                                  |
+| 兼容性核查                           | PASS         | 既有测试用手工 token（无 iss/aud）且**未配置** Issuer/Audience ⇒ 不受影响（配置即强制）；脚本侧确认**无任何自签 JWT**（`grep HS256\|jwt.sign\|createHmac` over `scripts/` 为空），故不会打断验收脚本                                                                                                                          |
 
 **限制 / 未覆盖（A）**：
+
 - **A.2 的"错误签名不能换 nonce / 地址后通过"**：现有代码已按 challenge 记录比对地址与链并原子消费；**未新增**针对该场景的专项用例（属可补强项，非遗漏结论）。
 - **A.4 明确不在本项**：access / refresh / capability 统一 `sessionID` + `authEpoch`、旧 token 缺字段拒绝、restore 后整体失效 —— 按计划由 **SG-06** 落实、**SG-14** 验证 restore。
 - 其他签名模式（`personal_sign` / `eip712` / Solana ed25519）**保留并已有回归**，支持边界已在代码注释与本表说明；未收窄。
@@ -910,75 +917,80 @@ sequenceDiagram
 
 **先做事实核查**：B 的多数面**已存在**——`content` 的读/改/删、`upload` 的状态/删除/完成、`transcode` 的状态/取消**都已有 owner 校验与 A/B 负例**（`content_handlers_test.go` `…_NotOwner`、`upload_handlers_test.go` `…_NotOwner`、`transcode_handlers_test.go` "different wallet gets 403"）。**真正缺失的是 gating-rule 的写路径**：create/update/delete **完全没有 owner 校验**（§2 的 P0）。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 规则写入的 owner 校验在**业务层** | PASS | 新增 `GatingRuleService.CreateRuleForOwner / UpdateRuleForOwner / DeleteRuleForOwner`，actor 钱包由 handler 从已认证会话取出后传入业务层 |
+| 项                           | 结果   | 证据                                                                                                                                                                                                                |
+| --------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 规则写入的 owner 校验在**业务层**      | PASS | 新增 `GatingRuleService.CreateRuleForOwner / UpdateRuleForOwner / DeleteRuleForOwner`，actor 钱包由 handler 从已认证会话取出后传入业务层                                                                                              |
 | **单语句** owner 条件写（无 TOCTOU） | PASS | create 用 `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM contents c WHERE c.id::text=$11 AND LOWER(c.owner_id)=LOWER($12))`；update/delete 把 `ruleID → contentID` 的解析**放进同一条 UPDATE/DELETE 的 `EXISTS` 里**，读与写之间没有窗口 |
-| ruleID 先定位 contentID 再核验 | PASS | update/delete 均由 `r.content_id` 关联 `contents`，不能靠猜 ruleID 改他人规则 |
-| 404 与 403 稳定区分 | PASS | 0 行写入后由 `classifyContentDenial` / `classifyRuleDenial` 区分：资源不存在 → 404（`ErrContentNotFound` / `ErrRuleNotFound`），存在但非本人 → 403（`ErrRuleForbidden`）；handler 侧 `respondGatingRuleError` 映射，**不回显 SQL 错误** |
-| 匿名调用拒绝 | PASS | handler 先取 `middleware.GetWalletAddress(c)`，为空即 401；业务层对空 actor 亦返回 `ErrRuleForbidden`（双保险） |
-| 地址大小写不敏感 | PASS | SQL 用 `LOWER(...)` 比较；`TestGatingRule_OwnerMatchIsCaseInsensitive` |
-| **A/B 负例（真实 Postgres）** | PASS | 新增 `test/integration/gating/rule_owner_test.go`（7 例，**全部实际执行、0 skip**）：owner 可建；**B 不能建/改/删 A 的规则**（且断言 A 的规则未被改动、仍存在）；内容不存在 → `ErrContentNotFound`；规则不存在 → `ErrRuleNotFound`；空 actor 拒绝；大小写不敏感 |
-| handler 层正负例 | PASS | `gating_rule_handlers_test.go` 新增：`…_ForbiddenWhenNotOwner`（403）、`…_ContentMissingIsNotFound`（404）、`GatingRuleMutations_RequireWallet`（POST/PUT/DELETE 无钱包一律 401） |
-| 内部规则读取不复用用户写接口 | PASS | 播放侧仍走 `GetActiveRulesForContent`（受控服务接口）；用户写接口是 `…ForOwner` 变体，二者未合并 |
-| 回归 | PASS | `go test ./...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
+| ruleID 先定位 contentID 再核验    | PASS | update/delete 均由 `r.content_id` 关联 `contents`，不能靠猜 ruleID 改他人规则                                                                                                                                                   |
+| 404 与 403 稳定区分              | PASS | 0 行写入后由 `classifyContentDenial` / `classifyRuleDenial` 区分：资源不存在 → 404（`ErrContentNotFound` / `ErrRuleNotFound`），存在但非本人 → 403（`ErrRuleForbidden`）；handler 侧 `respondGatingRuleError` 映射，**不回显 SQL 错误**             |
+| 匿名调用拒绝                      | PASS | handler 先取 `middleware.GetWalletAddress(c)`，为空即 401；业务层对空 actor 亦返回 `ErrRuleForbidden`（双保险）                                                                                                                       |
+| 地址大小写不敏感                    | PASS | SQL 用 `LOWER(...)` 比较；`TestGatingRule_OwnerMatchIsCaseInsensitive`                                                                                                                                                |
+| **A/B 负例（真实 Postgres）**     | PASS | 新增 `test/integration/gating/rule_owner_test.go`（7 例，**全部实际执行、0 skip**）：owner 可建；**B 不能建/改/删 A 的规则**（且断言 A 的规则未被改动、仍存在）；内容不存在 → `ErrContentNotFound`；规则不存在 → `ErrRuleNotFound`；空 actor 拒绝；大小写不敏感                   |
+| handler 层正负例                | PASS | `gating_rule_handlers_test.go` 新增：`…_ForbiddenWhenNotOwner`（403）、`…_ContentMissingIsNotFound`（404）、`GatingRuleMutations_RequireWallet`（POST/PUT/DELETE 无钱包一律 401）                                                 |
+| 内部规则读取不复用用户写接口              | PASS | 播放侧仍走 `GetActiveRulesForContent`（受控服务接口）；用户写接口是 `…ForOwner` 变体，二者未合并                                                                                                                                              |
+| 回归                          | PASS | `go test ./...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空                                                                                                                                                    |
 
 **顺带修复的三个测试脚手架缺陷**（否则上述集成测试无法真实执行）：
+
 1. `ApplyMigrations` 的迁移目录**硬编码 `../../migrations`** —— 从任何 `test/integration/<pkg>/` 解析都是 `test/migrations`（不存在），**导致全部集成测试静默 skip**。改为向上查找 `migrations` 目录。
 2. `ApplyMigrations` **把 `.down.sql` 当 up 迁移执行**（`026_*.down.sql` 被应用并报错）。已排除 `*.down.sql`。
-3. 迁移**重复应用**：`SetupTestDB` 每个用例都会跑一遍迁移，而 `033`（按 UUID 给 `content_id` 建 FK）与 `035`（把该列改成 VARCHAR）互相冲突，二次应用报 `cannot be implemented`。新增 `test_applied_migrations` 记录表（并同时认 `schema_migrations`）跳过已应用项。
-另：`DefaultTestConfig` 支持 `STREAMGATE_TEST_DB_DSN` 覆盖，便于把套件指向一次性数据库。
+3. 迁移**重复应用**：`SetupTestDB` 每个用例都会跑一遍迁移，而 `033`（按 UUID 给 `content_id` 建 FK）与 `035`（把该列改成 VARCHAR）互相冲突，二次应用报 `cannot be implemented`。新增 `test_applied_migrations` 记录表（并同时认 `schema_migrations`）跳过已应用项。  
+   另：`DefaultTestConfig` 支持 `STREAMGATE_TEST_DB_DSN` 覆盖，便于把套件指向一次性数据库。
 
 **🔎 由此暴露的既有缺陷（本次未修，登记为发现）**：一旦集成测试**真的连上数据库执行**，`test/integration/models` 出现**基线即存在的失败**（与本次改动无关）：
+
 - `pq: column "password_hash" of relation "users" does not exist`（模型与 schema 漂移）
 - `tasks.payload`：`[]uint8` 无法 Scan 进 `map[string]interface{}`
-- 时间戳断言失败
-这些失败此前被第 1 条缺陷（迁移路径错误 → 全量 skip）完全掩盖。**因此本次未把 `STREAMGATE_TEST_DB_DSN` 接入 CI**——接入会让 CI 立刻变红，属"先修 schema 漂移再接线"的独立工作（归 SG-12 / SG-13 的 schema 与模型一致性范围）。CI 现状不变（仍 skip），故无回归。
+- 时间戳断言失败  
+  这些失败此前被第 1 条缺陷（迁移路径错误 → 全量 skip）完全掩盖。**因此本次未把 `STREAMGATE_TEST_DB_DSN` 接入 CI**——接入会让 CI 立刻变红，属"先修 schema 漂移再接线"的独立工作（归 SG-12 / SG-13 的 schema 与模型一致性范围）。CI 现状不变（仍 skip），故无回归。
 
 **限制 / 未覆盖（B）**：
+
 - `GET /content/:id/gating-rules`（列表）**未加 owner 校验**：它位于 JWT 保护组内、需要登录，但会返回他人内容的规则配置。计划 B.1 明确要求的是**写路径**；读路径的收敛（是否限 owner / 是否只返回公开字段）留待与 SG-14 的 API 边界一并处理。
 - B.3 要求的"交易状态 actor 隔离"由 **C 的删除动作**直接满足（该路由已不存在）。
 - 跨资源的完整 A/B 矩阵依赖既有测试（已核对存在），本次未重复编写。
 
 ### 8.9 SG-04 执行证据（**部分完成**：链作用域区块证据）
 
-**本项只完成了"证据必须属于某条链"这一块；同区块固定、5 秒 age 上界、RPC chainId 校验与 endpoint 回退、两个 Anvil 的端到端用例**均未实施**，SG-04 保持未勾选。**
+**本项只完成了"证据必须属于某条链"这一块；同区块固定、5 秒 age 上界、RPC chainId 校验与 endpoint 回退、两个 Anvil 的端到端用例**均未实&#x65BD;**，SG-04 保持未勾选。**
 
 **核查出的真实缺陷（两条，同源）**：授权证据的"区块"维度**完全没有链身份**。
+
 1. `BlockHashCache.entries` 是 `map[uint64]blockHashEntry` —— **只按高度索引**。两条链在同一高度有不同哈希（常态），缓存会互相覆盖 / 互相命中。
 2. `BlockProver.HeaderByNumber(ctx, number)` **没有链参数**，`Web3Service.HeaderByNumber` 硬用 `ws.config.Web3.ChainID`（默认链）。即：**针对链 B 的规则，其区块证据取自默认链**，跨链证据混用。
 
 **核查后确认已存在、无需改动的部分**：`ChainClient.connectAt`（`pkg/web3/client.go:380-383`）**已经**在连接时比对 `eth_chainId` 与配置链，不一致即关闭连接并返回 `unexpected chain id from …: got X want Y`；`connectAny` / `failover` 都经由它，因此**错链 endpoint 会被跳过并最终失败**（"fallback 错链拒绝"这一必需用例的**连接期**语义已满足）。`connectAny` 中那行只打印 `rpc_chain_id` 的日志因此是**冗余信息**，不是缺失校验。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 区块哈希缓存按 `(chainID, height)` | PASS | 新增 `blockHashKey{chainID, number}`；`Get(chainID, height)` / `Set(chainID, height, hash)` |
-| `BlockProver` 显式带链 | PASS | 接口改为 `HeaderByNumber(ctx, chainID int64, number *big.Int)`；`Web3Service.HeaderByNumber` 按 `chainID` 取该链 client（`0` = 配置的默认链，保持既有调用可用） |
-| 调用链传递真实链 ID | PASS | `resolveQuantity` 已持有规则所属 `chainID`，透传给 `cachedQuantity` / `setCachedEntry`；`nft_handlers.go` 传 `parseChainID(...)` 的结果 |
-| 跨链证据不互用 | PASS | `TestBlockHashCache_IsScopedToChain`（同高度、两链各自命中自己的哈希，互不覆盖）；`TestCachedQuantity_BlockHashEvidenceIsChainScoped`（链 1 在高度 100 的哈希**不会**把链 2 的同高度证据误判成 reorg，且断言 prover 收到的 chainID == 2） |
-| 同链 reorg 仍能识别 | PASS | `TestCachedQuantity_ReorgStillDetectedWithinChain`：同链同高度哈希变化 → 证据失效且置 `reorgActive` |
-| 同链缓存命中不查 prover | PASS | `TestCachedQuantity_SameChainCacheHitSkipsProver` |
-| **证据 age 上界（5 秒）** | PASS | `NFTGateConfig.MaxEvidenceAge`（0/负 → `defaultMaxEvidenceAge = 5s`，**0 不等于"无上界"**）；`cachedQuantity` 对 `ObservedAt` 为零或 `age > 上界` 的条目**直接拒用**（在 reorg 校验之前），日志记录 age 与上界 |
-| **observedAt 在查询开始捕获、写入不刷新** | PASS | `resolveQuantity` 在任何缓存查询**之前**取 `observedAt := start`，透传 `setCachedEntry`，写入 `NFTAccessEntry.ObservedAt = observedAt`（**不是 `time.Now()`**）⇒ 插入下层缓存不能把旧证据"洗新"；gateway 侧 `handleNFTVerify` 同样在缓存查询前捕获 |
-| 证据跨层序列化保留 age | PASS | `CachedNFTAccess.ObservedAt` + `to/fromMiddlewareNFTAccessEntry` 双向映射（Redis L2 走 `json.Marshal(NFTAccessEntry)`，字段自动往返） |
-| **授权固定到单一区块** | PASS | 新增 `resolveAnchor`：按配置的 finality tag 经 `BlockProver.HeaderByTag` **解析一次**得到 `(number, hash)`；`resolveQuantity` 把该 **block number** 传给 verifier。节点不再逐次解析标签 |
-| **verifier 收到的是区块号而非标签** | PASS | `NFTOwnershipChecker.GetNFTOwnershipQuantity` 增加 **`block *big.Int`** 参数（**必填**，不是可选接口，故无法"悄悄回落 latest"）；`Web3Service.GetNFTOwnershipQuantity` 用 `NFTVerifier.WithBlockNumber` 把该块传给 ERC-165 探测与余额查询 |
-| **ERC-165 探测同区块** | PASS | 新增 `DetectTokenStandardAtBlock` / `callSupportsInterfaceAtBlock`，与余额查询读同一块；客户端不支持固定块时**返回 Unknown 而非回落到最新块探测** |
-| **读期间区块变化 → 拒绝** | PASS | 新增 `verifyAnchorUnchanged`：读完后再按 number 取一次 header 比对 hash，不一致即拒绝、置 `reorgActive`、**不写缓存**（这正是步骤 3 的"查询前后核对 hash"） |
-| **无 prover / 无法解析锚点 → fail closed** | PASS | `resolveAnchor` 在 `BlockProver == nil`、tag 解析失败、或返回空 hash 时一律报错；`TestResolveQuantity_WithoutProverFailsClosed` 断言**根本没发生链上读** |
-| **缓存锚点 = 实际读取的块** | PASS | `setCachedEntry` 不再用 `HeaderByNumber(ctx, chainID, nil)`（该链最新块），改为接收 `anchor`；`TestSetCachedEntry_StoresTheAnchor` |
-| **允许结果携带链与区块** | PASS | `resolveQuantity` / `evaluateGatingRules` 回传 `(quantity, anchor)`；放行时写入 context（`nft_block_number` / `nft_block_hash`）**并设置响应头** `X-NFT-Chain-Id` / `X-NFT-Block-Number` / `X-NFT-Block-Hash`；`TestNFTGateMiddleware_AllowReportsBlockEvidence` 断言 200 响应的三个头（缓存命中路径由条目自身重建锚点，见 `entryAnchor`） |
-| 新增用例 | PASS | `TestResolveQuantity_PinsTheAnchorBlock`（断言 verifier 收到的块号 == 锚点、且锚点取自配置 tag）、`…WithoutProverFailsClosed`、`…BlockChangedDuringReadIsRejected`、`…UnresolvableAnchorFailsClosed`；`TestSetCachedEntry_StoresTheAnchor` |
-| 回归 | PASS | `go test ./...` 全绿（含 gateway / cmd 的 NFT 门禁路径）；`-race ./pkg/middleware/... ./pkg/web3/nft/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空 |
-| **两个 Anvil 端到端（真节点、真 JSON-RPC）** | PASS | 新增 `test/integration/gating_anvil_test.go`（`//go:build anvil`，**anvil 不在 PATH 即失败，不 skip**）：两个不同 chain id 的 anvil + **记录型 RPC 代理**（转发并记录每次 `eth_call` 的 block 参数）。断言：① 两链在**同一高度**哈希不同；② 固定块读取发出的**每一个 `eth_call` 的 block 参数 == 锚点块**（ERC-165 探测与余额查询同块），实测通过；③ 链 B 的授权**对链 A 零 `eth_call`**；④ 不能固定块的客户端被拒且**零链上读**。`-race` 下亦通过 |
-| **endpoint 回退（真代理注入故障）** | PASS | 同文件 `TestAnvil_EndpointFailoverStaysOnTheSameChain`：**两个独立代理指向同一矿链**，主 endpoint 恒返 502 ⇒ 读取由同链备用 endpoint 服务（**明确这只证明端点回退，不证明节点级容灾**）；备用 endpoint 指向**另一条链** ⇒ 构造客户端直接失败，且错链 endpoint **只收到 `eth_chainId` 探测、未服务任何数据读** |
-| **该端到端测试抓到的真实缺陷** | 已修 | `detectTokenStandardCached` 原先**无条件**先调用未固定的 `DetectTokenStandard`（latest），再用固定块结果覆盖 ⇒ **仍然向节点发出了一次 latest 的 `eth_call`**，正是"固定块"要消除的读。已改为**只在无固定块时才走未固定探测**。这个缺陷只有真节点+代理才看得见，mock 单测看不见 |
-| **reorg 事件驱动失效（步骤 5 前半）** | PASS | `Web3Service.SetReorgHandler` + `notifyReorg`：`ReorgDetector.SetReorgCallback` **原先在生产代码里从未注册**（detector 在 `NewWeb3Service` 内局部创建），现已注册并转发；`routes.go` 把它接到 `middleware.InvalidateNFTEvidence(gateCfg, chainID)`，**只清该链**的证据前缀并置 `reorgActive`。用例：`TestInvalidateNFTEvidence_DropsOnlyThatChainsEvidence`（另一条链的证据必须存活）、`…NilSafe`、`TestWeb3Service_ReorgHandler*`（收到链 ID、未注册不 panic、重复注册是替换而非叠加） |
-| **真 reorg 场景（snapshot / revert，非 sleep）** | PASS | `TestAnvil_SnapshotRevertProducesARealReorg`：`evm_snapshot` → 建两块 → `evm_revert` → 改时间戳重建 ⇒ **同一高度哈希改变**，且**生产 `ReorgDetector.CheckReorg` 判定为 reorg**；对当前规范块则判定为非 reorg |
-| **锚点永不取 latest** | PASS | `TestResolveQuantity_NeverAnchorsAtLatest`：`safe`/`finalized` 按配置、**空值默认 safe 而非 latest**、空白串同理 |
-| **README 承诺按验收范围收窄** | PASS | README 的 `[x] Multi-chain EVM` / `[x] Solana` 改为 `[~]` 并写明：**端到端验收只覆盖本地 Anvil**，其余链走同一代码路径但无同等验收；Solana 无 EVM 区块语义故不做区块固定。架构图里的 `'safe' block tag` 也已改为 `pinned to one block (number + hash)` |
+| 项                                         | 结果   | 证据                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 区块哈希缓存按 `(chainID, height)`               | PASS | 新增 `blockHashKey{chainID, number}`；`Get(chainID, height)` / `Set(chainID, height, hash)`                                                                                                                                                                                                                                                                                                         |
+| `BlockProver` 显式带链                        | PASS | 接口改为 `HeaderByNumber(ctx, chainID int64, number *big.Int)`；`Web3Service.HeaderByNumber` 按 `chainID` 取该链 client（`0` = 配置的默认链，保持既有调用可用）                                                                                                                                                                                                                                                            |
+| 调用链传递真实链 ID                               | PASS | `resolveQuantity` 已持有规则所属 `chainID`，透传给 `cachedQuantity` / `setCachedEntry`；`nft_handlers.go` 传 `parseChainID(...)` 的结果                                                                                                                                                                                                                                                                          |
+| 跨链证据不互用                                   | PASS | `TestBlockHashCache_IsScopedToChain`（同高度、两链各自命中自己的哈希，互不覆盖）；`TestCachedQuantity_BlockHashEvidenceIsChainScoped`（链 1 在高度 100 的哈希**不会**把链 2 的同高度证据误判成 reorg，且断言 prover 收到的 chainID == 2）                                                                                                                                                                                                            |
+| 同链 reorg 仍能识别                             | PASS | `TestCachedQuantity_ReorgStillDetectedWithinChain`：同链同高度哈希变化 → 证据失效且置 `reorgActive`                                                                                                                                                                                                                                                                                                              |
+| 同链缓存命中不查 prover                           | PASS | `TestCachedQuantity_SameChainCacheHitSkipsProver`                                                                                                                                                                                                                                                                                                                                                |
+| **证据 age 上界（5 秒）**                        | PASS | `NFTGateConfig.MaxEvidenceAge`（0/负 → `defaultMaxEvidenceAge = 5s`，**0 不等于"无上界"**）；`cachedQuantity` 对 `ObservedAt` 为零或 `age > 上界` 的条目**直接拒用**（在 reorg 校验之前），日志记录 age 与上界                                                                                                                                                                                                                          |
+| **observedAt 在查询开始捕获、写入不刷新**              | PASS | `resolveQuantity` 在任何缓存查询**之前**取 `observedAt := start`，透传 `setCachedEntry`，写入 `NFTAccessEntry.ObservedAt = observedAt`（**不是 `time.Now()`**）⇒ 插入下层缓存不能把旧证据"洗新"；gateway 侧 `handleNFTVerify` 同样在缓存查询前捕获                                                                                                                                                                                             |
+| 证据跨层序列化保留 age                             | PASS | `CachedNFTAccess.ObservedAt` + `to/fromMiddlewareNFTAccessEntry` 双向映射（Redis L2 走 `json.Marshal(NFTAccessEntry)`，字段自动往返）                                                                                                                                                                                                                                                                          |
+| **授权固定到单一区块**                             | PASS | 新增 `resolveAnchor`：按配置的 finality tag 经 `BlockProver.HeaderByTag` **解析一次**得到 `(number, hash)`；`resolveQuantity` 把该 **block number** 传给 verifier。节点不再逐次解析标签                                                                                                                                                                                                                                        |
+| **verifier 收到的是区块号而非标签**                  | PASS | `NFTOwnershipChecker.GetNFTOwnershipQuantity` 增加 **`block *big.Int`** 参数（**必填**，不是可选接口，故无法"悄悄回落 latest"）；`Web3Service.GetNFTOwnershipQuantity` 用 `NFTVerifier.WithBlockNumber` 把该块传给 ERC-165 探测与余额查询                                                                                                                                                                                             |
+| **ERC-165 探测同区块**                         | PASS | 新增 `DetectTokenStandardAtBlock` / `callSupportsInterfaceAtBlock`，与余额查询读同一块；客户端不支持固定块时**返回 Unknown 而非回落到最新块探测**                                                                                                                                                                                                                                                                                   |
+| **读期间区块变化 → 拒绝**                          | PASS | 新增 `verifyAnchorUnchanged`：读完后再按 number 取一次 header 比对 hash，不一致即拒绝、置 `reorgActive`、**不写缓存**（这正是步骤 3 的"查询前后核对 hash"）                                                                                                                                                                                                                                                                               |
+| **无 prover / 无法解析锚点 → fail closed**       | PASS | `resolveAnchor` 在 `BlockProver == nil`、tag 解析失败、或返回空 hash 时一律报错；`TestResolveQuantity_WithoutProverFailsClosed` 断言**根本没发生链上读**                                                                                                                                                                                                                                                                    |
+| **缓存锚点 = 实际读取的块**                         | PASS | `setCachedEntry` 不再用 `HeaderByNumber(ctx, chainID, nil)`（该链最新块），改为接收 `anchor`；`TestSetCachedEntry_StoresTheAnchor`                                                                                                                                                                                                                                                                               |
+| **允许结果携带链与区块**                            | PASS | `resolveQuantity` / `evaluateGatingRules` 回传 `(quantity, anchor)`；放行时写入 context（`nft_block_number` / `nft_block_hash`）**并设置响应头** `X-NFT-Chain-Id` / `X-NFT-Block-Number` / `X-NFT-Block-Hash`；`TestNFTGateMiddleware_AllowReportsBlockEvidence` 断言 200 响应的三个头（缓存命中路径由条目自身重建锚点，见 `entryAnchor`）                                                                                                   |
+| 新增用例                                      | PASS | `TestResolveQuantity_PinsTheAnchorBlock`（断言 verifier 收到的块号 == 锚点、且锚点取自配置 tag）、`…WithoutProverFailsClosed`、`…BlockChangedDuringReadIsRejected`、`…UnresolvableAnchorFailsClosed`；`TestSetCachedEntry_StoresTheAnchor`                                                                                                                                                                              |
+| 回归                                        | PASS | `go test ./...` 全绿（含 gateway / cmd 的 NFT 门禁路径）；`-race ./pkg/middleware/... ./pkg/web3/nft/...` 全绿；`go vet ./...` 干净；`gofmt -l cmd pkg test` 空                                                                                                                                                                                                                                                    |
+| **两个 Anvil 端到端（真节点、真 JSON-RPC）**          | PASS | 新增 `test/integration/gating_anvil_test.go`（`//go:build anvil`，**anvil 不在 PATH 即失败，不 skip**）：两个不同 chain id 的 anvil + **记录型 RPC 代理**（转发并记录每次 `eth_call` 的 block 参数）。断言：① 两链在**同一高度**哈希不同；② 固定块读取发出的**每一个 `eth_call` 的 block 参数 == 锚点块**（ERC-165 探测与余额查询同块），实测通过；③ 链 B 的授权**对链 A 零 `eth_call`**；④ 不能固定块的客户端被拒且**零链上读**。`-race` 下亦通过                                                                 |
+| **endpoint 回退（真代理注入故障）**                  | PASS | 同文件 `TestAnvil_EndpointFailoverStaysOnTheSameChain`：**两个独立代理指向同一矿链**，主 endpoint 恒返 502 ⇒ 读取由同链备用 endpoint 服务（**明确这只证明端点回退，不证明节点级容灾**）；备用 endpoint 指向**另一条链** ⇒ 构造客户端直接失败，且错链 endpoint **只收到 `eth_chainId` 探测、未服务任何数据读**                                                                                                                                                                          |
+| **该端到端测试抓到的真实缺陷**                         | 已修   | `detectTokenStandardCached` 原先**无条件**先调用未固定的 `DetectTokenStandard`（latest），再用固定块结果覆盖 ⇒ **仍然向节点发出了一次 latest 的 `eth_call`**，正是"固定块"要消除的读。已改为**只在无固定块时才走未固定探测**。这个缺陷只有真节点+代理才看得见，mock 单测看不见                                                                                                                                                                                                         |
+| **reorg 事件驱动失效（步骤 5 前半）**                 | PASS | `Web3Service.SetReorgHandler` + `notifyReorg`：`ReorgDetector.SetReorgCallback` **原先在生产代码里从未注册**（detector 在 `NewWeb3Service` 内局部创建），现已注册并转发；`routes.go` 把它接到 `middleware.InvalidateNFTEvidence(gateCfg, chainID)`，**只清该链**的证据前缀并置 `reorgActive`。用例：`TestInvalidateNFTEvidence_DropsOnlyThatChainsEvidence`（另一条链的证据必须存活）、`…NilSafe`、`TestWeb3Service_ReorgHandler*`（收到链 ID、未注册不 panic、重复注册是替换而非叠加） |
+| **真 reorg 场景（snapshot / revert，非 sleep）** | PASS | `TestAnvil_SnapshotRevertProducesARealReorg`：`evm_snapshot` → 建两块 → `evm_revert` → 改时间戳重建 ⇒ **同一高度哈希改变**，且**生产 `ReorgDetector.CheckReorg` 判定为 reorg**；对当前规范块则判定为非 reorg                                                                                                                                                                                                                          |
+| **锚点永不取 latest**                          | PASS | `TestResolveQuantity_NeverAnchorsAtLatest`：`safe`/`finalized` 按配置、**空值默认 safe 而非 latest**、空白串同理                                                                                                                                                                                                                                                                                                  |
+| **README 承诺按验收范围收窄**                      | PASS | README 的 `[x] Multi-chain EVM` / `[x] Solana` 改为 `[~]` 并写明：**端到端验收只覆盖本地 Anvil**，其余链走同一代码路径但无同等验收；Solana 无 EVM 区块语义故不做区块固定。架构图里的 `'safe' block tag` 也已改为 `pinned to one block (number + hash)`                                                                                                                                                                                                    |
 
 **残留偏差（不阻塞完成判据，但如实记录）**：
+
 - **步骤 3 的"有限重试"**：hash 变化时**直接拒绝**，没有"有限重试后再拒绝"。**拒绝是安全的一侧**，比计划更严；如需与计划逐字一致可再加一次重试。
 - **证据字段只暴露了三个**：放行时返回 `chainID / blockNumber / blockHash`（`X-NFT-*` 响应头 + context）；**`balance` 与 `observedAt` 未对外**（`observedAt` 只用于缓存新鲜度）。拒绝（403/503）的响应体仍不带区块证据。
 - **步骤 4 的"规则版本进缓存键"**：缓存键 `nftCacheKey(chainID, wallet, contract, tokenID, standard)` **不含规则版本**。这是 SG-01 的有意设计——缓存里存的是**证据（余额）而非判定**，每次请求都按 `min_balance` 重新比较，故不存在"共享过期判定"，规则版本对正确性非必需。
@@ -986,54 +998,65 @@ sequenceDiagram
 
 ### 8.10 SG-05 执行证据（**部分完成**：真实钱包 → 真实 HLS）
 
-**入口**：`bash scripts/fullchain-acceptance.sh [BASE_URL]`（对着运行中的 fullchain 栈跑）。最近实测：**monolith 32/32、api-gateway 32/32**，均为 `RESULT: ALL 32 PASSED`。
+**入口**：`bash scripts/fullchain-acceptance.sh [BASE_URL]`（对着运行中的 fullchain 栈跑）。最近实测：**monolith 35/35、api-gateway 35/35**，均为 `RESULT: ALL 35 PASSED`。
+
+**已打通的闭环**（一条命令、可复现）：真实双钱包签名登录 → 真实可解码媒体上传 → 内容 → dev-mint（**轮询链上 receipt 到 `0x1`**）→ 服务端 gating rule → 转码就绪 → **HLS 递归取流**（相对 URI 按来源解析）→ 全分片下载 → **FFmpeg 全解码** → **Range 206 + Content-Range** → A 200 / B 403 且响应无 `#EXTM3U` → 无 token 401 → 越权删除 403 → **篡改矩阵** → **浏览器 hls.js 真播且 `currentTime` ≥3s**。
 
 **先修掉的两个"验收根本不验"的问题**：
+
 1. 旧脚本**自己伪造 HS256 JWT**（硬编码 secret `fullchain-acceptance-secret`），**从不走认证路径**——而且它给 challenge 传的是 `{"address":...}`（端点要 `{"wallet":...}`），所以连 challenge_id 都拿不到。**现在所有 token 都来自服务**：`challenge → cast wallet sign（EIP-191 personal_sign，真私钥）→ /auth/login`，并带上端点要求的 `wallet` 与 `chain_id`。
 2. 旧脚本上传 **1KB 全零字节**当 `acceptance-test.mp4`。现在是**真实可解码媒体**：10s testsrc+sine，640x360@30，H.264 + AAC，编码器从本机 ffmpeg 实际具备的编码器中选择并**记录在输出里**，同时打印 sha256 / 字节数 / 编解码 / 分辨率 / 时长，并**强制整段解码通过**。
 
-| 项 | 结果 | 证据 |
-|---|---|---|
-| 真实签名登录（双钱包） | PASS | A（持有者）与 B（无 NFT）各自完成 challenge → personal_sign → login；A 的 token 调 `/auth/profile` 得 200 |
-| 自签 token 被拒 | PASS | 用假 secret 伪造的 HS256 token 调 `/auth/profile` → **401** |
-| 真实媒体 fixture | PASS | 506106B / h264+aac / 640x360 / 10.000s；**完整解码通过** |
-| 真实上传 → 内容 | PASS | 上传真实媒体 → complete-upload → content_id |
-| 铸造 + 链上 receipt | PASS | dev-mint 成功；**轮询 `eth_getTransactionReceipt` 直到 `status=0x1`**（服务先返回 tx hash，交易未必已上链） |
-| 服务端规则 | PASS | 通过公开 API 在内容上写 gating rule（min_balance=1） |
-| 转码就绪 | PASS | **complete-upload 本身会经 upload hook 触发转码**；因此不重复提交（重复提交会与自动任务冲突并被报 failed，而自动任务其实成功）。断言"内容在 180s 内变为可播放"——只有真转码产出真 HLS 才可能为真 |
-| 持有者拿到 manifest | PASS | Wallet A（持有者）→ **200** |
-| HLS 递归取流 | PASS | 走完入口 playlist → 分片，**相对 URI 按来源 URL 解析**；下载全部分片 375624B |
-| 全分片 FFmpeg 解码 | PASS | 拼接后**完整解码通过** |
-| 无 NFT 钱包被拒且无媒体字节 | PASS | Wallet B → **403**，且响应体**不含 `#EXTM3U`**（267B 错误 JSON） |
-| 未认证 / 越权删除 | PASS | 无 token → 401；B 删 A 的内容 → 403 |
-| **Range 206 + Content-Range** | PASS | 修好后实测：`206` 且 `Content-Range: bytes 0-99/312080`（修复前为 `200` + 整段 + 无 `Content-Range`） |
-| **浏览器真实播放（时间推进）** | PASS | 新增 `specs/06-playback.mjs`：用 hls.js 真播该流，断言 `loadedmetadata`、**真解码帧**（`videoWidth=640 videoHeight=360 readyState=4`）、**`currentTime` 增长 ≥3s**（实测 3.67s / 3.68s / 3.75s）、无 fatal 错误、无 `play()` 拒绝，并记录首帧时刻与卡顿次数。**缺描述文件 = FAIL，不是 skip** |
-| **api-gateway 模式复跑** | PASS | 两个镜像都由本次 checkout 重建后跑同一入口：**monolith 32/32、api-gateway 32/32**（含真实登录、gate 正负例、manifest 与真实分片、Range、浏览器播放） |
+| 项                             | 结果   | 证据                                                                                                                          |
+| ----------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------- |
+| 真实签名登录（双钱包）                   | PASS | A（持有者）与 B（无 NFT）各自完成 challenge → personal_sign → login；A 的 token 调 `/auth/profile` 得 200                                    |
+| 自签 token 被拒                   | PASS | 用假 secret 伪造的 HS256 token 调 `/auth/profile` → **401**                                                                       |
+| 真实媒体 fixture                  | PASS | 506106B / h264+aac / 640x360 / 10.000s；**完整解码通过**                                                                           |
+| 真实上传 → 内容                     | PASS | 上传真实媒体 → complete-upload → content_id                                                                                       |
+| 铸造 + 链上 receipt               | PASS | dev-mint 成功；**轮询 `eth_getTransactionReceipt` 直到 `status=0x1`**（服务先返回 tx hash，交易未必已上链）                                       |
+| 服务端规则                         | PASS | 通过公开 API 在内容上写 gating rule（min_balance=1）                                                                                   |
+| 转码就绪                          | PASS | **complete-upload 本身会经 upload hook 触发转码**；因此不重复提交（重复提交会与自动任务冲突并被报 failed，而自动任务其实成功）。断言"内容在 180s 内变为可播放"——只有真转码产出真 HLS 才可能为真 |
+| 持有者拿到 manifest                | PASS | Wallet A（持有者）→ **200**                                                                                                      |
+| HLS 递归取流                      | PASS | 走完入口 playlist → 分片，**相对 URI 按来源 URL 解析**；下载全部分片 375624B                                                                     |
+| 全分片 FFmpeg 解码                 | PASS | 拼接后**完整解码通过**                                                                                                               |
+| 无 NFT 钱包被拒且无媒体字节              | PASS | Wallet B → **403**，且响应体**不含 `#EXTM3U`**（267B 错误 JSON）                                                                       |
+| 未认证 / 越权删除                    | PASS | 无 token → 401；B 删 A 的内容 → 403                                                                                               |
+| **Range 206 + Content-Range** | PASS | 修好后实测：`206` 且 `Content-Range: bytes 0-99/312080`（修复前为 `200` + 整段 + 无 `Content-Range`）                                       |
 
 **🔎 实测发现并已修的产品缺陷（两个，都由"真跑一次"暴露）**：
+
 1. **分片端点完全忽略 `Range` 头**（恒 200 + 整段）。已实现单区间解析：206 + `Content-Range` + `Content-Length`，所有响应带 `Accept-Ranges`，不可满足时 416 + `bytes */<size>`；多区间请求**拒绝**而非返回其中一段；需要总长故缓冲，缓冲有上限。
 2. **SG-04 引入的回归**：`Web3Service.GetNFTOwnershipQuantity` 用 `client.GetEthClient()`（裸 `*ethclient.Client`）构造 verifier，而**它无法把调用固定到某个区块** ⇒ verifier 的 fail-closed 分支把**每个合约**都判成 "not a recognised ERC-721/ERC-1155 contract"，**持有者被拒绝**。改为传 `ChainClient`（同时满足 `EthCaller` 与 `BlockNumberCaller`）。**这个回归只有把新二进制真的部署起来跑一遍才会暴露**——单测与 mock 都看不见。
 
 **本轮修掉的两个"验收脚本自身"的缺陷**：
+
 - `'#EXT-X-MEDIA'` 是 `'#EXT-X-MEDIA-SEQUENCE'` 的**子串**，而每个 media playlist 都带后者 ⇒ media playlist 被误判为 master，其**分片字节被当成 playlist 解析**。改为带冒号匹配。
 - `set -o pipefail` 下**无匹配的 grep 返回 1 会中止整个脚本**，把后面所有断言全部吞掉。
 
-**未做（SG-05 判据）**：**步骤 8**——CI 由本仓库 checkout 启动专用栈、阶段 deadline（基础 120s / 转码 180s / 浏览器 90s）、失败时上传脱敏日志与 trace 并清理 project；**步骤 6 的更宽篡改矩阵**——路径遍历、跨内容 token、过期 token、篡改 contract（当前已覆盖：未认证 401、伪造 secret token 401、无 NFT 403 且响应无媒体字节、越权删除 403、无规则 403）。
+**后续补入的证据（同一入口，35 项）**：
+- **Range 206**：修复前恒 200 + 整段 + 无 `Content-Range`；修复后 `206` 且 `Content-Range: bytes 0-99/312080`。
+- **浏览器真实播放**：新增 `specs/06-playback.mjs`（hls.js 真播），断言 `loadedmetadata`、**真解码帧**（`videoWidth=640 videoHeight=360 readyState=4`）、**`currentTime` ≥3s**（实测 3.51～3.75s）、无 fatal、无 `play()` 拒绝；**缺描述文件 = FAIL 不是 skip**。原 harness 只到"播放器区域可见"——404 CONTENT_NOT_FOUND、有 manifest 无分片、播放器卡住，DOM 都正常。
+- **api-gateway 模式**：两个镜像都由本次 checkout 重建后跑同一入口，**两种模式都 35/35**。新增 `H5_DEMO_URL`（api-gateway 不提供静态文件，该模式下 demo 指向 h5-demo 服务）。
+- **篡改矩阵**：路径遍历分片名 → **401**（路由归一化后 token 与路由不匹配，根本没到存储）；播放能力用于另一内容 → **401**；规则改指到持有者没有的合约 → **503**。
+- **CI 专用栈（步骤 8）**：新增 `fullchain-acceptance` job（见状态表）。YAML 已解析校验、脱敏规则用真实样例验证过；**job 本身需真 runner 才能确认**。
+
+**🔎 实测发现并已修的产品缺陷（第三个）**：**规则写入在缓存 TTL 内不生效**。`gatingRuleResolverAdapter` 缓存规则集 30s，写入时**没有任何失效**⇒ 把规则改指到别的合约后，持有者**仍被旧规则授权**长达 30s。已加 `GatingRuleService.SetInvalidator` + 三个 owner 写路径写入后回调，`NewGatingRuleResolverAdapter` 把 adapter 的 `Invalidate` 注册进去（update 传 contentID；delete 传 `""` 全清，因为行已删、无法再定位内容）。
+
+**未做 / 推迟（SG-05 判据）**：步骤 6 的"**过期 token**"——实测**manifest 签发的播放 token 存活 >120s**，与计划预期的 60s 能力不符；能力 TTL 属 **SG-06**（"将第三节的 60 秒能力…落实为配置校验"），故**连同该实测数据一并登记为 SG-06 的输入**，而非在验收里用无限等待糊过去。步骤 8 的 CI job 本机无法执行。  
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
-
-| 决策 / 需求 | 默认选定设计 | 必须补充的实证 |
-|---|---|---|
-| D01 / R01、R09 | monolith-first；模式和真实接线分级；生产禁隐式 fallback | actual route / profile tests、组件图 |
-| D02 / R02、R05 | bearer 的主体 / 用途限制、session / authEpoch 与有界撤销 | 双钱包 / expiry / revoke / restore |
-| D03 / R03、R04 | 原始 observedAt 的 5 秒总 age、同区块余额与标准识别 | 缓存顺序 / Anvil / block 参数 / reorg |
-| D04 / R06 | SHA-256 原件；平台 attestor 与 uploader creator 分离 | 对象 bytes / hash / receipt / ABI |
-| D05 / R07、R08 | Postgres 事务 + 窄 outbox、幂等副作用、durable nonce / signed tx | kill / unknown broadcast / duplicate / lease |
-| D06 / R04、R08 | 白名单事件只加速失效、有限 checkpoint / WS 回退 | TransferBatch / 断流 / 重组 / TTL 保底 |
-| D07 / R09～R11 | worker 隔离、资源约束、同 digest CD、restore 失效旧 session | prod-negative / perf / release / backup restore |
-| D08 / R12 | 个人可解释的事实与条件；主线完成后冻结 | 代码入口 / 失败用例 / 物料 / 本人确认 |
+| 决策 / 需求       | 默认选定设计                                                 | 必须补充的实证                                         |
+| ------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| D01 / R01、R09 | monolith-first；模式和真实接线分级；生产禁隐式 fallback                | actual route / profile tests、组件图                |
+| D02 / R02、R05 | bearer 的主体 / 用途限制、session / authEpoch 与有界撤销            | 双钱包 / expiry / revoke / restore                 |
+| D03 / R03、R04 | 原始 observedAt 的 5 秒总 age、同区块余额与标准识别                    | 缓存顺序 / Anvil / block 参数 / reorg                 |
+| D04 / R06     | SHA-256 原件；平台 attestor 与 uploader creator 分离           | 对象 bytes / hash / receipt / ABI                 |
+| D05 / R07、R08 | Postgres 事务 + 窄 outbox、幂等副作用、durable nonce / signed tx | kill / unknown broadcast / duplicate / lease    |
+| D06 / R04、R08 | 白名单事件只加速失效、有限 checkpoint / WS 回退                       | TransferBatch / 断流 / 重组 / TTL 保底                |
+| D07 / R09～R11 | worker 隔离、资源约束、同 digest CD、restore 失效旧 session         | prod-negative / perf / release / backup restore |
+| D08 / R12     | 个人可解释的事实与条件；主线完成后冻结                                    | 代码入口 / 失败用例 / 物料 / 本人确认                         |
 
 所有 R01～R12 在 SG-15 追加“已实现文件 / test ID / SHA / run / artifact / 限制”，任一无映射都不算闭环。上表为默认决策，不能只填“已考虑”代替测试。
 
@@ -1087,13 +1110,13 @@ sequenceDiagram
 
 ### 0.1 产物门（每道都必须能失败）
 
-|       门       | 判据                                                                 | 验证方式                                                                    |
-| :-----------: | ------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| **G1** 授权不可绕过 | **`AUTHZ_RED=1` 下**，A1 的 **4 个 RED** 测试必须全绿，且**在 Track A 修复前必须失败** | ⚠️ **不能直接跑 `go test`**——RED 测试默认 `t.Skip`（为保 CI 绿）。见下方「G1 正确验法」         |
+|       门       | 判据                                                                                            | 验证方式                                                                    |
+| :-----------: | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **G1** 授权不可绕过 | **`AUTHZ_RED=1` 下**，A1 的 **4 个 RED** 测试必须全绿，且**在 Track A 修复前必须失败**                            | ⚠️ **不能直接跑 `go test`**——RED 测试默认 `t.Skip`（为保 CI 绿）。见下方「G1 正确验法」         |
 |  **G2** 无死代码  | 附录 B 的删除清单已按表执行（13 项中 **12 项删除**；1 项经 2026-10-11 复核**判定应从清单撤销**，理由见附录 B 与附录 F.5）；非测试源码行数下降并记录 | `find . -name '*.go' -not -name '*_test.go' \| xargs cat \| wc -l` 前后对比 |
-|  **G3** 文档无矛盾 | 附录 A.6 的 **9 处**矛盾全部修正；CLAUDE.md 不再引用不存在的文件                            | 逐条核对                                                                    |
-|  **G4** 数字可复现 | README 中每个数字都有对应命令                                                 | 逐条执行                                                                    |
-|  **G5** 简历已产出 | 3 个真人读过并回答"你会面这个人吗"                                                | 见 C2                                                                    |
+|  **G3** 文档无矛盾 | 附录 A.6 的 **9 处**矛盾全部修正；CLAUDE.md 不再引用不存在的文件                                                   | 逐条核对                                                                    |
+|  **G4** 数字可复现 | README 中每个数字都有对应命令                                                                            | 逐条执行                                                                    |
+|  **G5** 简历已产出 | 3 个真人读过并回答"你会面这个人吗"                                                                           | 见 C2                                                                    |
 
 #### ⚠️ G1 正确验法（RED 测试默认被跳过，直接用 `go test` 会得到假绿）
 
@@ -1186,19 +1209,16 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **步骤**：
   1. 参考 `pkg/gateway/nft_handlers_test.go` 的测试脚手架风格（该文件有真实的 cache 断言，质量高）
   2. **实际实现的 7 个测试**（与文件一致，勿按旧清单改名）：
-
-     | # | 测试名（实际） | 类型 | 断言 |
-     |:--:|------|:--:|------|
-     | 1 | `TestManifest_BogusPlaybackToken_Returns401` | 🔴 RED | `?playback_token=x`（无 JWT）→ **401** |
-     | 2 | `TestManifest_BogusPlaybackToken_NoQuality_Returns401` | 🔴 RED | 同上但不传 `quality` → **401** |
-     | 3 | `TestManifest_NoGatingRules_DeniesByDefault` | 🔴 RED | 无门控规则 → **403**（非放行） |
-     | 4 | `TestManifest_CallerSuppliedContract_Ignored` | 🔴 RED | `?contract=<调用方地址>` → **403**（服务端规则为准） |
-     | 5 | `TestManifest_NoAuth_Returns401` | 🟢 GUARD | 无任何凭证 → 401 |
-     | 6 | `TestSegment_NoToken_Returns401` | 🟢 GUARD | 分片无 token → 401 |
-     | 7 | `TestSegment_BogusPlaybackToken_Returns401` | 🟢 GUARD | 分片带伪造 token → 401 |
-
+     |  #  | 测试名（实际）                                                |    类型    | 断言                                     |
+     | :-: | ------------------------------------------------------ | :------: | -------------------------------------- |
+     |  1  | `TestManifest_BogusPlaybackToken_Returns401`           |  🔴 RED  | `?playback_token=x`（无 JWT）→ **401**    |
+     |  2  | `TestManifest_BogusPlaybackToken_NoQuality_Returns401` |  🔴 RED  | 同上但不传 `quality` → **401**              |
+     |  3  | `TestManifest_NoGatingRules_DeniesByDefault`           |  🔴 RED  | 无门控规则 → **403**（非放行）                   |
+     |  4  | `TestManifest_CallerSuppliedContract_Ignored`          |  🔴 RED  | `?contract=<调用方地址>` → **403**（服务端规则为准） |
+     |  5  | `TestManifest_NoAuth_Returns401`                       | 🟢 GUARD | 无任何凭证 → 401                            |
+     |  6  | `TestSegment_NoToken_Returns401`                       | 🟢 GUARD | 分片无 token → 401                        |
+     |  7  | `TestSegment_BogusPlaybackToken_Returns401`            | 🟢 GUARD | 分片带伪造 token → 401                      |
      > **旧清单的差异（已修正）**：`TestManifest_QueryContractOverride_Ignored` 实为 `TestManifest_CallerSuppliedContract_Ignored`；`TestSegment_NoJWTNoToken_Returns401` 实为 `TestSegment_NoToken_Returns401`；gRPC 测试**尚未实现**（见本节末尾）。
-
   3. **运行并记录**（必须带 `AUTHZ_RED=1`，否则 RED 测试被跳过）：
      ```bash
      AUTHZ_RED=1 go test ./pkg/gateway/ -run 'TestManifest|TestSegment' -count=1 -v
@@ -1208,14 +1228,14 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   - `AUTHZ_RED=1` 运行：**恰好 4 FAIL** ✅（证明漏洞存在）
   - **7 个测试 = 4 RED + 3 GUARD**（GUARD 是已通过、须保持绿的守卫测试）
 - **⚠️ 脚手架细节（不照做会编译失败或 panic——这些是实测踩过的坑）**：
-  |  #  | 坑                                                                                          | 正确做法                                                                                                  |
-  | :-: | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-  |  1  | `service.NewAuthService` 的 secret **<32 字符会 panic**                                        | `service.NewAuthService("test-secret-that-is-at-least-32-chars", nil)`（`pkg/service/auth.go:208-210`） |
-  |  2  | `*NFTAccessCache` **不满足** `middleware.NFTAccessCache`（前者方法不带 `context.Context`）            | 必须用适配器：`&NFTAccessCacheAdapter{Cache: NewNFTAccessCache()}`（`pkg/gateway/nft_handlers.go:311`）        |
-  |  3  | `NFTGateConfig.Cache` **不会被中间件兜底**（只兜底 `BlockVerifyCache`），不设会 panic                       | 显式设置 `Cache:` 字段                                                                                      |
-  |  4  | `authService` 是**具体类型**不是接口，传 `nil` 会在 handler 里 panic                                     | 构造真实实例                                                                                                |
-  |  5  | 测试须用 `package gateway`（内部测试）才能访问 `newStreamLimiter`、`RegisterStreamingSegmentRoute` 等未导出符号 | 不要用 `package gateway_test`                                                                            |
-  **精确签名**（写代码前照此，勿猜）：
+  |           #          | 坑                                                                                          | 正确做法                                                                                                  |
+  | :------------------: | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+  |           1          | `service.NewAuthService` 的 secret **<32 字符会 panic**                                        | `service.NewAuthService("test-secret-that-is-at-least-32-chars", nil)`（`pkg/service/auth.go:208-210`） |
+  |           2          | `*NFTAccessCache` **不满足** `middleware.NFTAccessCache`（前者方法不带 `context.Context`）            | 必须用适配器：`&NFTAccessCacheAdapter{Cache: NewNFTAccessCache()}`（`pkg/gateway/nft_handlers.go:311`）        |
+  |           3          | `NFTGateConfig.Cache` **不会被中间件兜底**（只兜底 `BlockVerifyCache`），不设会 panic                       | 显式设置 `Cache:` 字段                                                                                      |
+  |           4          | `authService` 是**具体类型**不是接口，传 `nil` 会在 handler 里 panic                                     | 构造真实实例                                                                                                |
+  |           5          | 测试须用 `package gateway`（内部测试）才能访问 `newStreamLimiter`、`RegisterStreamingSegmentRoute` 等未导出符号 | 不要用 `package gateway_test`                                                                            |
+  | **精确签名**（写代码前照此，勿猜）： |                                                                                            |                                                                                                       |
   ```go
   // pkg/gateway/streaming_handlers.go
   func NewStreamingCache() *StreamingCache
@@ -1266,9 +1286,8 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   2. **A2 与 A3 必须一起改**：A2 把 JWT 中间件的判断从"query 参数存在"改为"前置中间件已设 `playback_auth`"，因此**必须**有一个前置中间件真的去设它。
   3. 分片路由（`RegisterStreamingSegmentRoute`，`routes.go:52`）挂 `PlaybackTokenAuth`——它**不需要 JWT**。
   4. **保留注释**说明"HLS.js 不带 Authorization 头，故用 query token；此处必须校验，不得只看存在性"——安全敏感决策，按 `CLAUDE.md` 注释策略必须写。
-
-- **🔴 Gin 中间件顺序陷阱（照做前务必理解，否则会得到错误的中间件顺序）**：
-  `streamingGroup := router.Group("/")`（`routes.go:198`）是在 `router.Use(middleware.JWTAuthMiddleware(...))`（`:54`）**之后**创建的，而 **Gin 的 `Use` 只追加、不插入**。所以在 `:198` 处 `streamingGroup.Use(playbackAuth)` 会把 `playbackAuth` 排在 JWT **后面**——完全无效。
+- **🔴 Gin 中间件顺序陷阱（照做前务必理解，否则会得到错误的中间件顺序）**：  
+  `streamingGroup := router.Group("/")`（`routes.go:198`）是在 `router.Use(middleware.JWTAuthMiddleware(...))`（`:54`）**之后**创建的，而 **Gin 的 `Use` 只追加、不插入**。所以在 `:198` 处 `streamingGroup.Use(playbackAuth)` 会把 `playbackAuth` 排在 JWT **后面**——完全无效。  
   **正确做法**：在 `:54` **之前**新建一个组并挂 `playbackAuth`，把 manifest 路由注册到它上面，然后**删除**原 `:198-207` 的重复注册（NFTGate 中间件保留，改挂到新组）。
   ```go
   // routes.go — 必须在 router.Use(middleware.JWTAuthMiddleware(...)) 之前
@@ -1284,7 +1303,6 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   // …在 :54 之后再把 JWT / NFTGate 挂上，并在此组注册 RegisterStreamingRoutes
   ```
   ⚠️ `ValidatePlaybackToken` 在 **A6** 中签名会变（可变参数改必填）。A3 先传 `""` 占位、A6 再统一改，或两任务合并做。
-
 - **验证**：`go test ./pkg/gateway/... -count=1`
 - **验收判据**：`TestSegment_NoToken_Returns401` 保持绿；A1 的 4 个 RED 中与 token 相关的 2 个转绿
 
@@ -1296,7 +1314,6 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 - **步骤**：拆开条件。**只要有 `playback_token` 就必须校验**，`quality` 只决定走哪条分支。
 - **验证**：`go test ./pkg/gateway/... -count=1`
 - **验收判据**：`TestManifest_CallerSuppliedContract_Ignored` 转绿
-
 
 ### [x] A5 禁止为空钱包签发播放令牌
 
@@ -1347,7 +1364,9 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   | `:190-193` | `Enabled == false` → `c.Next()` 放行                 | 对受保护路由返回 **503**                                      |
   | `:216-221` | 无门控规则 → 放行（`nft_bypass_reason: "no_gating_rules"`） | **拒绝**（引入 `GatingMode: "open"\|"closed"`，默认 `closed`） |
   | `:288-289` | 规则解析出错 → 放行                                        | 返回 **500**                                            |
-4. **h5-demo 兼容（连带必做项，2026-10-10 评审补充）**：demo 内容（`demo`）没有任何已种子的 gating rules，手动播放现在完全依赖 `no_gating_rules` fail-open——fail-closed 后面试现场手动点 Play 会 403。需在验收栈启动时为 `demo` 内容种一条**服务端** gating rule（指向 DemoNFT 合约、chain 31337），并重跑 h5 验收探针确认 5/5 仍绿（探针不拉 manifest，理论上不受影响；手动播放路径必须保持可用或显式标注不可用）。
+
+1. **h5-demo 兼容（连带必做项，2026-10-10 评审补充）**：demo 内容（`demo`）没有任何已种子的 gating rules，手动播放现在完全依赖 `no_gating_rules` fail-open——fail-closed 后面试现场手动点 Play 会 403。需在验收栈启动时为 `demo` 内容种一条**服务端** gating rule（指向 DemoNFT 合约、chain 31337），并重跑 h5 验收探针确认 5/5 仍绿（探针不拉 manifest，理论上不受影响；手动播放路径必须保持可用或显式标注不可用）。
+
 - **验证**：`go test ./pkg/middleware/ -count=1`
 - **验收判据**：`TestManifest_NoGatingRules_DeniesByDefault` 转绿
 
@@ -1413,8 +1432,8 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 
 - **依赖**：P0-1
 - **证据**：`pkg/service/content/content.go:361-364` 的上链逻辑被 `if s.registry != nil` 包住，而 `SetContentRegistry`（`content.go:79`）**无任何非测试调用者**；`provideContentService`（`pkg/gateway/providers.go:157-163`）只调 `service.NewContentService(db, nil, nil)`，从不设置 registry。**故该分支运行时永不执行。**
-- **步骤**：
-  0. **前置（2026-10-10 评审补充，不做则本任务验收判据不可达）**：Go 绑定 ABI 是 `registerContent(bytes32,string)`（`pkg/web3/contract/registry.go:34`），Solidity 合约是 `registerContent(string,string,string)`（`contracts/src/ContentRegistry.sol:51`），**两者不一致**；且 `ContentRegistryBytecode = "0x"` 是占位符，`deploy-anvil.sh` 只部署 DemoNFT。先以 `ContentRegistry.sol` 为准重写 Go 绑定 ABI 与调用点（或反向对齐），并让 dev 栈部署该合约、把地址配置进 config；地址为空时保持 `registry = nil`（降级）。
+- **步骤**：  
+  0\. **前置（2026-10-10 评审补充，不做则本任务验收判据不可达）**：Go 绑定 ABI 是 `registerContent(bytes32,string)`（`pkg/web3/contract/registry.go:34`），Solidity 合约是 `registerContent(string,string,string)`（`contracts/src/ContentRegistry.sol:51`），**两者不一致**；且 `ContentRegistryBytecode = "0x"` 是占位符，`deploy-anvil.sh` 只部署 DemoNFT。先以 `ContentRegistry.sol` 为准重写 Go 绑定 ABI 与调用点（或反向对齐），并让 dev 栈部署该合约、把地址配置进 config；地址为空时保持 `registry = nil`（降级）。
   1. 在 `provideContentService` 中构造 `ContentRegistryBinding` 并调用 `SetContentRegistry(...)`
   2. 若链不可达，**必须降级而非崩溃**（`content.go` 已有 `if s.registry != nil` 保护，保留它）
   3. 补充集成测试：创建内容 → 断言产生交易哈希
@@ -1510,8 +1529,8 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 > **不要默认执行本 Track。** 先完成 P0 + Track A + Track C，并用市场探针（C4 的前 2 周）确认方向。  
 > **若方向为 A（区块链节点客户端），本 Track 全部跳过**——StreamGate 对该方向几乎无用，应改为做节点侧的 OSS 贡献。
 
-> **⛔ 2026-10-11 人工决定：本 Track 不启动。** 经确认,当前不投入 D1/D2;两者保持未开始,**不进任何交付范围**。
-> 本计划在 Track A（授权安全）与 Track B（诚实/减法）完成后**收尾**;剩余项 `C4`(投递)/`C5` 步骤 1(录屏)/`G5`(3 个真人读简历) 全部为**人工任务**。
+> **⛔ 2026-10-11 人工决定：本 Track 不启动。** 经确认,当前不投入 D1/D2;两者保持未开始,**不进任何交付范围**。  
+> 本计划在 Track A（授权安全）与 Track B（诚实/减法）完成后**收尾**;剩余项 `C4`(投递)/`C5` 步骤 1(录屏)/`G5`(3 个真人读简历) 全部为**人工任务**。  
 > 若日后要启动,仍需先做附录 C 的方向选择;D2 另需 Swift 可行性验证(计划自评 15–25 天)。
 
 ### [ ] D1 HLS AES-128 门控密钥分发（服务于媒体方向）
@@ -1554,7 +1573,7 @@ B1  B2  B3  B4  B6  B7 ─────┴─→ B5（文档对齐）─→ C2（
 B5 ─→ C5（仓库门面）
 ```
 
-**关键路径**：`P0-1 → A1 → A2..A9 → A10 → B5 → C2 → C4`；**C0 与 Track A 并行**，保证第 3 周有简历可投
+**关键路径**：`P0-1 → A1 → A2..A9 → A10 → B5 → C2 → C4`；**C0 与 Track A 并行**，保证第 3 周有简历可投  
 **可并行**：B1/B2/B3/B4/B6/B7 与 Track A 并行；P0-3 与 P0-1 并行
 
 **第 3 周硬性检查点**：无论上图完成到哪一步，**必须开始投递**（C4）。
@@ -1589,7 +1608,6 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 - `DemoNFT.sol`：唯一被 `contracts/deploy-anvil.sh` 部署的合约
 - **不要**把自研合约接进授权路径——后端直读第三方 NFT 合约的 `ownerOf` 是**更好的**设计（少中间件、少 gas、少活性依赖）
 
-
 ### A.3 真实优势（简历可写）
 
 - FFmpeg ABR 转码：4 档阶梯（`pkg/plugins/transcoder/ffmpeg.go:346-351`）、HLS 参数（`:418-419`）、stderr 进度解析（`:570`）
@@ -1598,7 +1616,7 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 - 签名验签：EIP-191/712/SIWE + EIP-2 low-s + 常量时间比较 + EIP-1271（`pkg/web3/signature/`）
 - 防重放：Redis Lua 原子消费（`pkg/storage/redis_challenge.go:142-155`）
 - 链上校验：`safe` block tag（`pkg/web3/nft/verifier.go:72`）、ERC-165（`verifier.go:560-613`）、15s TTL 上限（`nft_gate.go:531-532`）、重组失效（`nft_gate.go:408-424`）
-- H5 Demo + Playwright 验收：`make h5-demo-acceptance`（5 specs / 13 探针，含安全三向差分：401 无认证 · 403 无规则 · 404-已过门控）。
+- H5 Demo + Playwright 验收：`make h5-demo-acceptance`（5 specs / 13 探针，含安全三向差分：401 无认证 · 403 无规则 · 404-已过门控）。  
   **注意**：`scripts/h5-demo-acceptance/reports/` 是 `.gitignore` 的运行产物，已按附录 D 清理 —— 证据以 CI run id 或本地重跑为准，**不引用具体报告路径**。
 
 ### A.4 真实短板
@@ -1620,29 +1638,29 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 | :-: | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 |  1  | `README.md:14` vs `:264-292`                      | 同一文件内既称 `v1.0.0-stable`、P0"全部实现并测试"，又称"开发中/骨架"                                                                       |
 |  2  | `CLAUDE.md:12,200`                                | 称 40% CI 门槛；实际 `ci.yml:121` = **10%**                                                                                |
-|  3  | `CLAUDE.md:12`                                    | 称 255 测试文件；实际 **261**（2026-10-10 实测）                                                                                |
+|  3  | `CLAUDE.md:12`                                    | 称 255 测试文件；实际 **261**（2026-10-10 实测）                                                                                 |
 |  4  | `CLAUDE.md:92`                                    | 称微服务 main"各 10 行经 `core.RunMicroservice`"；实际 **8 个 89 行 + api-gateway 118 行**，且 `RunMicroservice` **零调用者**           |
 |  5  | `README.md:137`                                   | 称"52 个带回滚的迁移"；实际 **34 up / 18 down**                                                                                 |
 |  6  | `README.md:131-133` vs `docs/ARCHITECTURE.md:365` | 前者标 Prometheus+Jaeger 为 Stable；后者称该栈已移除                                                                              |
 |  7  | `README.md:138`                                   | 称 CI 链"…security → docker"；实际 `ci.yml:216` docker 只依赖 test+build                                                     |
 |  8  | `CLAUDE.md`                                       | 引用了 6 个**不存在**的文件：`pkg/web3/nft.go`、`signature.go`、`contract.go`、`solana.go`、`event_indexer.go`、`smart_contracts.go` |
-|  9  | `CLAUDE.md`/`AGENTS.md`                           | 称 10 build targets；实际 `make build-all` 产 **11** 个二进制（含 `cmd/learn`）                                                 |
+|  9  | `CLAUDE.md`/`AGENTS.md`                           | 称 10 build targets；实际 `make build-all` 产 **11** 个二进制（含 `cmd/learn`）                                                  |
 
 ---
 
 ## 附录 B：删除清单（Track B4）
 
-| 目标                    | 位置                                                                                                                      | 理由                                                                                                         |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 流媒体桩实现                | `pkg/plugins/streaming/handler.go:76`（返回字面量 `"#EXTM3U\n#EXT-X-VERSION:3\n"`）、`:98`（`<MPD></MPD>`）；`hls.go`/`dash.go` 空壳 | 字面量桩                                                                                                       |
-| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`。**⚠️ 2026-10-11 复核判定应从清单撤销，未删除**：它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`，且 `pkg/plugins/transcoder/{server,handler}.go` 全部依赖它，是 standalone transcoder 微服务的真实实现。删除等价于把该微服务改接 `service.TranscodingService`（约 700 行），属**架构改动而非删除**，须单独立项。详见附录 F                                                                  |
-| 1 行空文件                | `pkg/plugins/transcoder/scaler.go`、`pkg/plugins/worker/executor.go`                                                     | 仅 `package` 声明                                                                                             |
-| 未接入的 IPFS             | `pkg/web3/ipfs.go` + `pkg/service/web3.go:53`、`pkg/service/web3_tx.go:66,77` 对 `IPFSClient` 类型的引用                       | 从未实例化（运行时恒 nil）。**直接删文件会编译失败**，需连引用一起清（2026-10-10 评审实测更正）                                                  |
-| 未调用的转码方法              | `TranscodeToDASH`、`ExtractAudio`、`ConcatVideos`                                                                         | 无调用者                                                                                                       |
-| 凑数测试                  | `pkg/gateway/coverage_test.go`、`gateway_coverage_test.go`、`gateway_extended_coverage_test.go`（共约 1800 行）                 | coverage-churn：每文件有 50–80 处断言，但测的是"依赖等于它自己"类无价值命题（2026-10-10 评审实测更正：并非"完全无断言"）                             |
-| 恒真安全测试                | `test/security/security_audit_test.go:248-272`                                                                          | `checkDependencies()` 恒返回 `[]string{}`；`testAuditLoggingCheck()`/`testSQLInjectionCheck()` 恒 `return true` |
-| 不执行的负载测试              | `test/load/load_test.go`                                                                                                | 全部以 `t.Skip("requires external service")` 开头                                                               |
-| 根目录备份残留              | `go.mod.bak-v1`、`go.sum.bak-v1`（untracked）                                                                              | chainpulse 对齐后的备份残留，不入库也不留在工作区                                                                             |
+| 目标                    | 位置                                                                                                                      | 理由                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 流媒体桩实现                | `pkg/plugins/streaming/handler.go:76`（返回字面量 `"#EXTM3U\n#EXT-X-VERSION:3\n"`）、`:98`（`<MPD></MPD>`）；`hls.go`/`dash.go` 空壳 | 字面量桩                                                                                                                                                                                                                                                                                                                                                                                |
+| 并行且自标 Deprecated 的调度器 | `pkg/plugins/transcoder/transcoder.go:72-74`（`WorkerPool`）、`:131-134`（`TranscoderPlugin`）                               | 代码内自标 Deprecated，重复 `service/transcoding`。**⚠️ 2026-10-11 复核判定应从清单撤销，未删除**：它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`，且 `pkg/plugins/transcoder/{server,handler}.go` 全部依赖它，是 standalone transcoder 微服务的真实实现。删除等价于把该微服务改接 `service.TranscodingService`（约 700 行），属**架构改动而非删除**，须单独立项。详见附录 F |
+| 1 行空文件                | `pkg/plugins/transcoder/scaler.go`、`pkg/plugins/worker/executor.go`                                                     | 仅 `package` 声明                                                                                                                                                                                                                                                                                                                                                                      |
+| 未接入的 IPFS             | `pkg/web3/ipfs.go` + `pkg/service/web3.go:53`、`pkg/service/web3_tx.go:66,77` 对 `IPFSClient` 类型的引用                       | 从未实例化（运行时恒 nil）。**直接删文件会编译失败**，需连引用一起清（2026-10-10 评审实测更正）                                                                                                                                                                                                                                                                                                                           |
+| 未调用的转码方法              | `TranscodeToDASH`、`ExtractAudio`、`ConcatVideos`                                                                         | 无调用者                                                                                                                                                                                                                                                                                                                                                                                |
+| 凑数测试                  | `pkg/gateway/coverage_test.go`、`gateway_coverage_test.go`、`gateway_extended_coverage_test.go`（共约 1800 行）                | coverage-churn：每文件有 50–80 处断言，但测的是"依赖等于它自己"类无价值命题（2026-10-10 评审实测更正：并非"完全无断言"）                                                                                                                                                                                                                                                                                                      |
+| 恒真安全测试                | `test/security/security_audit_test.go:248-272`                                                                          | `checkDependencies()` 恒返回 `[]string{}`；`testAuditLoggingCheck()`/`testSQLInjectionCheck()` 恒 `return true`                                                                                                                                                                                                                                                                          |
+| 不执行的负载测试              | `test/load/load_test.go`                                                                                                | 全部以 `t.Skip("requires external service")` 开头                                                                                                                                                                                                                                                                                                                                        |
+| 根目录备份残留               | `go.mod.bak-v1`、`go.sum.bak-v1`（untracked）                                                                              | chainpulse 对齐后的备份残留，不入库也不留在工作区                                                                                                                                                                                                                                                                                                                                                      |
 
 **注意**：删除后必须重跑 `go build ./...` 与 `go test ./...`，并**记录非测试源码行数的前后值**（G2）。
 
@@ -1686,60 +1704,60 @@ GET /api/v1/streaming/{id}/manifest.m3u8?playback_token=x
 
 ## 附录 F：2026-10-11 CI/CD 收官与复核记录
 
-> 本附录替代此前的两份过程文档（`docs/reviews/2026-10-11-transition-plan-acceptance.md`、
-> `docs/HANDOVER_2026-10-11.md`）。按附录 D「本文件是唯一计划文档」，过程性文档已删除，
+> 本附录替代此前的两份过程文档（`docs/reviews/2026-10-11-transition-plan-acceptance.md`、  
+> `docs/HANDOVER_2026-10-11.md`）。按附录 D「本文件是唯一计划文档」，过程性文档已删除，  
 > **仍有长期价值的结论在此留存**。
 
 ### F.1 基线修订:Go 1.25 → 1.26(已获人工批准)
 
-见本文档开头基线声明的 2026-10-11 修订条目。触发原因:Docker Trivy 门禁报出 **6 个 HIGH**,
+见本文档开头基线声明的 2026-10-11 修订条目。触发原因:Docker Trivy 门禁报出 **6 个 HIGH**,  
 其中 4 个的修复版本**要求 Go ≥ 1.26**:
 
-| CVE | 组件 | 需修至 | 为什么 Go 1.25 修不了 |
-|-----|------|--------|----------------------|
-| CVE-2026-78669 | `golang.org/x/net` | v0.60.0 | 该模块声明 `go 1.26.0` |
-| CVE-2026-78667 | stdlib (net/http) | 1.26.9 / 1.27.2 | Go 1.25 线不再出补丁 |
-| CVE-2026-78669 | stdlib (net/http http2) | 1.26.9 / 1.27.2 | 同上 |
-| CVE-2026-97031 | stdlib (crypto/tls) | 1.26.9 / 1.27.2 | 同上 |
+| CVE            | 组件                      | 需修至             | 为什么 Go 1.25 修不了   |
+| -------------- | ----------------------- | --------------- | ----------------- |
+| CVE-2026-78669 | `golang.org/x/net`      | v0.60.0         | 该模块声明 `go 1.26.0` |
+| CVE-2026-78667 | stdlib (net/http)       | 1.26.9 / 1.27.2 | Go 1.25 线不再出补丁    |
+| CVE-2026-78669 | stdlib (net/http http2) | 1.26.9 / 1.27.2 | 同上                |
+| CVE-2026-97031 | stdlib (crypto/tls)     | 1.26.9 / 1.27.2 | 同上                |
 
-选择**上调基线**而非加 `.trivyignore` —— 不为已知 HIGH 开盲区。另 2 个(`x/crypto` CVE-2026-56854、
-`grpc` CVE-2026-84304/CVE-2026-84445)也随之闭合。**收官:Trivy CRITICAL/HIGH = 0**
+选择**上调基线**而非加 `.trivyignore` —— 不为已知 HIGH 开盲区。另 2 个(`x/crypto` CVE-2026-56854、  
+`grpc` CVE-2026-84304/CVE-2026-84445)也随之闭合。**收官:Trivy CRITICAL/HIGH = 0**  
 (`streamgate-monolith:scan (alpine 3.21.8) | alpine | 0`;Docker run `38122905154`,11 个 job 全绿)。
 
 `go.mod` 增 `toolchain go1.26.9`,把 CVE 修复下限**写死**,避免用 1.26.0 编译器产出有漏洞的二进制。
 
 ### F.2 教训:修依赖 CVE 要校验目标版本是否落在**其他** CVE 的区间
 
-本次 `grpc` 就踩了这个坑:原 `v1.82.2` **不在** CVE-2026-84445 的受影响范围(修复列表里含 1.82.2),
-为修 CVE-2026-84304 升到 `v1.83.1` 反而进入 84445 区间,最终需 `v1.83.2`。
+本次 `grpc` 就踩了这个坑:原 `v1.82.2` **不在** CVE-2026-84445 的受影响范围(修复列表里含 1.82.2),  
+为修 CVE-2026-84304 升到 `v1.83.1` 反而进入 84445 区间,最终需 `v1.83.2`。  
 **「升到更高版本就完事」不是充分推理。**
 
 ### F.3 Go 1.26 暴露的一个既有生产缺陷(已修)
 
-`pkg/monitoring/alerts.go` 用 `time.Now().UnixNano()` 当 alert ID。Go 1.26 下 darwin 连续调用
+`pkg/monitoring/alerts.go` 用 `time.Now().UnixNano()` 当 alert ID。Go 1.26 下 darwin 连续调用  
 **返回相同值**,两条规则同瞬触发时 ID 碰撞,`am.alerts[alert.ID] = alert` **静默覆盖第一条**。
 
-A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**1.26.9** → 3 个测试间歇失败。
+A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**1.26.9** → 3 个测试间歇失败。  
 修复:加 `seq atomic.Uint64` 后缀。既有测试即回归测试。
 
 ### F.4 门禁判据的实证状态
 
-| 判据 | 状态 |
-|------|------|
-| **G1** 授权不可绕过 | ✅ **三重证明**:worktree `f6dcf20`(A2 前)`AUTHZ_RED=1` → 恰好 **4 FAIL**;修复后 → **7 PASS / 0 FAIL / 0 SKIP**;`requireRED` 已清除 |
-| **G2** 无死代码 | ✅ **12/13 项执行**(见附录 B 说明 + F.5) |
-| **G3** 文档无矛盾 | ✅ 附录 A.6 九项全消解;Go 1.26 相关数字已同步 |
-| **G4** 数字可复现 | ✅ 覆盖率 73.4%、测试文件 254/203、迁移 **35 up / 19 down**、build-all **11** 二进制,均实测吻合 |
+| 判据                          | 状态                                                                                                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **G1** 授权不可绕过               | ✅ **三重证明**:worktree `f6dcf20`(A2 前)`AUTHZ_RED=1` → 恰好 **4 FAIL**;修复后 → **7 PASS / 0 FAIL / 0 SKIP**;`requireRED` 已清除                                                                                               |
+| **G2** 无死代码                 | ✅ **12/13 项执行**(见附录 B 说明 + F.5)                                                                                                                                                                                    |
+| **G3** 文档无矛盾                | ✅ 附录 A.6 九项全消解;Go 1.26 相关数字已同步                                                                                                                                                                                     |
+| **G4** 数字可复现                | ✅ 覆盖率 73.4%、测试文件 254/203、迁移 **35 up / 19 down**、build-all **11** 二进制,均实测吻合                                                                                                                                         |
 | **B6** 「故意引入漏洞依赖 → CI 必须失败」 | ⚠️ **以真实失败实证,未做刻意注入**:本日 Docker 门禁在 `Scan Monolith Image` → Trivy 步骤**两次真实失败**(run `38112149624` 6 HIGH、`38122049710` 1 HIGH,`exit-code: '1'` + `severity: CRITICAL,HIGH`),证明该门禁**不是空转**。刻意注入一个已知 CVE 依赖的演练**未执行** |
 
 ### F.5 已知未完成 / 有意保留
 
-| 项 | 说明 |
-|----|------|
-| 附录 B「并行且自标 Deprecated 的调度器」 | **保留,且建议把该删除项从计划中撤销(非"延后")**。理由(2026-10-11 复核实测):① 它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`,`server.go`/`handler.go` 全部依赖它;② 改接 `service.TranscodingService` **不是机械替换**:后者签名是 `NewTranscodingService(db storage.DB, queue TranscodingQueue, ...)`(`pkg/service/transcoding/transcoding.go:64`),**需要 DB + 队列**;而 standalone transcoder 现在是无 DB 依赖的内存 worker pool。照字面"删除"等于给一个微服务**强加数据库与队列运行时依赖**,是**架构变更**,与附录 E 第 2 条「能解释才保留、宁可项目变小」的减法意图相反。**结论:该项的删除前提不成立,应从附录 B 撤销而非延后。** |
-| `git.go`/同类 `UnixNano()` 当唯一 key 的写法 | 尚存于 `pkg/plugins/worker/handler.go:72`、`worker/scheduler.go:659`、`streaming/range.go:179`、`gateway/errors.go:146`。当前无测试覆盖到碰撞,**未改**(避免顺手改对) |
-| `auto-fix.yml:206` | 用 v1 模块路径 `github.com/golangci/golangci-lint/cmd/...@latest`,v2 应为 `/v2/cmd/...`。该步骤带 `|| true`,不阻塞但已失效 |
-| `C4` / `C5` / `D1` / `D2` / `G5` | 人工任务,见 §4 Track C 与 §5 Track D |
+| 项                                    | 说明                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |   |                |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | - | -------------- |
+| 附录 B「并行且自标 Deprecated 的调度器」          | **保留,且建议把该删除项从计划中撤销(非"延后")**。理由(2026-10-11 复核实测):① 它**不是死代码** —— `cmd/microservices/transcoder/main.go:58` → `TranscoderPluginWrapper` → `NewTranscoderPlugin()` → `WorkerPool.Start()`,`server.go`/`handler.go` 全部依赖它;② 改接 `service.TranscodingService` **不是机械替换**:后者签名是 `NewTranscodingService(db storage.DB, queue TranscodingQueue, ...)`(`pkg/service/transcoding/transcoding.go:64`),**需要 DB + 队列**;而 standalone transcoder 现在是无 DB 依赖的内存 worker pool。照字面"删除"等于给一个微服务**强加数据库与队列运行时依赖**,是**架构变更**,与附录 E 第 2 条「能解释才保留、宁可项目变小」的减法意图相反。**结论:该项的删除前提不成立,应从附录 B 撤销而非延后。** |   |                |
+| `git.go`/同类 `UnixNano()` 当唯一 key 的写法 | 尚存于 `pkg/plugins/worker/handler.go:72`、`worker/scheduler.go:659`、`streaming/range.go:179`、`gateway/errors.go:146`。当前无测试覆盖到碰撞,**未改**(避免顺手改对)                                                                                                                                                                                                                                                                                                                                                                                                                               |   |                |
+| `auto-fix.yml:206`                   | 用 v1 模块路径 `github.com/golangci/golangci-lint/cmd/...@latest`,v2 应为 `/v2/cmd/...`。该步骤带 \`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |   | true\`,不阻塞但已失效 |
+| `C4` / `C5` / `D1` / `D2` / `G5`     | 人工任务,见 §4 Track C 与 §5 Track D                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |   |                |
 
 ### F.6 环境注意(复现时必读)
 
@@ -1751,26 +1769,26 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 
 ### F.7 完整性复核结论（2026-10-11 末，独立复核）
 
-**问题**:本计划是否已完整实现?
+**问题**:本计划是否已完整实现?  
 **方法**:不采信复选框,在 `go1.26.9` 下逐条重跑可复现判据。
 
-**A. 结论**:**AI 可执行范围内已实质完成,但不是「全部实现」。**
+**A. 结论**:**AI 可执行范围内已实质完成,但不是「全部实现」。**  
 24 个 `[x]` 中 22 个经本轮实测站得住;4 项 `[ ]` 未开始(C4/C5/D1/D2,均为人工或需人工确认方向)。
 
 **B. 本轮门禁实测(新鲜证据)**
 
-| 判据 | 实测 |
-|------|------|
-| **G1 反向** @ `f6dcf20`(A2 前)+ Go 1.25 + `AUTHZ_RED=1` | **恰好 4 FAIL** ✅ |
-| **G1 正向** + Go 1.26.9 | **7 PASS / 0 FAIL / 0 SKIP** ✅ |
-| `go build` / `go vet` | EXIT 0 ✅ |
-| `go test ./...` | 全绿,0 FAIL ✅ |
-| `golangci-lint run ./pkg/...` | **0 issues** ✅ |
-| `forge test` | 12/12 ✅ |
-| **G2** 非测试源码行 | **61,512**(与附录 B 记录一致)✅ |
-| **G3** 附录 A.6 九项 | 9/9 已消解 ✅ |
-| **G4** 数字 | 迁移 35 up / 19 down、测试文件 254 / pkg 203、build-all 11 —— 与 README/CLAUDE 声明逐条吻合 ✅ |
-| **B7** 凭据 grep | 0 命中 ✅ |
+| 判据                                                   | 实测                                                                             |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **G1 反向** @ `f6dcf20`(A2 前)+ Go 1.25 + `AUTHZ_RED=1` | **恰好 4 FAIL** ✅                                                                |
+| **G1 正向** + Go 1.26.9                                | **7 PASS / 0 FAIL / 0 SKIP** ✅                                                 |
+| `go build` / `go vet`                                | EXIT 0 ✅                                                                       |
+| `go test ./...`                                      | 全绿,0 FAIL ✅                                                                    |
+| `golangci-lint run ./pkg/...`                        | **0 issues** ✅                                                                 |
+| `forge test`                                         | 12/12 ✅                                                                        |
+| **G2** 非测试源码行                                        | **61,512**(与附录 B 记录一致)✅                                                        |
+| **G3** 附录 A.6 九项                                     | 9/9 已消解 ✅                                                                      |
+| **G4** 数字                                            | 迁移 35 up / 19 down、测试文件 254 / pkg 203、build-all 11 —— 与 README/CLAUDE 声明逐条吻合 ✅ |
+| **B7** 凭据 grep                                       | 0 命中 ✅                                                                         |
 
 **C. 本轮修正 2 处计划**自身**的内部矛盾**(复核发现,已改):
 
@@ -1780,5 +1798,3 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 **D. 复核自身的教训**:本次复核第一次跑判据时**又踩了 §使用说明第 5 条的 BSD `grep` 陷阱** —— 用了 `grep "a\|b"`(BRE 交替),macOS 下静默返回空,导致误判「某检查 0 命中」。**一律用 `grep -nE`**,且 `grep -c` 在 0 命中时退出码为 1,会掐断 `&&` 链 —— 脚本里必须显式处理。
 
 **E. 已知有意保留 / 未完成**(见 §F.5 与附录 B),不影响 Track A/B 的安全与诚实结论。
-
-
