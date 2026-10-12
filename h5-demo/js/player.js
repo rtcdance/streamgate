@@ -120,6 +120,17 @@ class HLSPlayer {
 
     handleError(event, data) {
         console.error('HLS Error:', data);
+
+        // An authorization failure is NOT a network hiccup. Retrying it loops
+        // forever while the video keeps playing out of its buffer, which looks
+        // exactly like "permission is still granted" — the failure this
+        // distinction exists to prevent. Stop, and say which it was.
+        if (this.isAuthorizationFailure(data)) {
+            console.warn('Playback authorization ended:', data.details);
+            this.endPlayback('authorization-ended');
+            return;
+        }
+
         if (data.fatal) {
             switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
@@ -135,6 +146,47 @@ class HLSPlayer {
                     this.destroy();
                     break;
             }
+        }
+    }
+
+    // A capability that has expired, been revoked, or been invalidated by a
+    // transfer comes back as 401/403. hls.js files that under NETWORK_ERROR, so
+    // the status code is what tells the two apart.
+    isAuthorizationFailure(data) {
+        if (!data) return false;
+        const status = data.response && data.response.code;
+        if (status === 401 || status === 403) return true;
+        const details = String(data.details || '');
+        return /unauthoriz|forbidden/i.test(details);
+    }
+
+    endPlayback(reason) {
+        try {
+            if (this.hls) this.hls.destroy();
+        } catch (e) {
+            /* already torn down */
+        }
+        this.hls = null;
+
+        // Stopping the element is what actually ends playback: leaving the
+        // buffer playing would keep showing content after permission ended.
+        if (this.video) {
+            try { this.video.pause(); } catch (e) { /* ignore */ }
+            this.video.removeAttribute('src');
+            try { this.video.load(); } catch (e) { /* ignore */ }
+        }
+
+        // The capability is spent; keeping it only invites a retry loop.
+        try { sessionStorage.removeItem('streamgate_playback_token'); } catch (e) { /* ignore */ }
+
+        const el = document.getElementById('player-status');
+        if (el) {
+            el.textContent = reason === 'authorization-ended'
+                ? 'Playback authorization ended — sign in again to continue.'
+                : 'Playback stopped.';
+            // Machine-readable so the acceptance can assert WHICH happened,
+            // rather than inferring it from prose.
+            el.dataset.sgPlaybackState = reason;
         }
     }
 
