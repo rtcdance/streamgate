@@ -133,5 +133,33 @@ export default async function spec06Playback({ page, snap }) {
     checks.push(check('playback-no-fatal-error', result.fatal === null && result.playError === null,
         `fatal=${result.fatal} playError=${result.playError}`));
 
+    // The player must tell "authorization ended" apart from "network hiccup".
+    // Treating a 401/403 as retryable loops forever while the video keeps
+    // playing out of its buffer, which looks exactly like permission continuing.
+    const distinction = await page.evaluate(() => {
+        if (typeof HLSPlayer === 'undefined' || typeof HLSPlayer.prototype.isAuthorizationFailure !== 'function') {
+            return { present: false };
+        }
+        const f = HLSPlayer.prototype.isAuthorizationFailure;
+        const call = (data) => f.call({}, data);
+        return {
+            present: true,
+            on401: call({ response: { code: 401 } }),
+            on403: call({ response: { code: 403 } }),
+            on500: call({ response: { code: 500 } }),
+            onNetwork: call({ type: 'networkError', details: 'manifestLoadError' }),
+            onTimeout: call({ type: 'networkError', details: 'manifestLoadTimeOut' }),
+        };
+    });
+
+    checks.push(check('playback-distinguishes-authorization-from-network',
+        distinction.present === true
+        && distinction.on401 === true
+        && distinction.on403 === true
+        && distinction.on500 === false
+        && distinction.onNetwork === false
+        && distinction.onTimeout === false,
+        `present=${distinction.present} 401=${distinction.on401} 403=${distinction.on403} 500=${distinction.on500} network=${distinction.onNetwork}`));
+
     return { passed: checks.every((c) => c.ok), checks };
 }
