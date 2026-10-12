@@ -366,3 +366,90 @@ jobs:
           code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health)"
           echo "GET /health -> $code"
           [ "$code" = "200" ] || { echo "::error::/health returned $code"; docker logs ci-monolith || true; exit 1; }
+
+  fullchain-acceptance:
+    name: Full-Chain Acceptance (real stack)
+    runs-on: ubuntu-latest
+    # Everything upstream must be green first: this job builds the whole stack
+    # and takes minutes, so there is no point starting it on a known-bad tree.
+    needs: [lint, test-go, test-contracts, test-anvil, build, security]
+    timeout-minutes: 25
+    env:
+      # Scope the project so teardown can only ever touch this run's containers.
+      COMPOSE_PROJECT_NAME: sg-ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Build contracts (artifacts the stack deploys)
+        working-directory: contracts
+        run: |
+          forge install || true
+          forge build
+
+      - name: Install ffmpeg (the acceptance generates its own media)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Playwright browser
+        working-directory: scripts/h5-demo-acceptance
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Build and start the stack from this checkout
+        run: docker compose -f docker-compose.fullchain.yml up -d --build
+
+      - name: Wait for the stack to be health-ready (120s budget)
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 120))
+          until curl -sf http://localhost:18080/health >/dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::base services not health-ready within 120s"
+              docker compose -f docker-compose.fullchain.yml ps
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "base services health-ready after ${SECONDS}s"
+
+      - name: Full-chain acceptance (signature -> gate -> transcode -> HLS -> browser)
+        env:
+          # Empty channel = use the bundled Chromium we just installed, not a
+          # host Chrome that does not exist on the runner.
+          PW_CHANNEL: ""
+        run: |
+          # Stage budgets live in the script: 180s transcode, 90s browser.
+          bash scripts/fullchain-acceptance.sh http://localhost:18080
+
+      - name: Collect redacted diagnostics on failure
+        if: failure()
+        run: |
+          set -uo pipefail
+          mkdir -p ci-artifacts
+          docker compose -f docker-compose.fullchain.yml ps > ci-artifacts/compose-ps.txt 2>&1 || true
+          docker compose -f docker-compose.fullchain.yml logs --no-color --tail 500 > ci-artifacts/compose-logs.txt 2>&1 || true
+          # Redact before anything leaves the runner.
+          sed -i -E 's/0x[0-9a-fA-F]{64}/0xREDACTED/g'          ci-artifacts/compose-logs.txt || true
+          sed -i -E 's/(Bearer )[A-Za-z0-9._-]+/\1REDACTED/g'   ci-artifacts/compose-logs.txt || true
+          sed -i -E 's/(X-Amz-Signature=)[A-Za-z0-9]+/\1REDACTED/g' ci-artifacts/compose-logs.txt || true
+          sed -i -E 's/([A-Za-z_]*(SECRET|TOKEN|PASSWORD)[A-Za-z_]*=)[^ "]+/\1REDACTED/g' ci-artifacts/compose-logs.txt || true
+          # Playwright reports (screenshots + per-spec JSON) help far more than logs.
+          cp -R scripts/h5-demo-acceptance/reports/. ci-artifacts/ 2>/dev/null || true
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fullchain-acceptance-diagnostics
+          path: ci-artifacts/
+          retention-days: 7
+
+      - name: Tear down this run's stack
+        if: always()
+        run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
