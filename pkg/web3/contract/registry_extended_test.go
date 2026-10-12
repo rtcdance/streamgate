@@ -28,11 +28,11 @@ func TestERC721ABI_Valid(t *testing.T) {
 func TestContentRegistry_Events(t *testing.T) {
 	cr := NewContentRegistry("0x1234567890123456789012345678901234567890")
 
-	expectedContentRegistered := crypto.Keccak256Hash([]byte("ContentRegistered(string,address,string,string,uint256)")).Hex()
-	expectedContentRemoved := crypto.Keccak256Hash([]byte("ContentRemoved(string,uint256)")).Hex()
+	expectedContentRegistered := crypto.Keccak256Hash([]byte("ContentRegistered(bytes32,string,address,bytes32,string,uint256)")).Hex()
+	expectedContentStatus := crypto.Keccak256Hash([]byte("ContentStatusUpdated(bytes32,string,uint8,uint8,uint256)")).Hex()
 
 	assert.Equal(t, expectedContentRegistered, cr.Events["ContentRegistered"])
-	assert.Equal(t, expectedContentRemoved, cr.Events["ContentRemoved"])
+	assert.Equal(t, expectedContentStatus, cr.Events["ContentStatusUpdated"])
 }
 
 func TestNFTContract_Events(t *testing.T) {

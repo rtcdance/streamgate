@@ -75,6 +75,8 @@ run_in_image() {
 stage_unit() {
   run_in_image unit '
     set -euo pipefail
+    echo "== forge build (ABI-sync guard needs the artifacts) =="
+    ( cd contracts && forge build )
     echo "== gofmt =="
     unformatted="$(gofmt -l cmd pkg test)"
     if [ -n "$unformatted" ]; then echo "unformatted files:"; echo "$unformatted"; exit 1; fi

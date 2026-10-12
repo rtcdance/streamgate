@@ -118,7 +118,7 @@ func TestDecodeContentRegisteredEvent_Wrapper(t *testing.T) {
 	}
 	decoded, err := DecodeContentRegisteredEvent(evt)
 	require.NoError(t, err)
-	assert.Equal(t, "0xhash", decoded.ContentHash)
+	assert.Equal(t, "0xhash", decoded.ContentKey)
 }
 
 func TestDecodeNFTMintedEvent_Wrapper(t *testing.T) {

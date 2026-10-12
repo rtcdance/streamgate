@@ -469,20 +469,17 @@ func TestExt_ContractContentRegistry_RegisterContent_PacksThreeStrings(t *testin
 	}
 	ci := NewContractInteractor(&mockEthCaller{}, zap.NewNop())
 
-	// string args always pack; a selector check would need the ABI method id.
-	data, err := cr.RegisterContent(context.Background(), ci, "content-1", "0xhash", "ipfs://meta/1")
+	data, err := cr.RegisterContent(context.Background(), ci, "content-1", common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"), [32]byte{1}, "ipfs://meta/1")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
 
 func TestExt_ContractContentRegistry_ABIIsSol_Faithful(t *testing.T) {
-	// registerContent now takes 3 strings matching ContentRegistry.sol; the old
-	// bytes32-based invalid-hash test is obsolete.
 	cr := &ContractContentRegistry{
 		Address: "0x1234567890123456789012345678901234567890",
 		ABI:     ContentRegistryABI,
 	}
-	data, err := cr.RegisterContent(context.Background(), nil, "content-1", "0xhash", "ipfs://meta/1")
+	data, err := cr.RegisterContent(context.Background(), nil, "content-1", common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"), [32]byte{1}, "ipfs://meta/1")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, data)
 }
@@ -505,8 +502,7 @@ func TestExt_ContractContentRegistry_RegisterContent_Success(t *testing.T) {
 	}
 	ci := NewContractInteractor(&mockEthCaller{}, zap.NewNop())
 
-	hash := "0x" + strings.Repeat("ab", 32)
-	data, err := cr.RegisterContent(context.Background(), ci, hash, "owner", "test metadata")
+	data, err := cr.RegisterContent(context.Background(), ci, "content-1", common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"), [32]byte{1}, "test metadata")
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 }

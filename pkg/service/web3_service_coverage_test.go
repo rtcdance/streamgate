@@ -266,7 +266,7 @@ func TestSvcCov_WaitForReceipt_ChainNotFound(t *testing.T) {
 
 func TestSvcCov_RegisterContent_NoKey(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop(), config: &config.Config{}}
-	_, err := svc.RegisterContent(context.Background(), 1, "0xContract", "hash", "uri")
+	_, err := svc.RegisterContent(context.Background(), 1, "0xContract", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "private key not configured")
 }
@@ -530,7 +530,7 @@ func TestSvcCov_NewWeb3Service_InvalidKey(t *testing.T) {
 
 func TestSvcCov_Web3Service_RegisterContent_WithKeyNoChain(t *testing.T) {
 	svc := &Web3Service{logger: zap.NewNop(), secureKey: &web3.SecurePrivateKey{}, multiChainManager: newSvcCovMCM(), config: &config.Config{}}
-	_, err := svc.RegisterContent(context.Background(), 1, "0xContract", "hash", "uri")
+	_, err := svc.RegisterContent(context.Background(), 1, "0xContract", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 }
 

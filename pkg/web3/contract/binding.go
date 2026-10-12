@@ -58,20 +58,27 @@ func NewContentRegistryBinding(address string, reader *ContractInteractor, write
 	}
 }
 
-// RegisterContent registers a content's existence on-chain. Signatures mirror
-// contracts/src/ContentRegistry.sol: registerContent(string contentId,
-// string contentHash, string metadataURI) — the tx sender must be the
-// contract owner (onlyOwner).
-func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentID, contentHash, metadataURI string) (string, error) {
+// RegisterContent attests a content's existence on-chain. The signature mirrors
+// contracts/src/ContentRegistry.sol:
+//
+//	registerContent(string contentId, address creator, bytes32 contentDigest, string metadataURI)
+//
+// The tx sender must be the contract owner (the platform attestor); `creator`
+// is the verified content owner and is recorded separately, so the operator
+// never masquerades as the uploader.
+func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentID, creator string, contentDigest [32]byte, metadataURI string) (string, error) {
 	if b.writer == nil {
 		return "", fmt.Errorf("content_registry_binding: writer not configured")
+	}
+	if !common.IsHexAddress(creator) {
+		return "", fmt.Errorf("content_registry_binding: invalid creator address %q", creator)
 	}
 
 	result, err := b.writer.SendTx(ctx, tx.ContractTxOpts{
 		To:        b.address.Hex(),
 		Method:    "registerContent",
 		ParsedABI: &b.abi,
-		Args:      []interface{}{contentID, contentHash, metadataURI},
+		Args:      []interface{}{contentID, common.HexToAddress(creator), contentDigest, metadataURI},
 	})
 	if err != nil {
 		return "", fmt.Errorf("content_registry_binding: RegisterContent: %w", err)
@@ -112,24 +119,24 @@ func (b *ContentRegistryBinding) ContentExists(ctx context.Context, contentID st
 // contentRecordTuple mirrors getContent's tuple output exactly (field order
 // and types); abi.ConvertType needs this shape for reflection-based mapping.
 type contentRecordTuple struct {
-	ContentID   string
-	Creator     common.Address
-	ContentHash string
-	MetadataURI string
-	Status      uint8
-	CreatedAt   *big.Int
-	UpdatedAt   *big.Int
+	ContentID     string
+	Creator       common.Address
+	ContentDigest [32]byte
+	MetadataURI   string
+	Status        uint8
+	CreatedAt     *big.Int
+	UpdatedAt     *big.Int
 }
 
 // ContentRecord mirrors the ContentRecord struct returned by getContent.
 type ContentRecord struct {
-	ContentID   string
-	Creator     string
-	ContentHash string
-	MetadataURI string
-	Status      uint8
-	CreatedAt   int64
-	UpdatedAt   int64
+	ContentID     string
+	Creator       string
+	ContentDigest [32]byte
+	MetadataURI   string
+	Status        uint8
+	CreatedAt     int64
+	UpdatedAt     int64
 }
 
 // GetContent reads the on-chain record for a contentId.
@@ -154,13 +161,13 @@ func (b *ContentRegistryBinding) GetContent(ctx context.Context, contentID strin
 	out := abi.ConvertType(raw[0], new(contentRecordTuple)).(*contentRecordTuple)
 
 	return &ContentRecord{
-		ContentID:   out.ContentID,
-		Creator:     out.Creator.Hex(),
-		ContentHash: out.ContentHash,
-		MetadataURI: out.MetadataURI,
-		Status:      out.Status,
-		CreatedAt:   out.CreatedAt.Int64(),
-		UpdatedAt:   out.UpdatedAt.Int64(),
+		ContentID:     out.ContentID,
+		Creator:       out.Creator.Hex(),
+		ContentDigest: out.ContentDigest,
+		MetadataURI:   out.MetadataURI,
+		Status:        out.Status,
+		CreatedAt:     out.CreatedAt.Int64(),
+		UpdatedAt:     out.UpdatedAt.Int64(),
 	}, nil
 }
 

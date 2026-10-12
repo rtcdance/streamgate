@@ -277,7 +277,7 @@ func TestWeb3Service_Coverage_RegisterContent_NoKey(t *testing.T) {
 		logger: zap.NewNop(),
 		config: &config.Config{},
 	}
-	_, err := ws.RegisterContent(context.Background(), 1, "0xcontract", "hash", "uri")
+	_, err := ws.RegisterContent(context.Background(), 1, "0xcontract", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "private key not configured")
 }
@@ -444,7 +444,7 @@ func TestWeb3Service_Coverage_RegisterContent_WithKeyNoChain(t *testing.T) {
 		config:            cfg,
 		multiChainManager: web3.NewMultiChainManager(zap.NewNop()),
 	}
-	_, err := ws.RegisterContent(context.Background(), 1, "0x1", "hash", "uri")
+	_, err := ws.RegisterContent(context.Background(), 1, "0x1", "content-1", "0x70997970C51812dc3A010C7d01b50e0d17dc79C8", [32]byte{}, "uri")
 	assert.Error(t, err)
 }
 

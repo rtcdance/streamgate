@@ -375,7 +375,7 @@ func TestContentService_SetContentRegistry(t *testing.T) {
 // mockContentRegistry implements ContentRegistry for testing
 type mockContentRegistry struct{}
 
-func (m *mockContentRegistry) RegisterContent(_ context.Context, _, _, _ string) (string, error) {
+func (m *mockContentRegistry) RegisterContent(_ context.Context, _, _ string, _ [32]byte, _ string) (string, error) {
 	return "0xtxhash", nil
 }
 

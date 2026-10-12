@@ -19,8 +19,8 @@ func TestDecodeContentRegisteredEvent_Success(t *testing.T) {
 	}
 	decoded, err := DecodeContentRegisteredEvent(event)
 	require.NoError(t, err)
-	assert.Equal(t, "0xcontent_hash_value", decoded.ContentHash)
-	assert.Equal(t, "0xowner_address", decoded.Owner)
+	assert.Equal(t, "0xcontent_hash_value", decoded.ContentKey)
+	assert.Equal(t, "0xowner_address", decoded.Creator)
 }
 
 func TestDecodeContentRegisteredEvent_TooFewTopics(t *testing.T) {
