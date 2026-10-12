@@ -270,7 +270,12 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		// The capability lifetime comes from the policy (60s by default). It used
 		// to be hardcoded to 30 minutes, which meant a revoked or transferred
 		// holding kept playing for half an hour.
-		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"))
+		//
+		// It also inherits THIS request's session, so a logout revokes the
+		// capability along with the rest of the login rather than leaving it
+		// valid until it expires.
+		sessionID, authEpoch := middleware.GetSessionBinding(c)
+		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"), service.WithSessionBinding(sessionID, authEpoch))
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return

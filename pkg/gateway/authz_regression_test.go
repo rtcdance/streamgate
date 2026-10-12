@@ -177,12 +177,16 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 
 	g := r.Group("/")
 	g.Use(middleware.PlaybackTokenAuth(middleware.PlaybackTokenAuthConfig{
-		Validate: func(ctx context.Context, token, contentID, fingerprint string) (string, error) {
+		Validate: func(ctx context.Context, token, contentID, fingerprint string) (*middleware.PlaybackIdentity, error) {
 			claims, err := authSvc.ParsePlaybackToken(ctx, token, contentID, fingerprint)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
-			return claims.WalletAddress, nil
+			return &middleware.PlaybackIdentity{
+				Wallet:    claims.WalletAddress,
+				SessionID: claims.SessionID,
+				AuthEpoch: claims.AuthEpoch,
+			}, nil
 		},
 	}, log))
 
