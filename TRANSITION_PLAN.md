@@ -603,7 +603,7 @@ make verify-docker
 | SG-03                | **完成（A 边界 + B 所有权 + C 代签）**                                                                         | 见 §8.6 / §8.7 / §8.8（C：删通用代签 + 三重门；A：playback 不可当 access token、算法精确固定、iss/aud 强制；B：gating-rule 单语句 owner 条件写 + A/B 负例实测）。A.4 的 sessionID/authEpoch 按计划归 SG-06                                                                                                      |
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
-| SG-06                | **部分完成（步骤 1、2、4、6 完成；步骤 3、5 未做）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s），修掉 handler 里硬编码 30 分钟的缺陷；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据（含 capability）绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**；**epoch 持久化（Redis，缓存 ≤5s 无滑动续期）**；**登出撤销整个会话 + 已发出的能力在 5s 界内失效**；**续期重查链上持仓（抬阈值即 403，降回即 200）**。**未做**：ruleVersion 权威源（步骤 3）、reorg 禁止续期与转移场景实测（步骤 5） |
+| SG-06                | **部分完成（步骤 1、2、3、4、6 完成；步骤 5 未做）**                                                                      | 见 §8.11：能力 TTL 落实为**配置 + 生产上界校验**（60s）；**capability 独立 audience** + 零 TTL 回落策略值；capability 承载响应硬化；**70s 上界推导并校验**；**JWT 与 capability 钱包不一致拒绝**；**播放器区分权限结束与网络故障**；**每个凭据（含 capability）绑定 sessionID + authEpoch，正向存在校验，旧 token 缺字段即拒**；**epoch 持久化（Redis，缓存 ≤5s 无滑动续期）**；**登出撤销整个会话 + 已发出的能力在 5s 界内失效**；**续期重查链上持仓（抬阈值即 403，降回即 200）**；**ruleVersion 以 Postgres 为权威源、与规则写入同一条语句提交、Redis 只缓存已提交版本且不倒退、总 age ≤5s（`positive_cache_ttl` 已真正接线）、权威不可读即拒**。**未做**：步骤 5（reorg 禁止续期、转移场景实测） |
 | SG-07～09、SG-12～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
@@ -1046,7 +1046,7 @@ sequenceDiagram
 **未做 / 推迟（SG-05 判据）**：步骤 6 的"**过期 token**"——实测**manifest 签发的播放 token 存活 >120s**，与计划预期的 60s 能力不符；能力 TTL 属 **SG-06**（"将第三节的 60 秒能力…落实为配置校验"），故**连同该实测数据一并登记为 SG-06 的输入**，而非在验收里用无限等待糊过去。步骤 8 的 CI job 本机无法执行。  
 **另注**：本机 ffmpeg 无 libx264，使用 `h264_videotoolbox` ⇒ **编码非逐字节确定**（参数固定、编码器与哈希均被记录，但两次运行的 sha256 不同）。如需严格可复现，需在 CI 镜像内用 libx264。
 
-### 8.11 SG-06 执行证据（**部分完成**：步骤 1、2、4、6；步骤 3、5 未做）
+### 8.11 SG-06 执行证据（**部分完成**：步骤 1、2、3、4、6；步骤 5 未做）
 
 **步骤 1**：把"60 秒能力"从散落的常量变成**配置 + 生产上界校验**。
 
@@ -1140,8 +1140,22 @@ sequenceDiagram
 | **端到端实测（决定性）** | PASS | 验收新增：用**独立登录**取一次能力 → 断言该 URL 在 logout **前可用（200）** → 调 logout → 断言**同一个 URL** 在 5s 界内被拒（401/403）。实测 `PASS: An issued capability works before logout (200)`、`PASS: Logout revokes an ALREADY-ISSUED capability within the 5s bound`。两种部署模式各 **ALL 48 PASSED** |
 | **⚠️ 脚本自身的坑（已修）** | 记录 | 我最初**自己拼** `?quality=720p` 的能力 URL，得到 404，看起来像能力失败；实际入口本身就是一个 media playlist，能力挂在 **segment URL** 上。现改为**从 playlist 里取第一条 URI**，不再拼 |
 
-**未做（SG-06 判据）**：步骤 3（Postgres 为 ruleVersion 权威源、同事务单调递增、Redis 只缓存已提交版本且不倒退、各层 age 合计 ≤5s、权威源不可读则拒绝）；步骤 4 剩余（嵌套 playlist 另用 ≤5s 证据检查当前 NFT、申请与续期复用同一次 gate 证据、转移后 70s 的**实测**上界）；步骤 5 剩余（reorg 使证据失效时禁止续期、已发能力在 70s 内失效的**转移场景**实测）。
-**另注**：`positive_cache_ttl` 与 `clock_skew` 已进入配置与校验，但**尚未接到实际使用点**（正缓存目前仍是 NFT gate 内的 `MaxEvidenceAge`；时钟容差仍是中间件里的 30s leeway）—— 接线属于步骤 3/4。
+**步骤 3（ruleVersion 权威源）已落地**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| **版本随规则写入同一条语句提交** | PASS | 新增 `content_rule_versions`（迁移 036，Postgres 为权威）。写入语句是**单条 CTE**：规则 INSERT/UPDATE/DELETE + 第二个 data-modifying CTE 递增版本，返回「是否生效」与「提交的版本」。**同一事务但分两条语句是不够的**——那样读者仍可能看到「新规则配旧版本」，因为两条语句之间没有数据库层面的顺序保证。DELETE 现在回传 content_id，于是 bump 与缓存失效都能**指名内容**，不再整表丢弃 |
+| **版本跨层保留权威读取时间** | PASS | `storage.RuleVersionStore`：Postgres 权威 + 缓存层。Redis 值形如 `"<version>:<authorityReadUnixNano>"`——**权威读取时刻随版本一起走**，因此不管经过几层都能算出总 age |
+| **读缓存不刷新 age** | PASS | 命中缓存**不更新** `verifiedAt`。用例钉住：3s 时命中（不查权威）、再过 3s（累计 6s）**必须**回查权威——"只是在用"不能把时间戳往前推 |
+| **过期 / 缺失回查 Postgres** | PASS | 超过 `features.positive_cache_ttl`（5s）或缺失即回查权威并重缓存；**恰好等于上界仍可用** |
+| **权威不可读则拒绝** | PASS | 权威报错时**直接拒绝**，不回退到已过期的副本——那会延长上界要封住的窗口 |
+| **迟到写入不能倒退版本** | PASS | Redis 侧用 Lua（`SetIfNotOlder`）**原子**比较后写入；内存侧同语义。用例：版本 5 已缓存，写入版本 4 被忽略 |
+| **bump 与 publish 分离** | PASS | `Bump` 走权威再发布；`Publish` 只发布**别处已提交**的版本（本项写入已在自身语句里 bump，若再走 `Bump` 会**双计**） |
+| **gate 按版本判缓存可用** | PASS | 规则解析器现在**先读版本再决定是否信任缓存**，只有版本一致才复用。本地 TTL 保留为兜底；旧的仅 TTL 构造器仍可用。用例：**未经本进程失效**的版本变更（模拟另一进程写入）**强制重读**，版本不变则复用缓存 |
+| **接线** | PASS | `provideRuleVersionStore` 接 Postgres + Redis，上界取 `cfg.Features.PositiveCacheTTL`——**`positive_cache_ttl` 从"只被校验"变成真正接到使用点**。Redis 不可用时回退内存并**显式告警**（那正是跨进程写入看不见的场景） |
+| **端到端实测** | PASS | 迁移 036 随 monolith 启动**自动应用**；**ALL 48 PASSED**；Postgres 中该内容版本为 **5**（验收恰好 5 次规则写入），Redis 为 `5:1791839251650796721` |
+
+**未做（SG-06 判据）**：步骤 5（reorg 使证据失效时禁止续期、已发能力在 70s 内失效的**转移场景**实测）；步骤 4 剩余（嵌套 playlist 另用 ≤5s 证据检查当前 NFT、申请与续期复用同一次 gate 证据、转移后 70s 的**实测**上界）；步骤 2 的 `clock_skew` 仍未接到使用点（中间件里仍是 30s leeway）。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
