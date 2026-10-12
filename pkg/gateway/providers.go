@@ -371,3 +371,35 @@ func parseChallengeTTL(cfg *config.Config) time.Duration {
 	}
 	return ttl
 }
+
+// provideRuleVersionStore builds the rule-version authority: Postgres owns the
+// version, Redis shares the committed value across processes, and the age bound
+// comes from the configured positive-cache TTL.
+//
+// The Redis layer is what makes a write in ANOTHER process visible; without it
+// each process would only ever notice its own writes (via the local flush) or
+// wait out the TTL. When Redis is unavailable the store still works, but the
+// wiring says so out loud, because that is the case where a second process can
+// serve the previous rule set until its copy ages out.
+func provideRuleVersionStore(cfg *config.Config, log *zap.Logger, db storage.DB, redisClient *redis.Client, res *AppResources) *storage.CachingRuleVersionStore {
+	authority := storage.NewPostgresRuleVersionStore(db)
+
+	var cache storage.RuleVersionCache
+	if redisClient != nil {
+		redisCache, err := storage.NewRedisRuleVersionCache(redisClient)
+		if err != nil {
+			log.Warn("rule version cache unavailable, falling back to in-memory", zap.Error(err))
+		} else {
+			cache = redisCache
+		}
+	}
+	if cache == nil {
+		log.Warn("rule version cache is process-local: a write in another process will not be " +
+			"visible until this process's copy ages out")
+		cache = storage.NewMemoryRuleVersionCache()
+	}
+
+	store := storage.NewCachingRuleVersionStore(authority, cache, cfg.Features.PositiveCacheTTL)
+	res.RuleVersionStore = store
+	return store
+}

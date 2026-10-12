@@ -36,6 +36,31 @@ type GatingRuleService struct {
 	// invalidator is notified after a rule write so caches holding the previous
 	// rule set cannot keep authorising against it.
 	invalidator func(contentID string)
+
+	versionPublisherMu sync.RWMutex
+	// versionPublisher publishes the version a write committed, so other
+	// processes stop using the previous rule set without waiting for their cache
+	// to age out.
+	versionPublisher func(contentID string, version int64)
+}
+
+// SetVersionPublisher registers a callback invoked after every successful rule
+// write with the version that write committed. It is separate from
+// SetInvalidator because a version is shareable across processes while a local
+// cache flush is not.
+func (s *GatingRuleService) SetVersionPublisher(fn func(contentID string, version int64)) {
+	s.versionPublisherMu.Lock()
+	defer s.versionPublisherMu.Unlock()
+	s.versionPublisher = fn
+}
+
+func (s *GatingRuleService) notifyVersion(contentID string, version int64) {
+	s.versionPublisherMu.RLock()
+	fn := s.versionPublisher
+	s.versionPublisherMu.RUnlock()
+	if fn != nil {
+		fn(contentID, version)
+	}
 }
 
 // SetInvalidator registers a callback invoked after every successful rule write.
@@ -248,25 +273,45 @@ func (s *GatingRuleService) CreateRuleForOwner(ctx context.Context, rule *models
 	// contents.id, UUID rendered as text) are kept as separate placeholders:
 	// reusing one placeholder for both makes Postgres deduce two different types
 	// for it and fail the statement.
+	//
+	// The version bump is a second data-modifying CTE in the SAME statement, so
+	// the rule change and its version commit together: a reader can never see
+	// the new rules under the old version, or the new version with the old
+	// rules. A bump in a separate statement (even in the same transaction)
+	// would need the two to be ordered by something other than the database.
 	query := `
-		INSERT INTO content_gating_rules (id, content_id, contract_address, token_id, chain_id, standard, min_balance, is_active, created_at, updated_at)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-		WHERE EXISTS (
-			SELECT 1 FROM contents c
-			WHERE c.id::text = $11 AND LOWER(c.owner_id) = LOWER($12)
+		WITH ins AS (
+			INSERT INTO content_gating_rules (id, content_id, contract_address, token_id, chain_id, standard, min_balance, is_active, created_at, updated_at)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+			WHERE EXISTS (
+				SELECT 1 FROM contents c
+				WHERE c.id::text = $11 AND LOWER(c.owner_id) = LOWER($12)
+			)
+			RETURNING content_id
+		),
+		bump AS (
+			INSERT INTO content_rule_versions (content_id, version, updated_at)
+			SELECT content_id, 1, NOW() FROM ins
+			ON CONFLICT (content_id) DO UPDATE
+				SET version = content_rule_versions.version + 1, updated_at = NOW()
+			RETURNING version
 		)
+		SELECT (SELECT count(*) FROM ins) AS inserted, COALESCE((SELECT version FROM bump), 0) AS version
 	`
-	result, err := s.db.Exec(ctx, query,
+	var inserted int64
+	var version int64
+	err := s.db.QueryRow(ctx, query,
 		rule.ID, rule.ContentID, rule.ContractAddress, rule.TokenID,
 		rule.ChainID, rule.Standard, rule.MinBalance, rule.IsActive,
 		rule.CreatedAt, rule.UpdatedAt, rule.ContentID, actorWallet,
-	)
+	).Scan(&inserted, &version)
 	if err != nil {
 		return "", fmt.Errorf("failed to create gating rule: %w", err)
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if inserted == 0 {
 		return "", s.classifyContentDenial(ctx, rule.ContentID)
 	}
+	s.notifyVersion(rule.ContentID, version)
 	s.notifyInvalidate(rule.ContentID)
 	return rule.ID, nil
 }
@@ -283,25 +328,39 @@ func (s *GatingRuleService) UpdateRuleForOwner(ctx context.Context, rule *models
 	}
 	rule.UpdatedAt = time.Now()
 	query := `
-		UPDATE content_gating_rules r
-		SET contract_address = $2, token_id = $3, chain_id = $4, standard = $5,
-		    min_balance = $6, is_active = $7, updated_at = $8
-		WHERE r.id = $1
-		  AND EXISTS (
-			SELECT 1 FROM contents c
-			WHERE c.id::text = r.content_id AND LOWER(c.owner_id) = LOWER($9)
-		  )
+		WITH upd AS (
+			UPDATE content_gating_rules r
+			SET contract_address = $2, token_id = $3, chain_id = $4, standard = $5,
+			    min_balance = $6, is_active = $7, updated_at = $8
+			WHERE r.id = $1
+			  AND EXISTS (
+				SELECT 1 FROM contents c
+				WHERE c.id::text = r.content_id AND LOWER(c.owner_id) = LOWER($9)
+			  )
+			RETURNING r.content_id
+		),
+		bump AS (
+			INSERT INTO content_rule_versions (content_id, version, updated_at)
+			SELECT content_id, 1, NOW() FROM upd
+			ON CONFLICT (content_id) DO UPDATE
+				SET version = content_rule_versions.version + 1, updated_at = NOW()
+			RETURNING version
+		)
+		SELECT (SELECT count(*) FROM upd) AS updated, COALESCE((SELECT version FROM bump), 0) AS version
 	`
-	result, err := s.db.Exec(ctx, query,
+	var updated int64
+	var version int64
+	err := s.db.QueryRow(ctx, query,
 		rule.ID, rule.ContractAddress, rule.TokenID, rule.ChainID,
 		rule.Standard, rule.MinBalance, rule.IsActive, rule.UpdatedAt, actorWallet,
-	)
+	).Scan(&updated, &version)
 	if err != nil {
 		return fmt.Errorf("failed to update gating rule: %w", err)
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if updated == 0 {
 		return s.classifyRuleDenial(ctx, rule.ID)
 	}
+	s.notifyVersion(rule.ContentID, version)
 	s.notifyInvalidate(rule.ContentID)
 	return nil
 }
@@ -314,24 +373,40 @@ func (s *GatingRuleService) DeleteRuleForOwner(ctx context.Context, id, actorWal
 	if strings.TrimSpace(actorWallet) == "" {
 		return ErrRuleForbidden
 	}
+	// The content id comes back from the delete so the version bump and the cache
+	// invalidation can both name the content, instead of dropping every entry.
 	query := `
-		DELETE FROM content_gating_rules r
-		WHERE r.id = $1
-		  AND EXISTS (
-			SELECT 1 FROM contents c
-			WHERE c.id::text = r.content_id AND LOWER(c.owner_id) = LOWER($2)
-		  )
+		WITH del AS (
+			DELETE FROM content_gating_rules r
+			WHERE r.id = $1
+			  AND EXISTS (
+				SELECT 1 FROM contents c
+				WHERE c.id::text = r.content_id AND LOWER(c.owner_id) = LOWER($2)
+			  )
+			RETURNING r.content_id
+		),
+		bump AS (
+			INSERT INTO content_rule_versions (content_id, version, updated_at)
+			SELECT content_id, 1, NOW() FROM del
+			ON CONFLICT (content_id) DO UPDATE
+				SET version = content_rule_versions.version + 1, updated_at = NOW()
+			RETURNING version
+		)
+		SELECT
+			COALESCE((SELECT content_id FROM del LIMIT 1), '') AS content_id,
+			COALESCE((SELECT version FROM bump), 0) AS version
 	`
-	result, err := s.db.Exec(ctx, query, id, actorWallet)
+	var contentID string
+	var version int64
+	err := s.db.QueryRow(ctx, query, id, actorWallet).Scan(&contentID, &version)
 	if err != nil {
 		return fmt.Errorf("failed to delete gating rule: %w", err)
 	}
-	if rows, _ := result.RowsAffected(); rows == 0 {
+	if contentID == "" {
 		return s.classifyRuleDenial(ctx, id)
 	}
-	// The row is gone, so the content it belonged to is no longer resolvable
-	// here; drop the whole rule cache rather than guess.
-	s.notifyInvalidate("")
+	s.notifyVersion(contentID, version)
+	s.notifyInvalidate(contentID)
 	return nil
 }
 
