@@ -22,7 +22,8 @@ func TestAcceptance_IsolatedTranscoderWorker(t *testing.T) {
 		// No Postgres / MinIO / NATS in this unit test: the queue degrades to
 		// the in-memory fallback, which is enough to build the service. The
 		// role decision does not depend on any of them being reachable.
-		svc := provideTranscodingService(cfg, zap.NewNop(), nil, nil, &AppResources{})
+		svc, err := provideTranscodingService(cfg, zap.NewNop(), nil, nil, &AppResources{})
+		assert.NoError(t, err)
 		assert.NotNil(t, svc, "submitter-only process must still build a usable service")
 		assert.False(t, svc.WorkerRunning(),
 			"transcoding.enabled=false must not start the embedded worker")
@@ -33,7 +34,8 @@ func TestAcceptance_IsolatedTranscoderWorker(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.Transcoding.Enabled = true
 		cfg.NATS.URL = "nats://127.0.0.1:1"
-		svc := provideTranscodingService(cfg, zap.NewNop(), nil, nil, &AppResources{})
+		svc, err := provideTranscodingService(cfg, zap.NewNop(), nil, nil, &AppResources{})
+		assert.NoError(t, err)
 		defer svc.StopWorker()
 		assert.True(t, svc.WorkerRunning(),
 			"transcoding.enabled=true must start the embedded worker (dev/demo profile)")

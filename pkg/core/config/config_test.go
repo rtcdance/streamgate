@@ -451,7 +451,7 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "monolith",
 			Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
 			Storage:  StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
-			Database: DatabaseConfig{SSLMode: "disable"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "disable"},
 			Web3:     Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -463,7 +463,7 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "microservice",
 			Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
 			Storage:  StorageConfig{AccessKey: "minioadmin", SecretKey: "minioadmin"},
-			Database: DatabaseConfig{SSLMode: "disable"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "disable"},
 			Web3:     Web3Config{EthereumRPC: "https://sepolia.infura.io/v3/YOUR_KEY"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -475,7 +475,7 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "monolith",
 			Auth:     AuthConfig{JWTSecret: "streamgate-dev-secret"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -487,9 +487,9 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "microservice",
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -501,7 +501,7 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "microservice",
 			Auth:     AuthConfig{JWTSecret: "your-secret-key-change-in-production"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -524,9 +524,9 @@ func TestValidateProduction(t *testing.T) {
 					Mode:     "microservice",
 					Auth:     AuthConfig{JWTSecret: "a-real-secret-that-is-at-least-32-chars"},
 					Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-					Database: DatabaseConfig{SSLMode: "require", Password: tt.password},
+					Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: tt.password},
 					Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-					Redis:    RedisConfig{Password: "redis-pw"},
+					Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 					NATS:     NATSConfig{URL: "nats://localhost:4222"},
 				}
 				err := cfg.ValidateProduction(zap.NewNop())
@@ -544,7 +544,7 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "microservice",
 			Auth:     AuthConfig{JWTSecret: ""},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -556,9 +556,9 @@ func TestValidateProduction(t *testing.T) {
 			Mode:     "microservice",
 			Auth:     AuthConfig{JWTSecret: "short"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -577,9 +577,9 @@ func TestValidateProduction(t *testing.T) {
 				cfg := &Config{
 					Auth:     AuthConfig{JWTSecret: secret},
 					Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-					Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+					Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 					Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-					Redis:    RedisConfig{Password: "redis-pw"},
+					Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 					NATS:     NATSConfig{URL: "nats://localhost:4222"},
 				}
 				err := cfg.ValidateProduction(zap.NewNop())
@@ -592,7 +592,7 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret"},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 			CORS:     CORSConfig{AllowedOrigins: []string{"*"}},
 		}
@@ -604,10 +604,10 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 			CORS:     CORSConfig{AllowedOrigins: []string{"https://streamgate.example.com"}},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -618,7 +618,7 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3: Web3Config{
 				EthereumRPC: "https://mainnet.infura.io/v3/real-key",
 				Transaction: TransactionConfig{
@@ -636,7 +636,7 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3: Web3Config{
 				EthereumRPC: "https://mainnet.infura.io/v3/real-key",
 				Transaction: TransactionConfig{
@@ -654,7 +654,7 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
 			Redis:    RedisConfig{Password: ""},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
@@ -667,9 +667,9 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: ""},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -680,9 +680,9 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{Type: "s3", AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true, Endpoint: ""},
-			Database: DatabaseConfig{SSLMode: "require", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "require", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
@@ -693,9 +693,9 @@ func TestValidateProduction(t *testing.T) {
 		cfg := &Config{
 			Auth:     AuthConfig{JWTSecret: "a-real-production-secret-32chars!!"},
 			Storage:  StorageConfig{AccessKey: "real-key", SecretKey: "real-secret", UseSSL: true},
-			Database: DatabaseConfig{SSLMode: "disable", Password: "secure-pw"},
+			Database: DatabaseConfig{Host: "db", SSLMode: "disable", Password: "secure-pw"},
 			Web3:     Web3Config{EthereumRPC: "https://mainnet.infura.io/v3/real-key"},
-			Redis:    RedisConfig{Password: "redis-pw"},
+			Redis:    RedisConfig{Host: "redis", Password: "redis-pw"},
 			NATS:     NATSConfig{URL: "nats://localhost:4222"},
 		}
 		err := cfg.ValidateProduction(zap.NewNop())
