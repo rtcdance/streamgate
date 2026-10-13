@@ -513,12 +513,27 @@ func (d *fakeTaskDB) query(query string, args []driver.Value) (driver.Rows, erro
 			data: [][]driver.Value{{row.payload, row.status}},
 		}, nil
 
-	case strings.Contains(q, "SELECT content_id FROM transcoding_tasks WHERE id"):
+	case strings.Contains(q, "SELECT content_id, profile, output_generation FROM transcoding_tasks WHERE id"):
 		row, ok := d.tasks[argStr(args, 0)]
 		if !ok {
-			return &fakeRows{cols: []string{"content_id"}}, nil
+			return &fakeRows{cols: []string{"content_id", "profile", "output_generation"}}, nil
 		}
-		return &fakeRows{cols: []string{"content_id"}, data: [][]driver.Value{{row.contentID}}}, nil
+		// output_generation stays 0 in this fixture: the durability tests never
+		// upload, so no generation is ever allocated and no publish runs.
+		return &fakeRows{
+			cols: []string{"content_id", "profile", "output_generation"},
+			data: [][]driver.Value{{row.contentID, row.profile, int64(0)}},
+		}, nil
+
+	case strings.Contains(q, "SELECT content_id, output_generation FROM transcoding_tasks WHERE id"):
+		row, ok := d.tasks[argStr(args, 0)]
+		if !ok {
+			return &fakeRows{cols: []string{"content_id", "output_generation"}}, nil
+		}
+		return &fakeRows{
+			cols: []string{"content_id", "output_generation"},
+			data: [][]driver.Value{{row.contentID, int64(0)}},
+		}, nil
 
 	case strings.Contains(q, "SELECT COUNT(*) FROM transcoding_tasks WHERE content_id"):
 		var n int64

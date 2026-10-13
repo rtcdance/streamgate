@@ -417,6 +417,23 @@ func decodeContentDigest(fileHash string) ([32]byte, bool) {
 	return out, true
 }
 
+// cancelActiveTranscodingTasks marks a content's pending/processing
+// transcoding tasks cancelled. It runs inside the delete transaction, so a
+// deleted content never leaves tasks that could finish later and try to
+// publish: the contents row disappears in the same commit, and the
+// lease-guarded completion of an in-flight worker becomes a no-op.
+func cancelActiveTranscodingTasks(ctx context.Context, tx *sql.Tx, contentID string) error {
+	// Clearing the lease also makes an in-flight worker's heartbeat report the
+	// loss promptly, so it stops instead of burning the rest of its attempts.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE transcoding_tasks
+		SET status = 'cancelled', completed_at = NOW(), lease_owner = '', lease_expires_at = NULL
+		WHERE content_id = $1 AND status IN ('pending', 'processing')`, contentID); err != nil {
+		return fmt.Errorf("cancel transcoding tasks: %w", err)
+	}
+	return nil
+}
+
 // DeleteContentWithTx deletes content and its metadata in a single transaction.
 func (s *ContentService) DeleteContentWithTx(ctx context.Context, id, ownerID string) error {
 	if s.db == nil {
@@ -433,6 +450,12 @@ func (s *ContentService) DeleteContentWithTx(ctx context.Context, id, ownerID st
 	if _, err := tx.ExecContext(ctx, "DELETE FROM content_metadata WHERE content_id = $1", id); err != nil {
 		s.logger.Warn("failed to delete content metadata row",
 			zap.String("contentID", id), zap.Error(err))
+	}
+
+	// Cancelling the content's active tasks and deleting the row are one
+	// atomic fact.
+	if err := cancelActiveTranscodingTasks(ctx, tx, id); err != nil {
+		return err
 	}
 
 	// Delete content
@@ -481,6 +504,11 @@ func (s *ContentService) DeleteContent(ctx context.Context, id, ownerID string) 
 	}
 
 	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		// The API delete path must cancel active tasks too, in the same
+		// transaction as the row removal.
+		if err := cancelActiveTranscodingTasks(ctx, tx, id); err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, "DELETE FROM contents WHERE id = $1 AND owner_id = $2", id, ownerID)
 		if err != nil {
 			return fmt.Errorf("delete content: %w", err)
