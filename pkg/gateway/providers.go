@@ -303,7 +303,7 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		Threads:     cfg.Transcoding.FFmpegThreads,
 	}
 	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
-	videoTranscoder := &ffmpegRouterAdapter{ft: ft, log: log.Named("ffmpeg")}
+	videoTranscoder := transcoder.NewVideoTranscoder(ft, log.Named("ffmpeg"))
 
 	var transcodingQueue service.TranscodingQueue
 	nq, err := storage.NewNATSTranscodingQueue(cfg.NATS.URL, log.Named("nats-queue"))
@@ -331,7 +331,21 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		service.WithQueueLimit(cfg.Transcoding.MaxQueuePending),
 		service.WithOwnerTaskLimit(cfg.Transcoding.MaxOwnerPending),
 	)
-	svc.StartWorker(log.Named("transcode-worker"))
+	// The role of THIS process, decided by transcoding.enabled: when the flag
+	// is off the process still submits (task row + outbox intent in one
+	// transaction, published to JetStream) but must not parse untrusted media —
+	// the external transcoder worker does that in its own trust domain
+	// (TRANSITION_PLAN.md SG-12 step 5). The outbox pump runs in both shapes:
+	// StartWorker drives it from the worker context, and the submitter-only
+	// profile starts it standalone so a crash between commit and publish
+	// cannot strand an intent.
+	if cfg.Transcoding.Enabled {
+		svc.StartWorker(log.Named("transcode-worker"))
+		log.Info("transcoding role: submitter+worker (embedded worker enabled)")
+	} else {
+		svc.StartOutboxPublisher(log.Named("transcode-outbox"))
+		log.Info("transcoding role: submitter only (embedded worker disabled; tasks execute on the external transcoder worker)")
+	}
 	return svc
 }
 

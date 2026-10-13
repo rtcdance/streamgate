@@ -604,7 +604,7 @@ make verify-docker
 | SG-04                | **完成**                                                                                              | 见 §8.9（链作用域区块证据、证据 age 上界、单一区块固定、放行携带链与区块、**事件驱动 reorg 失效已接线**、两个真 Anvil + 记录型代理端到端、endpoint 回退；README 多链承诺已按"仅 Anvil 有同等验收"收窄）                                                                                                                                    |
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
 | SG-06                | **完成**                                                                                              | 见 §8.11。步骤 1～6 与**全部必需用例**均已落地并实测：能力 TTL 配置化 + 生产上界校验；capability 独立 audience；承载响应硬化；**70s 上界推导、配置约束并实测（67s）**；JWT/capability 钱包不一致拒绝；播放器区分权限结束与网络故障；凭据绑定 sessionID + authEpoch（正向存在校验、旧 token 缺字段即拒）；epoch 持久化（Redis，缓存 ≤5s 无滑动续期）；登出撤销整个会话 + 已发能力 5s 内失效；续期重查链上持仓；ruleVersion 以 Postgres 为权威、与写入同语句提交、不倒退、总 age ≤5s；capability 携带 ruleVersion ⇒ 规则变更界内拒绝已发能力；**嵌套 playlist 也重查持仓**；转移后不得续期（403/200 双向）；**RPC 全故障 / Redis 故障**两个依赖故障场景（独立入口 16 项全绿）；重放到管理 API 与条件请求均拒绝；**clock_skew 真正接线**（修掉硬编码 30s ⇒ 实际窗口曾达 90s、超出推导上界）。两种部署模式各 **ALL 58 PASSED** |
-| SG-12                | **部分完成（步骤 2 完成；步骤 3 部分）**                                                                          | 见 §8.12：SSRF 守卫重写（**解析主机**后逐地址判定；**精确 host/host:port 白名单**取代"debug 放开全部私网"；**默认拒绝任意外部 inputURL**；非 http(s) 方案 / IPv4-mapped / CGNAT 全拒），并以"目标实际收到 **0** 请求"实测；原件上界落地（默认 100 MiB、`maxBytes+1` 判超限、**修掉 2 GiB 静默截断后成功**）。**未做**：原件 digest/封存（步骤 1）、时长/分辨率/编码探测、worker 隔离、任务幂等与 DLQ、generation 发布 |
+| SG-12                | **完成（九个步骤全部落地，2026-10-13）**                                                                          | 见 §8.12 逐步证据：①原件 digest 与不可变封存（+409、预签名打通、链上登记启用，`f891091`）②SSRF 守卫（解析主机、精确白名单、目标 0 请求实测）③媒体探测门（mp4/h264/aac 白名单 + 时长/分辨率上界 + ffprobe 独立超时/输出上限）+ 2 GiB 静默截断修复（`313d414`）④进程树终止、threads、队列/owner 上界 429/503⑤独立 worker 接入真实管线（**双模式 ALL 66 PASSED + 执行归因实测**）⑥⑦DB 权威 + outbox + lease + delivery handle + 显式 DLQ（`a8784ad`）⑧generation 原子发布（`f7f0dd0`）⑨真实 playlist EXTINF（`de4b83c`） |
 | SG-07～09、SG-13～15    | 全部待实施                                                                                               | 无任务被本次计划写作提前勾选                                                                                                                                                                                                                                                     |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
@@ -792,6 +792,15 @@ sequenceDiagram
 | **Docker 镜像构建**   | **BLOCKED（本机网络）**   | `deploy/docker/Dockerfile.verify` 首次构建在拉取 `golang:1.26-bookworm` 时报 `short read: expected 86641718 bytes but got 0: unexpected EOF`；重拉成功后二次构建运行 28 分钟未完成。属环境网络问题而非 Dockerfile 缺陷，但**未验证**，故 SG-00 不勾选 |
 
 **结论**：SG-00 的测试与入口已落地，本机可验证部分全部通过；**Docker 镜像实跑未完成**，SG-00 保持未勾选。网络可用时执行 `make verify-docker VERIFY_STAGE=unit` 复验后补记，再进入 SG-11。
+
+**2026-10-13 续（runner 三个真实缺陷已修，提交 `a79bb9b` + `2394824`）**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 模块下载被墙 | 已修 | 镜像内默认 `GOPROXY` 为 proxy.golang.org（本网络 dial timeout，两次 13 分钟构建后失败）；Dockerfile.verify 改为默认 `GOPROXY=direct`（github 可达），runner 透传 `VERIFY_GOPROXY` build-arg。本机需 `VERIFY_GOPROXY=https://goproxy.cn,direct`（direct 克隆 go-ethereum 的 Ziren 依赖仓库时 TLS 中断；走代理 19s 完成） |
+| 登录 shell 重置 PATH | 已修 | stage 用 `bash -lc`，Debian profile 抹掉 `/root/.foundry/bin` 与 `/usr/local/go/bin` ⇒ **forge 与 go 在每个 stage 都 command not found**（镜像从没跑完过一个 stage 的真正原因）。已加 `/usr/local/bin` 符号链接 + `/etc/profile.d/go-toolchain.sh`；实测登录 shell 内 go1.26.9 / forge 1.8.5 / anvil / ffmpeg / node 全部可见 |
+| 镜像构建 | **PASS** | `streamgate-verify:local` 构建成功（goproxy.cn 模式 `go mod download` 19s），工具链在 `bash -lc` 下逐项验证通过 |
+| unit stage 实跑 | **待干净树** | stage 本身尚未在完整实现后的干净候选上跑通——工作树正处于 SG-12 后续步骤的连续实施中；SG-00 勾选以「干净候选上 `make verify-docker VERIFY_STAGE=unit` 全绿」为准，随 SG-15 收口执行 |
 
 ### 8.3 SG-11 执行证据（合约标准、状态机、ABI 一致）
 
@@ -1245,7 +1254,7 @@ sequenceDiagram
 | 单元用例 | PASS | 默认值与覆盖值（含"传 0 不等于无上限"）；声明超限被拒；**未声明超限被拒而非截断**；恰好等于上界接受；超一字节被拒；被拒后不留临时文件 |
 | 端到端 | PASS | 重新构建并部署后 **ALL 58 PASSED**（验收 fixture 约 506 KB，远低于 100 MiB） |
 
-**未做（SG-12 判据）**：步骤 1（原件 digest / 唯一 key / 封存与 409 冲突）、步骤 3 剩余（时长 10 分钟、1080p、只支持探测过的 MP4/H.264/AAC）、步骤 4（FFmpeg 进程树终止 / worker 与队列上界）、步骤 5（worker 隔离与真实消费）、步骤 6～7（DB 权威状态、lease、幂等、DLQ）、步骤 8（generation 原子发布）。
+**~~未做（SG-12 判据）~~ → 全部完成（2026-10-13）**：步骤 1/3剩余/4/5/6/7/8 的证据见下方各步骤表（步骤 2 与步骤 9 更早完成）。
 
 **步骤 9（playlist 真实 EXTINF）已落地**（提交 `de4b83c`，2026-10-13）：
 
@@ -1322,6 +1331,20 @@ sequenceDiagram
 | 遗留内容兼容 | PASS | 子例 (e)：gen 0 平铺键照常服务；步骤 9 的真实 playlist 用例全绿 |
 | 必需用例 | PASS | `TestAcceptance_TaskGenerationPublish` 6 子例全过（见上）；`go test ./...` 全绿；`-race ./pkg/service/transcoding/... ./pkg/gateway/...` 全绿 |
 | 端到端 | PASS | 迁移 039 生效后 **monolith 与 api-gateway 均 ALL 59 PASSED**；DB 实证：新内容 `published_generation=1 published_profile=abr`、任务 `output_generation=1`；存储实证：内容前缀下**只有 `g1/`**（无平铺残留），流从 generation 解析 |
+
+**步骤 5（独立转码 worker 与信任域隔离）已落地**（2026-10-13）—— **至此 SG-12 九个步骤全部完成**：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 微服务接入真实管线 | PASS | `cmd/microservices/transcoder/main.go` 重写（194 行）：Postgres + MinIO + `NewNATSTranscodingQueue`（**NATS 不可达即 Fatal，不许静默退内存队列**——否则 worker 消费不到集群任务）+ 与 gateway 同参的 `service.TranscodingService`（媒体门上界 / 队列 / owner 上界同配置）+ `StartWorker` + `/health` + SIGTERM 30s 内 drain。**旧内存 worker pool（TranscoderServer/TaskQueue/WorkerPool）保留在树上但不再有任何 main 接线** |
+| 提交方不内嵌执行 | PASS | `STREAMGATE_TRANSCODING_ENABLED=false` 显式 BindEnv 接线（原 `transcoding.enabled` 字段**从未被读取**）；monolith 与 api-gateway 均设为 false ⇒ 只提交不执行；日志分别标明角色（`external worker — claims and executes tasks submitted by the app processes` vs submitter） |
+| outbox 归属修正 | PASS | 原 pump 只在 `StartWorker` 内启动 ⇒ 提交方禁用 worker 后**自己写的 outbox 意图永远发不出去**。新增 `StartOutboxPublisher`（独立 context，`StartWorker` 接管同一槽位防双跑，`StopWorker/Close` 一并取消）；提交方禁用 worker 时仍持久发布意图。用例 `TestStartOutboxPublisher_SubmitterOnlyProfile` |
+| 共享转码适配器 | PASS | gateway 私有 `ffmpegRouterAdapter` 导出为 `pkg/plugins/transcoder.NewVideoTranscoder`（deadline 包裹 + profile 回退语义保持），gateway 删除重复实现；用例 `TestVideoTranscoderAdapter_DeadlineWrap` / `_ProfileFallback` |
+| worker 容器隔离 | PASS（运行时实测） | `sg-fc-transcoder` 实际运行态：**User=appuser（非 root）、CapDrop=["ALL"]、mem_limit=1GiB、read_only+tmpfs /tmp、cpus=2**；env 除必需的 `STREAMGATE_STORAGE_SECRET_KEY`（对象存储凭据）外**无 JWT/SECRET/PRIVATE/ANVIL/RPC**；compose 原有 transcoder 服务携带的 JWT secret 已移除 |
+| **真实 worker 执行归因** | PASS | 验收新增「Isolated transcoder worker」阶段：断言运行容器的 user/caps/env/mem + **DB 任务行 `lease_owner` 非空且 `docker logs sg-fc-transcoder` 命中该 taskID** ⇒ 转码确由外部 worker 执行（内嵌 worker 已禁用，不可能有别的执行者）。实测 `PASS: Task 4414a577… carries lease_owner='162fc8ecd123-1-… (DB claim recorded)'` + `PASS: sg-fc-transcoder logs claim/complete the task`；容器缺失 = FAIL |
+| CI 兼容 | PASS（静态） | ci.yml 的 fullchain job 用 `docker compose up -d --build` 无显式服务清单 ⇒ transcoder 自动随之启动，新检查在 CI 同样执行，**无需改 CI**（经代码核对） |
+| 端到端 | PASS | 重建部署后 **monolith 与 api-gateway 均 ALL 66 PASSED**（59 既有 + 7 新增 worker 隔离检查）；10 分钟窗口内 2 个任务全部带 lease_owner（两种模式各一次，均由外部 worker 完成） |
+| 单元/回归 | PASS | `go test ./...` 全绿（71 包）；`go build ./...` 与 `go build -tags nats_integration ./cmd/microservices/transcoder` 双清；`gofmt -l` 空；`go vet` 干净；`go mod tidy` 无 diff；compose config（单文件与 /tmp override）均校验通过 |
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

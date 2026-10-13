@@ -40,8 +40,12 @@ type TranscodingService struct {
 	mu         sync.RWMutex
 	tasks      map[string]*TranscodingTask
 	cancel     context.CancelFunc
-	cancelMu   sync.Mutex
-	httpClient *http.Client
+	// outboxCancel stops the outbox pump. It aliases the worker context's
+	// cancel while the embedded worker runs, and owns a dedicated context when
+	// only the outbox publisher is running (submitter-only profile).
+	outboxCancel context.CancelFunc
+	cancelMu     sync.Mutex
+	httpClient   *http.Client
 	// maxInputBytes bounds the ORIGINAL media this service will accept. It is
 	// enforced while fetching and while the object is staged, not by trusting a
 	// declared length.
@@ -320,6 +324,13 @@ func (s *TranscodingService) StartWorker(log *zap.Logger) {
 		s.cancel()
 	}
 	s.cancel = cancel
+	// The worker context also drives the outbox pump. Taking over the slot here
+	// supersedes a standalone outbox publisher (submitter-only profile) so two
+	// pumps never race on the same pending intents.
+	if s.outboxCancel != nil {
+		s.outboxCancel()
+	}
+	s.outboxCancel = cancel
 	s.cancelMu.Unlock()
 
 	if s.leaseOwner == "" {
@@ -450,6 +461,15 @@ func (s *TranscodingService) handleDelivery(ctx context.Context, task *Transcodi
 		// next delivery re-reads DB state.
 		s.nak(handle, nakBusyDelay, log)
 		return
+	}
+	if log != nil {
+		// Attribution line: which worker process claimed this task, and on
+		// which attempt. Acceptance greps it in the external worker's logs.
+		log.Info("TranscodingService: claimed task",
+			zap.String("task_id", task.ID),
+			zap.String("lease_owner", lease.owner),
+			zap.Int("attempt", lease.attempt),
+			zap.Int("generation", lease.generation))
 	}
 	s.executeClaimed(ctx, task, handle, lease, log)
 }
@@ -804,11 +824,46 @@ func (s *TranscodingService) pumpOutbox(ctx context.Context) (int, error) {
 	return published, nil
 }
 
+// StartOutboxPublisher runs ONLY the outbox pump, no workers: this process
+// submits tasks (task row + outbox intent in one transaction) but must never
+// execute media parsing — the embedded worker is disabled and an external
+// worker consumes from JetStream. The pump keeps retrying this process's own
+// intents, so a crash between the commit and the publish cannot strand a task.
+// StartWorker drives the same pump from the worker context instead; the two
+// never run concurrently.
+func (s *TranscodingService) StartOutboxPublisher(log *zap.Logger) {
+	if s.db == nil || s.queue == nil {
+		if log != nil {
+			log.Info("TranscodingService: no db or queue, outbox publisher not started")
+		}
+		return
+	}
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	if s.outboxCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.outboxCancel = cancel
+	s.wg.Add(1)
+	go s.outboxPumpLoop(ctx, log)
+}
+
+// WorkerRunning reports whether the embedded worker pool is active. A process
+// that only submits tasks (external worker executes) reports false.
+func (s *TranscodingService) WorkerRunning() bool {
+	return atomic.LoadInt32(&s.running) == 1
+}
+
 // StopWorker stops the background worker and waits for all goroutines to exit.
 func (s *TranscodingService) StopWorker() {
 	s.cancelMu.Lock()
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.outboxCancel != nil {
+		s.outboxCancel()
+		s.outboxCancel = nil
 	}
 	s.cancelMu.Unlock()
 	if s.serviceCancel != nil {
@@ -827,6 +882,10 @@ func (s *TranscodingService) Close() {
 	s.cancelMu.Lock()
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.outboxCancel != nil {
+		s.outboxCancel()
+		s.outboxCancel = nil
 	}
 	s.cancelMu.Unlock()
 	if s.serviceCancel != nil {

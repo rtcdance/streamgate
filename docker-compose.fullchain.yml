@@ -131,6 +131,11 @@ services:
       - STREAMGATE_STORAGE_BUCKET=streamgate
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      # Durable profile (SG-12 step 5): the monolith SUBMITS transcode tasks
+      # (Postgres + outbox + JetStream) but the isolated sg-fc-transcoder
+      # worker executes them — untrusted media parsing stays out of the
+      # JWT-signing process.
+      - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=http://localhost:18000,http://localhost:18001,http://localhost:3000,http://localhost:8080,http://localhost:18080
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
@@ -180,6 +185,9 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_CONSUL_HOST=consul
       - STREAMGATE_CONSUL_PORT=8500
+      # Submitter only: the isolated sg-fc-transcoder worker executes tasks
+      # (SG-12 step 5), so this process must not run an embedded worker.
+      - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_ETH_RPC=http://anvil:8545
       - WEB3_CHAIN_ID=31337
       - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
@@ -236,6 +244,9 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # Isolated media worker (SG-12 step 5): consumes Postgres/JetStream tasks the
+  # app processes submit and runs FFmpeg here, OUTSIDE the wallet/JWT-signing
+  # trust domain. Deliberately has NO JWT secret, NO chain RPC, NO anvil key.
   transcoder:
     build:
       context: .
@@ -243,23 +254,23 @@ services:
     container_name: sg-fc-transcoder
     environment:
       - APP_DEBUG=true
-      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
       - STREAMGATE_DB_HOST=postgres
       - STREAMGATE_DB_PORT=5432
       - STREAMGATE_DB_USER=postgres
       - STREAMGATE_DB_PASSWORD=postgres
       - STREAMGATE_DB_NAME=streamgate
-      - STREAMGATE_REDIS_HOST=redis
-      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_DB_SSLMODE=disable
       - STREAMGATE_STORAGE_ENDPOINT=minio:9000
       - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
       - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
       - STREAMGATE_STORAGE_BUCKET=streamgate
       - STREAMGATE_NATS_URL=nats://nats:4222
-      - STREAMGATE_CONSUL_HOST=consul
-      - STREAMGATE_CONSUL_PORT=8500
     depends_on:
-      consul:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
@@ -267,6 +278,16 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+    # Untrusted media parsing runs here, so the container is fenced in: no
+    # capabilities, read-only rootfs (FFmpeg works in the tmpfs /tmp), and
+    # bounded CPU/memory so one job cannot starve the stack.
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 1g
+    cpus: 2
     restart: unless-stopped
 
   upload:

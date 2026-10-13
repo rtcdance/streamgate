@@ -50,6 +50,10 @@ require_tool ffprobe
 WALLET_A="$(cast wallet address --private-key "$KEY_A")"
 WALLET_B="$(cast wallet address --private-key "$KEY_B")"
 
+# Everything the external transcoder worker does for THIS run happens after
+# this timestamp; used to scope `docker logs` when attributing a task.
+ACCEPT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 printf '============================================\n'
 printf 'StreamGate Full-Chain Acceptance Test\n'
 printf 'Backend:  %s\n' "$BASE_URL"
@@ -346,6 +350,76 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
     fi
 else
     f "Skipped transcode: missing content or token"
+fi
+
+# ---------------------------------------------------------------------------
+# 7b. Isolated transcoder worker (running process, not just the Dockerfile)
+# ---------------------------------------------------------------------------
+# SG-12 step 5: untrusted media parsing must not share a trust domain with the
+# wallet/JWT-signing process. These checks inspect the RUNNING container (user,
+# capabilities, env, limits) and then attribute the real transcode above to the
+# EXTERNAL worker — both app containers run with the embedded worker disabled.
+printf '\n=== Isolated transcoder worker ===\n'
+
+TC=sg-fc-transcoder
+if docker inspect "$TC" >/dev/null 2>&1; then
+    TC_RUNNING="$(docker inspect -f '{{.State.Running}}' "$TC")"
+    [ "$TC_RUNNING" = "true" ] && p "Worker container is running" \
+        || f "Worker container is not running (State.Running=$TC_RUNNING)"
+
+    TC_USER="$(docker inspect -f '{{.Config.User}}' "$TC")"
+    case "$TC_USER" in
+        ""|root|0) f "Worker runs as '${TC_USER:-image default}' — must be non-root" ;;
+        *)         p "Worker runs as non-root ($TC_USER)" ;;
+    esac
+
+    TC_CAPS="$(docker inspect -f '{{json .HostConfig.CapDrop}}' "$TC")"
+    case "$TC_CAPS" in
+        *ALL*) p "Worker drops all capabilities (CapDrop=$TC_CAPS)" ;;
+        *)     f "Worker CapDrop=$TC_CAPS — expected ALL" ;;
+    esac
+
+    # No JWT secret, no chain material in the worker's environment. The
+    # object-store credential is the one secret this process legitimately
+    # needs (read originals, write segments), so it is the single exemption.
+    TC_BAD_ENV="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$TC" \
+        | grep -iE 'JWT|SECRET|PRIVATE|ANVIL|RPC' \
+        | grep -ivE '^STREAMGATE_STORAGE_SECRET_KEY=' || true)"
+    [ -z "$TC_BAD_ENV" ] && p "Worker env carries no JWT/chain material" \
+        || f "Worker env exposes credential material: $(printf '%s' "$TC_BAD_ENV" | head -c 200)"
+
+    TC_MEM="$(docker inspect -f '{{.HostConfig.Memory}}' "$TC")"
+    if [ "${TC_MEM:-0}" -gt 0 ] 2>/dev/null; then
+        p "Worker memory limit set ($TC_MEM bytes)"
+    else
+        f "Worker has no memory limit"
+    fi
+
+    # Attribution: the content above is playable only if SOME worker executed
+    # the task. Both app containers have the embedded worker disabled, so the
+    # DB lease plus a claim/complete line in THIS container's logs prove the
+    # external worker did it.
+    if [ "$READY" = "1" ] && [ -n "$CONTENT_ID" ]; then
+        ATTR_ROW="$(docker exec sg-fc-postgres psql -U postgres -d streamgate -tAc \
+            "SELECT id || '|' || COALESCE(lease_owner, '') FROM transcoding_tasks WHERE content_id = '$CONTENT_ID' ORDER BY created_at DESC LIMIT 1" 2>/dev/null || true)"
+        ATTR_ID="${ATTR_ROW%%|*}"
+        ATTR_LEASE="${ATTR_ROW#*|}"
+        if [ -n "$ATTR_ID" ] && [ "$ATTR_ROW" = "$ATTR_ID|$ATTR_LEASE" ] && [ -n "$ATTR_LEASE" ]; then
+            p "Task $ATTR_ID carries lease_owner='$ATTR_LEASE' (DB claim recorded)"
+            TC_LOGS="$(docker logs --since "$ACCEPT_STARTED_AT" "$TC" 2>&1 || true)"
+            if grep -q "$ATTR_ID" <<<"$TC_LOGS"; then
+                p "sg-fc-transcoder logs claim/complete the task (external worker executed it)"
+            else
+                f "sg-fc-transcoder logs never mention task $ATTR_ID — not attributable to the external worker"
+            fi
+        else
+            f "No leased task row for content $CONTENT_ID (row='${ATTR_ROW:-none}')"
+        fi
+    else
+        f "Skipped worker attribution: the transcode above did not complete"
+    fi
+else
+    f "sg-fc-transcoder container is absent — the isolated worker is a required service"
 fi
 
 # ---------------------------------------------------------------------------
