@@ -1,26 +1,38 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/service/registry"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
+// ContentAttester is the durable registry-attest surface (SG-13 A.2/A.7),
+// implemented by *RegistryHub. nil (or a nil hub) means the on-chain registry
+// is disabled and attest answers 503.
+type ContentAttester interface {
+	Attest(ctx context.Context, actor, contentID, idemKey string) (*registry.AttestResponse, bool, error)
+}
+
 // RegisterContentRoutes registers content CRUD routes.
-func RegisterContentRoutes(router gin.IRouter, log *zap.Logger, contentSvc *service.ContentService) {
+func RegisterContentRoutes(router gin.IRouter, log *zap.Logger, contentSvc *service.ContentService, attester ContentAttester) {
 	content := router.Group(APIPrefix + "/content")
 	content.GET("", handleListContents(contentSvc, log))
 	content.GET("/:id", handleGetContent(contentSvc, log))
 	content.POST("", handleCreateContent(contentSvc, log))
 	content.PUT("/:id", handleUpdateContent(contentSvc, log))
 	content.DELETE("/:id", handleDeleteContent(contentSvc, log))
+	// On-chain attestation of a verified original: JWT + content owner only.
+	content.POST("/:id/attest", handleAttestContent(contentSvc, attester, log))
 	log.Info("Content routes registered")
 }
 
@@ -220,6 +232,54 @@ func handleDeleteContent(contentSvc *service.ContentService, log *zap.Logger) gi
 			return
 		}
 		respondNoContent(c)
+	}
+}
+
+// handleAttestContent creates or reuses the durable on-chain register intent
+// for a content the caller owns and returns its CURRENT status (SG-13 A.7 —
+// business success is the DB row; the chain registration is a separate,
+// visible status, never a synchronous "success" claim).
+//
+// Idempotency (A.2): an optional Idempotency-Key header records the exchange
+// under (actor, operation, chain/registry scope, key) with the canonical
+// payload digest as the comparison column. Same key + same payload replays
+// the stored response; same key + different payload answers 409. When the
+// header is ABSENT no idempotency record is written and dedup relies on the
+// unique (chain, registry, contentID) intent alone — a deterministic key is
+// deliberately NOT synthesised. The request body is ignored: the digest comes
+// server-side from contents.file_hash, never from the client.
+func handleAttestContent(contentSvc *service.ContentService, attester ContentAttester, log *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if contentSvc == nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrContentUnavailable, "content service unavailable")
+			return
+		}
+		if attester == nil {
+			abortWithError(c, http.StatusServiceUnavailable, "REGISTRY_DISABLED", "on-chain content registry is disabled")
+			return
+		}
+		if _, ok := requireContentOwner(c, contentSvc); !ok {
+			return
+		}
+		resp, conflict, err := attester.Attest(c.Request.Context(), middleware.GetWalletAddress(c), c.Param("id"), c.GetHeader("Idempotency-Key"))
+		if err != nil {
+			switch {
+			case errors.Is(err, registry.ErrContentNotFound):
+				abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not found")
+			case errors.Is(err, registry.ErrNotOwner):
+				abortWithError(c, http.StatusForbidden, ErrContentForbidden, "not authorized to access this content")
+			case errors.Is(err, registry.ErrOriginalNotVerified):
+				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "content has no verified original to attest")
+			default:
+				abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, "failed to record attestation intent", err.Error())
+			}
+			return
+		}
+		if conflict {
+			abortWithError(c, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key was reused with a different payload")
+			return
+		}
+		respondOK(c, gin.H{"attestation": resp})
 	}
 }
 

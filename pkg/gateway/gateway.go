@@ -64,11 +64,6 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	db, _ := provideDatabase(cfg, log, resources)
 	contentSvc := provideContentService(rc, db, log)
-	if contentSvc != nil && rc.ContentService == nil {
-		if registry := ProvideContentRegistry(cfg, log); registry != nil {
-			contentSvc.SetContentRegistry(registry)
-		}
-	}
 	resources.ContentService = contentSvc
 
 	objStorage := provideObjectStorage(rc, cfg, log, resources)
@@ -93,6 +88,23 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	uploadSvc := provideUploadService(rc, cfg, log, db, objStorage, transcodingSvc)
 	resources.UploadService = uploadSvc
 
+	// SG-13 A: the durable on-chain registration stack replaces the old
+	// synchronous post-commit chain call. The intent commits with the content
+	// row, the publisher submits and tracks the chain write, and the attest
+	// endpoint exposes the durable status. Everything degrades to "registry
+	// disabled" when config or database is missing.
+	registryHub := ProvideRegistryHub(cfg, log, db)
+	if registryHub != nil {
+		if contentSvc != nil {
+			contentSvc.SetRegistryIntent(registryHub.Store)
+		}
+		if uploadSvc != nil {
+			uploadSvc.SetRegistryIntent(registryHub.Store)
+		}
+		registryHub.Publisher.Start(context.Background())
+	}
+	resources.RegistryHub = registryHub
+
 	provideOTelTracing(cfg, log, resources)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -112,6 +124,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		TranscodingSvc:  transcodingSvc,
 		UploadService:   uploadSvc,
 		DemoNFTMinter:   newDemoNFTMinter(cfg, log),
+		RegistryHub:     registryHub,
 	}
 	resources.StreamingSvc = svc.StreamingSvc
 

@@ -14,6 +14,7 @@ package integration_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,9 +33,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/google/uuid"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/gateway"
+	"github.com/rtcdance/streamgate/pkg/service/content"
+	"github.com/rtcdance/streamgate/pkg/service/registry"
+	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
@@ -201,4 +207,160 @@ func TestAnvil_ContentRegistry_RegisterAndReadBack(t *testing.T) {
 	require.Equal(t, creator, record.Creator)
 	require.Equal(t, digest, record.ContentDigest)
 	require.Equal(t, "ipfs://integration-test", record.MetadataURI)
+}
+
+// TestAnvil_RegistryDurableIntentLifecycle drives the SG-13 durable path end
+// to end: content creation records the register intent in the SAME DB
+// transaction as the contents row, the registry publisher signs (raw tx
+// persisted BEFORE broadcast), broadcasts, waits for a real receipt plus the
+// confirmation policy, and the confirmed history — block evidence, raw tx,
+// creator/digest association — is readable from Postgres after a simulated
+// restart. Requires STREAMGATE_TEST_DB_DSN (scratch database).
+func TestAnvil_RegistryDurableIntentLifecycle(t *testing.T) {
+	dsn := os.Getenv("STREAMGATE_TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("STREAMGATE_TEST_DB_DSN not set; the durable lifecycle test needs a scratch Postgres")
+	}
+	db, err := storage.NewDatabase(storage.DatabaseConfig{Type: "postgres", DSN: dsn})
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	require.NoError(t, db.Ping(context.Background()))
+	require.NoError(t, helpers.ApplyMigrations(t, db))
+
+	rpcURL, cleanup := startAnvil(t)
+	defer cleanup()
+
+	registryABI, registryBin := loadRegistryArtifact(t)
+	ethClient, err := ethclient.Dial(rpcURL)
+	require.NoError(t, err)
+	defer ethClient.Close()
+	key, err := crypto.HexToECDSA(strings.TrimPrefix(anvilKey0, "0x"))
+	require.NoError(t, err)
+	auth, err := bind.NewKeyedTransactorWithChainID(key, big.NewInt(anvilChainID))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	auth.Context = ctx
+	addr, deployTx, _, err := bind.DeployContract(auth, registryABI, registryBin, ethClient)
+	require.NoError(t, err)
+	deployReceipt, err := bind.WaitMined(ctx, ethClient, deployTx)
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptStatusSuccessful, deployReceipt.Status)
+
+	cfg := &config.Config{}
+	cfg.Web3.ContentRegistryAddress = addr.Hex()
+	cfg.Web3.AnvilDeployerKey = anvilKey0
+	cfg.Web3.EthereumRPC = rpcURL
+	cfg.Web3.ChainID = anvilChainID
+
+	// Each run starts a FRESH Anvil chain, so the persisted nonce ledger for
+	// this (chain, signer) belongs to a chain that no longer exists and must
+	// be reset — exactly what an operator does after a chain reset. Scoping to
+	// (31337, deployer) touches nothing else in the scratch database.
+	deployer := strings.ToLower(crypto.PubkeyToAddress(key.PublicKey).Hex())
+	for _, q := range []struct {
+		query string
+		args  []interface{}
+	}{
+		{`DELETE FROM tx_signed_attempts WHERE chain_id = $1 AND signer = $2`, []interface{}{anvilChainID, deployer}},
+		{`DELETE FROM tx_nonce_reservations WHERE chain_id = $1 AND signer = $2`, []interface{}{anvilChainID, deployer}},
+		{`DELETE FROM content_registry_intents WHERE chain_id = $1 AND registry_address = $2`, []interface{}{anvilChainID, strings.ToLower(addr.Hex())}},
+		{`DELETE FROM http_idempotency WHERE scope = $1`, []interface{}{registry.AttestScope(anvilChainID, addr.Hex())}},
+	} {
+		_, err := db.Exec(ctx, q.query, q.args...)
+		require.NoError(t, err)
+	}
+
+	hub := gateway.ProvideRegistryHub(cfg, zap.NewNop(), db)
+	require.NotNil(t, hub, "hub must be constructible against real Anvil + real Postgres")
+
+	// Content creation writes the intent in the same transaction as the row.
+	contentSvc := content.NewContentService(db, nil, nil, zap.NewNop())
+	contentSvc.SetRegistryIntent(hub.Store)
+	contentID := uuid.NewString()
+	creator := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	digest := sha256.Sum256([]byte("durable-original-bytes-" + contentID))
+	digestHex := hex.EncodeToString(digest[:])
+	_, err = contentSvc.CreateContentWithTx(ctx, &content.Content{
+		ID: contentID, Title: "Durable", Type: "video", OwnerID: creator, FileHash: digestHex,
+	})
+	require.NoError(t, err)
+	in, err := hub.Store.Get(ctx, contentID)
+	require.NoError(t, err)
+	require.NotNil(t, in)
+	require.Equal(t, registry.StatusPending, in.Status, "the intent must exist as pending before any chain interaction")
+
+	// Attest requires the sealed, verified original the way upload sealing
+	// records it; the digest itself still comes only from contents.file_hash.
+	_, err = db.Exec(ctx, `UPDATE contents SET original_verified = TRUE WHERE id = $1`, contentID)
+	require.NoError(t, err)
+
+	// Drive the real publisher until the confirmation policy is satisfied;
+	// evm_mine supplies the confirmation blocks Anvil will not produce by itself.
+	mineTwice := func() {
+		for i := 0; i < 2; i++ {
+			_ = ethClient.Client().CallContext(ctx, nil, "evm_mine")
+		}
+	}
+	var confirmed *registry.Intent
+	require.Eventually(t, func() bool {
+		if err := hub.Publisher.RunOnce(ctx); err != nil {
+			return false
+		}
+		mineTwice()
+		cur, gerr := hub.Store.Get(ctx, contentID)
+		if gerr != nil || cur == nil {
+			return false
+		}
+		if cur.Status == registry.StatusConfirmed {
+			confirmed = cur
+			return true
+		}
+		return false
+	}, 45*time.Second, 500*time.Millisecond, "intent must reach confirmed on real Anvil")
+
+	require.NotEmpty(t, confirmed.TxHash)
+	require.True(t, confirmed.BlockNumber.Valid, "the receipt block number must be recorded")
+	require.NotEmpty(t, confirmed.BlockHash, "the receipt block hash must be recorded")
+	require.True(t, confirmed.ConfirmedAt.Valid)
+
+	// The signed raw tx was persisted (and is replayable), and its receipt is real.
+	attempt, err := hub.Store.GetAttempt(ctx, confirmed.TxHash)
+	require.NoError(t, err)
+	require.NotNil(t, attempt, "the signed raw tx must be persisted")
+	require.NotEmpty(t, attempt.RawTx)
+	receipt, err := ethClient.TransactionReceipt(ctx, common.HexToHash(confirmed.TxHash))
+	require.NoError(t, err)
+	require.Equal(t, types.ReceiptStatusSuccessful, receipt.Status)
+	require.Equal(t, confirmed.BlockNumber.Int64, receipt.BlockNumber.Int64())
+
+	// Digest/creator association on the REAL contract matches what was
+	// persisted — the attestor never masquerades as the uploader.
+	record, err := hub.Binding.GetContent(ctx, contentID)
+	require.NoError(t, err)
+	require.Equal(t, creator, record.Creator)
+	require.Equal(t, digest, record.ContentDigest)
+
+	// Attest returns the durable status; the same Idempotency-Key replays it.
+	attestResp, conflict, err := hub.Service.Attest(ctx, creator, contentID, "anvil-attest-1")
+	require.NoError(t, err)
+	require.False(t, conflict)
+	require.Equal(t, registry.StatusConfirmed, attestResp.Status)
+	replay, conflict, err := hub.Service.Attest(ctx, creator, contentID, "anvil-attest-1")
+	require.NoError(t, err)
+	require.False(t, conflict)
+	require.Equal(t, attestResp, replay, "replayed attest must return the original response")
+
+	// Simulated restart: a NEW store on a NEW connection reads the same
+	// durable confirmed history — nothing lived only in process memory.
+	db2, err := storage.NewDatabase(storage.DatabaseConfig{Type: "postgres", DSN: dsn})
+	require.NoError(t, err)
+	defer func() { _ = db2.Close() }()
+	store2 := registry.NewStore(db2, anvilChainID, addr.Hex())
+	afterRestart, err := store2.Get(ctx, contentID)
+	require.NoError(t, err)
+	require.NotNil(t, afterRestart)
+	require.Equal(t, registry.StatusConfirmed, afterRestart.Status)
+	require.Equal(t, confirmed.TxHash, afterRestart.TxHash)
+	require.Equal(t, confirmed.BlockHash, afterRestart.BlockHash)
 }

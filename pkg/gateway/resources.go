@@ -50,6 +50,9 @@ type AppResources struct {
 	// content; it is built by SetupRouter and feeds the gRPC streaming server
 	// (the HTTP routes get the same resolver directly). nil ⇒ generation 0.
 	GenerationResolver PublishedGenerationResolver
+	// RegistryHub is the durable on-chain registration stack (SG-13 A); nil
+	// when the content registry is disabled.
+	RegistryHub *RegistryHub
 }
 
 // Close releases all held resources. Errors from individual closes are
@@ -64,6 +67,9 @@ func (r *AppResources) Close() error {
 	}
 	if r.TranscodingSvc != nil {
 		r.TranscodingSvc.StopWorker()
+	}
+	if r.RegistryHub != nil {
+		r.RegistryHub.Close()
 	}
 	if r.UploadService != nil {
 		r.UploadService.Close()
@@ -189,6 +195,7 @@ type serviceInit struct {
 	TranscodingSvc     *service.TranscodingService
 	UploadService      *service.UploadService
 	DemoNFTMinter      *service.DemoNFTMinter
+	RegistryHub        *RegistryHub
 }
 
 func newDemoNFTMinter(cfg *config.Config, log *zap.Logger) *service.DemoNFTMinter {

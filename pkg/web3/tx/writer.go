@@ -23,6 +23,16 @@ type ContractWriteResult struct {
 	SentAt       time.Time
 }
 
+// SignedTx is a fully signed transaction ready for durable persistence and a
+// later (possibly repeated) broadcast. Raw is the RLP encoding the caller
+// stores BEFORE broadcasting; Hash is deterministic over it, so a recovery
+// pass can re-send the exact same bytes and the exact same hash.
+type SignedTx struct {
+	Raw   []byte
+	Hash  string
+	Nonce uint64
+}
+
 type ContractTxOpts struct {
 	To        string
 	Method    string
@@ -74,29 +84,19 @@ func (cw *ContractWriter) WithTracker(tracker *TxTracker) *ContractWriter {
 }
 
 func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*ContractWriteResult, error) {
+	// Pack first: a malformed call is a caller error, rejected before the
+	// nonce manager or the chain are touched.
 	callData, err := opts.ParsedABI.Pack(opts.Method, opts.Args...)
 	if err != nil {
 		return nil, fmt.Errorf("contract_writer: pack %s: %w", opts.Method, err)
 	}
-
-	contractAddr := common.HexToAddress(opts.To)
 
 	nonce, err := cw.nonceMgr.NextNonce(ctx, cw.fromAddress.Hex())
 	if err != nil {
 		return nil, fmt.Errorf("contract_writer: get nonce: %w", err)
 	}
 
-	gasLimit := opts.GasLimit
-	if gasLimit == 0 {
-		gasLimit = cw.estimateGas(ctx, cw.fromAddress, contractAddr, callData, opts.Value, opts.Method)
-	}
-
-	var signedTx *types.Transaction
-	var pending *PendingTx
-	err = cw.key.UseKey(func(privKey *ecdsa.PrivateKey) error {
-		signedTx, pending, err = cw.buildAndSignTx(ctx, privKey, nonce, contractAddr, callData, gasLimit, opts)
-		return err
-	})
+	signed, signedTx, pending, gasLimit, err := cw.buildSigned(ctx, opts, callData, nonce)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*Con
 
 	cw.logger.Info("Contract write tx sent",
 		zap.String("method", opts.Method),
-		zap.String("tx_hash", pending.Hash),
+		zap.String("tx_hash", signed.Hash),
 		zap.Uint64("nonce", nonce),
 		zap.Uint64("gas_limit", gasLimit),
 		zap.String("to", opts.To))
@@ -118,6 +118,65 @@ func (cw *ContractWriter) SendTx(ctx context.Context, opts ContractTxOpts) (*Con
 	}
 
 	return buildResult(pending, nonce, gasLimit), nil
+}
+
+// BuildSignedTx packs, estimates gas and signs the transaction with an
+// EXPLICIT nonce, and returns the raw signed bytes WITHOUT broadcasting them.
+// It never touches the nonce manager: the caller owns nonce allocation and
+// durable persistence of the raw tx (SG-13 A.4 — persist before broadcast).
+func (cw *ContractWriter) BuildSignedTx(ctx context.Context, opts ContractTxOpts, nonce uint64) (*SignedTx, error) {
+	callData, err := opts.ParsedABI.Pack(opts.Method, opts.Args...)
+	if err != nil {
+		return nil, fmt.Errorf("contract_writer: pack %s: %w", opts.Method, err)
+	}
+	signed, _, _, _, err := cw.buildSigned(ctx, opts, callData, nonce)
+	if err != nil {
+		return nil, err
+	}
+	return signed, nil
+}
+
+// Broadcast sends previously built (and, per SG-13, already persisted) raw
+// signed bytes. It is safe to call repeatedly with the same SignedTx: the
+// transaction hash is a pure function of the raw bytes, so a retry after an
+// ambiguous failure re-sends the identical transaction.
+func (cw *ContractWriter) Broadcast(ctx context.Context, signed *SignedTx) error {
+	var decoded types.Transaction
+	if err := decoded.UnmarshalBinary(signed.Raw); err != nil {
+		return fmt.Errorf("contract_writer: decode raw tx: %w", err)
+	}
+	return cw.client.SendTransaction(ctx, &decoded)
+}
+
+func (cw *ContractWriter) buildSigned(ctx context.Context, opts ContractTxOpts, callData []byte, nonce uint64) (*SignedTx, *types.Transaction, *PendingTx, uint64, error) {
+	contractAddr := common.HexToAddress(opts.To)
+
+	gasLimit := opts.GasLimit
+	if gasLimit == 0 {
+		gasLimit = cw.estimateGas(ctx, cw.fromAddress, contractAddr, callData, opts.Value, opts.Method)
+	}
+
+	var signedTx *types.Transaction
+	var pending *PendingTx
+	err := cw.key.UseKey(func(privKey *ecdsa.PrivateKey) error {
+		var perr error
+		signedTx, pending, perr = cw.buildAndSignTx(ctx, privKey, nonce, contractAddr, callData, gasLimit, opts)
+		return perr
+	})
+	if err != nil {
+		return nil, nil, nil, 0, err
+	}
+
+	raw, err := signedTx.MarshalBinary()
+	if err != nil {
+		return nil, nil, nil, 0, fmt.Errorf("contract_writer: marshal signed tx: %w", err)
+	}
+
+	return &SignedTx{
+		Raw:   raw,
+		Hash:  pending.Hash,
+		Nonce: nonce,
+	}, signedTx, pending, gasLimit, nil
 }
 
 func (cw *ContractWriter) estimateGas(ctx context.Context, from, to common.Address, callData []byte, value *big.Int, method string) uint64 {

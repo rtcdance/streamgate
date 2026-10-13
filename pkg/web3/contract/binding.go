@@ -91,6 +91,35 @@ func (b *ContentRegistryBinding) RegisterContent(ctx context.Context, contentID,
 	return result.TxHash, nil
 }
 
+// PrepareRegisterContent packs and signs the registerContent transaction with
+// an EXPLICIT nonce and returns the raw signed bytes WITHOUT broadcasting
+// (SG-13 A.4 — the caller persists raw tx, nonce and hash durably first, and
+// only then broadcasts via Broadcast).
+func (b *ContentRegistryBinding) PrepareRegisterContent(ctx context.Context, contentID, creator string, contentDigest [32]byte, metadataURI string, nonce uint64) (*tx.SignedTx, error) {
+	if b.writer == nil {
+		return nil, fmt.Errorf("content_registry_binding: writer not configured")
+	}
+	if !common.IsHexAddress(creator) {
+		return nil, fmt.Errorf("content_registry_binding: invalid creator address %q", creator)
+	}
+	return b.writer.BuildSignedTx(ctx, tx.ContractTxOpts{
+		To:        b.address.Hex(),
+		Method:    "registerContent",
+		ParsedABI: &b.abi,
+		Args:      []interface{}{contentID, common.HexToAddress(creator), contentDigest, metadataURI},
+	}, nonce)
+}
+
+// Broadcast sends raw signed bytes prepared by PrepareRegisterContent. It is
+// idempotent for identical raw bytes (same tx hash), so recovery after an
+// ambiguous broadcast failure re-sends the SAME transaction.
+func (b *ContentRegistryBinding) Broadcast(ctx context.Context, signed *tx.SignedTx) error {
+	if b.writer == nil {
+		return fmt.Errorf("content_registry_binding: writer not configured")
+	}
+	return b.writer.Broadcast(ctx, signed)
+}
+
 // ContentExists checks whether a contentId is registered (status != Nonexistent).
 func (b *ContentRegistryBinding) ContentExists(ctx context.Context, contentID string) (bool, error) {
 	result, err := b.reader.CallContractFunction(ctx, b.address.Hex(), ContentRegistryABI, "contentExists", "", contentID)
