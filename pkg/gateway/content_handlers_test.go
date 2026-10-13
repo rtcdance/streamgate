@@ -146,7 +146,7 @@ func setupContentRouter(contentSvc interface{}, wallet string) *gin.Engine {
 	if cs, ok := contentSvc.(*service.ContentService); ok {
 		svc = cs
 	}
-	RegisterContentRoutes(r, zap.NewNop(), svc)
+	RegisterContentRoutes(r, zap.NewNop(), svc, nil)
 	return r
 }
 

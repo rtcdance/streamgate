@@ -1346,6 +1346,24 @@ sequenceDiagram
 | 端到端 | PASS | 重建部署后 **monolith 与 api-gateway 均 ALL 66 PASSED**（59 既有 + 7 新增 worker 隔离检查）；10 分钟窗口内 2 个任务全部带 lease_owner（两种模式各一次，均由外部 worker 完成） |
 | 单元/回归 | PASS | `go test ./...` 全绿（71 包）；`go build ./...` 与 `go build -tags nats_integration ./cmd/microservices/transcoder` 双清；`gofmt -l` 空；`go vet` 干净；`go mod tidy` 无 diff；compose config（单文件与 /tmp override）均校验通过 |
 
+### 8.13 SG-13 执行证据（链外一致性、交易幂等与有限事件恢复）
+
+**A 部分（登记与交易）已落地**（2026-10-13）：
+
+| 判据（计划原文） | 结果 | 证据 |
+|---|---|---|
+| A.1 意图与内容同事务；状态可见非日志 | PASS | 迁移 040（additive）：`content_registry_intents`（唯一 `(chain, registry, contentID)`，六态 pending/submitted/confirmed/failed/broadcast_unknown/disabled + block 证据）、`tx_nonce_reservations`、`tx_signed_attempts`、`http_idempotency`。`CreateContentWithTx` 与 `CompleteUploadWithTx` 两条真实建行路径都调 `EnsureIntentTx` 在**同一事务**写入意图；`SetRegistryIntent` 接线在 `pkg/gateway/gateway.go`。链不可用不丢媒体（意图已提交，publisher 后续补链写）；状态从 DB 读出展示（attest 端点返回当前 durable 状态，从不声称 success） |
+| A.2 HTTP 幂等 `(actor, operation, scope, key)`，payload digest 为比较列；同 key 同 payload 回放、不同 payload 409 | PASS | `IdempotencyStore`（唯一键四元组，payload digest 独立列）+ `CanonicalAttestPayload`（固定字段序、小写地址/摘要、排除时间戳）。唯一 register intent `(chain, registry, contentID)` 且 digest/creator 固定在首录 payload——换 digest 无法重复登记同一 ID（测试实证）。digest 来自服务端 `contents.file_hash`，客户端无法提交 bytes32 假摘要。`TestAcceptance_RegistryIdempotency`：20 并发建 content 恰 1 行、20 并发 attest 同 key 回放同一响应、重试不新增行、同 key 不同 payload → **409**、publisher 全程仅 1 次签名 + 1 次广播 |
+| A.3 nonce 按 `(chainID, signer)` advisory lock 分配，`UNIQUE(chain, signer, nonce)` | PASS | `ReserveNonce`：`pg_advisory_xact_lock(hashtextextended("sg13-nonce:chain:signer"))` 下 max(reserved)+1 与链 pending nonce 取大；两个进程首次并发不可能同 nonce。`TestAcceptance_NonceAcrossInstances`（两 Store 实例并发分配无重复） |
+| A.4 先持久化 signed raw tx/nonce/hash/意图，再广播；RPC timeout 为 unknown 不回滚 nonce；DB 不可写不广播 | PASS | `persistBroadcastFacts`：attempt + 意图置 submitted 在**一个事务**内提交后才 `broadcast`；写失败则不广播。`isAmbiguous`（deadline/net error）→ `broadcast_unknown`，nonce 保留、恢复时**查 receipt 或重播同一 raw 字节**（`recoverUnknown`，绝不签新 nonce）。仅节点明确拒绝且链 nonce 证明未消费才 `ReleaseReservation`+回 pending。`TestAcceptance_BroadcastUnknownRecovery`（fake node 接受后超时 → 同 hash 同 raw 恢复为 submitted，不双花） |
+| A.5 receipt.status=1 非 final；confirmed 持久化不随 map 消失；跟踪 client 按 intent chainID | PASS | `maybeConfirm` 要求 head ≥ receipt block + N（默认 2）才 confirmed；`checkReorgs` 每轮用 `HeaderByNumber` 核对 confirmed 行的持久化 block hash，不匹配 → `ReorgRevert` 退回 submitted 重核。全部状态在 Postgres，无进程 map。publisher 的 `ChainClient` 由 wiring 按 intent chain 选择（非固定 11155111）。`TestAcceptance_TxReceiptReorg` |
+| A.6 bump/cancel 默认关闭 | PASS | 未接线自动 bump/cancel；`TxLifecycleManager` 仅在配置了私钥的旧路径存在，registry publisher 不使用 |
+| A.7 不宣称 DB 与链原子；broadcast 后 response 丢失的重试返回原 intent/hash | PASS | 设计即如此：业务成功=DB+意图提交；链写为独立可见状态。广播后崩溃 → 重启后 publisher 从 `broadcast_unknown`/`submitted` 恢复，attest 返回同一 intent 行与同一 txHash（唯一键保证）。`RunOnce` 每次 RPC 都在两个短事务之间，无跨库-RPC 长事务 |
+| Anvil 真链 roundtrip | PASS | `TestAnvil_RegistryDurableIntentLifecycle`（真 Anvil + 真 Forge 合约 + scratch Postgres）：content 创建 → 同事务意图 → publisher 签名(先持久化)→ 广播 → receipt → 确认策略 → confirmed；模拟重启后 DB 中可读 confirmed 历史、raw tx、creator/digest 关联。**实跑 PASS**（`go test -tags anvil ./test/integration/ -run TestAnvil` 5/5 全绿） |
+| 单元/回归 | PASS | `go test ./...` 全绿；`-race ./pkg/service/registry/ ./pkg/service/content/ ./pkg/service/upload/ ./pkg/gateway/` 全绿；scratch DSN（`streamgate_scratch`）下 4 个 `TestAcceptance_*` **实跑非 skip**；`gofmt -l` 空；`go vet ./pkg/... ./cmd/...` 干净；`go mod tidy` 无 diff |
+
+**B 部分（NFT 事件加速失效）**：见下方（2026-10-13 继续执行）。
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 

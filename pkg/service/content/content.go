@@ -20,13 +20,14 @@ import (
 
 // ContentService handles content operations
 type ContentService struct {
-	db          storage.DB
-	objStore    ContentObjectStorage
-	cache       cachetypes.CacheBackend
-	registry    ContentRegistry
-	auditLogger storage.AuditLogger
-	logger      *zap.Logger
-	sf          singleflight.Group
+	db             storage.DB
+	objStore       ContentObjectStorage
+	cache          cachetypes.CacheBackend
+	registry       ContentRegistry
+	registryIntent RegistryIntentSink
+	auditLogger    storage.AuditLogger
+	logger         *zap.Logger
+	sf             singleflight.Group
 }
 
 // ContentRegistry defines the interface for on-chain content attestation.
@@ -36,6 +37,17 @@ type ContentService struct {
 // is disabled.
 type ContentRegistry interface {
 	RegisterContent(ctx context.Context, contentID, creator string, contentDigest [32]byte, metadataURI string) (string, error)
+}
+
+// RegistryIntentSink is the durable register-intent writer (SG-13 A.1). When
+// set, content creation records the intent INSIDE the same transaction as the
+// contents row and the registry publisher performs the chain write later —
+// chain unavailability never loses the media or its intent. nil falls back to
+// the legacy in-process registration path.
+type RegistryIntentSink interface {
+	ChainID() int64
+	RegistryAddress() string
+	EnsureIntentTx(ctx context.Context, tx *sql.Tx, contentID, creator, contentDigest, metadataURI string) error
 }
 
 // ContentObjectStorage defines the interface for object storage
@@ -84,6 +96,13 @@ func NewContentService(db storage.DB, objStorage ContentObjectStorage, cache cac
 // SetContentRegistry sets the on-chain content registry for registration after DB insert.
 func (s *ContentService) SetContentRegistry(registry ContentRegistry) {
 	s.registry = registry
+}
+
+// SetRegistryIntent installs the durable register-intent writer. When set it
+// REPLACES the synchronous post-commit chain call: the intent commits in-tx
+// and the registry publisher owns the chain write (SG-13 A.1/A.7).
+func (s *ContentService) SetRegistryIntent(sink RegistryIntentSink) {
+	s.registryIntent = sink
 }
 
 // SetAuditLogger sets the audit logger for tracking content operations.
@@ -362,38 +381,70 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 			zap.String("contentID", content.ID), zap.Error(err))
 	}
 
+	// SG-13 A.1: with a durable registry intent sink the verified creator and
+	// digest persist in the SAME transaction as the contents row, and the
+	// publisher performs the chain write later. Chain unavailability can never
+	// lose the row or its intent; without a sink this stays deferred.
+	registryIntentRecorded := false
+	if s.registryIntent != nil {
+		if _, ok := decodeContentDigest(content.FileHash); ok && content.OwnerID != "" {
+			if err := s.registryIntent.EnsureIntentTx(ctx, tx, content.ID, content.OwnerID, content.FileHash, content.URL); err != nil {
+				// Not fatal for the media row: the attest endpoint can recreate
+				// the intent, and the publisher never sees a half-written one.
+				s.logger.Warn("failed to record registry intent with content insert",
+					zap.String("id", content.ID), zap.Error(err))
+			} else {
+				registryIntentRecorded = true
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("commit tx: %w", err)
 	}
 
-	// On-chain attestation only happens with the verified original digest: the
-	// SHA-256 of the sealed bytes (content.FileHash, set by upload sealing) and
-	// the verified creator (content.OwnerID, the wallet that produced the
-	// upload). An empty/unverifiable digest keeps the intent deferred — a fake
-	// digest must never reach the registry. The chain write is not atomic with
-	// the DB insert, so a failure is logged for outbox retry (SG-13) and never
-	// fails the committed row.
-	if s.registry == nil {
-		s.logger.Info("On-chain content registration deferred until a verified original digest exists",
-			zap.String("id", content.ID))
-	} else if digest, ok := decodeContentDigest(content.FileHash); !ok || content.OwnerID == "" {
-		s.logger.Info("On-chain content registration deferred until a verified original digest exists",
-			zap.String("id", content.ID),
-			zap.String("owner_id", content.OwnerID))
-	} else {
-		// Security: creator is the server-verified content owner and digest is
-		// the hex-decoded 32-byte original digest — never client-supplied data.
-		txHash, err := s.registry.RegisterContent(ctx, content.ID, content.OwnerID, digest, content.URL)
-		if err != nil {
-			s.logger.Warn("On-chain content registration failed; committed content stands, intent kept for retry",
+	if s.registryIntent != nil {
+		if registryIntentRecorded {
+			s.logger.Info("On-chain registration intent recorded; publisher will submit the chain write",
 				zap.String("id", content.ID),
 				zap.String("creator", content.OwnerID),
-				zap.String("digest", content.FileHash),
-				zap.Error(err))
+				zap.String("digest", content.FileHash))
 		} else {
-			s.logger.Info("Content registered on-chain",
+			s.logger.Info("On-chain content registration deferred until a verified original digest exists",
 				zap.String("id", content.ID),
-				zap.String("tx", txHash))
+				zap.String("owner_id", content.OwnerID))
+		}
+	} else {
+		// On-chain attestation only happens with the verified original digest: the
+		// SHA-256 of the sealed bytes (content.FileHash, set by upload sealing) and
+		// the verified creator (content.OwnerID, the wallet that produced the
+		// upload). An empty/unverifiable digest keeps the intent deferred — a fake
+		// digest must never reach the registry. The chain write is not atomic with
+		// the DB insert, so a failure is logged and never fails the committed row.
+		// Production wiring installs a RegistryIntentSink, which replaces this
+		// legacy synchronous path with the durable publisher (SG-13).
+		if s.registry == nil {
+			s.logger.Info("On-chain content registration deferred until a verified original digest exists",
+				zap.String("id", content.ID))
+		} else if digest, ok := decodeContentDigest(content.FileHash); !ok || content.OwnerID == "" {
+			s.logger.Info("On-chain content registration deferred until a verified original digest exists",
+				zap.String("id", content.ID),
+				zap.String("owner_id", content.OwnerID))
+		} else {
+			// Security: creator is the server-verified content owner and digest is
+			// the hex-decoded 32-byte original digest — never client-supplied data.
+			txHash, err := s.registry.RegisterContent(ctx, content.ID, content.OwnerID, digest, content.URL)
+			if err != nil {
+				s.logger.Warn("On-chain content registration failed; committed content stands",
+					zap.String("id", content.ID),
+					zap.String("creator", content.OwnerID),
+					zap.String("digest", content.FileHash),
+					zap.Error(err))
+			} else {
+				s.logger.Info("Content registered on-chain",
+					zap.String("id", content.ID),
+					zap.String("tx", txHash))
+			}
 		}
 	}
 

@@ -70,7 +70,26 @@ type UploadService struct {
 	hookMu        sync.Mutex
 	hookWg        sync.WaitGroup
 
+	// registryIntent, when set, records the durable on-chain register intent
+	// in the SAME transaction that creates the content row from a sealed
+	// upload (SG-13 A.1). The registry publisher owns the chain write.
+	registryIntent RegistryIntentSink
+
 	chunkMergeConcurrency int // parallel chunk downloads during merge
+}
+
+// RegistryIntentSink mirrors content.RegistryIntentSink without importing the
+// content package: the upload completion transaction records the register
+// intent for the server-verified digest and creator.
+type RegistryIntentSink interface {
+	ChainID() int64
+	RegistryAddress() string
+	EnsureIntentTx(ctx context.Context, tx *sql.Tx, contentID, creator, contentDigest, metadataURI string) error
+}
+
+// SetRegistryIntent installs the durable register-intent writer.
+func (s *UploadService) SetRegistryIntent(sink RegistryIntentSink) {
+	s.registryIntent = sink
 }
 
 const defaultChunkMergeConcurrency = 5
@@ -1056,6 +1075,27 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 			upload.OwnerID, upload.URL, thumbnailURL,
 			digest, sealedKey, true, time.Now(), time.Now()); err != nil {
 			return fmt.Errorf("insert content: %w", err)
+		}
+
+		// SG-13 A.1: this is the REAL production path that creates contents rows,
+		// and it holds the verified digest — so the on-chain register intent
+		// commits HERE, in the same transaction as the content. A registry that
+		// is down later cannot lose the upload or its intent.
+		if s.registryIntent != nil {
+			if _, err := hex.DecodeString(digest); err != nil || len(digest) != 64 {
+				s.logger.Info("On-chain registration deferred: digest is not a 32-byte hex value",
+					zap.String("content_id", contentID))
+			} else if upload.OwnerID == "" {
+				s.logger.Info("On-chain registration deferred: no verified creator", zap.String("content_id", contentID))
+			} else if err := s.registryIntent.EnsureIntentTx(ctx, tx, contentID, upload.OwnerID, digest, upload.URL); err != nil {
+				s.logger.Warn("failed to record registry intent with upload completion; attest endpoint can recreate it",
+					zap.String("content_id", contentID), zap.Error(err))
+			} else {
+				s.logger.Info("On-chain registration intent recorded with upload completion",
+					zap.String("content_id", contentID),
+					zap.String("creator", upload.OwnerID),
+					zap.String("digest", digest))
+			}
 		}
 
 		return nil

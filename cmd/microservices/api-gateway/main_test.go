@@ -233,7 +233,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		})
 
 		// Content routes (auth required)
-		gateway.RegisterContentRoutes(authGroup, zap.NewNop(), nil)
+		gateway.RegisterContentRoutes(authGroup, zap.NewNop(), nil, nil)
 
 		// Transcoding routes (auth required). The input policy admits only the
 		// configured object store, so these tests — which are about routing,

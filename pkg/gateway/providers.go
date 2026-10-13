@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/service/content"
+	"github.com/rtcdance/streamgate/pkg/service/registry"
 	"github.com/rtcdance/streamgate/pkg/storage"
 	web3contract "github.com/rtcdance/streamgate/pkg/web3/contract"
 	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
@@ -203,40 +205,46 @@ func provideContentService(rc *RouterConfig, db storage.DB, log *zap.Logger) *se
 // depend on the chain being reachable (the service degrades the same way at
 // registration time).
 func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) content.ContentRegistry {
-	if cfg.Web3.ContentRegistryAddress == "" {
-		log.Info("On-chain content registry disabled (web3.content_registry_address not set)")
+	binding, _, _, _, err := buildContentRegistryBinding(cfg, log)
+	if err != nil {
+		log.Info("On-chain content registry disabled", zap.Error(err))
 		return nil
+	}
+	return binding
+}
+
+// buildContentRegistryBinding performs the shared validation/dial and returns
+// the binding plus the pieces a durable registry hub also needs (chain client,
+// signer key, chain id).
+func buildContentRegistryBinding(cfg *config.Config, log *zap.Logger) (*web3contract.ContentRegistryBinding, *ethclient.Client, *ecdsa.PrivateKey, *big.Int, error) {
+	if cfg.Web3.ContentRegistryAddress == "" {
+		return nil, nil, nil, nil, fmt.Errorf("web3.content_registry_address not set")
 	}
 	if cfg.Web3.AnvilDeployerKey == "" {
-		log.Info("On-chain content registry disabled (no deployer key to sign registration txs)")
-		return nil
+		return nil, nil, nil, nil, fmt.Errorf("no deployer key to sign registration txs")
 	}
 	if cfg.Web3.EthereumRPC == "" {
-		log.Info("On-chain content registry disabled (no ethereum rpc configured)")
-		return nil
+		return nil, nil, nil, nil, fmt.Errorf("no ethereum rpc configured")
 	}
 
 	ethClient, err := ethclient.Dial(cfg.Web3.EthereumRPC)
 	if err != nil {
-		log.Warn("On-chain content registry disabled (rpc dial failed)", zap.Error(err))
-		return nil
+		return nil, nil, nil, nil, fmt.Errorf("rpc dial failed: %w", err)
 	}
 
 	key := strings.TrimPrefix(cfg.Web3.AnvilDeployerKey, "0x")
 	pk, err := crypto.HexToECDSA(key)
 	if err != nil {
-		log.Warn("On-chain content registry disabled (invalid deployer key)", zap.Error(err))
 		ethClient.Close()
-		return nil
+		return nil, nil, nil, nil, fmt.Errorf("invalid deployer key: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	chainID, err := ethClient.ChainID(ctx)
 	if err != nil {
-		log.Warn("On-chain content registry disabled (chain id resolve failed)", zap.Error(err))
 		ethClient.Close()
-		return nil
+		return nil, nil, nil, nil, fmt.Errorf("chain id resolve failed: %w", err)
 	}
 
 	reader := web3contract.NewContractInteractor(ethClient, log.Named("registry-reader"))
@@ -249,10 +257,74 @@ func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) content.Content
 		Logger:      log.Named("registry-writer"),
 	})
 	binding := web3contract.NewContentRegistryBinding(cfg.Web3.ContentRegistryAddress, reader, writer, log.Named("content-registry"))
-	log.Info("On-chain content registry enabled",
+	return binding, ethClient, pk, chainID, nil
+}
+
+// RegistryHub is the durable on-chain registration stack (SG-13 A): the
+// binding, the Postgres-backed intent/nonce/attempt stores, the HTTP
+// idempotency store, the attest service and the publisher loop. It exists ONLY
+// when the registry is enabled AND a database is available — durable intents
+// are a hard requirement, so there is no memory fallback.
+type RegistryHub struct {
+	Binding     *web3contract.ContentRegistryBinding
+	Store       *registry.Store
+	Idempotency *registry.IdempotencyStore
+	Service     *registry.Service
+	Publisher   *registry.Publisher
+}
+
+// Attest satisfies the gateway's ContentAttester (nil-safe delegation).
+func (h *RegistryHub) Attest(ctx context.Context, actor, contentID, idemKey string) (*registry.AttestResponse, bool, error) {
+	if h == nil || h.Service == nil {
+		return nil, false, registry.ErrRegistryMisconfigured
+	}
+	return h.Service.Attest(ctx, actor, contentID, idemKey)
+}
+
+// Close stops the publisher loop.
+func (h *RegistryHub) Close() {
+	if h == nil || h.Publisher == nil {
+		return
+	}
+	h.Publisher.Stop()
+}
+
+// ProvideRegistryHub builds the full durable registry stack. Returning nil
+// (registry disabled) is the same degradation ProvideContentRegistry performs,
+// but here a missing DATABASE also disables it: an intent that cannot be
+// persisted must not be broadcast (A.4 — database unwritable ⇒ do not
+// broadcast).
+func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) *RegistryHub {
+	binding, ethClient, pk, chainID, err := buildContentRegistryBinding(cfg, log)
+	if err != nil {
+		log.Info("On-chain content registry disabled", zap.Error(err))
+		return nil
+	}
+	if db == nil {
+		log.Warn("On-chain content registry disabled (no database: durable register intents require Postgres)")
+		ethClient.Close()
+		return nil
+	}
+
+	adapter := txtx.NewEthClientAdapter(ethClient)
+	store := registry.NewStore(db, chainID.Int64(), cfg.Web3.ContentRegistryAddress)
+	idem := registry.NewIdempotencyStore(db)
+	svc := registry.NewService(store, idem)
+	publisher := registry.NewPublisher(store, adapter, binding, registry.PublisherConfig{
+		Signer:  crypto.PubkeyToAddress(pk.PublicKey).Hex(),
+		ChainID: chainID.Int64(),
+	}, log)
+
+	log.Info("On-chain content registry enabled (durable intents)",
 		zap.String("contract", cfg.Web3.ContentRegistryAddress),
 		zap.Int64("chain_id", chainID.Int64()))
-	return binding
+	return &RegistryHub{
+		Binding:     binding,
+		Store:       store,
+		Idempotency: idem,
+		Service:     svc,
+		Publisher:   publisher,
+	}
 }
 
 // privateKeyProvider adapts a fixed ECDSA key to tx.KeyProvider.
