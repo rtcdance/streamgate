@@ -364,7 +364,7 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
         || f "Wallet A (holder) got $HOLDER_CODE — expected 200"
 
     PLAYBACK_JSON="$(python3 - "$BASE_URL" "$CONTENT_ID" "$TOKEN_A" "$WORKDIR" <<'PY'
-import json, sys, urllib.request, urllib.parse, urllib.error, os
+import json, sys, urllib.request, urllib.parse, urllib.error, os, re, math
 
 base, content, token, outdir = sys.argv[1:5]
 auth = {'Authorization': f'Bearer {token}'}
@@ -425,6 +425,18 @@ with open(concat_path, 'wb') as out:
                 continue
 
             # A media playlist: every URI is a segment.
+            # Record the real timing FFmpeg wrote. A synthesised playlist claims
+            # every segment is exactly 6.0s, which erases the short final segment
+            # and misstates total duration and TARGETDURATION.
+            extinfs = [float(m) for m in re.findall(r'#EXTINF:([0-9.]+)', pl_text)]
+            if extinfs:
+                tdm = re.search(r'#EXT-X-TARGETDURATION:(\d+)', pl_text)
+                result.setdefault('media_timings', []).append({
+                    'url': pl_url,
+                    'extinfs': extinfs,
+                    'sum': round(sum(extinfs), 3),
+                    'targetduration': int(tdm.group(1)) if tdm else None,
+                })
             for uri in uris(pl_text):
                 seg_url = urllib.parse.urljoin(pl_url, uri)
                 if seg_url in seen:
@@ -467,6 +479,35 @@ if [ -n "$PLAYBACK_JSON" ]; then
         || f "No playlist was walked"
     [ "${P_SEGMENTS:-0}" -gt 0 ] && p "Downloaded $P_SEGMENTS segment(s), $P_BYTES bytes" || f "No segments retrieved"
     [ -z "$P_ERRORS" ] && p "Every referenced playlist and segment returned 200" || f "Playback errors: $P_ERRORS"
+
+    # The served playlist must be the one FFmpeg wrote: durations that sum to the
+    # real media length, TARGETDURATION equal to the largest EXTINF rounded up,
+    # and no fixed 6.0s segments (the signature of a synthesised playlist).
+    TIMING_CHECK="$(python3 - "$PLAYBACK_JSON" "$DURATION" <<'PY'
+import json, sys, math
+data = json.loads(sys.argv[1])
+duration = float(sys.argv[2])
+timings = data.get('media_timings', [])
+if not timings:
+    print('FAIL|no media playlist carried EXTINF tags'); sys.exit(0)
+for t in timings:
+    extinfs = t['extinfs']
+    if any(abs(e - 6.0) < 1e-9 for e in extinfs) and len(set(extinfs)) == 1:
+        print(f"FAIL|{t['url']} has fixed 6.0s segments (synthesised playlist)"); sys.exit(0)
+    if abs(t['sum'] - duration) > 1.5:
+        print(f"FAIL|{t['url']} EXTINF sum={t['sum']}s but media is {duration}s"); sys.exit(0)
+    td = t.get('targetduration')
+    # RFC 8216: TARGETDURATION must be >= each EXTINF rounded to the nearest
+    # integer (FFmpeg writes 8 for a largest EXTINF of 8.333333).
+    if td is None or td < math.floor(max(extinfs) + 0.5):
+        print(f"FAIL|{t['url']} TARGETDURATION={td} but largest EXTINF is {max(extinfs)}"); sys.exit(0)
+print(f"PASS|{len(timings)} media playlist(s) with real durations summing to {timings[0]['sum']}s")
+PY
+)"
+    case "$TIMING_CHECK" in
+        PASS\|*) p "Playlist actual timing: ${TIMING_CHECK#PASS|}" ;;
+        *) f "Playlist timing: ${TIMING_CHECK#FAIL|}" ;;
+    esac
 
     # Concatenated MPEG-TS segments must decode end to end.
     if [ "${P_BYTES:-0}" -gt 0 ] && ffmpeg -hide_banner -loglevel error -v error -i "$WORKDIR/segments.bin" -f null - 2>"$WORKDIR/segdecode.err"; then

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -236,6 +237,168 @@ var qualityBandwidth = map[string]int{
 	"720p":  2800,
 	"480p":  1400,
 	"360p":  800,
+}
+
+// tagURIPattern finds a URI="..." attribute inside a playlist tag.
+var tagURIPattern = regexp.MustCompile(`URI="([^"]*)"`)
+
+// uriRewriter rewrites one URI, or returns an error to refuse the playlist.
+type uriRewriter func(uri string) (string, error)
+
+// tagURIHandler rewrites the URI inside a tag such as EXT-X-MAP.
+type tagURIHandler func(tag, uri string) (string, error)
+
+// rewritePlaylistURIs walks a playlist and rewrites URIs while keeping every tag
+// verbatim.
+//
+// This is the whole point of serving the REAL playlist rather than rebuilding
+// one: EXTINF, TARGETDURATION, MEDIA-SEQUENCE, CODECS, BANDWIDTH, init and
+// discontinuity information all come from FFmpeg and are preserved exactly. A
+// synthesised playlist invents them, which is how a 10s fixture ended up
+// described as 12s of 6s segments with the short final segment erased.
+func rewritePlaylistURIs(raw string, onTagURI tagURIHandler, onURI uriRewriter) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "#") {
+			rewritten, err := onURI(line)
+			if err != nil {
+				return "", err
+			}
+			out = append(out, rewritten)
+			continue
+		}
+		if loc := tagURIPattern.FindStringSubmatchIndex(line); loc != nil {
+			tag := line
+			if idx := strings.Index(line, ":"); idx >= 0 {
+				tag = line[:idx]
+			}
+			rewritten, err := onTagURI(tag, line[loc[2]:loc[3]])
+			if err != nil {
+				return "", err
+			}
+			line = line[:loc[2]] + rewritten + line[loc[3]:]
+		}
+		out = append(out, line)
+	}
+
+	if len(out) == 0 {
+		return "", fmt.Errorf("playlist is empty")
+	}
+	return strings.Join(out, "\n") + "\n", nil
+}
+
+// basenameOf returns the final path element with any query or fragment removed.
+func basenameOf(uri string) string {
+	if idx := strings.IndexAny(uri, "?#"); idx >= 0 {
+		uri = uri[:idx]
+	}
+	if idx := strings.LastIndex(uri, "/"); idx >= 0 {
+		uri = uri[idx+1:]
+	}
+	return uri
+}
+
+// segmentRoute is the only URL a media playlist may point at.
+func segmentRoute(contentID, name, quality, playbackToken string) string {
+	return fmt.Sprintf("/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s",
+		contentID, name, quality, playbackToken)
+}
+
+// manifestRoute is the only URL a master playlist may point at.
+func manifestRoute(contentID, quality, playbackToken string) string {
+	return fmt.Sprintf("/api/v1/streaming/%s/manifest.m3u8?quality=%s&playback_token=%s",
+		contentID, quality, playbackToken)
+}
+
+// RewriteMediaPlaylistURIs rewrites a real media playlist's URIs to the protected
+// segment route, preserving every tag.
+//
+// EXT-X-MAP carries the initialisation segment, which is delivered through the
+// same protected segment route, so it is rewritten too. EXT-X-KEY is REFUSED
+// rather than rewritten: a key is not a media segment, there is no route that
+// serves one, and leaving the tag alone would hand the player a raw object path.
+// Refusing is the honest answer until key delivery exists.
+func RewriteMediaPlaylistURIs(raw, contentID, quality, playbackToken string) (string, error) {
+	return rewritePlaylistURIs(raw,
+		func(tag, uri string) (string, error) {
+			switch tag {
+			case "#EXT-X-MAP":
+				return segmentRoute(contentID, basenameOf(uri), quality, playbackToken), nil
+			case "#EXT-X-KEY":
+				return "", fmt.Errorf("encrypted playlists are not supported")
+			default:
+				return "", fmt.Errorf("unsupported tag %s carries a URI", tag)
+			}
+		},
+		func(uri string) (string, error) {
+			name := basenameOf(uri)
+			if name == "" {
+				return "", fmt.Errorf("playlist contains an empty URI")
+			}
+			return segmentRoute(contentID, name, quality, playbackToken), nil
+		})
+}
+
+// RewriteMasterPlaylistURIs rewrites a real master playlist's variant URIs to the
+// protected manifest route, preserving BANDWIDTH, RESOLUTION, CODECS and the
+// rest of every EXT-X-STREAM-INF.
+//
+// The quality is the variant's own name, which is how the transcoder lays the
+// variants out, so a rewritten master addresses exactly the renditions that were
+// actually produced instead of a fixed list.
+func RewriteMasterPlaylistURIs(raw, contentID, playbackToken string) (string, error) {
+	variantQuality := func(uri string) (string, error) {
+		name := strings.TrimSuffix(basenameOf(uri), ".m3u8")
+		if name == "" {
+			return "", fmt.Errorf("master playlist contains an empty variant URI")
+		}
+		return name, nil
+	}
+	return rewritePlaylistURIs(raw,
+		func(tag, uri string) (string, error) {
+			// Alternate renditions (audio/subtitles) point at their own playlist.
+			if tag == "#EXT-X-MEDIA" {
+				quality, err := variantQuality(uri)
+				if err != nil {
+					return "", err
+				}
+				return manifestRoute(contentID, quality, playbackToken), nil
+			}
+			return "", fmt.Errorf("unsupported tag %s carries a URI", tag)
+		},
+		func(uri string) (string, error) {
+			quality, err := variantQuality(uri)
+			if err != nil {
+				return "", err
+			}
+			return manifestRoute(contentID, quality, playbackToken), nil
+		})
+}
+
+// PlaylistKind describes what a stored playlist is.
+type PlaylistKind int
+
+const (
+	// PlaylistMaster is a multivariant playlist.
+	PlaylistMaster PlaylistKind = iota
+	// PlaylistMedia is a media playlist.
+	PlaylistMedia
+)
+
+// ClassifyPlaylist reports whether a stored playlist is a master or a media
+// playlist. The distinction is made on the tags HLS defines for it, not on the
+// object name.
+func ClassifyPlaylist(raw string) PlaylistKind {
+	if strings.Contains(raw, "#EXT-X-STREAM-INF") || strings.Contains(raw, "#EXT-X-MEDIA:") {
+		return PlaylistMaster
+	}
+	return PlaylistMedia
 }
 
 func BuildSimplePlaylist(contentID string, segments []string, playbackToken string) string {
