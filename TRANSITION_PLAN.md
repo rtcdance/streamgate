@@ -311,7 +311,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [ ] SG-07 / P1：真实媒体性能与可观测性
+### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；live 跑分（1/10/50 观众 + 故障矩阵 + reference 对比）待在干净候选上对真实栈执行后勾选）
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -332,7 +332,7 @@ flowchart LR
 
 **完成**：至少一组可重放的真实结果、一个有 profile 的工程判断、指标能解释 RPC / cache / media 故障；简历只引用实际测值及条件。
 
-### [ ] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复
+### [~] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复（**workflow 全部落地** 2026-10-13 `6754161`：同 digest DAG、PR 扫描、release-validation 临时部署 + 失败演练、生产路径重写；GitHub 真实运行与 run 链接待 push 授权后勾选——计划第 9 条禁止未授权 push）
 
 **依赖**：SG-02、SG-05、SG-06、SG-07、SG-10～14。**文件范围**：`.github/workflows/ci.yml` / `build.yml` / `deploy.yml`、Docker 部署脚本 / 配置；有真实 K8s 目标时才改其发布路径。
 
@@ -605,7 +605,7 @@ make verify-docker
 | SG-05                | **完成**                                                                                              | 见 §8.10。一条命令可复现：真实双钱包签名登录 → 真实可解码媒体 → 服务端 gate → 真实转码 → HLS 递归取流 → FFmpeg 全解码 → Range 206 → 浏览器 hls.js 真播且 `currentTime` ≥3s → 篡改矩阵（含**能力过期**）。**monolith 与 api-gateway 各 36/36**。步骤 8 的 CI job 已落地（YAML 与脱敏规则已验证），但**只能在 GitHub 上真正运行** |
 | SG-06                | **完成**                                                                                              | 见 §8.11。步骤 1～6 与**全部必需用例**均已落地并实测：能力 TTL 配置化 + 生产上界校验；capability 独立 audience；承载响应硬化；**70s 上界推导、配置约束并实测（67s）**；JWT/capability 钱包不一致拒绝；播放器区分权限结束与网络故障；凭据绑定 sessionID + authEpoch（正向存在校验、旧 token 缺字段即拒）；epoch 持久化（Redis，缓存 ≤5s 无滑动续期）；登出撤销整个会话 + 已发能力 5s 内失效；续期重查链上持仓；ruleVersion 以 Postgres 为权威、与写入同语句提交、不倒退、总 age ≤5s；capability 携带 ruleVersion ⇒ 规则变更界内拒绝已发能力；**嵌套 playlist 也重查持仓**；转移后不得续期（403/200 双向）；**RPC 全故障 / Redis 故障**两个依赖故障场景（独立入口 16 项全绿）；重放到管理 API 与条件请求均拒绝；**clock_skew 真正接线**（修掉硬编码 30s ⇒ 实际窗口曾达 90s、超出推导上界）。两种部署模式各 **ALL 58 PASSED** |
 | SG-12                | **完成（九个步骤全部落地，2026-10-13）**                                                                          | 见 §8.12 逐步证据：①原件 digest 与不可变封存（+409、预签名打通、链上登记启用，`f891091`）②SSRF 守卫（解析主机、精确白名单、目标 0 请求实测）③媒体探测门（mp4/h264/aac 白名单 + 时长/分辨率上界 + ffprobe 独立超时/输出上限）+ 2 GiB 静默截断修复（`313d414`）④进程树终止、threads、队列/owner 上界 429/503⑤独立 worker 接入真实管线（**双模式 ALL 66 PASSED + 执行归因实测**）⑥⑦DB 权威 + outbox + lease + delivery handle + 显式 DLQ（`a8784ad`）⑧generation 原子发布（`f7f0dd0`）⑨真实 playlist EXTINF（`de4b83c`） |
-| SG-07～09、SG-13～15    | SG-09 AI 成品**完成**（`656bdc8`：双语三条目 + 讲述稿重写到当前证据，12 个引用测试名逐一核实存在）；SG-13 A 完成（`e859d13`+`0756ea4`）、B 进行中；SG-07、SG-08、SG-14、SG-15 待实施                                                                                               | 无任务被本次计划写作提前勾选；待补项在 SG-09 交付物中以「待补/待实测」显式标注，不填预测数字                                                                                                                                                                                                                                                             |
+| SG-07～09、SG-13～15    | SG-13 **A+B 完成**（`e859d13`+`0756ea4`+`9b87ca3`+`4f1cbaf`：登记意图六态、HTTP 幂等、DB nonce 单一权威、signed raw tx 先持久化、receipt/reorg 持久跟踪、事件白名单/批上界/64 块 journal/filterKey，**双模式各 66/66**，见 §8.13）；SG-09 AI 成品**完成**（`656bdc8`）；SG-07 **代码完成**（`7af895a`：真实负载 harness + 指标族 + Retry-After，live 跑分待干净候选）；SG-08 **workflow 落地**（`6754161`：同 digest DAG + PR 扫描 + release-validation 临时部署/失败演练 + 生产路径重写，GitHub 真实运行待 push 授权）；SG-14 **实施中**；SG-15 待 SG-14 后收口                                                                                               | 无任务被本次计划写作提前勾选；待补项在 SG-09 交付物中以「待补/待实测」显式标注，不填预测数字                                                                                                                                                                                                                                                             |
 | SG-16～17             | 条件任务，未启动                                                                                            | 不列为主线完成条件                                                                                                                                                                                                                                                          |
 | M0～M8                | 待对应证据                                                                                               | 工程门与人工项分别记录，不混合状态                                                                                                                                                                                                                                                  |
 
@@ -1376,6 +1376,35 @@ sequenceDiagram
 **B 期间附带加固（A.3 缺口补修，独立提交）**：双模式复验（即上表部署级验收）暴露 **NonceLedger 落后链 nonce 时持续签已消费 nonce**——ledger 仅在**首次**分配（priming）查链，之后纯信 DB max+1；真实栈实测链 pending=458 而 DB max=404，dev-mint 恒 `send tx: nonce too low`。修复：**链 pending nonce 每次分配都作下限**（`Reserve`/`ReserveWithPending`/`NextNonce` 统一），落后的分配跳到链下限并打 Warn；`Reset` 降为 no-op（无 priming 状态可丢）。新用例 `TestAcceptance_ChainNonceFloor`（链从 100 前进到 250 → 下一分配为 250 而非 101；第二个进程实例同样受下限约束）**实跑 PASS**；registry 4 验收 + shared-nonce + tx 包回归全绿。该缺口被单进程测试掩盖（无并发外部消耗），由双模式真实栈复验揪出。
 
 **A.3 上线后加固（提交 `0756ea4`，2026-10-13）**：A.3 的初次实现只把 **registry publisher** 接到 DB nonce 表，但同一部署者签名者还有两条**进程内**分配路径——`Web3Service` 的 in-memory `NonceManager` 与 `DemoNFTMinter` 直接 `PendingNonceAt`——三套分配器并存立刻在真实栈上撞 nonce：**fullchain 验收实测 `FAIL: Mint receipt status=missing`**（dev-mint 与登记意图同 nonce，一个把另一个顶掉；DB 实证：reservation nonce=348 = 已确认登记 tx 的 nonce）。修复：分配逻辑收敛为 `pkg/web3/tx.NonceLedger`（advisory lock + `UNIQUE(chain,signer,nonce)`，首次分配 `max(DB+1, 链 pending)`，无 signed attempt 引用才 Release），registry store、`Web3Service`（`WithNonceLedger`，无 ledger 的链保持原行为）、demo minter 在有 DB 时全部走同一权威。新用例 `TestAcceptance_SharedNonceAuthority`（Web3Service 路径与 registry 分配器同库同 signer 各 20× 并发 → 零重复）；4 个 registry 验收 + 2 个 Anvil 测试在隔离 worktree 全绿。双模式验收复跑已在其后的 B 部分完成，复跑中另揪出并修复了 nonce 落后链的下限缺口（见 B 部分末段，独立提交）。
+
+### 8.14 SG-07 / SG-08 执行证据（性能与可观测性代码；CI/CD 同产物 DAG）
+
+**SG-07 代码部分已落地**（提交 `7af895a`，2026-10-13）。live 跑分（1/10/50 观众 + RPC 故障矩阵）待在干净候选上对真实栈执行，结果追加于此。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| sleep 模拟测试诚实标注 | PASS | `TestConcurrentRequests` 更名 `TestConcurrentRequests_SchedulerSimulation`（保留旧名可运行别名），doc/日志明示"sleep 模拟调度，数字非 QPS/吞吐证据"；`test/README.md` 删除原"Throughput > 5000 req/sec ✅"的错误声明（该数字正是计划点名禁止引用的） |
+| 真实 HTTP 负载 harness | PASS | `test/load/harness.go`：真实 challenge→sign→login 或 env 预铸 capability（**不自签 token**）；GET manifest、解析 HLS、逐分片下载、读完整 body、校验 Content-Length 截断 + 可选 sha256；**失败/截断/hash 不符一律不计入成功吞吐**；N 虚拟观众 × 固定节奏、warmup 丢弃 + 采样计时；JSON 输出含 commit SHA、fixture hash、成功数、实际字节、错误分布、TTFB、p50/p95/p99。`//go:build load` 标签（`go test ./...` 默认不跑，`go vet -tags load` 证明可编译） |
+| 结果正确性用例 | PASS | `TestPerfHarness_ValidationRejectsUnsuccessfulRequests`（5xx 入错误分布、截断体、sha256 不符 → success=0/bytes=0）、`TestPerfHarness_StatsCorrectness`（固定样本 p50=50/p95=95/p99=99；JSON commit/fixture 字段 round-trip）；`-race` 三包全绿 |
+| 指标族补齐 | PASS（接线点记录） | `pkg/monitoring` 新增 `GateDecisionTotal{decision,reason,rule_version}`、`QueueMessageAgeSeconds`、`QueueAttemptsTotal`、`TranscodingTasksTotal{outcome,profile}`、`TranscodingRTF`、`MediaBytesTotal`、`MediaTTFBSeconds`，每个族上方注明一行接线点（gate/nats_queue/transcoding/streaming 各归属文件不在本任务允许范围，接线点已写在注释，随 SG-14 指标接线落地） |
+| 无高基数标签 | PASS | `TestMonitoring_NoHighCardinalityLabels` 扫描全部 Prometheus 家族，断言无 wallet/content_id/token/session/private_key/address/nonce 标签 |
+| 限流 Retry-After | PASS | ratelimit 429 补 `Retry-After`（memory 按窗口剩余、redis 按固定窗口边界推导），用例 `TestRateLimitMiddleware_RetryAfterHeaderOn429` 等 4 例 |
+
+**SG-08 已落地**（提交 `6754161`，2026-10-13）：
+
+| 项（计划步骤） | 结果 | 证据 |
+|---|---|---|
+| 1 明确 DAG + 同 digest | PASS | `ci.yml` 的 docker job 更名 "Candidate Image (build once, scan this digest)"：构建一次（OCI revision=SHA 标签）→ **Trivy 扫描该 digest**（HIGH/CRITICAL 阻塞，扫描器失败阻塞）→ SBOM（artifact 名含 SHA）→ smoke（原有真实 readiness 逻辑保留）。删除了 build.yml 原"为扫描重建一次镜像"的 `Build monolith locally for scanning` 步骤 |
+| 2 PR 扫描同一候选 | PASS | 原 `scan-monolith` 有 `if: github.event_name != 'pull_request'` ⇒ **PR 从未被扫描**。现 PR 由 ci.yml 的 candidate job 扫描（其 needs 全部门禁），push 由 build.yml 扫描**已推送的 digest**（`docker pull …@digest`，不再重建） |
+| 3 promotion 维持原 digest | PASS | build.yml 新增 `Export the pushed digest` + digest artifact；deploy.yml 生产部署输入 `image_digest` 并**校验必须是 `@sha256:` 形式**，否则 fail |
+| 4 临时栈空卷部署 + 真实 smoke | PASS（新工作流，待 GitHub 执行） | 新建 `release-validation.yml`（workflow_dispatch，无生产 secrets）：`docker pull …@digest` → tag 后 `docker compose -p sg-relval-<run_id> up --build --wait`（空卷、独立 project）→ 真实 migration → `/health` 200 → **跑 `scripts/fullchain-acceptance.sh` 完整播放 smoke** → 记录 revision/digest/manifest artifact |
+| 5 失败恢复演练（B 失败 + A 恢复双断言） | PASS | `release-validation.yml` "Failure drill"：部署坏变体（坏 JWT secret → 启动校验失败）→ **断言 1：B 确实失败**（exited/unhealthy，否则 exit 1 拒绝报绿）→ 重新 up 健康版 → **断言 2：A 恢复 200**；两条都断言才 PASS。符合计划"真实 deploy 失败不能因 rollback 成功变 green" |
+| 6 migration 回滚兼容 | PASS | "Rollback-compatibility" 步骤：`previous_digest` 输入（空则显式 notice 跳过）→ 拉前一版镜像对新 schema 起 monolith → `/health` 200 才继续，否则 fail |
+| 7 生产未选目标=未执行、缺凭据=fail | PASS | deploy.yml 重写：`target` 输入（none/docker-compose/kubernetes），**none ⇒ 明确输出"未执行"并 neutral 退出**；选了 target 但 `DEPLOY_KEY/DEPLOY_HOST/DEPLOY_USER/KUBE_CONFIG` 缺失或 digest 未 pin ⇒ **exit 1 fail**（原为 `exit 0` 静默成功）；移除全部 `\|\| true`（`set image`、`rollout status` 现为 fatal）；`git pull origin master` 删除（按 digest 部署）；新增 `environment: production` 门禁 |
+| 8 不发外部通知/建 issue | PASS | deploy.yml 原 `notify` job（Discord webhook + 失败建 issue，`if: always()`）已删除；release-validation 验收 runner 无任何外部副作用 |
+| DAG 关键路径无逃逸 | PASS | `grep continue-on-error/if:always` 复核：continue-on-error 仅在 3 处**报告型**步骤（codecov 上传、Forge gas report、govulncheck report——均为既有报告模式，不在门禁路径）；`if: always()` 仅在诊断收集、artifact 上传、teardown、report job。全部 workflow YAML 经 `python3 yaml.safe_load` 解析通过 |
+
+**CI 实际执行状态（如实标注）**：以上 workflow 的**静态结构与 YAML 合法性**已验证；GitHub Actions 的**真实运行**需要 push 授权（计划第 9 条：push 必须已有用户授权，未推送 ⇒ 远端 CI 状态为"待运行"）。release-validation.yml 的临时部署与失败演练需在 push 后由 `workflow_dispatch` 触发。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
