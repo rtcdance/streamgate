@@ -8,10 +8,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/storage"
+	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
 
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
@@ -53,6 +55,9 @@ type AppResources struct {
 	// RegistryHub is the durable on-chain registration stack (SG-13 A); nil
 	// when the content registry is disabled.
 	RegistryHub *RegistryHub
+	// NonceLedgerEth is the RPC connection behind the shared nonce ledger's
+	// chain client; nil when the ledger is disabled.
+	NonceLedgerEth *ethclient.Client
 }
 
 // Close releases all held resources. Errors from individual closes are
@@ -70,6 +75,9 @@ func (r *AppResources) Close() error {
 	}
 	if r.RegistryHub != nil {
 		r.RegistryHub.Close()
+	}
+	if r.NonceLedgerEth != nil {
+		r.NonceLedgerEth.Close()
 	}
 	if r.UploadService != nil {
 		r.UploadService.Close()
@@ -198,7 +206,7 @@ type serviceInit struct {
 	RegistryHub        *RegistryHub
 }
 
-func newDemoNFTMinter(cfg *config.Config, log *zap.Logger) *service.DemoNFTMinter {
+func newDemoNFTMinter(cfg *config.Config, log *zap.Logger, nonceLedger *txtx.NonceLedger) *service.DemoNFTMinter {
 	if cfg.Web3.AnvilDeployerKey == "" || cfg.Web3.AnvilDemoContract == "" {
 		log.Info("Demo NFT minter disabled (anvil_deployer_key or anvil_demo_contract not set)")
 		return nil
@@ -213,6 +221,9 @@ func newDemoNFTMinter(cfg *config.Config, log *zap.Logger) *service.DemoNFTMinte
 		log.Warn("Demo NFT minter init failed", zap.Error(err))
 		return nil
 	}
+	// The deployer key signs both here and in the registry publisher, so the
+	// mint path allocates nonces from the same DB authority when available.
+	minter.SetNonceLedger(nonceLedger)
 	log.Info("Demo NFT minter ready", zap.String("contract", cfg.Web3.AnvilDemoContract), zap.String("from", minter.FromAddress().Hex()))
 	return minter
 }

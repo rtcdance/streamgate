@@ -51,15 +51,44 @@ func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) *redis
 	return client
 }
 
-func provideWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger) (*service.Web3Service, error) {
+func provideWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger, nonceLedger *txtx.NonceLedger) (*service.Web3Service, error) {
 	if rc.Web3Service != nil {
 		return rc.Web3Service, nil
 	}
-	svc, err := service.NewWeb3Service(service.DefaultWeb3Deps(cfg, log), cfg, log)
+	var opts []service.Web3Option
+	if nonceLedger != nil {
+		opts = append(opts, service.WithNonceLedger(nonceLedger))
+	}
+	svc, err := service.NewWeb3Service(service.DefaultWeb3Deps(cfg, log), cfg, log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Web3 service: %w", err)
 	}
 	return svc, nil
+}
+
+// provideNonceLedger builds the shared DB-backed nonce authority (SG-13 A.3)
+// whenever a database AND a chain are configured: one tx.NonceLedger per
+// process, shared by the Web3Service signing path and the dev minter, drawing
+// from the SAME Postgres reservations table the registry publisher uses. It
+// degrades to nil (in-memory nonce managers, previous behaviour) exactly like
+// the other providers when the database or the chain is unavailable.
+func provideNonceLedger(cfg *config.Config, log *zap.Logger, db storage.DB, res *AppResources) *txtx.NonceLedger {
+	if db == nil {
+		return nil
+	}
+	if cfg.Web3.ChainID <= 0 || cfg.Web3.EthereumRPC == "" {
+		log.Warn("Nonce ledger disabled (no chain configured); nonce allocation stays process-local")
+		return nil
+	}
+	ethClient, err := ethclient.Dial(cfg.Web3.EthereumRPC)
+	if err != nil {
+		log.Warn("Nonce ledger disabled: rpc dial failed", zap.String("rpc", cfg.Web3.EthereumRPC), zap.Error(err))
+		return nil
+	}
+	res.NonceLedgerEth = ethClient
+	log.Info("Shared nonce ledger enabled (Postgres is the single nonce authority)",
+		zap.Int64("chain_id", cfg.Web3.ChainID))
+	return txtx.NewNonceLedger(db, cfg.Web3.ChainID, txtx.NewEthClientAdapter(ethClient), log.Named("nonce-ledger"))
 }
 
 func provideChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) storage.ChallengeStore {
@@ -307,7 +336,11 @@ func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) *Reg
 	}
 
 	adapter := txtx.NewEthClientAdapter(ethClient)
-	store := registry.NewStore(db, chainID.Int64(), cfg.Web3.ContentRegistryAddress)
+	// WithNonceClient makes the store's SHARED tx.NonceLedger able to prime a
+	// first allocation from the chain and to adjudicate releasing a nonce a
+	// signed attempt references — the same client the publisher broadcasts
+	// with, so allocation and adjudication see one chain view.
+	store := registry.NewStore(db, chainID.Int64(), cfg.Web3.ContentRegistryAddress, registry.WithNonceClient(adapter))
 	idem := registry.NewIdempotencyStore(db)
 	svc := registry.NewService(store, idem)
 	publisher := registry.NewPublisher(store, adapter, binding, registry.PublisherConfig{

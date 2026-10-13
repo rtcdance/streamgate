@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/storage"
+	"github.com/rtcdance/streamgate/pkg/web3/tx"
 )
 
 // Intent status vocabulary (SG-13 A.1). A log line is not a status.
@@ -89,14 +90,36 @@ type Store struct {
 	db              storage.DB
 	chainID         int64
 	registryAddress string
+	// ledger is the SHARED tx.NonceLedger: one allocator implementation, one
+	// reservations table, for every signer path in the process.
+	ledger      *tx.NonceLedger
+	nonceClient tx.NonceClient
 }
 
-func NewStore(db storage.DB, chainID int64, registryAddress string) *Store {
-	return &Store{
+// StoreOption customises Store construction.
+type StoreOption func(*Store)
+
+// WithNonceClient injects the chain client the shared nonce ledger needs to
+// prime a first allocation and to adjudicate releasing an attempt-referenced
+// nonce. Callers that always pass their own chainPending hint (and never
+// release signed nonces) do not need it.
+func WithNonceClient(client tx.NonceClient) StoreOption {
+	return func(s *Store) {
+		s.nonceClient = client
+	}
+}
+
+func NewStore(db storage.DB, chainID int64, registryAddress string, opts ...StoreOption) *Store {
+	s := &Store{
 		db:              db,
 		chainID:         chainID,
 		registryAddress: strings.ToLower(registryAddress),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.ledger = tx.NewNonceLedger(db, chainID, s.nonceClient, nil)
+	return s
 }
 
 func (s *Store) ChainID() int64          { return s.chainID }
@@ -335,53 +358,29 @@ func (s *Store) ReleaseLease(ctx context.Context, contentID, owner string) error
 	return err
 }
 
-// ReserveNonce allocates the next nonce for (chainID, signer) under a
-// transaction-scoped Postgres advisory lock, combining the chain's pending
-// nonce with the persisted reservation ledger. UNIQUE(chain_id, signer, nonce)
-// is the backstop; two processes racing on first-time allocation can never
-// return the same nonce (A.3).
+// ReserveNonce allocates the next nonce for (chainID, signer). The SQL, the
+// transaction-scoped advisory lock and the UNIQUE(chain, signer, nonce)
+// backstop all live in the shared tx.NonceLedger — the registry keeps its own
+// signature only so publishers can pass the chain pending nonce they already
+// fetched (A.3).
 func (s *Store) ReserveNonce(ctx context.Context, signer string, chainPending uint64) (uint64, error) {
-	signerKey := strings.ToLower(signer)
-	lockKey := fmt.Sprintf("sg13-nonce:%d:%s", s.chainID, signerKey)
-	var next uint64
-	err := s.db.InTransaction(ctx, func(tx *sql.Tx) error {
-		// Security: nonce allocation is a cross-process critical section; the
-		// advisory lock serialises first-time allocation so the max(reserved)
-		// read and the insert are atomic across instances (A.3).
-		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
-			return fmt.Errorf("advisory lock: %w", err)
-		}
-		var maxReserved sql.NullInt64
-		if err := tx.QueryRowContext(ctx,
-			`SELECT MAX(nonce) FROM tx_nonce_reservations WHERE chain_id = $1 AND signer = $2`,
-			s.chainID, signerKey).Scan(&maxReserved); err != nil {
-			return fmt.Errorf("read reservations: %w", err)
-		}
-		next = chainPending
-		if maxReserved.Valid && uint64(maxReserved.Int64)+1 > next {
-			next = uint64(maxReserved.Int64) + 1
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO tx_nonce_reservations (chain_id, signer, nonce) VALUES ($1, $2, $3)`,
-			s.chainID, signerKey, int64(next)); err != nil {
-			return fmt.Errorf("insert reservation: %w", err)
-		}
-		return nil
-	})
+	next, err := s.ledger.ReserveWithPending(ctx, signer, chainPending)
 	if err != nil {
-		return 0, fmt.Errorf("registry: reserve nonce for %s: %w", signerKey, err)
+		return 0, fmt.Errorf("registry: reserve nonce for %s: %w", strings.ToLower(signer), err)
 	}
 	return next, nil
 }
 
-// ReleaseReservation returns a provably-unused nonce to the ledger. It is only
-// ever called when the node definitively rejected the tx AND the chain nonce
-// proves the nonce was never consumed (A.4).
+// ReleaseReservation returns a provably-unused nonce to the shared ledger. It
+// is only ever called when the node definitively rejected the tx AND the chain
+// nonce proves the nonce was never consumed (A.4); the ledger additionally
+// refuses to delete a nonce a persisted signed attempt references without that
+// chain proof.
 func (s *Store) ReleaseReservation(ctx context.Context, signer string, nonce uint64) error {
-	_, err := s.db.Exec(ctx,
-		`DELETE FROM tx_nonce_reservations WHERE chain_id = $1 AND signer = $2 AND nonce = $3`,
-		s.chainID, strings.ToLower(signer), int64(nonce))
-	return err
+	if err := s.ledger.Release(ctx, signer, nonce); err != nil {
+		return fmt.Errorf("registry: release reservation: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) CountReservations(ctx context.Context, signer string) (int, error) {

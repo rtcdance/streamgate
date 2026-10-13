@@ -11,6 +11,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/web3"
+	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
 
 	"go.uber.org/zap"
 )
@@ -39,6 +40,21 @@ func DefaultWeb3Deps(cfg *config.Config, logger *zap.Logger) Web3Deps {
 	}
 }
 
+// Web3Option customises Web3Service construction.
+type Web3Option func(*Web3Service)
+
+// WithNonceLedger installs the DB-backed shared nonce ledger. When one is
+// provided (database available), the SendTransaction nonce path allocates
+// through it for its chain instead of the in-memory NonceManager, so the
+// deployer account has a SINGLE nonce authority across processes (SG-13 A.3).
+// Without a ledger — demo/unit runs with no database — the in-memory manager
+// keeps its previous behaviour.
+func WithNonceLedger(ledger *txtx.NonceLedger) Web3Option {
+	return func(ws *Web3Service) {
+		ws.nonceLedger = ledger
+	}
+}
+
 // Web3Service provides Web3 functionality
 type Web3Service struct {
 	config             *config.Config
@@ -53,6 +69,7 @@ type Web3Service struct {
 	transactionQueue   *web3.TransactionQueue
 	nonceManagers      map[int64]web3.NonceProvider
 	nonceMu            sync.Mutex
+	nonceLedger        *txtx.NonceLedger
 	secureKey          *web3.SecurePrivateKey // XOR-encrypted signing key
 	txLifecycleManager *web3.TxLifecycleManager
 	cancelTxLifecycle  context.CancelFunc
@@ -91,7 +108,7 @@ func (ws *Web3Service) notifyReorg(contracts []string) {
 }
 
 // NewWeb3Service creates a new Web3 service
-func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web3Service, error) {
+func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger, opts ...Web3Option) (*Web3Service, error) {
 	logger.Info("Initializing Web3 service")
 
 	service := &Web3Service{
@@ -104,6 +121,9 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger) (*Web
 		eip712Verifier:    deps.EIP712Verif,
 		transactionQueue:  web3.NewTransactionQueue(1000),
 		nonceManagers:     make(map[int64]web3.NonceProvider),
+	}
+	for _, opt := range opts {
+		opt(service)
 	}
 
 	// Initialize primary chain (Ethereum)
@@ -308,6 +328,15 @@ func (ws *Web3Service) getNonceManager(chainID int64, client *web3.ChainClient) 
 	defer ws.nonceMu.Unlock()
 	if nm, ok := ws.nonceManagers[chainID]; ok {
 		return nm
+	}
+	// The DB ledger is the single nonce authority for its chain (SG-13 A.3):
+	// every allocator in this process and in other instances draws from the
+	// same Postgres reservations table, so the deployer account can never be
+	// handed the same nonce twice. Chains the ledger does not cover keep the
+	// in-memory manager.
+	if ws.nonceLedger != nil && ws.nonceLedger.ChainID() == chainID {
+		ws.nonceManagers[chainID] = ws.nonceLedger
+		return ws.nonceLedger
 	}
 	nm := web3.NewNonceManager(client, ws.logger)
 	ws.nonceManagers[chainID] = nm

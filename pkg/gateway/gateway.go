@@ -32,7 +32,13 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	sharedRedis := provideRedis(cfg, log, resources)
 
-	web3Svc, err := provideWeb3Service(rc, cfg, log)
+	// The database comes first so the shared nonce ledger (SG-13 A.3 — the DB
+	// is the single nonce authority for a (chain, signer)) can be handed to
+	// every signer path built below.
+	db, _ := provideDatabase(cfg, log, resources)
+	nonceLedger := provideNonceLedger(cfg, log, db, resources)
+
+	web3Svc, err := provideWeb3Service(rc, cfg, log, nonceLedger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -62,7 +68,6 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	}
 	resources.NFTVerifier = nftVerifier
 
-	db, _ := provideDatabase(cfg, log, resources)
 	contentSvc := provideContentService(rc, db, log)
 	resources.ContentService = contentSvc
 
@@ -123,7 +128,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		SegmentStorage:  objStorage,
 		TranscodingSvc:  transcodingSvc,
 		UploadService:   uploadSvc,
-		DemoNFTMinter:   newDemoNFTMinter(cfg, log),
+		DemoNFTMinter:   newDemoNFTMinter(cfg, log, nonceLedger),
 		RegistryHub:     registryHub,
 	}
 	resources.StreamingSvc = svc.StreamingSvc
