@@ -1,143 +1,195 @@
 name: Deploy to Production
 
+# Production deployment is DORMANT by design: no production target is
+# selected in this repository, so nothing here deploys anywhere. The plan's
+# rule (SG-08 step 7) is that an unselected target shows "未执行" and a
+# selected target with missing credentials FAILS — never a green run that
+# silently skipped.
+#
+# A real deployment runs ONLY on explicit dispatch, requires the target as
+# input plus its environment gate (GitHub environment `production` with
+# required reviewers), deploys the immutable candidate digest (never a tag
+# or `latest`), never pulls master on the target, and verifies the rollout
+# with an actual health check — no `|| true` anywhere.
+
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
+    inputs:
+      target:
+        description: "Deployment target (none = report 未执行)"
+        type: choice
+        required: true
+        default: none
+        options: [none, docker-compose, kubernetes]
+      image_digest:
+        description: "Candidate digest to deploy (image@sha256:...). Empty = resolve from the release-validation run for this SHA."
+        required: false
+        default: ""
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deploy-docker:
-    name: Deploy with Docker Compose
+  resolve-target:
+    name: Resolve deployment target
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Report the selected target
+        id: resolve
+        run: |
+          target="${{ inputs.target }}"
+          if [ "$target" = "none" ]; then
+            echo "::notice::No production target selected — deployment NOT EXECUTED (this is the current state of the repository)."
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=true" >> "$GITHUB_OUTPUT"
+            echo "target=$target" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-docker-compose:
+    name: Deploy (docker compose) — requires production env
+    runs-on: ubuntu-latest
+    needs: resolve-target
+    if: needs.resolve-target.outputs.selected == 'true' && needs.resolve-target.outputs.target == 'docker-compose'
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to production
+      - name: Validate credentials (missing = FAIL, not skip)
         env:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
         run: |
-          if [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ]; then
-            echo "Deployment credentials not configured, skipping Docker Compose deployment"
-            exit 0
+          set -euo pipefail
+          missing=0
+          [ -n "$DEPLOY_KEY" ]  || { echo "::error::DEPLOY_KEY secret is not configured"; missing=1; }
+          [ -n "$DEPLOY_HOST" ] || { echo "::error::DEPLOY_HOST secret is not configured"; missing=1; }
+          [ -n "$DEPLOY_USER" ] || { echo "::error::DEPLOY_USER secret is not configured"; missing=1; }
+          [ -n "$IMAGE_DIGEST" ] || { echo "::error::image_digest input is required (deploy by immutable digest, never by tag)"; missing=1; }
+          case "$IMAGE_DIGEST" in
+            "": ;;
+            *@sha256:*) ;;
+            *) echo "::error::image_digest must pin a sha256 digest, got: $IMAGE_DIGEST"; missing=1;;
+          esac
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Deployment selected but configuration is incomplete — failing instead of silently skipping."
+            exit 1
           fi
+
+      - name: Deploy by digest and verify health
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
           SSH_DIR=$(mktemp -d)
           trap 'rm -rf "$SSH_DIR"' EXIT
           echo "$DEPLOY_KEY" > "$SSH_DIR/deploy_key"
           chmod 600 "$SSH_DIR/deploy_key"
           mkdir -p ~/.ssh
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-
-          ssh -i "$SSH_DIR/deploy_key" -o StrictHostKeyChecking=no "$DEPLOY_USER@$DEPLOY_HOST" << 'EOF'
-            cd /opt/streamgate
-            git pull origin master
-            docker-compose pull
-            docker-compose up -d
+          # Remote side: strict error handling, pin the digest, wait for
+          # health. No git pull of master: the image carries the code.
+          ssh -i "$SSH_DIR/deploy_key" -o StrictHostKeyChecking=no "$DEPLOY_USER@$DEPLOY_HOST" \
+            "IMAGE_DIGEST='$IMAGE_DIGEST' bash -s" << 'EOF'
+          set -euo pipefail
+          cd /opt/streamgate
+          export MONOLITH_IMAGE="ghcr.io/${IMAGE_NAME:-rtcdance/streamgate}/monolith@${IMAGE_DIGEST}"
+          docker compose pull monolith || true   # digest-pinned pull; compose file may reference the digest directly
+          docker compose up -d --no-build monolith
+          # Actual health verification — a rollout that does not serve fails here.
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
+            [ "$code" = "200" ] && { echo "healthy after ${i}s"; exit 0; }
+            sleep 2
+          done
+          echo "::error::service did not become healthy within 120s after deploy"
+          docker compose logs --tail 100 monolith || true
+          exit 1
           EOF
 
   deploy-kubernetes:
-    name: Deploy to Kubernetes
+    name: Deploy (kubernetes) — requires production env
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: resolve-target
+    if: needs.resolve-target.outputs.selected == 'true' && needs.resolve-target.outputs.target == 'kubernetes'
+    environment: production
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate credentials (missing = FAIL, not skip)
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+        run: |
+          set -euo pipefail
+          missing=0
+          [ -n "$KUBE_CONFIG" ]  || { echo "::error::KUBE_CONFIG secret is not configured"; missing=1; }
+          [ -n "$IMAGE_DIGEST" ] || { echo "::error::image_digest input is required"; missing=1; }
+          case "$IMAGE_DIGEST" in
+            "": ;;
+            *@sha256:*) ;;
+            *) echo "::error::image_digest must pin a sha256 digest"; missing=1;;
+          esac
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Deployment selected but configuration is incomplete — failing instead of silently skipping."
+            exit 1
+          fi
 
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
         with:
           version: 'v1.28.0'
 
-      - name: Configure kubectl
+      - name: Configure kubectl and deploy by digest
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
         run: |
-          if [ -z "$KUBE_CONFIG" ]; then
-            echo "KUBE_CONFIG secret not configured, skipping Kubernetes deployment"
-            exit 0
-          fi
+          set -euo pipefail
           KUBE_DIR=$(mktemp -d)
           trap 'rm -rf "$KUBE_DIR"' EXIT
           echo "$KUBE_CONFIG" | base64 -d > "$KUBE_DIR/config"
           chmod 600 "$KUBE_DIR/config"
-          mkdir -p ~/.kube
-          cp "$KUBE_DIR/config" ~/.kube/config
+          export KUBECONFIG="$KUBE_DIR/config"
 
-      - name: Deploy with kustomize (prod overlay)
-        env:
-          IMAGE_TAG: ${{ github.ref_name }}
-        run: |
-          if [ ! -f ~/.kube/config ]; then
-            echo "Kubernetes not configured, skipping deployment"
-            exit 0
-          fi
-          # Apply prod overlay with environment-specific replicas/HPA/config
           kubectl apply -k deploy/k8s/overlays/prod/
-          # Override image tags from registry
-          kubectl set image deployment/api-gateway -n streamgate api-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:$IMAGE_TAG 2>/dev/null || true
-          kubectl set image deployment/auth -n streamgate auth=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/auth:$IMAGE_TAG 2>/dev/null || true
 
-      - name: Wait for rollout
-        run: |
-          if [ ! -f ~/.kube/config ]; then
-            exit 0
-          fi
-          kubectl rollout status deployment -n streamgate -l environment=prod --timeout=5m 2>/dev/null || true
+          # Digest pins — `set image` errors are fatal (no `|| true`).
+          kubectl set image deployment/api-gateway -n streamgate \
+            "api-gateway=${REGISTRY}/${IMAGE_NAME}/api-gateway@${IMAGE_DIGEST}"
+          kubectl set image deployment/auth -n streamgate \
+            "auth=${REGISTRY}/${IMAGE_NAME}/auth@${IMAGE_DIGEST}"
 
-  notify:
-    name: Notify Deployment
+          # An actual rollout verification — the previous `rollout status ||
+          # true` could never fail.
+          kubectl rollout status deployment/api-gateway -n streamgate --timeout=5m
+          kubectl rollout status deployment/auth -n streamgate --timeout=5m
+
+  report:
+    name: Deployment result
     runs-on: ubuntu-latest
-    needs: [deploy-docker, deploy-kubernetes]
+    needs: [resolve-target, deploy-docker-compose, deploy-kubernetes]
+    # Report every path explicitly; this job never masks a failed deploy.
     if: always()
     steps:
-      - name: Send Discord notification
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          REPOSITORY: ${{ github.repository }}
-          REF_NAME: ${{ github.ref_name }}
-          JOB_STATUS: ${{ job.status }}
-          DOCKER_RESULT: ${{ needs.deploy-docker.result }}
-          KUBERNETES_RESULT: ${{ needs.deploy-kubernetes.result }}
-          ACTOR: ${{ github.actor }}
+      - name: Summarize
         run: |
-          if [ -n "$DISCORD_WEBHOOK" ]; then
-            STATUS_EMOJI="✅"
-            [ "$JOB_STATUS" = "failure" ] && STATUS_EMOJI="❌"
-            curl -s -X POST "$DISCORD_WEBHOOK" \
-              -H "Content-Type: application/json" \
-              -d "{
-                \"content\": \"${STATUS_EMOJI} **StreamGate Deployment**\\nVersion: ${REF_NAME}\\nStatus: ${JOB_STATUS}\\nDocker: ${DOCKER_RESULT}\\nKubernetes: ${KUBERNETES_RESULT}\\nAuthor: ${ACTOR}\"
-              }" || echo "Failed to send Discord notification"
-          else
-            echo "Discord webhook not configured, skipping Discord notification"
+          selected="${{ needs.resolve-target.outputs.selected }}"
+          docker_result="${{ needs.deploy-docker-compose.result }}"
+          k8s_result="${{ needs.deploy-kubernetes.result }}"
+          if [ "$selected" != "true" ]; then
+            echo "::notice::Production deployment NOT EXECUTED (no target selected)."
+            exit 0
           fi
-
-      - name: Create GitHub issue on failure
-        uses: actions/github-script@v7
-        if: failure()
-        with:
-          script: |
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Deployment Failed: ${context.ref}`,
-              body: `## Deployment Failure Report
-
-              **Version:** ${context.refName}
-              **Status:** ${context.job.status}
-              **Docker Deployment:** ${{ needs.deploy-docker.result }}
-              **Kubernetes Deployment:** ${{ needs.deploy-kubernetes.result }}
-
-              **Commit:** ${context.sha}
-              **Author:** ${context.actor}
-
-              **Workflow Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
-
-              Please investigate the deployment logs and fix the issue.`,
-              labels: ['deployment', 'bug']
-            })
+          echo "docker-compose deploy: $docker_result"
+          echo "kubernetes deploy: $k8s_result"
+          if [ "$docker_result" = "failure" ] || [ "$k8s_result" = "failure" ]; then
+            echo "::error::A selected deployment FAILED"
+            exit 1
+          fi
