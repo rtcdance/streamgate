@@ -44,6 +44,72 @@ func (fixedChainPending) GetNonce(context.Context, string) (uint64, error) {
 	return sharedAuthPending, nil
 }
 
+// mutableChainPending lets a test move the fake chain's pending nonce.
+type mutableChainPending struct{ n uint64 }
+
+func (c *mutableChainPending) GetNonce(context.Context, string) (uint64, error) {
+	return c.n, nil
+}
+
+// TestAcceptance_ChainNonceFloor pins the live-fullchain failure (SG-13 B T9):
+// a DB ledger that falls BEHIND the chain (writes that never recorded a
+// reservation) must not keep handing out already-consumed nonces — the chain's
+// pending nonce is a floor on EVERY allocation, not only the first. Before the
+// fix the ledger handed out max(DB)+1 forever and every mint died with
+// "nonce too low" while the chain nonce kept rising.
+func TestAcceptance_ChainNonceFloor(t *testing.T) {
+	dsn := os.Getenv("STREAMGATE_TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("STREAMGATE_TEST_DB_DSN not set; SG-13 shared-nonce tests need a scratch Postgres")
+	}
+	db, err := storage.NewDatabase(storage.DatabaseConfig{Type: "postgres", DSN: dsn})
+	require.NoError(t, err)
+	if err := db.Ping(context.Background()); err != nil {
+		t.Skipf("test DB unreachable: %v", err)
+	}
+	require.NoError(t, helpers.ApplyMigrations(t, db))
+
+	ctx := context.Background()
+	cleanup := func() {
+		for _, q := range []string{
+			`DELETE FROM tx_nonce_reservations WHERE chain_id = $1`,
+			`DELETE FROM tx_signed_attempts WHERE chain_id = $1`,
+		} {
+			if _, err := db.Exec(ctx, q, sharedAuthChainID); err != nil {
+				t.Errorf("cleanup %q: %v", q, err)
+			}
+		}
+	}
+	cleanup()
+	t.Cleanup(func() {
+		cleanup()
+		_ = db.Close()
+	})
+
+	chain := &mutableChainPending{n: 100}
+	ledger := txtx.NewNonceLedger(db, sharedAuthChainID, chain, zap.NewNop())
+
+	first, err := ledger.Reserve(ctx, sharedAuthSigner)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(100), first, "first allocation is primed with the chain pending nonce")
+
+	// The chain advances without the ledger recording anything (a process
+	// crashed after broadcast, or an older binary wrote directly). The next
+	// allocation must jump to the chain floor instead of re-issuing 101.
+	chain.n = 250
+	next, err := ledger.Reserve(ctx, sharedAuthSigner)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(250), next,
+		"chain pending nonce must floor EVERY allocation, not just the first")
+
+	// A second ledger instance (a freshly started process) sees the same
+	// floor — no per-process warm-up window where a stale nonce can be signed.
+	otherProcess := txtx.NewNonceLedger(db, sharedAuthChainID, chain, zap.NewNop())
+	next2, err := otherProcess.Reserve(ctx, sharedAuthSigner)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(251), next2)
+}
+
 func TestAcceptance_SharedNonceAuthority(t *testing.T) {
 	dsn := os.Getenv("STREAMGATE_TEST_DB_DSN")
 	if dsn == "" {
