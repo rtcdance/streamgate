@@ -16,6 +16,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/service"
+	streamingsvc "github.com/rtcdance/streamgate/pkg/service/streamingsvc"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -30,6 +31,12 @@ type manifestCacheEntry struct {
 
 type segmentIndexEntry struct {
 	qualities map[string][]string
+	// playlists maps a quality to the object key of the media playlist FFmpeg
+	// actually produced, and masterKey is the multivariant playlist's key when
+	// there is one. Serving these instead of rebuilding a playlist is what keeps
+	// EXTINF, TARGETDURATION, CODECS and BANDWIDTH truthful.
+	playlists map[string]string
+	masterKey string
 	expiresAt time.Time
 }
 
@@ -137,7 +144,95 @@ func (sc *StreamingCache) GetSegmentIndex(contentID string) (map[string][]string
 }
 
 func (sc *StreamingCache) SetSegmentIndex(contentID string, qualities map[string][]string) {
-	sc.segmentIdx.Set(contentID, segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)})
+	entry := segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
+	if existing, ok := sc.segmentIdx.Get(contentID); ok {
+		entry.playlists = existing.playlists
+		entry.masterKey = existing.masterKey
+	}
+	sc.segmentIdx.Set(contentID, entry)
+}
+
+// GetStoredPlaylists returns the object keys of the playlists FFmpeg produced:
+// a quality→media-playlist map and, when present, the multivariant playlist.
+func (sc *StreamingCache) GetStoredPlaylists(contentID string) (map[string]string, string, bool) {
+	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
+		if len(entry.playlists) > 0 || entry.masterKey != "" {
+			return entry.playlists, entry.masterKey, true
+		}
+	}
+	return nil, "", false
+}
+
+// SetStoredPlaylists records the playlist object keys alongside the segment
+// index, so one listing serves both.
+func (sc *StreamingCache) SetStoredPlaylists(contentID string, playlists map[string]string, masterKey string) {
+	entry, ok := sc.segmentIdx.Get(contentID)
+	if !ok {
+		entry = segmentIndexEntry{expiresAt: time.Now().Add(segmentIndexCacheTTL)}
+	}
+	entry.playlists = playlists
+	entry.masterKey = masterKey
+	entry.expiresAt = time.Now().Add(segmentIndexCacheTTL)
+	sc.segmentIdx.Set(contentID, entry)
+}
+
+// lookupSegmentIndex lists the object store once for a content and populates
+// both the segment index and the stored playlist keys. Concurrent callers share
+// one listing through the singleflight group; a failed listing yields an empty
+// index so the caller can treat the content as not ready.
+func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage service.SegmentStorage, bucket, contentID string) map[string][]string {
+	if objStorage == nil {
+		return map[string][]string{}
+	}
+	v, err, _ := sc.sfGroup.Do("segidx:"+contentID, func() (interface{}, error) {
+		qs := make(map[string][]string)
+		pls := make(map[string]string)
+		master := ""
+		segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
+		if objs, listErr := objStorage.ListObjects(ctx, bucket, segmentPrefix); listErr == nil {
+			for _, key := range objs {
+				rel := strings.TrimPrefix(key, segmentPrefix)
+				parts := strings.SplitN(rel, "/", 2)
+				subdir := ""
+				name := rel
+				if len(parts) == 2 {
+					subdir = parts[0]
+					name = parts[1]
+				}
+				switch {
+				case strings.HasSuffix(name, ".m3u8"):
+					// The playlist FFmpeg wrote, keyed by the quality the
+					// rest of the pipeline uses (the subdirectory).
+					if name == "master.m3u8" {
+						master = key
+						continue
+					}
+					quality := subdir
+					if quality == "" {
+						quality = strings.TrimSuffix(name, ".m3u8")
+					}
+					pls[quality] = key
+				case strings.HasSuffix(name, ".ts"):
+					quality := "default"
+					if subdir != "" {
+						quality = subdir
+					}
+					qs[quality] = append(qs[quality], name)
+				}
+			}
+		}
+		if len(qs) > 0 {
+			sc.SetSegmentIndex(contentID, qs)
+		}
+		if len(pls) > 0 || master != "" {
+			sc.SetStoredPlaylists(contentID, pls, master)
+		}
+		return qs, nil
+	})
+	if err != nil {
+		return map[string][]string{}
+	}
+	return v.(map[string][]string)
 }
 
 func (sc *StreamingCache) Invalidate(contentID string) {
@@ -225,8 +320,17 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			if cached, ok := cache.GetSegmentIndex(contentID); ok {
 				qualitySegments = cached
 			} else {
-				qualitySegments = make(map[string][]string)
+				qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID)
 			}
+
+			// Prefer the playlist FFmpeg produced for this variant. The master
+			// rewrite points players here, so a synthesised answer on this path
+			// would still misstate the durations of every segment it lists.
+			storedPlaylists, masterKey, _ := cache.GetStoredPlaylists(contentID)
+			if serveStoredPlaylist(c, objStorage, segBucket, contentID, quality, playbackToken, storedPlaylists, masterKey) {
+				return
+			}
+
 			segs, ok := qualitySegments[quality]
 			if !ok {
 				abortWithError(c, http.StatusNotFound, ErrContentNotFound, "quality not found")
@@ -292,44 +396,25 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 
 		var qualitySegments map[string][]string
+		var storedPlaylists map[string]string
+		var masterKey string
 		if cached, ok := cache.GetSegmentIndex(contentID); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("segment_index").Inc()
 			qualitySegments = cached
+			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID)
 		} else {
-			v, err, _ := cache.sfGroup.Do("segidx:"+contentID, func() (interface{}, error) {
-				qs := make(map[string][]string)
-				segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
-				if objStorage != nil {
-					if objs, listErr := objStorage.ListObjects(c.Request.Context(), segBucket, segmentPrefix); listErr == nil {
-						for _, key := range objs {
-							if !strings.HasSuffix(key, ".ts") {
-								continue
-							}
-							rel := strings.TrimPrefix(key, segmentPrefix)
-							parts := strings.SplitN(rel, "/", 2)
-							quality := "default"
-							segName := rel
-							if len(parts) == 2 {
-								quality = parts[0]
-								segName = parts[1]
-							}
-							qs[quality] = append(qs[quality], segName)
-						}
-					}
-				}
-				if len(qs) > 0 {
-					cache.SetSegmentIndex(contentID, qs)
-				}
-				return qs, nil
-			})
-			if err != nil {
-				qualitySegments = make(map[string][]string)
-			} else {
-				qualitySegments = v.(map[string][]string)
-			}
+			qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID)
+			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID)
 		}
-		if len(qualitySegments) == 0 {
+		if len(qualitySegments) == 0 && len(storedPlaylists) == 0 && masterKey == "" {
 			abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not ready; transcode may still be processing")
+			return
+		}
+
+		// Prefer the playlist FFmpeg actually produced: its EXTINF, TARGETDURATION,
+		// MEDIA-SEQUENCE, CODECS and BANDWIDTH are the truth about this media. Only
+		// the URIs are rewritten, and only to the protected route.
+		if serveStoredPlaylist(c, objStorage, segBucket, contentID, quality, playbackToken, storedPlaylists, masterKey) {
 			return
 		}
 
@@ -368,6 +453,95 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		c.String(http.StatusOK, rendered)
 	})
 	log.Info("Streaming routes registered")
+}
+
+// serveStoredPlaylist serves the playlist FFmpeg produced, with only its URIs
+// rewritten to the protected routes. It reports whether it handled the request;
+// false means no stored playlist was available and the caller should fall back.
+//
+// The raw playlist never reaches the client: every URI in it pointed at an object
+// key, so it is rewritten wholesale. A playlist that cannot be rewritten safely
+// (an encrypted one, or an unknown tag carrying a URI) is refused rather than
+// served in a form that leaks object paths or points at routes that do not exist.
+func serveStoredPlaylist(
+	c *gin.Context,
+	objStorage service.SegmentStorage,
+	bucket, contentID, quality, playbackToken string,
+	playlists map[string]string,
+	masterKey string,
+) bool {
+	if objStorage == nil {
+		return false
+	}
+	ctx := c.Request.Context()
+
+	write := func(body string) {
+		c.Header("Content-Type", "application/vnd.apple.mpegurl")
+		setCapabilityResponseHeaders(c)
+		c.String(http.StatusOK, body)
+	}
+
+	// A specific quality: serve that media playlist.
+	if quality != "" {
+		key, ok := playlists[quality]
+		if !ok {
+			return false
+		}
+		raw, err := objStorage.Download(ctx, bucket, key)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+				"could not read the stored playlist", err.Error())
+			return true
+		}
+		rewritten, err := streamingsvc.RewriteMediaPlaylistURIs(string(raw), contentID, quality, playbackToken)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+				"stored playlist could not be served safely", err.Error())
+			return true
+		}
+		write(rewritten)
+		return true
+	}
+
+	// No quality requested: serve the multivariant playlist when FFmpeg wrote one.
+	if masterKey != "" {
+		raw, err := objStorage.Download(ctx, bucket, masterKey)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+				"could not read the stored playlist", err.Error())
+			return true
+		}
+		rewritten, err := streamingsvc.RewriteMasterPlaylistURIs(string(raw), contentID, playbackToken)
+		if err != nil {
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+				"stored playlist could not be served safely", err.Error())
+			return true
+		}
+		write(rewritten)
+		return true
+	}
+
+	// A single rendition with no multivariant playlist: serve it directly, which
+	// is what a one-quality transcode produces.
+	if len(playlists) == 1 {
+		for q, key := range playlists {
+			raw, err := objStorage.Download(ctx, bucket, key)
+			if err != nil {
+				abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+					"could not read the stored playlist", err.Error())
+				return true
+			}
+			rewritten, err := streamingsvc.RewriteMediaPlaylistURIs(string(raw), contentID, q, playbackToken)
+			if err != nil {
+				abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError,
+					"stored playlist could not be served safely", err.Error())
+				return true
+			}
+			write(rewritten)
+			return true
+		}
+	}
+	return false
 }
 
 // setCapabilityResponseHeaders marks a response whose body carries a playback
