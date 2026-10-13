@@ -49,6 +49,7 @@ jobs:
             type=sha
 
       - name: Build and push monolith
+        id: build-monolith
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -58,6 +59,19 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Export the pushed digest
+        # The digest of what was pushed is the identity every later job must
+        # consume; rebuilding an image to scan it could scan different bytes.
+        run: |
+          echo "${{ steps.build-monolith.outputs.digest }}" > monolith-digest.txt
+          echo "pushed digest: $(cat monolith-digest.txt)"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monolith-digest-${{ github.sha }}
+          path: monolith-digest.txt
 
   build-microservices:
     name: Build ${{ matrix.service }} Docker Image
@@ -106,12 +120,18 @@ jobs:
           cache-to: type=gha,mode=max
 
   scan-monolith:
-    name: Scan Monolith Image
+    name: Scan Monolith Image (same digest as push)
     runs-on: ubuntu-latest
     needs: build-monolith
+    # PRs are scanned by the CI workflow's candidate-image job, which builds
+    # one image and scans that exact digest; this job covers the pushed image
+    # so the promoted artifact is the scanned artifact (plan SG-02 step 5).
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - name: Download the pushed digest
+        uses: actions/download-artifact@v4
+        with:
+          name: monolith-digest-${{ github.sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -123,14 +143,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build monolith locally for scanning
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./deploy/docker/Dockerfile.monolith
-          push: false
-          load: true
-          tags: streamgate-monolith:scan
+      - name: Pull the pushed image at its digest
+        # No rebuild: the scan consumes exactly the bytes that were pushed.
+        run: |
+          set -euo pipefail
+          DIGEST="$(cat monolith-digest.txt)"
+          [ -n "$DIGEST" ] || { echo "::error::pushed digest artifact was empty"; exit 1; }
+          docker pull "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}"
+          docker tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}" streamgate-monolith:scan
+          echo "scanning ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}"
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
