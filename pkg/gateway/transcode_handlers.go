@@ -1,15 +1,12 @@
 package gateway
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
-	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/util"
 
@@ -217,52 +214,6 @@ func handleTranscodeProfiles(svc *service.TranscodingService, log *zap.Logger) g
 	}
 }
 
-// --- Internal adapters ---
-
-type ffmpegRouterAdapter struct {
-	ft  *transcoder.FFmpegTranscoder
-	log *zap.Logger
-}
-
-func (a *ffmpegRouterAdapter) TranscodeHLS(ctx context.Context, inputPath, outputDir, profile string, progressFn func(variant string, progress float64)) error {
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 30*time.Minute)
-		defer cancel()
-	}
-	// For ABR, delegate to FFmpegTranscoder which probes source height and
-	// selects profiles that do not exceed the input resolution.
-	if profile == "abr" || profile == "" {
-		return a.ft.TranscodeHLS(ctx, inputPath, outputDir, profile, progressFn)
-	}
-
-	profiles := []transcoder.TranscodeProfile{
-		{Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"},
-		{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"},
-		{Resolution: "854x480", Bitrate: "1000k", Format: "hls"},
-		{Resolution: "640x360", Bitrate: "500k", Format: "hls"},
-	}
-
-	switch profile {
-	case "1080p":
-		profiles = []transcoder.TranscodeProfile{{Resolution: "1920x1080", Bitrate: "5000k", Format: "hls"}}
-	case "720p":
-		profiles = []transcoder.TranscodeProfile{{Resolution: "1280x720", Bitrate: "2500k", Format: "hls"}}
-	case "480p":
-		profiles = []transcoder.TranscodeProfile{{Resolution: "854x480", Bitrate: "1000k", Format: "hls"}}
-	case "360p":
-		profiles = []transcoder.TranscodeProfile{{Resolution: "640x360", Bitrate: "500k", Format: "hls"}}
-	}
-
-	callback := func(p *transcoder.TranscodeProgress) {
-		if progressFn != nil && p != nil {
-			progressFn("", p.Progress)
-		}
-	}
-	variantFn := func(variant string, progress float64) {
-		if progressFn != nil {
-			progressFn(variant, progress)
-		}
-	}
-	return a.ft.TranscodeToHLS(ctx, inputPath, outputDir, profiles, callback, variantFn)
-}
+// The FFmpeg -> service.VideoTranscoder adapter lives in
+// pkg/plugins/transcoder (NewVideoTranscoder) so the gateway and the isolated
+// transcoder microservice run the same profile mapping.

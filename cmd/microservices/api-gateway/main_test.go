@@ -216,7 +216,7 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, zap.NewNop()))
-		gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil, segStorage, nil, nil)
+		gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil, segStorage, nil, nil, nil)
 
 		// Segment route uses playback token, not NFT gate
 		authGroup.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {

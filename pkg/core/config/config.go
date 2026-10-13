@@ -761,6 +761,7 @@ func setDefaults() {
 	viper.SetDefault("transcoding.max_owner_pending", 2)
 	// Security-relevant bounds, so bound explicitly rather than left to
 	// AutomaticEnv's key derivation.
+	_ = viper.BindEnv("transcoding.enabled", "STREAMGATE_TRANSCODING_ENABLED")
 	_ = viper.BindEnv("transcoding.max_input_size", "STREAMGATE_TRANSCODING_MAX_INPUT_SIZE")
 	_ = viper.BindEnv("transcoding.max_duration_seconds", "STREAMGATE_TRANSCODING_MAX_DURATION_SECONDS")
 	_ = viper.BindEnv("transcoding.max_width", "STREAMGATE_TRANSCODING_MAX_WIDTH")
