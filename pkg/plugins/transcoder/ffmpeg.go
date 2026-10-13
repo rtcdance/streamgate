@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -28,8 +30,32 @@ type FFmpegConfig struct {
 	VideoCodec     string
 	AudioCodec     string
 	MaxFileSize    int64   // Maximum input file size in bytes (0 = no limit)
-	MaxDuration    float64 // Maximum input duration in seconds (0 = no limit)
+	MaxDuration    float64 // Maximum input duration in seconds (0 = default ceiling)
+	MaxWidth       int     // Maximum input video width in pixels (0 = default ceiling)
+	MaxHeight      int     // Maximum input video height in pixels (0 = default ceiling)
+	Threads        int     // ffmpeg -threads value (0 = default)
+	ProbeTimeout   time.Duration
 }
+
+// Default ceilings for untrusted input. They are applied by NewFFmpegTranscoder
+// so a wiring site that forgets them still runs with a bounded pipeline.
+const (
+	DefaultMaxDurationSeconds = 600.0
+	DefaultMaxWidth           = 1920
+	DefaultMaxHeight          = 1080
+	DefaultFFmpegThreads      = 2
+	DefaultProbeTimeout       = 60 * time.Second
+)
+
+// probeOutputLimit caps combined ffprobe stdout+stderr so a hostile or broken
+// probe target cannot make the server buffer unbounded output.
+const probeOutputLimit = 1 << 20 // 1 MiB
+
+// ErrMediaLimitExceeded is returned when an input is refused by the media
+// gate: wrong container/codec, or beyond the duration/resolution/size
+// ceilings. It is a distinct error so callers can answer with a business
+// error instead of a generic 500.
+var ErrMediaLimitExceeded = errors.New("input exceeds limit")
 
 // FFmpegTranscoder handles FFmpeg transcoding operations
 type FFmpegTranscoder struct {
@@ -77,6 +103,23 @@ func NewFFmpegTranscoder(config *FFmpegConfig, logger *zap.Logger) *FFmpegTransc
 	if config.TempDir == "" {
 		config.TempDir = "/tmp/streamgate"
 	}
+	// Untrusted input gets bounded defaults rather than "no limit": a wiring
+	// site that forgets a ceiling must not inherit an unbounded pipeline.
+	if config.MaxDuration <= 0 {
+		config.MaxDuration = DefaultMaxDurationSeconds
+	}
+	if config.MaxWidth <= 0 {
+		config.MaxWidth = DefaultMaxWidth
+	}
+	if config.MaxHeight <= 0 {
+		config.MaxHeight = DefaultMaxHeight
+	}
+	if config.Threads <= 0 {
+		config.Threads = DefaultFFmpegThreads
+	}
+	if config.ProbeTimeout <= 0 {
+		config.ProbeTimeout = DefaultProbeTimeout
+	}
 
 	return &FFmpegTranscoder{
 		config: config,
@@ -85,9 +128,10 @@ func NewFFmpegTranscoder(config *FFmpegConfig, logger *zap.Logger) *FFmpegTransc
 }
 
 type ffprobeFormat struct {
-	Duration string `json:"duration"`
-	Size     string `json:"size"`
-	BitRate  string `json:"bit_rate"`
+	Duration   string `json:"duration"`
+	Size       string `json:"size"`
+	BitRate    string `json:"bit_rate"`
+	FormatName string `json:"format_name"`
 }
 
 type ffprobeStream struct {
@@ -105,8 +149,90 @@ type ffprobeOutput struct {
 	Streams []ffprobeStream `json:"streams"`
 }
 
+// cappedBuffer accumulates output up to limit bytes and reports truncation
+// instead of growing without bound. Writes always report the full length so
+// the exec pipe copier is never told to abort mid-stream.
+type cappedBuffer struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int64
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if remain := b.limit - int64(b.buf.Len()); remain > 0 {
+		if int64(len(p)) > remain {
+			_, _ = b.buf.Write(p[:remain])
+			b.truncated = true
+		} else {
+			_, _ = b.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		b.truncated = true
+	}
+	return len(p), nil
+}
+
+func (b *cappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *cappedBuffer) Truncated() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.truncated
+}
+
+// tailBuffer retains only the last limit bytes written to it, so an error
+// message can quote recent FFmpeg stderr without holding the whole stream.
+type tailBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+}
+
+func newTailBuffer(limit int) *tailBuffer {
+	return &tailBuffer{limit: limit}
+}
+
+func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(p) >= t.limit {
+		t.buf = append(t.buf[:0], p[len(p)-t.limit:]...)
+		return len(p), nil
+	}
+	if overflow := len(t.buf) + len(p) - t.limit; overflow > 0 {
+		t.buf = t.buf[overflow:]
+	}
+	t.buf = append(t.buf, p...)
+	return len(p), nil
+}
+
+func (t *tailBuffer) String() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return string(t.buf)
+}
+
+func truncateForError(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[len(s)-max:] + "…"
+}
+
 // GetVideoInfo retrieves video file information using ffprobe
 func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) (*VideoInfo, error) {
+	// ffprobe gets its OWN deadline: the caller context may carry a long
+	// transcode budget (or none at all), and a hung probe must not inherit it.
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ft.config.ProbeTimeout)
+	defer cancel()
+
 	args := []string{
 		"-v", "quiet",
 		"-print_format", "json",
@@ -115,18 +241,35 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 		inputPath,
 	}
 
-	cmd := exec.CommandContext(ctx, ft.config.FFprobePath, args...)
-	output, err := cmd.CombinedOutput()
+	cmd := exec.CommandContext(probeCtx, ft.config.FFprobePath, args...)
+	configureProcGroup(cmd)
+	cmd.Cancel = func() error { return killProcGroup(cmd) }
+	cmd.WaitDelay = 5 * time.Second
+
+	out := &cappedBuffer{limit: probeOutputLimit}
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start ffprobe: %w", err)
+	}
+	err := cmd.Wait()
+	if err != nil && probeCtx.Err() != nil {
+		return nil, fmt.Errorf("ffprobe timed out after %s: %w", ft.config.ProbeTimeout, probeCtx.Err())
+	}
 	if err != nil {
-		return nil, fmt.Errorf("ffprobe failed: %w, output: %s", err, string(output))
+		return nil, fmt.Errorf("ffprobe failed: %w, output: %s", err, truncateForError(out.String(), 4096))
+	}
+	if out.Truncated() {
+		return nil, fmt.Errorf("ffprobe output exceeded the %d-byte cap", probeOutputLimit)
 	}
 
 	var probe ffprobeOutput
-	if err := json.Unmarshal(output, &probe); err != nil {
+	if err := json.Unmarshal([]byte(out.String()), &probe); err != nil {
 		return nil, fmt.Errorf("failed to parse ffprobe output: %w", err)
 	}
 
-	info := &VideoInfo{}
+	info := &VideoInfo{Format: probe.Format.FormatName}
 
 	if probe.Format.Duration != "" {
 		if d, err := strconv.ParseFloat(probe.Format.Duration, 64); err == nil {
@@ -186,10 +329,20 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 	return info, nil
 }
 
+// allowedContainer reports whether ffprobe's format_name belongs to the
+// mp4/mov family. ffprobe reports e.g. "mov,mp4,m4a,3gp,3g2,mj2" for MP4.
+func allowedContainer(formatName string) bool {
+	return strings.Contains(formatName, "mp4") || strings.Contains(formatName, "mov")
+}
+
 // ValidateMediaFile validates that an input file is a playable media file
 // within configured size and duration limits. Returns VideoInfo on success.
 // For HTTP/HTTPS URLs, the os.Stat check is skipped and ffprobe is used
 // directly — FFmpeg natively supports remote input.
+//
+// The gate is allowlist-based and fails closed: only mp4/mov container with
+// H.264 video (and AAC audio when an audio stream is present) passes; anything
+// else is refused with ErrMediaLimitExceeded.
 func (ft *FFmpegTranscoder) ValidateMediaFile(ctx context.Context, inputPath string) (*VideoInfo, error) {
 	// Skip os.Stat for HTTP URLs — FFmpeg can access them directly.
 	if !strings.HasPrefix(inputPath, "http://") && !strings.HasPrefix(inputPath, "https://") {
@@ -199,14 +352,31 @@ func (ft *FFmpegTranscoder) ValidateMediaFile(ctx context.Context, inputPath str
 		}
 
 		if ft.config.MaxFileSize > 0 && stat.Size() > ft.config.MaxFileSize {
-			return nil, fmt.Errorf("input file size %d exceeds maximum %d bytes", stat.Size(), ft.config.MaxFileSize)
+			return nil, fmt.Errorf("%w: input file size %d exceeds maximum %d bytes", ErrMediaLimitExceeded, stat.Size(), ft.config.MaxFileSize)
 		}
 	}
 
 	// Use ffprobe to validate the file is a playable media file
 	info, err := ft.GetVideoInfo(ctx, inputPath)
 	if err != nil {
-		return nil, fmt.Errorf("input file is not a valid media file: %w", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("media probe failed: %w", err)
+		}
+		return nil, fmt.Errorf("%w: not a valid media file: %v", ErrMediaLimitExceeded, err)
+	}
+
+	if !allowedContainer(info.Format) {
+		return nil, fmt.Errorf("%w: container %q is not supported (want mp4/mov family)", ErrMediaLimitExceeded, info.Format)
+	}
+
+	if info.VideoCodec == "" {
+		return nil, fmt.Errorf("%w: no video stream found", ErrMediaLimitExceeded)
+	}
+	if info.VideoCodec != "h264" {
+		return nil, fmt.Errorf("%w: video codec %q is not supported (want h264)", ErrMediaLimitExceeded, info.VideoCodec)
+	}
+	if info.AudioCodec != "" && info.AudioCodec != "aac" {
+		return nil, fmt.Errorf("%w: audio codec %q is not supported (want aac)", ErrMediaLimitExceeded, info.AudioCodec)
 	}
 
 	if info.Duration == 0 {
@@ -214,11 +384,18 @@ func (ft *FFmpegTranscoder) ValidateMediaFile(ctx context.Context, inputPath str
 	}
 
 	if ft.config.MaxDuration > 0 && info.Duration > ft.config.MaxDuration {
-		return nil, fmt.Errorf("input duration %.1fs exceeds maximum %.1fs", info.Duration, ft.config.MaxDuration)
+		return nil, fmt.Errorf("%w: input duration %.1fs exceeds maximum %.1fs", ErrMediaLimitExceeded, info.Duration, ft.config.MaxDuration)
+	}
+
+	if (ft.config.MaxWidth > 0 && info.Width > ft.config.MaxWidth) ||
+		(ft.config.MaxHeight > 0 && info.Height > ft.config.MaxHeight) {
+		return nil, fmt.Errorf("%w: resolution %dx%d exceeds maximum %dx%d",
+			ErrMediaLimitExceeded, info.Width, info.Height, ft.config.MaxWidth, ft.config.MaxHeight)
 	}
 
 	ft.logger.Debug("Media file validated",
 		zap.String("path", inputPath),
+		zap.String("format", info.Format),
 		zap.Float64("duration", info.Duration),
 		zap.Int64("size", info.FileSize),
 		zap.Int("width", info.Width),
@@ -458,9 +635,29 @@ func (ft *FFmpegTranscoder) ExtractThumbnail(ctx context.Context, inputPath, out
 	return ft.runFFmpeg(ctx, args, 0, nil)
 }
 
-// runFFmpeg executes FFmpeg command with progress monitoring
+// runFFmpeg executes FFmpeg command with progress monitoring.
+// Args are passed to exec as an argv array — never through a shell.
 func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, totalDuration time.Duration, callback ProgressCallback) error {
+	if ft.config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, ft.config.Timeout)
+		defer cancel()
+	}
+
+	if ft.config.Threads > 0 && len(args) > 0 {
+		// -threads is an output option: insert it immediately before the output
+		// path (the last argument) so it binds to the encoder.
+		output := args[len(args)-1]
+		args = append(args[:len(args)-1:len(args)], "-threads", strconv.Itoa(ft.config.Threads), output)
+	}
+
 	cmd := exec.CommandContext(ctx, ft.config.FFmpegPath, args...)
+	// FFmpeg spawns child processes (muxers/workers); cancelling must signal the
+	// whole process group, not just the direct child, so nothing survives the
+	// timeout.
+	configureProcGroup(cmd)
+	cmd.Cancel = func() error { return killProcGroup(cmd) }
+	cmd.WaitDelay = 10 * time.Second
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -471,19 +668,27 @@ func (ft *FFmpegTranscoder) runFFmpeg(ctx context.Context, args []string, totalD
 		return fmt.Errorf("failed to start FFmpeg: %w", err)
 	}
 
+	// Retain only the tail of stderr so a failure can quote recent output
+	// without holding the whole stream in memory or in the error message.
+	stderrTail := newTailBuffer(8 << 10)
+	src := io.TeeReader(stderr, stderrTail)
+
 	progressDone := make(chan struct{})
 	go func() {
 		defer close(progressDone)
 		if callback != nil {
-			ft.monitorProgress(stderr, totalDuration, callback)
+			ft.monitorProgress(src, totalDuration, callback)
 		} else {
-			_, _ = io.Copy(io.Discard, stderr)
+			_, _ = io.Copy(io.Discard, src)
 		}
 	}()
 
 	<-progressDone
 
 	if err := cmd.Wait(); err != nil {
+		if tail := stderrTail.String(); tail != "" {
+			return fmt.Errorf("FFmpeg process failed: %w (stderr tail: %s)", err, truncateForError(tail, 8<<10))
+		}
 		return fmt.Errorf("FFmpeg process failed: %w", err)
 	}
 

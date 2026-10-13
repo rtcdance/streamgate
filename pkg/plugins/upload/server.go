@@ -92,6 +92,12 @@ func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, 
 		FFprobePath: "ffprobe",
 		TempDir:     os.TempDir(),
 		Timeout:     30 * time.Minute,
+		// Media gate ceilings for untrusted originals, from config.
+		MaxFileSize: cfg.Transcoding.MaxInputSize,
+		MaxDuration: float64(cfg.Transcoding.MaxDurationSeconds),
+		MaxWidth:    cfg.Transcoding.MaxWidth,
+		MaxHeight:   cfg.Transcoding.MaxHeight,
+		Threads:     cfg.Transcoding.FFmpegThreads,
 	}
 	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
 	videoTranscoder := &ffmpegAdapter{ft: ft, log: log.Named("ffmpeg")}
@@ -110,6 +116,11 @@ func initTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, 
 		service.WithTranscoder(videoTranscoder),
 		service.WithStorage(objStorage),
 		service.WithLogger(log),
+		service.WithMaxInputBytes(cfg.Transcoding.MaxInputSize),
+		service.WithMinWorkers(1),
+		service.WithMaxWorkers(cfg.Transcoding.MaxWorkers),
+		service.WithQueueLimit(cfg.Transcoding.MaxQueuePending),
+		service.WithOwnerTaskLimit(cfg.Transcoding.MaxOwnerPending),
 	)
 	return svc
 }
