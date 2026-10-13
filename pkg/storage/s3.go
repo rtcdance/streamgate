@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -169,6 +171,35 @@ func (s3s *S3Storage) Delete(ctx context.Context, bucket, key string) error {
 	}
 
 	return nil
+}
+
+// CopyObject performs a server-side copy of an object within the same bucket.
+// Used to seal uploaded originals into content-bound immutable keys.
+func (s3s *S3Storage) CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	_, err := s3s.client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(dstKey),
+		// S3 requires CopySource as URL-encoded "bucket/key"; escaping each
+		// path segment keeps '/' separators while protecting special characters.
+		CopySource: aws.String(bucket + "/" + escapeObjectKeyForCopy(srcKey)),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy object in S3: %w", err)
+	}
+
+	return nil
+}
+
+// escapeObjectKeyForCopy URL-encodes each '/'-separated segment of an object key.
+func escapeObjectKeyForCopy(key string) string {
+	segments := strings.Split(key, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	return strings.Join(segments, "/")
 }
 
 func (s3s *S3Storage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {

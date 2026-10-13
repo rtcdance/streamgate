@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,7 @@ type ContentRegistry interface {
 type ContentObjectStorage interface {
 	Upload(ctx context.Context, bucket, key string, data []byte) error
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
+	CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error
 	Delete(ctx context.Context, bucket, key string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
 }
@@ -57,6 +59,7 @@ type Content struct {
 	Size         int64                  `json:"size"`     // in bytes
 	Status       string                 `json:"status"`   // pending, processing, ready, failed
 	OwnerID      string                 `json:"owner_id"`
+	FileHash     string                 `json:"file_hash"` // SHA-256 of the sealed original bytes, empty until verified
 	CreatedAt    time.Time              `json:"created_at"`
 	UpdatedAt    time.Time              `json:"updated_at"`
 	Metadata     map[string]interface{} `json:"metadata"`
@@ -104,14 +107,14 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 	v, err, _ := s.sf.Do("content:"+id, func() (interface{}, error) {
 		query := `
 			SELECT id, title, description, type, url, thumbnail_url, 
-			       duration, size, status, owner_id, created_at, updated_at, metadata
+			       duration, size, status, owner_id, created_at, updated_at, metadata, file_hash
 			FROM contents
 			WHERE id = $1
 		`
 
 		var content Content
 		var metadataJSON []byte
-		var desc, url, thumbURL, status, ownerID sql.NullString
+		var desc, url, thumbURL, status, ownerID, fileHash sql.NullString
 		var duration sql.NullInt64
 		var size sql.NullInt64
 
@@ -129,6 +132,7 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 			&content.CreatedAt,
 			&content.UpdatedAt,
 			&metadataJSON,
+			&fileHash,
 		)
 
 		if errors.Is(err, sql.ErrNoRows) {
@@ -144,6 +148,7 @@ func (s *ContentService) GetContent(ctx context.Context, id string) (*Content, e
 		content.Size = size.Int64
 		content.Status = status.String
 		content.OwnerID = ownerID.String
+		content.FileHash = fileHash.String
 
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &content.Metadata); err != nil {
@@ -199,8 +204,8 @@ func (s *ContentService) CreateContent(ctx context.Context, content *Content) (s
 	// Insert into database
 	query := `
 		INSERT INTO contents (id, title, description, type, url, thumbnail_url,
-		                     duration, size, status, owner_id, created_at, updated_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                     duration, size, status, owner_id, created_at, updated_at, metadata, file_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
 	_, err = s.db.Exec(ctx, query,
@@ -217,6 +222,7 @@ func (s *ContentService) CreateContent(ctx context.Context, content *Content) (s
 		content.CreatedAt,
 		content.UpdatedAt,
 		metadataJSON,
+		content.FileHash,
 	)
 
 	if err != nil {
@@ -332,14 +338,14 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 	// Insert content row
 	contentQuery := `
 		INSERT INTO contents (id, title, description, type, url, thumbnail_url,
-		                      duration, size, status, owner_id, created_at, updated_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                      duration, size, status, owner_id, created_at, updated_at, metadata, file_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	_, err = tx.ExecContext(ctx, contentQuery,
 		content.ID, content.Title, content.Description, content.Type,
 		content.URL, content.ThumbnailURL, content.Duration, content.Size,
 		content.Status, content.OwnerID, content.CreatedAt, content.UpdatedAt,
-		metadataJSON,
+		metadataJSON, content.FileHash,
 	)
 	if err != nil {
 		return "", fmt.Errorf("insert content: %w", err)
@@ -360,18 +366,55 @@ func (s *ContentService) CreateContentWithTx(ctx context.Context, content *Conte
 		return "", fmt.Errorf("commit tx: %w", err)
 	}
 
-	// On-chain attestation is deliberately NOT performed here. The previous
-	// path registered SHA-256(media URL or content ID), which is not the digest
-	// of the original bytes and therefore attested to nothing. SG-12 supplies
-	// the verified original digest and SG-13 the durable outbox that retries
-	// registration; until that digest exists the intent is only recorded.
-	if s.registry != nil {
+	// On-chain attestation only happens with the verified original digest: the
+	// SHA-256 of the sealed bytes (content.FileHash, set by upload sealing) and
+	// the verified creator (content.OwnerID, the wallet that produced the
+	// upload). An empty/unverifiable digest keeps the intent deferred — a fake
+	// digest must never reach the registry. The chain write is not atomic with
+	// the DB insert, so a failure is logged for outbox retry (SG-13) and never
+	// fails the committed row.
+	if s.registry == nil {
 		s.logger.Info("On-chain content registration deferred until a verified original digest exists",
 			zap.String("id", content.ID))
+	} else if digest, ok := decodeContentDigest(content.FileHash); !ok || content.OwnerID == "" {
+		s.logger.Info("On-chain content registration deferred until a verified original digest exists",
+			zap.String("id", content.ID),
+			zap.String("owner_id", content.OwnerID))
+	} else {
+		// Security: creator is the server-verified content owner and digest is
+		// the hex-decoded 32-byte original digest — never client-supplied data.
+		txHash, err := s.registry.RegisterContent(ctx, content.ID, content.OwnerID, digest, content.URL)
+		if err != nil {
+			s.logger.Warn("On-chain content registration failed; committed content stands, intent kept for retry",
+				zap.String("id", content.ID),
+				zap.String("creator", content.OwnerID),
+				zap.String("digest", content.FileHash),
+				zap.Error(err))
+		} else {
+			s.logger.Info("Content registered on-chain",
+				zap.String("id", content.ID),
+				zap.String("tx", txHash))
+		}
 	}
 
 	s.logger.Info("Content created with tx", zap.String("id", content.ID))
 	return content.ID, nil
+}
+
+// decodeContentDigest parses a 64-char hex SHA-256 digest into its 32-byte
+// form. Anything else (empty, wrong length, non-hex) is not a verifiable
+// original digest and must not be registered on-chain.
+func decodeContentDigest(fileHash string) ([32]byte, bool) {
+	var out [32]byte
+	if len(fileHash) != 64 {
+		return out, false
+	}
+	raw, err := hex.DecodeString(fileHash)
+	if err != nil || len(raw) != 32 {
+		return out, false
+	}
+	copy(out[:], raw)
+	return out, true
 }
 
 // DeleteContentWithTx deletes content and its metadata in a single transaction.
