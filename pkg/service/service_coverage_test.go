@@ -154,6 +154,15 @@ func (m *mockContentStorage) Exists(ctx context.Context, bucket, key string) (bo
 	return ok, nil
 }
 
+func (m *mockContentStorage) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	src, ok := m.uploads[bucket+"/"+srcKey]
+	if !ok {
+		return errors.New("copy source not found")
+	}
+	m.uploads[bucket+"/"+dstKey] = src
+	return nil
+}
+
 // mockStreamingStorage implements StreamingObjectStorage
 type mockStreamingStorage struct {
 	data map[string][]byte
@@ -203,6 +212,15 @@ func (m *mockUploadStorage) DownloadStream(ctx context.Context, bucket, key stri
 
 func (m *mockUploadStorage) Delete(ctx context.Context, bucket, key string) error {
 	delete(m.data, bucket+"/"+key)
+	return nil
+}
+
+func (m *mockUploadStorage) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	src, ok := m.data[bucket+"/"+srcKey]
+	if !ok {
+		return errors.New("copy source not found")
+	}
+	m.data[bucket+"/"+dstKey] = src
 	return nil
 }
 

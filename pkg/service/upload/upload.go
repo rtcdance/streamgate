@@ -155,6 +155,7 @@ type UploadObjectStorage interface {
 	UploadStream(ctx context.Context, bucket, key string, reader io.Reader, size int64) error
 	Download(ctx context.Context, bucket, key string) ([]byte, error)
 	DownloadStream(ctx context.Context, bucket, key string) (io.ReadCloser, error)
+	CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error
 	Delete(ctx context.Context, bucket, key string) error
 	DeleteObjects(ctx context.Context, bucket string, keys []string) error
 	Exists(ctx context.Context, bucket, key string) (bool, error)
@@ -946,9 +947,47 @@ func DetectContentType(filename string) string {
 	}
 }
 
+// sealedOriginalKey returns the immutable, content-bound key a staged original
+// is copied to at completion. The digest is part of the key, so a content's
+// original object can never be overwritten in place: different bytes would be
+// a different key.
+func sealedOriginalKey(contentID, digest, filename string) string {
+	return fmt.Sprintf("originals/%s/%s%s", contentID, digest, filepath.Ext(filename))
+}
+
+// stagedObjectKey returns the storage key of the staged upload object referenced
+// by the upload's URL.
+func (s *UploadService) stagedObjectKey(info *UploadInfo) (string, error) {
+	prefix := "/" + s.bucket + "/"
+	if !strings.HasPrefix(info.URL, prefix) || len(info.URL) <= len(prefix) {
+		return "", fmt.Errorf("unexpected URL format in upload %s: %s", info.ID, info.URL)
+	}
+	return info.URL[len(prefix):], nil
+}
+
+// hashStagedObject streams the staged object and computes its SHA-256 over the
+// actual bytes.
+func (s *UploadService) hashStagedObject(ctx context.Context, key string) (string, error) {
+	rc, err := s.objStore.DownloadStream(ctx, s.bucket, key)
+	if err != nil {
+		return "", fmt.Errorf("open staged original: %w", err)
+	}
+	defer func() { _ = rc.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, rc); err != nil {
+		return "", fmt.Errorf("hash staged original: %w", err)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 // CompleteUploadWithTx marks an upload as completed and creates a
 // corresponding content record in a single transaction. Uses the
 // defer-tx.Rollback() pattern for safe cleanup.
+// The staged original is sealed (server-side copied) to a content-bound,
+// digest-named key inside the same transaction, and the content row records
+// the verified digest (file_hash), the sealed key (original_key) and
+// original_verified=TRUE. owner_id comes from the upload row — the
+// server-verified wallet — never from a client field.
 // Returns the content ID of the newly created content record.
 func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID string) (string, error) {
 	if s.db == nil {
@@ -961,16 +1000,36 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 		return "", fmt.Errorf("get upload status: %w", err)
 	}
 
+	if upload.Status == "processed" {
+		// Already completed once: idempotent when the digest matches, 409 when
+		// the staged bytes now hash to a different digest than the sealed one.
+		return s.completeSealedUpload(ctx, upload)
+	}
 	if upload.Status != "completed" {
 		return "", fmt.Errorf("upload not completed: %s", upload.Status)
 	}
 
-	var contentID string
+	stagingKey, err := s.stagedObjectKey(upload)
+	if err != nil {
+		return "", err
+	}
+
+	// uploads.hash was computed server-side while the bytes streamed into
+	// storage; when it is absent (client-written presigned PUT) the staged
+	// bytes are hashed now so the recorded digest always covers actual bytes.
+	digest := upload.Hash
+	if digest == "" {
+		if digest, err = s.hashStagedObject(ctx, stagingKey); err != nil {
+			return "", err
+		}
+	}
+
+	contentID := uuid.New().String()
 	err = s.db.InTransaction(ctx, func(tx *sql.Tx) error {
-		// Update upload status to "processed"
+		// Update upload status to "processed" and bind it to its content.
 		res, err := tx.ExecContext(ctx, `
-			UPDATE uploads SET status = $2, updated_at = $3 WHERE id = $1 AND status = 'completed'
-		`, uploadID, "processed", time.Now())
+			UPDATE uploads SET status = $2, content_id = $3, updated_at = $4 WHERE id = $1 AND status = 'completed'
+		`, uploadID, "processed", contentID, time.Now())
 		if err != nil {
 			return fmt.Errorf("update upload: %w", err)
 		}
@@ -979,14 +1038,23 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 			return fmt.Errorf("upload not in completed state")
 		}
 
+		// Seal the original: server-side copy from the writable staging key to
+		// the immutable, content-bound key. A failed seal aborts the whole
+		// completion — no content row may claim a digest without real bytes.
+		sealedKey := sealedOriginalKey(contentID, digest, upload.Filename)
+		if err := s.objStore.CopyObject(ctx, s.bucket, stagingKey, sealedKey); err != nil {
+			return fmt.Errorf("seal original: %w", err)
+		}
+
 		// Create content record from upload
-		contentID = uuid.New().String()
 		thumbnailURL := fmt.Sprintf("https://via.placeholder.com/320x180?text=%s", upload.Filename)
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contents (id, title, type, size, status, owner_id, url, thumbnail_url, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO contents (id, title, type, size, status, owner_id, url, thumbnail_url,
+			                      file_hash, original_key, original_verified, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		`, contentID, upload.Filename, ContentTypeToType(upload.ContentType), upload.Size, "pending",
-			upload.OwnerID, upload.URL, thumbnailURL, time.Now(), time.Now()); err != nil {
+			upload.OwnerID, upload.URL, thumbnailURL,
+			digest, sealedKey, true, time.Now(), time.Now()); err != nil {
 			return fmt.Errorf("insert content: %w", err)
 		}
 
@@ -1025,6 +1093,150 @@ func (s *UploadService) CompleteUploadWithTx(ctx context.Context, uploadID strin
 		}(hook)
 	}
 
+	return contentID, nil
+}
+
+// FinalizePresignedUpload verifies the client-written presigned object exists,
+// records the SHA-256 of the bytes actually in storage, and moves the upload
+// from "uploading" to "completed" so CompleteUploadWithTx can seal it.
+//
+// The bytes never transited the server during a presigned PUT, so this
+// read-back is the only point at which uploads.hash becomes trustworthy for
+// this path — a digest recorded without it would attest to nothing. Chunked
+// uploads are refused: their bytes live in unmerged chunks, so "completed"
+// would seal an object that was never written.
+func (s *UploadService) FinalizePresignedUpload(ctx context.Context, uploadID, ownerID string) error {
+	if s.db == nil {
+		return fmt.Errorf("database not available")
+	}
+	upload, err := s.GetUploadStatus(ctx, uploadID)
+	if err != nil {
+		return fmt.Errorf("get upload status: %w", err)
+	}
+	// Security: only the wallet that initiated the upload may finalise it.
+	if ownerID == "" || !strings.EqualFold(upload.OwnerID, ownerID) {
+		return fmt.Errorf("upload %s does not belong to this wallet", uploadID)
+	}
+	if upload.Status == "completed" {
+		return nil
+	}
+	if upload.Status != "uploading" {
+		return fmt.Errorf("upload not in presigned state: %s", upload.Status)
+	}
+
+	var chunks int
+	if err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM upload_chunks WHERE upload_id = $1`, uploadID).Scan(&chunks); err != nil {
+		return fmt.Errorf("check upload chunks: %w", err)
+	}
+	if chunks > 0 {
+		return fmt.Errorf("upload %s is chunked; merge it with the chunk completion path", uploadID)
+	}
+
+	stagingKey, err := s.stagedObjectKey(upload)
+	if err != nil {
+		return err
+	}
+	exists, err := s.objStore.Exists(ctx, s.bucket, stagingKey)
+	if err != nil {
+		return fmt.Errorf("stat staged object: %w", err)
+	}
+	if !exists {
+		return serviceerrors.ErrStagedObjectMissing
+	}
+	digest, err := s.hashStagedObject(ctx, stagingKey)
+	if err != nil {
+		return fmt.Errorf("hash staged object: %w", err)
+	}
+
+	res, err := s.db.Exec(ctx, `
+		UPDATE uploads SET status = 'completed', hash = $2, updated_at = $3
+		WHERE id = $1 AND LOWER(owner_id) = LOWER($4) AND status = 'uploading'`,
+		uploadID, digest, time.Now(), upload.OwnerID)
+	if err != nil {
+		return fmt.Errorf("finalize presigned upload: %w", err)
+	}
+	ra, _ := res.RowsAffected()
+	if ra == 0 {
+		return fmt.Errorf("upload %s changed state concurrently", uploadID)
+	}
+	s.logger.Info("Presigned upload finalised with digest of stored bytes",
+		zap.String("upload_id", uploadID), zap.String("digest", digest))
+	return nil
+}
+
+// completeSealedUpload handles completion of an upload that already produced a
+// content record. The staged bytes are hashed again and compared against the
+// sealed digest: an equal digest is an idempotent no-op returning the original
+// content ID; a different digest on a verified original is rejected with
+// ErrOriginalImmutable (HTTP 409) — a sealed original is never replaced.
+func (s *UploadService) completeSealedUpload(ctx context.Context, upload *UploadInfo) (string, error) {
+	var bound sql.NullString
+	err := s.db.QueryRow(ctx, "SELECT content_id FROM uploads WHERE id = $1", upload.ID).Scan(&bound)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("lookup upload content binding: %w", err)
+	}
+	if !bound.Valid || bound.String == "" {
+		return "", fmt.Errorf("upload not completed: %s", upload.Status)
+	}
+	contentID := bound.String
+
+	var fileHash string
+	var originalVerified bool
+	err = s.db.QueryRow(ctx,
+		"SELECT file_hash, original_verified FROM contents WHERE id = $1", contentID).
+		Scan(&fileHash, &originalVerified)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("content %s bound to upload %s not found: %w", contentID, upload.ID, serviceerrors.ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("query content original state: %w", err)
+	}
+
+	stagingKey, err := s.stagedObjectKey(upload)
+	if err != nil {
+		return "", err
+	}
+	digest, err := s.hashStagedObject(ctx, stagingKey)
+	if err != nil {
+		return "", err
+	}
+
+	if originalVerified {
+		if digest == fileHash {
+			s.logger.Info("Upload already sealed with matching digest, idempotent completion",
+				zap.String("upload_id", upload.ID),
+				zap.String("content_id", contentID),
+				zap.String("digest", digest))
+			return contentID, nil
+		}
+		// Security: the contentID-bound original digest is immutable. A
+		// different digest for the same content is a 409 conflict, never a
+		// silent replacement of the sealed original.
+		return "", fmt.Errorf("%w: content %s already sealed with digest %s, refusing digest %s",
+			serviceerrors.ErrOriginalImmutable, contentID, fileHash, digest)
+	}
+
+	// Not yet verified: seal now. The conditional UPDATE fails closed if a
+	// concurrent completion verified a different digest in between.
+	sealedKey := sealedOriginalKey(contentID, digest, upload.Filename)
+	if err := s.objStore.CopyObject(ctx, s.bucket, stagingKey, sealedKey); err != nil {
+		return "", fmt.Errorf("seal original: %w", err)
+	}
+	res, err := s.db.Exec(ctx,
+		`UPDATE contents SET file_hash = $2, original_key = $3, original_verified = TRUE, updated_at = $4
+		 WHERE id = $1 AND original_verified = FALSE`,
+		contentID, digest, sealedKey, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("update content original: %w", err)
+	}
+	ra, _ := res.RowsAffected()
+	if ra == 0 {
+		return "", fmt.Errorf("%w: content %s was sealed concurrently", serviceerrors.ErrOriginalImmutable, contentID)
+	}
+	s.logger.Info("Sealed previously unverified original",
+		zap.String("upload_id", upload.ID),
+		zap.String("content_id", contentID),
+		zap.String("digest", digest))
 	return contentID, nil
 }
 

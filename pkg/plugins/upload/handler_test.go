@@ -65,6 +65,15 @@ func (m *mockObjStore) Delete(_ context.Context, _, key string) error {
 	return nil
 }
 
+func (m *mockObjStore) CopyObject(_ context.Context, _, srcKey, dstKey string) error {
+	src, ok := m.data[srcKey]
+	if !ok {
+		return fmt.Errorf("copy source not found: %s", srcKey)
+	}
+	m.data[dstKey] = src
+	return nil
+}
+
 func (m *mockObjStore) DeleteObjects(_ context.Context, _ string, keys []string) error {
 	for _, k := range keys {
 		delete(m.data, k)

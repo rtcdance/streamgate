@@ -141,6 +141,12 @@ func contentColumns() []string {
 	}
 }
 
+// contentColumnsWithFileHash mirrors the GetContent SELECT, which also scans
+// the verified original digest.
+func contentColumnsWithFileHash() []string {
+	return append(contentColumns(), "file_hash")
+}
+
 func contentColumnsWithCount() []string {
 	return []string{
 		"total_count", "id", "title", "description", "type", "url", "thumbnail_url",
@@ -151,7 +157,7 @@ func contentColumnsWithCount() []string {
 func makeContentRow(id, title, desc, ctype, url, thumbURL string, duration, size int64, status, ownerID string, createdAt, updatedAt time.Time, metadata map[string]interface{}) [][]driver.Value {
 	metaJSON, _ := json.Marshal(metadata)
 	return [][]driver.Value{
-		{id, title, desc, ctype, url, thumbURL, duration, size, status, ownerID, createdAt, updatedAt, metaJSON},
+		{id, title, desc, ctype, url, thumbURL, duration, size, status, ownerID, createdAt, updatedAt, metaJSON, ""},
 	}
 }
 
@@ -164,10 +170,13 @@ func makeContentRowWithCount(totalCount int, id, title, desc, ctype, url, thumbU
 
 func TestContentService_GetContent_SuccessFromDB(t *testing.T) {
 	now := time.Now()
-	contentSetRows(contentColumns(), makeContentRow(
+	wantFileHash := strings.Repeat("ab", 32)
+	row := makeContentRow(
 		"c1", "Test Video", "A test", "video", "/content/c1", "/thumb/c1",
 		120, 1024000, "ready", "owner1", now, now, map[string]interface{}{"codec": "h264"},
-	))
+	)
+	row[0][13] = wantFileHash
+	contentSetRows(contentColumnsWithFileHash(), row)
 	scanDB := contentOpenDB()
 
 	db := &mockDB{
@@ -192,17 +201,19 @@ func TestContentService_GetContent_SuccessFromDB(t *testing.T) {
 	assert.Equal(t, "ready", content.Status)
 	assert.Equal(t, "owner1", content.OwnerID)
 	assert.Equal(t, "h264", content.Metadata["codec"])
+	assert.Equal(t, wantFileHash, content.FileHash)
 
 	cached, cacheErr := cache.Get("content:c1")
 	require.NoError(t, cacheErr)
 	cachedContent, ok := cached.(*Content)
 	require.True(t, ok)
 	assert.Equal(t, "c1", cachedContent.ID)
+	assert.Equal(t, wantFileHash, cachedContent.FileHash)
 }
 
 func TestContentService_GetContent_SuccessNilCache(t *testing.T) {
 	now := time.Now()
-	contentSetRows(contentColumns(), makeContentRow(
+	contentSetRows(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "pending", "owner1", now, now, nil,
 	))
 	scanDB := contentOpenDB()
@@ -221,8 +232,8 @@ func TestContentService_GetContent_SuccessNilCache(t *testing.T) {
 }
 
 func TestContentService_GetContent_MetadataParseError(t *testing.T) {
-	contentSetRows(contentColumns(), [][]driver.Value{
-		{"c1", "Test", "", "video", "", "", int64(0), int64(0), "pending", "owner1", time.Now(), time.Now(), []byte("invalid json{")},
+	contentSetRows(contentColumnsWithFileHash(), [][]driver.Value{
+		{"c1", "Test", "", "video", "", "", int64(0), int64(0), "pending", "owner1", time.Now(), time.Now(), []byte("invalid json{"), ""},
 	})
 	scanDB := contentOpenDB()
 
@@ -241,7 +252,7 @@ func TestContentService_GetContent_MetadataParseError(t *testing.T) {
 
 func TestContentService_GetContent_CacheSetError(t *testing.T) {
 	now := time.Now()
-	contentSetRows(contentColumns(), makeContentRow(
+	contentSetRows(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "pending", "owner1", now, now, nil,
 	))
 	scanDB := contentOpenDB()
@@ -465,7 +476,7 @@ func (m *mockCacheDeleteErr) Delete(_ string) error {
 
 func TestContentService_DeleteContent_SuccessWithInTx(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test Video", "desc", "video", "/content/c1", "/thumb/c1",
 		120, 1024000, "ready", "owner1", now, now, nil,
 	), 1)
@@ -499,7 +510,7 @@ func TestContentService_DeleteContent_SuccessWithInTx(t *testing.T) {
 
 func TestContentService_DeleteContent_NotFoundInTx(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 0)
 	scanDB := contentOpenDB()
@@ -524,7 +535,7 @@ func TestContentService_DeleteContent_NotFoundInTx(t *testing.T) {
 
 func TestContentService_DeleteContent_ObjStoreDeleteError(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "/content/c1", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 1)
 	scanDB := contentOpenDB()
@@ -558,6 +569,9 @@ func (m *mockObjStoreDeleteErr) Upload(_ context.Context, _, _ string, _ []byte)
 func (m *mockObjStoreDeleteErr) Download(_ context.Context, _, _ string) ([]byte, error) {
 	return nil, nil
 }
+func (m *mockObjStoreDeleteErr) CopyObject(_ context.Context, _, _, _ string) error {
+	return nil
+}
 func (m *mockObjStoreDeleteErr) Delete(_ context.Context, _, _ string) error {
 	return errors.New("storage delete error")
 }
@@ -567,7 +581,7 @@ func (m *mockObjStoreDeleteErr) Exists(_ context.Context, _, _ string) (bool, er
 
 func TestContentService_DeleteContent_NilObjStore(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "/content/c1", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 1)
 	scanDB := contentOpenDB()
@@ -591,7 +605,7 @@ func TestContentService_DeleteContent_NilObjStore(t *testing.T) {
 
 func TestContentService_DeleteContent_EmptyURL(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 1)
 	scanDB := contentOpenDB()
@@ -615,7 +629,7 @@ func TestContentService_DeleteContent_EmptyURL(t *testing.T) {
 
 func TestContentService_DeleteContent_CacheDeleteErrorOnDelete(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 1)
 	scanDB := contentOpenDB()
@@ -953,7 +967,7 @@ func TestContentService_DeleteContentWithTx_DeleteExecError(t *testing.T) {
 
 func TestContentService_DeleteContent_NilCacheDelete(t *testing.T) {
 	now := time.Now()
-	contentSetRowsAndExec(contentColumns(), makeContentRow(
+	contentSetRowsAndExec(contentColumnsWithFileHash(), makeContentRow(
 		"c1", "Test", "", "video", "", "", 0, 0, "ready", "owner1", now, now, nil,
 	), 1)
 	scanDB := contentOpenDB()

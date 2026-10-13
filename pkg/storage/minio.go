@@ -183,6 +183,22 @@ func (ms *MinIOStorage) Delete(ctx context.Context, bucket, objectName string) e
 	return nil
 }
 
+// CopyObject performs a server-side copy of an object within the same bucket.
+// Used to seal uploaded originals into content-bound immutable keys.
+func (ms *MinIOStorage) CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	_, err := ms.client.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: bucket, Object: dstKey},
+		minio.CopySrcOptions{Bucket: bucket, Object: srcKey})
+	if err != nil {
+		return fmt.Errorf("failed to copy object in MinIO: %w", err)
+	}
+
+	return nil
+}
+
 func (ms *MinIOStorage) DeleteObjects(ctx context.Context, bucket string, objectNames []string) error {
 	if len(objectNames) == 0 {
 		return nil

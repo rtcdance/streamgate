@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rtcdance/streamgate/pkg/service"
@@ -104,6 +105,14 @@ func (m *uploadMockObjStore) DownloadStream(_ context.Context, bucket, key strin
 }
 func (m *uploadMockObjStore) Delete(_ context.Context, bucket, key string) error {
 	delete(m.data, bucket+"/"+key)
+	return nil
+}
+func (m *uploadMockObjStore) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	src, ok := m.data[bucket+"/"+srcKey]
+	if !ok {
+		return errors.New("copy source not found")
+	}
+	m.data[bucket+"/"+dstKey] = src
 	return nil
 }
 func (m *uploadMockObjStore) DeleteObjects(_ context.Context, bucket string, keys []string) error {
@@ -790,6 +799,58 @@ func TestUploadHandlers_CompletePresigned_NoWallet(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPost, "/api/v1/upload/test-id/complete-presigned", http.NoBody)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// Completion of a presigned upload touches another wallet's state; the owner
+// check runs before any finalise or seal, so it must be a flat 403.
+func TestUploadHandlers_CompletePresigned_NotOwnerIs403(t *testing.T) {
+	db := &uploadMockDB{
+		queryRowFn: func(_ context.Context, query string, _ ...interface{}) *stg.CancelRow {
+			if strings.Contains(query, "filename") {
+				return stg.NewTestCancelRow(&digestRowScanner{vals: []interface{}{
+					"test-id", "video.mp4", int64(4), "video/mp4", "", "uploading",
+					"/bucket/0xOther/test-id.mp4", "0xOther",
+					time.Now(), time.Now(),
+				}})
+			}
+			return stg.NewErrorCancelRow(errors.New("unexpected query: " + query))
+		},
+	}
+	svc := service.NewUploadService(db, newUploadMockObjStore(), "bucket")
+	r := setupUploadRouter(svc, "0xOwner")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/upload/test-id/complete-presigned", http.NoBody)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// The client claims the file was PUT via the presigned URL; when the staged
+// object is absent the completion must refuse (400) instead of sealing nothing.
+func TestUploadHandlers_CompletePresigned_MissingObjectIs400(t *testing.T) {
+	db := &uploadMockDB{
+		queryRowFn: func(_ context.Context, query string, _ ...interface{}) *stg.CancelRow {
+			switch {
+			case strings.Contains(query, "filename"):
+				return stg.NewTestCancelRow(&digestRowScanner{vals: []interface{}{
+					"test-id", "video.mp4", int64(4), "video/mp4", "", "uploading",
+					"/bucket/0xOwner/test-id.mp4", "0xOwner",
+					time.Now(), time.Now(),
+				}})
+			case strings.Contains(query, "upload_chunks"):
+				return stg.NewTestCancelRow(&digestRowScanner{vals: []interface{}{0}})
+			default:
+				return stg.NewErrorCancelRow(errors.New("unexpected query: " + query))
+			}
+		},
+	}
+	svc := service.NewUploadService(db, newUploadMockObjStore(), "bucket")
+	r := setupUploadRouter(svc, "0xOwner")
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/upload/test-id/complete-presigned", http.NoBody)
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestUploadHandlers_CompleteUpload_NoWallet(t *testing.T) {

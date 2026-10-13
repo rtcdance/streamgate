@@ -156,6 +156,19 @@ func (m *mockObjStore) Delete(_ context.Context, bucket, key string) error {
 	return nil
 }
 
+func (m *mockObjStore) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	m.mu.RLock()
+	src, ok := m.data[bucket+"/"+srcKey]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("copy source not found: %s", srcKey)
+	}
+	m.mu.Lock()
+	m.data[bucket+"/"+dstKey] = src
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *mockObjStore) DeleteObjects(_ context.Context, bucket string, keys []string) error {
 	if m.deleteObjErr != nil {
 		return m.deleteObjErr
