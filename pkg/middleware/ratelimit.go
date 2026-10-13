@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,6 +53,16 @@ func DefaultRateLimitConfig() RateLimitConfig {
 type RateLimiter interface {
 	Allow(ctx context.Context, key string) bool
 	Stop()
+}
+
+// retryAfterer is an optional capability of a RateLimiter: reporting how long a
+// denied caller should wait before retrying (SG-07 precondition: the 429
+// response carries a Retry-After header derived from the limiter's reset
+// window). It is a separate interface so existing RateLimiter implementations
+// keep compiling; writeRateLimitResponse falls back to omitting the header when
+// a limiter does not implement it.
+type retryAfterer interface {
+	RetryAfter(ctx context.Context, key string) time.Duration
 }
 
 type RedisClient interface {
@@ -173,6 +184,20 @@ func (rl *memoryRateLimiter) evictOldest() {
 	delete(rl.clients, oldest.key)
 }
 
+func (rl *memoryRateLimiter) RetryAfter(ctx context.Context, key string) time.Duration {
+	rl.mu.RLock()
+	defer rl.mu.RUnlock()
+
+	if entry, exists := rl.clients[key]; exists {
+		if d := time.Until(entry.resetTime); d > 0 {
+			return d
+		}
+	}
+	// No live window (first call, or it already expired): the whole window is
+	// the conservative wait.
+	return rl.config.WindowSize
+}
+
 func (rl *memoryRateLimiter) Stop() {
 	select {
 	case <-rl.done:
@@ -284,6 +309,19 @@ func (rl *redisRateLimiter) Allow(ctx context.Context, key string) bool {
 
 func (rl *redisRateLimiter) Stop() {}
 
+func (rl *redisRateLimiter) RetryAfter(ctx context.Context, key string) time.Duration {
+	// The sliding-window script buckets counts into fixed windows of
+	// WindowSize; a denied caller can pass once the current window closes.
+	window := rl.config.WindowSize
+	nowMs := time.Now().UnixMilli()
+	currentWindow := nowMs / window.Milliseconds() * window.Milliseconds()
+	reset := time.UnixMilli(currentWindow + window.Milliseconds())
+	if d := time.Until(reset); d > 0 {
+		return d
+	}
+	return window
+}
+
 func (s *Service) RateLimitMiddleware() gin.HandlerFunc {
 	limiter := s.rateLimiter
 	return func(c *gin.Context) {
@@ -292,15 +330,31 @@ func (s *Service) RateLimitMiddleware() gin.HandlerFunc {
 			key = key + ":" + wallet
 		}
 		if !limiter.Allow(c.Request.Context(), key) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "Rate limit exceeded",
-				"code":  "RATE_LIMITED",
-			})
-			c.Abort()
+			writeRateLimitResponse(c, limiter, key)
 			return
 		}
 		c.Next()
 	}
+}
+
+// writeRateLimitResponse renders the 429 body and sets Retry-After from the
+// limiter's reset window (SG-07 precondition), so a compliant client knows
+// when to come back instead of hammering a closed window.
+func writeRateLimitResponse(c *gin.Context, rl RateLimiter, key string) {
+	if ra, ok := rl.(retryAfterer); ok {
+		if d := ra.RetryAfter(c.Request.Context(), key); d > 0 {
+			secs := int(d.Seconds() + 0.5)
+			if secs < 1 {
+				secs = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(secs))
+		}
+	}
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"error": "Rate limit exceeded",
+		"code":  "RATE_LIMITED",
+	})
+	c.Abort()
 }
 
 func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimiter, gin.HandlerFunc) {
@@ -311,11 +365,7 @@ func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimite
 			key = key + ":" + wallet
 		}
 		if !rl.Allow(c.Request.Context(), key) {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "Rate limit exceeded",
-				"code":  "RATE_LIMITED",
-			})
-			c.Abort()
+			writeRateLimitResponse(c, rl, key)
 			return
 		}
 		c.Next()
