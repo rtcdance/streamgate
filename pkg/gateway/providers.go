@@ -28,8 +28,13 @@ import (
 	"go.uber.org/zap"
 )
 
-func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) *redis.Client {
+func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) (*redis.Client, error) {
 	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
+	if cfg.IsProduction() && cfg.Redis.Host == "" {
+		// Production must not silently fall back to memory — an in-memory
+		// blacklist would let a revoked token keep working on this instance.
+		return nil, fmt.Errorf("redis host is empty — production requires a Redis (challenge store, token blacklist, sessions)")
+	}
 	client := redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		Password:     cfg.Redis.Password,
@@ -43,13 +48,20 @@ func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) *redis
 	ok := client.Ping(pingCtx).Err() == nil
 	pingCancel()
 	if !ok {
+		if cfg.IsProduction() {
+			_ = client.Close()
+			// Fail fast: production must not silently fall back to memory — a
+			// single-instance challenge store or blacklist would break replay
+			// protection and cross-instance revocation.
+			return nil, fmt.Errorf("redis unreachable at %s — production requires a reachable Redis", redisAddr)
+		}
 		log.Warn("Redis unavailable, components will use in-memory fallbacks", zap.String("addr", redisAddr))
 		_ = client.Close()
-		return nil
+		return nil, nil
 	}
 	log.Info("Redis connected", zap.String("addr", redisAddr))
 	res.SharedRedis = client
-	return client
+	return client, nil
 }
 
 func provideWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger, nonceLedger *txtx.NonceLedger, db storage.DB, gatingRules service.GatingRuleFilterRefresher) (*service.Web3Service, error) {
@@ -98,43 +110,63 @@ func provideNonceLedger(cfg *config.Config, log *zap.Logger, db storage.DB, res 
 	return txtx.NewNonceLedger(db, cfg.Web3.ChainID, txtx.NewEthClientAdapter(ethClient), log.Named("nonce-ledger"))
 }
 
-func provideChallengeStore(rc *RouterConfig, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) storage.ChallengeStore {
+func provideChallengeStore(rc *RouterConfig, cfg *config.Config, log *zap.Logger, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) (storage.ChallengeStore, error) {
 	if rc.ChallengeStore != nil {
-		return rc.ChallengeStore
+		return rc.ChallengeStore, nil
 	}
 	if redisClient == nil {
+		if cfg.IsProduction() {
+			// Fail fast: an in-memory challenge store is single-instance, so a
+			// challenge issued by one replica could be replayed against another.
+			return nil, fmt.Errorf("challenge store requires Redis — production must not fall back to in-memory")
+		}
 		log.Warn("Redis unavailable, falling back to in-memory challenge store")
 		store := storage.NewMemoryChallengeStore()
 		res.ChallengeStore = store
-		return store
+		return store, nil
 	}
 	store := storage.NewRedisChallengeStoreWithClient(redisClient, challengeTTL)
 	res.ChallengeStore = store
-	return store
+	return store, nil
 }
 
-func provideTokenBlacklist(log *zap.Logger, redisClient *redis.Client, res *AppResources) storage.TokenBlacklist {
+func provideTokenBlacklist(cfg *config.Config, log *zap.Logger, redisClient *redis.Client, res *AppResources) (storage.TokenBlacklist, error) {
 	if redisClient == nil {
+		if cfg.IsProduction() {
+			// Fail fast: a revoked token must stay revoked on every replica; a
+			// process-local blacklist would keep honouring it here.
+			return nil, fmt.Errorf("token blacklist requires Redis — production must not fall back to in-memory")
+		}
 		log.Warn("Redis unavailable, falling back to in-memory token blacklist")
-		return storage.NewMemoryTokenBlacklist()
+		return storage.NewMemoryTokenBlacklist(), nil
 	}
 	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
 	if err != nil {
+		if cfg.IsProduction() {
+			return nil, fmt.Errorf("redis token blacklist init failed: %w", err)
+		}
 		log.Warn("Redis token blacklist init failed, falling back to in-memory", zap.Error(err))
-		return storage.NewMemoryTokenBlacklist()
+		return storage.NewMemoryTokenBlacklist(), nil
 	}
 	res.TokenBlacklist = rbl
-	return rbl
+	return rbl, nil
 }
 
-func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) *service.AuthService {
+func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) (*service.AuthService, error) {
 	if rc.AuthService != nil {
-		return rc.AuthService
+		return rc.AuthService, nil
 	}
 	solanaSigner := web3Svc.GetSolanaSigner()
 	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaSigner)
 	eip712Verifier := web3Svc.GetEIP712Verifier()
-	tokenBlacklist := provideTokenBlacklist(log, redisClient, res)
+	tokenBlacklist, err := provideTokenBlacklist(cfg, log, redisClient, res)
+	if err != nil {
+		return nil, err
+	}
+	sessionStore, err := provideSessionStore(cfg, log, redisClient)
+	if err != nil {
+		return nil, err
+	}
 
 	jwtExpiry := 2 * time.Hour
 	if cfg.Auth.JWTExpiry != "" {
@@ -161,42 +193,63 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		service.WithClockSkew(cfg.Features.ClockSkew),
 		// Session epochs must outlive the process: an in-memory store would
 		// forget every session on restart and silently un-revoke them.
-		service.WithSessionStore(provideSessionStore(log, redisClient)),
-	)
+		service.WithSessionStore(sessionStore),
+	), nil
 }
 
-func provideSessionStore(log *zap.Logger, redisClient *redis.Client) storage.SessionStore {
+func provideSessionStore(cfg *config.Config, log *zap.Logger, redisClient *redis.Client) (storage.SessionStore, error) {
 	if redisClient == nil {
+		if cfg.IsProduction() {
+			// Fail fast: session epochs must survive restarts; an in-memory
+			// store would silently un-revoke every session on a bounce.
+			return nil, fmt.Errorf("session store requires Redis — production must not fall back to in-memory")
+		}
 		log.Warn("Redis unavailable, session epochs will not survive a restart")
-		return storage.NewMemorySessionStore()
+		return storage.NewMemorySessionStore(), nil
 	}
 	store, err := storage.NewRedisSessionStore(redisClient)
 	if err != nil {
+		if cfg.IsProduction() {
+			return nil, fmt.Errorf("redis session store init failed: %w", err)
+		}
 		log.Warn("Redis session store init failed, session epochs will not survive a restart", zap.Error(err))
-		return storage.NewMemorySessionStore()
+		return storage.NewMemorySessionStore(), nil
 	}
-	return store
+	return store, nil
 }
 
-func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB) {
+func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB, err error) {
+	if cfg.IsProduction() && cfg.Database.Host == "" {
+		return nil, nil, fmt.Errorf("database host is empty — production requires a PostgreSQL (content, gating rules, outbox)")
+	}
 	dbConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password,
 		cfg.Database.Database, cfg.Database.SSLMode)
-	d, err := sql.Open("postgres", dbConnStr)
-	if err != nil {
+	d, openErr := sql.Open("postgres", dbConnStr)
+	if openErr != nil {
+		if cfg.IsProduction() {
+			// Fail fast: without Postgres there is no content, no gating rules
+			// and no durable outbox — production must not pretend otherwise.
+			return nil, nil, fmt.Errorf("database open failed: %w", openErr)
+		}
 		log.Warn("Database unavailable, using in-memory fallback",
 			zap.String("host", cfg.Database.Host),
 			zap.String("database", cfg.Database.Database))
-		return
+		return nil, nil, nil
 	}
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pingCancel()
-	if err := d.PingContext(pingCtx); err != nil {
+	if pingErr := d.PingContext(pingCtx); pingErr != nil {
+		if cfg.IsProduction() {
+			_ = d.Close()
+			return nil, nil, fmt.Errorf("database unreachable at %s — production requires a reachable PostgreSQL: %w",
+				cfg.Database.Host, pingErr)
+		}
 		log.Warn("Database ping failed, using in-memory fallback",
 			zap.String("host", cfg.Database.Host),
 			zap.String("database", cfg.Database.Database))
 		_ = d.Close()
-		return
+		return nil, nil, nil
 	}
 	pg := storage.NewPostgresDBFromDB(d)
 	pg.SetMaxOpenConns(cfg.Database.MaxConns)
@@ -211,16 +264,16 @@ func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db
 	res.DB = d
 	log.Info("Database connected", zap.String("host", cfg.Database.Host))
 	migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	err = storage.RunEmbeddedMigrations(migCtx, d, migrationFS, "migrations")
+	migErr := storage.RunEmbeddedMigrations(migCtx, d, migrationFS, "migrations")
 	migCancel()
-	if err != nil {
-		log.Warn("Database migration failed, continuing with current schema", zap.Error(err))
+	if migErr != nil {
+		log.Warn("Database migration failed, continuing with current schema", zap.Error(migErr))
 	} else {
 		log.Info("Database migrations applied")
 	}
 	db = pg
 	sqlDB = d
-	return
+	return db, sqlDB, nil
 }
 
 func provideContentService(rc *RouterConfig, db storage.DB, log *zap.Logger) *service.ContentService {
@@ -401,7 +454,7 @@ func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger,
 	return ms
 }
 
-func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, res *AppResources) *service.TranscodingService {
+func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, res *AppResources) (*service.TranscodingService, error) {
 	ffmpegCfg := &transcoder.FFmpegConfig{
 		FFmpegPath:  "ffmpeg",
 		FFprobePath: "ffprobe",
@@ -417,9 +470,17 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
 	videoTranscoder := transcoder.NewVideoTranscoder(ft, log.Named("ffmpeg"))
 
+	if cfg.IsProduction() && cfg.NATS.URL == "" {
+		return nil, fmt.Errorf("nats.url is empty — production requires a durable queue (transcoding tasks)")
+	}
 	var transcodingQueue service.TranscodingQueue
 	nq, err := storage.NewNATSTranscodingQueue(cfg.NATS.URL, log.Named("nats-queue"))
 	if err != nil {
+		if cfg.IsProduction() {
+			// Fail fast: an in-memory queue loses every pending task on
+			// restart — production must not silently downgrade durability.
+			return nil, fmt.Errorf("nats unavailable at %s — production requires a durable transcoding queue: %w", cfg.NATS.URL, err)
+		}
 		log.Warn("NATS unavailable, falling back to in-memory transcoding queue", zap.Error(err))
 		transcodingQueue = service.NewMemoryTranscodingQueue()
 	} else {
@@ -458,7 +519,7 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		svc.StartOutboxPublisher(log.Named("transcode-outbox"))
 		log.Info("transcoding role: submitter only (embedded worker disabled; tasks execute on the external transcoder worker)")
 	}
-	return svc
+	return svc, nil
 }
 
 func provideUploadService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, transcodingSvc *service.TranscodingService) *service.UploadService {
@@ -528,19 +589,27 @@ func parseChallengeTTL(cfg *config.Config) time.Duration {
 // wait out the TTL. When Redis is unavailable the store still works, but the
 // wiring says so out loud, because that is the case where a second process can
 // serve the previous rule set until its copy ages out.
-func provideRuleVersionStore(cfg *config.Config, log *zap.Logger, db storage.DB, redisClient *redis.Client, res *AppResources) *storage.CachingRuleVersionStore {
+func provideRuleVersionStore(cfg *config.Config, log *zap.Logger, db storage.DB, redisClient *redis.Client, res *AppResources) (*storage.CachingRuleVersionStore, error) {
 	authority := storage.NewPostgresRuleVersionStore(db)
 
 	var cache storage.RuleVersionCache
 	if redisClient != nil {
 		redisCache, err := storage.NewRedisRuleVersionCache(redisClient)
 		if err != nil {
+			if cfg.IsProduction() {
+				return nil, fmt.Errorf("rule version cache unavailable: %w", err)
+			}
 			log.Warn("rule version cache unavailable, falling back to in-memory", zap.Error(err))
 		} else {
 			cache = redisCache
 		}
 	}
 	if cache == nil {
+		if cfg.IsProduction() {
+			// Fail fast: without a shared cache a rule change in another
+			// process stays invisible here until the local copy ages out.
+			return nil, fmt.Errorf("rule version cache requires Redis — production must not fall back to in-memory")
+		}
 		log.Warn("rule version cache is process-local: a write in another process will not be " +
 			"visible until this process's copy ages out")
 		cache = storage.NewMemoryRuleVersionCache()
@@ -548,5 +617,5 @@ func provideRuleVersionStore(cfg *config.Config, log *zap.Logger, db storage.DB,
 
 	store := storage.NewCachingRuleVersionStore(authority, cache, cfg.Features.PositiveCacheTTL)
 	res.RuleVersionStore = store
-	return store
+	return store, nil
 }

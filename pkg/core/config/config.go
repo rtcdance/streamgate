@@ -62,6 +62,12 @@ type Config struct {
 	Port        int
 	Debug       bool
 
+	// Environment is the runtime profile: the STREAMGATE_ENV value the config
+	// was loaded under ("dev" by default, "production" for production
+	// deployments). It decides which in-memory fallbacks are still permitted —
+	// see IsProduction.
+	Environment string
+
 	// Server
 	Server ServerConfig
 
@@ -487,6 +493,7 @@ func LoadConfig() (*Config, error) {
 		ServiceName: viper.GetString("app.service_name"),
 		Port:        viper.GetInt("app.port"),
 		Debug:       viper.GetBool("app.debug"),
+		Environment: env,
 
 		Server: ServerConfig{
 			Port:         viper.GetInt("server.port"),
@@ -915,8 +922,58 @@ func (e *ValidationError) HasCritical() bool {
 	return len(e.Critical) > 0
 }
 
+// IsProduction reports whether this config runs under the production profile.
+// Production forbids the in-memory fallbacks (challenge store, token blacklist,
+// session epochs, transcoding queue, rule cache) that dev/demo/test rely on:
+// a single-instance blacklist would let a revoked token keep working.
+func (c *Config) IsProduction() bool {
+	switch strings.ToLower(strings.TrimSpace(c.Environment)) {
+	case "production", "prod":
+		return true
+	}
+	return false
+}
+
 func (c *Config) ValidateProduction(log *zap.Logger) error {
 	var ve ValidationError
+
+	// A production deployment cannot run without its durable dependencies —
+	// PostgreSQL (content, gating rules, sessions' authority, outbox), Redis
+	// (challenge store, token blacklist, session epochs, rule cache) and NATS
+	// (transcoding task queue). Falling back to in-memory stores would silently
+	// revoke the durability and cross-instance revocation guarantees, so a
+	// missing address is a startup failure, not a warning.
+	if c.Database.Host == "" {
+		ve.Critical = append(ve.Critical, "database.host is empty — production requires a PostgreSQL (content, gating rules, outbox)")
+	}
+	if c.Redis.Host == "" {
+		ve.Critical = append(ve.Critical, "redis.host is empty — production requires a Redis (challenge store, token blacklist, sessions, rule cache)")
+	}
+	if c.NATS.URL == "" {
+		ve.Critical = append(ve.Critical, "nats.url is empty — production requires a durable queue (transcoding tasks)")
+	}
+
+	// The on-chain content registry may be explicitly disabled (empty address),
+	// but once enabled it must be complete: a signing key, a real chain id and an
+	// RPC endpoint. Anything less would either fail at first registration or,
+	// worse, advertise registration availability that cannot be honoured.
+	if c.Web3.ContentRegistryAddress != "" {
+		var missing []string
+		if c.Web3.AnvilDeployerKey == "" {
+			missing = append(missing, "web3.anvil_deployer_key (signer)")
+		}
+		if c.Web3.ChainID <= 0 {
+			missing = append(missing, "web3.chain_id")
+		}
+		if c.Web3.EthereumRPC == "" {
+			missing = append(missing, "web3.ethereum_rpc")
+		}
+		if len(missing) > 0 {
+			ve.Critical = append(ve.Critical, fmt.Sprintf(
+				"content registry enabled (address set) but incomplete — missing %s",
+				strings.Join(missing, ", ")))
+		}
+	}
 
 	if c.Auth.JWTSecret == "" {
 		ve.Critical = append(ve.Critical, "auth.jwt_secret is empty — set via STREAMGATE_JWT_SECRET env var")
