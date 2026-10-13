@@ -48,6 +48,15 @@ RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/ins
 WORKDIR /src
 COPY . .
 
+# Module downloads go straight to VCS by default: the build network cannot
+# reach proxy.golang.org / sum.golang.org (github can), matching the host's
+# GOPROXY=direct. Every module is still verified against the committed go.sum;
+# GOSUMDB only matters for modules absent from it, which `go mod download`
+# never fetches. Override with --build-arg GOPROXY=... on open networks.
+ARG GOPROXY=direct
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=off
+
 # Warm the module cache; contracts submodules must already be checked out
 # (the runner runs `git submodule update --init --recursive` beforehand).
 RUN go mod download
