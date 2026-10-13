@@ -410,7 +410,7 @@ flowchart LR
 
 **完成**：不能再以“ERC-165 返回 true”证明标准合规；旧假标准 / 重用 ID 用例修复前红、修复后绿；绑定契约与服务输入一致。参考 [ERC-721](https://eips.ethereum.org/EIPS/eip-721)、[ERC-165](https://eips.ethereum.org/EIPS/eip-165)、[OpenZeppelin ERC721](https://docs.openzeppelin.com/contracts/5.x/api/token/erc721) 和 [Solidity ABI](https://docs.soliditylang.org/en/latest/abi-spec.html)。
 
-### [ ] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全
+### [x] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全
 
 **依赖**：SG-00、SG-03、SG-04、SG-11。**文件范围**：upload / content / transcoding / streamingsvc、`pkg/plugins/transcoder/`、`pkg/storage/nats_queue.go`、任务模型 / migrations / 测试；复用 Postgres / JetStream，不引入通用工作流框架。
 
@@ -1227,7 +1227,7 @@ sequenceDiagram
 - `positive_cache_ttl` 已接到 rule version；NFT 证据年龄仍用 gate 内的 `MaxEvidenceAge`（同为 5s 策略值），未合并为同一常量。
 - CI 专用栈 job 与依赖故障入口**只能在 GitHub runner / 本机 Docker 上跑**，本机已验证后者。
 
-### 8.12 SG-12 执行证据（**部分完成**：步骤 2 完成；步骤 3 部分）
+### 8.12 SG-12 执行证据（九步全部完成，2026-10-13）
 
 **步骤 2（SSRF / 拉取目标）已落地**：
 
