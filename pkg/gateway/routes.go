@@ -285,7 +285,13 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	RegisterStreamingSegmentRoute(streamGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
 	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
 
-	RegisterContentRoutes(router, log, svc.ContentService)
+	// A typed-nil *RegistryHub must not slip into the interface: the handler's
+	// nil check decides between 503 (registry disabled) and real handling.
+	var registryAttester ContentAttester
+	if svc.RegistryHub != nil {
+		registryAttester = svc.RegistryHub
+	}
+	RegisterContentRoutes(router, log, svc.ContentService, registryAttester)
 	// The transcode API fetches the input itself, so its accepted sources are an
 	// allowlist: the configured object store, plus public internet URLs only if
 	// the deployment explicitly opted in. "Debug mode allows localhost" is NOT
