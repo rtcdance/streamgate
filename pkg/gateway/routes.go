@@ -305,7 +305,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 	// Use a root sub-group for RouteGroup-specific registrations
 	rootG := router.Group("/")
 	if svc.GatingRuleSvc != nil {
-		RegisterGatingRuleRoutes(rootG, svc.GatingRuleSvc)
+		RegisterGatingRuleRoutes(rootG, svc.GatingRuleSvc, svc.Web3Service, log)
 	}
 	if svc.PlaybackStatsSvc != nil {
 		RegisterPlaybackStatsRoutes(rootG, svc.PlaybackStatsSvc)

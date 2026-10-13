@@ -38,7 +38,17 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	db, _ := provideDatabase(cfg, log, resources)
 	nonceLedger := provideNonceLedger(cfg, log, db, resources)
 
-	web3Svc, err := provideWeb3Service(rc, cfg, log, nonceLedger)
+	// The gating-rule service owns the contract whitelist the event indexer
+	// scans (SG-13 B.1), so it is built before the Web3 service — which reads
+	// the whitelist at construction — and later reused for the HTTP routes.
+	var gatingRuleSvc *service.GatingRuleService
+	var gatingRuleRefresher service.GatingRuleFilterRefresher
+	if db != nil {
+		gatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
+		gatingRuleRefresher = gatingRuleSvc
+	}
+
+	web3Svc, err := provideWeb3Service(rc, cfg, log, nonceLedger, db, gatingRuleRefresher)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -134,7 +144,9 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	resources.StreamingSvc = svc.StreamingSvc
 
 	if db != nil {
-		svc.GatingRuleSvc = service.NewGatingRuleService(db, log.Named("gating-rule"))
+		// Reuse the instance built above (it also feeds the indexer whitelist);
+		// building a second one would split two services over the same table.
+		svc.GatingRuleSvc = gatingRuleSvc
 		// Rules are resolved through the version authority so a change made in
 		// another process is noticed within the version's age bound, not after a
 		// local TTL expires.

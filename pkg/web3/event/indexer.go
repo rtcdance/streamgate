@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +42,11 @@ type EventIndexerConfig struct {
 	UpdateInterval     time.Duration
 	ConfirmationBlocks uint64
 	Finality           string
+	ChainID            int64
+	FilterVersion      string
+	// AllowUnfiltered is a test-only backdoor: production Start refuses to
+	// index without a contract whitelist (full-chain scanning is forbidden).
+	AllowUnfiltered bool
 }
 
 type EventIndexer struct {
@@ -69,10 +76,15 @@ type EventIndexer struct {
 	onEvent            EventHandler
 	started            atomic.Bool
 	wsBackoff          time.Duration
+	chainID            int64
+	filterVersion      string
+	allowUnfiltered    bool
+	paused             atomic.Bool
 }
 
 type IndexedEvent struct {
 	ID              string
+	ChainID         int64
 	EventType       string
 	ContractAddress string
 	TransactionHash string
@@ -137,6 +149,9 @@ func NewEventIndexerWithConfig(client EventReader, cfg EventIndexerConfig, logge
 	if ei.confirmationBlocks == 0 {
 		ei.confirmationBlocks = 12
 	}
+	ei.chainID = cfg.ChainID
+	ei.filterVersion = cfg.FilterVersion
+	ei.allowUnfiltered = cfg.AllowUnfiltered
 
 	logger.Info("Creating event indexer",
 		zap.Int("contract_count", len(ei.contractAddresses)),
@@ -158,6 +173,11 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 		return nil
 	}
 
+	if len(ei.contractAddresses) == 0 && !ei.allowUnfiltered {
+		ei.started.Store(false)
+		return fmt.Errorf("event indexer refuses to start without a contract whitelist")
+	}
+
 	ei.stopChan = make(chan struct{})
 	ei.stopOnce = sync.Once{}
 	ei.modeCh = make(chan string, 1)
@@ -172,7 +192,22 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 
 	ei.mu.Lock()
 	if ei.store != nil {
-		if checkpoint, err := ei.store.LoadCheckpoint(ei.contractAddress.Hex()); err == nil && checkpoint > 0 {
+		if ds, ok := ei.store.(DurableEventStore); ok {
+			if checkpoint, err := ds.LoadScopedCheckpoint(ctx, ei.chainID, ei.filterKey()); err == nil && checkpoint > 0 {
+				ei.startBlock = checkpoint
+				ei.currentBlock = checkpoint
+				ei.logger.Info("Resuming from scoped checkpoint",
+					zap.Uint64("checkpoint_block", checkpoint),
+					zap.String("filter_key", ei.filterKey()))
+			} else if ei.startBlock > 0 {
+				ei.currentBlock = ei.startBlock
+				ei.logger.Info("Starting from configured startBlock",
+					zap.Uint64("start_block", ei.startBlock))
+			} else {
+				ei.startBlock = blockNumber
+				ei.currentBlock = blockNumber
+			}
+		} else if checkpoint, err := ei.store.LoadCheckpoint(ei.contractAddress.Hex()); err == nil && checkpoint > 0 {
 			ei.startBlock = checkpoint
 			ei.currentBlock = checkpoint
 			ei.logger.Info("Resuming from checkpoint",
@@ -200,17 +235,7 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 	ei.mu.RUnlock()
 
 	if subscriber != nil {
-		query := ethereum.FilterQuery{}
-		if len(ei.contractAddresses) > 0 {
-			query.Addresses = ei.contractAddresses
-		} else if ei.contractAddress != (common.Address{}) {
-			query.Addresses = []common.Address{ei.contractAddress}
-		}
-		if len(ei.eventSignatures) > 0 {
-			query.Topics = [][]common.Hash{ei.eventSignatures}
-		} else if ei.eventSignature != (common.Hash{}) {
-			query.Topics = [][]common.Hash{{ei.eventSignature}}
-		}
+		query := ei.buildFilterQuery()
 		logs, err := subscriber.Subscribe(ctx, query)
 		if err != nil {
 			ei.logger.Warn("WebSocket subscription failed, falling back to polling",
@@ -274,6 +299,41 @@ func (ei *EventIndexer) SetOnEvent(handler EventHandler) {
 	ei.onEvent = handler
 }
 
+func (ei *EventIndexer) SetFilterVersion(version string) {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.filterVersion = version
+}
+
+// filterKey scopes durable checkpoints by (filter version, contract
+// whitelist): changing either yields a new key, so a checkpoint written under
+// one filter is never reused by another.
+func (ei *EventIndexer) filterKey() string {
+	addresses := make([]string, 0, len(ei.contractAddresses))
+	for _, addr := range ei.contractAddresses {
+		addresses = append(addresses, strings.ToLower(addr.Hex()))
+	}
+	sort.Strings(addresses)
+	return ei.filterVersion + "|" + strings.Join(addresses, ",")
+}
+
+// buildFilterQuery returns the one filter used everywhere (Start, polling
+// batches, reconnect) so no path can drop the contract whitelist.
+func (ei *EventIndexer) buildFilterQuery() ethereum.FilterQuery {
+	query := ethereum.FilterQuery{}
+	if len(ei.contractAddresses) > 0 {
+		query.Addresses = ei.contractAddresses
+	} else if ei.contractAddress != (common.Address{}) {
+		query.Addresses = []common.Address{ei.contractAddress}
+	}
+	if len(ei.eventSignatures) > 0 {
+		query.Topics = [][]common.Hash{ei.eventSignatures}
+	} else if ei.eventSignature != (common.Hash{}) {
+		query.Topics = [][]common.Hash{{ei.eventSignature}}
+	}
+	return query
+}
+
 func (ei *EventIndexer) websocketLoop(ctx context.Context, logs <-chan types.Log) {
 	defer ei.wg.Done()
 	for {
@@ -327,12 +387,7 @@ func (ei *EventIndexer) reconnectWithBackoff(ctx context.Context) (<-chan types.
 
 		sub.Unsubscribe()
 
-		query := ethereum.FilterQuery{
-			Addresses: []common.Address{ei.contractAddress},
-			Topics:    [][]common.Hash{{ei.eventSignature}},
-		}
-
-		logs, err := sub.Subscribe(ctx, query)
+		logs, err := sub.Subscribe(ctx, ei.buildFilterQuery())
 		if err == nil {
 			ei.mu.Lock()
 			ei.wsBackoff = time.Second
@@ -478,6 +533,18 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 				if count, err := store.MarkEventsReorged(reorgedHashes); err == nil {
 					ei.logger.Info("Events marked as reorged", zap.Int("count", count))
 				}
+				monitoring.EventIndexerReorgsTotal.Inc()
+				if ds, ok := store.(DurableEventStore); ok {
+					// Prefer the journal: it rolls back to the common ancestor
+					// instead of guessing from event transactions, and it fails
+					// loudly when the reorg is deeper than the journal.
+					if err := ei.rollbackToCommonAncestor(ctx, ds); err != nil {
+						ei.paused.Store(true)
+						return err
+					}
+					ei.paused.Store(false)
+					return nil
+				}
 				minBlock := uint64(0)
 				for _, ev := range recentEvents {
 					for _, h := range reorgedHashes {
@@ -493,11 +560,9 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 					}
 					cb := ei.currentBlock
 					ei.mu.Unlock()
-					if store != nil {
-						if err := store.SaveCheckpoint(ei.contractAddress.Hex(), cb); err != nil {
-							ei.logger.Error("Failed to save reorg checkpoint",
-								zap.Uint64("block", cb), zap.Error(err))
-						}
+					if err := store.SaveCheckpoint(ei.contractAddress.Hex(), cb); err != nil {
+						ei.logger.Error("Failed to save reorg checkpoint",
+							zap.Uint64("block", cb), zap.Error(err))
 					}
 					ei.logger.Info("Checkpoint rolled back after reorg",
 						zap.Uint64("to_block", ei.currentBlock))
@@ -509,7 +574,11 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 	return nil
 }
 
-const indexBatchSize uint64 = 1000
+const indexBatchSize uint64 = 100
+
+// journalDepth bounds how far back the block-hash journal can prove a common
+// ancestor; a deeper reorg must surface as an error, never as silent success.
+const journalDepth = 64
 
 func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint64) error {
 	start := time.Now()
@@ -526,16 +595,9 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			batchEnd = toBlock
 		}
 
-		query := ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(batchStart),
-			ToBlock:   new(big.Int).SetUint64(batchEnd),
-		}
-		if len(ei.contractAddresses) > 0 {
-			query.Addresses = ei.contractAddresses
-		}
-		if len(ei.eventSignatures) > 0 {
-			query.Topics = [][]common.Hash{ei.eventSignatures}
-		}
+		query := ei.buildFilterQuery()
+		query.FromBlock = new(big.Int).SetUint64(batchStart)
+		query.ToBlock = new(big.Int).SetUint64(batchEnd)
 
 		logs, err := ei.client.FilterLogs(ctx, query)
 		if err != nil {
@@ -547,9 +609,61 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			return err
 		}
 
-		for _, log := range logs {
-			event := ei.logToEvent(&log)
-			ei.addEvent(ctx, event)
+		ei.mu.RLock()
+		store := ei.store
+		chainID := ei.chainID
+		ei.mu.RUnlock()
+
+		events := make([]*IndexedEvent, 0, len(logs))
+		for i := range logs {
+			events = append(events, ei.logToEvent(&logs[i]))
+		}
+
+		// The batch must be all-or-nothing: persist events AND checkpoint
+		// together, and only advance the cursor / dispatch events after the
+		// commit succeeded — a failed batch can never move the cursor forward.
+		if ds, ok := store.(DurableEventStore); ok {
+			endBlockHash := ""
+			if len(logs) > 0 {
+				endBlockHash = logs[len(logs)-1].BlockHash.Hex()
+			}
+			if err := ds.SaveBatch(ctx, chainID, ei.filterKey(), events, batchEnd, endBlockHash); err != nil {
+				ei.logger.Error("Failed to commit batch, cursor not advanced",
+					zap.Uint64("from_block", batchStart),
+					zap.Uint64("to_block", batchEnd),
+					zap.Error(err))
+				return err
+			}
+			if err := ds.SaveBlockJournal(ctx, chainID, journalBlocks(logs), journalDepth); err != nil {
+				ei.logger.Warn("Failed to record block journal", zap.Error(err))
+			}
+		} else {
+			for _, event := range events {
+				if store == nil {
+					continue
+				}
+				if exists, err := store.EventExists(event.ID); err == nil && exists {
+					continue
+				}
+				if err := store.SaveEvent(event); err != nil {
+					ei.logger.Error("Failed to persist event, cursor not advanced",
+						zap.String("event_id", event.ID), zap.Error(err))
+					return err
+				}
+			}
+			if store != nil {
+				if err := store.SaveCheckpoint(ei.contractAddress.Hex(), batchEnd); err != nil {
+					ei.logger.Warn("Failed to save checkpoint", zap.Uint64("block", batchEnd), zap.Error(err))
+				}
+			}
+		}
+
+		ei.mu.Lock()
+		ei.currentBlock = batchEnd
+		ei.mu.Unlock()
+
+		for _, event := range events {
+			ei.dispatchEvent(ctx, event)
 			monitoring.EventIndexerEventsTotal.WithLabelValues(event.ContractAddress, event.EventType, "success").Inc()
 		}
 
@@ -560,20 +674,183 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			zap.Uint64("from_block", batchStart),
 			zap.Uint64("to_block", batchEnd))
 
-		ei.mu.Lock()
-		ei.currentBlock = batchEnd
-		store := ei.store
-		ei.mu.Unlock()
-
-		if store != nil {
-			if err := store.SaveCheckpoint(ei.contractAddress.Hex(), batchEnd); err != nil {
-				ei.logger.Error("Failed to save checkpoint", zap.Uint64("block", batchEnd), zap.Error(err))
-			}
-		}
-
 		batchStart = batchEnd + 1
 	}
 	monitoring.EventIndexerIndexDuration.WithLabelValues("batch").Observe(time.Since(start).Seconds())
+	return nil
+}
+
+// journalBlocks dedupes the journaled hashes of a batch's logs by block
+// number, ascending.
+func journalBlocks(logs []types.Log) []JournalBlock {
+	byNumber := make(map[uint64]string, len(logs))
+	for _, l := range logs {
+		if _, ok := byNumber[l.BlockNumber]; !ok {
+			byNumber[l.BlockNumber] = l.BlockHash.Hex()
+		}
+	}
+	blocks := make([]JournalBlock, 0, len(byNumber))
+	for n, h := range byNumber {
+		blocks = append(blocks, JournalBlock{Number: n, Hash: h})
+	}
+	sort.Slice(blocks, func(i, j int) bool { return blocks[i].Number < blocks[j].Number })
+	return blocks
+}
+
+// rollbackToCommonAncestor walks the journal newest-to-oldest until a block
+// hash still matches the chain: everything above it is orphaned, the scoped
+// checkpoint and cursor rewind to it. A reorg deeper than the journal cannot
+// be proven safe, so it returns an error instead of pretending to recover.
+func (ei *EventIndexer) rollbackToCommonAncestor(ctx context.Context, ds DurableEventStore) error {
+	ei.mu.RLock()
+	currentBlock := ei.currentBlock
+	chainID := ei.chainID
+	filterKey := ei.filterKey()
+	rd := ei.reorgDetector
+	ei.mu.RUnlock()
+	if rd == nil {
+		return fmt.Errorf("rollback requested without a reorg detector")
+	}
+
+	fromBlock := uint64(0)
+	if currentBlock >= journalDepth {
+		fromBlock = currentBlock - journalDepth
+	}
+	journal, err := ds.LoadBlockJournal(ctx, chainID, fromBlock)
+	if err != nil {
+		return fmt.Errorf("load block journal: %w", err)
+	}
+	if len(journal) == 0 {
+		return fmt.Errorf("reorg deeper than journal depth %d", journalDepth)
+	}
+
+	var orphanHashes []string
+	var ancestor *JournalBlock
+	for i := len(journal) - 1; i >= 0; i-- {
+		b := journal[i]
+		reorged, err := rd.CheckReorg(ctx, b.Number, common.HexToHash(b.Hash))
+		if err != nil {
+			return fmt.Errorf("reorg check block %d: %w", b.Number, err)
+		}
+		if reorged {
+			orphanHashes = append(orphanHashes, b.Hash)
+			continue
+		}
+		ancestor = &b
+		break
+	}
+	if ancestor == nil {
+		return fmt.Errorf("reorg deeper than journal depth %d", journalDepth)
+	}
+
+	if _, err := ds.MarkEventsReorged(orphanHashes); err != nil {
+		return fmt.Errorf("mark reorged events: %w", err)
+	}
+	if err := ds.MarkJournalOrphaned(ctx, chainID, ancestor.Number); err != nil {
+		return fmt.Errorf("mark journal orphaned: %w", err)
+	}
+	if err := ds.RollbackScopedCheckpoint(ctx, chainID, filterKey, ancestor.Number); err != nil {
+		return fmt.Errorf("rollback scoped checkpoint: %w", err)
+	}
+	if err := ds.SaveCheckpoint(ei.contractAddress.Hex(), ancestor.Number); err != nil {
+		ei.logger.Warn("Failed to roll back legacy checkpoint", zap.Error(err))
+	}
+
+	ei.mu.Lock()
+	ei.currentBlock = ancestor.Number
+	ei.mu.Unlock()
+
+	monitoring.EventIndexerCurrentBlock.Set(float64(ancestor.Number))
+	ei.logger.Info("Rolled back to common ancestor",
+		zap.Uint64("ancestor_block", ancestor.Number),
+		zap.Int("orphaned_blocks", len(orphanHashes)))
+	return nil
+}
+
+// UpdateFilter swaps the contract whitelist: checkpoints become bounded by
+// the new filter key (catch-up continues from the old checkpoint at most), and
+// a WebSocket subscriber re-subscribes with the new query.
+func (ei *EventIndexer) UpdateFilter(ctx context.Context, newAddresses []string) error {
+	seen := make(map[string]struct{}, len(newAddresses))
+	normalized := make([]string, 0, len(newAddresses))
+	for _, addr := range newAddresses {
+		if addr == "" {
+			continue
+		}
+		lower := strings.ToLower(addr)
+		if _, ok := seen[lower]; ok {
+			continue
+		}
+		seen[lower] = struct{}{}
+		normalized = append(normalized, lower)
+	}
+	if len(normalized) == 0 && !ei.allowUnfiltered {
+		return fmt.Errorf("event indexer refuses an empty contract whitelist")
+	}
+	sort.Strings(normalized)
+
+	newAddrs := make([]common.Address, 0, len(normalized))
+	for _, a := range normalized {
+		newAddrs = append(newAddrs, common.HexToAddress(a))
+	}
+
+	ei.mu.Lock()
+	oldKey := ei.filterKey()
+	oldContractAddress := ei.contractAddress
+	addresses := newAddrs
+	if len(addresses) > 0 {
+		ei.contractAddress = addresses[0]
+	} else {
+		ei.contractAddress = common.Address{}
+	}
+	ei.contractAddresses = addresses
+	newKey := ei.filterKey()
+	store := ei.store
+	subscriber := ei.subscriber
+	ei.mu.Unlock()
+
+	if ds, ok := store.(DurableEventStore); ok {
+		target, err := ds.LoadScopedCheckpoint(ctx, ei.chainID, newKey)
+		if err != nil {
+			return fmt.Errorf("load new filter checkpoint: %w", err)
+		}
+		if target == 0 {
+			if legacy, err := store.LoadCheckpoint(oldContractAddress.Hex()); err == nil {
+				target = legacy
+			}
+		}
+		ei.mu.Lock()
+		if target < ei.currentBlock {
+			ei.currentBlock = target
+		}
+		ei.logger.Info("Filter updated",
+			zap.String("old_filter_key", oldKey),
+			zap.String("new_filter_key", newKey),
+			zap.Uint64("catch_up_from", target))
+		ei.mu.Unlock()
+	} else if store != nil {
+		if legacy, err := store.LoadCheckpoint(oldContractAddress.Hex()); err == nil && legacy > 0 {
+			if err := store.SaveCheckpoint(ei.contractAddress.Hex(), legacy); err != nil {
+				ei.logger.Warn("Failed to copy checkpoint to new filter", zap.Error(err))
+			}
+		}
+		ei.mu.Lock()
+		ei.logger.Info("Filter updated", zap.String("old_filter_key", oldKey), zap.String("new_filter_key", newKey))
+		ei.mu.Unlock()
+	}
+
+	if subscriber != nil {
+		query := ei.buildFilterQuery()
+		subscriber.Unsubscribe()
+		if logs, err := subscriber.Subscribe(ctx, query); err != nil {
+			// Resubscription is best-effort: the polling loop keeps indexing
+			// under the new filter either way.
+			ei.logger.Warn("Re-subscribe after filter update failed", zap.Error(err))
+		} else {
+			ei.wg.Add(1)
+			go ei.websocketLoop(ctx, logs)
+		}
+	}
 	return nil
 }
 
@@ -613,6 +890,7 @@ func (ei *EventIndexer) logToEvent(log *types.Log) *IndexedEvent {
 
 	ei.mu.RLock()
 	parser := ei.eventParser
+	chainID := ei.chainID
 	ei.mu.RUnlock()
 
 	if parser != nil {
@@ -623,7 +901,8 @@ func (ei *EventIndexer) logToEvent(log *types.Log) *IndexedEvent {
 	}
 
 	event := &IndexedEvent{
-		ID:              fmt.Sprintf("%s-%d", log.TxHash.Hex(), log.Index),
+		ID:              fmt.Sprintf("%d-%s-%s-%d", chainID, log.BlockHash.Hex(), log.TxHash.Hex(), log.Index),
+		ChainID:         chainID,
 		EventType:       "ContractEvent",
 		ContractAddress: log.Address.Hex(),
 		TransactionHash: log.TxHash.Hex(),
@@ -668,10 +947,22 @@ func (ei *EventIndexer) addEvent(ctx context.Context, event *IndexedEvent) {
 		}
 	}
 
+	ei.dispatchEvent(ctx, event)
+}
+
+// dispatchEvent appends the event to the in-memory window and hands it to the
+// onEvent handler. Batch indexing calls it only AFTER the batch committed, so
+// a failed batch never reaches consumers.
+func (ei *EventIndexer) dispatchEvent(ctx context.Context, event *IndexedEvent) {
 	ei.mu.Lock()
+
+	if ei.seenIDs == nil {
+		ei.seenIDs = make(map[string]struct{})
+	}
 
 	if _, seen := ei.seenIDs[event.ID]; seen {
 		ei.mu.Unlock()
+		ei.logger.Debug("Skipping duplicate event", zap.String("event_id", event.ID))
 		return
 	}
 
