@@ -1364,6 +1364,8 @@ sequenceDiagram
 
 **B 部分（NFT 事件加速失效）**：见下方（2026-10-13 继续执行）。
 
+**A.3 上线后加固（提交 `0756ea4`，2026-10-13）**：A.3 的初次实现只把 **registry publisher** 接到 DB nonce 表，但同一部署者签名者还有两条**进程内**分配路径——`Web3Service` 的 in-memory `NonceManager` 与 `DemoNFTMinter` 直接 `PendingNonceAt`——三套分配器并存立刻在真实栈上撞 nonce：**fullchain 验收实测 `FAIL: Mint receipt status=missing`**（dev-mint 与登记意图同 nonce，一个把另一个顶掉；DB 实证：reservation nonce=348 = 已确认登记 tx 的 nonce）。修复：分配逻辑收敛为 `pkg/web3/tx.NonceLedger`（advisory lock + `UNIQUE(chain,signer,nonce)`，首次分配 `max(DB+1, 链 pending)`，无 signed attempt 引用才 Release），registry store、`Web3Service`（`WithNonceLedger`，无 ledger 的链保持原行为）、demo minter 在有 DB 时全部走同一权威。新用例 `TestAcceptance_SharedNonceAuthority`（Web3Service 路径与 registry 分配器同库同 signer 各 20× 并发 → 零重复）；4 个 registry 验收 + 2 个 Anvil 测试在隔离 worktree 全绿。**双模式验收复跑见 B 部分完成后记录。**
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 
