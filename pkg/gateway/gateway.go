@@ -30,12 +30,18 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	}
 	resources := &AppResources{}
 
-	sharedRedis := provideRedis(cfg, log, resources)
+	sharedRedis, err := provideRedis(cfg, log, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// The database comes first so the shared nonce ledger (SG-13 A.3 — the DB
 	// is the single nonce authority for a (chain, signer)) can be handed to
 	// every signer path built below.
-	db, _ := provideDatabase(cfg, log, resources)
+	db, _, err := provideDatabase(cfg, log, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 	nonceLedger := provideNonceLedger(cfg, log, db, resources)
 
 	// The gating-rule service owns the contract whitelist the event indexer
@@ -55,9 +61,15 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	resources.Web3Service = web3Svc
 
 	challengeTTL := parseChallengeTTL(cfg)
-	challengeStore := provideChallengeStore(rc, log, challengeTTL, sharedRedis, resources)
+	challengeStore, err := provideChallengeStore(rc, cfg, log, challengeTTL, sharedRedis, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	authService := provideAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
+	authService, err := provideAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 	resources.AuthService = authService
 
 	nftCache := NewNFTAccessCache()
@@ -84,7 +96,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	objStorage := provideObjectStorage(rc, cfg, log, resources)
 	resources.SegmentStorage = objStorage
 
-	transcodingSvc := provideTranscodingService(cfg, log, db, objStorage, resources)
+	transcodingSvc, err := provideTranscodingService(cfg, log, db, objStorage, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 	resources.TranscodingSvc = transcodingSvc
 
 	if transcodingSvc != nil {
@@ -150,7 +165,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		// Rules are resolved through the version authority so a change made in
 		// another process is noticed within the version's age bound, not after a
 		// local TTL expires.
-		ruleVersions := provideRuleVersionStore(cfg, log, db, sharedRedis, resources)
+		ruleVersions, err := provideRuleVersionStore(cfg, log, db, sharedRedis, resources)
+		if err != nil {
+			return nil, nil, err
+		}
 		svc.GatingRuleSvc.SetVersionPublisher(func(contentID string, version int64) {
 			// The write already bumped the version inside its own statement, so
 			// this only publishes it; a context is needed for the cache write and
