@@ -1258,6 +1258,37 @@ sequenceDiagram
 | 双部署模式端到端 | PASS | 重建二进制 + 重部署后：**monolith ALL 59 PASSED**、**api-gateway ALL 59 PASSED**（`H5_DEMO_URL=http://localhost:18000/demo/`，api-gateway 不托管静态页为已知项） |
 | 单元/回归 | PASS | `go test ./pkg/gateway/... ./pkg/service/streamingsvc/...` 全绿；`gofmt -l` 空；`go vet ./pkg/...` 干净 |
 
+**步骤 1（原件 digest 与封存）已落地**（提交 `f891091`，2026-10-13）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 服务端计算原件 SHA-256 | PASS | 完成时 `contents.file_hash` 写入**实际字节**的 SHA-256（整文件路径用上传时 TeeReader 的 hash；预签名路径 `FinalizePresignedUpload` 服务端读回对象计算）。**从不采信客户端 hash**（`TestHandleCreateContent_RejectsClientDigest`） |
+| 不可变封存对象 | PASS | 服务端 `CopyObject` 把暂存对象封存到 `originals/<contentID>/<sha256><ext>`（digest 在 key 内 ⇒ 不同字节即不同 key，不可能原地覆盖）；`contents.original_key` + `original_verified=TRUE`（迁移 037，additive） |
+| 409 冲突与幂等 | PASS | 已封存内容再封存**不同** digest → `ErrOriginalImmutable` → HTTP **409**；相同 digest 幂等返回同一 contentID、不重复建行、不重发 hook；并发封存用 `WHERE original_verified=FALSE` 条件更新 fail-closed。`TestAcceptance_ImmutableOriginalConflict` |
+| owner 来自服务端验证 | PASS | `contents.owner_id` 取自 uploads 行的钱包（服务端验证），不是客户端字段；预签名完成 handler 补上了**缺失的 owner 校验**（403） |
+| 预签名路径打通 | PASS | 原先预签名完成永远失败（停在 `uploading`、无 hash、无 owner 检查）。现在：owner 校验 → 暂存对象存在性检查（不存在 400）→ 服务端 hash → `uploading→completed`（拒绝分块上传冒充，`SELECT COUNT(*) FROM upload_chunks`）→ 正常封存。`TestAcceptance_PresignedOriginalSealed` |
+| 链上登记启用 | PASS | `CreateContentWithTx` 的 log-only 块替换为**真实登记**：digest hex→[32]byte + 已验证 creator（OwnerID）调用 `registry.RegisterContent`；digest 为空/非法保持 deferred；**登记失败不回滚已提交的 DB 行**（意图留给 SG-13 outbox）。`…_RegistersVerifiedDigest / _RegistryErrorKeepsInsert / _UnverifiedDigestDefersRegistration` |
+| 摘要可由密封字节复现 | PASS（线上实证） | 部署后验收跑出的内容：`contents.file_hash=bf582157…`、`original_verified=t`；用**真实 S3 GET**（同一条 MinIO 客户端代码路径）读封存对象：`size=506105 sha256=bf582157…` **完全一致**（磁盘 part.1 直接 sha256sum 会多 32B —— MinIO XL 内部校验帧，非对象内容） |
+| 端到端 | PASS | 迁移 037 随启动应用（DB 已验证 `schema_migrations` 037 行 + contents 三列存在）；**monolith 与 api-gateway 均 ALL 59 PASSED** |
+| 顺带修复（既有缺陷） | PASS | 两套迁移器（`migrate.Runner` 与 `storage.Migrator`）共用 `schema_migrations` 表但列结构不同（`filename` vs `dirty`）—— 谁先启动谁建表，另一方**每次启动都失败**并静默跳过全部迁移（表现为每次启动的 `check dirty migrations` 警告）。现双方 ALTER 收敛列结构；`TestMigrator_EnsureTableConvergesOnRunnerSchema`；重部署后警告消失（实测 count=0） |
+| 单元/回归 | PASS | `go test ./...` 全绿（含 -race 目标包）；`gofmt -l` 空；`go vet ./...` 干净 |
+
+**步骤 3 剩余（媒体探测门）+ 步骤 4（worker 与队列上界）已落地**（2026-10-13）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| ffprobe 解析容器 | PASS | `format_name` 解析进 `VideoInfo.Format`（原为死字段）；`ValidateMediaFile` 改为 **fail-closed 白名单**：mp4/mov 容器 + H.264 视频必有 + AAC 音频（可无音轨），其余（webm/VP9、MKV、H.265、非 AAC、纯音频、非媒体）一律 `ErrMediaLimitExceeded` 拒绝 |
+| ffprobe 独立超时与输出上限 | PASS | 60s 独立 deadline（`context.WithoutCancel` + `ProbeTimeout`，不继承调用方长预算）；stdout+stderr 经 1 MiB `cappedBuffer`，超限报截断错误；错误信息只引用尾部 4 KiB（stderr 走 8 KiB tailBuffer） |
+| 时长 / 分辨率上界 | PASS | 默认 600s、1920×1080（`NewFFmpegTranscoder` 对**未配置的接线点也套默认上界**，0 不等于无限）；配置 `transcoding.max_duration_seconds / max_width / max_height / ffmpeg_threads / max_queue_pending / max_owner_pending`，全部显式 `BindEnv STREAMGATE_TRANSCODING_*` |
+| FFmpeg 执行上界 | PASS | `FFmpegConfig.Timeout`（原为死字段）接线为 ffmpeg 硬执行超时；`-threads N` 插入输出参数前（默认 2）；**进程组终止**（`proc_unix.go` Setpgid + `kill(-pgid)`，ffmpeg/ffprobe/缩略图三处，`cmd.Cancel`/`WaitDelay`）—— 取消/超时不再留下孤儿 FFmpeg |
+| 无 shell 拼接 | PASS | 全部 argv 数组；用例断言 `;touch pwned.mp4` 文件名作为**单个 argv 元素**传递且 shell 未执行 |
+| 队列上界 | PASS | `MemoryTranscodingQueue` 默认 100 上限（原无界）→ `ErrQueueFull`；NATS 路径在提交时用 `queue.Depth()` 同界检查（stream MaxMsgs 为后备） |
+| owner 并发上界 | PASS | `Transcode` 在持久化前查该 owner `pending/processing` 数（Postgres `owner_wallet` 计数，默认 2）→ `ErrOwnerTaskLimit`；**HTTP 映射：owner 满 → 429 + `Retry-After: 30`；队列满 → 503 + `Retry-After: 5`**（原为一律 500） |
+| worker 默认收敛 | PASS | `TranscodingConfig.MaxWorkers` 默认 4 → **1**，接线 `WithMinWorkers(1)/WithMaxWorkers(cfg)`（原配置字段从未被运行时读取）；autoscaler 在 [min,max] 内运行 |
+| 必需用例 | PASS | `TestAcceptance_MediaProbeLimits`（14 子例：白名单正反例、时长/分辨率上界、probe 超时 <3s 不挂起、10 MiB 输出截断 <64 KiB、shell 元字符、真 ffprobe 10s fixture 通过）；`TestAcceptance_WorkerAndQueueBounds` ×3 包（`-threads` 入 argv、stub 拉起的子 sleep 随进程组同死、队列/owner 上界与 429/503 映射） |
+| 端到端 | PASS | 重建部署后 **monolith 与 api-gateway 均 ALL 59 PASSED**（h264+aac+mp4 fixture 穿过新门禁真转码真播放） |
+| 单元/回归 | PASS | `go test ./...` 全绿；目标包 `-race` 全绿；`gofmt -l` 空；`go vet ./...` 干净；`go mod tidy` 无 diff |
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 

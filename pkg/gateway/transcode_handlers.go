@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,7 +89,18 @@ func handleTranscodeSubmit(svc *service.TranscodingService, log *zap.Logger, pol
 		wallet := middleware.GetWalletAddress(c)
 		taskID, err := svc.Transcode(c.Request.Context(), req.ContentID, req.Profile, req.InputURL, req.Priority, wallet)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+			// Saturation is retryable, so it gets an explicit status plus
+			// Retry-After instead of a bare 500.
+			switch {
+			case errors.Is(err, service.ErrOwnerTaskLimit):
+				c.Header("Retry-After", "30")
+				abortWithError(c, http.StatusTooManyRequests, ErrRateLimited, "too many pending transcode tasks, retry later")
+			case errors.Is(err, service.ErrQueueFull):
+				c.Header("Retry-After", "5")
+				abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "transcode queue is full, retry later")
+			default:
+				abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+			}
 			return
 		}
 		respondAccepted(c, gin.H{

@@ -10,17 +10,30 @@ import (
 )
 
 type MemoryTranscodingQueue struct {
-	mu    sync.Mutex
-	cond  *sync.Cond
-	queue []*models.TranscodingTask
-	tasks map[string]*models.TranscodingTask
-	depth int64
+	mu       sync.Mutex
+	cond     *sync.Cond
+	queue    []*models.TranscodingTask
+	tasks    map[string]*models.TranscodingTask
+	depth    int64
+	maxDepth int
 }
 
+// DefaultMemoryQueueMaxDepth bounds the in-memory queue so a burst of
+// submissions cannot grow the process without limit.
+const DefaultMemoryQueueMaxDepth = 100
+
 func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
+	return NewMemoryTranscodingQueueWithLimit(DefaultMemoryQueueMaxDepth)
+}
+
+// NewMemoryTranscodingQueueWithLimit creates an in-memory queue that refuses
+// to accept more than maxDepth pending tasks. A non-positive maxDepth means
+// unbounded.
+func NewMemoryTranscodingQueueWithLimit(maxDepth int) *MemoryTranscodingQueue {
 	q := &MemoryTranscodingQueue{
-		queue: make([]*models.TranscodingTask, 0),
-		tasks: make(map[string]*models.TranscodingTask),
+		queue:    make([]*models.TranscodingTask, 0),
+		tasks:    make(map[string]*models.TranscodingTask),
+		maxDepth: maxDepth,
 	}
 	q.cond = sync.NewCond(&q.mu)
 	return q
@@ -28,6 +41,11 @@ func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
 
 func (q *MemoryTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	q.mu.Lock()
+	if q.maxDepth > 0 && len(q.queue) >= q.maxDepth {
+		depth := len(q.queue)
+		q.mu.Unlock()
+		return fmt.Errorf("%w: depth %d at capacity %d", ErrQueueFull, depth, q.maxDepth)
+	}
 	taskCopy := *task
 	if taskCopy.Metadata == nil {
 		taskCopy.Metadata = make(map[string]interface{})

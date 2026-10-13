@@ -204,6 +204,17 @@ type TranscodingConfig struct {
 	// large as the upload endpoint allows", and production may not exceed
 	// MaxTranscodeInputSize.
 	MaxInputSize int64
+	// MaxDurationSeconds bounds probed input duration (media gate).
+	MaxDurationSeconds int
+	// MaxWidth/MaxHeight bound probed input resolution (media gate).
+	MaxWidth  int
+	MaxHeight int
+	// FFmpegThreads is the -threads value passed to ffmpeg transcode runs.
+	FFmpegThreads int
+	// MaxQueuePending bounds the number of pending tasks at submit time.
+	MaxQueuePending int
+	// MaxOwnerPending bounds pending/running tasks per owner wallet.
+	MaxOwnerPending int
 }
 
 // StreamingConfig holds streaming configuration
@@ -559,11 +570,17 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Transcoding: TranscodingConfig{
-			Enabled:       viper.GetBool("transcoding.enabled"),
-			MaxWorkers:    viper.GetInt("transcoding.max_workers"),
-			QueueSize:     viper.GetInt("transcoding.queue_size"),
-			OutputFormats: splitCommaSlice(viper.GetStringSlice("transcoding.output_formats")),
-			MaxInputSize:  viper.GetInt64("transcoding.max_input_size"),
+			Enabled:            viper.GetBool("transcoding.enabled"),
+			MaxWorkers:         viper.GetInt("transcoding.max_workers"),
+			QueueSize:          viper.GetInt("transcoding.queue_size"),
+			OutputFormats:      splitCommaSlice(viper.GetStringSlice("transcoding.output_formats")),
+			MaxInputSize:       viper.GetInt64("transcoding.max_input_size"),
+			MaxDurationSeconds: viper.GetInt("transcoding.max_duration_seconds"),
+			MaxWidth:           viper.GetInt("transcoding.max_width"),
+			MaxHeight:          viper.GetInt("transcoding.max_height"),
+			FFmpegThreads:      viper.GetInt("transcoding.ffmpeg_threads"),
+			MaxQueuePending:    viper.GetInt("transcoding.max_queue_pending"),
+			MaxOwnerPending:    viper.GetInt("transcoding.max_owner_pending"),
 		},
 
 		Streaming: StreamingConfig{
@@ -732,13 +749,25 @@ func setDefaults() {
 
 	// Transcoding defaults
 	viper.SetDefault("transcoding.enabled", true)
-	viper.SetDefault("transcoding.max_workers", 4)
+	viper.SetDefault("transcoding.max_workers", 1)
 	viper.SetDefault("transcoding.queue_size", 100)
 	viper.SetDefault("transcoding.output_formats", []string{"hls", "dash"})
 	viper.SetDefault("transcoding.max_input_size", DefaultMaxTranscodeInputSize)
-	// Security-relevant, so bound explicitly rather than left to AutomaticEnv's
-	// key derivation.
+	viper.SetDefault("transcoding.max_duration_seconds", 600)
+	viper.SetDefault("transcoding.max_width", 1920)
+	viper.SetDefault("transcoding.max_height", 1080)
+	viper.SetDefault("transcoding.ffmpeg_threads", 2)
+	viper.SetDefault("transcoding.max_queue_pending", 100)
+	viper.SetDefault("transcoding.max_owner_pending", 2)
+	// Security-relevant bounds, so bound explicitly rather than left to
+	// AutomaticEnv's key derivation.
 	_ = viper.BindEnv("transcoding.max_input_size", "STREAMGATE_TRANSCODING_MAX_INPUT_SIZE")
+	_ = viper.BindEnv("transcoding.max_duration_seconds", "STREAMGATE_TRANSCODING_MAX_DURATION_SECONDS")
+	_ = viper.BindEnv("transcoding.max_width", "STREAMGATE_TRANSCODING_MAX_WIDTH")
+	_ = viper.BindEnv("transcoding.max_height", "STREAMGATE_TRANSCODING_MAX_HEIGHT")
+	_ = viper.BindEnv("transcoding.ffmpeg_threads", "STREAMGATE_TRANSCODING_FFMPEG_THREADS")
+	_ = viper.BindEnv("transcoding.max_queue_pending", "STREAMGATE_TRANSCODING_MAX_QUEUE_PENDING")
+	_ = viper.BindEnv("transcoding.max_owner_pending", "STREAMGATE_TRANSCODING_MAX_OWNER_PENDING")
 
 	// Streaming defaults
 	viper.SetDefault("streaming.hls_segment_duration", 10)
@@ -1080,11 +1109,17 @@ func DefaultConfig() *Config {
 		},
 
 		Transcoding: TranscodingConfig{
-			Enabled:       true,
-			MaxWorkers:    4,
-			MaxInputSize:  DefaultMaxTranscodeInputSize,
-			QueueSize:     100,
-			OutputFormats: []string{"hls", "dash"},
+			Enabled:            true,
+			MaxWorkers:         1,
+			MaxInputSize:       DefaultMaxTranscodeInputSize,
+			QueueSize:          100,
+			OutputFormats:      []string{"hls", "dash"},
+			MaxDurationSeconds: 600,
+			MaxWidth:           1920,
+			MaxHeight:          1080,
+			FFmpegThreads:      2,
+			MaxQueuePending:    100,
+			MaxOwnerPending:    2,
 		},
 
 		Streaming: StreamingConfig{

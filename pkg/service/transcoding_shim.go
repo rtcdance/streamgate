@@ -18,12 +18,17 @@ type (
 )
 
 var (
-	NewTranscodingService     = transcoding.NewTranscodingService
-	NewMemoryTranscodingQueue = transcoding.NewMemoryTranscodingQueue
-	DefaultProfiles           = transcoding.DefaultProfiles
+	NewTranscodingService              = transcoding.NewTranscodingService
+	NewMemoryTranscodingQueue          = transcoding.NewMemoryTranscodingQueue
+	NewMemoryTranscodingQueueWithLimit = transcoding.NewMemoryTranscodingQueueWithLimit
+	DefaultProfiles                    = transcoding.DefaultProfiles
 	// ErrInputTooLarge is returned when an original exceeds the ceiling, so a
 	// caller can answer 413 rather than a generic failure.
-	ErrInputTooLarge              = transcoding.ErrInputTooLarge
+	ErrInputTooLarge = transcoding.ErrInputTooLarge
+	// ErrQueueFull / ErrOwnerTaskLimit mark saturation: callers answer with
+	// 503/429 + Retry-After instead of a generic 500.
+	ErrQueueFull                  = transcoding.ErrQueueFull
+	ErrOwnerTaskLimit             = transcoding.ErrOwnerTaskLimit
 	DefaultMaxTranscodeInputBytes = transcoding.DefaultMaxTranscodeInputBytes
 )
 
@@ -43,4 +48,24 @@ func WithLogger(l *zap.Logger) TranscodingOption {
 // in place: "no limit" is not an option this service offers.
 func WithMaxInputBytes(n int64) TranscodingOption {
 	return transcoding.WithMaxInputBytes(n)
+}
+
+// WithMinWorkers sets the initial worker pool size.
+func WithMinWorkers(n int) TranscodingOption {
+	return transcoding.WithMinWorkers(n)
+}
+
+// WithMaxWorkers caps the autoscaler's worker pool.
+func WithMaxWorkers(n int) TranscodingOption {
+	return transcoding.WithMaxWorkers(n)
+}
+
+// WithQueueLimit bounds pending tasks at submit time (ErrQueueFull).
+func WithQueueLimit(n int) TranscodingOption {
+	return transcoding.WithQueueLimit(n)
+}
+
+// WithOwnerTaskLimit bounds pending/running tasks per owner (ErrOwnerTaskLimit).
+func WithOwnerTaskLimit(n int) TranscodingOption {
+	return transcoding.WithOwnerTaskLimit(n)
 }
