@@ -45,6 +45,13 @@ ARG GOLANGCI_LINT_VERSION=v2.12.2
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
         | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
 
+# Stage scripts run under `bash -lc`, whose login profile resets PATH to the
+# Debian default — that drops /root/.foundry/bin and /usr/local/go/bin. Link
+# the Foundry tools onto the default PATH and re-export the Go toolchain from
+# /etc/profile.d so every stage sees forge/anvil/cast/go/gofmt.
+RUN ln -sf /root/.foundry/bin/forge /root/.foundry/bin/cast /root/.foundry/bin/anvil /root/.foundry/bin/chisel /usr/local/bin/ \
+    && printf 'export PATH=/usr/local/go/bin:$PATH\n' > /etc/profile.d/go-toolchain.sh
+
 WORKDIR /src
 COPY . .
 
