@@ -20,6 +20,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/service/registry"
 	"github.com/rtcdance/streamgate/pkg/storage"
 	web3contract "github.com/rtcdance/streamgate/pkg/web3/contract"
+	"github.com/rtcdance/streamgate/pkg/web3/event"
 	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
 
 	"github.com/go-redis/redis/v8"
@@ -51,13 +52,19 @@ func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) *redis
 	return client
 }
 
-func provideWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger, nonceLedger *txtx.NonceLedger) (*service.Web3Service, error) {
+func provideWeb3Service(rc *RouterConfig, cfg *config.Config, log *zap.Logger, nonceLedger *txtx.NonceLedger, db storage.DB, gatingRules service.GatingRuleFilterRefresher) (*service.Web3Service, error) {
 	if rc.Web3Service != nil {
 		return rc.Web3Service, nil
 	}
 	var opts []service.Web3Option
 	if nonceLedger != nil {
 		opts = append(opts, service.WithNonceLedger(nonceLedger))
+	}
+	if gatingRules != nil {
+		opts = append(opts, service.WithGatingRules(gatingRules))
+	}
+	if db != nil {
+		opts = append(opts, service.WithEventStore(event.NewPostgresEventStore(db)))
 	}
 	svc, err := service.NewWeb3Service(service.DefaultWeb3Deps(cfg, log), cfg, log, opts...)
 	if err != nil {

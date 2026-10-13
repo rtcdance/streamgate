@@ -10,6 +10,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/service/gating"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // respondGatingRuleError maps an ownership-aware mutation failure onto a stable
@@ -26,11 +27,27 @@ func respondGatingRuleError(c *gin.Context, err error, notFoundMsg string) {
 	}
 }
 
-func RegisterGatingRuleRoutes(router *gin.RouterGroup, svc *service.GatingRuleService) {
+func RegisterGatingRuleRoutes(router *gin.RouterGroup, svc *service.GatingRuleService, web3Svc *service.Web3Service, log *zap.Logger) {
 	router.GET(APIPrefix+"/content/:id/gating-rules", listGatingRules(svc))
-	router.POST(APIPrefix+"/content/:id/gating-rules", createGatingRule(svc))
-	router.PUT(APIPrefix+"/gating-rules/:ruleId", updateGatingRule(svc))
-	router.DELETE(APIPrefix+"/gating-rules/:ruleId", deleteGatingRule(svc))
+	router.POST(APIPrefix+"/content/:id/gating-rules", createGatingRule(svc, web3Svc, log))
+	router.PUT(APIPrefix+"/gating-rules/:ruleId", updateGatingRule(svc, web3Svc, log))
+	router.DELETE(APIPrefix+"/gating-rules/:ruleId", deleteGatingRule(svc, web3Svc, log))
+}
+
+// refreshEventFilter re-subscribes the NFT event indexer to the new contract
+// whitelist after a rule write (SG-13 B). A failure is logged, never surfaced
+// to the caller: the rule itself was committed, and the gate reads rules
+// directly — the event path only accelerates cache invalidation, so losing it
+// degrades freshness, not correctness.
+func refreshEventFilter(c *gin.Context, web3Svc *service.Web3Service, log *zap.Logger) {
+	if web3Svc == nil {
+		return
+	}
+	if err := web3Svc.RefreshEventFilter(c.Request.Context()); err != nil {
+		log.Warn("Event filter refresh after gating-rule write failed",
+			zap.String("path", c.Request.URL.Path),
+			zap.Error(err))
+	}
 }
 
 func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {
@@ -45,7 +62,7 @@ func listGatingRules(svc *service.GatingRuleService) gin.HandlerFunc {
 	}
 }
 
-func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
+func createGatingRule(svc *service.GatingRuleService, web3Svc *service.Web3Service, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		contentID := c.Param("id")
 		actor := middleware.GetWalletAddress(c)
@@ -81,11 +98,12 @@ func createGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			respondGatingRuleError(c, err, "content not found")
 			return
 		}
+		refreshEventFilter(c, web3Svc, log)
 		respondCreated(c, gin.H{"id": id, "rule": rule})
 	}
 }
 
-func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
+func updateGatingRule(svc *service.GatingRuleService, web3Svc *service.Web3Service, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("ruleId")
 		actor := middleware.GetWalletAddress(c)
@@ -135,11 +153,12 @@ func updateGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			respondGatingRuleError(c, err, "gating rule not found")
 			return
 		}
+		refreshEventFilter(c, web3Svc, log)
 		respondOK(c, gin.H{"rule": existing})
 	}
 }
 
-func deleteGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
+func deleteGatingRule(svc *service.GatingRuleService, web3Svc *service.Web3Service, log *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("ruleId")
 		actor := middleware.GetWalletAddress(c)
@@ -151,6 +170,7 @@ func deleteGatingRule(svc *service.GatingRuleService) gin.HandlerFunc {
 			respondGatingRuleError(c, err, "gating rule not found")
 			return
 		}
+		refreshEventFilter(c, web3Svc, log)
 		respondOK(c, gin.H{"deleted": true})
 	}
 }

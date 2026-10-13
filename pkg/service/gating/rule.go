@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -196,6 +197,45 @@ func (s *GatingRuleService) GetActiveRulesForContent(ctx context.Context, conten
 		rules = append(rules, &rule)
 	}
 	return rules, nil
+}
+
+// ListActiveContractAddresses returns the deduplicated, sorted, lowercased
+// contract addresses of every active rule on the given chain. It is the
+// authority for the event indexer's contract whitelist: only contracts some
+// rule actually gates may be scanned — an empty list must never turn into a
+// full-chain scan.
+func (s *GatingRuleService) ListActiveContractAddresses(ctx context.Context, chainID int64) ([]string, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not available")
+	}
+	query := `
+		SELECT DISTINCT lower(contract_address) FROM content_gating_rules
+		WHERE is_active = TRUE AND chain_id = $1
+	`
+	rows, err := s.db.Query(ctx, query, chainID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active contract addresses: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := make(map[string]struct{})
+	addresses := make([]string, 0)
+	for rows.Next() {
+		var address string
+		if err := rows.Scan(&address); err != nil {
+			return nil, fmt.Errorf("failed to scan contract address: %w", err)
+		}
+		if address == "" {
+			continue
+		}
+		if _, ok := seen[address]; ok {
+			continue
+		}
+		seen[address] = struct{}{}
+		addresses = append(addresses, address)
+	}
+	sort.Strings(addresses)
+	return addresses, nil
 }
 
 func (s *GatingRuleService) UpdateRule(ctx context.Context, rule *models.GatingRule) error {
