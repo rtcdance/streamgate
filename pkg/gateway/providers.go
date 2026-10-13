@@ -295,6 +295,12 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		FFprobePath: "ffprobe",
 		TempDir:     os.TempDir(),
 		Timeout:     30 * time.Minute,
+		// Media gate ceilings for untrusted originals, from config.
+		MaxFileSize: cfg.Transcoding.MaxInputSize,
+		MaxDuration: float64(cfg.Transcoding.MaxDurationSeconds),
+		MaxWidth:    cfg.Transcoding.MaxWidth,
+		MaxHeight:   cfg.Transcoding.MaxHeight,
+		Threads:     cfg.Transcoding.FFmpegThreads,
 	}
 	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
 	videoTranscoder := &ffmpegRouterAdapter{ft: ft, log: log.Named("ffmpeg")}
@@ -318,6 +324,12 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		// the ceiling comes from config rather than from whatever the upload
 		// endpoint happens to allow.
 		service.WithMaxInputBytes(cfg.Transcoding.MaxInputSize),
+		// Worker, queue and per-owner bounds keep saturation retryable
+		// (429/503 + Retry-After) instead of a bare 500.
+		service.WithMinWorkers(1),
+		service.WithMaxWorkers(cfg.Transcoding.MaxWorkers),
+		service.WithQueueLimit(cfg.Transcoding.MaxQueuePending),
+		service.WithOwnerTaskLimit(cfg.Transcoding.MaxOwnerPending),
 	)
 	svc.StartWorker(log.Named("transcode-worker"))
 	return svc

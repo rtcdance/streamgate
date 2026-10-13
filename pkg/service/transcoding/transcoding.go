@@ -60,6 +60,12 @@ type TranscodingService struct {
 	extraMu        sync.Mutex
 	serviceCtx     context.Context
 	serviceCancel  context.CancelFunc
+	// queueLimit bounds pending tasks at submit time (covers NATS, whose
+	// stream limits are only a backstop). 0 = no service-level check.
+	queueLimit int
+	// ownerTaskLimit bounds pending/running tasks per owner wallet so one
+	// caller cannot monopolize the worker pool. 0 = no limit.
+	ownerTaskLimit int
 }
 
 const defaultUploadConcurrency = 5
@@ -73,6 +79,15 @@ const DefaultMaxTranscodeInputBytes int64 = 100 << 20 // 100 MiB
 // ErrInputTooLarge is returned when an input exceeds the configured ceiling. It
 // is a distinct error so callers can answer 413 rather than a generic failure.
 var ErrInputTooLarge = errors.New("transcode input exceeds the configured size limit")
+
+// ErrQueueFull is returned when the pending-task queue is at capacity. Callers
+// map it to a retryable saturation response (503 + Retry-After), never a
+// generic 500.
+var ErrQueueFull = errors.New("transcode queue is full")
+
+// ErrOwnerTaskLimit is returned when an owner already has the maximum number
+// of pending/running tasks. Callers map it to 429 + Retry-After.
+var ErrOwnerTaskLimit = errors.New("too many pending transcode tasks for owner")
 
 // WithMaxInputBytes sets the ceiling on an original. A non-positive value leaves
 // the default in place: "no limit" is not an option this service offers.
@@ -173,6 +188,27 @@ func WithMaxWorkers(n int) TranscodingOption {
 	return func(s *TranscodingService) {
 		if n > 0 {
 			s.maxWorkers = n
+		}
+	}
+}
+
+// WithQueueLimit bounds the number of pending tasks at submit time. A submit
+// against a full queue returns ErrQueueFull. A non-positive value leaves the
+// check disabled.
+func WithQueueLimit(n int) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.queueLimit = n
+		}
+	}
+}
+
+// WithOwnerTaskLimit bounds pending/running tasks per owner wallet. Submitting
+// past the limit returns ErrOwnerTaskLimit. A non-positive value disables it.
+func WithOwnerTaskLimit(n int) TranscodingOption {
+	return func(s *TranscodingService) {
+		if n > 0 {
+			s.ownerTaskLimit = n
 		}
 	}
 }
@@ -861,7 +897,12 @@ func (s *TranscodingService) extractAndUploadThumbnail(ctx context.Context, inpu
 		"-vf", "scale=320:-1",
 		"-y", thumbPath,
 	}
+	// Args are an argv array — never shell-interpolated. The thumbnail ffmpeg
+	// runs in its own process group so a cancelled ctx kills its children too.
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	configureProcGroup(cmd)
+	cmd.Cancel = func() error { return killProcGroup(cmd) }
+	cmd.WaitDelay = 10 * time.Second
 	if err := cmd.Run(); err != nil {
 		s.log.Warn("Thumbnail extraction failed", zap.String("content_id", contentID), zap.Error(err))
 		return
@@ -1032,6 +1073,27 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 		return "", fmt.Errorf("invalid profile: %s", profile)
 	}
 
+	// Saturation bounds are checked before anything is persisted so a refused
+	// submit never leaves an orphan task behind.
+	if s.ownerTaskLimit > 0 && ownerWallet != "" {
+		count, err := s.countOwnerActiveTasks(ctx, ownerWallet)
+		if err != nil {
+			if s.log != nil {
+				s.log.Warn("failed to count owner tasks, owner limit not enforced",
+					zap.String("owner", ownerWallet), zap.Error(err))
+			}
+		} else if count >= s.ownerTaskLimit {
+			return "", fmt.Errorf("%w: %d pending or running tasks already, limit %d",
+				ErrOwnerTaskLimit, count, s.ownerTaskLimit)
+		}
+	}
+	if s.queueLimit > 0 && s.queue != nil {
+		depth, err := s.queue.Depth()
+		if err == nil && depth >= s.queueLimit {
+			return "", fmt.Errorf("%w: %d tasks pending, limit %d", ErrQueueFull, depth, s.queueLimit)
+		}
+	}
+
 	// Generate task ID
 	taskID := uuid.New().String()
 
@@ -1076,6 +1138,31 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 	}
 
 	return taskID, nil
+}
+
+// countOwnerActiveTasks counts an owner's pending or processing tasks, from
+// Postgres when available, otherwise from the in-memory task map.
+func (s *TranscodingService) countOwnerActiveTasks(ctx context.Context, ownerWallet string) (int, error) {
+	if s.db != nil {
+		var count int
+		err := s.db.QueryRow(ctx,
+			"SELECT COUNT(*) FROM transcoding_tasks WHERE owner_wallet = $1 AND status IN ('pending','processing')",
+			ownerWallet).Scan(&count)
+		if err != nil {
+			return 0, fmt.Errorf("count owner tasks: %w", err)
+		}
+		return count, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, t := range s.tasks {
+		if t.OwnerWallet == ownerWallet && (t.Status == "pending" || t.Status == "processing") {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // GetTranscodingStatus gets transcoding task status

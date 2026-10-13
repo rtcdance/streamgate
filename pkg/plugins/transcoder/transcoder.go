@@ -197,6 +197,12 @@ func (tp *TranscoderPlugin) Init(ctx context.Context, kernel *core.Microkernel) 
 		FFprobePath: "ffprobe",
 		TempDir:     os.TempDir(),
 		Timeout:     tp.config.TaskTimeout,
+		// Media gate ceilings for untrusted input (defaults, since this plugin
+		// is not wired from the core transcoding config).
+		MaxDuration: DefaultMaxDurationSeconds,
+		MaxWidth:    DefaultMaxWidth,
+		MaxHeight:   DefaultMaxHeight,
+		Threads:     DefaultFFmpegThreads,
 	}
 	ffmpegTranscoder := NewFFmpegTranscoder(ffmpegConfig, tp.logger.Named("ffmpeg"))
 
