@@ -1308,6 +1308,21 @@ sequenceDiagram
 
 **已知限制（如实记录）**：重试延迟是 service 选项（`WithRetryDelays`）未暴露到 config.yaml；`go vet -tags e2e ./test/e2e/api_gateway_test.go` 有一个**基线即存在**的 mock 签名不匹配（pkg/middleware 未动，不影响主线 tag 构建）。
 
+**步骤 8（generation 原子发布）已落地**（2026-10-13）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 迁移 039（additive） | PASS | `contents.published_generation BIGINT DEFAULT 0`（0=遗留平铺布局）+ `published_profile VARCHAR(64)`；`transcoding_tasks.output_generation BIGINT DEFAULT 0`（**产物 generation，与 038 的 lease generation 是两回事**）；`.down.sql` 齐全；随部署自动应用（DB 实测 039） |
+| generation 私有 staging 前缀 | PASS | `uploadSegments` 写入 `streams/<cid>/g<N>/<subdir>/<file>`；上传前 `SELECT ... FOR UPDATE` 分配 `MAX(output_generation)+1`（重试复用同一前缀）；失败的 worker 只可能污染自己的 `g<N>/`；无 DB 的 demo profile = gen 0 平铺（行为不变） |
+| 验证后原子发布 | PASS | 上传完 LIST 自己的 `g<N>/`：≥1 个 m3u8 且 ≥1 个 ts 才继续；lease 守卫的 CompleteTask 事务内 `WITH prev AS (... FOR UPDATE) UPDATE contents SET published_generation WHERE prev.g < $N RETURNING prev.g` —— **单调向前、行存在才生效**，这次 UPDATE 就是发布本身 |
+| 未发布 generation 不可播放 | PASS | 播放路由只解析已发布 generation：gen 0 列平铺键并跳过 `g` 目录；gen≥1 只列/只拼 `g<N>/`；猜测名（`?quality=g2` 等）永远构不出可读键。用例子例 (b)：飞行中 generation + 合法 capability → 拿不到字节 |
+| 失败只清自己的产物 | PASS | 失败路径（settleTerminal/FailTask）只删自己的 `g<N>/`；发布成功 best-effort 清前代（gen 0=平铺键、跳过 g 目录）；no-op 时清自己。子例 (c)(d) |
+| 内容删除取消任务 | PASS | `DeleteContentWithTx` 与 API 删除路径在同一事务内 `UPDATE transcoding_tasks SET status='cancelled' ... WHERE content_id=$1 AND status IN('pending','processing')`；行删除使发布 UPDATE 无行可匹配 ⇒ **老 worker 的 CompleteTask 要么被 cancelled 挡住、要么发布为 no-op**。子例 (f) |
+| 流解析接线 | PASS | `PublishedGenerationResolver`（查 contents，5s TTL 缓存，PostTranscodeHook 即时失效）注入 manifest/segment/gRPC 三条路径（routes.go/resources.go/grpc_server.go）；nil 解析器 ⇒ gen 0 遗留行为（既有测试保持绿） |
+| 遗留内容兼容 | PASS | 子例 (e)：gen 0 平铺键照常服务；步骤 9 的真实 playlist 用例全绿 |
+| 必需用例 | PASS | `TestAcceptance_TaskGenerationPublish` 6 子例全过（见上）；`go test ./...` 全绿；`-race ./pkg/service/transcoding/... ./pkg/gateway/...` 全绿 |
+| 端到端 | PASS | 迁移 039 生效后 **monolith 与 api-gateway 均 ALL 59 PASSED**；DB 实证：新内容 `published_generation=1 published_profile=abr`、任务 `output_generation=1`；存储实证：内容前缀下**只有 `g1/`**（无平铺残留），流从 generation 解析 |
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 

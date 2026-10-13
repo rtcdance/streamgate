@@ -22,6 +22,11 @@ type TranscodingTask struct {
 	StartedAt   *time.Time             `json:"started_at,omitempty"`
 	CompletedAt *time.Time             `json:"completed_at,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata"`
+	// OutputGeneration is the artifact generation this task writes to (its
+	// private staging prefix). Distinct from the lease generation: allocated
+	// once per task, persisted in transcoding_tasks.output_generation, and only
+	// published to contents.published_generation after validation.
+	OutputGeneration int64 `json:"output_generation,omitempty"`
 }
 
 type TranscodingTaskStatus string

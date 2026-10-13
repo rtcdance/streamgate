@@ -96,7 +96,7 @@ func newStoredPlaylistRouter(t *testing.T, store *fakeSegmentStore) (*gin.Engine
 	streamingSvc := service.NewStreamingService(nil, nil, nil, "http://localhost")
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
-	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, store, limiter, cache)
+	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, store, limiter, cache, nil)
 	return r, authSvc
 }
 

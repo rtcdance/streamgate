@@ -891,7 +891,7 @@ func TestTranscodingService_uploadSegments_EmptyDir(t *testing.T) {
 		WithLogger(zap.NewNop()),
 	)
 	dir := t.TempDir()
-	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p")
+	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p", 0)
 	require.NoError(t, err)
 }
 
@@ -904,7 +904,7 @@ func TestTranscodingService_uploadSegments_StorageError(t *testing.T) {
 	)
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(dir+"/test.ts", []byte("data"), 0o644))
-	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p")
+	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p", 0)
 	require.Error(t, err)
 }
 
@@ -913,7 +913,7 @@ func TestTranscodingService_uploadSegments_WalkError(t *testing.T) {
 		WithStorage(newMockSegmentStorage()),
 		WithLogger(zap.NewNop()),
 	)
-	err := svc.uploadSegments(context.Background(), "/nonexistent/path/that/does/not/exist", "content-1", "720p")
+	err := svc.uploadSegments(context.Background(), "/nonexistent/path/that/does/not/exist", "content-1", "720p", 0)
 	require.Error(t, err)
 }
 
@@ -928,7 +928,7 @@ func TestTranscodingService_uploadSegments_SuccessWithFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0o644))
 	require.NoError(t, os.WriteFile(dir+"/segment0.ts", []byte("ts-data"), 0o644))
 
-	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p")
+	err := svc.uploadSegments(context.Background(), dir, "content-1", "720p", 0)
 	require.NoError(t, err)
 }
 

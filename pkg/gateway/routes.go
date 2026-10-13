@@ -77,6 +77,11 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	if streamCache == nil {
 		streamCache = NewStreamingCache()
 	}
+	// Player routes resolve ONLY the published artifact generation. The
+	// resolver is nil without a database, which keeps generation 0 (legacy
+	// flat layout) — the same behaviour every caller had before.
+	genResolver := newPublishedGenerationResolver(svc.DB)
+	res.GenerationResolver = genResolver
 	// PlaybackTokenAuth must run BEFORE the global JWT middleware: HLS.js cannot
 	// send an Authorization header on media requests, so segment/sub-manifest
 	// URLs carry playback_token in the query string. The token is validated
@@ -115,7 +120,7 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	RegisterAuthRoutes(router, log, cfg, svc.AuthService, authRL)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, streamGroup)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, streamGroup, genResolver)
 }
 
 func buildCircuitBreakerConfig(cfg *config.Config) middleware.CircuitBreakerConfig {
@@ -224,7 +229,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 	router.Static("/demo", "./h5-demo")
 }
 
-func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup) {
+func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup, genResolver PublishedGenerationResolver) {
 	RegisterAuthProtectedRoutes(router, log, svc.AuthService)
 
 	cbSvc := middleware.NewService(log)
@@ -277,8 +282,8 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		}
 		c.Next()
 	})
-	RegisterStreamingSegmentRoute(streamGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
-	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, cfg.Storage.Bucket)
+	RegisterStreamingSegmentRoute(streamGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
+	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
 
 	RegisterContentRoutes(router, log, svc.ContentService)
 	// The transcode API fetches the input itself, so its accepted sources are an

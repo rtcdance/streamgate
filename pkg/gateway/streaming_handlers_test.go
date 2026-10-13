@@ -121,31 +121,31 @@ func TestNewStreamingCache(t *testing.T) {
 func TestStreamingCache_Manifest(t *testing.T) {
 	cache := NewStreamingCache()
 
-	_, ok := cache.GetManifest("content-1", "wallet-1")
+	_, ok := cache.GetManifest("content-1", "wallet-1", 0)
 	assert.False(t, ok)
 
-	cache.SetManifest("content-1", "#EXTM3U", "wallet-1")
+	cache.SetManifest("content-1", "#EXTM3U", "wallet-1", 0)
 
-	manifest, ok := cache.GetManifest("content-1", "wallet-1")
+	manifest, ok := cache.GetManifest("content-1", "wallet-1", 0)
 	assert.True(t, ok)
 	assert.Equal(t, "#EXTM3U", manifest)
 
-	_, ok = cache.GetManifest("content-1", "wallet-2")
+	_, ok = cache.GetManifest("content-1", "wallet-2", 0)
 	assert.False(t, ok)
 }
 
 func TestStreamingCache_SegmentIndex(t *testing.T) {
 	cache := NewStreamingCache()
 
-	_, ok := cache.GetSegmentIndex("content-1")
+	_, ok := cache.GetSegmentIndex("content-1", 0)
 	assert.False(t, ok)
 
 	qualities := map[string][]string{
 		"720p": {"seg0.ts", "seg1.ts"},
 	}
-	cache.SetSegmentIndex("content-1", qualities)
+	cache.SetSegmentIndex("content-1", 0, qualities)
 
-	result, ok := cache.GetSegmentIndex("content-1")
+	result, ok := cache.GetSegmentIndex("content-1", 0)
 	assert.True(t, ok)
 	assert.Equal(t, qualities, result)
 }
@@ -153,15 +153,15 @@ func TestStreamingCache_SegmentIndex(t *testing.T) {
 func TestStreamingCache_Invalidate(t *testing.T) {
 	cache := NewStreamingCache()
 
-	cache.SetManifest("content-1", "#EXTM3U", "wallet-1")
-	cache.SetSegmentIndex("content-1", map[string][]string{"720p": {"seg0.ts"}})
+	cache.SetManifest("content-1", "#EXTM3U", "wallet-1", 0)
+	cache.SetSegmentIndex("content-1", 0, map[string][]string{"720p": {"seg0.ts"}})
 
 	cache.Invalidate("content-1")
 
-	_, ok := cache.GetManifest("content-1", "wallet-1")
+	_, ok := cache.GetManifest("content-1", "wallet-1", 0)
 	assert.False(t, ok)
 
-	_, ok = cache.GetSegmentIndex("content-1")
+	_, ok = cache.GetSegmentIndex("content-1", 0)
 	assert.False(t, ok)
 }
 
@@ -173,31 +173,31 @@ func TestStreamingCache_Manifest_Expiry(t *testing.T) {
 		walletAddr: "wallet-1",
 	})
 
-	_, ok := cache.GetManifest("content-1", "wallet-1")
+	_, ok := cache.GetManifest("content-1", "wallet-1", 0)
 	assert.False(t, ok)
 }
 
 func TestBuildSegmentCandidates(t *testing.T) {
 	t.Run("no quality cache no quality param", func(t *testing.T) {
 		cache := NewStreamingCache()
-		candidates := buildSegmentCandidates("c1", "seg0.ts", "", cache)
+		candidates := buildSegmentCandidates("c1", "seg0.ts", "", cache, 0)
 		assert.NotEmpty(t, candidates)
 		assert.Equal(t, "c1/seg0.ts", candidates[0].key)
 	})
 
 	t.Run("with quality param no cache", func(t *testing.T) {
 		cache := NewStreamingCache()
-		candidates := buildSegmentCandidates("c1", "seg0.ts", "720p", cache)
+		candidates := buildSegmentCandidates("c1", "seg0.ts", "720p", cache, 0)
 		assert.GreaterOrEqual(t, len(candidates), 2)
 	})
 
 	t.Run("with quality cache", func(t *testing.T) {
 		cache := NewStreamingCache()
-		cache.SetSegmentIndex("c1", map[string][]string{
+		cache.SetSegmentIndex("c1", 0, map[string][]string{
 			"720p":  {"seg0.ts"},
 			"1080p": {"seg0.ts"},
 		})
-		candidates := buildSegmentCandidates("c1", "seg0.ts", "720p", cache)
+		candidates := buildSegmentCandidates("c1", "seg0.ts", "720p", cache, 0)
 		assert.GreaterOrEqual(t, len(candidates), 3)
 	})
 }

@@ -47,6 +47,9 @@ type GRPCServices struct {
 	DB                 Pinger
 	Cache              Pinger
 	Blacklist          middleware.TokenBlacklistChecker
+	// GenerationResolver reports the published artifact generation; nil means
+	// generation 0 (legacy flat layout), matching the pre-generation behaviour.
+	GenerationResolver PublishedGenerationResolver
 }
 
 type Pinger interface {
@@ -168,6 +171,7 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 			ruleResolver: svcs.GatingRuleResolver,
 			streamingSvc: svcs.StreamingSvc,
 			segStore:     svcs.SegmentStorage,
+			genResolver:  newGenerationResolver(svcs.GenerationResolver),
 			log:          log,
 		}
 		streamingv1.RegisterStreamingServiceServer(srv, streamingSrv)
@@ -699,7 +703,10 @@ type streamingGrpcServer struct {
 	ruleResolver middleware.GatingRuleResolver
 	streamingSvc *service.StreamingService
 	segStore     service.SegmentStorage
-	log          *zap.Logger
+	// genResolver is the published-generation lookup (nil-safe: a nil resolver
+	// answers generation 0, the legacy flat layout).
+	genResolver *generationResolver
+	log         *zap.Logger
 }
 
 func (s *streamingGrpcServer) GetStreamURL(ctx context.Context, req *streamingv1.GetStreamURLRequest) (*streamingv1.GetStreamURLResponse, error) {
@@ -759,7 +766,13 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		return nil, status.Error(codes.Internal, "failed to generate playback token")
 	}
 
+	// Resolve ONLY the published generation; a mid-flight staging prefix is
+	// never listed, so a valid token cannot read it through this path either.
+	generation, _ := s.genResolver.resolve(ctx, req.ContentId)
 	segmentPrefix := fmt.Sprintf("streams/%s/", req.ContentId)
+	if generation >= 1 {
+		segmentPrefix = fmt.Sprintf("streams/%s/g%d/", req.ContentId, generation)
+	}
 	qualitySegments := make(map[string][]string)
 	if s.segStore != nil {
 		objs, err := s.segStore.ListObjects(ctx, "streamgate", segmentPrefix)
@@ -779,6 +792,11 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 			if len(parts) == 2 {
 				quality = parts[0]
 				segName = parts[1]
+				// A legacy listing must never index objects that live inside
+				// a generation-private directory.
+				if generation == 0 && isGenerationDirName(quality) {
+					continue
+				}
 			}
 			qualitySegments[quality] = append(qualitySegments[quality], segName)
 		}
@@ -850,7 +868,15 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 		return nil, err
 	}
 
+	// Scoped to the published generation: generation 0 addresses the legacy
+	// flat key, generation >= 1 the generation-private prefix. A guessed
+	// staging name cannot be constructed here because the segment id may not
+	// contain "/" (validated above) and the generation comes from the server.
+	generation, _ := s.genResolver.resolve(ctx, req.ContentId)
 	objKey := fmt.Sprintf("streams/%s/%s", req.ContentId, req.SegmentId)
+	if generation >= 1 {
+		objKey = fmt.Sprintf("streams/%s/g%d/%s", req.ContentId, generation, req.SegmentId)
+	}
 	if s.segStore == nil {
 		return nil, status.Error(codes.Unavailable, "segment storage not available")
 	}

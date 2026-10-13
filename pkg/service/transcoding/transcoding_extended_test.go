@@ -466,7 +466,7 @@ func TestTranscodingService_uploadSegments_WithConcurrency(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(dir+"/index.m3u8", []byte("#EXTM3U"), 0o644))
 
-	err := svc.uploadSegments(context.Background(), dir, "content-conc", "720p")
+	err := svc.uploadSegments(context.Background(), dir, "content-conc", "720p", 0)
 	require.NoError(t, err)
 }
 

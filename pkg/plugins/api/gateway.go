@@ -129,6 +129,7 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 		SegmentStorage:     resources.SegmentStorage,
 		UploadService:      resources.UploadService,
 		TranscodingSvc:     resources.TranscodingSvc,
+		GenerationResolver: resources.GenerationResolver,
 	}
 	p.healthCtx, p.healthCancel = context.WithCancel(context.Background())
 	p.grpcServer = gateway.SetupGRPCServer(p.healthCtx, p.config, p.logger, grpcServices)
