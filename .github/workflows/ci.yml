@@ -258,7 +258,7 @@ jobs:
         run: go test -tags=anvil -race -count=1 ./test/integration/web3/...
 
   docker:
-    name: Docker Build
+    name: Candidate Image (build once, scan this digest)
     runs-on: ubuntu-latest
     # Every upstream gate must pass before a candidate image is built. The
     # previous `if: always() && needs.build… && needs.security…` let this job
@@ -270,6 +270,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Build monolith image
+        id: build-monolith
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -277,8 +278,37 @@ jobs:
           push: false
           load: true
           tags: streamgate-monolith:ci
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The image built above is THE candidate: this scan consumes exactly the
+      # digest that was smoke-tested, so the gate cannot drift from the build
+      # (build.yml previously rebuilt a separate image to scan it, and only on
+      # non-PR events — PRs were never scanned at all).
+      - name: Run Trivy vulnerability scanner (same digest as smoke)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-monolith:ci
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          # Blocking gate: ANY CRITICAL/HIGH fails the job, patched or not.
+          # Scanner failure also fails the job (plan SG-02 step 5).
+          exit-code: '1'
+
+      - name: Generate SBOM (same digest as smoke)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-monolith:ci
+          format: 'spdx'
+          output: 'sbom-monolith.spdx'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-monolith-${{ github.sha }}
+          path: sbom-monolith.spdx
 
       - name: Smoke test monolith (real readiness, not "file exists")
         run: |
@@ -401,8 +431,27 @@ jobs:
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
 
+      - name: Build the linux binaries the .quick images COPY
+        # The fullchain compose builds monolith/api-gateway from the .quick
+        # Dockerfiles, which COPY prebuilt linux binaries instead of compiling.
+        # On a clean checkout those binaries do not exist, so `up --build`
+        # failed; building them here (same commands the local Makefile uses)
+        # makes the job reproducible on a fresh runner.
+        run: |
+          set -euo pipefail
+          GOOS=linux GOARCH=amd64 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
+          GOOS=linux GOARCH=amd64 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
+
       - name: Build and start the stack from this checkout
-        run: docker compose -f docker-compose.fullchain.yml up -d --build
+        # Only the services the acceptance needs: the app, the isolated
+        # transcoder worker and their dependencies (pulled in via
+        # depends_on). Starting every service in the compose file would build
+        # all 9 microservice images from source on every run.
+        # The acceptance script addresses services by fixed container name
+        # (sg-fc-postgres / sg-fc-redis / sg-fc-transcoder), so container_name
+        # fields — not the project name — are what it finds; teardown below
+        # removes only this run's containers/networks/volumes.
+        run: docker compose -f docker-compose.fullchain.yml up -d --build monolith transcoder api-gateway
 
       - name: Wait for the stack to be health-ready (120s budget)
         run: |
@@ -426,6 +475,22 @@ jobs:
         run: |
           # Stage budgets live in the script: 180s transcode, 90s browser.
           bash scripts/fullchain-acceptance.sh http://localhost:18080
+
+      - name: Full-chain acceptance against the api-gateway deployment mode
+        # The same script must pass through the gateway wiring so the two
+        # deployment modes cannot drift (SG-05 step 7). The gateway does not
+        # host the H5 static page and this job runs no separate h5-demo
+        # container, so the demo URL points at the monolith's built-in copy.
+        env:
+          PW_CHANNEL: ""
+          H5_DEMO_URL: http://localhost:18080/demo/
+        run: |
+          deadline=$((SECONDS + 60))
+          until curl -sf http://localhost:28080/health >/dev/null 2>&1; do
+            [ "$SECONDS" -ge "$deadline" ] && { echo "::error::api-gateway not healthy"; docker logs sg-fc-api-gateway || true; exit 1; }
+            sleep 3
+          done
+          bash scripts/fullchain-acceptance.sh http://localhost:28080
 
       - name: Collect redacted diagnostics on failure
         if: failure()
