@@ -122,6 +122,101 @@ var (
 		},
 		[]string{"mode"},
 	)
+
+	// SG-07 metric families. Label sets are deliberately low-cardinality:
+	// NO wallet address, NO full content ID, NO token, NO session ID, NO
+	// private key ever becomes a label (see TestMonitoring_NoHighCardinalityLabels).
+	// rule_version is the gating-rule revision, bounded by rule edits.
+
+	// GateDecisionTotal counts NFT-gate allow/deny decisions per rule version.
+	// WIRING POINT (not yet wired; pkg/middleware/nft_gate.go is out of scope for
+	// SG-07 code changes): where the gate reaches its verdict, call
+	// monitoring.GateDecisionTotal.WithLabelValues(decision, reason, ruleVersion).Inc()
+	// with decision ∈ {"allow","deny"}, reason a short enum (no_error_text),
+	// ruleVersion the resolved rule's version string.
+	GateDecisionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_gate_decisions_total",
+			Help: "NFT gate decisions by outcome, reason and gating-rule version (SG-07)",
+		},
+		[]string{"decision", "reason", "rule_version"},
+	)
+
+	// QueueMessageAgeSeconds observes publish→consume latency on the media task
+	// queue. WIRING POINT (pkg/storage/nats_queue.go, out of scope): on message
+	// delivery call
+	// monitoring.QueueMessageAgeSeconds.WithLabelValues(queue).Observe(age.Seconds()).
+	QueueMessageAgeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_queue_message_age_seconds",
+			Help:    "Media task queue message age from publish to delivery (SG-07)",
+			Buckets: []float64{0.1, 0.5, 1, 5, 15, 60, 300},
+		},
+		[]string{"queue"},
+	)
+
+	// QueueAttemptsTotal counts queue delivery outcomes. outcome ∈
+	// {"delivered","redelivered","dlq"} — never a message ID.
+	// WIRING POINT (pkg/storage/nats_queue.go, out of scope): increment on
+	// successful ack, on redelivery, and on dead-lettering.
+	QueueAttemptsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_queue_attempts_total",
+			Help: "Media task queue delivery attempts by outcome (SG-07)",
+		},
+		[]string{"queue", "outcome"},
+	)
+
+	// TranscodingTasksTotal counts transcoding task results. outcome ∈
+	// {"succeeded","failed","cancelled"}.
+	// WIRING POINT (pkg/service/transcoding/transcoding.go, out of scope):
+	// increment where a task terminal state is recorded.
+	TranscodingTasksTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_transcoding_tasks_total",
+			Help: "Transcoding tasks by terminal outcome (SG-07)",
+		},
+		[]string{"outcome", "profile"},
+	)
+
+	// TranscodingRTF records transcoding real-time factor (processing time /
+	// media duration). Profile label bounds cardinality; never content IDs.
+	// WIRING POINT (pkg/service/transcoding/transcoding.go, out of scope):
+	// observe rtf where a task finishes, before its terminal-state record.
+	TranscodingRTF = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_transcoding_rtf",
+			Help:    "Transcoding real-time factor: processing seconds per media second (SG-07)",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16},
+		},
+		[]string{"profile"},
+	)
+
+	// MediaBytesTotal counts delivered media payload bytes. resource ∈
+	// {"manifest","segment"}.
+	// WIRING POINT (pkg/service/streamingsvc/streaming.go or the streaming
+	// handlers in pkg/gateway, out of scope): add the written body size after a
+	// successful manifest/segment response.
+	MediaBytesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "streamgate_media_bytes_total",
+			Help: "Media payload bytes delivered by resource type (SG-07)",
+		},
+		[]string{"resource"},
+	)
+
+	// MediaTTFBSeconds observes time-to-first-byte of manifest/segment responses.
+	// resource ∈ {"manifest","segment"}.
+	// WIRING POINT (streaming handlers in pkg/gateway, out of scope): observe
+	// time from request start to first response byte written.
+	MediaTTFBSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_media_ttfb_seconds",
+			Help:    "Time to first byte of media responses (SG-07)",
+			Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5},
+		},
+		[]string{"resource"},
+	)
 )
 
 func init() {
@@ -143,6 +238,13 @@ func init() {
 		EventIndexerReorgsTotal,
 		EventIndexerCurrentBlock,
 		EventIndexerIndexDuration,
+		GateDecisionTotal,
+		QueueMessageAgeSeconds,
+		QueueAttemptsTotal,
+		TranscodingTasksTotal,
+		TranscodingRTF,
+		MediaBytesTotal,
+		MediaTTFBSeconds,
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	} {

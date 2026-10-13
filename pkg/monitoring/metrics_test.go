@@ -1,10 +1,12 @@
 package monitoring
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -213,4 +215,52 @@ func TestRPCProviderFromURL(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// TestMonitoring_NoHighCardinalityLabels guards the SG-07 requirement that no
+// Prometheus label ever carries a wallet address, full content ID, token,
+// session ID or private key — those are per-request values and would explode
+// series cardinality (and leak sensitive material into the metrics endpoint).
+// Any metric registered in this process (including every family in
+// metrics.go / prometheus.go) must use only bounded label names.
+func TestMonitoring_NoHighCardinalityLabels(t *testing.T) {
+	// Exercise the SG-07 families once so every child series exists and its
+	// labels are gathered, then scan ALL gathered families.
+	GateDecisionTotal.WithLabelValues("allow", "rule_ok", "7").Inc()
+	GateDecisionTotal.WithLabelValues("deny", "not_owner", "7").Inc()
+	QueueMessageAgeSeconds.WithLabelValues("transcode").Observe(0.5)
+	QueueAttemptsTotal.WithLabelValues("transcode", "delivered").Inc()
+	QueueAttemptsTotal.WithLabelValues("transcode", "redelivered").Inc()
+	QueueAttemptsTotal.WithLabelValues("transcode", "dlq").Inc()
+	TranscodingTasksTotal.WithLabelValues("succeeded", "360p").Inc()
+	TranscodingTasksTotal.WithLabelValues("failed", "360p").Inc()
+	TranscodingRTF.WithLabelValues("360p").Observe(0.8)
+	MediaBytesTotal.WithLabelValues("segment").Add(1024)
+	MediaBytesTotal.WithLabelValues("manifest").Add(512)
+	MediaTTFBSeconds.WithLabelValues("segment").Observe(0.02)
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	forbiddenFragments := []string{
+		"wallet", "contentid", "content_id", "token", "session", "privatekey",
+		"private_key", "secret", "apikey", "api_key", "address", "fingerprint",
+		"jti", "nonce",
+	}
+
+	checked := 0
+	for _, fam := range families {
+		for _, m := range fam.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				label := strings.ToLower(lp.GetName())
+				for _, frag := range forbiddenFragments {
+					assert.NotContains(t, label, frag,
+						"metric %q uses high-cardinality/sensitive label %q (fragment %q)",
+						fam.GetName(), lp.GetName(), frag)
+				}
+				checked++
+			}
+		}
+	}
+	assert.Greater(t, checked, 0, "expected to have inspected at least one label")
 }
