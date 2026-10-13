@@ -46,7 +46,7 @@ Tests that validate performance characteristics and ensure the system meets perf
 - `TestMetricsCollection` - Validates metrics collection performance (3000 ops in < 100ms)
 - `TestCachePerformance` - Validates cache hit rate (> 95%) and latency (< 10ms)
 - `TestRateLimitingPerformance` - Validates rate limiting overhead (< 50ms for 10k checks)
-- `TestConcurrentRequests` - Simulates 100 concurrent workers with 10k requests
+- `TestConcurrentRequests` (alias of `TestConcurrentRequests_SchedulerSimulation`) — **scheduler simulation only**: "requests" are `time.Sleep`, not real HTTP. Its throughput/latency numbers measure goroutine scheduling on the test machine and are **NOT** QPS or playback-concurrency evidence (TRANSITION_PLAN.md SG-07). Real authorized-media load lives in `test/load/` (build tag `load`).
 - `TestMemoryUsage` - Validates memory efficiency (~1.4MB per 1000 entries)
 - `TestPrometheusExportPerformance` - Validates Prometheus export speed (< 100ms)
 - `TestDistributedTracingPerformance` - Validates tracing overhead (< 100µs per span)
@@ -279,13 +279,19 @@ go test -v ./test/... || exit 1
 
 ## Performance Targets
 
-| Metric | Target | Achieved | Status |
-|--------|--------|----------|--------|
-| API response time (P95) | < 200ms | < 100ms | ✅ |
-| Cache hit rate | > 80% | > 95% | ✅ |
-| Error rate | < 1% | < 0.5% | ✅ |
-| Throughput | > 1000 req/sec | > 5000 req/sec | ✅ |
-| Concurrent users | > 1000 | > 10000 | ✅ |
+Real, reproducible numbers come only from `test/load/` (build tag `load`) run against
+the Docker fullchain stack by `scripts/perf-acceptance.sh` — each run writes a JSON
+result (commit, fixture hash, success/bytes, TTFB, p50/p95/p99). **No real load
+numbers are asserted here**: the former table quoted the sleep-based
+`TestConcurrentRequests` scheduler simulation as "Throughput > 5000 req/sec" — that
+was never HTTP throughput and is not evidence (TRANSITION_PLAN.md SG-07: "绝对延迟先测再承诺，不预填 QPS").
+
+| Metric | Target | Measured | Evidence |
+|--------|--------|----------|----------|
+| Success rate @ 50 viewers (healthy + fallback) | ≥ 99% | pending live run | `test/load` JSON under `/tmp` |
+| Media byte/hash validation | 100% correct | pending live run | `test/load` JSON (`total_bytes`, per-request sha256) |
+| p95 regression vs reference | ≤ +20% | pending reference run | `test/load` JSON, same runner/fixture |
+| Scheduler-sim overhead (sleep test) | sanity only | n/a | **not** throughput evidence |
 
 ## Security Audit Checklist
 

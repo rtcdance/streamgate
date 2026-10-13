@@ -74,8 +74,17 @@ func TestRateLimitingPerformance(t *testing.T) {
 	t.Logf("Rate limiting performance: %.0f checks/sec, %d allowed", throughput, allowed)
 }
 
-// TestConcurrentRequests simulates concurrent request handling
-func TestConcurrentRequests(t *testing.T) {
+// TestConcurrentRequests is a SCHEDULER SIMULATION, NOT a throughput measurement.
+//
+// IMPORTANT (TRANSITION_PLAN.md SG-07): this test "handles" every request with a
+// time.Sleep and never performs any real HTTP request, storage read, NFT check or
+// media byte transfer. The numbers it prints (throughput, latency percentiles)
+// measure ONLY how fast goroutines can be scheduled on this machine — they are
+// NOT QPS, NOT playback concurrency, and MUST NOT be quoted as performance
+// evidence anywhere (resume, docs, dashboards, CI). Real authorized-media
+// throughput is measured by the HTTP load harness in test/load (build tag
+// `load`) against a running stack.
+func TestConcurrentRequests_SchedulerSimulation(t *testing.T) {
 	metrics := &PerformanceMetrics{}
 	concurrency := 100
 	requestsPerWorker := 100
@@ -151,6 +160,14 @@ func TestConcurrentRequests(t *testing.T) {
 	t.Logf("  Latency: min=%v, avg=%v, p50=%v, p95=%v, p99=%v, max=%v",
 		metrics.MinLatency, metrics.AvgLatency, metrics.P50Latency,
 		metrics.P95Latency, metrics.P99Latency, metrics.MaxLatency)
+	t.Logf("  NOTE: these are scheduler-simulation numbers (sleep-based), NOT real HTTP throughput — see the test doc comment")
+}
+
+// TestConcurrentRequests keeps the historical test name runnable as an alias of
+// the scheduler simulation. See TestConcurrentRequests_SchedulerSimulation:
+// its numbers are NOT throughput evidence.
+func TestConcurrentRequests(t *testing.T) {
+	TestConcurrentRequests_SchedulerSimulation(t)
 }
 
 // TestPrometheusExportPerformance validates Prometheus metrics performance

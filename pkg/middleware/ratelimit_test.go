@@ -364,6 +364,92 @@ func TestDefaultRateLimitConfig(t *testing.T) {
 	assert.Equal(t, time.Minute, cfg.WindowSize)
 }
 
+func TestMemoryRateLimiter_RetryAfter(t *testing.T) {
+	cfg := RateLimitConfig{RequestsPerMinute: 1, WindowSize: time.Minute, CleanupInterval: 5 * time.Minute}
+	rl := newMemoryRateLimiter(cfg)
+	defer rl.Stop()
+
+	// Before any window exists the conservative wait is the whole window.
+	assert.Equal(t, cfg.WindowSize, rl.RetryAfter(context.Background(), "no-window"))
+
+	assert.True(t, rl.Allow(context.Background(), "key"))
+	assert.False(t, rl.Allow(context.Background(), "key"))
+
+	ra := rl.RetryAfter(context.Background(), "key")
+	assert.Greater(t, ra, time.Duration(0))
+	assert.LessOrEqual(t, ra, cfg.WindowSize)
+}
+
+func TestRedisRateLimiter_RetryAfter(t *testing.T) {
+	cfg := RateLimitConfig{RequestsPerMinute: 1, WindowSize: time.Minute, CleanupInterval: 5 * time.Minute}
+	fallback := newMemoryRateLimiter(cfg)
+	defer fallback.Stop()
+	client := &mockRedisClient{
+		evalFn: func(_ context.Context, _ string, _ []string, _ ...interface{}) *redis.Cmd {
+			return redis.NewCmdResult(int64(0), nil)
+		},
+	}
+	rl := newRedisRateLimiter(cfg, client, fallback)
+	rl.Stop()
+
+	ra := rl.RetryAfter(context.Background(), "key")
+	assert.Greater(t, ra, time.Duration(0))
+	assert.LessOrEqual(t, ra, cfg.WindowSize)
+}
+
+// stubLimiterWithoutRetryAfter implements RateLimiter but not retryAfterer, to
+// verify writeRateLimitResponse degrades gracefully (no Retry-After header).
+type stubLimiterWithoutRetryAfter struct{}
+
+func (stubLimiterWithoutRetryAfter) Allow(context.Context, string) bool { return false }
+func (stubLimiterWithoutRetryAfter) Stop()                              {}
+
+func TestWriteRateLimitResponse_NoRetryAfterWhenLimiterLacksCapability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+
+	writeRateLimitResponse(c, stubLimiterWithoutRetryAfter{}, "key")
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Empty(t, w.Header().Get("Retry-After"))
+}
+
+func TestRateLimitMiddleware_RetryAfterHeaderOn429(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := RateLimitConfig{RequestsPerMinute: 1, WindowSize: time.Minute, CleanupInterval: 5 * time.Minute}
+	rl, handler := (&Service{rateLimiter: NewRateLimiter(cfg, nil)}).RateLimitMiddlewareWithConfig(cfg)
+	defer rl.Stop()
+
+	router := gin.New()
+	router.Use(handler)
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	makeRequest := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+		req.RemoteAddr = "10.0.0.9:8080"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	assert.Equal(t, http.StatusOK, makeRequest().Code)
+	w := makeRequest()
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+
+	retryAfter := w.Header().Get("Retry-After")
+	assert.NotEmpty(t, retryAfter, "429 response must carry Retry-After (SG-07 precondition)")
+	secs := 0
+	_, err := fmt.Sscanf(retryAfter, "%d", &secs)
+	assert.NoError(t, err, "Retry-After must be an integer number of seconds, got %q", retryAfter)
+	assert.GreaterOrEqual(t, secs, 1)
+	assert.LessOrEqual(t, secs, int(cfg.WindowSize.Seconds()))
+}
+
 func BenchmarkMemoryRateLimiter_Allow(b *testing.B) {
 	rl := newMemoryRateLimiter(DefaultRateLimitConfig())
 	defer rl.Stop()
