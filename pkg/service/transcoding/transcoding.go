@@ -583,6 +583,9 @@ func (s *TranscodingService) settleTerminal(ctx context.Context, task *Transcodi
 			s.nak(handle, nakBusyDelay, log)
 			return
 		}
+		// Terminal: whatever this task staged never became visible; clean its
+		// own generation only, best-effort.
+		s.cleanupTaskStaging(ctx, task.ID)
 	}
 	if s.queue != nil {
 		if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil {
@@ -1249,10 +1252,19 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 		return s.recordProcessFailure(taskCtx, task, err)
 	}
 
-	// Upload segments to object storage
+	// Upload segments to object storage under this task's generation-private
+	// staging prefix. Nothing is visible to the player until the generation is
+	// published inside the lease-guarded completion transaction.
 	if s.storage != nil {
-		if err := s.uploadSegments(taskCtx, outputDir, task.ContentID, task.Profile); err != nil {
+		generation, genErr := s.ensureOutputGeneration(taskCtx, task)
+		if genErr != nil {
+			return s.recordProcessFailure(taskCtx, task, fmt.Errorf("failed to allocate output generation: %w", genErr))
+		}
+		if err := s.uploadSegments(taskCtx, outputDir, task.ContentID, task.Profile, generation); err != nil {
 			return s.recordProcessFailure(taskCtx, task, fmt.Errorf("failed to upload segments: %w", err))
+		}
+		if err := s.validateGenerationArtifacts(taskCtx, task.ContentID, generation); err != nil {
+			return s.recordProcessFailure(taskCtx, task, err)
 		}
 
 		s.extractAndUploadThumbnail(taskCtx, inputPath, task.ContentID)
@@ -1319,8 +1331,188 @@ func (s *TranscodingService) recordProcessFailure(ctx context.Context, task *Tra
 	return cause
 }
 
-// uploadSegments walks the output directory and uploads all files to MinIO
-func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, contentID, profile string) error {
+// ensureOutputGeneration returns the artifact generation this task writes to,
+// allocating max(output_generation)+1 for the content the first time it is
+// needed. The allocation is persisted, so every retry of the SAME task reuses
+// its staging prefix instead of leaking a new one per attempt, while a new task
+// for the same content always gets a fresh generation — identical input with a
+// different profile or transcoder version therefore lands at a different
+// artifact identity. The contents row is locked for the read-modify-write so
+// two concurrent tasks of one content cannot allocate the same generation.
+// Without a DB (demo profile) there is no publish state to switch, so the
+// legacy flat layout (generation 0) is kept.
+func (s *TranscodingService) ensureOutputGeneration(ctx context.Context, task *TranscodingTask) (int64, error) {
+	if s.db == nil {
+		task.OutputGeneration = 0
+		return 0, nil
+	}
+	var generation int64
+	err := s.db.QueryRow(ctx, "SELECT output_generation FROM transcoding_tasks WHERE id = $1", task.ID).Scan(&generation)
+	if err == nil && generation > 0 {
+		task.OutputGeneration = generation
+		return generation, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("read output generation: %w", err)
+	}
+
+	allocErr := s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		// Lock the content row so concurrent tasks of the same content
+		// serialize their max+1 allocation. A missing row (content deleted
+		// mid-flight) just means there is nothing to publish later, so the
+		// allocation proceeds without the lock.
+		var lockID string
+		if lerr := tx.QueryRowContext(ctx, "SELECT id FROM contents WHERE id = $1 FOR UPDATE", task.ContentID).Scan(&lockID); lerr != nil && !errors.Is(lerr, sql.ErrNoRows) {
+			return fmt.Errorf("lock content for generation allocation: %w", lerr)
+		}
+		var next int64
+		if merr := tx.QueryRowContext(ctx,
+			"SELECT COALESCE(MAX(output_generation), 0) FROM transcoding_tasks WHERE content_id = $1",
+			task.ContentID).Scan(&next); merr != nil {
+			return fmt.Errorf("read max output generation: %w", merr)
+		}
+		next++
+		if uerr := tx.QueryRowContext(ctx,
+			"UPDATE transcoding_tasks SET output_generation = $2 WHERE id = $1 AND output_generation = 0 RETURNING output_generation",
+			task.ID, next).Scan(&generation); uerr != nil {
+			if errors.Is(uerr, sql.ErrNoRows) {
+				// Already allocated by an earlier attempt: re-read below.
+				return nil
+			}
+			return fmt.Errorf("allocate output generation: %w", uerr)
+		}
+		return nil
+	})
+	if allocErr != nil {
+		return 0, allocErr
+	}
+	if generation < 1 {
+		if rerr := s.db.QueryRow(ctx, "SELECT output_generation FROM transcoding_tasks WHERE id = $1", task.ID).Scan(&generation); rerr != nil {
+			return 0, fmt.Errorf("re-read output generation: %w", rerr)
+		}
+	}
+	task.OutputGeneration = generation
+	return generation, nil
+}
+
+// validateGenerationArtifacts verifies that a fully uploaded generation holds
+// at least one playlist and one segment before it may ever be published. The
+// check reads the store rather than the upload bookkeeping, so a silently
+// dropped object or a partial upload fails the task instead of becoming
+// visible. Generation 0 (legacy flat / demo) has no staging prefix and no
+// publish switch, so there is nothing to validate.
+func (s *TranscodingService) validateGenerationArtifacts(ctx context.Context, contentID string, generation int64) error {
+	if generation < 1 {
+		return nil
+	}
+	keys, err := s.storage.ListObjects(ctx, "streamgate", fmt.Sprintf("streams/%s/g%d/", contentID, generation))
+	if err != nil {
+		return fmt.Errorf("failed to verify generation %d artifacts: %w", generation, err)
+	}
+	var playlists, segments int
+	for _, key := range keys {
+		switch {
+		case strings.HasSuffix(key, ".m3u8"):
+			playlists++
+		case strings.HasSuffix(key, ".ts"):
+			segments++
+		}
+	}
+	if playlists == 0 || segments == 0 {
+		return fmt.Errorf("generation %d incomplete: %d playlists and %d segments listed, at least one of each required",
+			generation, playlists, segments)
+	}
+	return nil
+}
+
+// isGenerationDirName reports whether a key segment is a generation-private
+// staging directory ("g" followed by digits). Quality subdirectories are
+// resolutions or profile names and never take this shape.
+func isGenerationDirName(segment string) bool {
+	if len(segment) < 2 || segment[0] != 'g' {
+		return false
+	}
+	for i := 1; i < len(segment); i++ {
+		if segment[i] < '0' || segment[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// cleanupGenerationObjects deletes the artifacts of ONE generation for a
+// content: everything under streams/<cid>/g<N>/ when generation >= 1, or the
+// legacy flat objects (every first segment that is not a generation directory)
+// when generation == 0. Only this generation is ever touched — a failed or
+// unpublished task cleans its own staging and never the published generation.
+// Cleanup is best-effort: failures are logged and swallowed.
+func (s *TranscodingService) cleanupGenerationObjects(ctx context.Context, contentID string, generation int64) {
+	if s.storage == nil || contentID == "" {
+		return
+	}
+	const bucket = "streamgate"
+	prefix := fmt.Sprintf("streams/%s/", contentID)
+	keys, err := s.storage.ListObjects(ctx, bucket, prefix)
+	if err != nil {
+		if s.log != nil {
+			s.log.Warn("failed to list objects for generation cleanup",
+				zap.String("content_id", contentID), zap.Int64("generation", generation), zap.Error(err))
+		}
+		return
+	}
+	var removed int
+	for _, key := range keys {
+		rel := strings.TrimPrefix(key, prefix)
+		first := rel
+		if idx := strings.IndexByte(rel, '/'); idx >= 0 {
+			first = rel[:idx]
+		}
+		match := false
+		if generation >= 1 {
+			match = strings.HasPrefix(key, fmt.Sprintf("%sg%d/", prefix, generation))
+		} else {
+			match = !isGenerationDirName(first)
+		}
+		if !match {
+			continue
+		}
+		if derr := s.storage.Delete(ctx, bucket, key); derr != nil {
+			if s.log != nil {
+				s.log.Warn("failed to delete object during generation cleanup",
+					zap.String("key", key), zap.Error(derr))
+			}
+			continue
+		}
+		removed++
+	}
+	if removed > 0 && s.log != nil {
+		s.log.Info("cleaned generation objects",
+			zap.String("content_id", contentID), zap.Int64("generation", generation), zap.Int("deleted", removed))
+	}
+}
+
+// cleanupTaskStaging removes the staging prefix of a task that reached a
+// terminal failed state. It reads content and generation from Postgres so the
+// cleanup works for every terminal path, including redeliveries whose queue
+// payload predates the allocation. No-op when the task never staged anything.
+func (s *TranscodingService) cleanupTaskStaging(ctx context.Context, taskID string) {
+	if s.db == nil || s.storage == nil {
+		return
+	}
+	var contentID string
+	var generation int64
+	if err := s.db.QueryRow(ctx,
+		"SELECT content_id, output_generation FROM transcoding_tasks WHERE id = $1",
+		taskID).Scan(&contentID, &generation); err != nil || generation < 1 || contentID == "" {
+		return
+	}
+	s.cleanupGenerationObjects(ctx, contentID, generation)
+}
+
+// uploadSegments walks the output directory and uploads all files to MinIO.
+// generation >= 1 routes every object under the task's private staging prefix
+// streams/<cid>/g<generation>/; generation 0 keeps the legacy flat layout.
+func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, contentID, profile string, generation int64) error {
 	bucket := "streamgate"
 
 	type uploadJob struct {
@@ -1330,6 +1522,10 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 	}
 
 	abrMode := profile == "abr"
+	basePrefix := fmt.Sprintf("streams/%s", contentID)
+	if generation >= 1 {
+		basePrefix = fmt.Sprintf("streams/%s/g%d", contentID, generation)
+	}
 
 	var jobs []uploadJob
 	err := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
@@ -1347,7 +1543,7 @@ func (s *TranscodingService) uploadSegments(ctx context.Context, outputDir, cont
 		if abrMode {
 			subdir = extractResolutionPrefix(relPath)
 		}
-		objectKey := fmt.Sprintf("streams/%s/%s/%s", contentID, subdir, relPath)
+		objectKey := fmt.Sprintf("%s/%s/%s", basePrefix, subdir, relPath)
 
 		contentType := "application/octet-stream"
 		if strings.HasSuffix(path, ".m3u8") {
@@ -1899,7 +2095,11 @@ func (s *TranscodingService) StartTask(ctx context.Context, taskID string) error
 	return nil
 }
 
-// CompleteTask marks a task as completed
+// CompleteTask marks a task as completed. When the task carries an output
+// generation, the same lease-guarded transaction also performs THE publish:
+// contents.published_generation is switched forward to the validated staging
+// generation (never backward, never for a deleted content). Cleanup of the
+// superseded or unpublished artifacts happens best-effort after the commit.
 func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL string) error {
 	if s.db == nil {
 		return s.updateTask(taskID, func(task *TranscodingTask) {
@@ -1925,9 +2125,19 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 	// claimer (owner + generation) may complete the task.
 	lease := taskLeaseFrom(ctx)
 
-	return s.db.InTransaction(completeCtx, func(tx *sql.Tx) error {
-		var contentID string
-		if err := tx.QueryRowContext(ctx, "SELECT content_id FROM transcoding_tasks WHERE id = $1", taskID).Scan(&contentID); err != nil {
+	var (
+		contentID        string
+		profile          string
+		outputGeneration int64
+		didPublish       bool
+		prevGeneration   int64
+		publishedNow     int64
+		rowExists        bool
+	)
+
+	err := s.db.InTransaction(completeCtx, func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx, "SELECT content_id, profile, output_generation FROM transcoding_tasks WHERE id = $1", taskID).
+			Scan(&contentID, &profile, &outputGeneration); err != nil {
 			return fmt.Errorf("failed to get task: %w", err)
 		}
 
@@ -1964,6 +2174,42 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 		rows, _ := result.RowsAffected()
 		if rows == 0 {
 			return fmt.Errorf("task %s is not completable (state or lease changed)", taskID)
+		}
+
+		// THE publish: the staging generation becomes the served generation in
+		// one row flip, inside the same transaction as the lease-guarded
+		// completion. It is monotonically forward-only (a slower, older task
+		// never republished over a newer generation) and conditional on the
+		// content still existing — deleting the content makes this a no-op, so
+		// an in-flight worker cannot resurrect it.
+		if contentID != "" && outputGeneration >= 1 {
+			pubErr := tx.QueryRowContext(ctx, `
+				WITH prev AS (SELECT published_generation AS g FROM contents WHERE id = $1 FOR UPDATE)
+				UPDATE contents c
+				SET published_generation = $2, published_profile = $3, updated_at = NOW()
+				FROM prev
+				WHERE c.id = $1 AND prev.g < $2
+				RETURNING prev.g`, contentID, outputGeneration, profile).Scan(&prevGeneration)
+			switch {
+			case pubErr == nil:
+				didPublish = true
+			case errors.Is(pubErr, sql.ErrNoRows):
+				// No row to switch (content deleted) or already at/after this
+				// generation: publish is a deliberate no-op.
+			default:
+				return fmt.Errorf("failed to publish generation: %w", pubErr)
+			}
+			// Read the post-switch state: it tells the caller which generation
+			// is (still) published when the flip above was a no-op, and whether
+			// the content row exists at all.
+			switch perr := tx.QueryRowContext(ctx, "SELECT published_generation FROM contents WHERE id = $1", contentID).Scan(&publishedNow); {
+			case perr == nil:
+				rowExists = true
+			case errors.Is(perr, sql.ErrNoRows):
+				rowExists = false
+			default:
+				return fmt.Errorf("failed to read published generation: %w", perr)
+			}
 		}
 
 		if contentID != "" {
@@ -2009,6 +2255,27 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Post-commit, best-effort cleanup. Only ever this task's own artifacts or
+	// the generation it superseded — never anything else.
+	if outputGeneration >= 1 && s.storage != nil {
+		if didPublish {
+			// The superseded generation (0 = legacy flat layout) is no longer
+			// resolvable by any player; drop it.
+			s.cleanupGenerationObjects(ctx, contentID, prevGeneration)
+		} else if !rowExists || publishedNow != outputGeneration {
+			// Publish was a no-op: the content row is gone, or a newer
+			// generation already superseded this one, so this generation was
+			// never visible — drop it. When publishedNow == outputGeneration a
+			// sibling task published this very generation; keeping it is what
+			// the equality check above preserves.
+			s.cleanupGenerationObjects(ctx, contentID, outputGeneration)
+		}
+	}
+	return nil
 }
 
 // FailTask marks a task as failed
@@ -2034,6 +2301,9 @@ func (s *TranscodingService) FailTask(ctx context.Context, taskID, errorMsg stri
 	if rowsAffected == 0 {
 		return fmt.Errorf("task not in a failable state: %s", taskID)
 	}
+	// Terminal: whatever this task staged never became visible, so clean its
+	// own generation only.
+	s.cleanupTaskStaging(failCtx, taskID)
 	return nil
 }
 

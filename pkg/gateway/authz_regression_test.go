@@ -208,8 +208,8 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 		Cache: &NFTAccessCacheAdapter{Cache: NewNFTAccessCache()},
 	}
 	g.Use(middleware.NFTGateMiddleware(&gateCfg, log))
-	RegisterStreamingSegmentRoute(g, log, authSvc, store, lim, cache, "streamgate")
-	RegisterStreamingRoutes(g, log, authSvc, nil, store, lim, cache, "streamgate")
+	RegisterStreamingSegmentRoute(g, log, authSvc, store, lim, cache, nil, "streamgate")
+	RegisterStreamingRoutes(g, log, authSvc, nil, store, lim, cache, nil, "streamgate")
 
 	return r
 }

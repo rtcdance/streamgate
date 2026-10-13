@@ -3,6 +3,8 @@ package gateway
 import (
 	"container/list"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +19,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/service"
 	streamingsvc "github.com/rtcdance/streamgate/pkg/service/streamingsvc"
+	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -27,6 +30,9 @@ type manifestCacheEntry struct {
 	manifest   string
 	expiresAt  time.Time
 	walletAddr string // bound to issuing wallet to prevent cross-user token reuse
+	// generation is the published artifact generation this manifest was built
+	// from; a publish switch invalidates the entry by mismatch.
+	generation int64
 }
 
 type segmentIndexEntry struct {
@@ -38,14 +44,83 @@ type segmentIndexEntry struct {
 	playlists map[string]string
 	masterKey string
 	expiresAt time.Time
+	// generation is the published artifact generation this index was listed
+	// from. An entry from another generation never satisfies a lookup, so a
+	// publish in another process is picked up within the resolver TTL even
+	// though the process-local PostTranscodeHook never ran there.
+	generation int64
 }
 
 const (
 	manifestCacheTTL     = 30 * time.Second
 	segmentIndexCacheTTL = 2 * time.Minute
-	maxManifestCacheSize = 10000
-	maxSegmentIndexSize  = 10000
+	// generationCacheTTL bounds how long one process may keep serving from a
+	// stale published generation after another process published a new one.
+	// It is deliberately short: the in-process PostTranscodeHook invalidates
+	// immediately, the TTL is only the cross-process backstop.
+	generationCacheTTL     = 5 * time.Second
+	maxManifestCacheSize   = 10000
+	maxSegmentIndexSize    = 10000
+	maxGenerationCacheSize = 1000
 )
+
+// PublishedGenerationResolver reports the currently published artifact
+// generation for a content (plus the profile that produced it, for callers
+// that care). Generation 0 means the legacy flat layout. A nil resolver, a
+// resolver error, or a missing content row all resolve to 0, which can only
+// ever reach the legacy flat keys — never a generation-private prefix.
+type PublishedGenerationResolver func(ctx context.Context, contentID string) (generation int64, profile string, err error)
+
+// generationResolver caches resolver answers for a short TTL so segment
+// requests do not query Postgres per segment while still noticing a publish
+// from another process within generationCacheTTL. Its methods are nil-safe so
+// a server constructed without a resolver keeps the legacy behaviour.
+type generationResolver struct {
+	fn      PublishedGenerationResolver
+	entries *lruCache[generationCacheEntry]
+}
+
+type generationCacheEntry struct {
+	generation int64
+	profile    string
+	expiresAt  time.Time
+}
+
+func newGenerationResolver(fn PublishedGenerationResolver) *generationResolver {
+	return &generationResolver{
+		fn:      fn,
+		entries: newLRUCache[generationCacheEntry](maxGenerationCacheSize, generationCacheTTL),
+	}
+}
+
+func (r *generationResolver) resolve(ctx context.Context, contentID string) (int64, string) {
+	if r == nil || r.fn == nil {
+		return 0, ""
+	}
+	if entry, ok := r.entries.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
+		return entry.generation, entry.profile
+	}
+	generation, profile, err := r.fn(ctx, contentID)
+	if err != nil || generation < 0 {
+		// Not cached: a transient failure must not pin generation 0 for the
+		// whole TTL. Generation 0 for this request can only serve legacy flat
+		// keys, so a lookup failure never exposes a staging path.
+		return 0, ""
+	}
+	r.entries.Set(contentID, generationCacheEntry{
+		generation: generation,
+		profile:    profile,
+		expiresAt:  time.Now().Add(generationCacheTTL),
+	})
+	return generation, profile
+}
+
+func (r *generationResolver) invalidate(contentID string) {
+	if r == nil {
+		return
+	}
+	r.entries.Delete(contentID)
+}
 
 type lruEntry[T any] struct {
 	key   string
@@ -115,6 +190,7 @@ func (c *lruCache[T]) Delete(key string) {
 type StreamingCache struct {
 	manifests  *lruCache[manifestCacheEntry]
 	segmentIdx *lruCache[segmentIndexEntry]
+	gens       *generationResolver
 	sfGroup    singleflight.Group
 }
 
@@ -122,30 +198,58 @@ func NewStreamingCache() *StreamingCache {
 	return &StreamingCache{
 		manifests:  newLRUCache[manifestCacheEntry](maxManifestCacheSize, manifestCacheTTL),
 		segmentIdx: newLRUCache[segmentIndexEntry](maxSegmentIndexSize, segmentIndexCacheTTL),
+		gens:       newGenerationResolver(nil),
 	}
 }
 
-func (sc *StreamingCache) GetManifest(contentID, wallet string) (string, bool) {
-	if entry, ok := sc.manifests.Get(contentID); ok && time.Now().Before(entry.expiresAt) && entry.walletAddr == wallet {
+// SetGenerationResolver wires the published-generation lookup for this cache.
+// It is called at route registration, before any traffic; a nil resolver keeps
+// every content at generation 0 (legacy flat layout, existing behaviour).
+func (sc *StreamingCache) SetGenerationResolver(fn PublishedGenerationResolver) {
+	if sc.gens == nil {
+		sc.gens = newGenerationResolver(fn)
+		return
+	}
+	sc.gens.fn = fn
+}
+
+// resolveGeneration returns the published generation for a content, through
+// the short-TTL cache. Nil-safe: no resolver means generation 0.
+func (sc *StreamingCache) resolveGeneration(ctx context.Context, contentID string) int64 {
+	if sc == nil || sc.gens == nil {
+		return 0
+	}
+	gen, _ := sc.gens.resolve(ctx, contentID)
+	return gen
+}
+
+func (sc *StreamingCache) GetManifest(contentID, wallet string, generation int64) (string, bool) {
+	if entry, ok := sc.manifests.Get(contentID); ok && time.Now().Before(entry.expiresAt) &&
+		entry.walletAddr == wallet && entry.generation == generation {
 		return entry.manifest, true
 	}
 	return "", false
 }
 
-func (sc *StreamingCache) SetManifest(contentID, manifest, wallet string) {
-	sc.manifests.Set(contentID, manifestCacheEntry{manifest: manifest, expiresAt: time.Now().Add(manifestCacheTTL), walletAddr: wallet})
+func (sc *StreamingCache) SetManifest(contentID, manifest, wallet string, generation int64) {
+	sc.manifests.Set(contentID, manifestCacheEntry{
+		manifest:   manifest,
+		expiresAt:  time.Now().Add(manifestCacheTTL),
+		walletAddr: wallet,
+		generation: generation,
+	})
 }
 
-func (sc *StreamingCache) GetSegmentIndex(contentID string) (map[string][]string, bool) {
-	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
+func (sc *StreamingCache) GetSegmentIndex(contentID string, generation int64) (map[string][]string, bool) {
+	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) && entry.generation == generation {
 		return entry.qualities, true
 	}
 	return nil, false
 }
 
-func (sc *StreamingCache) SetSegmentIndex(contentID string, qualities map[string][]string) {
-	entry := segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL)}
-	if existing, ok := sc.segmentIdx.Get(contentID); ok {
+func (sc *StreamingCache) SetSegmentIndex(contentID string, generation int64, qualities map[string][]string) {
+	entry := segmentIndexEntry{qualities: qualities, expiresAt: time.Now().Add(segmentIndexCacheTTL), generation: generation}
+	if existing, ok := sc.segmentIdx.Get(contentID); ok && existing.generation == generation {
 		entry.playlists = existing.playlists
 		entry.masterKey = existing.masterKey
 	}
@@ -154,8 +258,8 @@ func (sc *StreamingCache) SetSegmentIndex(contentID string, qualities map[string
 
 // GetStoredPlaylists returns the object keys of the playlists FFmpeg produced:
 // a quality→media-playlist map and, when present, the multivariant playlist.
-func (sc *StreamingCache) GetStoredPlaylists(contentID string) (map[string]string, string, bool) {
-	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
+func (sc *StreamingCache) GetStoredPlaylists(contentID string, generation int64) (map[string]string, string, bool) {
+	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) && entry.generation == generation {
 		if len(entry.playlists) > 0 || entry.masterKey != "" {
 			return entry.playlists, entry.masterKey, true
 		}
@@ -165,10 +269,10 @@ func (sc *StreamingCache) GetStoredPlaylists(contentID string) (map[string]strin
 
 // SetStoredPlaylists records the playlist object keys alongside the segment
 // index, so one listing serves both.
-func (sc *StreamingCache) SetStoredPlaylists(contentID string, playlists map[string]string, masterKey string) {
+func (sc *StreamingCache) SetStoredPlaylists(contentID string, generation int64, playlists map[string]string, masterKey string) {
 	entry, ok := sc.segmentIdx.Get(contentID)
-	if !ok {
-		entry = segmentIndexEntry{expiresAt: time.Now().Add(segmentIndexCacheTTL)}
+	if !ok || entry.generation != generation {
+		entry = segmentIndexEntry{generation: generation}
 	}
 	entry.playlists = playlists
 	entry.masterKey = masterKey
@@ -177,18 +281,24 @@ func (sc *StreamingCache) SetStoredPlaylists(contentID string, playlists map[str
 }
 
 // lookupSegmentIndex lists the object store once for a content and populates
-// both the segment index and the stored playlist keys. Concurrent callers share
-// one listing through the singleflight group; a failed listing yields an empty
-// index so the caller can treat the content as not ready.
-func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage service.SegmentStorage, bucket, contentID string) map[string][]string {
+// both the segment index and the stored playlist keys. The listing is scoped to
+// the PUBLISHED generation: generation 0 lists the legacy flat keys and skips
+// every generation-private directory (a mid-flight or failed staging prefix is
+// never indexed), generation >= 1 lists only under g<N>/. Concurrent callers
+// share one listing through the singleflight group; a failed listing yields an
+// empty index so the caller can treat the content as not ready.
+func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage service.SegmentStorage, bucket, contentID string, generation int64) map[string][]string {
 	if objStorage == nil {
 		return map[string][]string{}
 	}
-	v, err, _ := sc.sfGroup.Do("segidx:"+contentID, func() (interface{}, error) {
+	segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
+	if generation >= 1 {
+		segmentPrefix = fmt.Sprintf("streams/%s/g%d/", contentID, generation)
+	}
+	v, err, _ := sc.sfGroup.Do(fmt.Sprintf("segidx:%s:%d", contentID, generation), func() (interface{}, error) {
 		qs := make(map[string][]string)
 		pls := make(map[string]string)
 		master := ""
-		segmentPrefix := fmt.Sprintf("streams/%s/", contentID)
 		if objs, listErr := objStorage.ListObjects(ctx, bucket, segmentPrefix); listErr == nil {
 			for _, key := range objs {
 				rel := strings.TrimPrefix(key, segmentPrefix)
@@ -198,6 +308,11 @@ func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage ser
 				if len(parts) == 2 {
 					subdir = parts[0]
 					name = parts[1]
+				}
+				// A legacy listing must never index objects that live inside a
+				// generation-private directory.
+				if generation == 0 && isGenerationDirName(subdir) {
+					continue
 				}
 				switch {
 				case strings.HasSuffix(name, ".m3u8"):
@@ -222,10 +337,10 @@ func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage ser
 			}
 		}
 		if len(qs) > 0 {
-			sc.SetSegmentIndex(contentID, qs)
+			sc.SetSegmentIndex(contentID, generation, qs)
 		}
 		if len(pls) > 0 || master != "" {
-			sc.SetStoredPlaylists(contentID, pls, master)
+			sc.SetStoredPlaylists(contentID, generation, pls, master)
 		}
 		return qs, nil
 	})
@@ -235,9 +350,14 @@ func (sc *StreamingCache) lookupSegmentIndex(ctx context.Context, objStorage ser
 	return v.(map[string][]string)
 }
 
+// Invalidate drops every cached answer for a content, including the published
+// generation — the PostTranscodeHook calls this right after a publish, so the
+// switching process serves the new generation immediately (other processes
+// notice within generationCacheTTL).
 func (sc *StreamingCache) Invalidate(contentID string) {
 	sc.manifests.Delete(contentID)
 	sc.segmentIdx.Delete(contentID)
+	sc.gens.invalidate(contentID)
 }
 
 type streamLimiter struct {
@@ -264,10 +384,14 @@ func (l *streamLimiter) release() {
 	<-l.sem
 }
 
-func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, bucket ...string) {
+// RegisterStreamingRoutes registers the manifest routes. genResolver is the
+// published-generation lookup; nil keeps every content at generation 0 (legacy
+// flat layout), which is also what existing callers get.
+func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, genResolver PublishedGenerationResolver, bucket ...string) {
 	if cache == nil {
 		cache = NewStreamingCache()
 	}
+	cache.SetGenerationResolver(genResolver)
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -304,6 +428,10 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			_ = claims
 		}
 
+		// Everything below resolves ONLY the published generation: a staging
+		// or failed generation is unreachable no matter what the caller knows.
+		generation := cache.resolveGeneration(c.Request.Context(), contentID)
+
 		if queryToken != "" && quality != "" {
 			playbackToken := queryToken
 
@@ -317,16 +445,16 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			}
 
 			var qualitySegments map[string][]string
-			if cached, ok := cache.GetSegmentIndex(contentID); ok {
+			if cached, ok := cache.GetSegmentIndex(contentID, generation); ok {
 				qualitySegments = cached
 			} else {
-				qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID)
+				qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID, generation)
 			}
 
 			// Prefer the playlist FFmpeg produced for this variant. The master
 			// rewrite points players here, so a synthesised answer on this path
 			// would still misstate the durations of every segment it lists.
-			storedPlaylists, masterKey, _ := cache.GetStoredPlaylists(contentID)
+			storedPlaylists, masterKey, _ := cache.GetStoredPlaylists(contentID, generation)
 			if serveStoredPlaylist(c, objStorage, segBucket, contentID, quality, playbackToken, storedPlaylists, masterKey) {
 				return
 			}
@@ -386,7 +514,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		playbackToken := generatedToken
 
-		if cached, ok := cache.GetManifest(contentID, wallet); ok {
+		if cached, ok := cache.GetManifest(contentID, wallet, generation); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
 			c.Header("Content-Type", "application/vnd.apple.mpegurl")
@@ -398,13 +526,13 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		var qualitySegments map[string][]string
 		var storedPlaylists map[string]string
 		var masterKey string
-		if cached, ok := cache.GetSegmentIndex(contentID); ok {
+		if cached, ok := cache.GetSegmentIndex(contentID, generation); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("segment_index").Inc()
 			qualitySegments = cached
-			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID)
+			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID, generation)
 		} else {
-			qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID)
-			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID)
+			qualitySegments = cache.lookupSegmentIndex(c.Request.Context(), objStorage, segBucket, contentID, generation)
+			storedPlaylists, masterKey, _ = cache.GetStoredPlaylists(contentID, generation)
 		}
 		if len(qualitySegments) == 0 && len(storedPlaylists) == 0 && masterKey == "" {
 			abortWithError(c, http.StatusNotFound, ErrContentNotFound, "content not ready; transcode may still be processing")
@@ -445,7 +573,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			return
 		}
 
-		cache.SetManifest(contentID, manifest, wallet)
+		cache.SetManifest(contentID, manifest, wallet, generation)
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
 		c.Header("Content-Type", "application/vnd.apple.mpegurl")
@@ -453,6 +581,32 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		c.String(http.StatusOK, rendered)
 	})
 	log.Info("Streaming routes registered")
+}
+
+// newPublishedGenerationResolver builds the generation lookup straight from
+// Postgres: contents.published_generation is the authority, read fresh on
+// every cache miss (the caches wrap it with a short TTL). A nil db yields a
+// nil resolver, which means generation 0 everywhere — the legacy flat layout.
+func newPublishedGenerationResolver(db storage.DB) PublishedGenerationResolver {
+	if db == nil {
+		return nil
+	}
+	return func(ctx context.Context, contentID string) (int64, string, error) {
+		var generation int64
+		var profile string
+		err := db.QueryRow(ctx,
+			"SELECT published_generation, published_profile FROM contents WHERE id = $1",
+			contentID).Scan(&generation, &profile)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Deleted (or never existing) content resolves to generation 0,
+			// which can only ever reach legacy flat keys — never staging.
+			return 0, "", nil
+		}
+		if err != nil {
+			return 0, "", err
+		}
+		return generation, profile, nil
+	}
 }
 
 // serveStoredPlaylist serves the playlist FFmpeg produced, with only its URIs
@@ -554,7 +708,14 @@ func setCapabilityResponseHeaders(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 }
 
-func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, bucket ...string) {
+// RegisterStreamingSegmentRoute registers the segment route. genResolver is
+// the published-generation lookup; nil keeps every content at generation 0
+// (legacy flat layout).
+func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authService *service.AuthService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, genResolver PublishedGenerationResolver, bucket ...string) {
+	if cache == nil {
+		cache = NewStreamingCache()
+	}
+	cache.SetGenerationResolver(genResolver)
 	segBucket := "streamgate"
 	if len(bucket) > 0 && bucket[0] != "" {
 		segBucket = bucket[0]
@@ -616,7 +777,10 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			return
 		}
 		if objStorage != nil {
-			candidates := buildSegmentCandidates(contentID, segName, quality, cache)
+			// Candidates are scoped to the published generation, so a guessed
+			// staging or failed name can never construct a readable key.
+			generation := cache.resolveGeneration(c.Request.Context(), contentID)
+			candidates := buildSegmentCandidates(contentID, segName, quality, cache, generation)
 
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 			defer cancel()
@@ -903,16 +1067,48 @@ func validateSegmentName(segName string) bool {
 	return true
 }
 
-func buildSegmentCandidates(contentID, segName, quality string, cache *StreamingCache) []segmentCandidate {
+// isGenerationDirName reports whether a key segment is a generation-private
+// staging directory ("g" followed by digits). Quality subdirectories are
+// resolutions or profile names and never take this shape, so treating such a
+// segment as off-limits cannot break a legitimate rendition.
+func isGenerationDirName(segment string) bool {
+	if len(segment) < 2 || segment[0] != 'g' {
+		return false
+	}
+	for i := 1; i < len(segment); i++ {
+		if segment[i] < '0' || segment[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// buildSegmentCandidates races the object keys a segment request may live
+// under, scoped to the PUBLISHED generation. Generation 0 keeps the legacy
+// candidate set (flat + quality directories), minus anything that would reach
+// into a generation-private directory; generation >= 1 only ever builds keys
+// under streams/<cid>/g<N>/, so a guessed staging/failed name resolves to
+// nothing.
+func buildSegmentCandidates(contentID, segName, quality string, cache *StreamingCache, generation int64) []segmentCandidate {
+	if generation >= 1 {
+		return buildPublishedGenerationCandidates(contentID, segName, quality, cache, generation)
+	}
+
 	candidates := []segmentCandidate{
 		{key: fmt.Sprintf("%s/%s", contentID, segName), prio: 0},
 	}
 	var qlist map[string][]string
-	if cached, ok := cache.GetSegmentIndex(contentID); ok {
+	if cached, ok := cache.GetSegmentIndex(contentID, generation); ok {
 		qlist = cached
 	}
 	if len(qlist) > 0 {
 		for q := range qlist {
+			// A quality that names a generation directory would construct a
+			// staging key; it can only come from the client, never from our
+			// own (filtered) listing.
+			if isGenerationDirName(q) {
+				continue
+			}
 			prio := 1
 			if q == quality {
 				prio = 2
@@ -923,7 +1119,7 @@ func buildSegmentCandidates(contentID, segName, quality string, cache *Streaming
 			})
 		}
 	} else {
-		if quality != "" {
+		if quality != "" && !isGenerationDirName(quality) {
 			candidates = append(candidates, segmentCandidate{
 				key:  fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName),
 				prio: 2,
@@ -933,6 +1129,50 @@ func buildSegmentCandidates(contentID, segName, quality string, cache *Streaming
 			key:  fmt.Sprintf("streams/%s/720p/%s", contentID, segName),
 			prio: 1,
 		})
+	}
+	return candidates
+}
+
+// buildPublishedGenerationCandidates builds candidates strictly inside
+// streams/<cid>/g<generation>/: the requested quality first, then every
+// quality the published generation's index or stored playlists know about.
+// Nothing outside that prefix is ever tried.
+func buildPublishedGenerationCandidates(contentID, segName, quality string, cache *StreamingCache, generation int64) []segmentCandidate {
+	base := fmt.Sprintf("streams/%s/g%d", contentID, generation)
+	var candidates []segmentCandidate
+	seen := make(map[string]bool)
+	add := func(subdir string, prio int) {
+		key := fmt.Sprintf("%s/%s/%s", base, subdir, segName)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		candidates = append(candidates, segmentCandidate{key: key, prio: prio})
+	}
+	if quality != "" && !isGenerationDirName(quality) {
+		add(quality, 2)
+	}
+	if qlist, ok := cache.GetSegmentIndex(contentID, generation); ok {
+		for q := range qlist {
+			prio := 1
+			if q == quality {
+				prio = 2
+			}
+			add(q, prio)
+		}
+	} else if playlists, _, ok := cache.GetStoredPlaylists(contentID, generation); ok {
+		for q := range playlists {
+			prio := 1
+			if q == quality {
+				prio = 2
+			}
+			add(q, prio)
+		}
+	}
+	if len(candidates) == 0 {
+		// Last resort, mirroring the legacy fallback: the default profile
+		// directory of this generation.
+		add("720p", 1)
 	}
 	return candidates
 }
