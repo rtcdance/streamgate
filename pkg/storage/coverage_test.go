@@ -624,8 +624,6 @@ func TestNATSQueue_Constants(t *testing.T) {
 	assert.Equal(t, "transcoding-worker", jsConsumerName)
 	assert.Equal(t, "TRANSCODING_DLQ", jsDLQStreamName)
 	assert.Equal(t, "streamgate.transcoding.dlq", jsDLQStreamSubject)
-	assert.Equal(t, 5, jsMaxDeliver)
-	assert.Equal(t, 30*time.Minute, msgStaleTimeout)
-	assert.Equal(t, 2*time.Hour, statusStaleTimeout)
-	assert.Equal(t, 5*time.Minute, cleanupInterval)
+	assert.Equal(t, -1, jsMaxDeliver)
+	assert.Equal(t, 30*time.Second, jsAckWait)
 }

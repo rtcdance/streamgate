@@ -274,7 +274,22 @@ func TestTranscodingService_Transcode(t *testing.T) {
 	})
 
 	t.Run("with db save", func(t *testing.T) {
+		globalFakeDB.reset(time.Now())
+		sqlDB, err := sql.Open(durabilityDriverName, "")
+		require.NoError(t, err)
+		defer func() { _ = sqlDB.Close() }()
 		db := &mockDB{
+			inTxFn: func(_ context.Context, fn func(tx *sql.Tx) error) error {
+				tx, err := sqlDB.Begin()
+				if err != nil {
+					return err
+				}
+				if err := fn(tx); err != nil {
+					_ = tx.Rollback()
+					return err
+				}
+				return tx.Commit()
+			},
 			execFn: func(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
 				return &mockResult{}, nil
 			},
@@ -284,12 +299,14 @@ func TestTranscodingService_Transcode(t *testing.T) {
 		taskID, err := svc.Transcode(context.Background(), "content-1", "720p", "https://example.com/input.mp4", 5, "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, taskID)
+		require.NotNil(t, globalFakeDB.task(taskID), "task row must be committed through the tx")
+		require.NotNil(t, globalFakeDB.outboxRow(models.OutboxKindTask, taskID), "enqueue intent must commit with the task")
 	})
 
 	t.Run("db save error", func(t *testing.T) {
 		db := &mockDB{
-			execFn: func(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
-				return nil, errors.New("db error")
+			inTxFn: func(_ context.Context, _ func(tx *sql.Tx) error) error {
+				return errors.New("db error")
 			},
 		}
 		queue := NewMemoryTranscodingQueue()
@@ -320,13 +337,14 @@ type failingQueue struct {
 }
 
 func (q *failingQueue) Enqueue(_ *models.TranscodingTask) error { return q.enqueueErr }
-func (q *failingQueue) Dequeue(_ context.Context) (*models.TranscodingTask, error) {
-	return nil, errors.New("empty")
+func (q *failingQueue) Dequeue(_ context.Context) (*models.TranscodingTask, models.DeliveryHandle, error) {
+	return nil, nil, errors.New("empty")
 }
-func (q *failingQueue) GetStatus(_ string) (string, error) { return "", nil }
-func (q *failingQueue) Ack(_ string) error                 { return nil }
-func (q *failingQueue) Nak(_ string) error                 { return nil }
-func (q *failingQueue) Depth() (int, error)                { return 0, nil }
+func (q *failingQueue) Ack(_ models.DeliveryHandle) error                  { return nil }
+func (q *failingQueue) Nak(_ models.DeliveryHandle, _ time.Duration) error { return nil }
+func (q *failingQueue) InProgress(_ models.DeliveryHandle) error           { return nil }
+func (q *failingQueue) PublishOutbox(_, _ string, _ []byte) error          { return nil }
+func (q *failingQueue) Depth() (int, error)                                { return 0, nil }
 
 func TestTranscodingService_InMemoryStatusFlow(t *testing.T) {
 	queue := NewMemoryTranscodingQueue()
@@ -609,10 +627,12 @@ func TestMemoryTranscodingQueue_EnqueueDequeue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	dequeued, err := q.Dequeue(ctx)
+	dequeued, handle, err := q.Dequeue(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "task-1", dequeued.ID)
 	assert.Equal(t, "720p", dequeued.Profile)
+	require.NotNil(t, handle)
+	assert.Equal(t, "task-1", handle.TaskID())
 
 	depth, _ = q.Depth()
 	assert.Equal(t, 0, depth)
@@ -623,29 +643,43 @@ func TestMemoryTranscodingQueue_DequeueCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := q.Dequeue(ctx)
+	_, _, err := q.Dequeue(ctx)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, context.Canceled))
 }
 
-func TestMemoryTranscodingQueue_GetStatus(t *testing.T) {
-	q := NewMemoryTranscodingQueue()
-
-	_, err := q.GetStatus("nonexistent")
-	require.Error(t, err)
-
-	task := &models.TranscodingTask{ID: "task-1", Status: "pending"}
-	_ = q.Enqueue(task)
-
-	status, err := q.GetStatus("task-1")
-	require.NoError(t, err)
-	assert.Equal(t, "pending", status)
-}
-
 func TestMemoryTranscodingQueue_AckNak(t *testing.T) {
 	q := NewMemoryTranscodingQueue()
-	assert.NoError(t, q.Ack("any"))
-	assert.NoError(t, q.Nak("any"))
+	// A handle that was never dequeued from this queue is rejected.
+	_, foreign, err := func() (*models.TranscodingTask, models.DeliveryHandle, error) {
+		task := &models.TranscodingTask{ID: "t-x", Status: "pending"}
+		require.NoError(t, q.Enqueue(task))
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		return q.Dequeue(ctx)
+	}()
+	require.NoError(t, err)
+	require.NoError(t, q.Ack(foreign))
+	// The settled delivery cannot be settled again.
+	require.Error(t, q.Ack(foreign))
+	require.Error(t, q.Nak(foreign, 0))
+}
+
+func TestMemoryTranscodingQueue_ForeignHandleRejected(t *testing.T) {
+	q := NewMemoryTranscodingQueue()
+	require.NoError(t, q.Enqueue(&models.TranscodingTask{ID: "t-1", Status: "pending"}))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, h1, err := q.Dequeue(ctx)
+	require.NoError(t, err)
+
+	other := NewMemoryTranscodingQueue()
+	require.NoError(t, other.Enqueue(&models.TranscodingTask{ID: "t-2", Status: "pending"}))
+	_, h2, err := other.Dequeue(ctx)
+	require.NoError(t, err)
+
+	require.Error(t, q.Ack(h2), "queue must not settle another queue's delivery")
+	require.Error(t, other.Ack(h1))
 }
 
 func TestMemoryTranscodingQueue_Depth(t *testing.T) {

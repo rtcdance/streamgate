@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/models"
@@ -20,34 +19,51 @@ const (
 	jsConsumerName     = "transcoding-worker"
 	jsDLQStreamName    = "TRANSCODING_DLQ"
 	jsDLQStreamSubject = "streamgate.transcoding.dlq"
-	jsMaxDeliver       = 5
-
-	msgStaleTimeout    = 30 * time.Minute
-	statusStaleTimeout = 2 * time.Hour
-	cleanupInterval    = 5 * time.Minute
+	// jsMaxDeliver is -1 (unlimited): the transport must not silently exhaust
+	// messages. The business cap (3 attempts) is enforced from the DB attempt
+	// counter, and terminal failure is settled through the explicit DLQ.
+	jsMaxDeliver = -1
+	// jsAckWait is the broker-side redelivery timer. It must be longer than the
+	// DB lease TTL (30s) so an in-flight worker heartbeats before redelivery.
+	jsAckWait = 30 * time.Second
+	// poisonRetryDelay is how long a poison message waits before the next
+	// attempt to publish it to the DLQ (publish failure leaves it redeliverable).
+	poisonRetryDelay = 5 * time.Second
 )
 
+// jsMessage is the slice of *nats.Msg the queue settles. It exists so tests can
+// verify that Ack/Nak/InProgress bind to the exact delivery without a live
+// JetStream (a bare *nats.Msg.Ack panics without a subscription).
+type jsMessage interface {
+	Ack(opts ...nats.AckOpt) error
+	NakWithDelay(delay time.Duration, opts ...nats.AckOpt) error
+	InProgress(opts ...nats.AckOpt) error
+	Term(opts ...nats.AckOpt) error
+}
+
+// natsDelivery is the per-delivery handle for the JetStream queue. Each
+// Dequeue call produces its own handle bound to its own message; there is no
+// taskID-keyed lookup, so an Ack for one delivery can never consume another.
+type natsDelivery struct {
+	taskID string
+	msg    jsMessage
+}
+
+func (d *natsDelivery) TaskID() string { return d.taskID }
+
+func asNATSDelivery(h models.DeliveryHandle) (*natsDelivery, error) {
+	d, ok := h.(*natsDelivery)
+	if !ok || d == nil || d.msg == nil {
+		return nil, fmt.Errorf("delivery handle does not belong to the NATS queue")
+	}
+	return d, nil
+}
+
 type NATSTranscodingQueue struct {
-	conn      *nats.Conn
-	js        nats.JetStreamContext
-	sub       *nats.Subscription
-	logger    *zap.Logger
-	statusMu  sync.RWMutex
-	statuses  map[string]statusEntry
-	msgMu     sync.RWMutex
-	messages  map[string]msgEntry
-	cleanupMu sync.Mutex
-	lastClean time.Time
-}
-
-type statusEntry struct {
-	status    string
-	updatedAt time.Time
-}
-
-type msgEntry struct {
-	msg      *nats.Msg
-	dequeued time.Time
+	conn   *nats.Conn
+	js     nats.JetStreamContext
+	sub    *nats.Subscription
+	logger *zap.Logger
 }
 
 func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQueue, error) {
@@ -74,11 +90,9 @@ func NewNATSTranscodingQueue(url string, logger *zap.Logger) (*NATSTranscodingQu
 	}
 
 	q := &NATSTranscodingQueue{
-		conn:     nc,
-		js:       js,
-		logger:   logger,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		conn:   nc,
+		js:     js,
+		logger: logger,
 	}
 
 	if err := q.ensureStream(); err != nil {
@@ -138,17 +152,55 @@ func (q *NATSTranscodingQueue) ensureDLQStream() {
 }
 
 func (q *NATSTranscodingQueue) ensureMaxDeliverConsumer() {
-	_, err := q.js.ConsumerInfo(jsStreamName, jsConsumerName)
-	if err == nil {
-		return
-	}
-	_, err = q.js.AddConsumer(jsStreamName, &nats.ConsumerConfig{
+	want := &nats.ConsumerConfig{
 		Durable:    jsConsumerName,
 		MaxDeliver: jsMaxDeliver,
-	})
-	if err != nil {
+		AckWait:    jsAckWait,
+	}
+	info, err := q.js.ConsumerInfo(jsStreamName, jsConsumerName)
+	if err == nil {
+		// A consumer left behind by an older build (MaxDeliver=5) would keep
+		// silently exhausting messages; converge it to the current policy.
+		if info.Config.MaxDeliver != jsMaxDeliver || info.Config.AckWait != jsAckWait {
+			if _, uerr := q.js.UpdateConsumer(jsStreamName, want); uerr != nil {
+				q.logger.Warn("Failed to update consumer MaxDeliver/AckWait", zap.Error(uerr))
+			}
+		}
+		return
+	}
+	if _, err := q.js.AddConsumer(jsStreamName, want); err != nil {
 		q.logger.Warn("Failed to configure consumer MaxDeliver", zap.Error(err))
 	}
+}
+
+// PublishOutbox publishes an outbox payload with a stable message ID. The
+// message ID is set both as the JetStream dedupe key (nats.MsgId) and as an
+// explicit header before the call so the dedupe key is visible end to end.
+// Redelivery/duplicate publish is therefore idempotent at the broker; the DB
+// state machine remains the real guarantee.
+func (q *NATSTranscodingQueue) PublishOutbox(kind, msgID string, payload []byte) error {
+	subject := jsStreamSubject
+	switch kind {
+	case models.OutboxKindTask:
+		subject = jsStreamSubject
+	case models.OutboxKindDLQ:
+		subject = jsDLQStreamSubject
+	default:
+		return fmt.Errorf("unknown outbox kind: %s", kind)
+	}
+
+	msg := &nats.Msg{
+		Subject: subject,
+		Data:    payload,
+		Header:  make(nats.Header),
+	}
+	if msgID != "" {
+		msg.Header.Set(nats.MsgIdHdr, msgID)
+	}
+	if _, err := q.js.PublishMsg(msg, nats.MsgId(msgID)); err != nil {
+		return fmt.Errorf("failed to publish %s message to JetStream: %w", kind, err)
+	}
+	return nil
 }
 
 func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
@@ -156,99 +208,91 @@ func (q *NATSTranscodingQueue) Enqueue(task *models.TranscodingTask) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal task: %w", err)
 	}
-
-	_, err = q.js.Publish(jsStreamSubject, data)
-	if err != nil {
-		return fmt.Errorf("failed to publish task to JetStream: %w", err)
-	}
-
-	q.statusMu.Lock()
-	q.statuses[task.ID] = statusEntry{status: task.Status, updatedAt: time.Now()}
-	q.statusMu.Unlock()
-
-	q.maybeCleanup()
-
-	q.logger.Debug("Task enqueued", zap.String("task_id", task.ID))
-	return nil
+	return q.PublishOutbox(models.OutboxKindTask, task.ID, data)
 }
 
-func (q *NATSTranscodingQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, error) {
+func (q *NATSTranscodingQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, models.DeliveryHandle, error) {
 	msgs, err := q.sub.Fetch(1, nats.Context(ctx))
 	if err != nil {
 		if errors.Is(err, nats.ErrTimeout) {
-			return nil, fmt.Errorf("queue empty: %w", err)
+			return nil, nil, fmt.Errorf("queue empty: %w", err)
 		}
-		return nil, fmt.Errorf("dequeue failed: %w", err)
+		return nil, nil, fmt.Errorf("dequeue failed: %w", err)
 	}
 	if len(msgs) == 0 {
-		return nil, fmt.Errorf("queue empty")
+		return nil, nil, fmt.Errorf("queue empty")
 	}
-
 	msg := msgs[0]
+	stream, seq := "unknown", uint64(0)
+	if meta, merr := msg.Metadata(); merr == nil && meta != nil {
+		stream, seq = meta.Stream, meta.Sequence.Stream
+	}
+	return q.deliverPayload(msg.Data, msg, stream, seq)
+}
 
+// deliverPayload turns one fetched message payload into a task plus its
+// delivery handle. A payload that does not parse (or has no task id) is
+// poison: it is published to the DLQ keyed by stream:sequence and Terminated
+// so it cannot loop forever with MaxDeliver=-1.
+func (q *NATSTranscodingQueue) deliverPayload(data []byte, msg jsMessage, stream string, seq uint64) (*models.TranscodingTask, models.DeliveryHandle, error) {
 	var task models.TranscodingTask
-	if err := json.Unmarshal(msg.Data, &task); err != nil {
-		_ = msg.Nak()
-		return nil, fmt.Errorf("failed to unmarshal task: %w", err)
+	if err := json.Unmarshal(data, &task); err != nil {
+		q.handlePoison(data, msg, stream, seq)
+		return nil, nil, fmt.Errorf("failed to unmarshal task: %w", err)
 	}
-
-	q.msgMu.Lock()
-	q.messages[task.ID] = msgEntry{msg: msg, dequeued: time.Now()}
-	q.msgMu.Unlock()
-
-	q.logger.Debug("Task dequeued", zap.String("task_id", task.ID))
-	return &task, nil
+	if task.ID == "" {
+		q.handlePoison(data, msg, stream, seq)
+		return nil, nil, fmt.Errorf("task message has no id")
+	}
+	return &task, &natsDelivery{taskID: task.ID, msg: msg}, nil
 }
 
-func (q *NATSTranscodingQueue) Ack(taskID string) error {
-	q.msgMu.Lock()
-	entry, ok := q.messages[taskID]
-	delete(q.messages, taskID)
-	q.msgMu.Unlock()
-
-	if !ok {
-		return fmt.Errorf("message not found for task %s", taskID)
+func (q *NATSTranscodingQueue) handlePoison(data []byte, msg jsMessage, stream string, seq uint64) {
+	msgID := fmt.Sprintf("%s:%d", stream, seq)
+	if err := q.PublishOutbox(models.OutboxKindDLQ, msgID, data); err != nil {
+		// Leave the message unsettled and delay it: the DLQ publish is retried
+		// on redelivery instead of dropping the poison payload.
+		q.logger.Error("Failed to publish poison message to DLQ", zap.String("msg_id", msgID), zap.Error(err))
+		_ = msg.NakWithDelay(poisonRetryDelay)
+		return
 	}
-
-	if err := entry.msg.Ack(); err != nil {
-		return fmt.Errorf("failed to ack task %s: %w", taskID, err)
+	q.logger.Warn("Poison message moved to DLQ", zap.String("msg_id", msgID))
+	if err := msg.Term(); err != nil {
+		q.logger.Warn("Failed to term poison message", zap.String("msg_id", msgID), zap.Error(err))
 	}
+}
 
-	q.statusMu.Lock()
-	q.statuses[taskID] = statusEntry{status: "completed", updatedAt: time.Now()}
-	q.statusMu.Unlock()
-
-	q.logger.Debug("Task acked", zap.String("task_id", taskID))
+func (q *NATSTranscodingQueue) Ack(h models.DeliveryHandle) error {
+	d, err := asNATSDelivery(h)
+	if err != nil {
+		return err
+	}
+	if err := d.msg.Ack(); err != nil {
+		return fmt.Errorf("failed to ack task %s: %w", d.taskID, err)
+	}
 	return nil
 }
 
-func (q *NATSTranscodingQueue) Nak(taskID string) error {
-	q.msgMu.Lock()
-	entry, ok := q.messages[taskID]
-	delete(q.messages, taskID)
-	q.msgMu.Unlock()
-
-	if !ok {
-		return fmt.Errorf("message not found for task %s", taskID)
+func (q *NATSTranscodingQueue) Nak(h models.DeliveryHandle, delay time.Duration) error {
+	d, err := asNATSDelivery(h)
+	if err != nil {
+		return err
 	}
-
-	if err := entry.msg.Nak(); err != nil {
-		return fmt.Errorf("failed to nak task %s: %w", taskID, err)
+	if err := d.msg.NakWithDelay(delay); err != nil {
+		return fmt.Errorf("failed to nak task %s: %w", d.taskID, err)
 	}
-
-	q.logger.Debug("Task nacked for retry", zap.String("task_id", taskID))
 	return nil
 }
 
-func (q *NATSTranscodingQueue) GetStatus(taskID string) (string, error) {
-	q.statusMu.RLock()
-	defer q.statusMu.RUnlock()
-
-	entry, ok := q.statuses[taskID]
-	if !ok {
-		return "", fmt.Errorf("task not found: %s", taskID)
+func (q *NATSTranscodingQueue) InProgress(h models.DeliveryHandle) error {
+	d, err := asNATSDelivery(h)
+	if err != nil {
+		return err
 	}
-	return entry.status, nil
+	if err := d.msg.InProgress(); err != nil {
+		return fmt.Errorf("failed to mark task %s in progress: %w", d.taskID, err)
+	}
+	return nil
 }
 
 func (q *NATSTranscodingQueue) Depth() (int, error) {
@@ -267,32 +311,4 @@ func (q *NATSTranscodingQueue) Close() error {
 		q.conn.Close()
 	}
 	return nil
-}
-
-func (q *NATSTranscodingQueue) maybeCleanup() {
-	q.cleanupMu.Lock()
-	if time.Since(q.lastClean) < cleanupInterval {
-		q.cleanupMu.Unlock()
-		return
-	}
-	q.lastClean = time.Now()
-	q.cleanupMu.Unlock()
-
-	now := time.Now()
-
-	q.msgMu.Lock()
-	for id, entry := range q.messages {
-		if now.Sub(entry.dequeued) > msgStaleTimeout {
-			delete(q.messages, id)
-		}
-	}
-	q.msgMu.Unlock()
-
-	q.statusMu.Lock()
-	for id, entry := range q.statuses {
-		if now.Sub(entry.updatedAt) > statusStaleTimeout {
-			delete(q.statuses, id)
-		}
-	}
-	q.statusMu.Unlock()
 }

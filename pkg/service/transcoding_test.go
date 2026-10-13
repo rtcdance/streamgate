@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,28 +18,33 @@ func (q *fakeTranscodingQueue) Enqueue(task *TranscodingTask) error {
 	return nil
 }
 
-func (q *fakeTranscodingQueue) Dequeue(ctx context.Context) (*TranscodingTask, error) {
-	return q.lastTask, nil
+func (q *fakeTranscodingQueue) Dequeue(ctx context.Context) (*TranscodingTask, DeliveryHandle, error) {
+	return q.lastTask, fakeDeliveryHandle(q.lastTask.ID), nil
 }
 
-func (q *fakeTranscodingQueue) GetStatus(taskID string) (string, error) {
-	if q.lastTask != nil && q.lastTask.ID == taskID {
-		return q.lastTask.Status, nil
-	}
-	return "", assert.AnError
-}
-
-func (q *fakeTranscodingQueue) Ack(taskID string) error {
+func (q *fakeTranscodingQueue) Ack(h DeliveryHandle) error {
 	return nil
 }
 
-func (q *fakeTranscodingQueue) Nak(taskID string) error {
+func (q *fakeTranscodingQueue) Nak(h DeliveryHandle, delay time.Duration) error {
+	return nil
+}
+
+func (q *fakeTranscodingQueue) InProgress(h DeliveryHandle) error {
+	return nil
+}
+
+func (q *fakeTranscodingQueue) PublishOutbox(_, _ string, _ []byte) error {
 	return nil
 }
 
 func (q *fakeTranscodingQueue) Depth() (int, error) {
 	return 0, nil
 }
+
+type fakeDeliveryHandle string
+
+func (h fakeDeliveryHandle) TaskID() string { return string(h) }
 
 func TestTranscodingService_Transcode(t *testing.T) {
 	queue := &fakeTranscodingQueue{}
