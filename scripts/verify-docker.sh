@@ -52,7 +52,16 @@ validate_compose() {
 
 build_candidate() {
   log "building candidate image ${IMAGE_TAG}"
-  docker build -f deploy/docker/Dockerfile.verify -t "$IMAGE_TAG" . \
+  # VERIFY_GOPROXY overrides the image's default module source (direct VCS).
+  # Restricted networks that block both proxy.golang.org and raw git clones
+  # can pass a reachable proxy, e.g. VERIFY_GOPROXY=https://goproxy.cn,direct.
+  local proxy_args=()
+  if [ -n "${VERIFY_GOPROXY:-}" ]; then
+    log "using GOPROXY=${VERIFY_GOPROXY}"
+    proxy_args=(--build-arg "GOPROXY=${VERIFY_GOPROXY}")
+  fi
+  # ${arr[@]+...} keeps an empty array safe under `set -u` on bash 3.2.
+  docker build -f deploy/docker/Dockerfile.verify ${proxy_args[@]+"${proxy_args[@]}"} -t "$IMAGE_TAG" . \
     || fail "candidate image build failed"
 }
 
