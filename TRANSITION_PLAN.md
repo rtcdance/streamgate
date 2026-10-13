@@ -1245,7 +1245,18 @@ sequenceDiagram
 | 单元用例 | PASS | 默认值与覆盖值（含"传 0 不等于无上限"）；声明超限被拒；**未声明超限被拒而非截断**；恰好等于上界接受；超一字节被拒；被拒后不留临时文件 |
 | 端到端 | PASS | 重新构建并部署后 **ALL 58 PASSED**（验收 fixture 约 506 KB，远低于 100 MiB） |
 
-**未做（SG-12 判据）**：步骤 1（原件 digest / 唯一 key / 封存与 409 冲突）、步骤 3 剩余（时长 10 分钟、1080p、只支持探测过的 MP4/H.264/AAC）、步骤 4（FFmpeg 进程树终止 / worker 与队列上界）、步骤 5（worker 隔离与真实消费）、步骤 6～7（DB 权威状态、lease、幂等、DLQ）、步骤 8（generation 原子发布）、步骤 9（playlist 真实 EXTINF）。
+**未做（SG-12 判据）**：步骤 1（原件 digest / 唯一 key / 封存与 409 冲突）、步骤 3 剩余（时长 10 分钟、1080p、只支持探测过的 MP4/H.264/AAC）、步骤 4（FFmpeg 进程树终止 / worker 与队列上界）、步骤 5（worker 隔离与真实消费）、步骤 6～7（DB 权威状态、lease、幂等、DLQ）、步骤 8（generation 原子发布）。
+
+**步骤 9（playlist 真实 EXTINF）已落地**（提交 `de4b83c`，2026-10-13）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 服务 FFmpeg 真实 playlist | PASS | manifest handler 优先取对象存储里 FFmpeg 产出的 playlist（`master.m3u8` 与 `<quality>/<quality>.m3u8`），只重写 URI 到受保护路由；EXTINF / TARGETDURATION / MEDIA-SEQUENCE / CODECS / BANDWIDTH 原样保留。**变体路径（`?quality=`）曾完全错过此逻辑**——提前分支仍用合成 6.0s playlist，被新验收断言当场抓出后修复 |
+| 只重写 URI、拒绝不安全 playlist | PASS | `streamingsvc.RewriteMediaPlaylistURIs / RewriteMasterPlaylistURIs`：EXT-X-MAP init 段重写到同一受保护 segment 路由；EXT-X-KEY（加密）与未知带 URI 标签一律**拒绝**而非泄露对象路径；空 URI / 空 playlist 拒绝。用例 `TestRewriteMediaPlaylistURIs_*`（9 例）+ gateway 层 `TestStreamingExt_ManifestQuality_ServesTheStoredPlaylist` / `…Master_ServesTheStoredMaster` / `…_FallsBackWithoutStoredPlaylist` |
+| 合成 playlist 仅为遗留回退 | PASS | 无存储 playlist 的旧内容仍可播放（`FallsBackWithoutStoredPlaylist` 用例钉住），但真实转码内容一律走 FFmpeg 产物 |
+| **验收永久断言（PlaylistActualTiming）** | PASS | `fullchain-acceptance.sh` 新增：服务端 media playlist 必须 EXTINF 总和 ≈ 真实时长（10s fixture）、TARGETDURATION ≥ 最大 EXTINF 四舍五入（RFC 8216）、无固定 6.0s 段。实测 `PASS: Playlist actual timing: 1 media playlist(s) with real durations summing to 10.0s` |
+| 双部署模式端到端 | PASS | 重建二进制 + 重部署后：**monolith ALL 59 PASSED**、**api-gateway ALL 59 PASSED**（`H5_DEMO_URL=http://localhost:18000/demo/`，api-gateway 不托管静态页为已知项） |
+| 单元/回归 | PASS | `go test ./pkg/gateway/... ./pkg/service/streamingsvc/...` 全绿；`gofmt -l` 空；`go vet ./pkg/...` 干净 |
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 

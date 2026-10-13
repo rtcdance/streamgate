@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -643,9 +645,27 @@ func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Lo
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "upload_id contains invalid characters")
 			return
 		}
+		// The presigned bytes were written by the client, so completion first
+		// verifies them: owner, staged object presence, and a digest computed
+		// over the actual stored bytes before anything is sealed.
+		if info, err := uploadSvc.GetUploadStatus(c.Request.Context(), uploadID); err != nil {
+			abortWithError(c, http.StatusNotFound, ErrNotFound, "upload not found")
+			return
+		} else if !strings.EqualFold(info.OwnerID, wallet) {
+			abortWithError(c, http.StatusForbidden, ErrForbidden, "not authorized to complete this upload")
+			return
+		}
+		if err := uploadSvc.FinalizePresignedUpload(c.Request.Context(), uploadID, wallet); err != nil {
+			if errors.Is(err, serviceerrors.ErrStagedObjectMissing) {
+				abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "uploaded object not found; PUT the file before completing")
+				return
+			}
+			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to finalize presigned upload", err.Error())
+			return
+		}
 		contentID, err := uploadSvc.CompleteUploadWithTx(c.Request.Context(), uploadID)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete presigned upload", err.Error())
+			respondCompleteUploadError(c, err)
 			return
 		}
 
@@ -660,6 +680,18 @@ func handleCompletePresignedUpload(uploadSvc *service.UploadService, log *zap.Lo
 			"status":     status,
 		})
 	}
+}
+
+// respondCompleteUploadError maps completion failures: re-sealing a different
+// digest for an already-sealed content is a 409 Conflict, everything else is a
+// 500 with the detail kept server-side.
+func respondCompleteUploadError(c *gin.Context, err error) {
+	if errors.Is(err, serviceerrors.ErrOriginalImmutable) {
+		abortWithError(c, http.StatusConflict, ErrOriginalImmutable,
+			"content original is immutable; a different digest was already sealed for this content")
+		return
+	}
+	abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete upload", err.Error())
 }
 
 func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin.HandlerFunc {
@@ -693,7 +725,7 @@ func handleCompleteUpload(uploadSvc *service.UploadService, log *zap.Logger) gin
 
 		contentID, err := uploadSvc.CompleteUploadWithTx(c.Request.Context(), uploadID)
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrUploadFailed, "failed to complete upload", err.Error())
+			respondCompleteUploadError(c, err)
 			return
 		}
 

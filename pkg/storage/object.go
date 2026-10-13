@@ -22,6 +22,7 @@ type ObjectStorage interface {
 	UploadStreamWithContentType(ctx context.Context, bucket, objectName string, reader io.Reader, size int64, contentType string) error
 	Download(ctx context.Context, bucket, objectName string) ([]byte, error)
 	DownloadStream(ctx context.Context, bucket, objectName string) (io.ReadCloser, error)
+	CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error
 	Delete(ctx context.Context, bucket, objectName string) error
 	DeleteObjects(ctx context.Context, bucket string, objectNames []string) error
 	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)

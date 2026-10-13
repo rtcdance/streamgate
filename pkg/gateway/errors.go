@@ -62,6 +62,7 @@ const (
 	ErrRateLimited        = "RATE_LIMITED"
 	ErrPayloadTooLarge    = "PAYLOAD_TOO_LARGE"
 	ErrStreamLimitReached = "STREAM_LIMIT_REACHED"
+	ErrOriginalImmutable  = "ORIGINAL_IMMUTABLE"
 	ErrHealthCheckFailed  = "HEALTH_CHECK_FAILED"
 	ErrInternalError      = "INTERNAL_ERROR"
 )

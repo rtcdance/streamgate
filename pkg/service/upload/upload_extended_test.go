@@ -932,7 +932,9 @@ func TestUploadService_CompleteUploadWithTx_Success(t *testing.T) {
 	}
 
 	var hookCalled int32
-	svc := NewUploadService(db, newMockObjStore(), "bucket", zap.NewNop())
+	store := newMockObjStore()
+	store.data["bucket/key"] = []byte("staged original")
+	svc := NewUploadService(db, store, "bucket", zap.NewNop())
 	svc.RegisterPostUploadHook(func(_ context.Context, _, contentID, _ string) {
 		atomic.StoreInt32(&hookCalled, 1)
 		txContentID = contentID
@@ -1000,7 +1002,9 @@ func TestUploadService_CompleteUploadWithTx_HookPanic(t *testing.T) {
 			return fn(testTx)
 		},
 	}
-	svc := NewUploadService(db, newMockObjStore(), "bucket", zap.NewNop())
+	store := newMockObjStore()
+	store.data["bucket/key"] = []byte("staged original")
+	svc := NewUploadService(db, store, "bucket", zap.NewNop())
 	svc.RegisterPostUploadHook(func(_ context.Context, _, _, _ string) {
 		panic("hook panic")
 	})

@@ -116,6 +116,14 @@ func (m *contentMockObjStore) Download(_ context.Context, bucket, key string) ([
 	}
 	return d, nil
 }
+func (m *contentMockObjStore) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	src, ok := m.data[bucket+"/"+srcKey]
+	if !ok {
+		return errors.New("copy source not found")
+	}
+	m.data[bucket+"/"+dstKey] = src
+	return nil
+}
 func (m *contentMockObjStore) Delete(_ context.Context, bucket, key string) error {
 	delete(m.data, bucket+"/"+key)
 	return nil

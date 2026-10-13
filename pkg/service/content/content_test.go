@@ -95,6 +95,14 @@ func (m *mockObjStore) Download(_ context.Context, bucket, key string) ([]byte, 
 	}
 	return nil, errors.New("not found")
 }
+func (m *mockObjStore) CopyObject(_ context.Context, bucket, srcKey, dstKey string) error {
+	src, ok := m.data[bucket+"/"+srcKey]
+	if !ok {
+		return fmt.Errorf("copy source not found: %s", srcKey)
+	}
+	m.data[bucket+"/"+dstKey] = src
+	return nil
+}
 func (m *mockObjStore) Delete(_ context.Context, bucket, key string) error {
 	delete(m.data, bucket+"/"+key)
 	return nil

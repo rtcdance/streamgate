@@ -211,7 +211,16 @@ func (m *Migrator) ensureMigrationsTable(ctx context.Context) error {
 			applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 		)
 	`, m.table))
-	return err
+	if err != nil {
+		return err
+	}
+	// The other migration runner (pkg/storage/migrate) uses the same table name
+	// without a dirty column. Whoever starts first creates the table, so converge
+	// on the union of both schemas — otherwise the second runner fails its dirty
+	// check on every start and its migrations are silently skipped.
+	_, _ = m.db.ExecContext(ctx, fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN IF NOT EXISTS dirty BOOLEAN NOT NULL DEFAULT FALSE`, m.table))
+	return nil
 }
 
 type migrationFile struct {
