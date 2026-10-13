@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/rtcdance/streamgate/pkg/models"
 	"github.com/rtcdance/streamgate/pkg/service/transcoding"
 	"go.uber.org/zap"
 )
@@ -9,6 +10,7 @@ type (
 	TranscodingService     = transcoding.TranscodingService
 	TranscodingTask        = transcoding.TranscodingTask
 	TranscodingQueue       = transcoding.TranscodingQueue
+	DeliveryHandle         = models.DeliveryHandle
 	VideoTranscoder        = transcoding.VideoTranscoder
 	SegmentStorage         = transcoding.SegmentStorage
 	PostTranscodeHook      = transcoding.PostTranscodeHook

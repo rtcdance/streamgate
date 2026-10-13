@@ -3,6 +3,7 @@ package transcoding_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/rtcdance/streamgate/pkg/models"
 	"github.com/rtcdance/streamgate/pkg/service"
@@ -23,32 +24,37 @@ func NewMockQueue() *MockQueue {
 	}
 }
 
+type mockQueueHandle string
+
+func (h mockQueueHandle) TaskID() string { return string(h) }
+
 func (m *MockQueue) Enqueue(task *models.TranscodingTask) error {
 	m.tasks[task.ID] = task
 	return nil
 }
 
-func (m *MockQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, error) {
+func (m *MockQueue) Dequeue(ctx context.Context) (*models.TranscodingTask, models.DeliveryHandle, error) {
 	for _, task := range m.tasks {
 		if task.Status == "pending" {
-			return task, nil
+			return task, mockQueueHandle(task.ID), nil
 		}
 	}
-	return nil, nil
+	return nil, nil, nil
 }
 
-func (m *MockQueue) GetStatus(taskID string) (string, error) {
-	if task, exists := m.tasks[taskID]; exists {
-		return task.Status, nil
-	}
-	return "", nil
-}
-
-func (m *MockQueue) Ack(taskID string) error {
+func (m *MockQueue) Ack(models.DeliveryHandle) error {
 	return nil
 }
 
-func (m *MockQueue) Nak(taskID string) error {
+func (m *MockQueue) Nak(models.DeliveryHandle, time.Duration) error {
+	return nil
+}
+
+func (m *MockQueue) InProgress(models.DeliveryHandle) error {
+	return nil
+}
+
+func (m *MockQueue) PublishOutbox(_, _ string, _ []byte) error {
 	return nil
 }
 

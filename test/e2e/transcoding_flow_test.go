@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/test/helpers"
@@ -14,23 +15,31 @@ import (
 
 type mockTranscodingQueue struct{}
 
+type e2eQueueHandle string
+
+func (h e2eQueueHandle) TaskID() string { return string(h) }
+
 func (m *mockTranscodingQueue) Enqueue(task *service.TranscodingTask) error {
 	return nil
 }
 
-func (m *mockTranscodingQueue) Dequeue(ctx context.Context) (*service.TranscodingTask, error) {
-	return nil, nil
+func (m *mockTranscodingQueue) Dequeue(ctx context.Context) (*service.TranscodingTask, service.DeliveryHandle, error) {
+	return nil, nil, nil
 }
 
-func (m *mockTranscodingQueue) GetStatus(taskID string) (string, error) {
-	return "pending", nil
-}
-
-func (m *mockTranscodingQueue) Ack(taskID string) error {
+func (m *mockTranscodingQueue) Ack(service.DeliveryHandle) error {
 	return nil
 }
 
-func (m *mockTranscodingQueue) Nak(taskID string) error {
+func (m *mockTranscodingQueue) Nak(service.DeliveryHandle, time.Duration) error {
+	return nil
+}
+
+func (m *mockTranscodingQueue) InProgress(service.DeliveryHandle) error {
+	return nil
+}
+
+func (m *mockTranscodingQueue) PublishOutbox(_, _ string, _ []byte) error {
 	return nil
 }
 

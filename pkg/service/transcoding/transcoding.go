@@ -66,6 +66,23 @@ type TranscodingService struct {
 	// ownerTaskLimit bounds pending/running tasks per owner wallet so one
 	// caller cannot monopolize the worker pool. 0 = no limit.
 	ownerTaskLimit int
+
+	// leaseOwner identifies this worker in transcoding_tasks.lease_owner.
+	// Every writer that did not claim the row (or claims a newer generation)
+	// is rejected by the lease predicates.
+	leaseOwner string
+	// leaseTTL is how long a claim stays valid without a heartbeat; judged by
+	// DB time (NOW()), never by app clocks.
+	leaseTTL time.Duration
+	// heartbeatInterval is how often the running worker renews its lease.
+	heartbeatInterval time.Duration
+	// retryDelays[i] is the wait before attempt i+2 (2s then 4s by default).
+	retryDelays [2]time.Duration
+	// maxAttempts is the business cap including the first attempt; enforced
+	// from the DB attempt counter, incremented only on a successful claim.
+	maxAttempts int
+	// outboxInterval is how often pending outbox intents are re-published.
+	outboxInterval time.Duration
 }
 
 const defaultUploadConcurrency = 5
@@ -121,10 +138,15 @@ func (s *TranscodingService) MaxInputBytes() int64 {
 // NewTranscodingService creates a new transcoding service
 func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...TranscodingOption) *TranscodingService {
 	svc := &TranscodingService{
-		db:         db,
-		queue:      queue,
-		tasks:      make(map[string]*TranscodingTask),
-		httpClient: &http.Client{Timeout: 10 * time.Minute, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 20, IdleConnTimeout: 90 * time.Second}},
+		db:                db,
+		queue:             queue,
+		tasks:             make(map[string]*TranscodingTask),
+		httpClient:        &http.Client{Timeout: 10 * time.Minute, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 20, IdleConnTimeout: 90 * time.Second}},
+		leaseTTL:          defaultLeaseTTL,
+		heartbeatInterval: defaultHeartbeatInterval,
+		retryDelays:       [2]time.Duration{defaultRetrySecondDelay, defaultRetryThirdDelay},
+		maxAttempts:       defaultMaxAttempts,
+		outboxInterval:    defaultOutboxInterval,
 	}
 	svc.serviceCtx, svc.serviceCancel = context.WithCancel(context.Background())
 	for _, opt := range opts {
@@ -214,9 +236,45 @@ func WithOwnerTaskLimit(n int) TranscodingOption {
 }
 
 const (
-	defaultMaxRetries = 3
-	retryDelayBase    = 5 * time.Second
+	// defaultMaxAttempts is the business retry cap including the first
+	// attempt. It is enforced from the DB attempt counter (incremented only
+	// on a successful claim), not by transport MaxDeliver.
+	defaultMaxAttempts = 3
+	// defaultRetrySecondDelay / defaultRetryThirdDelay back attempts 2 and 3.
+	defaultRetrySecondDelay = 2 * time.Second
+	defaultRetryThirdDelay  = 4 * time.Second
+	// defaultLeaseTTL is the DB-side validity window of a claim; a heartbeat
+	// renews it every defaultHeartbeatInterval. Both are judged with NOW().
+	defaultLeaseTTL          = 30 * time.Second
+	defaultHeartbeatInterval = 10 * time.Second
+	// defaultOutboxInterval is how often pending outbox intents are retried.
+	defaultOutboxInterval = 2 * time.Second
+	// nakBusyDelay is used when another worker currently holds the lease or a
+	// claim raced; the message comes back shortly and re-reads DB state.
+	nakBusyDelay = 5 * time.Second
 )
+
+// WithLeaseOwner sets the worker identity written to lease_owner on claim.
+// Used by tests for determinism; StartWorker generates one otherwise.
+func WithLeaseOwner(owner string) TranscodingOption {
+	return func(s *TranscodingService) {
+		if owner != "" {
+			s.leaseOwner = owner
+		}
+	}
+}
+
+// WithRetryDelays overrides the wait before the second and third attempt.
+func WithRetryDelays(second, third time.Duration) TranscodingOption {
+	return func(s *TranscodingService) {
+		if second > 0 {
+			s.retryDelays[0] = second
+		}
+		if third > 0 {
+			s.retryDelays[1] = third
+		}
+	}
+}
 
 // StartWorker starts the background transcoding worker.
 // It dequeues tasks and invokes the VideoTranscoder.
@@ -225,6 +283,12 @@ func (s *TranscodingService) StartWorker(log *zap.Logger) {
 	if s.transcoder == nil {
 		if log != nil {
 			log.Info("TranscodingService: no transcoder configured, worker not started")
+		}
+		return
+	}
+	if s.queue == nil {
+		if log != nil {
+			log.Info("TranscodingService: no queue configured, worker not started")
 		}
 		return
 	}
@@ -258,6 +322,11 @@ func (s *TranscodingService) StartWorker(log *zap.Logger) {
 	s.cancel = cancel
 	s.cancelMu.Unlock()
 
+	if s.leaseOwner == "" {
+		host, _ := os.Hostname()
+		s.leaseOwner = fmt.Sprintf("%s-%d-%s", host, os.Getpid(), uuid.New().String()[:8])
+	}
+
 	initWorkers := s.minWorkers
 	if initWorkers <= 0 {
 		initWorkers = 1
@@ -280,6 +349,11 @@ func (s *TranscodingService) StartWorker(log *zap.Logger) {
 
 	s.wg.Add(1)
 	s.startAutoScaler(ctx, log)
+
+	if s.db != nil {
+		s.wg.Add(1)
+		go s.outboxPumpLoop(ctx, log)
+	}
 }
 
 func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *zap.Logger) {
@@ -295,9 +369,9 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *
 		log.Info("TranscodingService: worker started", zap.Int("worker", workerID))
 	}
 	for {
-		task, err := s.queue.Dequeue(ctx)
+		task, handle, err := s.queue.Dequeue(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				if log != nil {
 					log.Info("TranscodingService: worker stopped", zap.Int("worker", workerID))
 				}
@@ -305,67 +379,333 @@ func (s *TranscodingService) workerLoop(ctx context.Context, workerID int, log *
 			}
 			continue
 		}
-
-		if task.Metadata == nil {
-			task.Metadata = make(map[string]interface{})
+		if task == nil || handle == nil {
+			continue
 		}
-
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					if log != nil {
-						log.Info("TranscodingService: task panic recovered, continuing loop",
-							zap.String("task_id", task.ID), zap.Any("panic", r))
-					}
-					task.Status = "failed"
-					task.Error = fmt.Sprintf("panic during processing: %v", r)
-					failCtx, failCancel := context.WithTimeout(context.Background(), 3*time.Second)
-					defer failCancel()
-					if failErr := s.FailTask(failCtx, task.ID, task.Error); failErr != nil {
-						if log != nil {
-							log.Error("Failed to mark panicked task as failed", zap.String("task_id", task.ID), zap.Error(failErr))
-						}
-					}
-				}
-			}()
-			s.processTask(ctx, task, log)
-		}()
-
-		if task.Status == "failed" {
-			retryCount := getRetryCount(task)
-			if retryCount < defaultMaxRetries {
-				setRetryCount(task, retryCount+1)
-				task.Status = "pending"
-				task.Error = ""
-				if log != nil {
-					log.Info("TranscodingService: scheduling task for retry with exponential backoff",
-						zap.String("task_id", task.ID), zap.Int("attempt", retryCount+1), zap.Int("max", defaultMaxRetries))
-				}
-				delay := retryDelayBase * time.Duration(1<<retryCount)
-				go func() {
-					time.Sleep(delay)
-					if err := s.queue.Enqueue(task); err != nil {
-						log.Error("Failed to re-enqueue transcoding task, task will be lost",
-							zap.String("task_id", task.ID), zap.Error(err))
-					}
-				}()
-			} else {
-				if err := s.queue.Nak(task.ID); err != nil {
-					log.Error("Failed to Nak transcoding task, it will remain in-flight",
-						zap.String("task_id", task.ID), zap.Error(err))
-				}
-			}
-		} else {
-			if err := s.queue.Ack(task.ID); err != nil {
-				log.Error("Failed to Ack transcoding task, it may be re-delivered",
-					zap.String("task_id", task.ID), zap.Error(err))
-			}
-		}
+		s.handleDelivery(ctx, task, handle, log)
 	}
 }
 
-const stuckTaskTimeout = 10 * time.Minute
+// handleDelivery drives one queue delivery to a settled outcome: Ack, a
+// delayed Nak for retry/busy, or deliberately no settle when the lease was
+// lost (the broker then redelivers to a new claimer). Postgres decides every
+// branch — the delivery itself never carries authoritative state.
+func (s *TranscodingService) handleDelivery(ctx context.Context, task *TranscodingTask, handle models.DeliveryHandle, log *zap.Logger) {
+	if task == nil || handle == nil {
+		return
+	}
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]interface{})
+	}
 
+	if s.db == nil {
+		s.handleDeliveryNoDB(ctx, task, handle, log)
+		return
+	}
+
+	state, err := s.readDelivery(ctx, task.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Row deleted: settle the message with no side effects.
+			s.ack(handle, log)
+			return
+		}
+		if log != nil {
+			log.Error("failed to read delivery state", zap.String("task_id", task.ID), zap.Error(err))
+		}
+		s.nak(handle, nakBusyDelay, log)
+		return
+	}
+
+	switch {
+	case state.status == "completed" || state.status == "cancelled":
+		// Redelivery of a settled task: Ack immediately, zero side effects.
+		s.ack(handle, log)
+		return
+	case state.status == "failed":
+		s.settleAlreadyFailed(ctx, task, handle, log)
+		return
+	case state.status == "processing" && state.leaseValid:
+		// Another live worker holds the claim; come back after its lease.
+		s.nak(handle, nakBusyDelay, log)
+		return
+	case state.attempt >= s.maxAttempts:
+		// The attempt cap is already spent (e.g. the worker died after the
+		// third claim): straight to the terminal failure path.
+		s.settleTerminal(ctx, task, nil,
+			fmt.Errorf("attempt cap exhausted after %d attempts", state.attempt), handle, log)
+		return
+	}
+
+	lease, ok, err := s.claim(ctx, task.ID)
+	if err != nil {
+		if log != nil {
+			log.Error("failed to claim task", zap.String("task_id", task.ID), zap.Error(err))
+		}
+		s.nak(handle, nakBusyDelay, log)
+		return
+	}
+	if !ok {
+		// The row moved under us (another claimer, or the cap moved); the
+		// next delivery re-reads DB state.
+		s.nak(handle, nakBusyDelay, log)
+		return
+	}
+	s.executeClaimed(ctx, task, handle, lease, log)
+}
+
+// handleDeliveryNoDB is the demo-profile path used when no Postgres is
+// configured: attempts live in task metadata, and retries ride on a delayed
+// re-queue of the SAME message (no sleep-goroutine, no re-publish).
+func (s *TranscodingService) handleDeliveryNoDB(ctx context.Context, task *TranscodingTask, handle models.DeliveryHandle, log *zap.Logger) {
+	err := s.runProcessTask(ctx, task, log)
+	if err == nil {
+		s.ack(handle, log)
+		return
+	}
+	attemptsUsed := getRetryCount(task) + 1
+	if attemptsUsed >= s.maxAttempts {
+		// processTask already recorded status=failed; dead-letter the payload.
+		s.publishDLQ(task, log)
+		s.ack(handle, log)
+		return
+	}
+	setRetryCount(task, attemptsUsed)
+	_ = s.updateTask(task.ID, func(t *TranscodingTask) {
+		t.Status = "pending"
+		t.Error = ""
+	})
+	s.nak(handle, s.retryDelayFor(attemptsUsed), log)
+}
+
+// executeClaimed runs a claimed task under a heartbeat and settles the
+// delivery afterwards.
+func (s *TranscodingService) executeClaimed(ctx context.Context, task *TranscodingTask, handle models.DeliveryHandle, lease *taskLease, log *zap.Logger) {
+	taskCtx, cancel := context.WithCancel(ctx)
+	leaseCtx := withTaskLease(taskCtx, lease)
+	stopHeartbeat := s.startHeartbeat(taskCtx, handle, lease, cancel, log)
+
+	err := s.runProcessTask(leaseCtx, task, log)
+
+	stopHeartbeat()
+	cancel()
+
+	if err == nil {
+		s.ack(handle, log)
+		return
+	}
+	if s.isNonRetryable(err) || lease.attempt >= s.maxAttempts {
+		s.settleTerminal(ctx, task, lease, err, handle, log)
+		return
+	}
+	delay := s.retryDelayFor(lease.attempt)
+	if relErr := s.releaseForRetry(ctx, lease, err.Error(), delay); relErr != nil {
+		// Lease lost or the row moved on: settle nothing — redelivery goes to
+		// whoever holds the claim next (or re-reads the terminal state).
+		if log != nil {
+			log.Warn("not scheduling retry", zap.String("task_id", task.ID), zap.Error(relErr))
+		}
+		return
+	}
+	s.nak(handle, delay, log)
+}
+
+// runProcessTask wraps processTask with panic recovery so one bad task never
+// kills the worker loop.
+func (s *TranscodingService) runProcessTask(ctx context.Context, task *TranscodingTask, log *zap.Logger) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if log != nil {
+				log.Info("TranscodingService: task panic recovered, continuing loop",
+					zap.String("task_id", task.ID), zap.Any("panic", r))
+			}
+			err = fmt.Errorf("panic during processing: %v", r)
+			if taskLeaseFrom(ctx) == nil {
+				if failErr := s.FailTask(context.Background(), task.ID, err.Error()); failErr != nil && log != nil {
+					log.Error("Failed to mark panicked task as failed", zap.String("task_id", task.ID), zap.Error(failErr))
+				}
+			}
+		}
+	}()
+	return s.processTask(ctx, task, log)
+}
+
+// retryDelayFor returns the backoff after the given attempt just failed:
+// attempt 1 waits retryDelays[0] (2s), attempt 2 waits retryDelays[1] (4s).
+func (s *TranscodingService) retryDelayFor(attempt int) time.Duration {
+	if attempt <= 1 {
+		return s.retryDelays[0]
+	}
+	return s.retryDelays[1]
+}
+
+// isNonRetryable marks failures where more attempts cannot help; they go
+// straight to the terminal DLQ path.
+func (s *TranscodingService) isNonRetryable(err error) bool {
+	return errors.Is(err, ErrInputTooLarge)
+}
+
+func (s *TranscodingService) ack(handle models.DeliveryHandle, log *zap.Logger) {
+	if s.queue == nil {
+		return
+	}
+	if err := s.queue.Ack(handle); err != nil && log != nil {
+		log.Error("failed to Ack delivery, it may be redelivered",
+			zap.String("task_id", handle.TaskID()), zap.Error(err))
+	}
+}
+
+func (s *TranscodingService) nak(handle models.DeliveryHandle, delay time.Duration, log *zap.Logger) {
+	if s.queue == nil {
+		return
+	}
+	if err := s.queue.Nak(handle, delay); err != nil && log != nil {
+		log.Error("failed to Nak delivery, it may remain in-flight",
+			zap.String("task_id", handle.TaskID()), zap.Error(err))
+	}
+}
+
+// settleTerminal writes status=failed and the DLQ outbox intent in ONE
+// transaction, publishes the intent, and only after the broker acknowledges
+// the publish does it Ack the original message. If the publish fails the
+// intent row stays pending (the outbox pump retries) and the message is Nacked
+// so the DLQ-before-Ack rule holds on redelivery too.
+func (s *TranscodingService) settleTerminal(ctx context.Context, task *TranscodingTask, lease *taskLease, cause error, handle models.DeliveryHandle, log *zap.Logger) {
+	payload, merr := json.Marshal(task)
+	if merr != nil {
+		payload = []byte(fmt.Sprintf(`{"id":%q,"error":%q}`, task.ID, cause.Error()))
+	}
+	if s.db != nil {
+		if err := s.terminalFailTx(ctx, task.ID, lease, cause.Error(), payload); err != nil {
+			if log != nil {
+				log.Error("terminal failure write failed", zap.String("task_id", task.ID), zap.Error(err))
+			}
+			s.nak(handle, nakBusyDelay, log)
+			return
+		}
+	}
+	if s.queue != nil {
+		if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil {
+			if log != nil {
+				log.Error("DLQ publish failed, intent stays recoverable",
+					zap.String("task_id", task.ID), zap.Error(err))
+			}
+			s.nak(handle, nakBusyDelay, log)
+			return
+		}
+		if s.db != nil {
+			if err := s.markOutboxDelivered(ctx, task.ID, models.OutboxKindDLQ); err != nil && log != nil {
+				log.Warn("failed to mark DLQ intent delivered", zap.String("task_id", task.ID), zap.Error(err))
+			}
+		}
+	}
+	s.ack(handle, log)
+}
+
+// settleAlreadyFailed honors the DLQ-before-Ack rule when a failed task's
+// message is redelivered: Ack only once the stored DLQ intent is published.
+func (s *TranscodingService) settleAlreadyFailed(ctx context.Context, task *TranscodingTask, handle models.DeliveryHandle, log *zap.Logger) {
+	if s.db == nil || s.queue == nil {
+		s.ack(handle, log)
+		return
+	}
+	payload, status, ok, err := s.readOutboxIntent(ctx, task.ID, models.OutboxKindDLQ)
+	if err != nil {
+		if log != nil {
+			log.Error("failed to read DLQ intent", zap.String("task_id", task.ID), zap.Error(err))
+		}
+		s.nak(handle, nakBusyDelay, log)
+		return
+	}
+	if !ok {
+		// Legacy failed row without an intent: nothing to publish.
+		s.ack(handle, log)
+		return
+	}
+	if status != "delivered" {
+		if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil {
+			if log != nil {
+				log.Error("DLQ publish failed on redelivery", zap.String("task_id", task.ID), zap.Error(err))
+			}
+			s.nak(handle, nakBusyDelay, log)
+			return
+		}
+		if err := s.markOutboxDelivered(ctx, task.ID, models.OutboxKindDLQ); err != nil && log != nil {
+			log.Warn("failed to mark DLQ intent delivered", zap.String("task_id", task.ID), zap.Error(err))
+		}
+	}
+	s.ack(handle, log)
+}
+
+// publishDLQ dead-letters the task payload when no DB outbox exists (demo
+// profile): the in-memory queue keeps a bounded trace, JetStream publishes to
+// the DLQ stream.
+func (s *TranscodingService) publishDLQ(task *TranscodingTask, log *zap.Logger) {
+	if s.queue == nil {
+		return
+	}
+	payload, err := json.Marshal(task)
+	if err != nil {
+		return
+	}
+	if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil && log != nil {
+		log.Error("failed to publish DLQ payload", zap.String("task_id", task.ID), zap.Error(err))
+	}
+}
+
+// startHeartbeat renews the DB lease every heartbeatInterval while the task
+// runs and mirrors each renewal to the broker with InProgress (which extends
+// AckWait). When the renewal reports the lease is gone, the task context is
+// cancelled: the worker stops and deliberately does NOT Ack — redelivery goes
+// to the new claimer.
+func (s *TranscodingService) startHeartbeat(ctx context.Context, handle models.DeliveryHandle, lease *taskLease, onLost context.CancelFunc, log *zap.Logger) func() {
+	stop := make(chan struct{})
+	var once sync.Once
+	done := func() { once.Do(func() { close(stop) }) }
+	go func() {
+		ticker := time.NewTicker(s.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				held, err := s.renewLease(ctx, lease)
+				if err != nil {
+					// Transient DB error: keep the lease attempt going on the
+					// next tick instead of killing in-flight work.
+					if log != nil {
+						log.Warn("lease heartbeat failed", zap.String("task_id", lease.taskID), zap.Error(err))
+					}
+					continue
+				}
+				if !held {
+					if log != nil {
+						log.Warn("lease lost, cancelling task",
+							zap.String("task_id", lease.taskID), zap.Int("generation", lease.generation))
+					}
+					onLost()
+					return
+				}
+				if s.queue != nil && handle != nil {
+					if err := s.queue.InProgress(handle); err != nil && log != nil {
+						log.Debug("delivery InProgress failed", zap.String("task_id", lease.taskID), zap.Error(err))
+					}
+				}
+			}
+		}
+	}()
+	return done
+}
+
+// recoverStuckTasks resets rows whose lease expired — judged by DB time
+// (NOW()), not by an app-side age heuristic. generation and attempt are
+// preserved: recovery never counts as an attempt, and the broker's redelivery
+// (or the outbox pump for an intent that was never published) re-claims with a
+// fresh generation. Nothing is re-published here — with JetStream the message
+// still exists and would only be duplicated.
 func (s *TranscodingService) recoverStuckTasks(log *zap.Logger) {
 	if s.db == nil {
 		return
@@ -373,55 +713,92 @@ func (s *TranscodingService) recoverStuckTasks(log *zap.Logger) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	rows, err := s.db.Query(ctx,
-		"SELECT id, content_id, profile, input_url, priority, owner_wallet FROM transcoding_tasks WHERE status = 'processing' AND started_at < $1",
-		time.Now().Add(-stuckTaskTimeout))
+	result, err := s.db.Exec(ctx, `
+		UPDATE transcoding_tasks
+		SET status = 'pending', lease_owner = '', lease_expires_at = NULL
+		WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < NOW()`)
 	if err != nil {
 		if log != nil {
-			log.Error("Failed to query stuck transcoding tasks", zap.Error(err))
+			log.Error("Failed to recover tasks with expired leases", zap.Error(err))
 		}
 		return
 	}
-	defer rows.Close()
-
-	var recovered []*TranscodingTask
-	for rows.Next() {
-		var t TranscodingTask
-		if err := rows.Scan(&t.ID, &t.ContentID, &t.Profile, &t.InputURL, &t.Priority, &t.OwnerWallet); err != nil {
-			continue
-		}
-		t.Status = "pending"
-		t.Metadata = make(map[string]interface{})
-		recovered = append(recovered, &t)
+	rows, _ := result.RowsAffected()
+	if rows > 0 && log != nil {
+		log.Info("Recovered tasks whose lease expired", zap.Int64("count", rows))
 	}
+}
 
-	if len(recovered) == 0 {
-		return
-	}
-
-	_, err = s.db.Exec(ctx,
-		"UPDATE transcoding_tasks SET status = 'pending', started_at = NULL WHERE status = 'processing' AND started_at < $1",
-		time.Now().Add(-stuckTaskTimeout))
-	if err != nil {
-		if log != nil {
-			log.Error("Failed to reset stuck transcoding tasks", zap.Error(err))
-		}
-		return
-	}
-
-	if log != nil {
-		log.Info("Recovered stuck transcoding tasks", zap.Int("count", len(recovered)))
-	}
-
-	if s.queue != nil {
-		for _, t := range recovered {
-			if qErr := s.queue.Enqueue(t); qErr != nil {
+// outboxPumpLoop re-publishes intents whose row is still pending: task
+// intents whose publish never got a PubAck (including a crash between the
+// commit and the publish), and DLQ intents whose publish failed.
+func (s *TranscodingService) outboxPumpLoop(ctx context.Context, log *zap.Logger) {
+	defer s.wg.Done()
+	ticker := time.NewTicker(s.outboxInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if n, err := s.pumpOutbox(ctx); err != nil {
 				if log != nil {
-					log.Warn("Failed to re-enqueue recovered task", zap.String("task_id", t.ID), zap.Error(qErr))
+					log.Debug("outbox pump pass failed", zap.Error(err))
 				}
+			} else if n > 0 && log != nil {
+				log.Info("outbox pump published intents", zap.Int("count", n))
 			}
 		}
 	}
+}
+
+// pumpOutbox publishes pending intents and marks each row delivered only after
+// the broker acknowledged the publish. A publish failure leaves the row
+// pending for the next pass — the intent is the durable retry state.
+func (s *TranscodingService) pumpOutbox(ctx context.Context) (int, error) {
+	if s.db == nil || s.queue == nil {
+		return 0, nil
+	}
+	rows, err := s.db.Query(ctx,
+		`SELECT id, kind, payload FROM outbox WHERE status = 'pending' ORDER BY created_at LIMIT 25`)
+	if err != nil {
+		return 0, fmt.Errorf("query outbox: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type intent struct {
+		id      string
+		kind    string
+		payload []byte
+	}
+	var pending []intent
+	for rows.Next() {
+		var in intent
+		if err := rows.Scan(&in.id, &in.kind, &in.payload); err != nil {
+			return 0, fmt.Errorf("scan outbox: %w", err)
+		}
+		pending = append(pending, in)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	published := 0
+	for _, in := range pending {
+		if err := s.queue.PublishOutbox(in.kind, in.id, in.payload); err != nil {
+			s.noteOutboxError(ctx, in.id, in.kind, err)
+			continue
+		}
+		// Mark delivered only after PubAck. If this write fails the row stays
+		// pending and the next pass republishes; the message ID makes that a
+		// broker-side no-op.
+		if err := s.markOutboxDelivered(ctx, in.id, in.kind); err != nil {
+			s.noteOutboxError(ctx, in.id, in.kind, err)
+			continue
+		}
+		published++
+	}
+	return published, nil
 }
 
 // StopWorker stops the background worker and waits for all goroutines to exit.
@@ -575,35 +952,200 @@ func (s *TranscodingService) adjustWorkerCount(parentCtx context.Context, log *z
 	monitoring.TranscodingWorkersActive.Set(float64(target))
 }
 
-// processTask executes a single transcoding task
+// taskLease is the proof that this worker owns a claim: identity plus the
+// generation returned by the claim. Every write that commits a result is
+// guarded by lease_owner + generation so a worker whose lease expired (or who
+// never claimed) cannot overwrite a newer claimer's outcome.
+type taskLease struct {
+	taskID     string
+	owner      string
+	generation int
+	attempt    int
+}
+
+type leaseCtxKey struct{}
+
+func withTaskLease(ctx context.Context, lease *taskLease) context.Context {
+	return context.WithValue(ctx, leaseCtxKey{}, lease)
+}
+
+func taskLeaseFrom(ctx context.Context) *taskLease {
+	lease, _ := ctx.Value(leaseCtxKey{}).(*taskLease)
+	return lease
+}
+
+// deliveryState is the DB view of one task as seen by a delivery.
+type deliveryState struct {
+	status     string
+	attempt    int
+	leaseValid bool
+}
+
+// readDelivery reads status/attempt/lease-validity from Postgres. The
+// lease-validity predicate is evaluated with NOW() so the answer uses DB time.
+func (s *TranscodingService) readDelivery(ctx context.Context, taskID string) (*deliveryState, error) {
+	var st deliveryState
+	err := s.db.QueryRow(ctx, `
+		SELECT status, attempt,
+		       (lease_expires_at IS NOT NULL AND lease_expires_at > NOW())
+		FROM transcoding_tasks
+		WHERE id = $1`, taskID).Scan(&st.status, &st.attempt, &st.leaseValid)
+	if err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// claim atomically moves a task to processing under a fresh lease. A row is
+// claimable when it is pending, or processing with an ALREADY EXPIRED lease
+// (the previous claimer died and recovery/redelivery may arrive in any order);
+// both expiry checks use DB time (NOW()). attempt is incremented only here,
+// only when the conditional UPDATE actually wins, and only below the business
+// cap — so a failed claim never burns an attempt.
+func (s *TranscodingService) claim(ctx context.Context, taskID string) (*taskLease, bool, error) {
+	var generation, attempt int
+	err := s.db.QueryRow(ctx, `
+		UPDATE transcoding_tasks
+		SET status = 'processing', lease_owner = $2,
+		    lease_expires_at = NOW() + ($3::double precision * INTERVAL '1 second'),
+		    generation = generation + 1, attempt = attempt + 1,
+		    next_attempt_at = NULL, started_at = NOW()
+		WHERE id = $1 AND attempt < $4
+		  AND (status = 'pending'
+		       OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < NOW()))
+		RETURNING generation, attempt`,
+		taskID, s.leaseOwner, s.leaseTTL.Seconds(), s.maxAttempts,
+	).Scan(&generation, &attempt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("claim task: %w", err)
+	}
+	return &taskLease{taskID: taskID, owner: s.leaseOwner, generation: generation, attempt: attempt}, true, nil
+}
+
+// renewLease extends the claim by leaseTTL. It only succeeds while this exact
+// owner+generation still holds a processing row; 0 rows means the lease was
+// lost and the worker must stop.
+func (s *TranscodingService) renewLease(ctx context.Context, lease *taskLease) (bool, error) {
+	result, err := s.db.Exec(ctx, `
+		UPDATE transcoding_tasks
+		SET lease_expires_at = NOW() + ($3::double precision * INTERVAL '1 second')
+		WHERE id = $1 AND lease_owner = $2 AND generation = $4 AND status = 'processing'`,
+		lease.taskID, lease.owner, s.leaseTTL.Seconds(), lease.generation)
+	if err != nil {
+		return false, fmt.Errorf("renew lease: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	return rows > 0, nil
+}
+
+// errLeaseLost reports that a lease-guarded write matched no row: the claim
+// was taken over (or the row moved on), so the caller must not settle.
+var errLeaseLost = errors.New("task lease lost or state changed")
+
+// releaseForRetry sends the task back to pending for another attempt while
+// preserving attempt, last_error and next_attempt_at (DB time + delay).
+func (s *TranscodingService) releaseForRetry(ctx context.Context, lease *taskLease, cause string, delay time.Duration) error {
+	result, err := s.db.Exec(ctx, `
+		UPDATE transcoding_tasks
+		SET status = 'pending', last_error = $3,
+		    next_attempt_at = NOW() + ($4::double precision * INTERVAL '1 second'),
+		    lease_owner = '', lease_expires_at = NULL
+		WHERE id = $1 AND status = 'processing' AND lease_owner = $2 AND generation = $5`,
+		lease.taskID, lease.owner, cause, delay.Seconds(), lease.generation)
+	if err != nil {
+		return fmt.Errorf("release task for retry: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return errLeaseLost
+	}
+	return nil
+}
+
+// terminalFailTx writes status=failed AND the DLQ outbox intent in the same
+// transaction: a terminal failure without its DLQ intent cannot be committed.
+func (s *TranscodingService) terminalFailTx(ctx context.Context, taskID string, lease *taskLease, cause string, payload []byte) error {
+	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		args := []interface{}{taskID, cause}
+		guard := ""
+		if lease != nil {
+			guard = fmt.Sprintf(" AND lease_owner = $%d AND generation = $%d", len(args)+1, len(args)+2)
+			args = append(args, lease.owner, lease.generation)
+		}
+		result, err := tx.ExecContext(ctx,
+			"UPDATE transcoding_tasks SET status = 'failed', error = $2, last_error = $2, completed_at = NOW() WHERE id = $1 AND status IN ('pending', 'processing')"+guard,
+			args...)
+		if err != nil {
+			return fmt.Errorf("failed to mark task failed: %w", err)
+		}
+		rows, _ := result.RowsAffected()
+		if rows == 0 {
+			return fmt.Errorf("task %s is not terminally failable (state or lease changed)", taskID)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO outbox (id, kind, payload, status) VALUES ($1, $2, $3, 'pending') ON CONFLICT (kind, id) DO NOTHING",
+			taskID, models.OutboxKindDLQ, payload); err != nil {
+			return fmt.Errorf("failed to record DLQ intent: %w", err)
+		}
+		return nil
+	})
+}
+
+// markOutboxDelivered flips an intent to delivered. Callers must invoke it
+// only after the broker acknowledged the publish.
+func (s *TranscodingService) markOutboxDelivered(ctx context.Context, id, kind string) error {
+	_, err := s.db.Exec(ctx,
+		"UPDATE outbox SET status = 'delivered', delivered_at = NOW(), last_error = '' WHERE id = $1 AND kind = $2 AND status = 'pending'",
+		id, kind)
+	return err
+}
+
+func (s *TranscodingService) noteOutboxError(ctx context.Context, id, kind string, cause error) {
+	_, err := s.db.Exec(ctx,
+		"UPDATE outbox SET attempts = attempts + 1, last_error = $3 WHERE id = $1 AND kind = $2",
+		id, kind, cause.Error())
+	if err != nil && s.log != nil {
+		s.log.Warn("failed to record outbox publish error", zap.String("id", id), zap.Error(err))
+	}
+}
+
+func (s *TranscodingService) readOutboxIntent(ctx context.Context, id, kind string) ([]byte, string, bool, error) {
+	var payload []byte
+	var status string
+	err := s.db.QueryRow(ctx,
+		"SELECT payload, status FROM outbox WHERE id = $1 AND kind = $2", id, kind).
+		Scan(&payload, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", false, nil
+	}
+	if err != nil {
+		return nil, "", false, err
+	}
+	return payload, status, true, nil
+}
+
+// processTask executes a single transcoding task under the caller's context.
+// When the context carries a lease the claim was already taken by
+// handleDelivery; any failure is returned so the worker decides between a
+// retry release and the terminal DLQ path.
 //
 //nolint:gocyclo // processTask has complex step logic, refactoring would be too invasive
-func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTask, log *zap.Logger) {
+func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log *zap.Logger) error {
 	task.Status = "processing"
 	now := time.Now()
 	task.StartedAt = &now
 	s.storeTask(task)
 
-	taskCtx, cancel := context.WithTimeout(s.serviceCtx, 60*time.Minute)
+	taskCtx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
-
-	if s.db != nil {
-		result, execErr := s.db.Exec(taskCtx, "UPDATE transcoding_tasks SET status = $2, started_at = $3 WHERE id = $1 AND status = 'pending'", task.ID, "processing", now)
-		if execErr != nil {
-			s.log.Error("Failed to update task status to processing", zap.String("task_id", task.ID), zap.Error(execErr))
-		} else if rows, _ := result.RowsAffected(); rows == 0 {
-			s.log.Warn("Task was already being processed by another worker", zap.String("task_id", task.ID))
-			return
-		}
-	}
 
 	// Create temp dir for output
 	outputDir, err := os.MkdirTemp("", "streamgate-transcode-*")
 	if err != nil {
-		if failErr := s.FailTask(taskCtx, task.ID, fmt.Sprintf("failed to create temp dir: %v", err)); failErr != nil {
-			s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
-		}
-		return
+		return s.recordProcessFailure(taskCtx, task, fmt.Errorf("failed to create temp dir: %w", err))
 	}
 	// Cleanup on any exit: remove partial outputs if task didn't complete
 	cleanupOutput := true
@@ -629,14 +1171,24 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	if strings.HasPrefix(inputPath, "http://") || strings.HasPrefix(inputPath, "https://") {
 		local, err := s.downloadInputFile(taskCtx, inputPath)
 		if err != nil {
-			if failErr := s.FailTask(taskCtx, task.ID, fmt.Sprintf("failed to download input: %v", err)); failErr != nil {
-				s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
-			}
-			return
+			return s.recordProcessFailure(taskCtx, task, fmt.Errorf("failed to download input: %w", err))
 		}
 		downloadedFile = local
 		inputPath = local
 		defer func() { _ = os.Remove(downloadedFile) }()
+	}
+
+	lease := taskLeaseFrom(ctx)
+
+	// Progress writes are lease-guarded: a worker whose lease expired must not
+	// write over the claim that took over.
+	var guardMeta, guardPlain string
+	var guardMetaArgs, guardPlainArgs []interface{}
+	if lease != nil {
+		guardMeta = " AND lease_owner = $4 AND generation = $5"
+		guardMetaArgs = []interface{}{lease.owner, lease.generation}
+		guardPlain = " AND lease_owner = $3 AND generation = $4"
+		guardPlainArgs = []interface{}{lease.owner, lease.generation}
 	}
 
 	var lastDBProgress int
@@ -675,36 +1227,32 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 		}
 		if s.db != nil && variant != "" {
 			metadataJSON, _ := json.Marshal(task.Metadata)
-			if _, err := s.db.Exec(context.Background(),
-				"UPDATE transcoding_tasks SET progress = $2, metadata = $3 WHERE id = $1", task.ID, task.Progress, metadataJSON); err != nil && s.log != nil {
+			if _, err := s.db.Exec(taskCtx,
+				"UPDATE transcoding_tasks SET progress = $2, metadata = $3 WHERE id = $1"+guardMeta,
+				append([]interface{}{task.ID, task.Progress, metadataJSON}, guardMetaArgs...)...); err != nil && s.log != nil {
 				s.log.Warn("failed to update variant progress in DB", zap.String("task_id", task.ID), zap.Error(err))
 			}
 		} else if s.db != nil && task.Progress-lastDBProgress >= 5 {
 			lastDBProgress = task.Progress
-			if _, err := s.db.Exec(context.Background(),
-				"UPDATE transcoding_tasks SET progress = $2 WHERE id = $1", task.ID, task.Progress); err != nil && s.log != nil {
+			if _, err := s.db.Exec(taskCtx,
+				"UPDATE transcoding_tasks SET progress = $2 WHERE id = $1"+guardPlain,
+				append([]interface{}{task.ID, task.Progress}, guardPlainArgs...)...); err != nil && s.log != nil {
 				s.log.Warn("failed to update progress in DB", zap.String("task_id", task.ID), zap.Error(err))
 			}
 		}
 	})
 
 	if err != nil {
-		if failErr := s.FailTask(taskCtx, task.ID, err.Error()); failErr != nil {
-			s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
-		}
 		if log != nil {
 			log.Info("TranscodingService: task failed", zap.String("task_id", task.ID), zap.String("error", err.Error()))
 		}
-		return
+		return s.recordProcessFailure(taskCtx, task, err)
 	}
 
 	// Upload segments to object storage
 	if s.storage != nil {
 		if err := s.uploadSegments(taskCtx, outputDir, task.ContentID, task.Profile); err != nil {
-			if failErr := s.FailTask(taskCtx, task.ID, fmt.Sprintf("failed to upload segments: %v", err)); failErr != nil {
-				s.log.Error("Failed to mark task as failed in DB", zap.String("task_id", task.ID), zap.Error(failErr))
-			}
-			return
+			return s.recordProcessFailure(taskCtx, task, fmt.Errorf("failed to upload segments: %w", err))
 		}
 
 		s.extractAndUploadThumbnail(taskCtx, inputPath, task.ContentID)
@@ -724,8 +1272,9 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 			s.storeTask(task)
 			if s.db != nil {
 				metadataJSON, _ := json.Marshal(task.Metadata)
-				if _, err := s.db.Exec(context.Background(),
-					"UPDATE transcoding_tasks SET metadata = $2 WHERE id = $1", task.ID, metadataJSON); err != nil && s.log != nil {
+				if _, err := s.db.Exec(taskCtx,
+					"UPDATE transcoding_tasks SET metadata = $2 WHERE id = $1"+guardPlain,
+					append([]interface{}{task.ID, metadataJSON}, guardPlainArgs...)...); err != nil && s.log != nil {
 					s.log.Warn("failed to finalize variant progress in DB", zap.String("task_id", task.ID), zap.Error(err))
 				}
 			}
@@ -733,7 +1282,10 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 	}
 
 	if err := s.CompleteTask(taskCtx, task.ID, outputURL); err != nil {
-		s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
+		if s.log != nil {
+			s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
+		}
+		return err
 	}
 
 	s.hookMu.Lock()
@@ -751,6 +1303,20 @@ func (s *TranscodingService) processTask(_ context.Context, task *TranscodingTas
 
 	// Best-effort local cleanup (output is already uploaded)
 	_ = os.RemoveAll(outputDir)
+	return nil
+}
+
+// recordProcessFailure persists a pre-completion failure when no worker lease
+// is involved (direct calls, demo mode). With a lease the worker decides
+// between a retry release and the terminal DLQ path, so nothing is written
+// here — the cause is returned instead.
+func (s *TranscodingService) recordProcessFailure(ctx context.Context, task *TranscodingTask, cause error) error {
+	if taskLeaseFrom(ctx) == nil {
+		if failErr := s.FailTask(ctx, task.ID, cause.Error()); failErr != nil && s.log != nil {
+			s.log.Error("Failed to mark task as failed", zap.String("task_id", task.ID), zap.Error(failErr))
+		}
+	}
+	return cause
 }
 
 // uploadSegments walks the output directory and uploads all files to MinIO
@@ -1111,7 +1677,9 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 		Metadata:    make(map[string]interface{}),
 	}
 
-	// Save to database when persistence is available.
+	// Persist the task together with its enqueue intent in ONE transaction;
+	// the message is published afterwards (outbox pattern), so a crash can
+	// never leave a committed task without a publishable message.
 	if s.db != nil {
 		if err := s.saveTask(ctx, task); err != nil {
 			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
@@ -1126,18 +1694,41 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 			}
 			return "", fmt.Errorf("failed to save task: %w", err)
 		}
+		// Best-effort immediate publish; on failure the intent row stays
+		// pending and the outbox pump retries. The publish returns only after
+		// the broker acknowledged, and only then is the intent delivered.
+		if s.queue != nil {
+			if payload, merr := json.Marshal(task); merr == nil {
+				s.publishIntent(ctx, task.ID, models.OutboxKindTask, payload)
+			}
+		}
 	} else {
 		s.storeTask(task)
-	}
-
-	// Enqueue task
-	if s.queue != nil {
-		if err := s.queue.Enqueue(task); err != nil {
-			return "", fmt.Errorf("failed to enqueue task: %w", err)
+		// Memory-only demo mode: there is no outbox table, enqueue directly.
+		if s.queue != nil {
+			if err := s.queue.Enqueue(task); err != nil {
+				return "", fmt.Errorf("failed to enqueue task: %w", err)
+			}
 		}
 	}
 
 	return taskID, nil
+}
+
+// publishIntent publishes one outbox intent immediately. Success marks the row
+// delivered (only after the broker acknowledged); failure leaves the row
+// pending for the outbox pump.
+func (s *TranscodingService) publishIntent(ctx context.Context, id, kind string, payload []byte) {
+	if s.queue == nil {
+		return
+	}
+	if err := s.queue.PublishOutbox(kind, id, payload); err != nil {
+		s.noteOutboxError(ctx, id, kind, err)
+		return
+	}
+	if err := s.markOutboxDelivered(ctx, id, kind); err != nil && s.log != nil {
+		s.log.Warn("failed to mark outbox intent delivered", zap.String("id", id), zap.Error(err))
+	}
 }
 
 // countOwnerActiveTasks counts an owner's pending or processing tasks, from
@@ -1223,7 +1814,9 @@ func (s *TranscodingService) GetTranscodingStatus(ctx context.Context, taskID st
 		}
 	}
 
-	// Merge live variant_progress from in-memory store (DB metadata is stale during processing)
+	// Merge live variant_progress from the in-memory mirror. This is EPHEMERAL
+	// progress only, never status: the status/progress columns above are read
+	// from Postgres, the sole authority.
 	if memTask, memErr := s.getTask(taskID); memErr == nil && memTask.Metadata != nil {
 		if vp, ok := memTask.Metadata["variant_progress"]; ok {
 			if task.Metadata == nil {
@@ -1325,17 +1918,17 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 		})
 	}
 
-	completeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	completeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+
+	// The commit is lease-guarded when called from a worker: only the current
+	// claimer (owner + generation) may complete the task.
+	lease := taskLeaseFrom(ctx)
 
 	return s.db.InTransaction(completeCtx, func(tx *sql.Tx) error {
 		var contentID string
-		var currentStatus string
-		if err := tx.QueryRowContext(ctx, "SELECT content_id, status FROM transcoding_tasks WHERE id = $1", taskID).Scan(&contentID, &currentStatus); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT content_id FROM transcoding_tasks WHERE id = $1", taskID).Scan(&contentID); err != nil {
 			return fmt.Errorf("failed to get task: %w", err)
-		}
-		if currentStatus != "processing" {
-			return fmt.Errorf("invalid task state transition: %s -> completed", currentStatus)
 		}
 
 		var metadataJSON []byte
@@ -1352,18 +1945,25 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 			metadataJSON, _ = json.Marshal(finalMeta)
 		}
 
+		query := "UPDATE transcoding_tasks SET status = 'completed', progress = 100, output_url = $2, completed_at = $3"
+		args := []interface{}{taskID, outputURL, time.Now()}
 		if metadataJSON != nil {
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5, metadata = $6 WHERE id = $1 AND status = 'processing'",
-				taskID, "completed", 100, outputURL, time.Now(), metadataJSON); err != nil {
-				return fmt.Errorf("failed to complete task: %w", err)
-			}
-		} else {
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE transcoding_tasks SET status = $2, progress = $3, output_url = $4, completed_at = $5 WHERE id = $1 AND status = 'processing'",
-				taskID, "completed", 100, outputURL, time.Now()); err != nil {
-				return fmt.Errorf("failed to complete task: %w", err)
-			}
+			query += ", metadata = $4"
+			args = append(args, metadataJSON)
+		}
+		query += " WHERE id = $1 AND status = 'processing'"
+		if lease != nil {
+			next := len(args) + 1
+			query += fmt.Sprintf(" AND lease_owner = $%d AND generation = $%d", next, next+1)
+			args = append(args, lease.owner, lease.generation)
+		}
+		result, err := tx.ExecContext(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to complete task: %w", err)
+		}
+		rows, _ := result.RowsAffected()
+		if rows == 0 {
+			return fmt.Errorf("task %s is not completable (state or lease changed)", taskID)
 		}
 
 		if contentID != "" {
@@ -1591,35 +2191,50 @@ func (s *TranscodingService) ListProfiles() []TranscodingProfile {
 	return profiles
 }
 
-// saveTask saves a task to database
+// saveTask writes the task row AND its enqueue intent in the same transaction:
+// task creation and "there is a message to publish" are one atomic fact.
 func (s *TranscodingService) saveTask(ctx context.Context, task *TranscodingTask) error {
 	metadataJSON, err := json.Marshal(task.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to serialize metadata: %w", err)
 	}
+	var payload []byte
+	if s.queue != nil {
+		payload, err = json.Marshal(task)
+		if err != nil {
+			return fmt.Errorf("failed to serialize task payload: %w", err)
+		}
+	}
 
-	query := `
-		INSERT INTO transcoding_tasks (id, content_id, profile, status, progress, input_url, 
-		                              output_url, error, priority, created_at, metadata, owner_wallet)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`
-
-	_, err = s.db.Exec(ctx, query,
-		task.ID,
-		task.ContentID,
-		task.Profile,
-		task.Status,
-		task.Progress,
-		task.InputURL,
-		task.OutputURL,
-		task.Error,
-		task.Priority,
-		task.CreatedAt,
-		metadataJSON,
-		task.OwnerWallet,
-	)
-
-	return err
+	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO transcoding_tasks (id, content_id, profile, status, progress, input_url, 
+			                              output_url, error, priority, created_at, metadata, owner_wallet)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			task.ID,
+			task.ContentID,
+			task.Profile,
+			task.Status,
+			task.Progress,
+			task.InputURL,
+			task.OutputURL,
+			task.Error,
+			task.Priority,
+			task.CreatedAt,
+			metadataJSON,
+			task.OwnerWallet,
+		); err != nil {
+			return err
+		}
+		if s.queue != nil {
+			if _, err := tx.ExecContext(ctx,
+				"INSERT INTO outbox (id, kind, payload, status) VALUES ($1, $2, $3, 'pending') ON CONFLICT (kind, id) DO NOTHING",
+				task.ID, models.OutboxKindTask, payload); err != nil {
+				return fmt.Errorf("failed to record outbox intent: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 func (s *TranscodingService) findTaskByContentAndProfile(ctx context.Context, contentID, profile string) (string, error) {
