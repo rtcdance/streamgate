@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -179,7 +178,7 @@ func (m *mockJetStream) AccountInfo(opts ...nats.JSOpt) (*nats.AccountInfo, erro
 	if m.accountInfoFn != nil {
 		return m.accountInfoFn(opts...)
 	}
-	return &nats.AccountInfo{}, nil
+	return nil, nil
 }
 func (m *mockJetStream) StreamNameBySubject(subject string, opts ...nats.JSOpt) (string, error) {
 	return "", nil
@@ -229,51 +228,136 @@ func (m *mockJetStream) ObjectStores(opts ...nats.ObjectOpt) <-chan nats.ObjectS
 	return nil
 }
 
-func TestNATSTranscodingQueue_GetStatus_NotFound(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		logger:   zap.NewNop(),
-	}
-
-	_, err := q.GetStatus("nonexistent")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "task not found")
+// fakeJSMessage records settle calls so delivery-handle binding can be tested
+// without a live JetStream (*nats.Msg.Ack needs a real subscription).
+type fakeJSMessage struct {
+	mu         sync.Mutex
+	acked      bool
+	nacked     bool
+	nakDelay   time.Duration
+	inProg     bool
+	terminated bool
+	ackErr     error
 }
 
-func TestNATSTranscodingQueue_GetStatus_Found(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: map[string]statusEntry{
-			"task-1": {status: "pending", updatedAt: time.Now()},
-		},
-		logger: zap.NewNop(),
-	}
+func (f *fakeJSMessage) Ack(opts ...nats.AckOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.acked = true
+	return f.ackErr
+}
 
-	status, err := q.GetStatus("task-1")
+func (f *fakeJSMessage) NakWithDelay(delay time.Duration, opts ...nats.AckOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nacked = true
+	f.nakDelay = delay
+	return nil
+}
+
+func (f *fakeJSMessage) InProgress(opts ...nats.AckOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inProg = true
+	return nil
+}
+
+func (f *fakeJSMessage) Term(opts ...nats.AckOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.terminated = true
+	return nil
+}
+
+func (f *fakeJSMessage) settled() (acked, nacked, terminated bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acked, f.nacked, f.terminated
+}
+
+// TestAcceptance_DeliveryHandleIsolation proves Ack/Nak/InProgress bind to the
+// exact delivery returned by Dequeue. Before per-delivery handles, the NATS
+// queue kept a taskID-keyed msg map: a second delivery of the same task
+// overwrote the first, so Ack(taskID) consumed the WRONG message. Two
+// deliveries of the same task must settle independently.
+func TestAcceptance_DeliveryHandleIsolation(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop()}
+
+	taskPayload, err := json.Marshal(&models.TranscodingTask{ID: "task-same", Status: "pending"})
 	require.NoError(t, err)
-	assert.Equal(t, "pending", status)
-}
 
-func TestNATSTranscodingQueue_Ack_NotFound(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
+	// Two deliveries of the SAME task (e.g. redelivery while the first
+	// attempt is still in flight) — each settles its own message.
+	msgA := &fakeJSMessage{}
+	msgB := &fakeJSMessage{}
+	taskA, handleA, err := q.deliverPayload(taskPayload, msgA, jsStreamName, 1)
+	require.NoError(t, err)
+	_, handleB, err := q.deliverPayload(taskPayload, msgB, jsStreamName, 2)
+	require.NoError(t, err)
+	assert.Equal(t, "task-same", taskA.ID)
+	require.NotSame(t, handleA, handleB)
+	require.Equal(t, handleA.TaskID(), handleB.TaskID(), "both deliveries carry the same task id")
+
+	// Concurrent settlement of two deliveries of the same task must each hit
+	// exactly their own message.
+	var wg sync.WaitGroup
+	for _, h := range []models.DeliveryHandle{handleA, handleB} {
+		wg.Add(1)
+		go func(h models.DeliveryHandle) {
+			defer wg.Done()
+			assert.NoError(t, q.Ack(h))
+		}(h)
 	}
+	wg.Wait()
 
-	err := q.Ack("nonexistent")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "message not found")
+	ackedA, _, _ := msgA.settled()
+	ackedB, _, _ := msgB.settled()
+	assert.True(t, ackedA, "handle A must ack message A")
+	assert.True(t, ackedB, "handle B must ack message B")
+
+	// Nak binds the delay to its own delivery.
+	msgC := &fakeJSMessage{}
+	msgD := &fakeJSMessage{}
+	handleC := &natsDelivery{taskID: "task-same", msg: msgC}
+	handleD := &natsDelivery{taskID: "task-same", msg: msgD}
+	require.NoError(t, q.Nak(handleC, 2*time.Second))
+	_, nackedC, _ := msgC.settled()
+	_, nackedD, _ := msgD.settled()
+	assert.True(t, nackedC)
+	assert.False(t, nackedD, "Nak of handle C must not consume message D")
+	assert.Equal(t, 2*time.Second, msgC.nakDelay)
+
+	// InProgress (heartbeat) likewise binds to one delivery only.
+	require.NoError(t, q.InProgress(handleD))
+	assert.True(t, msgD.inProg)
+	assert.False(t, msgA.inProg)
 }
 
-func TestNATSTranscodingQueue_Nak_NotFound(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-	}
-
-	err := q.Nak("nonexistent")
+func TestNATSTranscodingQueue_Ack_UnknownHandle(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop()}
+	err := q.Ack(nil)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "message not found")
+	// A plain string is not a NATS delivery handle.
+	err = q.Ack(models.DeliveryHandle(stringHandle("task-1")))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "does not belong")
 }
+
+func TestNATSTranscodingQueue_Nak_UnknownHandle(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop()}
+	err := q.Nak(nil, time.Second)
+	assert.Error(t, err)
+}
+
+func TestNATSTranscodingQueue_InProgress_UnknownHandle(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop()}
+	err := q.InProgress(nil)
+	assert.Error(t, err)
+}
+
+type stringHandle string
+
+func (h stringHandle) TaskID() string { return string(h) }
 
 func TestNATSTranscodingQueue_Close_Nil(t *testing.T) {
 	q := &NATSTranscodingQueue{
@@ -293,150 +377,43 @@ func TestNATSTranscodingQueue_Close_WithSub(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestNATSTranscodingQueue_maybeCleanup_TooEarly(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-	}
-
-	q.maybeCleanup()
-}
-
-func TestNATSTranscodingQueue_maybeCleanup_StaleMessages(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now().Add(-cleanupInterval - time.Second),
-	}
-
-	q.messages["stale-msg"] = msgEntry{
-		msg:      nil,
-		dequeued: time.Now().Add(-msgStaleTimeout - time.Hour),
-	}
-	q.messages["fresh-msg"] = msgEntry{
-		msg:      nil,
-		dequeued: time.Now(),
-	}
-
-	q.maybeCleanup()
-
-	_, hasStale := q.messages["stale-msg"]
-	assert.False(t, hasStale)
-
-	_, hasFresh := q.messages["fresh-msg"]
-	assert.True(t, hasFresh)
-}
-
-func TestNATSTranscodingQueue_maybeCleanup_StaleStatuses(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now().Add(-cleanupInterval - time.Second),
-	}
-
-	q.statuses["stale-status"] = statusEntry{
-		status:    "completed",
-		updatedAt: time.Now().Add(-statusStaleTimeout - time.Hour),
-	}
-	q.statuses["fresh-status"] = statusEntry{
-		status:    "pending",
-		updatedAt: time.Now(),
-	}
-
-	q.maybeCleanup()
-
-	_, hasStale := q.statuses["stale-status"]
-	assert.False(t, hasStale)
-
-	_, hasFresh := q.statuses["fresh-status"]
-	assert.True(t, hasFresh)
-}
-
-func TestNATSTranscodingQueue_maybeCleanup_ConcurrentSafety(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now().Add(-cleanupInterval - time.Second),
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			q.maybeCleanup()
-		}()
-	}
-	wg.Wait()
-}
-
 func TestNATSTranscodingQueue_Enqueue_MarshalError(t *testing.T) {
 	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-		js:       nil,
+		logger: zap.NewNop(),
+		js:     nil,
 	}
 
 	task := &models.TranscodingTask{
 		ID:        "test-task",
 		ContentID: "content-1",
 		Status:    "pending",
+		Metadata:  map[string]interface{}{"bad": make(chan int)},
 	}
 
-	assert.Panics(t, func() {
-		_ = q.Enqueue(task)
-	})
+	err := q.Enqueue(task)
+	require.Error(t, err, "unmarshalable task must be rejected before any publish")
+	assert.Contains(t, err.Error(), "failed to marshal task")
 }
 
 func TestNATSTranscodingQueue_Dequeue_NilSub(t *testing.T) {
 	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-		sub:      nil,
+		logger: zap.NewNop(),
+		sub:    nil,
 	}
 
-	_, err := q.Dequeue(context.Background())
+	_, _, err := q.Dequeue(context.Background())
 	assert.Error(t, err)
 }
 
 func TestNATSTranscodingQueue_Depth_NilSub(t *testing.T) {
 	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-		sub:      nil,
+		logger: zap.NewNop(),
+		sub:    nil,
 	}
 
 	assert.Panics(t, func() {
 		_, _ = q.Depth()
 	})
-}
-
-func TestStatusEntry_Fields(t *testing.T) {
-	now := time.Now()
-	entry := statusEntry{
-		status:    "processing",
-		updatedAt: now,
-	}
-	assert.Equal(t, "processing", entry.status)
-	assert.Equal(t, now, entry.updatedAt)
-}
-
-func TestMsgEntry_Fields(t *testing.T) {
-	now := time.Now()
-	entry := msgEntry{
-		msg:      nil,
-		dequeued: now,
-	}
-	assert.Nil(t, entry.msg)
-	assert.Equal(t, now, entry.dequeued)
 }
 
 func TestNATSTranscodingQueue_Constants(t *testing.T) {
@@ -445,354 +422,84 @@ func TestNATSTranscodingQueue_Constants(t *testing.T) {
 	assert.Equal(t, "transcoding-worker", jsConsumerName)
 	assert.Equal(t, "TRANSCODING_DLQ", jsDLQStreamName)
 	assert.Equal(t, "streamgate.transcoding.dlq", jsDLQStreamSubject)
-	assert.Equal(t, 5, jsMaxDeliver)
-	assert.Equal(t, 30*time.Minute, msgStaleTimeout)
-	assert.Equal(t, 2*time.Hour, statusStaleTimeout)
-	assert.Equal(t, 5*time.Minute, cleanupInterval)
+	assert.Equal(t, -1, jsMaxDeliver)
+	assert.Equal(t, 30*time.Second, jsAckWait)
 }
 
-func TestNATSTranscodingQueue_Ack_UpdatesStatus(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: map[string]msgEntry{
-			"task-1": {msg: nil, dequeued: time.Now()},
-		},
-		logger: zap.NewNop(),
-	}
-
-	err := q.Ack("task-1")
-	assert.Error(t, err)
-}
-
-func TestNATSTranscodingQueue_Nak_DeletesMessage(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: map[string]msgEntry{
-			"task-1": {msg: nil, dequeued: time.Now()},
-		},
-		logger: zap.NewNop(),
-	}
-
-	err := q.Nak("task-1")
-	assert.Error(t, err)
-
-	_, exists := q.messages["task-1"]
-	assert.False(t, exists)
-}
-
-func TestNATSTranscodingQueue_GetStatus_ConcurrentAccess(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		logger:   zap.NewNop(),
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			taskID := "task-concurrent"
-			q.statusMu.Lock()
-			q.statuses[taskID] = statusEntry{status: "pending", updatedAt: time.Now()}
-			q.statusMu.Unlock()
-
-			status, err := q.GetStatus(taskID)
-			if err == nil {
-				assert.Equal(t, "pending", status)
+func TestNATSTranscodingQueue_PublishOutbox_TaskSubjectAndMsgID(t *testing.T) {
+	var gotSubject, gotMsgID string
+	var gotData []byte
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			gotSubject = m.Subject
+			gotMsgID = m.Header.Get(nats.MsgIdHdr)
+			gotData = append([]byte(nil), m.Data...)
+			if len(opts) == 0 {
+				t.Error("publish must carry the MsgId option")
 			}
-		}(i)
-	}
-	wg.Wait()
-}
-
-func TestNATSTranscodingQueue_Enqueue_RecordsStatus(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        nil,
-	}
-
-	task := &models.TranscodingTask{
-		ID:        "test-enqueue",
-		ContentID: "content-1",
-		Status:    "pending",
-	}
-
-	assert.Panics(t, func() {
-		_ = q.Enqueue(task)
-	})
-}
-
-func TestWalletChallenge_Fields(t *testing.T) {
-	now := time.Now()
-	ch := WalletChallenge{
-		ID:            "challenge-1",
-		WalletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
-		ChainID:       1,
-		SigningType:   "personal_sign",
-		Nonce:         "abc123",
-		Message:       "Sign this message",
-		IssuedAt:      now,
-		ExpiresAt:     now.Add(5 * time.Minute),
-	}
-
-	assert.Equal(t, "challenge-1", ch.ID)
-	assert.Equal(t, "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18", ch.WalletAddress)
-	assert.Equal(t, int64(1), ch.ChainID)
-	assert.Equal(t, "personal_sign", ch.SigningType)
-	assert.Equal(t, "abc123", ch.Nonce)
-}
-
-func TestWalletChallenge_JSON_RoundTrip(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	ch := WalletChallenge{
-		ID:            "challenge-json",
-		WalletAddress: "0xABC",
-		ChainID:       1,
-		SigningType:   "eip712",
-		Nonce:         "nonce123",
-		Message:       "Sign this",
-		IssuedAt:      now,
-		ExpiresAt:     now.Add(5 * time.Minute),
-	}
-
-	data, err := json.Marshal(ch)
-	require.NoError(t, err)
-
-	var decoded WalletChallenge
-	err = json.Unmarshal(data, &decoded)
-	require.NoError(t, err)
-
-	assert.Equal(t, ch.ID, decoded.ID)
-	assert.Equal(t, ch.WalletAddress, decoded.WalletAddress)
-	assert.Equal(t, ch.ChainID, decoded.ChainID)
-	assert.Equal(t, ch.SigningType, decoded.SigningType)
-	assert.Equal(t, ch.Nonce, decoded.Nonce)
-	assert.Equal(t, ch.Message, decoded.Message)
-}
-
-func TestNATSTranscodingQueue_Enqueue_RecordsStatusOnSuccess(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        nil,
-	}
-
-	task := &models.TranscodingTask{
-		ID:        "enqueue-status-test",
-		ContentID: "content-1",
-		Status:    "queued",
-	}
-
-	assert.Panics(t, func() {
-		_ = q.Enqueue(task)
-	})
-}
-
-func TestNATSTranscodingQueue_Close_WithSubAndConn(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-		sub:      nil,
-		conn:     nil,
-	}
-
-	err := q.Close()
-	assert.NoError(t, err)
-}
-
-func TestNATSTranscodingQueue_maybeCleanup_ResetsLastClean(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now().Add(-cleanupInterval - time.Second),
-	}
-
-	q.maybeCleanup()
-
-	q.cleanupMu.Lock()
-	afterClean := q.lastClean
-	q.cleanupMu.Unlock()
-
-	assert.True(t, afterClean.After(time.Now().Add(-time.Second)))
-}
-
-func TestNATSTranscodingQueue_maybeCleanup_SkipsWhenRecent(t *testing.T) {
-	now := time.Now()
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: now,
-	}
-
-	q.maybeCleanup()
-
-	q.cleanupMu.Lock()
-	stillNow := q.lastClean
-	q.cleanupMu.Unlock()
-
-	assert.Equal(t, now, stillNow)
-}
-
-func TestNATSTranscodingQueue_GetStatus_MultipleEntries(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: map[string]statusEntry{
-			"task-1": {status: "pending", updatedAt: time.Now()},
-			"task-2": {status: "processing", updatedAt: time.Now()},
-			"task-3": {status: "completed", updatedAt: time.Now()},
+			return &nats.PubAck{}, nil
 		},
-		logger: zap.NewNop(),
 	}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 
-	tests := []struct {
-		id      string
-		want    string
-		wantErr bool
-	}{
-		{"task-1", "pending", false},
-		{"task-2", "processing", false},
-		{"task-3", "completed", false},
-		{"task-99", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
-			got, err := q.GetStatus(tt.id)
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
-		})
-	}
+	payload := []byte(`{"id":"task-1"}`)
+	require.NoError(t, q.PublishOutbox(models.OutboxKindTask, "task-1", payload))
+	assert.Equal(t, jsStreamSubject, gotSubject)
+	assert.Equal(t, "task-1", gotMsgID)
+	assert.Equal(t, payload, gotData)
 }
 
-func TestNATSTranscodingQueue_Ack_DeletesFromMessages(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: map[string]msgEntry{
-			"task-ack": {msg: nil, dequeued: time.Now()},
+func TestNATSTranscodingQueue_PublishOutbox_DLQSubject(t *testing.T) {
+	var gotSubject, gotMsgID string
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			gotSubject = m.Subject
+			gotMsgID = m.Header.Get(nats.MsgIdHdr)
+			return &nats.PubAck{}, nil
 		},
-		logger: zap.NewNop(),
 	}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 
-	err := q.Ack("task-ack")
+	require.NoError(t, q.PublishOutbox(models.OutboxKindDLQ, "task-9:42", []byte("dead")))
+	assert.Equal(t, jsDLQStreamSubject, gotSubject)
+	assert.Equal(t, "task-9:42", gotMsgID)
+}
+
+func TestNATSTranscodingQueue_PublishOutbox_UnknownKind(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: &mockJetStream{}}
+	err := q.PublishOutbox("bogus", "id", nil)
 	assert.Error(t, err)
-
-	_, exists := q.messages["task-ack"]
-	assert.False(t, exists)
 }
 
-func TestNATSTranscodingQueue_Ack_UpdatesStatusToCompleted(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: map[string]statusEntry{
-			"task-complete": {status: "processing", updatedAt: time.Now()},
+func TestNATSTranscodingQueue_PublishOutbox_PublishError(t *testing.T) {
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			return nil, errors.New("nats down")
 		},
-		messages: map[string]msgEntry{
-			"task-complete": {msg: nil, dequeued: time.Now()},
-		},
-		logger: zap.NewNop(),
 	}
-
-	err := q.Ack("task-complete")
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
+	err := q.PublishOutbox(models.OutboxKindTask, "task-1", []byte("{}"))
 	assert.Error(t, err)
-
-	_, exists := q.messages["task-complete"]
-	assert.False(t, exists)
+	assert.Contains(t, err.Error(), "failed to publish")
 }
 
-func TestNATSTranscodingQueue_Enqueue_Success(t *testing.T) {
-	js := &mockJetStream{}
-
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        js,
+func TestNATSTranscodingQueue_Enqueue_PublishesWithMsgID(t *testing.T) {
+	var gotMsgID string
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			gotMsgID = m.Header.Get(nats.MsgIdHdr)
+			return &nats.PubAck{}, nil
+		},
 	}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 
 	task := &models.TranscodingTask{
 		ID:        "enqueue-ok",
 		ContentID: "content-1",
-		Status:    "queued",
+		Status:    "pending",
 	}
-
-	err := q.Enqueue(task)
-	require.NoError(t, err)
-
-	q.statusMu.RLock()
-	entry, ok := q.statuses["enqueue-ok"]
-	q.statusMu.RUnlock()
-	assert.True(t, ok)
-	assert.Equal(t, "queued", entry.status)
-}
-
-func TestNATSTranscodingQueue_Enqueue_PublishError(t *testing.T) {
-	js := &mockJetStream{
-		publishFn: func(subj string, data []byte, opts ...nats.PubOpt) (*nats.PubAck, error) {
-			return nil, errors.New("publish failed")
-		},
-	}
-
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        js,
-	}
-
-	task := &models.TranscodingTask{
-		ID:        "enqueue-fail",
-		ContentID: "content-1",
-		Status:    "queued",
-	}
-
-	err := q.Enqueue(task)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to publish task to JetStream")
-}
-
-func TestNATSTranscodingQueue_Enqueue_TriggersCleanup(t *testing.T) {
-	js := &mockJetStream{}
-
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now().Add(-cleanupInterval - time.Second),
-		js:        js,
-	}
-
-	q.statuses["old"] = statusEntry{
-		status:    "completed",
-		updatedAt: time.Now().Add(-statusStaleTimeout - time.Hour),
-	}
-
-	task := &models.TranscodingTask{
-		ID:        "enqueue-cleanup",
-		ContentID: "content-1",
-		Status:    "queued",
-	}
-
-	err := q.Enqueue(task)
-	require.NoError(t, err)
-
-	q.statusMu.RLock()
-	_, hasOld := q.statuses["old"]
-	_, hasNew := q.statuses["enqueue-cleanup"]
-	q.statusMu.RUnlock()
-	assert.False(t, hasOld)
-	assert.True(t, hasNew)
+	require.NoError(t, q.Enqueue(task))
+	assert.Equal(t, "enqueue-ok", gotMsgID, "Enqueue must publish with nats.MsgID(taskID)")
 }
 
 func TestNATSTranscodingQueue_ensureStream_ExistingStream(t *testing.T) {
@@ -803,10 +510,8 @@ func TestNATSTranscodingQueue_ensureStream_ExistingStream(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	err := q.ensureStream()
@@ -824,10 +529,8 @@ func TestNATSTranscodingQueue_ensureStream_CreateNew(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	err := q.ensureStream()
@@ -845,10 +548,8 @@ func TestNATSTranscodingQueue_ensureStream_AddStreamFails(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	err := q.ensureStream()
@@ -864,10 +565,8 @@ func TestNATSTranscodingQueue_ensureDLQStream_Existing(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	q.ensureDLQStream()
@@ -877,7 +576,7 @@ func TestNATSTranscodingQueue_ensureDLQStream_CreateNew(t *testing.T) {
 	streamInfoCalled := false
 	js := &mockJetStream{
 		streamInfoFn: func(stream string, opts ...nats.JSOpt) (*nats.StreamInfo, error) {
-			if !streamInfoCalled {
+			if stream == jsDLQStreamName && !streamInfoCalled {
 				streamInfoCalled = true
 				return nil, errors.New("not found")
 			}
@@ -889,13 +588,12 @@ func TestNATSTranscodingQueue_ensureDLQStream_CreateNew(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	q.ensureDLQStream()
+	assert.True(t, streamInfoCalled)
 }
 
 func TestNATSTranscodingQueue_ensureDLQStream_AddStreamFails(t *testing.T) {
@@ -909,30 +607,50 @@ func TestNATSTranscodingQueue_ensureDLQStream_AddStreamFails(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	q.ensureDLQStream()
 }
 
-func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_Existing(t *testing.T) {
+func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ConvergesLegacyConfig(t *testing.T) {
+	// A consumer left behind by an older build (MaxDeliver=5, no AckWait)
+	// must be updated to MaxDeliver=-1 + AckWait=30s, otherwise messages get
+	// silently exhausted by the transport instead of by the business cap.
+	var updated *nats.ConsumerConfig
 	js := &mockJetStream{
 		consumerInfoFn: func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			return &nats.ConsumerInfo{Config: nats.ConsumerConfig{Durable: name, MaxDeliver: 5}}, nil
+		},
+		updateConsumerFn: func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			updated = cfg
 			return &nats.ConsumerInfo{}, nil
 		},
 	}
 
-	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
+	q.ensureMaxDeliverConsumer()
+	require.NotNil(t, updated)
+	assert.Equal(t, -1, updated.MaxDeliver)
+	assert.Equal(t, 30*time.Second, updated.AckWait)
+}
+
+func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ExistingMatchedConfig(t *testing.T) {
+	updateCalled := false
+	js := &mockJetStream{
+		consumerInfoFn: func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			return &nats.ConsumerInfo{Config: nats.ConsumerConfig{Durable: name, MaxDeliver: -1, AckWait: 30 * time.Second}}, nil
+		},
+		updateConsumerFn: func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			updateCalled = true
+			return &nats.ConsumerInfo{}, nil
+		},
 	}
 
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 	q.ensureMaxDeliverConsumer()
+	assert.False(t, updateCalled)
 }
 
 func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_CreateNew(t *testing.T) {
@@ -946,10 +664,8 @@ func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_CreateNew(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	q.ensureMaxDeliverConsumer()
@@ -966,161 +682,80 @@ func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_AddFails(t *testing.T) {
 	}
 
 	q := &NATSTranscodingQueue{
-		logger:   zap.NewNop(),
-		js:       js,
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
+		logger: zap.NewNop(),
+		js:     js,
 	}
 
 	q.ensureMaxDeliverConsumer()
 }
 
-func TestNATSTranscodingQueue_Dequeue_UnmarshalError(t *testing.T) {
-	msg := &nats.Msg{
-		Subject: jsStreamSubject,
-		Data:    []byte("invalid-json"),
-	}
-
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-	}
-
-	q.msgMu.Lock()
-	q.messages["test"] = msgEntry{msg: msg, dequeued: time.Now()}
-	q.msgMu.Unlock()
-
-	var task models.TranscodingTask
-	err := json.Unmarshal([]byte("invalid-json"), &task)
-	assert.Error(t, err)
-}
-
-func TestNATSTranscodingQueue_Ack_WithMsg(t *testing.T) {
-	msg := &nats.Msg{
-		Subject: jsStreamSubject,
-		Data:    []byte(`{"id":"task-ack-msg"}`),
-	}
-
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: map[string]msgEntry{
-			"task-ack-msg": {msg: msg, dequeued: time.Now()},
+// TestNATSTranscodingQueue_DeliverPoison terms an unparseable payload after
+// publishing it to the DLQ keyed by stream:sequence.
+func TestNATSTranscodingQueue_DeliverPoison(t *testing.T) {
+	var dlqSubject, dlqMsgID string
+	var dlqData []byte
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			dlqSubject = m.Subject
+			dlqMsgID = m.Header.Get(nats.MsgIdHdr)
+			dlqData = append([]byte(nil), m.Data...)
+			return &nats.PubAck{}, nil
 		},
-		logger: zap.NewNop(),
 	}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 
-	err := q.Ack("task-ack-msg")
+	poison := &fakeJSMessage{}
+	_, handle, err := q.deliverPayload([]byte("not-json"), poison, jsStreamName, 1)
 	assert.Error(t, err)
-
-	_, exists := q.messages["task-ack-msg"]
-	assert.False(t, exists)
+	assert.Nil(t, handle)
+	assert.Equal(t, jsDLQStreamSubject, dlqSubject)
+	assert.Equal(t, "TRANSCODING:1", dlqMsgID, "poison DLQ id is stream:sequence")
+	assert.Equal(t, []byte("not-json"), dlqData)
+	_, _, termed := poison.settled()
+	assert.True(t, termed, "poison message must be Terminated, not looped")
 }
 
-func TestNATSTranscodingQueue_Nak_WithMsg(t *testing.T) {
-	msg := &nats.Msg{
-		Subject: jsStreamSubject,
-		Data:    []byte(`{"id":"task-nak-msg"}`),
-	}
-
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: map[string]msgEntry{
-			"task-nak-msg": {msg: msg, dequeued: time.Now()},
+// TestNATSTranscodingQueue_DeliverPoison_PublishFailureDelays proves a failed
+// DLQ publish leaves the poison message redeliverable (delayed Nak, no Term).
+func TestNATSTranscodingQueue_DeliverPoison_PublishFailureDelays(t *testing.T) {
+	js := &mockJetStream{
+		publishMsgFn: func(m *nats.Msg, opts ...nats.PubOpt) (*nats.PubAck, error) {
+			return nil, errors.New("dlq down")
 		},
-		logger: zap.NewNop(),
 	}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
 
-	err := q.Nak("task-nak-msg")
+	poison := &fakeJSMessage{}
+	_, _, err := q.deliverPayload([]byte("not-json"), poison, jsStreamName, 2)
 	assert.Error(t, err)
-
-	_, exists := q.messages["task-nak-msg"]
-	assert.False(t, exists)
+	_, nacked, termed := poison.settled()
+	assert.True(t, nacked)
+	assert.False(t, termed)
 }
 
-func TestNATSTranscodingQueue_Close_WithNilSubAndConn(t *testing.T) {
-	q := &NATSTranscodingQueue{
-		statuses: make(map[string]statusEntry),
-		messages: make(map[string]msgEntry),
-		logger:   zap.NewNop(),
-		sub:      nil,
-		conn:     nil,
-	}
+func TestNATSTranscodingQueue_Deliver_ValidTask(t *testing.T) {
+	q := &NATSTranscodingQueue{logger: zap.NewNop()}
+	payload, err := json.Marshal(&models.TranscodingTask{ID: "task-ok", ContentID: "c1", Status: "pending"})
+	require.NoError(t, err)
 
-	err := q.Close()
-	assert.NoError(t, err)
+	msg := &fakeJSMessage{}
+	task, handle, err := q.deliverPayload(payload, msg, jsStreamName, 3)
+	require.NoError(t, err)
+	assert.Equal(t, "task-ok", task.ID)
+	require.NotNil(t, handle)
+	assert.Equal(t, "task-ok", handle.TaskID())
+}
+
+func TestNATSTranscodingQueue_Deliver_MissingIDIsPoison(t *testing.T) {
+	js := &mockJetStream{}
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
+	// A payload without a task id cannot be claimed or DLQ'd by task id —
+	// treat it as poison instead of crashing the worker later.
+	_, _, err := q.deliverPayload([]byte(`{"content_id":"c"}`), &fakeJSMessage{}, jsStreamName, 4)
+	assert.Error(t, err)
 }
 
 func TestNATSTranscodingQueue_NewNATSTranscodingQueue_ConnectionFailed(t *testing.T) {
 	_, err := NewNATSTranscodingQueue("nats://localhost:4222", zap.NewNop())
 	assert.Error(t, err)
-}
-
-func TestNATSTranscodingQueue_Enqueue_ConcurrentEnqueues(t *testing.T) {
-	js := &mockJetStream{}
-
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        js,
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			task := &models.TranscodingTask{
-				ID:        fmt.Sprintf("concurrent-%d", idx),
-				ContentID: "content-1",
-				Status:    "queued",
-			}
-			_ = q.Enqueue(task)
-		}(i)
-	}
-	wg.Wait()
-
-	q.statusMu.RLock()
-	count := len(q.statuses)
-	q.statusMu.RUnlock()
-	assert.Equal(t, 50, count)
-}
-
-func TestNATSTranscodingQueue_Enqueue_MultipleTasks(t *testing.T) {
-	js := &mockJetStream{}
-
-	q := &NATSTranscodingQueue{
-		statuses:  make(map[string]statusEntry),
-		messages:  make(map[string]msgEntry),
-		logger:    zap.NewNop(),
-		lastClean: time.Now(),
-		js:        js,
-	}
-
-	tasks := []struct {
-		id     string
-		status string
-	}{
-		{"task-a", "queued"},
-		{"task-b", "processing"},
-		{"task-c", "pending"},
-	}
-
-	for _, tt := range tasks {
-		task := &models.TranscodingTask{
-			ID:        tt.id,
-			ContentID: "content-1",
-			Status:    tt.status,
-		}
-		err := q.Enqueue(task)
-		require.NoError(t, err)
-	}
-
-	for _, tt := range tasks {
-		status, err := q.GetStatus(tt.id)
-		require.NoError(t, err)
-		assert.Equal(t, tt.status, status)
-	}
 }

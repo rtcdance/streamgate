@@ -481,21 +481,42 @@ func TestMemoryTranscodingQueue_Dequeue_WaitAndEnqueue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	task, err := q.Dequeue(ctx)
+	task, _, err := q.Dequeue(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "delayed-task", task.ID)
 }
 
-func TestMemoryTranscodingQueue_GetStatus_NotFound(t *testing.T) {
+func TestMemoryTranscodingQueue_Nak_RequeuesAfterDelay(t *testing.T) {
 	q := NewMemoryTranscodingQueue()
-	_, err := q.GetStatus("nonexistent")
-	require.Error(t, err)
+	require.NoError(t, q.Enqueue(&models.TranscodingTask{ID: "retry-me", Status: "pending"}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	task, handle, err := q.Dequeue(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "retry-me", task.ID)
+
+	// Nak with a delay: the item must not be visible before the delay elapses.
+	require.NoError(t, q.Nak(handle, 150*time.Millisecond))
+	depth, _ := q.Depth()
+	assert.Equal(t, 1, depth, "delayed item still counts toward depth")
+
+	shortCtx, shortCancel := context.WithTimeout(ctx, 60*time.Millisecond)
+	defer shortCancel()
+	_, _, err = q.Dequeue(shortCtx)
+	require.Error(t, err, "item must stay hidden until its backoff elapses")
+
+	task2, handle2, err := q.Dequeue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "retry-me", task2.ID, "same task redelivered by the same queue item")
+	require.NoError(t, q.Ack(handle2))
 }
 
 func TestTranscodingService_saveTask_DBError(t *testing.T) {
 	db := &mockDB{
-		execFn: func(_ context.Context, _ string, _ ...interface{}) (sql.Result, error) {
-			return nil, errors.New("db insert error")
+		inTxFn: func(_ context.Context, _ func(tx *sql.Tx) error) error {
+			return errors.New("db insert error")
 		},
 	}
 	svc := NewTranscodingService(db, NewMemoryTranscodingQueue())

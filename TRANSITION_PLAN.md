@@ -1289,6 +1289,25 @@ sequenceDiagram
 | 端到端 | PASS | 重建部署后 **monolith 与 api-gateway 均 ALL 59 PASSED**（h264+aac+mp4 fixture 穿过新门禁真转码真播放） |
 | 单元/回归 | PASS | `go test ./...` 全绿；目标包 `-race` 全绿；`gofmt -l` 空；`go vet ./...` 干净；`go mod tidy` 无 diff |
 
+**步骤 6（Postgres 权威 / outbox / lease）+ 步骤 7（状态机 / 重试 / delivery handle / 显式 DLQ）已落地**（2026-10-13）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 迁移 038（additive） | PASS | `transcoding_tasks` 增 6 列（`lease_owner/lease_expires_at/generation/attempt/next_attempt_at/last_error`，全部带默认值，兼容旧版本）+ `outbox` 表（PK `(kind,id)`，status/attempts/last_error/delivered_at）+ 2 索引；`.down.sql` 齐全；随部署自动应用（DB 实测 schema_migrations 038） |
+| 任务创建与 outbox 意图同事务 | PASS | `Transcode → saveTask`：task 行与 `outbox(kind=task, id=taskID)` 意图**同一 DB 事务**；publisher 收到 JetStream PubAck 后才 `UPDATE outbox SET status='delivered'`；发布用 `nats.MsgID(taskID)` 幂等。线上实证：验收后 outbox 出现 `task/delivered` 记录 |
+| 跨实例 lease 认领 | PASS | `claim`：条件 UPDATE `status IN ('pending', 或 processing 且 lease 过期)` → 置 processing + lease（默认 30s）+ **generation 自增**；`attempt` 只在此处 +1；lease 有效性与过期一律用 **DB 时间 NOW()**，不用应用时钟。完成/进度提交由 `lease_owner+generation` 守卫，失去 lease 的 worker 无法提交 |
+| 心跳续租 | PASS | 每 10s `renewLease`（`WHERE lease_owner=$me AND generation=$gen AND status='processing'`）；0 行 → lease 丢失 → 取消任务 context、不 Ack（交给重投递）。用例 `TestAcceptance_HeartbeatRenewal` |
+| 卡死任务恢复 | PASS | `recoverStuckTasks` 从"10 分钟年龄猜测"改为 **lease 过期判定**（`processing AND lease_expires_at < NOW()` → 回 pending）；不再自行 re-enqueue（JetStream 重投递拥有该职责，防重复） |
+| 状态不再来自进程 map | PASS | `GetStatus` **从队列接口移除**（状态只由 Postgres 应答）；memory/NATS/4 个测试 fake 全部更新；内存镜像仅作 ephemeral 进度 |
+| delivery handle 隔离 | PASS | `Dequeue` 返回 per-delivery handle；`Ack/Nak/InProgress` 结算**那一次投递**（NATS 持有该 `*nats.Msg`，删除 taskID→msg 进程内 map——旧实现 Ack taskID 会吃掉另一条同任务的投递）；`TestAcceptance_DeliveryHandleIsolation`（双投递独立结算） |
+| 状态机与重试 | PASS | pending→processing→completed/failed；pending/processing→cancelled；重试回 pending 保留 attempt/last_error/next_attempt_at。**业务上限 3 次（含首次）**，仅成功 claim 递增；第 2/3 次默认等 2s/4s（`WithRetryDelays` 可调）。重试 = **同一条消息延迟 Nak**（NATS `NakWithDelay`；memory 有界重排队，demo-profile 明示），不再 publish 新消息 + Nak 旧消息 |
+| 显式 DLQ | PASS | 第 3 次失败或不可重试（`ErrInputTooLarge`）→ `terminalFailTx`：**failed 状态 + DLQ 意图同一事务**；outbox 以稳定 ID 发布到 DLQ stream，**PubAck 后才 Ack/Term 原消息**；发布失败留 pending 意图由 publisher 重试（原消息延迟 Nak 不 Term）；无法解析的 poison 消息按 `stream:sequence` 发 DLQ 后 Term。transport `MaxDeliver=-1`（业务上限来自 DB attempt，不再靠 MaxDeliver 悄悄耗尽） |
+| 端到端 | PASS | 重建部署（迁移 038 生效）后 **monolith 与 api-gateway 均 ALL 59 PASSED**；真实转码穿过 claim→lease→heartbeat→complete 管线；DB 实证：新完成任务 `generation=1 attempt=1 leased=t` |
+| 必需用例 | PASS | `TestAcceptance_TranscodeRedeliveryAndCrash`（lease 到期回 pending、重投递不重复副作用、attempt 只在成功 claim 递增）、`TestAcceptance_RetryAndDLQRecovery`（2s/4s 计划、终败原子写 failed+DLQ 意图、PubAck 失败留 pending、completed 重投递被 Ack 零副作用）、`TestAcceptance_DeliveryHandleIsolation`、`TestAcceptance_QueueHandleContract`；另有 `TestIntegration_TranscodingLeaseAgainstPostgres`（真 Postgres 验证 NOW() 语义，仅在 `STREAMGATE_TEST_DB_DSN` 缺席时 skip） |
+| 单元/回归 | PASS | `go test ./...` 全绿；`-race ./pkg/service/transcoding/... ./pkg/storage/...` 全绿；`gofmt -l` 空；`go vet ./...` 干净；`go mod tidy` 无 diff |
+
+**已知限制（如实记录）**：重试延迟是 service 选项（`WithRetryDelays`）未暴露到 config.yaml；`go vet -tags e2e ./test/e2e/api_gateway_test.go` 有一个**基线即存在**的 mock 签名不匹配（pkg/middleware 未动，不影响主线 tag 构建）。
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 
