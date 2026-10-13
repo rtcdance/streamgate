@@ -75,6 +75,22 @@ type mockResult struct {
 func (m *mockResult) LastInsertId() (int64, error) { return m.lastInsertID, nil }
 func (m *mockResult) RowsAffected() (int64, error) { return m.rowsAffected, nil }
 
+type mockRows struct {
+	values []string
+	idx    int
+}
+
+func (m *mockRows) Next() bool { return m.idx < len(m.values) }
+func (m *mockRows) Scan(dest ...interface{}) error {
+	if s, ok := dest[0].(*string); ok {
+		*s = m.values[m.idx]
+	}
+	m.idx++
+	return nil
+}
+func (m *mockRows) Close() error { return nil }
+func (m *mockRows) Err() error   { return nil }
+
 func TestNewGatingRuleService(t *testing.T) {
 	svc := NewGatingRuleService(&mockDB{}, zap.NewNop())
 	require.NotNil(t, svc)
@@ -203,6 +219,56 @@ func TestGatingRuleService_GetActiveRulesForContent(t *testing.T) {
 		_, err := svc.GetActiveRulesForContent(context.Background(), "c1")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to query active gating rules")
+	})
+}
+
+func TestGatingRuleService_ListActiveContractAddresses(t *testing.T) {
+	t.Run("nil db", func(t *testing.T) {
+		svc := NewGatingRuleService(nil, zap.NewNop())
+		_, err := svc.ListActiveContractAddresses(context.Background(), 11155111)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database not available")
+	})
+
+	t.Run("db query error", func(t *testing.T) {
+		db := &mockDB{
+			queryFn: func(_ context.Context, _ string, _ ...interface{}) (stg.Rows, error) {
+				return nil, errors.New("db error")
+			},
+		}
+		svc := NewGatingRuleService(db, zap.NewNop())
+		_, err := svc.ListActiveContractAddresses(context.Background(), 11155111)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to list active contract addresses")
+	})
+
+	t.Run("deduplicates, lowercases and sorts", func(t *testing.T) {
+		db := &mockDB{
+			queryFn: func(_ context.Context, query string, args ...interface{}) (stg.Rows, error) {
+				assert.Contains(t, query, "SELECT DISTINCT lower(contract_address)")
+				assert.Contains(t, query, "content_gating_rules")
+				assert.Contains(t, query, "is_active = TRUE")
+				assert.Contains(t, query, "chain_id = $1")
+				assert.Equal(t, []interface{}{int64(11155111)}, args)
+				return &mockRows{values: []string{"0xbbb", "0xaaa", "0xaaa"}}, nil
+			},
+		}
+		svc := NewGatingRuleService(db, zap.NewNop())
+		got, err := svc.ListActiveContractAddresses(context.Background(), 11155111)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"0xaaa", "0xbbb"}, got)
+	})
+
+	t.Run("empty result", func(t *testing.T) {
+		db := &mockDB{
+			queryFn: func(_ context.Context, _ string, _ ...interface{}) (stg.Rows, error) {
+				return &mockRows{}, nil
+			},
+		}
+		svc := NewGatingRuleService(db, zap.NewNop())
+		got, err := svc.ListActiveContractAddresses(context.Background(), 11155111)
+		require.NoError(t, err)
+		assert.Empty(t, got)
 	})
 }
 

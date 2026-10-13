@@ -75,6 +75,8 @@ const gatingTestWallet = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
 // setupGatingRouter mounts the routes behind a stub that injects the
 // authenticated wallet, mirroring the production order (the global JWT
 // middleware runs before these handlers and is what sets wallet_address).
+// web3Svc is nil: refreshEventFilter is nil-safe, and these tests are about
+// the rule write itself, not the indexer hook.
 func setupGatingRouter(svc *service.GatingRuleService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -82,7 +84,7 @@ func setupGatingRouter(svc *service.GatingRuleService) *gin.Engine {
 		c.Set("wallet_address", gatingTestWallet)
 		c.Next()
 	})
-	RegisterGatingRuleRoutes(r.Group("/"), svc)
+	RegisterGatingRuleRoutes(r.Group("/"), svc, nil, zap.NewNop())
 	return r
 }
 
@@ -91,7 +93,7 @@ func setupGatingRouter(svc *service.GatingRuleService) *gin.Engine {
 func setupGatingRouterNoAuth(svc *service.GatingRuleService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterGatingRuleRoutes(r.Group("/"), svc)
+	RegisterGatingRuleRoutes(r.Group("/"), svc, nil, zap.NewNop())
 	return r
 }
 
