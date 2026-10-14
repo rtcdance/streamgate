@@ -1379,7 +1379,7 @@ sequenceDiagram
 
 ### 8.14 SG-07 / SG-08 执行证据（性能与可观测性代码；CI/CD 同产物 DAG）
 
-**SG-07 代码部分已落地**（提交 `7af895a`，2026-10-13）。live 跑分（1/10/50 观众 + RPC 故障矩阵）待在干净候选上对真实栈执行，结果追加于此。
+**SG-07 代码部分已落地**（提交 `7af895a`，2026-10-13）；**live 跑分已实跑**（见下"SG-07 live 实测"）。
 
 | 项 | 结果 | 证据 |
 |---|---|---|
@@ -1389,6 +1389,17 @@ sequenceDiagram
 | 指标族补齐 | PASS（接线点记录） | `pkg/monitoring` 新增 `GateDecisionTotal{decision,reason,rule_version}`、`QueueMessageAgeSeconds`、`QueueAttemptsTotal`、`TranscodingTasksTotal{outcome,profile}`、`TranscodingRTF`、`MediaBytesTotal`、`MediaTTFBSeconds`，每个族上方注明一行接线点（gate/nats_queue/transcoding/streaming 各归属文件不在本任务允许范围，接线点已写在注释，随 SG-14 指标接线落地） |
 | 无高基数标签 | PASS | `TestMonitoring_NoHighCardinalityLabels` 扫描全部 Prometheus 家族，断言无 wallet/content_id/token/session/private_key/address/nonce 标签 |
 | 限流 Retry-After | PASS | ratelimit 429 补 `Retry-After`（memory 按窗口剩余、redis 按固定窗口边界推导），用例 `TestRateLimitMiddleware_RetryAfterHeaderOn429` 等 4 例 |
+
+**SG-07 live 实测**（真实栈 localhost:18080，2026-10-14；harness 扩展 `e78eb95` + 合桶缺陷修复 `f4d65bc`）：
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 每观众独立真实钱包 | PASS | 单钱包 10 观众实测 **140×429**（auth 10/min×2 请求/登录 → 6 次登录即 429；媒体共用一个 IP 桶）。harness 扩展 `Wallets[]` 池：`PERF_SETUP=1` 生成确定性钱包（keccak 派生、0600）→ 节流登录（`X-Wallet-Address` 桶隔离，pace 7s）→ 逐个 dev-mint。**50 钱包 setup 344s 实跑成功**（`TestPerfSetup_MintViewerWallets`），测试 `TestPerfHarness_MultiWalletViewerMapping` 等 5 例 `-race` 全绿 |
+| **抓出并修复合桶缺陷** | PASS（真实缺陷，非测试问题） | 多钱包下 10 观众仍 25% 成功率（120×429 = 恰好 dev 配置 120/min 的满额桶）。根因：全局限流器（`gateway.go:254`）注册在 **auth 之前** ⇒ `ratelimit.go:414` 的 wallet 分支永不执行，实际按 `ClientIP:Path` 分桶；10 个真实观众共享同一 manifest 路径键被合并成一个预算——正是 `MediaRateLimitAndNAT` 要防的 NAT 合桶。决定性证据：`http_requests_total` 媒体路由**无 429**（rlHandler 在 prometheus/logging 之前 abort）而 `rate_limit_total{redis,denied}=290`，容器日志 60 分钟 0 条 429；SG-14 钱包级媒体限流器从未被触发。修复 `f4d65bc`：`/api/v1/streaming/` 豁免于 IP 键控全局限流器，媒体预算完全交给 auth 后按 wallet+路由模板的媒体限流器；新增 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`（媒体超全局预算仍 200、非媒体仍 429），`-race` middleware+gateway 全绿 |
+| **1/10/50 观众矩阵（M4）** | **PASS，全部 100%** | `RESULT_DIR=/tmp/streamgate-perf-final`，commit `f4d65bc`，fixture hash `086df28bae4aca16`，每观众独立钱包 pool=1/10/50、paced=true：**1 观众 28/28、10 观众 280/280、50 观众 1400/1400，success 100.00%、error=0、无任何 4xx**；bytes 42070/420700/2103500（逐分片全量读取）；ttfb_p95 = 58.4/85.5/61.7ms。**M4 判据"50 观众 ≥99% 成功"实测满足**（门槛 99%，实测 100%） |
+| 负例（安全放行 0） | PASS | 同一轮 harness 内 `logins_failed=0`；media stage 的 66 检查含全部篡改/无 NFT/过期负例（0 放行），见 media stage |
+
+**限制（如实记录）**：warm_cache 场景；cold_cache / rpc_primary_down / rpc_all_down 三场景由 verify-docker `perf` stage 负责在独立栈上跑（其 RPC 故障注入走停止 RPC 容器 + SCENARIO 标签）；固定 reference 的 p95 回归 ≤20% 比较需两次同 runner 数据，当前单轮数据仅作基线登记；50 观众达标是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
 
 **SG-08 已落地**（提交 `6754161`，2026-10-13）：
 
