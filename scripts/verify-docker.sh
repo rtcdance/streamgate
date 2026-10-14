@@ -22,6 +22,14 @@
 # VERIFY_GOPROXY (e.g. https://goproxy.cn,direct) overrides the toolchain
 # image's module source. The verify stack's transcoder image needs no override:
 # its Dockerfile already defaults to goproxy.cn.
+#
+# PERF_REFERENCE_REF=<git ref> additionally runs SG-07 step 5 in the perf
+# stage: it builds that ref into its own image, brings up a reference stack,
+# measures the same 50-viewer load for PERF_COMPARE_ROUNDS rounds, tears it
+# down, measures the candidate the same way, and fails if the candidate's
+# median ttfb p95 exceeds PERF_COMPARE_LIMIT (default 1.20). Off by default —
+# it doubles the perf stage's runtime, so it is a calibration step, not
+# something every `all` pass pays for.
 # ============================================================
 set -euo pipefail
 
@@ -344,17 +352,47 @@ prebuild_verify_stack() {
   local project="$1" goos
   command -v go >/dev/null 2>&1 || fail "host Go toolchain is required to build the verify stack images"
   goos="$(go env GOOS)"; [ "$goos" = "darwin" ] && goos=linux
-  log "cross-building linux binaries for the verify stack (GOARCH=$(go env GOARCH))"
-  ( CGO_ENABLED=0 GOOS="$goos" GOARCH="$(go env GOARCH)" go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate \
+  # VERIFY_BUILD_REF builds a REFERENCE image instead of the working tree: its
+  # Docker images come from a detached worktree at that ref, so the reference
+  # comparison (SG-07 step 5) measures a real second build rather than a flag
+  # on the same binary. The worktree is removed once the images exist.
+  local src="$ROOT_DIR"
+  if [ -n "${VERIFY_BUILD_REF:-}" ]; then
+    src="$(prepare_reference_worktree "$VERIFY_BUILD_REF")"
+    log "cross-building linux binaries for the REFERENCE ref ${VERIFY_BUILD_REF} (GOARCH=$(go env GOARCH))"
+  else
+    log "cross-building linux binaries for the verify stack (GOARCH=$(go env GOARCH))"
+  fi
+  ( cd "$src" \
+    && CGO_ENABLED=0 GOOS="$goos" GOARCH="$(go env GOARCH)" go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate \
     && CGO_ENABLED=0 GOOS="$goos" GOARCH="$(go env GOARCH)" go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway ) \
     || fail "cross-build of the verify stack binaries failed"
-  docker build -f deploy/docker/Dockerfile.monolith.quick -t "${project}-monolith" . \
+  docker build -f "$src/deploy/docker/Dockerfile.monolith.quick" -t "${project}-monolith" "$src" \
     || fail "monolith image build failed"
-  docker build -f deploy/docker/Dockerfile.api-gateway.quick -t "${project}-api-gateway" . \
+  docker build -f "$src/deploy/docker/Dockerfile.api-gateway.quick" -t "${project}-api-gateway" "$src" \
     || fail "api-gateway image build failed"
-  docker build -f deploy/docker/Dockerfile.transcoder -t "${project}-transcoder" . \
+  docker build -f "$src/deploy/docker/Dockerfile.transcoder" -t "${project}-transcoder" "$src" \
     || fail "transcoder image build failed"
-  rm -f deploy/docker/streamgate-linux deploy/docker/api-gateway-linux
+  rm -f "$src/deploy/docker/streamgate-linux" "$src/deploy/docker/api-gateway-linux"
+  if [ -n "${VERIFY_BUILD_REF:-}" ]; then
+    git worktree remove --force "$src" >/dev/null 2>&1 || true
+  fi
+}
+
+# prepare_reference_worktree <ref> — a detached worktree at the ref, with the
+# submodules it needs, OUTSIDE the working tree so nothing here is touched.
+prepare_reference_worktree() {
+  local ref="$1" wt
+  git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1 \
+    || fail "PERF_REFERENCE_REF '${ref}' is not a commit in this repository"
+  wt="$(mktemp -d "${TMPDIR:-/tmp}/sg-ref-build.XXXXXX")"
+  rmdir "$wt"
+  git worktree add --detach "$wt" "$ref" >/dev/null 2>&1 \
+    || fail "could not create a worktree at ${ref}"
+  if [ -f "$wt/.gitmodules" ]; then
+    ( cd "$wt" && git submodule update --init --recursive >/dev/null 2>&1 ) || true
+  fi
+  printf '%s\n' "$wt"
 }
 
 # deploy_chain_contracts <anvil-host-port> — the fullchain stack's anvil
@@ -733,11 +771,141 @@ perf_fault_matrix() {
   docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil >/dev/null 2>&1 || true
 }
 
+# ---------------------------------------------------------------------------
+# Reference comparison (SG-07 step 5): the candidate's p95 must not exceed
+# 1.20x the FIXED reference's, measured on THIS runner, sequentially, with the
+# same fixture, load and resource limits, medians over independent rounds. Off
+# unless PERF_REFERENCE_REF names a git ref: it builds and runs a second full
+# stack, so it is a calibration step (run when the reference changes), not a
+# cost every `all` pass pays.
+# ---------------------------------------------------------------------------
+PERF_COMPARE_VIEWERS="${PERF_COMPARE_VIEWERS:-50}"
+PERF_COMPARE_ROUNDS="${PERF_COMPARE_ROUNDS:-3}"
+PERF_COMPARE_LIMIT="${PERF_COMPARE_LIMIT:-1.20}"
+
+# perf_rounds <result-dir> <wallets-keys> <content-id> <fixture-hash> — the
+# measured rounds of the comparison scenario, each in its own sub-directory so
+# the median is taken over INDEPENDENT runs rather than one run repeated.
+perf_rounds() {
+  local dir="$1" keys="$2" content_id="$3" fixture_hash="$4" i round
+  for i in $(seq 1 "$PERF_COMPARE_ROUNDS"); do
+    round="${dir}/round-${i}"
+    mkdir -p "$round"
+    log "comparison round ${i}/${PERF_COMPARE_ROUNDS} at ${PERF_COMPARE_VIEWERS} viewers → ${round}"
+    PERF_CONTENT_ID="$content_id" \
+    PERF_FIXTURE_HASH="$fixture_hash" \
+    PERF_WALLET_KEYS_FILE="$keys" \
+    PERF_SKIP_WARMUP=1 \
+    SCENARIO=warm_cache \
+    VIEWERS_LIST="$PERF_COMPARE_VIEWERS" \
+    RESULT_DIR="$round" \
+    BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
+      bash scripts/perf-acceptance.sh \
+      || fail "comparison round ${i} failed (${dir})"
+  done
+}
+
+# perf_seed_and_pool <project> <dir> — seed through the acceptance (its side
+# effects ARE the seed) and build the wallet pool the measured rounds reuse.
+# Sets COMPARE_CONTENT_ID / COMPARE_FIXTURE_HASH for the caller.
+perf_seed_and_pool() {
+  local project="$1" dir="$2"
+  run_logged compare-seed run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
+  COMPARE_CONTENT_ID="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
+    psql -U postgres -d streamgate -tAc "SELECT id FROM contents ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
+    | tr -d '[:space:]' || true)"
+  [ -n "$COMPARE_CONTENT_ID" ] || fail "no seeded content in ${project}"
+  COMPARE_FIXTURE_HASH="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
+    psql -U postgres -d streamgate -tAc "SELECT file_hash FROM contents WHERE id = '$COMPARE_CONTENT_ID'" 2>/dev/null \
+    | tr -d '[:space:]' || true)"
+  log "comparison seed: content=${COMPARE_CONTENT_ID} fixture_hash=${COMPARE_FIXTURE_HASH:-<none>}"
+  # PERF_WALLETS is pinned so the pool covers the measured viewer count even
+  # though this setup pass only plays 1 viewer.
+  PERF_CONTENT_ID="$COMPARE_CONTENT_ID" \
+  PERF_SETUP=1 \
+  PERF_WALLETS="$PERF_COMPARE_VIEWERS" \
+  PERF_WALLET_KEYS_FILE="${dir}/wallets.keys" \
+  SCENARIO=warm_cache \
+  VIEWERS_LIST=1 \
+  RESULT_DIR="$dir" \
+  BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
+    bash scripts/perf-acceptance.sh \
+    || fail "wallet pool setup failed for ${project}"
+}
+
+# perf_reference_pass <ref> — build the reference image from the ref, bring up
+# the reference stack, seed it and run the measured rounds; then tear it down
+# so the candidate stack never shares the runner with it.
+perf_reference_pass() {
+  local ref="$1" project="${PROJECT_NAME}-ref" dir="${ARTIFACT_DIR}/perf-reference"
+  rm -rf "$dir"; mkdir -p "$dir"
+  log "reference comparison: building + running the reference stack from ${ref}"
+  # The reference predates the chain-rpc override and the fault matrix, so it
+  # runs with its own single endpoint: drop the perf-stage override for its
+  # build/up, then restore it for the candidate stack.
+  local saved_rpcs="${VERIFY_CHAIN_RPCS-}"
+  unset VERIFY_CHAIN_RPCS
+  VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
+  unset VERIFY_BUILD_REF
+  if [ -n "$saved_rpcs" ]; then export VERIFY_CHAIN_RPCS="$saved_rpcs"; fi
+  perf_seed_and_pool "$project" "$dir"
+  perf_rounds "$dir" "${dir}/wallets.keys" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH"
+  teardown_fullstack "$project"
+}
+
+# perf_compare_p95 <ref-dir> <cand-dir> — median ttfb p95 per side, then the
+# 1.20x limit. Both sides must carry real rounds and a real commit.
+perf_compare_p95() {
+  python3 - "$1" "$2" "$PERF_COMPARE_VIEWERS" "$PERF_COMPARE_LIMIT" <<'PY' || fail "the candidate's p95 regressed past the reference limit"
+import glob, json, os, statistics, sys
+
+ref_dir, cand_dir, viewers, limit = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4])
+
+def rounds(d):
+    out = []
+    for f in sorted(glob.glob(os.path.join(d, "round-*", f"warm_cache-viewers-{viewers}.json"))):
+        r = json.load(open(f))
+        p95 = (r.get("ttfb_ms") or {}).get("p95")
+        if not p95:
+            sys.exit(f"{f}: no ttfb p95 recorded — not a comparable round")
+        out.append((float(p95), r.get("commit", "")))
+    return out
+
+ref, cand = rounds(ref_dir), rounds(cand_dir)
+if not ref:
+    sys.exit(f"no reference rounds under {ref_dir}")
+if not cand:
+    sys.exit(f"no candidate rounds under {cand_dir}")
+
+ref_p95 = statistics.median([p for p, _ in ref])
+cand_p95 = statistics.median([p for p, _ in cand])
+ratio = cand_p95 / ref_p95 if ref_p95 else float("inf")
+
+def show(label, rows):
+    print(f"  {label:10s} rounds(ms)={[round(p, 1) for p, _ in rows]} "
+          f"median={statistics.median([p for p, _ in rows]):.2f} "
+          f"commit(s)={sorted({c[:12] for _, c in rows})}")
+
+print(f"reference comparison at {viewers} viewers ({len(ref)} vs {len(cand)} rounds):")
+show("reference", ref)
+show("candidate", cand)
+print(f"  ratio={ratio:.3f} limit={limit} → {'PASS' if ratio <= limit else 'REGRESSION'}")
+if ratio > limit:
+    sys.exit(f"candidate p95 {cand_p95:.2f}ms exceeds {limit}x the reference {ref_p95:.2f}ms")
+PY
+}
+
 stage_perf() {
   require_host_tool docker
   require_host_tool go
   require_host_tool cast
   local project="${PROJECT_NAME}-perf" result_dir content_id
+  # Reference comparison first, while NO other fullstack stack is up: it needs
+  # the same fixed h5 port and the same resources, sequentially — not alongside
+  # the candidate stack.
+  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
+    perf_reference_pass "$PERF_REFERENCE_REF"
+  fi
   # Two SAME-CHAIN endpoints for this stage only, the stoppable proxy FIRST:
   # perf is where the fallback and all-down scenarios are injected, so the
   # monolith is given a primary it can lose without losing the chain. The
@@ -782,6 +950,14 @@ stage_perf() {
   BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
     bash scripts/perf-acceptance.sh \
     || fail "perf-acceptance.sh failed"
+  # SG-07 step 5: the candidate's side of the reference comparison, measured
+  # BEFORE the fault matrix so it never shares the stack with a stopped
+  # endpoint. The reference side already ran and is torn down.
+  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
+    local compare_dir="${ARTIFACT_DIR}/perf-compare"
+    rm -rf "$compare_dir"; mkdir -p "$compare_dir"
+    perf_rounds "$compare_dir" "$result_dir/wallets.keys" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
+  fi
   # SG-07 step 3: the fault matrix, injected for real against this same stack.
   perf_fault_matrix "$project" "$result_dir" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
   log "perf results in ${result_dir}"
@@ -809,6 +985,10 @@ missing = sorted(required - seen)
 if missing:
     sys.exit(f"the fault matrix is incomplete — no result for: {missing}")
 PY
+  # SG-07 step 5: the regression limit itself, same runner, both sides real.
+  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
+    perf_compare_p95 "${ARTIFACT_DIR}/perf-reference" "${ARTIFACT_DIR}/perf-compare"
+  fi
   teardown_fullstack "$project"
   unset VERIFY_CHAIN_RPCS
 }
