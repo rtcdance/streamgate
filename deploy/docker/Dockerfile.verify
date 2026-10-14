@@ -68,4 +68,11 @@ ENV GOSUMDB=off
 # (the runner runs `git submodule update --init --recursive` beforehand).
 RUN go mod download
 
+# Pre-warm forge's solc cache: without this, every `forge build` in a stage
+# downloads the pinned compiler from raw.githubusercontent.com, so a flaky
+# network turns a code gate into a network gate. Building once here bakes
+# solc into ~/.svm, and a download failure fails the image build loudly
+# instead of failing each stage run.
+RUN cd /src/contracts && forge build
+
 CMD ["bash"]
