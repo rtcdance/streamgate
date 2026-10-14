@@ -1,0 +1,290 @@
+# StreamGate verify stack (VERIFY_STAGE=media|perf|release)
+# ------------------------------------------------------------
+# Project-scoped twin of docker-compose.fullchain.yml for
+# `scripts/verify-docker.sh`. Unlike the fullchain file this one deliberately:
+#   * has NO container_name        — compose names containers <project>-<service>-<idx>,
+#                                    so several stacks coexist and the sg-fc-*
+#                                    fullchain stack is never touched
+#   * uses host ports allocated by the orchestrator at run time
+#                                    (VERIFY_MONO_PORT / VERIFY_GW_PORT /
+#                                    VERIFY_MINIO_PORT / VERIFY_ANVIL_PORT,
+#                                    picked free per run so parallel runs never
+#                                    clash; the fallback values below only keep
+#                                    `docker compose config -q` valid when the
+#                                    script's own up is not what runs)
+#   * uses NO top-level entrypoints — contracts/docker-entrypoint.sh needs a
+#                                    bind-mounted repo and a cpuset that does not
+#                                    exist everywhere, and the acceptance's anvil
+#                                    checks work against a bare chain. The
+#                                    orchestrator deploys DemoNFT/ContentRegistry
+#                                    itself before the app needs them.
+#
+# The quick images bake ./h5-demo in, and the monolith serves it at /demo —
+# the browser spec loads the page from H5_BASE=<monolith-origin>/demo, so a
+# gateway-mode run is cross-origin and both app services carry
+# ${VERIFY_CORS_ORIGINS} (the monolith's origin) in their CORS list.
+#
+# Images must be prebuilt: the orchestrator tags them to
+# ${VERIFY_IMAGE_PREFIX}-<service> before `up` and `--no-build` makes compose
+# use them verbatim; the transcoder builds from source (Dockerfile.transcoder).
+#
+# Usage: docker compose -p streamgate-verify-$$ \
+#          -f deploy/docker/compose.verify.yml up -d [--no-build] <services...>
+
+services:
+  # Published (ephemeral host port) so the orchestrator can run
+  # `go run ./cmd/migrate up` against it — the app itself never auto-migrates,
+  # exactly like the fullchain stack whose schema comes from `make migrate-up`.
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: streamgate
+    ports:
+      - "5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Published so the host-side acceptance's MinIO liveness probe reaches it.
+  # Overridable: some registry mirrors do not serve docker.io/minio/minio.
+  # root: the bitnami-derived image runs as a non-root user that cannot write
+  # a freshly created named volume (FATAL "file access denied"); the running
+  # sg-fc stack resolves this the same way.
+  minio:
+    image: ${VERIFY_MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
+    user: root
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "${VERIFY_MINIO_PORT:-19001}:9000"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  consul:
+    image: hashicorp/consul:latest
+    command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
+    volumes:
+      - consul-data:/consul/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Published so the host-side acceptance's cast/JSON-RPC checks reach it.
+  # The stock foundry image's ENTRYPOINT is ["/bin/sh","-c"], which would run
+  # "anvil" with DEFAULT args (127.0.0.1 bind only — unreachable from a
+  # published port), so the entrypoint is overridden explicitly.
+  # --block-time 2: the gate reads at the `safe` tag, and anvil only advances
+  # `safe` when NEW blocks are mined — without continuous mining the safe view
+  # can lag a mint forever and the holder is denied (same flag the sg-fc
+  # stack's contracts/docker-entrypoint.sh runs). The orchestrator deploys
+  # DemoNFT/ContentRegistry at their deterministic addresses before the app
+  # needs them.
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil"]
+    command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "2", "--slots-in-an-epoch", "1"]
+    ports:
+      - "${VERIFY_ANVIL_PORT:-18546}:8545"
+    healthcheck:
+      test: ["CMD-SHELL", "cast chain-id --rpc-url http://localhost:8545 | grep -q '31337'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  # Durable profile (SG-12 step 5): the monolith SUBMITS transcode tasks
+  # (Postgres + outbox + JetStream) but the isolated transcoder worker
+  # executes them.
+  monolith:
+    image: ${VERIFY_IMAGE_PREFIX:-streamgate-verify}-monolith:latest
+    # Repo root: the quick Dockerfiles COPY deploy/docker/<binaries> and config/,
+    # so the build context must be the module root, not this file's directory.
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.monolith.quick
+    ports:
+      - "${VERIFY_MONO_PORT:-18081}:8080"
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_DB_SSLMODE=disable
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_TYPE=minio
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_TRANSCODING_ENABLED=false
+      - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+      # config.yaml defaults web3.chain_id to 1; the AutomaticEnv mapping for
+      # it is WEB3_CHAIN_ID. Without it the DemoNFT minter refuses to start
+      # (chain id mismatch) and dev-mint is dead — the same value
+      # docker-compose.fullchain.yml passes.
+      - WEB3_CHAIN_ID=31337
+      - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - STREAMGATE_CONTENT_REGISTRY_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+
+  # Submit-only: the isolated transcoder worker executes tasks, so no embedded
+  # worker. CORS carries the same origin list as the monolith so a gateway-mode
+  # browser spec (H5_BASE=MONOLITH_BASE) never trips the CORS gate.
+  api-gateway:
+    image: ${VERIFY_IMAGE_PREFIX:-streamgate-verify}-api-gateway:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.api-gateway.quick
+    ports:
+      - "${VERIFY_GW_PORT:-28081}:8080"
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_DB_SSLMODE=disable
+      - STREAMGATE_REDIS_HOST=redis
+      - STREAMGATE_REDIS_PORT=6379
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+      - STREAMGATE_CONSUL_HOST=consul
+      - STREAMGATE_CONSUL_PORT=8500
+      - STREAMGATE_TRANSCODING_ENABLED=false
+      - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
+      - STREAMGATE_ETH_RPC=http://anvil:8545
+      # See the monolith's note: config.yaml's web3.chain_id default is 1.
+      - WEB3_CHAIN_ID=31337
+      - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      - STREAMGATE_CONTENT_REGISTRY_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      anvil:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 10
+
+  # Isolated media worker (SG-12 step 5): runs FFmpeg OUTSIDE the wallet/JWT-
+  # signing trust domain. No JWT secret, no chain RPC, no anvil key. The
+  # fences (cap_drop ALL / read-only rootfs / memory+cpu limits) are what the
+  # acceptance asserts on the RUNNING container.
+  transcoder:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.transcoder
+    environment:
+      - APP_DEBUG=true
+      - STREAMGATE_DB_HOST=postgres
+      - STREAMGATE_DB_PORT=5432
+      - STREAMGATE_DB_USER=postgres
+      - STREAMGATE_DB_PASSWORD=postgres
+      - STREAMGATE_DB_NAME=streamgate
+      - STREAMGATE_DB_SSLMODE=disable
+      - STREAMGATE_STORAGE_ENDPOINT=minio:9000
+      - STREAMGATE_STORAGE_ACCESS_KEY=minioadmin
+      - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
+      - STREAMGATE_STORAGE_BUCKET=streamgate
+      - STREAMGATE_NATS_URL=nats://nats:4222
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 1g
+    cpus: 2
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  nats-data:
+  consul-data:
