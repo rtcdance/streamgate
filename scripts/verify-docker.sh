@@ -880,6 +880,21 @@ perf_seed_and_pool() {
     || fail "wallet pool setup failed for ${project}"
 }
 
+# reconfigure_monolith_rpcs <project> <rpc-urls> — recreate the monolith with a
+# given STREAMGATE_CHAIN_RPC_URLS value and wait for health. The chain client
+# reads its endpoint list at boot, so changing the wiring means recreating the
+# container, not editing it in place. The reference pass cannot use this (its
+# binary predates the env), which is exactly why the CANDIDATE's measured
+# rounds are reconfigured to match the reference's single-endpoint wiring.
+reconfigure_monolith_rpcs() {
+  local project="$1" rpcs="$2"
+  VERIFY_CHAIN_RPCS="$rpcs" \
+    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build monolith >/dev/null \
+    || fail "could not recreate the monolith with STREAMGATE_CHAIN_RPC_URLS='${rpcs}'"
+  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
+    || fail "monolith did not come back after the RPC reconfiguration"
+}
+
 # perf_reference_pass <ref> — build the reference image from the ref, bring up
 # the reference stack, seed it and run the measured rounds; then tear it down
 # so the candidate stack never shares the runner with it.
@@ -996,6 +1011,16 @@ stage_perf() {
     | tr -d '[:space:]' || true)"
   log "fixture hash for ${content_id}: ${fixture_hash:-<none recorded>}"
   result_dir="${ARTIFACT_DIR}/perf"
+  # When a reference comparison is requested, EVERY healthy measurement (this
+  # matrix and the comparison rounds) runs on the reference's wiring: one direct
+  # endpoint. The reference binary predates STREAMGATE_CHAIN_RPC_URLS, so it can
+  # only run single-endpoint; charging the candidate a socat hop the reference
+  # never pays would report an acceptance artifact as a product regression. The
+  # two-endpoint fault-matrix wiring is restored before the fault matrix below.
+  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
+    log "comparison: wiring the candidate like the reference (single direct endpoint) for all healthy measurements"
+    reconfigure_monolith_rpcs "$project" ""
+  fi
   # PERF_SETUP=1 makes perf-acceptance.sh generate its own per-viewer wallet
   # pool, log each wallet in for real and dev-mint the gating DemoNFT to each
   # — no single caller key required. A caller-provided PERF_PRIVATE_KEY /
@@ -1015,9 +1040,14 @@ stage_perf() {
   if [ -n "${PERF_REFERENCE_REF:-}" ]; then
     local compare_dir="${ARTIFACT_DIR}/perf-compare"
     rm -rf "$compare_dir"; mkdir -p "$compare_dir"
-    # Empty label: the harness stamps THIS checkout's HEAD, which IS the
-    # candidate being measured.
+    # The candidate is already on the reference's single-endpoint wiring: it was
+    # reconfigured before the warm matrix, above.
     perf_rounds "$compare_dir" "$result_dir/wallets.keys" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}" ""
+    # Restore the two-endpoint wiring the fault matrix below needs, and prove it
+    # is actually back (the fault scenarios are meaningless otherwise).
+    log "comparison: restoring the two-endpoint fault-matrix wiring"
+    reconfigure_monolith_rpcs "$project" "$VERIFY_CHAIN_RPCS"
+    assert_two_chain_endpoints "$VERIFY_MONO_PORT"
   fi
   # SG-07 step 3: the fault matrix, injected for real against this same stack.
   perf_fault_matrix "$project" "$result_dir" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
