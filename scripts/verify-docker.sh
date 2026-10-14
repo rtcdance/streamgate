@@ -593,6 +593,21 @@ bring_up_fullstack() {
   fi
 }
 
+# teardown_fullstack <project> — remove a fullstack stage's stack AND its h5
+# proxy the moment that stage finishes, instead of leaving both for the exit
+# trap. In `all` the fullstack stages (media → perf → release) run back to
+# back, and they must not overlap: the h5 proxy binds the FIXED host port
+# 29091 (the page's API-base inference accepts no other — see start_h5_nginx),
+# so a stack left up by the previous stage still holds it and the next stage
+# dies on "port is already allocated"; and a co-resident full stack would
+# compete with perf's measured run. On a stage failure `fail` exits and the
+# exit trap still cleans everything up, so this only handles the happy path.
+teardown_fullstack() {
+  local project="$1"
+  docker rm -f "${project}-h5" >/dev/null 2>&1 || true
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
+}
+
 # free_port — an unused TCP port on 127.0.0.1, found via Python (the host
 # toolchain requirement already includes python3 for the acceptance script).
 free_port() {
@@ -610,6 +625,7 @@ stage_media() {
   local project="${PROJECT_NAME}-media"
   bring_up_fullstack "$project"
   run_logged media run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_GW_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
+  teardown_fullstack "$project"
 }
 
 # ---------------------------------------------------------------------------
@@ -675,6 +691,7 @@ for f in files:
             sys.exit(f"{f}: missing provenance field {key!r}")
     print(f"provenance ok: {f.split('/')[-1]} commit={r['commit'][:12]} fixture_hash={r.get('fixture_hash','')[:16]}")
 PY
+  teardown_fullstack "$project"
 }
 
 # ---------------------------------------------------------------------------
@@ -734,6 +751,7 @@ stage_release() {
   wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
     || fail "healthy image did not recover within the health budget"
   log "healthy image recovered (project ${project})"
+  teardown_fullstack "$project"
 }
 
 run_stage() {
