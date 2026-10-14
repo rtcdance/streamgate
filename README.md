@@ -39,6 +39,30 @@ monolith on `:8080` (h5-demo then served at `http://localhost:8080/demo`). See [
 That is the entire loop: **wallet sign-in → on-chain NFT ownership check → protected HLS playback.**
 `make fullchain-deploy` starts Anvil and deploys `DemoNFT` for you — no chain setup needed to try it.
 
+### Acceptance Evidence
+
+Everything above is verified by a single Docker runner — a clean checkout needs no host toolchain:
+
+```bash
+git submodule update --init --recursive
+make verify-docker VERIFY_STAGE=all     # unit · chain · durability · ops · media · perf · release
+make verify-docker VERIFY_STAGE=media   # or one stage at a time (each stage log lands in .verify-artifacts/)
+```
+
+How far the evidence reaches, precisely:
+
+| Level | Status | What it means |
+|-------|--------|---------------|
+| **Docker (local runner)** | Verified, stage by stage | The seven stages each ran green against a per-run isolated stack (dynamic ports, empty volumes, own compose project). This is the acceptance gate for this repo; the single `all` run is the final gate and is recorded in `TRANSITION_PLAN.md` §8. |
+| **Anvil (local chain)** | Verified | Real chain end-to-end: wallet sign-in, pinned-block NFT evidence, transfer revocation, reorg, endpoint failover. `make test-anvil`. |
+| **GitHub CI** | Wired, not yet run | The full DAG (`ci.yml` → `build.yml`, one image build per SHA, same-digest scan/deploy) runs only after a push — which needs the maintainer's authorization. |
+| **Testnet (Sepolia)** | Not verified | Wired behind `make test-testnet`, requires `SEPOLIA_RPC`. Never claimed as acceptance. |
+| **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
+
+Supporting numbers live where they can be re-run, not in this file: the performance matrix
+(1/10/50 viewers, each with its own real wallet) and the recovery drill results are recorded in
+`TRANSITION_PLAN.md` §8.
+
 ### Architecture
 
 ```mermaid
