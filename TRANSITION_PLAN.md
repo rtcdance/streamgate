@@ -1438,6 +1438,83 @@ sequenceDiagram
 
 **限制（如实记录）**：插件式微服务（auth/streaming/…）的 /ready 仍是简易 handler（仅 monolith/api-gateway 走 SetupRouter 的 readinessGuard）；`pkg/plugins/streaming/server.go` scaffold 验证器仍用 master 校验 access token（默认配置兼容，显式 access_secret 时需同步）；演练是 restore-into-place 而非全新卷环境（compose 固定名限制，脚本内已诚实注明）。
 
+### 8.16 SG-15 执行证据（有限反向证明、需求追溯）
+
+**A. 有限反向证明**（SG-15 步骤 3，2026-10-14；隔离 worktree `/tmp/sg-reverse*`，主工作区未动，无 mutation framework，副本已删除）：
+
+| 预期移除的检查 | 变异内容 | 钉子用例 | 结果 |
+|---|---|---|---|
+| owner 校验 | `pkg/service/gating/rule.go` 三处 owner 条件（INSERT/UPDATE/DELETE）改为 `(... OR TRUE)` 恒真（保留占位符类型，不改 SQL 结构） | `TestGatingRule_NonOwnerCannotCreate` / `NonOwnerCannotUpdate` / `NonOwnerCannotDelete`（真实 Postgres 一次性库） | **三个用例全部 FAIL**（B 钱包成功创建 A 的规则；变异前 3/3 PASS） |
+| 数量阈值 | `pkg/middleware/nft_gate.go` `quantity.Cmp(minBalance)` → `Cmp(0)`；`pkg/web3/chain.go` GatingMinBalance → `Cmp(0)` | gate 层 10 例（`TestNFTGate_MinGreaterThanBalance_Denies`、`ERC1155Quantity_OneRejected_TwoAllowed`、`DefaultMinBalanceIsOne`、`CacheOrder*`、`ConcurrentDifferentThresholds` 等）全 FAIL；**chain 层初跑无一用例失败 ⇒ 抓出真实覆盖缺口**，补 `TestChainClient_VerifyNFTOwnershipByRequest_GatingMinBalance_BelowThreshold` 后该用例在变异下 FAIL、干净树 PASS | **FAIL（含补用例后）**；缺口已修（`fdad9f2`） |
+| 过期 capability | `pkg/service/auth.go` `parseTokenCapability` 的 exp 检查置为永假（`ParsePlaybackToken` 自身无 exp 检查，完全依赖此处） | **初跑 `./pkg/service/` 全绿 ⇒ 抓出真实覆盖缺口**，补 `TestParsePlaybackToken_RefusesAnExpiredCapability`（clockNow 推到 TTL+skew 之后断言 `ErrTokenExpired`）后该用例在变异下 FAIL、干净树 PASS | **FAIL（含补用例后）**；缺口已修（`fdad9f2`） |
+| 部署核心命令失败 | 隔离副本 `compose.verify.yml` 的 postgres 镜像改为不存在的 `streamgate/does-not-exist:reverse-proof`，跑 `VERIFY_STAGE=media bash scripts/verify-docker.sh` | harness 自身必须非零退出 | **`EXIT=1`**，日志 `[verify:FAIL] verify infra failed to start`，cleanup trap 后**残留容器 0** |
+
+**结论**：4/4 反向证明按预期失败；其中两项证明暴露了真实覆盖缺口（chain 层阈值负例、过期 capability 用例），已补用例并提交（`fdad9f2`）——反向证明不是走过场，它实际改变了测试套件。恢复副本后主工作区回归：`gofmt`/`go vet` 干净，`-race` `pkg/service` + `pkg/web3` + `pkg/middleware` 全绿。
+
+**B. 契约测试 ID → 真实名称映射**（计划 §6"新用例按该名或在证据表映射真实名称"）：
+
+| 契约（§6 行 534-546） | 真实测试 / 断言载体 | 状态 |
+|---|---|---|
+| `TestAcceptance_WalletChallengeReplay` | `TestWalletAuth_ChallengeReuse_Rejected` + `TestWalletAuth_ExpiredChallenge_Rejected`（test/e2e） | 映射 |
+| `…WalletChallengeConcurrentConsume` | `TestMemoryChallengeStore_MarkUsed_Concurrent`、`TestRedisChallengeStore_MarkChallengeUsed`（storage，Lua/原子消费） | 映射 |
+| `…WalletExpectedFields` | `TestWalletChallenge_Fields_Complete`（pkg/storage/coverage_test.go） | 映射 |
+| `…GatingRuleOwnerIsolation` | `TestGatingRule_NonOwnerCannotCreate/Update/Delete`（test/integration/gating，真实 Postgres，A/B 双钱包） | 映射 |
+| `…ContentOwnerIsolation` | `TestHandleUpdateContent_NotOwner`、`TestHandleDeleteContent_NotOwner`、`TestUploadHandlers_CompletePresigned_NotOwnerIs403` | 映射 |
+| `…ServerSignerDenied` | `TestDemoSignerAllowed`（5 子例）、`TestRegisterNFTDevMintRoute_NotAllowedIsNotFound`（404 不暴露） | 映射 |
+| `…NFTQuantityAndCacheIsolation` | `TestNFTGate_MinGreaterThanBalance_Denies`、`CacheOrder*`、`ConcurrentDifferentThresholds` + 补的 chain 层负例 | 映射+新补 |
+| `…ERC1155Quantity` | `TestNFTGate_ERC1155Quantity_OneRejected_TwoAllowed` + `TestAnvil_ERC1155Quantity`（真实链） | 映射 |
+| `…RPCSameChainFallback` | `TestAnvil_EndpointFailoverStaysOnTheSameChain`、`TestChainClient_FailoverOnBlockNumber`、`TestApplyChainConfigs_RPCsFallback` | 映射 |
+| `…FixedBlockEvidence` | `TestResolveQuantity_PinsTheAnchorBlock`、`TestAnvil_BlockEvidenceIsPinnedAndChainScoped`、`…NeverAnchorsAtLatest` | 映射 |
+| `…ReorgInvalidation` | `TestAnvil_SnapshotRevertProducesARealReorg`、`TestNFTGateMiddleware_CacheWithBlockHashReorg`、`TestAcceptance_EventReorgJournalRollback` | 映射 |
+| `…RealWalletHLS` | `scripts/fullchain-acceptance.sh`（真实双钱包签名登录→FFmpeg 全解码→浏览器 hls.js 真播，66 检查） | shell 载体 |
+| `…GatewayParity` | 同一脚本对 `:18080`（monolith）与 `:28080`（api-gateway）各跑一遍，均 ALL 66 PASSED（ci.yml 两次调用同一脚本） | shell 载体 |
+| `…ProtectedMediaNegativeCases` | 同脚本篡改矩阵（坏 token/无 NFT/过期 capability/错误钱包，0 放行；`B_BYTES=0`） | shell 载体 |
+| `…TransferRevocationBound` | 同脚本 `PASS: Transferred the holder's …(balance now 0)` + `PASS: The capability expired inside the 70s revocation bound (67s)` | shell 载体 |
+| `…RuleAndSessionRevocation` | 同脚本 `PASS: A capability issued BEFORE the rule change is refused within the bound` + `PASS: Logout revokes an ALREADY-ISSUED capability within the 5s bound` | shell 载体 |
+| `…PlaybackRenewal` | 同脚本第 752 行续期断言（抬高阈值后下一次 manifest 403，转移回 200） | shell 载体 |
+| `…CoverageCheckerFailures` | `scripts/check-coverage_test.sh`（15 例 expect fail：59.9%、59.96% 显示取整、10001 语句边界等，门必须能失败） | shell 载体 |
+| `…MigrationFailureBlocks` | ci.yml `psql -v ON_ERROR_STOP=1`（bad SQL 非零即 fail）+ `TestMigrator_Up_ApplyMigrationFailed`/`RollbackMigrationFailed` | 映射 |
+| `…DeployDigestMatches` | ci.yml `expected=…image_id` 比对（候选构建 → load 后校验同 image ID，不一致即阻塞；三处：candidate/scan/deploy） | workflow 载体 |
+| `…DeployFailureRollback` | `release-validation.yml` Failure drill（B 失败断言 + A 恢复断言）+ 本地实证：反向证明第 4 项 `EXIT=1` | workflow+实证 |
+| `…RuntimeWiringAndProfiles` | `TestAcceptance_RuntimeWiringAndProfiles`（readiness_test.go） | 同名 |
+| `…InternalServiceOwnerIsolation` | `TestAcceptance_ProtectedOpsEndpoints`（内部端点匿名 401）+ `TestTranscodeHandlers_CancelOwnership`、`TestContentGrpcServer_GetContent/DeleteContent` | 映射 |
+| `…ABIAndDeployedCodeMatch` | `TestContentRegistryABI_MatchesForgeArtifact`、`TestERC721ABI_MatchesDemoNFTArtifact`（ABI 防漂移）+ verify chain stage 部署后 `code != 0x` 断言 + `forge test` | 映射 |
+| `…OriginalMediaDigest` | `TestAcceptance_OriginalMediaDigest`、`TestAcceptance_PresignedOriginalSealed`、`TestHandleCreateContent_RejectsClientDigest` | 同名+映射 |
+| `…TranscodeRedeliveryAndCrash` | `TestAcceptance_TranscodeRedeliveryAndCrash` | 同名 |
+| `…TaskGenerationPublish` | `TestAcceptance_TaskGenerationPublish` | 同名 |
+| `…SSRFAndMediaLimits` | `TestTranscodeHandlers_Submit_SSRFTargetReceivesNoRequests`（真实 listener 0 请求）+ `TestValidateFetchTarget_ResolvesAndRefusesInternalTargets` + `TestAcceptance_MediaProbeLimits` + `TestAcceptance_WorkerAndQueueBounds` | 映射 |
+| `…PlaylistActualTiming` | `fullchain-acceptance.sh` `PASS: Playlist actual timing: …summing to 10.0s`（EXTINF≈真实时长、TARGETDURATION 四舍五入、无固定 6.0s） | shell 载体 |
+| `…ImmutableOriginalConflict` | `TestAcceptance_ImmutableOriginalConflict`（同名）+ `TestUploadHandlers_CompleteUpload_SameDigestIdempotent` | 同名 |
+| `…DeliveryHandleIsolation` | `TestAcceptance_DeliveryHandleIsolation` | 同名 |
+| `…RetryAndDLQRecovery` | `TestAcceptance_RetryAndDLQRecovery` + `TestAcceptance_HeartbeatRenewal` | 同名 |
+| `…IsolatedTranscoderWorker` | `TestAcceptance_IsolatedTranscoderWorker` + 验收「Isolated transcoder worker」阶段（lease_owner + 容器日志归因） | 同名+shell |
+| `…MediaRateLimitAndNAT` | `TestAcceptance_MediaRateLimitAndNAT` + **本轮新补** `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`（`f4d65bc`，真实 10 观众跑分抓出的 IP 合桶缺陷） | 同名+新补 |
+| `…RegistryIdempotency` / `NonceAcrossInstances` / `BroadcastUnknownRecovery` / `TxReceiptReorg` | `pkg/service/registry/acceptance_test.go` 四个同名用例 + `TestAcceptance_ChainNonceFloor`/`SharedNonceAuthority` | 同名 |
+| `…EventCheckpointRecovery` | `TestAcceptance_EventCheckpointFilterVersion` + `TestAcceptance_EventReorgJournalRollback`/`EventStoreDurability`/`EventBatchSizeBounded` | 映射 |
+| `…ProductionDependencyFailure` | `TestAcceptance_ProductionDependencyFailure`（providers_production_test.go） | 同名 |
+| `…KeyRotationAndAudience` | `TestAcceptance_KeyRotationAndAudience`（6 子测，含轮换上限 2） | 同名 |
+| `…GracefulShutdown` | `TestAcceptance_StreamingDrain503Health200`（drain 期间媒体 503、/health 200）+ `core.GracefulShutdown`（SIGTERM/强制两通道）+ 8 微服务 `SetDraining()` 接线 | 映射 |
+| `…BackupRestoreSessionInvalidation` | `scripts/backup-restore-drill.sh` **实跑 17/17**（RTO 9s、旧 token 恢复后 401、MinIO 清单 hash 不变） | shell 载体 |
+| Forge `invariant_NFTBalancesAndApproval` / `invariant_RegistryUniqueAndTerminalState` | `contracts/test/Invariants.t.sol` 行 71/157，`forge test` 实跑 256×32 runs、0 reverts（§8.3） | 同名 |
+| Fuzz `FuzzNFTQuantity` / `FuzzWalletMessage` / `FuzzProtectedMediaPath` | **计划标注"未来新增"，未按契约名新建**；现有 10 个 Fuzz 目标（`FuzzValidateAddress`/`FuzzVerifySignature`/`FuzzParseJWT` 等）在 verify ops 阶段各 `-fuzz 30s` 实跑无 panic | 计划允许的未来项 |
+
+**C. R01～R12 追溯**（步骤 1；"任一无映射都不算闭环"）：
+
+| R | 实现入口（文件/接口） | 稳定测试 ID | SHA / 实证 | 限制 |
+|---|---|---|---|---|
+| R01 核心 flow 真实运行 | `cmd/monolith` + `pkg/gateway/routes.go`（auth→gate→stream 链） | `fullchain-acceptance.sh` 66 检查（双模式） | `de4b83c..f4d65bc`；双模式 ALL 66 PASSED×多轮 | M0 的"干净候选全部 stage"待最终一次全跑 |
+| R02 真钱包身份/不越权 | `pkg/service/auth_wallet.go`、`pkg/service/gating/rule.go`、`pkg/middleware/auth.go` | `TestWalletAuth_*`、`TestGatingRule_NonOwner*`、`TestHandle*Content_NotOwner` | `656bdc8`、反向证明 A 组 | session 权威源是 Redis 而非计划写的 Postgres（§8.11 已记录偏离） |
+| R03 ERC-721/1155 数量与缓存 | `pkg/web3/nft/verifier.go`、`pkg/middleware/nft_gate.go` | `TestNFTGate_ERC1155Quantity_*`、`TestAnvil_ERC1155Quantity`、chain 层负例（`fdad9f2` 新补） | `fdad9f2`、§8.4 | 无 |
+| R04 多 RPC 同链回退/同区块 | `pkg/web3/chain.go`、`BlockProver` | `TestAnvil_EndpointFailoverStaysOnTheSameChain`、`TestResolveQuantity_PinsTheAnchorBlock` | §8.9 | 同等验收仅 Anvil（README 已收窄） |
+| R05 每种媒体受保护/续期撤销上界 | `pkg/middleware/playback_token_auth.go`、`nft_gate.go`、capability TTL 策略 | 66 检查篡改矩阵 + `TestParsePlaybackToken_RefusesAnExpiredCapability`（`fdad9f2` 新补） | §8.10/8.11；70s 上界实测 67s | 无 |
+| R06 原件 digest/登记 | `pkg/service/upload/original_seal.go`、`pkg/service/content/content_registry_digest_test.go` | `TestAcceptance_OriginalMediaDigest`、`ImmutableOriginalConflict` | `f891091`、§8.12 ① | 无 |
+| R07 任务重复/崩溃恢复 | `pkg/service/transcoding/acceptance_durability_test.go`、outbox/lease/DLQ | `TestAcceptance_TranscodeRedeliveryAndCrash`、`RetryAndDLQRecovery`、`DeliveryHandleIsolation` | `a8784ad`、verify durability stage PASS | 无 |
+| R08 链写入幂等/nonce 唯一 | `pkg/web3/tx/nonce_ledger.go`、`pkg/service/registry/` | `TestAcceptance_RegistryIdempotency`、`NonceAcrossInstances`、`BroadcastUnknownRecovery`、`TxReceiptReorg` | `0756ea4`、`9b87ca3` | 无 |
+| R09 生产不隐式回退 | `pkg/gateway/providers.go`（9 strict 分支）、profile 派生 | `TestAcceptance_ProductionDependencyFailure`、`RuntimeWiringAndProfiles` | `0e1cd89`、§8.15 | 插件微服务 /ready 仍是简易 handler |
+| R10 吞吐/指标有测量 | `test/load/harness.go`、`pkg/monitoring` | `TestPerfHarness_*` + live 1/10/50（50 观众 100%） | `e78eb95`、`f4d65bc`、§8.14 | p95 回归 ≤20% 需两轮同 runner 数据（首轮已登记为基线） |
+| R11 CI 可失败/可追溯 | `.github/workflows/{ci,build,deploy,release-validation}.yml`、`scripts/cd/assert_required_tests.py` | 部署失败反向证明 `EXIT=1`；coverage 门 15 例 expect fail | `6754161`、`7ce823c` | **远端真实 CI 与 release-validation 待 push 授权** |
+| R12 取舍可解释/数字可证实 | `TRANSITION_PLAN.md` §8 全部证据、`docs/resume/` | 本表 + §8.1～8.16 每条带 SHA/实测数字 | `656bdc8`、§8.x 各节 | 本人讲述/录屏/投递为人工项，单列 |
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 
