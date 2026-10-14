@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -408,9 +409,28 @@ func MediaRateLimitMiddleware(rl RateLimiter) gin.HandlerFunc {
 	}
 }
 
+// mediaPathPrefix is the streaming media tree (manifests and segments).
+const mediaPathPrefix = "/api/v1/streaming/"
+
+// isMediaPath reports whether a request targets the streaming media tree.
+func isMediaPath(path string) bool {
+	return strings.HasPrefix(path, mediaPathPrefix)
+}
+
 func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimiter, gin.HandlerFunc) {
 	rl := NewRateLimiter(cfg, s.redisClient)
 	handler := func(c *gin.Context) {
+		// Media routes are exempt from this IP-keyed limiter. It runs BEFORE
+		// auth (no wallet is in the context yet, so the wallet branch below is
+		// never taken on those routes), and every viewer behind one address
+		// shares one "IP:path" bucket — merging all of them into a single
+		// budget, which is exactly the NAT-merging defect the SG-14 media
+		// limiter exists to prevent. The media budget is enforced AFTER auth
+		// by MediaRateLimitMiddleware, keyed by wallet + route template.
+		if isMediaPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
 		key := c.ClientIP() + ":" + c.Request.URL.Path
 		if wallet := GetWalletAddress(c); wallet != "" {
 			key = key + ":" + wallet
