@@ -1066,10 +1066,25 @@ run_stage() {
   esac
 }
 
+# stage_needs_toolchain_image <stage> — only the Go-only stages execute INSIDE
+# the toolchain image (run_in_image). media / perf / release drive the compose
+# stack from the host, so building that image for them would add a
+# network-dependent build step to a path that never reads it.
+stage_needs_toolchain_image() {
+  case "$1" in
+    unit|chain|durability|ops|all) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 mkdir -p "$ARTIFACT_DIR"
 ensure_submodules
 validate_compose
-build_candidate
+if stage_needs_toolchain_image "$VERIFY_STAGE"; then
+  build_candidate
+else
+  log "stage '${VERIFY_STAGE}' runs on the host against the verify stack; skipping the toolchain image build (only unit/chain/durability/ops read it)"
+fi
 
 if [ "$VERIFY_STAGE" = "all" ]; then
   log "running full DAG: ${ALL_STAGES[*]}"
