@@ -93,7 +93,7 @@ func newGenerationResolver(fn PublishedGenerationResolver) *generationResolver {
 	}
 }
 
-func (r *generationResolver) resolve(ctx context.Context, contentID string) (int64, string) {
+func (r *generationResolver) resolve(ctx context.Context, contentID string) (generation int64, profile string) {
 	if r == nil || r.fn == nil {
 		return 0, ""
 	}
@@ -258,7 +258,7 @@ func (sc *StreamingCache) SetSegmentIndex(contentID string, generation int64, qu
 
 // GetStoredPlaylists returns the object keys of the playlists FFmpeg produced:
 // a quality→media-playlist map and, when present, the multivariant playlist.
-func (sc *StreamingCache) GetStoredPlaylists(contentID string, generation int64) (map[string]string, string, bool) {
+func (sc *StreamingCache) GetStoredPlaylists(contentID string, generation int64) (playlists map[string]string, masterKey string, ok bool) {
 	if entry, ok := sc.segmentIdx.Get(contentID); ok && time.Now().Before(entry.expiresAt) && entry.generation == generation {
 		if len(entry.playlists) > 0 || entry.masterKey != "" {
 			return entry.playlists, entry.masterKey, true
@@ -735,6 +735,70 @@ func serveManifestBody(c *gin.Context, body string) {
 	mediaRequestServed(c, "manifest", int64(len(body)))
 }
 
+// observeSegmentQuality records the segment counter for the requested quality,
+// collapsing an absent one to "default" so the label set stays bounded.
+func observeSegmentQuality(c *gin.Context) {
+	q := c.Query("quality")
+	if q == "" {
+		q = "default"
+	}
+	monitoring.StreamingSegmentsTotal.WithLabelValues(q).Inc()
+}
+
+// serveSegmentBody answers an already-authorized segment download: a range
+// request is served as 206 with Content-Range, anything else streams the whole
+// object as 200. Both paths record the media metrics and release the download
+// context, so the route handler cannot forget either.
+func serveSegmentBody(c *gin.Context, log *zap.Logger, rc io.ReadCloser, contentID, segName string, cancel context.CancelFunc, started time.Time) {
+	// A range request must be answered with a range. Serving 200 and the
+	// whole segment ignores what the client asked for, breaks seeking and
+	// forces a re-download of bytes the client already has.
+	rangeHeader := strings.TrimSpace(c.GetHeader("Range"))
+	if rangeHeader != "" {
+		// The total size is needed for a correct Content-Range, so a
+		// range request is buffered. Bounded: a segment larger than the
+		// cap is a malformed object, not a reason to exhaust memory.
+		data, readErr := io.ReadAll(io.LimitReader(rc, maxRangeableSegmentBytes+1))
+		cancel()
+		if readErr != nil || int64(len(data)) > maxRangeableSegmentBytes {
+			middleware.GetLogger(c, log).Warn("segment too large to serve a range from",
+				zap.String("content_id", contentID),
+				zap.String("segment", segName),
+				zap.Int("bytes", len(data)))
+			abortWithError(c, http.StatusServiceUnavailable, ErrContentUnavailable, "segment unavailable")
+			return
+		}
+		rangeStart, rangeEnd, ok := parseByteRange(rangeHeader, int64(len(data)))
+		if !ok {
+			c.Header("Content-Range", fmt.Sprintf("bytes */%d", len(data)))
+			abortWithError(c, http.StatusRequestedRangeNotSatisfiable, ErrInvalidRequest, "unsatisfiable range")
+			return
+		}
+		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(data)))
+		c.Header("Content-Length", strconv.FormatInt(rangeEnd-rangeStart+1, 10))
+		c.Status(http.StatusPartialContent)
+		if _, err := c.Writer.Write(data[rangeStart : rangeEnd+1]); err != nil {
+			log.Warn("segment range write interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
+		}
+		mediaRequestServed(c, "segment", rangeEnd-rangeStart+1)
+		monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(started).Seconds())
+		observeSegmentQuality(c)
+		return
+	}
+
+	c.Status(http.StatusOK)
+	written, err := io.Copy(c.Writer, rc)
+	if err != nil {
+		log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
+	}
+	if err == nil {
+		mediaRequestServed(c, "segment", written)
+	}
+	cancel()
+	monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(started).Seconds())
+	observeSegmentQuality(c)
+}
+
 // RegisterStreamingSegmentRoute registers the segment route. genResolver is
 // the published-generation lookup; nil keeps every content at generation 0
 // (legacy flat layout).
@@ -875,61 +939,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			// so players know they may seek.
 			c.Header("Accept-Ranges", "bytes")
 
-			// A range request must be answered with a range. Serving 200 and the
-			// whole segment ignores what the client asked for, breaks seeking and
-			// forces a re-download of bytes the client already has.
-			rangeHeader := strings.TrimSpace(c.GetHeader("Range"))
-			if rangeHeader != "" {
-				// The total size is needed for a correct Content-Range, so a
-				// range request is buffered. Bounded: a segment larger than the
-				// cap is a malformed object, not a reason to exhaust memory.
-				data, readErr := io.ReadAll(io.LimitReader(best.rc, maxRangeableSegmentBytes+1))
-				cancel()
-				if readErr != nil || int64(len(data)) > maxRangeableSegmentBytes {
-					middleware.GetLogger(c, log).Warn("segment too large to serve a range from",
-						zap.String("content_id", contentID),
-						zap.String("segment", segName),
-						zap.Int("bytes", len(data)))
-					abortWithError(c, http.StatusServiceUnavailable, ErrContentUnavailable, "segment unavailable")
-					return
-				}
-				rangeStart, rangeEnd, ok := parseByteRange(rangeHeader, int64(len(data)))
-				if !ok {
-					c.Header("Content-Range", fmt.Sprintf("bytes */%d", len(data)))
-					abortWithError(c, http.StatusRequestedRangeNotSatisfiable, ErrInvalidRequest, "unsatisfiable range")
-					return
-				}
-				c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", rangeStart, rangeEnd, len(data)))
-				c.Header("Content-Length", strconv.FormatInt(rangeEnd-rangeStart+1, 10))
-				c.Status(http.StatusPartialContent)
-				if _, err := c.Writer.Write(data[rangeStart : rangeEnd+1]); err != nil {
-					log.Warn("segment range write interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
-				}
-				mediaRequestServed(c, "segment", rangeEnd-rangeStart+1)
-				monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
-				q := c.Query("quality")
-				if q == "" {
-					q = "default"
-				}
-				monitoring.StreamingSegmentsTotal.WithLabelValues(q).Inc()
-				return
-			}
-
-			c.Status(http.StatusOK)
-			written, err := io.Copy(c.Writer, best.rc)
-			if err != nil {
-				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
-			}
-			if err == nil {
-				mediaRequestServed(c, "segment", written)
-			}
-			cancel()
-			monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
-			quality := c.Query("quality")
-			if quality == "" {
-				quality = "default"
-			}
-			monitoring.StreamingSegmentsTotal.WithLabelValues(quality).Inc()
+			serveSegmentBody(c, log, best.rc, contentID, segName, cancel, start)
 			return
 		}
 		_ = claims
@@ -950,7 +960,7 @@ const maxRangeableSegmentBytes = 64 << 20
 // Multi-range requests are rejected rather than answered with one of the
 // ranges: replying 200/206 with the wrong bytes is worse than saying the request
 // cannot be satisfied.
-func parseByteRange(header string, size int64) (int64, int64, bool) {
+func parseByteRange(header string, size int64) (start, length int64, ok bool) {
 	const prefix = "bytes="
 	if !strings.HasPrefix(header, prefix) || size <= 0 {
 		return 0, 0, false

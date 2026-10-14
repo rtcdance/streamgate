@@ -52,7 +52,7 @@ func newSeparatedAuthService(t *testing.T, access string, prevAccess []string, c
 
 // mintAccess signs an access token under svc's CURRENT access key and returns
 // it plus the session it is bound to.
-func mintAccess(t *testing.T, svc *AuthService, wallet string) (string, string, int64) {
+func mintAccess(t *testing.T, svc *AuthService, wallet string) (token, sessionID string, epoch int64) {
 	t.Helper()
 	sessionID, err := svc.StartSession()
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func mintAccess(t *testing.T, svc *AuthService, wallet string) (string, string, 
 		AuthEpoch:     1,
 	}
 	claims.RegisteredClaims = accessTokenClaims(wallet, time.Hour)
-	token, err := svc.signToken(claims)
+	token, err = svc.signToken(claims)
 	require.NoError(t, err)
 	return token, sessionID, 1
 }

@@ -52,7 +52,7 @@ func tokenKeyIDHint(tokenString string) string {
 // then the current key, then the previous ones in configuration order —
 // deduplicated, so a hint cannot cause the same key to be tried twice.
 // The kid is a HINT, not trust: every allowed key is always tried.
-func OrderedKeyCandidates(tokenString string, current string, previous []string) []string {
+func OrderedKeyCandidates(tokenString, current string, previous []string) []string {
 	hint := tokenKeyIDHint(tokenString)
 	seen := make(map[string]bool, 1+len(previous))
 	out := make([]string, 0, 1+len(previous))
@@ -108,14 +108,162 @@ type TokenBlacklistChecker interface {
 	IsTokenRevoked(ctx context.Context, jti string) bool
 }
 
+// parseBearerClaims extracts and verifies the bearer token from the request,
+// applying the fixed clock leeway (exp/nbf/iat) and the signature check with
+// key rotation. It aborts the request with 401 and returns ok=false when the
+// credential does not parse, so callers never have to repeat the rejection.
+func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger, secret []byte, tokenStr string) (jwt.MapClaims, bool) {
+	// Parse without claims validation — signature IS verified, but exp/nbf/iat
+	// are checked separately. This is necessary for key rotation: tokens
+	// signed with old (previous) secrets may appear "expired" from the current
+	// key's perspective, but we must still attempt verification against prevSecrets.
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+
+	buildKeyFunc := func(k interface{}) jwt.Keyfunc {
+		return func(t *jwt.Token) (interface{}, error) {
+			// Pin the algorithm EXACTLY, not just its family: accepting any
+			// *SigningMethodHMAC would also accept HS384/HS512, which are
+			// not what this service issues.
+			if config.PublicKey != nil {
+				if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
+					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+				}
+				return config.PublicKey, nil
+			}
+			if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+			return k, nil
+		}
+	}
+
+	claims := jwt.MapClaims{}
+	_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc(secret))
+
+	// Try previous secrets if current key fails and no public key is
+	// configured. The candidate order prefers the key whose kid matches the
+	// token header (rotation fast path) but still tries every allowed key:
+	// the kid is a hint, not trust.
+	if err != nil && config.PublicKey == nil && len(config.PreviousSecrets) > 0 {
+		for _, candidate := range OrderedKeyCandidates(tokenStr, config.Secret, config.PreviousSecrets) {
+			claims = jwt.MapClaims{}
+			_, err = jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tokenStr, claims, buildKeyFunc([]byte(candidate)))
+			if err == nil {
+				break
+			}
+		}
+	}
+
+	if err != nil {
+		logger.Debug("JWT parse failed", zap.Error(err))
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token", "code": "UNAUTHORIZED"})
+		return nil, false
+	}
+
+	// Manual claims validation with 30s leeway for clock skew.
+	// Covers exp, nbf, and iat — the last is not validated by the library
+	// when WithoutClaimsValidation is used and prevents tokens from being
+	// accepted before their stated issuance time.
+	now := time.Now()
+	if exp, ok := claims["exp"].(float64); ok && now.After(time.Unix(int64(exp), 0).Add(30*time.Second)) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired", "code": "UNAUTHORIZED"})
+		return nil, false
+	}
+	if nbf, ok := claims["nbf"].(float64); ok && now.Before(time.Unix(int64(nbf), 0).Add(-30*time.Second)) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token not yet valid", "code": "UNAUTHORIZED"})
+		return nil, false
+	}
+	if iat, ok := claims["iat"].(float64); ok && now.Add(30*time.Second).Before(time.Unix(int64(iat), 0)) {
+		// iat must not be in the future beyond leeway window.
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token issued in the future", "code": "UNAUTHORIZED"})
+		return nil, false
+	}
+	return claims, true
+}
+
+// authorizeAccessClaims applies the access-token policy to parsed claims:
+// credential kind, issuer, audience, live session binding, revocation and the
+// wallet claim. Every rejection aborts with 401 and returns ok=false. On
+// success it returns the session binding the caller must install on the
+// request.
+func authorizeAccessClaims(c *gin.Context, config JWTAuthConfig, claims jwt.MapClaims) (sessionID string, epoch int64, ok bool) {
+	// A playback capability is NOT an access token. It is issued to be spent
+	// on the streaming routes only (where PlaybackTokenAuth validates it),
+	// so it must never authorise a management API call through this
+	// middleware. Whitelist the acceptable kinds rather than blacklisting
+	// the known-bad ones, so a future credential type is rejected by
+	// default instead of silently accepted.
+	switch tokenType, _ := claims["token_type"].(string); tokenType {
+	case "", "access":
+	default:
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "token is not an access token", "code": "UNAUTHORIZED",
+		})
+		return "", 0, false
+	}
+
+	if config.Issuer != "" {
+		iss, _ := claims["iss"].(string)
+		if iss != config.Issuer {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "token issuer mismatch", "code": "UNAUTHORIZED",
+			})
+			return "", 0, false
+		}
+	}
+
+	if config.Audience != "" && !audienceContains(claims["aud"], config.Audience) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "token audience mismatch", "code": "UNAUTHORIZED",
+		})
+		return "", 0, false
+	}
+
+	// Every credential must be bound to a live session. A token without the
+	// fields predates the scheme, so it is refused outright rather than
+	// grandfathered in — otherwise revocation could be bypassed by simply
+	// presenting an older token.
+	sessionID, _ = claims["session_id"].(string)
+	if sessionID == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "token is not bound to a session", "code": "UNAUTHORIZED",
+		})
+		return "", 0, false
+	}
+	epoch, hasEpoch := numericClaim(claims["auth_epoch"])
+	if !hasEpoch {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "token carries no auth epoch", "code": "UNAUTHORIZED",
+		})
+		return "", 0, false
+	}
+	if config.SessionValidator != nil && !config.SessionValidator.SessionValid(sessionID, epoch) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "session is no longer valid", "code": "UNAUTHORIZED",
+		})
+		return "", 0, false
+	}
+
+	if config.Blacklist != nil {
+		jti, _ := claims["jti"].(string)
+		if jti != "" && config.Blacklist.IsTokenRevoked(c.Request.Context(), jti) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked", "code": "TOKEN_REVOKED"})
+			return "", 0, false
+		}
+	}
+
+	walletAddress, _ := claims["wallet_address"].(string)
+	if walletAddress == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token missing wallet address", "code": "UNAUTHORIZED"})
+		return "", 0, false
+	}
+	return sessionID, epoch, true
+}
+
 // JWTAuthMiddleware returns a gin middleware that validates JWT tokens
 // and injects wallet_address and jwt_claims into the context.
 func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc {
 	secret := []byte(config.Secret)
-	prevSecrets := make([][]byte, len(config.PreviousSecrets))
-	for i, s := range config.PreviousSecrets {
-		prevSecrets[i] = []byte(s)
-	}
 	skipPaths := make(map[string]bool, len(config.SkipPaths))
 	for _, p := range config.SkipPaths {
 		skipPaths[p] = true
@@ -156,144 +304,17 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		// Parse without claims validation — signature IS verified, but exp/nbf/iat
-		// are checked manually below. This is necessary for key rotation: tokens
-		// signed with old (previous) secrets may appear "expired" from the current
-		// key's perspective, but we must still attempt verification against prevSecrets.
-		parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-
-		buildKeyFunc := func(k interface{}) jwt.Keyfunc {
-			return func(t *jwt.Token) (interface{}, error) {
-				// Pin the algorithm EXACTLY, not just its family: accepting any
-				// *SigningMethodHMAC would also accept HS384/HS512, which are
-				// not what this service issues.
-				if config.PublicKey != nil {
-					if t.Method.Alg() != jwt.SigningMethodRS256.Alg() {
-						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-					}
-					return config.PublicKey, nil
-				}
-				if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-				}
-				return k, nil
-			}
-		}
-
-		claims := jwt.MapClaims{}
-		_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc(secret))
-
-		// Try previous secrets if current key fails and no public key is
-		// configured. The candidate order prefers the key whose kid matches the
-		// token header (rotation fast path) but still tries every allowed key:
-		// the kid is a hint, not trust.
-		if err != nil && config.PublicKey == nil && len(prevSecrets) > 0 {
-			for _, candidate := range OrderedKeyCandidates(tokenStr, config.Secret, config.PreviousSecrets) {
-				claims = jwt.MapClaims{}
-				_, err = jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tokenStr, claims, buildKeyFunc([]byte(candidate)))
-				if err == nil {
-					break
-				}
-			}
-		}
-
-		if err != nil {
-			logger.Debug("JWT parse failed", zap.Error(err))
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token", "code": "UNAUTHORIZED"})
+		claims, ok := parseBearerClaims(c, config, logger, secret, tokenStr)
+		if !ok {
 			return
 		}
 
-		// Manual claims validation with 30s leeway for clock skew.
-		// Covers exp, nbf, and iat — the last is not validated by the library
-		// when WithoutClaimsValidation is used and prevents tokens from being
-		// accepted before their stated issuance time.
-		now := time.Now()
-		if exp, ok := claims["exp"].(float64); ok && now.After(time.Unix(int64(exp), 0).Add(30*time.Second)) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired", "code": "UNAUTHORIZED"})
-			return
-		}
-		if nbf, ok := claims["nbf"].(float64); ok && now.Before(time.Unix(int64(nbf), 0).Add(-30*time.Second)) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token not yet valid", "code": "UNAUTHORIZED"})
-			return
-		}
-		if iat, ok := claims["iat"].(float64); ok && now.Add(30*time.Second).Before(time.Unix(int64(iat), 0)) {
-			// iat must not be in the future beyond leeway window.
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token issued in the future", "code": "UNAUTHORIZED"})
+		sessionID, epoch, ok := authorizeAccessClaims(c, config, claims)
+		if !ok {
 			return
 		}
 
-		// A playback capability is NOT an access token. It is issued to be spent
-		// on the streaming routes only (where PlaybackTokenAuth validates it),
-		// so it must never authorise a management API call through this
-		// middleware. Whitelist the acceptable kinds rather than blacklisting
-		// the known-bad ones, so a future credential type is rejected by
-		// default instead of silently accepted.
-		switch tokenType, _ := claims["token_type"].(string); tokenType {
-		case "", "access":
-		default:
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token is not an access token", "code": "UNAUTHORIZED",
-			})
-			return
-		}
-
-		if config.Issuer != "" {
-			iss, _ := claims["iss"].(string)
-			if iss != config.Issuer {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error": "token issuer mismatch", "code": "UNAUTHORIZED",
-				})
-				return
-			}
-		}
-
-		if config.Audience != "" && !audienceContains(claims["aud"], config.Audience) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token audience mismatch", "code": "UNAUTHORIZED",
-			})
-			return
-		}
-
-		// Every credential must be bound to a live session. A token without the
-		// fields predates the scheme, so it is refused outright rather than
-		// grandfathered in — otherwise revocation could be bypassed by simply
-		// presenting an older token.
-		sessionID, _ := claims["session_id"].(string)
-		if sessionID == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token is not bound to a session", "code": "UNAUTHORIZED",
-			})
-			return
-		}
-		epoch, hasEpoch := numericClaim(claims["auth_epoch"])
-		if !hasEpoch {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token carries no auth epoch", "code": "UNAUTHORIZED",
-			})
-			return
-		}
-		if config.SessionValidator != nil && !config.SessionValidator.SessionValid(sessionID, epoch) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "session is no longer valid", "code": "UNAUTHORIZED",
-			})
-			return
-		}
-
-		if config.Blacklist != nil {
-			jti, _ := claims["jti"].(string)
-			if jti != "" && config.Blacklist.IsTokenRevoked(c.Request.Context(), jti) {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked", "code": "TOKEN_REVOKED"})
-				return
-			}
-		}
-
-		walletAddress, _ := claims["wallet_address"].(string)
-		if walletAddress == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token missing wallet address", "code": "UNAUTHORIZED"})
-			return
-		}
-
-		c.Set("wallet_address", walletAddress)
+		c.Set("wallet_address", claims["wallet_address"].(string))
 		c.Set("jwt_claims", claims)
 		SetSessionBinding(c, sessionID, epoch)
 		c.Next()
@@ -314,12 +335,12 @@ func SetSessionBinding(c *gin.Context, sessionID string, epoch int64) {
 // GetSessionBinding returns the session a request is acting under, or empty if
 // the request carries none. An empty session is not an error here: callers that
 // need one must decide what to do about its absence.
-func GetSessionBinding(c *gin.Context) (string, int64) {
-	sessionID, _ := c.Get("session_id")
-	epoch, _ := c.Get("auth_epoch")
-	id, _ := sessionID.(string)
-	e, _ := epoch.(int64)
-	return id, e
+func GetSessionBinding(c *gin.Context) (sessionID string, epoch int64) {
+	rawSession, _ := c.Get("session_id")
+	rawEpoch, _ := c.Get("auth_epoch")
+	sessionID, _ = rawSession.(string)
+	epoch, _ = rawEpoch.(int64)
+	return sessionID, epoch
 }
 
 // GetWalletAddress extracts the wallet address from the gin context.

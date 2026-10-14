@@ -18,7 +18,7 @@ func (q *fakeTranscodingQueue) Enqueue(task *TranscodingTask) error {
 	return nil
 }
 
-func (q *fakeTranscodingQueue) Dequeue(ctx context.Context) (*TranscodingTask, DeliveryHandle, error) {
+func (q *fakeTranscodingQueue) Dequeue(ctx context.Context) (task *TranscodingTask, handle DeliveryHandle, err error) {
 	return q.lastTask, fakeDeliveryHandle(q.lastTask.ID), nil
 }
 

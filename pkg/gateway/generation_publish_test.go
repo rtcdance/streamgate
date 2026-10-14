@@ -120,7 +120,7 @@ func (d *genFakeDB) removeContent(id string) {
 	delete(d.contents, id)
 }
 
-func (d *genFakeDB) publishedOf(id string) (int64, string) {
+func (d *genFakeDB) publishedOf(id string) (generation int64, contentID string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	c, ok := d.contents[id]
@@ -433,13 +433,14 @@ func (d *genFakeDB) exec(query string, args []driver.Value) (int64, error) {
 		// Content delete: cancel every active task of that content.
 		var n int64
 		for _, row := range d.tasks {
-			if row.contentID == genArgStr(args, 0) && (row.status == "pending" || row.status == "processing") {
-				row.status = "cancelled"
-				row.completedAt = d.now
-				row.leaseOwner = ""
-				row.leaseExpiresAt = time.Time{}
-				n++
+			if row.contentID != genArgStr(args, 0) || (row.status != "pending" && row.status != "processing") {
+				continue
 			}
+			row.status = "cancelled"
+			row.completedAt = d.now
+			row.leaseOwner = ""
+			row.leaseExpiresAt = time.Time{}
+			n++
 		}
 		return n, nil
 
@@ -574,13 +575,13 @@ func (d *genFakeDB) query(query string, args []driver.Value) (driver.Rows, error
 		return &genFakeRows{cols: []string{"output_generation"}, data: [][]driver.Value{{row.outputGeneration}}}, nil
 
 	case strings.Contains(q, "SELECT COALESCE(MAX(output_generation), 0) FROM transcoding_tasks WHERE content_id"):
-		var max int64
+		var highest int64
 		for _, row := range d.tasks {
-			if row.contentID == genArgStr(args, 0) && row.outputGeneration > max {
-				max = row.outputGeneration
+			if row.contentID == genArgStr(args, 0) && row.outputGeneration > highest {
+				highest = row.outputGeneration
 			}
 		}
-		return &genFakeRows{cols: []string{"max"}, data: [][]driver.Value{{max}}}, nil
+		return &genFakeRows{cols: []string{"max"}, data: [][]driver.Value{{highest}}}, nil
 
 	case strings.Contains(q, "SELECT COUNT(*) FROM transcoding_tasks WHERE content_id"):
 		var n int64
