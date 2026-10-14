@@ -37,15 +37,20 @@
 #   CAPACITY          set to 1 to append 100 viewers as a capacity exploration
 #   RESULT_DIR        where JSON results go           (default /tmp/streamgate-perf-<ts>)
 #   SCENARIO          scenario label                  (default warm_cache)
+#   PERF_SKIP_WARMUP  set to 1 to skip the built-in fail-fast warmup — the
+#                     fault scenarios EXPECT failures, so the warmup gate must
+#                     not abort them before they measure
 #
 # Scenario matrix (TRANSITION_PLAN.md SG-07): cold_cache / warm_cache /
 # rpc_primary_down / rpc_all_down. This script RUNS the labeled scenario; it
-# does not inject RPC faults itself. To run a fault scenario, inject the fault
-# on the running stack first (e.g. stop the primary RPC container), then invoke
-# this script with SCENARIO=rpc_primary_down — the harness records the label,
-# and the safety assertions for fault scenarios live with the fault injection,
-# not here. For cold cache, restart the stack (or its Redis/cache container)
-# before invoking with SCENARIO=cold_cache. Never clean a user's cache in place.
+# does not inject faults itself. To run a fault scenario, inject the fault on
+# the running stack first (e.g. stop the primary RPC container), then invoke
+# this script with SCENARIO=rpc_primary_down — the harness records the label.
+# `verify-docker.sh` performs exactly that injection for the perf stage: it
+# gives the monolith two same-chain endpoints, stops the proxy, then stops the
+# anvil, and drops only the nft_cache:* keys for the cold pass. The per-label
+# bars (≥99% for cold/warm/primary_down; 0 served and 0 bytes for all_down)
+# live in test/load/live_test.go. Never clean a user's whole cache in place.
 #
 # Usage:
 #   PERF_CONTENT_ID=... PERF_PRIVATE_KEY=... ./scripts/perf-acceptance.sh
@@ -142,9 +147,17 @@ run_scenario() {
     go test -tags load -count=1 -run TestLoad_AuthorizedMedia ./test/load/ -v
 }
 
-echo "perf-acceptance: warming up the stack (1 viewer, short window)"
-PERF_WARMUP=0s PERF_DURATION=5s run_scenario 1 >/dev/null 2>&1 \
-  || die "warmup run failed — check stack health and PERF_CONTENT_ID/wallet credentials"
+# PERF_SKIP_WARMUP=1 for the fault scenarios: the warmup exists to fail fast on
+# a broken stack, but under an injected fault a failed warmup is the EXPECTED
+# outcome (rpc_all_down), not a reason to abort before measuring. The measured
+# run still applies its own scenario bar (see test/load/live_test.go).
+if [ "${PERF_SKIP_WARMUP:-0}" = "1" ]; then
+  echo "perf-acceptance: warmup run SKIPPED (PERF_SKIP_WARMUP=1; fault scenario)"
+else
+  echo "perf-acceptance: warming up the stack (1 viewer, short window)"
+  PERF_WARMUP=0s PERF_DURATION=5s run_scenario 1 >/dev/null 2>&1 \
+    || die "warmup run failed — check stack health and PERF_CONTENT_ID/wallet credentials"
+fi
 
 for v in $VIEWERS_LIST; do
   run_scenario "$v"

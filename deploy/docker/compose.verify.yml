@@ -128,6 +128,25 @@ services:
       start_period: 15s
       retries: 5
 
+  # A second SAME-CHAIN endpoint in front of the anvil above: a dumb TCP
+  # forwarder that can be stopped on its own. The perf stage lists it BEFORE
+  # the direct anvil URL in STREAMGATE_CHAIN_RPC_URLS, then stops this
+  # container to exercise the real primary-down / fallback path under load
+  # (SG-07 step 3) — stopping the anvil itself would take the fallback away
+  # too, which is the different `rpc_all_down` scenario. Not published: only
+  # the app containers reach it, by service name.
+  anvil-proxy:
+    image: alpine/socat:latest
+    command: ["TCP-LISTEN:8545,fork,reuseaddr", "TCP:anvil:8545"]
+    depends_on:
+      anvil:
+        condition: service_healthy
+    # No healthcheck on purpose: the socat image carries no probe utility, and
+    # a service with none is simply "running" for `--wait`. Readiness is
+    # asserted by the perf stage itself (cast through the proxy) — and if the
+    # proxy is briefly not listening, the chain client's fallback to the direct
+    # anvil covers it, which is the very path this scenario measures.
+
   # Durable profile (SG-12 step 5): the monolith SUBMITS transcode tasks
   # (Postgres + outbox + JetStream) but the isolated transcoder worker
   # executes them.
@@ -160,6 +179,11 @@ services:
       - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
       - STREAMGATE_ETH_RPC=http://anvil:8545
+      # Empty by default: the app then uses config.yaml's single endpoint for
+      # chain 31337. The perf stage sets this to two SAME-CHAIN endpoints
+      # (the stoppable anvil-proxy first) so the fallback path can be exercised
+      # under load; empty on every other stage leaves behaviour unchanged.
+      - STREAMGATE_CHAIN_RPC_URLS=${VERIFY_CHAIN_RPCS:-}
       # config.yaml defaults web3.chain_id to 1; the AutomaticEnv mapping for
       # it is WEB3_CHAIN_ID. Without it the DemoNFT minter refuses to start
       # (chain id mismatch) and dev-mint is dead — the same value
