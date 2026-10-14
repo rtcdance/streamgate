@@ -12,6 +12,9 @@
 //	PERF_JWT           pre-minted JWT (optional; omit to use real login)
 //	PERF_WALLET        wallet address for real login (optional; derived from key)
 //	PERF_PRIVATE_KEY   hex secp256key of a REAL logged-in, NFT-holding wallet
+//	PERF_WALLET_KEYS_FILE  file of hex private keys (one per line or space-separated);
+//	                     when set, each viewer uses its OWN real-login wallet
+//	                     (viewer i = wallet i) instead of sharing one wallet
 //	PERF_CHAIN_ID      chain id for the login challenge (default 31337)
 //	PERF_CONTENT_ID    gated content to play         (required)
 //	PERF_QUALITY       variant quality               (optional; empty = master manifest)
@@ -19,6 +22,7 @@
 //	PERF_INTERVAL      per-viewer request pace       (default 2s)
 //	PERF_WARMUP        warmup window                 (default 10s)
 //	PERF_DURATION      timed sampling window         (default 30s)
+//	PERF_LOGIN_PACE    gap between real logins       (default 7s; auth limiter is 10/min)
 //	PERF_FIXTURE_HASH  sha256 of the media fixture   (optional; recorded)
 //	PERF_RESULT_JSON   output path for the JSON result (default /tmp/perf-result.json)
 //	PERF_SEGMENT_SHA256  optional hex digest — when set, every segment body is
@@ -61,13 +65,51 @@ func envInt(t *testing.T, key string, def int) int {
 	return n
 }
 
+// viewerPoolFromEnv resolves the viewer wallet pool from PERF_WALLET_KEYS_FILE
+// (one hex key per line or space-separated) when set; empty when falling back
+// to the single-wallet path.
+func viewerPoolFromEnv(t *testing.T) []load.WalletIdentity {
+	t.Helper()
+	path := os.Getenv("PERF_WALLET_KEYS_FILE")
+	if path == "" {
+		return nil
+	}
+	pool, err := load.WalletsFromKeysFile(path)
+	require.NoError(t, err, "PERF_WALLET_KEYS_FILE=%s must contain hex secp256k1 keys", path)
+	return pool
+}
+
+func loginPaceFromEnv(t *testing.T) time.Duration {
+	t.Helper()
+	if v := os.Getenv("PERF_LOGIN_PACE"); v != "" {
+		d, err := time.ParseDuration(v)
+		require.NoError(t, err, "PERF_LOGIN_PACE must be a duration like 7s")
+		return d
+	}
+	return 0 // harness default (7s)
+}
+
 func TestLoad_AuthorizedMedia(t *testing.T) {
 	baseURL := envOr("PERF_BASE_URL", "http://localhost:18080")
 	scenario := envOr("PERF_SCENARIO", "warm_cache")
 	contentID := os.Getenv("PERF_CONTENT_ID")
-	require.NotEmpty(t, contentID, "PERF_CONTENT_ID is required — point the harness at real gated content")
+	if contentID == "" {
+		t.Skip("PERF_CONTENT_ID is not set — the live scenario is driven by scripts/perf-acceptance.sh")
+	}
+
+	walletPool := viewerPoolFromEnv(t)
+	if len(walletPool) == 0 && os.Getenv("PERF_JWT") == "" && os.Getenv("PERF_PRIVATE_KEY") == "" {
+		t.Skip("no wallet credentials: set PERF_WALLET_KEYS_FILE (per-viewer pool), PERF_PRIVATE_KEY (single wallet) or PERF_JWT")
+	}
 
 	viewers := envInt(t, "PERF_VIEWERS", 1)
+	if n := len(walletPool); n > 0 && n < viewers {
+		// Reuse is allowed but must be visible: a pool smaller than the viewer
+		// count means wallets are shared round-robin, which re-introduces
+		// per-wallet media-limiter contention.
+		t.Logf("WARNING: wallet pool (%d) < viewers (%d) — wallets reused round-robin", n, viewers)
+	}
+
 	interval := 2 * time.Second
 	if v := os.Getenv("PERF_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -95,6 +137,8 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 		Wallet:      os.Getenv("PERF_WALLET"),
 		PrivateKey:  os.Getenv("PERF_PRIVATE_KEY"),
 		ChainID:     chainID,
+		Wallets:     walletPool,
+		LoginPace:   loginPaceFromEnv(t),
 		ContentID:   contentID,
 		Quality:     os.Getenv("PERF_QUALITY"),
 		Viewers:     viewers,
@@ -119,8 +163,9 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 
 	out := envOr("PERF_RESULT_JSON", "/tmp/perf-result.json")
 	require.NoError(t, res.WriteJSON(out))
-	t.Logf("scenario=%s commit=%s success=%d errors=%d bytes=%d ttfb_p95=%.2fms latency_p95=%.2fms result=%s",
-		res.Scenario, res.Commit, res.SuccessCount, res.ErrorCount, res.TotalBytes,
+	t.Logf("scenario=%s commit=%s viewers=%d pool=%d login_paced=%v success=%d errors=%d bytes=%d ttfb_p95=%.2fms latency_p95=%.2fms result=%s",
+		res.Scenario, res.Commit, res.Viewers, res.WalletPoolSize, res.LoginPaced,
+		res.SuccessCount, res.ErrorCount, res.TotalBytes,
 		res.TTFBMillis.P95, res.LatencyMillis.P95, out)
 
 	// Healthy scenarios must meet the SG-07 bar: ≥99% success at 50 viewers.
@@ -133,6 +178,57 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 		require.GreaterOrEqual(t, successRate, 0.99,
 			"healthy scenario %s must keep ≥99%% success (got %.2f%%)", scenario, successRate*100)
 	}
+}
+
+// TestPerfSetup_MintViewerWallets is the one-time SETUP phase driven by
+// scripts/perf-acceptance.sh (PERF_SETUP=1): generate N deterministic wallets,
+// log in as each (paced so the auth limiter is never hit) and dev-mint a
+// DemoNFT to each so every virtual viewer has its OWN NFT-holding wallet. The
+// keys are written to PERF_WALLET_KEYS_FILE (0600) for the scenario runs to
+// consume. Skips when PERF_SETUP != 1 so a bare `-tags load` run stays clean.
+func TestPerfSetup_MintViewerWallets(t *testing.T) {
+	if os.Getenv("PERF_SETUP") != "1" {
+		t.Skip("PERF_SETUP != 1 — SETUP phase is only run on demand")
+	}
+	keysPath := os.Getenv("PERF_WALLET_KEYS_FILE")
+	require.NotEmpty(t, keysPath, "PERF_WALLET_KEYS_FILE is required (it is where the generated keys are written)")
+	baseURL := envOr("PERF_BASE_URL", "http://localhost:18080")
+	count := envInt(t, "PERF_WALLETS", 5)
+	chainID := int64(envInt(t, "PERF_CHAIN_ID", 31337))
+
+	// Deterministic keys: re-running SETUP over an existing file reproduces the
+	// same wallet addresses, so an already-minted NFT is reused, not reminted.
+	require.NoError(t, load.PerfGenerateKeys(count, keysPath),
+		"generate %d deterministic wallet keys at %s", count, keysPath)
+	require.NoError(t, os.Chmod(keysPath, 0o600))
+	t.Logf("generated %d wallet keys at %s", count, keysPath)
+
+	pool, err := load.WalletsFromKeysFile(keysPath)
+	require.NoError(t, err)
+	for i := range pool {
+		pool[i].ChainID = chainID
+	}
+
+	cfg := load.Config{
+		BaseURL:   baseURL,
+		Scenario:  "setup",
+		ContentID: "setup",
+		ChainID:   chainID,
+		Wallets:   pool,
+		SetupMint: true,
+		// Setup-only knobs: viewers/interval/duration never reach the load
+		// phase because RunPhase errors out or minting fails loudly first, but
+		// validate() demands nonzero placeholders.
+		Viewers:  1,
+		Interval: time.Second,
+		Duration: time.Second,
+	}
+	tokens, paced, failed, err := load.RunPhase(context.Background(), cfg)
+	require.NoError(t, err, "every wallet must log in and mint successfully — a failed setup fails the round")
+	require.Len(t, tokens, count)
+	require.Zero(t, failed)
+	require.True(t, paced, "logins must be paced")
+	t.Logf("setup complete: %d wallets logged in (paced=%v) and hold a DemoNFT", count, paced)
 }
 
 func isManifest(u string) bool {
