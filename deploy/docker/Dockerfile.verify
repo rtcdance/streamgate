@@ -52,6 +52,33 @@ RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/ins
 RUN ln -sf /root/.foundry/bin/forge /root/.foundry/bin/cast /root/.foundry/bin/anvil /root/.foundry/bin/chisel /usr/local/bin/ \
     && printf 'export PATH=/usr/local/go/bin:$PATH\n' > /etc/profile.d/go-toolchain.sh
 
+# Pre-warm forge's solc cache for the version contracts/foundry.toml pins.
+#
+# Placed ABOVE `COPY . .` deliberately, and using a throwaway project rather
+# than the repo's own contracts: a prewarm that depends on the source layer
+# re-runs on EVERY commit (the source copy invalidates it), which turns a code
+# gate into a network gate — solc comes from raw.githubusercontent.com, and
+# that host is intermittently unreachable here. Above the COPY it is computed
+# once and reused until these lines change.
+#
+# Each attempt is bounded by `timeout`: a hung TLS connection must fail fast
+# and retry rather than block the image build indefinitely (which it did).
+# Building once here means every later `forge build` in a stage finds 0.8.24
+# locally and needs no network.
+RUN mkdir -p /solc-prewarm/src \
+    && printf '[profile.default]\nsrc = "src"\nout = "out"\nlibs = []\nsolc = "0.8.24"\n' > /solc-prewarm/foundry.toml \
+    && printf 'pragma solidity ^0.8.24;\n\ncontract SolcPrewarm { uint256 public value; }\n' > /solc-prewarm/src/SolcPrewarm.sol \
+    && cd /solc-prewarm \
+    && ok=0 \
+    && for i in 1 2 3 4 5; do \
+         timeout 240 forge build && ok=1 && break; \
+         echo "solc 0.8.24 prewarm attempt $i timed out or failed; retrying"; \
+         sleep $((i*10)); \
+       done \
+    && [ "$ok" = "1" ] \
+    && ls -A /root/.svm >/dev/null \
+    && rm -rf /solc-prewarm
+
 WORKDIR /src
 COPY . .
 
@@ -67,20 +94,5 @@ ENV GOSUMDB=off
 # Warm the module cache; contracts submodules must already be checked out
 # (the runner runs `git submodule update --init --recursive` beforehand).
 RUN go mod download
-
-# Pre-warm forge's solc cache: without this, every `forge build` in a stage
-# downloads the pinned compiler from raw.githubusercontent.com, so a flaky
-# network turns a code gate into a network gate. Building once here bakes
-# solc into ~/.svm. The upstream host is occasionally unreachable, so retry
-# before failing the build loudly — a failure must never be silent, but a
-# single dropped connection should not block the image.
-RUN cd /src/contracts \
-    && ok=0 \
-    && for i in 1 2 3 4 5; do \
-         forge build && ok=1 && break; \
-         echo "forge build attempt $i failed; retrying in $((i*10))s"; \
-         sleep $((i*10)); \
-       done \
-    && [ "$ok" = "1" ]
 
 CMD ["bash"]
