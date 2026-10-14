@@ -450,6 +450,50 @@ func TestRateLimitMiddleware_RetryAfterHeaderOn429(t *testing.T) {
 	assert.LessOrEqual(t, secs, int(cfg.WindowSize.Seconds()))
 }
 
+// TestRateLimitMiddleware_MediaRoutesAreNotIPMerged pins the SG-07/SG-14 fix:
+// the IP-keyed global limiter must NOT consume budget for streaming media
+// routes. It runs before auth, so the wallet is unknown and every viewer
+// behind one address shares a single "IP:path" bucket — merging all viewers
+// into one budget. The media budget belongs to MediaRateLimitMiddleware,
+// which runs after auth and keys by wallet + route template.
+func TestRateLimitMiddleware_MediaRoutesAreNotIPMerged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cfg := RateLimitConfig{RequestsPerMinute: 3, WindowSize: time.Minute, CleanupInterval: 5 * time.Minute}
+	rl, handler := (&Service{rateLimiter: NewRateLimiter(cfg, nil)}).RateLimitMiddlewareWithConfig(cfg)
+	defer rl.Stop()
+
+	router := gin.New()
+	router.Use(handler)
+	router.GET("/api/v1/streaming/:id/manifest.m3u8", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	router.GET("/api/v1/content", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	get := func(path, ip string) int {
+		req := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+		req.RemoteAddr = ip + ":8080"
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	// Well past the global budget: media must still answer 200 because its
+	// budget is enforced later, per wallet.
+	for i := 0; i < cfg.RequestsPerMinute+5; i++ {
+		assert.Equal(t, http.StatusOK, get("/api/v1/streaming/c1/manifest.m3u8", "10.0.0.7"),
+			"media request %d must not be limited by the IP-keyed global limiter", i+1)
+	}
+	// Non-media routes keep the global limiter's protection.
+	for i := 0; i < cfg.RequestsPerMinute; i++ {
+		assert.Equal(t, http.StatusOK, get("/api/v1/content", "10.0.0.7"), "request %d", i+1)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, get("/api/v1/content", "10.0.0.7"),
+		"non-media route past the budget must still be 429")
+}
+
 func BenchmarkMemoryRateLimiter_Allow(b *testing.B) {
 	rl := newMemoryRateLimiter(DefaultRateLimitConfig())
 	defer rl.Stop()
