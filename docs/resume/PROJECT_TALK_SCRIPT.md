@@ -9,9 +9,9 @@
 
 ## 零、状态速览（被问进度就照这个说）
 
-- ✅ SG-01～06、SG-10、SG-11、SG-12（九步全部）、SG-13 A 部分（B 进行中）、SG-02；证据登记 `TRANSITION_PLAN.md` §8。
-- ⏳ SG-07 性能实测（**待实测**，简历不出现 QPS/p95）、SG-08 同 digest CD、SG-14 运维 / 备份恢复、**远端 CI（提交未推送，run 待运行）**。
-- 实测口径：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；70s 撤销上界**实测 67s**；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**。
+- ✅ SG-01～06、SG-10、SG-11、SG-12（九步全部）、SG-13 A+B、SG-02、SG-14（含备份恢复演练 17/17）、SG-07 性能实测（1/10/50 观众各 100% 成功）；证据登记 `TRANSITION_PLAN.md` §8。
+- ⏳ **远端 CI（提交未推送，run 待运行）**、SG-08 的 GitHub 侧同 digest CD（本地 release stage 已实跑空卷部署 + 失败/恢复双断言，远端 workflow 仍待运行）。
+- 实测口径：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；70s 撤销上界**实测 67s**；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。
 
 ---
 
@@ -161,11 +161,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 
 **4. 证据边界：压测与发布（4min）**
 
-- 压测（⏳ 待实测）：先说"矩阵还没跑，不出现任何吞吐数字"，再讲口径——真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；1/10/50/100 观众，预热 10s / 采样 30s / ×3；冷、暖、主 RPC 挂 fallback 可用、全 RPC 挂四场景；TTFB、p50/95/99、错误分布、CPU/RSS、RPC 调用、缓存命中、转码 RTF；**未授权放行 0 硬门**，50 并发 ≥99% 是目标非结果。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
-- 发布（⏳ 待补）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；schema 已落地 additive 迁移 + 齐全 `.down.sql`（036–040）；但**同 digest CD 运行、回滚 smoke、远端 CI 都没跑**，本机绿灯只是预检。
+- 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。未做的如实说：冷缓存 / RPC 故障三场景、reference vs candidate 的 p95 回归比较（需两轮同 runner 数据）；CPU/RSS 未采。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
+- 发布（本地已实跑，远端待运行）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；schema 已落地 additive 迁移 + 齐全 `.down.sql`（036–040）。**已跑**：verify-docker release stage 实跑空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）。**未跑**：GitHub 侧同 digest CD、回滚 smoke、远端 CI——本轮提交未推送。
 - 已落地的 CI 门一句话带过：覆盖率缺失/空文件即失败（自证 15/15，含 59.9% 必须失败）、迁移 `ON_ERROR_STOP`、Anvil 进候选门禁、smoke 改为"依赖就绪 → healthy → `/health` 200"（`febdf7f`）。
 
-**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；性能与发布矩阵在待实测清单上。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
+**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；本地七阶段 Docker 验收与 50 观众负载已实测，远端 CI 与 cold/RPC 故障跑分还没跑。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
 
 ### 30 分钟讲述的证据映射表（代码入口 → 测试/断言 → SHA）
 
@@ -242,17 +242,18 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 测试：`byte_range_test`、验收 `Range request returns 206`、`Path traversal in the segment name refused`、`Playback token refused for another content`。
 边界：分片是明文 HLS——token-gated 访问控制，**不是 DRM**。
 
-**Q8 真实压测测哪些响应字节？（⏳ 待实测——先说状态再答）**
-一句话：口径已定——已授权 playlist、segment、init/key 的**全部响应字节**，每个响应体读完并校验大小/hash，失败不计入成功吞吐。
-关键点：固定 EXTINF 节奏 + 固定 rendition + 每观众独立真实登录持 NFT；1/10/50/100 观众，预热 10s / 采样 30s / ×3；冷、暖、主 RPC 挂 fallback、全 RPC 挂四场景；TTFB、p50/95/99、错误分布、CPU/RSS、RPC、缓存命中、RTF；未授权放行 0 硬门，50 并发 ≥99% 是**目标**；reference/candidate 同 runner、p95 回归 ≤1.20。
-现在能说的实测只有功能验收的字节数（全分片 375624B、fixture 506105B sha256 一致）——**没有吞吐数字**。
-边界：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 模拟，**引用它数字的回答是错的**；SG-07 跑完前简历不出现 QPS/p95。
+**Q8 真实压测测哪些响应字节？（✅ 已实测——口径 + 数字）**
+一句话：已授权 playlist、segment、init/key 的**全部响应字节**，每个响应体读完并校验大小/hash，失败不计入成功吞吐。
+关键点：固定 EXTINF 节奏 + 固定 rendition + 每观众独立真实登录持 NFT（每观众一个真实钱包，节流登录 + dev-mint）；预热 10s / 采样 30s；TTFB、p50/95/99、错误分布、HTTP 状态分布；未授权放行 0 硬门。**实测**：1/10/50 观众 = 28/28、280/280、1400/1400 全成功 0 错误，字节 42070/420700/2103500，ttfb_p95 58.4/85.5/61.7ms（commit `f4d65bc`）。50 观众 ≥99% 达标（100%）。
+必须提的排障故事：多钱包化之后 10 观众仍 120×429，定位到 IP 键控全局限流器在 auth 之前合桶（Prometheus `http_requests_total` 无 429 而 `rate_limit_total{redis,denied}=290`、容器日志 0 条 429 三重证据），媒体路径豁免后归零。
+未做如实说：cold_cache / rpc_primary_down / rpc_all_down 三场景、reference/candidate p95 回归（需两轮数据）、CPU/RSS 未采。
+边界：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 模拟，**引用它数字的回答是错的**。
 
-**Q9 发布 digest 与 schema 回滚？（⏳ 待补——如实说没跑完）**
-一句话：设计是"一 SHA 一候选、全程同 digest、additive 迁移可回滚"；同 digest CD 与回滚 smoke 还没跑，远端 CI 未推送。
+**Q9 发布 digest 与 schema 回滚？（本地已实跑，远端待运行）**
+一句话：设计是"一 SHA 一候选、全程同 digest、additive 迁移可回滚"；**本地 release stage 已实跑**（空卷部署 smoke ALL 66 PASSED + 坏变体被拒 + 健康镜像恢复），GitHub 侧同 digest CD 与远端 CI 未推送待运行。
 关键点：候选清单 `{candidateSHA, images:{service:digest}}`，扫描/部署/发布只认 `image@sha256:`，提升不换 digest；临时栈空卷 + 真 migration + 真播放 smoke；恢复演练必须"B 确实失败 + A 恢复"双断言，rollback 成功不能掩盖 deploy 失败；schema 全 additive 且 `.down.sql` 齐全（036–040），迁移失败会红（`ON_ERROR_STOP`，删掉了 `|| true`）。
-测试：`scripts/check-coverage_test.sh` 15/15（含 59.9% 必须失败）、`make test-ci COVERAGE_MIN=99` 必须非零、smoke"就绪→healthy→`/health` 200"已在真实依赖栈实测。
-边界：本机绿灯只是预检，权威门是 CI/Docker——本轮提交未推送，M5 远端部分是"待运行"。
+测试：`scripts/check-coverage_test.sh` 15/15（含 59.9% 必须失败）、`make test-ci COVERAGE_MIN=99` 必须非零、smoke"就绪→healthy→`/health` 200"已在真实依赖栈实测；反向证明"部署命令失败 harness 必须非零退出"实测 `EXIT=1`。
+边界：本机绿灯是预检，权威门是 CI/Docker——本轮提交未推送，M5 远端部分是"待运行"。
 
 **Q10 用了 AI 吗？你本人做了什么？**
 一句话：用了，大部分代码 AI 生成；我的工作是设计决策、验收判据、评审与排障——**AI 的代码生成不能自动转成"我独立设计实现"**。
@@ -344,4 +345,4 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 3. "不说完全去中心化、不说无需信任、不说生产高可用已验证——这三样我都没有证据。"
 4. "capability 是 bearer：被复制后撤销/到期前可能被别人用；钱包绑定不等于持有私钥的证明；跨钱包负例覆盖 JWT 主体冲突与签名篡改，不是防分享。"
 5. "已下载的媒体、播放器缓冲、已拿到的密钥**不可远程收回**——所以它是 token-gated 访问控制，**不是 DRM**，我也不这么包装它。"
-6. "性能（SG-07）与同 digest 发布（SG-08）**待实测**；远端 CI **待运行**——没跑完的我不写成数字。"
+6. "远端 CI **待运行**（未推送）——没跑完的我不写成数字；本地七阶段与 50 观众负载已实测，数字都指得到 commit。"
