@@ -45,6 +45,11 @@ CHAIN_ID=31337
 PG_CONTAINER=sg-fc-postgres
 REDIS_CONTAINER=sg-fc-redis
 MINIO_CONTAINER=sg-fc-minio
+# The app resolves its Redis DB from config: config.dev.yaml (which the stack
+# loads under APP_DEBUG=true) sets db: 1, so the session epochs live there.
+# Flush the WRONG db and the old tokens keep verifying — override with
+# REDIS_DB if your stack uses another index.
+REDIS_DB="${REDIS_DB:-1}"
 APP_CONTAINERS=(sg-fc-monolith sg-fc-api-gateway sg-fc-transcoder)
 COMPOSE_FILE=docker-compose.fullchain.yml
 
@@ -186,9 +191,10 @@ p "database dropped, recreated and the dump applied"
 
 # 3c. sessions live in REDIS: a Postgres restore alone would NOT invalidate
 # old tokens (the epoch records are gone from Redis only if we drop them).
-# Flush only this app's session keys — never FLUSHALL.
-docker exec "$REDIS_CONTAINER" sh -c 'redis-cli --scan --pattern "streamgate:session:*" | xargs -r redis-cli DEL' >/dev/null
-p "flushed streamgate:session:* keys (old session epochs are gone)"
+# Flush only this app's session keys in the db the app actually uses —
+# never FLUSHALL, and never the wrong db index.
+docker exec "$REDIS_CONTAINER" sh -c "redis-cli -n $REDIS_DB --scan --pattern 'streamgate:session:*' | xargs -r redis-cli -n $REDIS_DB DEL" >/dev/null
+p "flushed streamgate:session:* keys from redis db $REDIS_DB (old session epochs are gone)"
 
 # 3d. MinIO objects were not touched; re-inventory and compare.
 docker exec "$MINIO_CONTAINER" sh -c '
@@ -265,22 +271,31 @@ else
 fi
 
 # And one media segment with the fresh playback token, proving the restored
-# DB + untouched MinIO objects serve real media.
-PLAYBACK="$(curl -sf -H "Authorization: Bearer $TOKEN2" "$PRE_MANIFEST_URL?quality=360p" \
+# DB + untouched MinIO objects serve real media. The variant and segment URIs
+# are taken FROM the served playlists (they carry the quality and the token)
+# — quality names are not assumed, they are whatever the pipeline produced.
+PLAYLIST_URI="$(curl -sf -H "Authorization: Bearer $TOKEN2" "$PRE_MANIFEST_URL" \
     | python3 -c "
-import sys, re
-m = re.search(r'playback_token=([A-Za-z0-9._-]+)', sys.stdin.read())
-print(m.group(1) if m else '')" 2>/dev/null || true)"
-if [ -n "$PLAYBACK" ]; then
-    SEG_CODE="$(curl -s -o /dev/null -w '%{http_code}' \
-        "$BASE_URL/api/v1/streaming/$CONTENT_ID/segment/00001.ts?quality=360p&playback_token=$PLAYBACK")"
+import sys
+lines = [l.strip() for l in sys.stdin.read().splitlines() if l.strip() and not l.strip().startswith('#')]
+print(lines[0] if lines else '')" 2>/dev/null || true)"
+[ -n "$PLAYLIST_URI" ] || die "could not read a variant URI from the manifest"
+VARIANT_URL="$(python3 -c "import urllib.parse;print(urllib.parse.urljoin('$PRE_MANIFEST_URL','''$PLAYLIST_URI'''))")"
+SEGMENT_URI="$(curl -sf -H "Authorization: Bearer $TOKEN2" "$VARIANT_URL" \
+    | python3 -c "
+import sys
+lines = [l.strip() for l in sys.stdin.read().splitlines() if l.strip() and not l.strip().startswith('#')]
+print(lines[0] if lines else '')" 2>/dev/null || true)"
+if [ -n "$SEGMENT_URI" ]; then
+    SEGMENT_URL="$(python3 -c "import urllib.parse;print(urllib.parse.urljoin('$VARIANT_URL','''$SEGMENT_URI'''))")"
+    SEG_CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN2" "$SEGMENT_URL")"
     if [ "$SEG_CODE" = "200" ]; then
-        p "fresh playback token serves segment 00001.ts (HTTP 200)"
+        p "fresh playback serves a real segment from the restored state (HTTP 200)"
     else
         f "segment request answered HTTP $SEG_CODE"
     fi
 else
-    f "could not extract a playback token from the fresh manifest"
+    f "could not extract a segment URI from the fresh variant playlist"
 fi
 
 # ---------------------------------------------------------------------------
