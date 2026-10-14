@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
 
@@ -111,6 +112,14 @@ type BlockHeaderInfo struct {
 
 type GatingRuleResolver interface {
 	GetActiveRulesForContent(ctx context.Context, contentID string) ([]GatingRule, error)
+}
+
+// GatingRuleVersionedResolver is an OPTIONAL extension of GatingRuleResolver:
+// a resolver that can also report the rule version its resolved set was read
+// at. Resolvers that do not implement it are treated as carrying no version
+// ("0"), so the gate's rule_version metric label degrades instead of guessing.
+type GatingRuleVersionedResolver interface {
+	RuleVersion(ctx context.Context, contentID string) (int64, error)
 }
 
 type GatingRule struct {
@@ -248,6 +257,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 	return func(c *gin.Context) {
 		if !config.Enabled.Load() {
 			// Fail closed: the gate being toggled off must not become a bypass.
+			recordGateDecision("deny", "disabled", "0")
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 				"error": "nft gating is disabled; protected content is unavailable",
 				"code":  "GATING_DISABLED",
@@ -259,6 +269,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			// A capability authorizes media DELIVERY: a segment, init or key is
 			// served on the capability's own validity, with no chain query, which
 			// is what keeps playback cheap.
+			recordGateDecision("allow", "playback_token", gateRuleVersion(c))
 			c.Set("nft_verified", true)
 			c.Set("nft_bypass_reason", "playback_token")
 			c.Next()
@@ -286,12 +297,16 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			if errStatus == 0 {
 				errStatus = http.StatusBadRequest
 			}
+			if errStatus >= http.StatusInternalServerError {
+				recordGateDecision("deny", "rules_unavailable", gateRuleVersion(c))
+			}
 			c.AbortWithStatusJSON(errStatus, errResp)
 			return
 		}
 
 		if len(rules) == 0 {
 			if config.GatingMode == "open" {
+				recordGateDecision("allow", "no_rules_open", "0")
 				c.Set("nft_verified", true)
 				c.Set("nft_bypass_reason", "no_gating_rules")
 				c.Next()
@@ -299,6 +314,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			}
 			// Fail closed: no rules means the content is gated by default.
 			// (An explicitly public deployment sets GatingMode "open".)
+			recordGateDecision("deny", "no_rules", "0")
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "content is gated; no active gating rules are configured for it",
 				"code":  "GATING_REQUIRED",
@@ -312,6 +328,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		chainID := rules[0].ChainID
 
 		if !common.IsHexAddress(contract) {
+			recordGateDecision("deny", "invalid_rule", gateRuleVersion(c))
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 				"error": "invalid contract address format",
 				"code":  "INVALID_CONTRACT",
@@ -323,6 +340,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		if evalErr != nil {
 			var invalid *invalidGatingRuleError
 			if errors.As(evalErr, &invalid) {
+				recordGateDecision("deny", "invalid_rule", gateRuleVersion(c))
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 					"error": invalid.Error(),
 					"code":  "INVALID_GATING_RULE",
@@ -333,6 +351,7 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 			// this is a service failure, not a denial. Answering 403 here would
 			// disguise an RPC outage as "you hold no NFT".
 			logger.Error("NFT verification failed", zap.Error(evalErr))
+			recordGateDecision("deny", "unverifiable", gateRuleVersion(c))
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 				"error":      "verification service unavailable",
 				"code":       "NFT_VERIFY_ERROR",
@@ -343,9 +362,12 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		}
 
 		if !allowed {
+			recordGateDecision("deny", "insufficient_balance", gateRuleVersion(c))
 			nftGateDenied(c, config, walletAddress, contract, tokenID, chainID, contentID)
 			return
 		}
+
+		recordGateDecision("allow", "ok", gateRuleVersion(c))
 
 		c.Set("nft_verified", true)
 		c.Set("wallet_address", walletAddress)
@@ -393,7 +415,34 @@ func resolveGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logge
 	c.Set("gating_rules", resolved)
 	c.Set("gating_rule_id", contentID)
 	c.Set("gating_rules_count", len(resolved))
+	// Best-effort: the rule version labels GateDecisionTotal. A resolver that
+	// cannot report one (or whose read fails) leaves the label at "0" — the
+	// decision itself is not affected by the version lookup failing.
+	if rv, ok := config.RuleResolver.(GatingRuleVersionedResolver); ok {
+		if v, verr := rv.RuleVersion(c.Request.Context(), contentID); verr == nil {
+			c.Set("gating_rule_version", strconv.FormatInt(v, 10))
+		}
+	}
 	return resolved, 0, nil
+}
+
+// gateRuleVersion reads the rule version resolved for this request, "0" when
+// none was resolved. The version is only ever taken from the server-side
+// resolution stored on the context — never from the request.
+func gateRuleVersion(c *gin.Context) string {
+	if v, ok := c.Get("gating_rule_version"); ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "0"
+}
+
+// recordGateDecision increments GateDecisionTotal{decision, reason, rule_version}.
+// decision ∈ {"allow","deny"}, reason a short bounded enum, rule_version the
+// server-resolved rule revision ("0" when none applied).
+func recordGateDecision(decision, reason, ruleVersion string) {
+	monitoring.GateDecisionTotal.WithLabelValues(decision, reason, ruleVersion).Inc()
 }
 
 // validateGatingRule rejects rules that cannot be evaluated meaningfully, so a

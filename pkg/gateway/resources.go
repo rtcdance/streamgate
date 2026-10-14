@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rtcdance/streamgate/pkg/core/config"
+	"github.com/rtcdance/streamgate/pkg/health"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
 	"github.com/rtcdance/streamgate/pkg/storage"
@@ -58,6 +59,10 @@ type AppResources struct {
 	// NonceLedgerEth is the RPC connection behind the shared nonce ledger's
 	// chain client; nil when the ledger is disabled.
 	NonceLedgerEth *ethclient.Client
+	// Readiness is the profile's dependency checker backing GET /ready
+	// (SG-14). /health stays process-only; /ready answers whether this
+	// profile's required dependencies are usable.
+	Readiness *health.HealthChecker
 }
 
 // Close releases all held resources. Errors from individual closes are

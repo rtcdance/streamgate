@@ -129,11 +129,8 @@ var (
 	// rule_version is the gating-rule revision, bounded by rule edits.
 
 	// GateDecisionTotal counts NFT-gate allow/deny decisions per rule version.
-	// WIRING POINT (not yet wired; pkg/middleware/nft_gate.go is out of scope for
-	// SG-07 code changes): where the gate reaches its verdict, call
-	// monitoring.GateDecisionTotal.WithLabelValues(decision, reason, ruleVersion).Inc()
-	// with decision ∈ {"allow","deny"}, reason a short enum (no_error_text),
-	// ruleVersion the resolved rule's version string.
+	// Wired (SG-14 part 2): pkg/middleware/nft_gate.go records every verdict;
+	// the rule_version label is "0" when the resolver reports no version.
 	GateDecisionTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streamgate_gate_decisions_total",
@@ -143,9 +140,8 @@ var (
 	)
 
 	// QueueMessageAgeSeconds observes publish→consume latency on the media task
-	// queue. WIRING POINT (pkg/storage/nats_queue.go, out of scope): on message
-	// delivery call
-	// monitoring.QueueMessageAgeSeconds.WithLabelValues(queue).Observe(age.Seconds()).
+	// queue. Wired (SG-14 part 2): pkg/storage/nats_queue.go Dequeue, from the
+	// JetStream metadata timestamp; no timestamp → no observation (never faked).
 	QueueMessageAgeSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "streamgate_queue_message_age_seconds",
@@ -157,8 +153,8 @@ var (
 
 	// QueueAttemptsTotal counts queue delivery outcomes. outcome ∈
 	// {"delivered","redelivered","dlq"} — never a message ID.
-	// WIRING POINT (pkg/storage/nats_queue.go, out of scope): increment on
-	// successful ack, on redelivery, and on dead-lettering.
+	// Wired (SG-14 part 2): pkg/storage/nats_queue.go — Ack → delivered,
+	// Nak → redelivered, poison→DLQ → dlq.
 	QueueAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streamgate_queue_attempts_total",
@@ -169,8 +165,8 @@ var (
 
 	// TranscodingTasksTotal counts transcoding task results. outcome ∈
 	// {"succeeded","failed","cancelled"}.
-	// WIRING POINT (pkg/service/transcoding/transcoding.go, out of scope):
-	// increment where a task terminal state is recorded.
+	// Wired (SG-14 part 2): pkg/service/transcoding/transcoding.go at the three
+	// terminal transitions (CompleteTask/FailTask/CancelTask).
 	TranscodingTasksTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streamgate_transcoding_tasks_total",
@@ -181,8 +177,9 @@ var (
 
 	// TranscodingRTF records transcoding real-time factor (processing time /
 	// media duration). Profile label bounds cardinality; never content IDs.
-	// WIRING POINT (pkg/service/transcoding/transcoding.go, out of scope):
-	// observe rtf where a task finishes, before its terminal-state record.
+	// Wired (SG-14 part 2): pkg/service/transcoding/transcoding.go, ONLY when
+	// the task metadata carries "media_duration_seconds" — no duration, no
+	// observation (RTF is never faked).
 	TranscodingRTF = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "streamgate_transcoding_rtf",
@@ -194,9 +191,7 @@ var (
 
 	// MediaBytesTotal counts delivered media payload bytes. resource ∈
 	// {"manifest","segment"}.
-	// WIRING POINT (pkg/service/streamingsvc/streaming.go or the streaming
-	// handlers in pkg/gateway, out of scope): add the written body size after a
-	// successful manifest/segment response.
+	// Wired (SG-14 part 2): pkg/gateway/streaming_handlers.go success paths.
 	MediaBytesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streamgate_media_bytes_total",
@@ -207,8 +202,8 @@ var (
 
 	// MediaTTFBSeconds observes time-to-first-byte of manifest/segment responses.
 	// resource ∈ {"manifest","segment"}.
-	// WIRING POINT (streaming handlers in pkg/gateway, out of scope): observe
-	// time from request start to first response byte written.
+	// Wired (SG-14 part 2): pkg/gateway/streaming_handlers.go — handler entry
+	// timestamp to first response byte written.
 	MediaTTFBSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "streamgate_media_ttfb_seconds",

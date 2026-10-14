@@ -30,12 +30,22 @@ func SetDraining() {
 	drainState.Store(true)
 }
 
+// ResetDraining clears the draining flag. A real server never un-drains; this
+// exists so tests (and only tests) can exercise both sides of the drain
+// behaviour within one process.
+func ResetDraining() {
+	drainState.Store(false)
+}
+
 // DrainMiddleware returns a Gin middleware that rejects new requests
 // with 503 Service Unavailable once the server starts draining.
 // In-flight requests (already past the middleware) are allowed to complete.
+// /health is exempt: an orchestrator that sees liveness fail mid-drain
+// declares the instance dead and kills it, cutting the drain short — the
+// stream group and every other route still answer 503 while draining.
 func DrainMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if IsDraining() {
+		if IsDraining() && c.Request.URL.Path != "/health" {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"error": "server is shutting down",
 			})

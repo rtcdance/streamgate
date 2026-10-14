@@ -3,6 +3,10 @@ package middleware
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +16,67 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
 )
+
+// TokenKeyID returns the short identifier this service stamps in a token's
+// `kid` header: the first 8 hex characters of the key's SHA-256. It is a HINT
+// used to try the most likely verification key first — never a source of
+// trust, because the header is attacker-controlled and every allowed key is
+// still tried when the hint does not match.
+func TokenKeyID(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:4])
+}
+
+// tokenKeyIDHint peeks at a compact JWT's header WITHOUT verifying it, to read
+// the kid hint. The result is only ever used to ORDER candidate keys.
+func tokenKeyIDHint(tokenString string) string {
+	parts := strings.Split(tokenString, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return ""
+	}
+	var header struct {
+		Kid string `json:"kid"`
+	}
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return ""
+	}
+	return header.Kid
+}
+
+// OrderedKeyCandidates orders the keys a token may verify against: the key
+// whose kid matches the token's header hint goes first (rotation fast path),
+// then the current key, then the previous ones in configuration order —
+// deduplicated, so a hint cannot cause the same key to be tried twice.
+// The kid is a HINT, not trust: every allowed key is always tried.
+func OrderedKeyCandidates(tokenString string, current string, previous []string) []string {
+	hint := tokenKeyIDHint(tokenString)
+	seen := make(map[string]bool, 1+len(previous))
+	out := make([]string, 0, 1+len(previous))
+	appendKey := func(k string) {
+		if k == "" || seen[k] {
+			return
+		}
+		seen[k] = true
+		out = append(out, k)
+	}
+	if hint != "" && TokenKeyID(current) == hint {
+		appendKey(current)
+	}
+	for _, p := range previous {
+		if hint != "" && TokenKeyID(p) == hint {
+			appendKey(p)
+		}
+	}
+	appendKey(current)
+	for _, p := range previous {
+		appendKey(p)
+	}
+	return out
+}
 
 // JWTAuthConfig configures the JWT authentication middleware.
 // Use Secret for HS256 or PublicKey for RS256.
@@ -118,11 +183,14 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 		claims := jwt.MapClaims{}
 		_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc(secret))
 
-		// Try previous secrets if current key fails and no public key is configured.
+		// Try previous secrets if current key fails and no public key is
+		// configured. The candidate order prefers the key whose kid matches the
+		// token header (rotation fast path) but still tries every allowed key:
+		// the kid is a hint, not trust.
 		if err != nil && config.PublicKey == nil && len(prevSecrets) > 0 {
-			for _, ps := range prevSecrets {
+			for _, candidate := range OrderedKeyCandidates(tokenStr, config.Secret, config.PreviousSecrets) {
 				claims = jwt.MapClaims{}
-				_, err = jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tokenStr, claims, buildKeyFunc(ps))
+				_, err = jwt.NewParser(jwt.WithoutClaimsValidation()).ParseWithClaims(tokenStr, claims, buildKeyFunc([]byte(candidate)))
 				if err == nil {
 					break
 				}

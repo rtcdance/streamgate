@@ -30,6 +30,34 @@ import (
 // PostTranscodeHook is called after a transcoding task completes.
 type PostTranscodeHook func(ctx context.Context, contentID, profile, outputURL string)
 
+// recordTranscodingOutcome counts one terminal task transition in
+// TranscodingTasksTotal{outcome,profile}. RTF (TranscodingRTF) is recorded ONLY
+// when a real media duration is known: it may come from the task metadata key
+// "media_duration_seconds" (seconds, set by a transcoder that plumbs its probe
+// result in). Without a duration there is nothing to divide the wall time by,
+// and RTF is deliberately NOT recorded rather than faked.
+func recordTranscodingOutcome(outcome, profile string, task *TranscodingTask) {
+	if profile == "" && task != nil {
+		profile = task.Profile
+	}
+	if profile == "" {
+		profile = "unknown"
+	}
+	monitoring.TranscodingTasksTotal.WithLabelValues(outcome, profile).Inc()
+	if outcome != "succeeded" || task == nil || task.StartedAt == nil || task.Metadata == nil {
+		return
+	}
+	dur, ok := task.Metadata["media_duration_seconds"].(float64)
+	if !ok || dur <= 0 {
+		return
+	}
+	wall := time.Since(*task.StartedAt).Seconds()
+	if wall <= 0 {
+		return
+	}
+	monitoring.TranscodingRTF.WithLabelValues(profile).Observe(wall / dur)
+}
+
 // TranscodingService handles transcoding operations
 type TranscodingService struct {
 	db         storage.DB
@@ -2161,7 +2189,7 @@ func (s *TranscodingService) StartTask(ctx context.Context, taskID string) error
 // superseded or unpublished artifacts happens best-effort after the commit.
 func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL string) error {
 	if s.db == nil {
-		return s.updateTask(taskID, func(task *TranscodingTask) {
+		err := s.updateTask(taskID, func(task *TranscodingTask) {
 			task.Status = "completed"
 			task.Progress = 100
 			task.OutputURL = outputURL
@@ -2175,6 +2203,14 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 				}
 			}
 		})
+		if err == nil {
+			if task, tErr := s.getTask(taskID); tErr == nil {
+				recordTranscodingOutcome("succeeded", "", task)
+			} else {
+				recordTranscodingOutcome("succeeded", "", nil)
+			}
+		}
+		return err
 	}
 
 	completeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -2192,6 +2228,10 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 		prevGeneration   int64
 		publishedNow     int64
 		rowExists        bool
+		// metricTask carries the profile, metadata and start time of this task
+		// for the post-commit TranscodingTasksTotal / RTF recording; the
+		// in-memory task is the only place that metadata exists.
+		metricTask *TranscodingTask
 	)
 
 	err := s.db.InTransaction(completeCtx, func(tx *sql.Tx) error {
@@ -2212,6 +2252,8 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 				}
 			}
 			metadataJSON, _ = json.Marshal(finalMeta)
+			started := memTask.StartedAt
+			metricTask = &TranscodingTask{Profile: memTask.Profile, StartedAt: started, Metadata: finalMeta}
 		}
 
 		query := "UPDATE transcoding_tasks SET status = 'completed', progress = 100, output_url = $2, completed_at = $3"
@@ -2334,18 +2376,27 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 			s.cleanupGenerationObjects(ctx, contentID, outputGeneration)
 		}
 	}
+	recordTranscodingOutcome("succeeded", profile, metricTask)
 	return nil
 }
 
 // FailTask marks a task as failed
 func (s *TranscodingService) FailTask(ctx context.Context, taskID, errorMsg string) error {
 	if s.db == nil {
-		return s.updateTask(taskID, func(task *TranscodingTask) {
+		err := s.updateTask(taskID, func(task *TranscodingTask) {
 			task.Status = "failed"
 			task.Error = errorMsg
 			now := time.Now()
 			task.CompletedAt = &now
 		})
+		if err == nil {
+			if task, tErr := s.getTask(taskID); tErr == nil {
+				recordTranscodingOutcome("failed", "", task)
+			} else {
+				recordTranscodingOutcome("failed", "", nil)
+			}
+		}
+		return err
 	}
 
 	failCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2360,6 +2411,12 @@ func (s *TranscodingService) FailTask(ctx context.Context, taskID, errorMsg stri
 	if rowsAffected == 0 {
 		return fmt.Errorf("task not in a failable state: %s", taskID)
 	}
+	// The profile is the one dimension of this outcome worth keeping; the task
+	// row is read only for it, so a read failure degrades to "unknown" instead
+	// of failing an already-committed transition.
+	var profile string
+	_ = s.db.QueryRow(failCtx, "SELECT profile FROM transcoding_tasks WHERE id = $1", taskID).Scan(&profile)
+	recordTranscodingOutcome("failed", profile, nil)
 	// Terminal: whatever this task staged never became visible, so clean its
 	// own generation only.
 	s.cleanupTaskStaging(failCtx, taskID)
@@ -2459,13 +2516,26 @@ func (s *TranscodingService) ListTasks(ctx context.Context, contentID, ownerWall
 // CancelTask cancels a transcoding task
 func (s *TranscodingService) CancelTask(ctx context.Context, taskID string) error {
 	if s.db == nil {
-		return s.updateTask(taskID, func(task *TranscodingTask) {
+		var wasPending bool
+		err := s.updateTask(taskID, func(task *TranscodingTask) {
 			if task.Status == "pending" || task.Status == "processing" {
+				wasPending = true
 				task.Status = "cancelled"
 				now := time.Now()
 				task.CompletedAt = &now
 			}
 		})
+		if err != nil {
+			return err
+		}
+		if wasPending {
+			if task, tErr := s.getTask(taskID); tErr == nil {
+				recordTranscodingOutcome("cancelled", "", task)
+			} else {
+				recordTranscodingOutcome("cancelled", "", nil)
+			}
+		}
+		return nil
 	}
 
 	query := "UPDATE transcoding_tasks SET status = $2 WHERE id = $1 AND status IN ('pending', 'processing')"
@@ -2481,6 +2551,9 @@ func (s *TranscodingService) CancelTask(ctx context.Context, taskID string) erro
 	if rowsAffected == 0 {
 		return fmt.Errorf("task cannot be cancelled: %s", taskID)
 	}
+	var profile string
+	_ = s.db.QueryRow(ctx, "SELECT profile FROM transcoding_tasks WHERE id = $1", taskID).Scan(&profile)
+	recordTranscodingOutcome("cancelled", profile, nil)
 
 	return nil
 }

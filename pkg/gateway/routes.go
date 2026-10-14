@@ -2,9 +2,12 @@ package gateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"net/http"
+	nethttpprof "net/http/pprof"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -69,7 +72,11 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 			APIPrefix + "/auth/refresh",
 			APIPrefix + "/web3/rpc-status",
 			APIPrefix + "/web3/supported-chains",
-			"/health", "/ready", "/metrics", "/docs",
+			// /docs is no longer public (debug-only, registered before this
+			// middleware); /circuit-breakers moved behind JWT too and is NOT
+			// listed here — both are registered by registerProtectedOpsRoutes
+			// below.
+			"/health", "/ready", "/metrics",
 		},
 	}
 	streamLim := newStreamLimiter(cfg.Streaming.MaxConcurrentStreams)
@@ -110,6 +117,19 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 
 	router.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
 	streamGroup.Use(middleware.JWTAuthMiddleware(jwtConfig, log))
+
+	// Media-scoped rate limit (SG-14): a per-viewer request budget on top of
+	// the concurrent-stream semaphore, appended AFTER auth so the wallet is
+	// known and BEFORE the gate so an over-budget request costs no chain read.
+	// Bucket key = wallet + route TEMPLATE (c.FullPath), so segment-name
+	// variation consumes one bucket per viewer, never one per segment.
+	mediaRL := middleware.NewMediaRateLimiter(res.SharedRedis)
+	streamGroup.Use(middleware.MediaRateLimitMiddleware(mediaRL))
+
+	// Operational endpoints that leak internal state (circuit-breaker states,
+	// the OpenAPI document) are registered AFTER router.Use(JWT) above and are
+	// NOT in SkipPaths, so they answer 401 without a token.
+	registerProtectedOpsRoutes(router, res.MiddlewareSvc)
 
 	authRL := middleware.NewRateLimiter(middleware.RateLimitConfig{
 		RequestsPerMinute: 10,
@@ -179,6 +199,8 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		})
 	}
 
+	// /health /ready /metrics stay registered BEFORE the global JWT middleware:
+	// liveness, readiness and scraping must work unauthenticated by design.
 	router.GET("/health", func(c *gin.Context) {
 		monitoring.HealthCheckTotal.WithLabelValues("health").Inc()
 		resp := healthChecker.CheckAll(c.Request.Context())
@@ -190,7 +212,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		}
 		respond(c, status, resp)
 	})
-	router.GET("/metrics", func(c *gin.Context) {
+	router.GET("/metrics", metricsTokenAuth(), func(c *gin.Context) {
 		promhttp.Handler().ServeHTTP(c.Writer, c.Request)
 	})
 	router.GET("/ready", func(c *gin.Context) {
@@ -201,6 +223,63 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		}
 		respond(c, status, resp)
 	})
+	// /docs (HTML) is operator documentation, not a probe: it is only served in
+	// debug deployments. The YAML itself moved behind JWT with
+	// /circuit-breakers (registerProtectedOpsRoutes below).
+	if cfg.Debug {
+		router.GET("/docs", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(docs.SwaggerUIHTML))
+		})
+		// pprof only in debug builds, and even there behind the same optional
+		// metrics token: it exposes runtime internals a public deployment must
+		// never serve.
+		pprofGroup := router.Group("/debug/pprof", metricsTokenAuth())
+		pprofGroup.GET("/", gin.WrapF(nethttpprof.Index))
+		pprofGroup.GET("/cmdline", gin.WrapF(nethttpprof.Cmdline))
+		pprofGroup.GET("/profile", gin.WrapF(nethttpprof.Profile))
+		pprofGroup.GET("/symbol", gin.WrapF(nethttpprof.Symbol))
+		pprofGroup.POST("/symbol", gin.WrapF(nethttpprof.Symbol))
+		pprofGroup.GET("/trace", gin.WrapF(nethttpprof.Trace))
+		pprofGroup.GET("/allocs", gin.WrapH(nethttpprof.Handler("allocs")))
+		pprofGroup.GET("/block", gin.WrapH(nethttpprof.Handler("block")))
+		pprofGroup.GET("/goroutine", gin.WrapH(nethttpprof.Handler("goroutine")))
+		pprofGroup.GET("/heap", gin.WrapH(nethttpprof.Handler("heap")))
+		pprofGroup.GET("/mutex", gin.WrapH(nethttpprof.Handler("mutex")))
+		pprofGroup.GET("/threadcreate", gin.WrapH(nethttpprof.Handler("threadcreate")))
+	}
+	router.Static("/demo", "./h5-demo")
+}
+
+// metricsTokenAuth gates a route that must stay outside the global JWT chain
+// (/metrics, /debug/pprof) with an optional bearer token from the
+// STREAMGATE_METRICS_TOKEN environment variable. Unset means no gate —
+// the previous behaviour — which is only acceptable on an internal network;
+// production MUST set it. The comparison is constant-time.
+func metricsTokenAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		want := os.Getenv("STREAMGATE_METRICS_TOKEN")
+		if want == "" {
+			c.Next()
+			return
+		}
+		got := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
+			c.Next()
+			return
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": "valid metrics bearer token required",
+			"code":  "UNAUTHORIZED",
+		})
+	}
+}
+
+// registerProtectedOpsRoutes registers operational endpoints that leak internal
+// state and therefore live BEHIND the global JWT middleware: neither path is
+// in JWTAuthConfig.SkipPaths, and this function is called only after
+// router.Use(JWTAuthMiddleware) in registerRoutes, so an unauthenticated
+// request is refused with 401.
+func registerProtectedOpsRoutes(router *gin.Engine, mwSvc *middleware.Service) {
 	router.GET("/circuit-breakers", func(c *gin.Context) {
 		if mwSvc == nil {
 			respondOK(c, gin.H{"circuit_breakers": nil})
@@ -222,11 +301,7 @@ func registerInfrastructureRoutes(router *gin.Engine, log *zap.Logger, db storag
 		}
 		respondOK(c, gin.H{"circuit_breakers": breakers})
 	})
-	router.GET("/docs", func(c *gin.Context) {
-		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(docs.SwaggerUIHTML))
-	})
 	router.StaticFile("/docs/openapi.yaml", filepath.Join(".", "docs", "api", "openapi.yaml"))
-	router.Static("/demo", "./h5-demo")
 }
 
 func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup, genResolver PublishedGenerationResolver) {

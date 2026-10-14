@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/models"
 	stg "github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
@@ -95,9 +96,42 @@ func (v *JWTVerifier) keyFunc(token *jwt.Token) (interface{}, error) {
 	}
 }
 
+// keyRotationPolicy bounds how many retired keys an AuthService keeps
+// verifying with. It mirrors config.MaxPreviousSecrets; a caller that builds
+// an AuthService directly gets the same ceiling, so the rotation list cannot
+// be made unbounded outside config either.
+const keyRotationPolicy = 2
+
+// boundedKeys truncates a rotation list to the policy ceiling. Config
+// validation refuses an over-long list up front; this keeps a direct
+// constructor call bounded too rather than silently trusting the caller.
+func boundedKeys(keys []string) []string {
+	if len(keys) > keyRotationPolicy {
+		return keys[:keyRotationPolicy]
+	}
+	return keys
+}
+
 // AuthService handles authentication
 type AuthService struct {
-	jwtSecret         []byte
+	jwtSecret []byte
+	// accessSecret is the key access JWTs are signed and verified with; it
+	// defaults to jwtSecret so deployments that have not configured key
+	// separation keep working unchanged.
+	accessSecret []byte
+	// accessPrev are retired keys that may still VERIFY (never sign) access
+	// JWTs, so a key rotation does not invalidate tokens still inside their
+	// TTL.
+	accessPrev []string
+	// capabilitySecret is the key playback capabilities are signed and
+	// verified with. It is INDEPENDENT of accessSecret (HKDF-derived from the
+	// master secret when not configured explicitly), so an access token can
+	// never verify as a capability and vice versa.
+	capabilitySecret []byte
+	capabilityPrev   []string
+	// clockNow allows tests to inject a deterministic clock for expiry
+	// checks. Nil means time.Now.
+	clockNow          func() time.Time
 	privateKey        *rsa.PrivateKey
 	publicKey         *rsa.PublicKey
 	signingType       JWTSigningType
@@ -445,6 +479,50 @@ func WithSessionStore(store stg.SessionStore) AuthServiceOption {
 	}
 }
 
+// WithTokenKeySeparation splits verification into an access key and a
+// capability key. capabilitySecret is REQUIRED here (derive it with
+// config.DeriveCapabilitySecret when only a master secret is configured);
+// accessSecret may be empty, in which case the master secret keeps verifying
+// access tokens so already-issued tokens stay valid across the migration.
+func WithTokenKeySeparation(accessSecret string, previousAccess []string, capabilitySecret string, previousCapability []string) AuthServiceOption {
+	return func(s *AuthService) {
+		if accessSecret != "" {
+			s.accessSecret = []byte(accessSecret)
+		}
+		s.accessPrev = boundedKeys(previousAccess)
+		if capabilitySecret != "" {
+			s.capabilitySecret = []byte(capabilitySecret)
+		}
+		s.capabilityPrev = boundedKeys(previousCapability)
+	}
+}
+
+// accessKeySet returns the current access key plus the retired keys that may
+// still verify it.
+func (s *AuthService) accessKeySet() (string, []string) {
+	if len(s.accessSecret) > 0 {
+		return string(s.accessSecret), s.accessPrev
+	}
+	return string(s.jwtSecret), nil
+}
+
+// capabilityKeySet returns the current capability key plus the retired keys
+// that may still verify it.
+func (s *AuthService) capabilityKeySet() (string, []string) {
+	if len(s.capabilitySecret) > 0 {
+		return string(s.capabilitySecret), s.capabilityPrev
+	}
+	return string(s.jwtSecret), nil
+}
+
+// now returns the service's current time, honouring an injected test clock.
+func (s *AuthService) now() time.Time {
+	if s.clockNow != nil {
+		return s.clockNow()
+	}
+	return time.Now()
+}
+
 // AuthServiceOption applies RSA signing configuration.
 type AuthServiceSigningOption func(*AuthService)
 
@@ -589,59 +667,154 @@ func (s *AuthService) Verify(tokenString string) (bool, error) {
 	return true, nil
 }
 
-func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
+// parseWithKey tries to verify a token against one HMAC key. The algorithm is
+// pinned to HS256 — accepting any *SigningMethodHMAC would also accept
+// HS384/HS512, which are not what this service issues.
+func parseWithKey(tokenString, key string) (*Claims, error) {
 	claims := &Claims{}
-	validMethods := []string{"HS256"}
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{"HS256"}), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(key), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return claims, nil
+}
+
+func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	if s.signingType == JWTRS256 {
-		validMethods = []string{"RS256"}
+		return s.parseTokenRS256(tokenString)
 	}
 
-	// Parse with signature verification but skip automatic claims validation.
-	// Claims are checked manually below, with the CONFIGURED clock skew rather
-	// than a hardcoded tolerance: the revocation bound is derived from that
-	// value, so a larger hardcoded one would make the realised window exceed the
-	// bound that was computed and validated.
-	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
-	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		switch s.signingType {
-		case JWTRS256:
-			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return s.publicKey, nil
-		default:
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return s.jwtSecret, nil
+	// The kid header is a hint used to order candidate keys (rotation fast
+	// path); every allowed key is still tried when the hint does not match, so
+	// a forged kid cannot narrow the search.
+	accessCurrent, accessPrev := s.accessKeySet()
+	var claims *Claims
+	var lastErr error
+	// Access keys first: most calls parse an access token. A capability that
+	// verifies against the capability key set is also accepted here —
+	// ParsePlaybackToken applies the audience and token-type checks — because
+	// this generic parser has no notion of which credential was intended.
+	claims, lastErr = parseWithKeys(tokenString, accessCurrent, accessPrev)
+	if claims == nil {
+		capCurrent, capPrev := s.capabilityKeySet()
+		if capCurrent != accessCurrent {
+			claims, lastErr = parseWithKeys(tokenString, capCurrent, capPrev)
 		}
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+	if claims == nil {
+		return nil, fmt.Errorf("failed to parse token: %w", lastErr)
 	}
 
 	// With WithoutClaimsValidation, token.Valid is based on signature only.
 	// Manually check exp/nbf with the configured clock skew tolerance.
 	skew := s.ClockSkew()
-	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(skew)) {
+	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
-	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-skew)) {
+	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-skew)) {
 		return nil, fmt.Errorf("token not yet valid")
 	}
 
 	return claims, nil
 }
 
+// parseTokenCapability parses a playback capability against ONLY the
+// capability key set: with key separation in place an access token can never
+// verify here even before the audience check runs, because the two
+// credentials are signed with independent keys.
+func (s *AuthService) parseTokenCapability(tokenString string) (*Claims, error) {
+	if s.signingType == JWTRS256 {
+		return s.parseTokenRS256(tokenString)
+	}
+	capCurrent, capPrev := s.capabilityKeySet()
+	claims, err := parseWithKeys(tokenString, capCurrent, capPrev)
+	if claims == nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+	skew := s.ClockSkew()
+	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
+		return nil, ErrTokenExpired
+	}
+	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-skew)) {
+		return nil, fmt.Errorf("token not yet valid")
+	}
+	return claims, nil
+}
+
+// parseWithKeys verifies a token against a current key plus its bounded
+// verify-only rotation list, ordering candidates by the kid hint.
+func parseWithKeys(tokenString, current string, previous []string) (*Claims, error) {
+	var lastErr error
+	for _, key := range middleware.OrderedKeyCandidates(tokenString, current, previous) {
+		claims, err := parseWithKey(tokenString, key)
+		if err == nil {
+			return claims, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// parseTokenRS256 is the RSA branch of ParseToken: a single public key, no
+// rotation list.
+func (s *AuthService) parseTokenRS256(tokenString string) (*Claims, error) {
+	claims := &Claims{}
+	parser := jwt.NewParser(jwt.WithValidMethods([]string{"RS256"}), jwt.WithoutClaimsValidation())
+	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return s.publicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+	skew := s.ClockSkew()
+	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
+		return nil, ErrTokenExpired
+	}
+	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-skew)) {
+		return nil, fmt.Errorf("token not yet valid")
+	}
+	return claims, nil
+}
+
+// tokenKind selects which key set signs a credential: access tokens use the
+// access key, playback capabilities the capability key.
+type tokenKind int
+
+const (
+	accessToken tokenKind = iota
+	capabilityToken
+)
+
+// signToken signs an access credential with the CURRENT access key only.
 func (s *AuthService) signToken(claims *Claims) (string, error) {
+	return s.signTokenWithKind(claims, accessToken)
+}
+
+// signTokenWithKind signs a credential with the current key of its kind and
+// stamps the kid header. Only the current key ever signs; previous keys exist
+// purely so tokens issued before a rotation still verify for their TTL.
+func (s *AuthService) signTokenWithKind(claims *Claims, kind tokenKind) (string, error) {
 	switch s.signingType {
 	case JWTRS256:
 		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 		return token.SignedString(s.privateKey)
 	default:
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		return token.SignedString(s.jwtSecret)
+		key, _ := s.accessKeySet()
+		if kind == capabilityToken {
+			key, _ = s.capabilityKeySet()
+		}
+		token.Header["kid"] = middleware.TokenKeyID(key)
+		return token.SignedString([]byte(key))
 	}
 }
 
@@ -768,37 +941,33 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 // parseTokenAllowExpired parses a JWT token, allowing tokens that expired
 // within the given grace period. This enables token refresh after expiry.
 func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod time.Duration) (*Claims, error) {
-	claims := &Claims{}
-	validMethods := []string{"HS256"}
-	if s.signingType == JWTRS256 {
-		validMethods = []string{"RS256"}
-	}
-	parser := jwt.NewParser(jwt.WithValidMethods(validMethods), jwt.WithoutClaimsValidation())
-	_, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		switch s.signingType {
-		case JWTRS256:
-			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return s.publicKey, nil
-		default:
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return s.jwtSecret, nil
+	// Refresh only ever applies to access tokens, so the access key set is the
+	// one to verify against (current first, then retired keys via kid order).
+	accessCurrent, accessPrev := s.accessKeySet()
+	var claims *Claims
+	var lastErr error
+	for _, key := range middleware.OrderedKeyCandidates(tokenString, accessCurrent, accessPrev) {
+		c, err := parseWithKey(tokenString, key)
+		if err == nil {
+			claims = c
+			break
 		}
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+		lastErr = err
+	}
+	if claims == nil && s.signingType == JWTRS256 {
+		return s.parseTokenRS256(tokenString)
+	}
+	if claims == nil {
+		return nil, fmt.Errorf("failed to parse token: %w", lastErr)
 	}
 	// Manual 30s leeway for clock skew
-	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
-		expiredDuration := time.Since(claims.ExpiresAt.Time)
+	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+		expiredDuration := s.now().Sub(claims.ExpiresAt.Time)
 		if expiredDuration > gracePeriod {
 			return nil, ErrTokenExpired
 		}
 	}
-	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
 		return nil, fmt.Errorf("token not yet valid")
 	}
 	return claims, nil

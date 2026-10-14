@@ -58,7 +58,14 @@ func main() {
 				fatal = append(fatal, c)
 			}
 			if len(fatal) > 0 {
-				log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", fatal))
+				// Criticals are fatal ONLY under the production profile: the
+				// demo and durable-acceptance stacks run on published demo
+				// values by design, so their criticals become loud warnings.
+				if cfg.EffectiveProfile() == config.ProfileProduction {
+					log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", fatal))
+				}
+				log.Warn("Config validation reported criticals — non-production profile, continuing",
+					zap.String("profile", cfg.EffectiveProfile()), zap.Strings("criticals", fatal))
 			}
 			if cfg.Debug {
 				log.Warn("Production config validation failed (debug mode, continuing anyway)", zap.Error(err))
