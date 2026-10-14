@@ -311,7 +311,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；干净候选 `f20fb92` 的 `verify-docker all` 已实跑 **warm_cache 1/10/50（50 观众 1400/1400，100%）**，见 §8.16 D；**故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）与同 runner 固定 reference 的 p95 ≤1.20× 比较尚未接线**，见 §8.14 限制条）
+### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；干净候选的 `verify-docker` 已实跑 **warm_cache 1/10/50（50 观众 1400/1400，100%）**（§8.16 D）；**故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）已真实注入并实测**（§8.16 E）；**p95 回归上界已实现为可失败的门，实测结果见 §8.16 F**）
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -1399,7 +1399,7 @@ sequenceDiagram
 | **1/10/50 观众矩阵（仅 M4 的吞吐判据）** | **PASS，全部 100%** | `RESULT_DIR=/tmp/streamgate-perf-final`，commit `f4d65bc`，fixture hash `086df28bae4aca16`，每观众独立钱包 pool=1/10/50、paced=true：**1 观众 28/28、10 观众 280/280、50 观众 1400/1400，success 100.00%、error=0、无任何 4xx**；bytes 42070/420700/2103500（逐分片全量读取）；ttfb_p95 = 58.4/85.5/61.7ms。**M4 判据"50 观众 ≥99% 成功"实测满足**（门槛 99%，实测 100%） |
 | 负例（安全放行 0） | PASS | 同一轮 harness 内 `logins_failed=0`；media stage 的 66 检查含全部篡改/无 NFT/过期负例（0 放行），见 media stage |
 
-**限制（如实记录；2026-10-14 复核修正）**：`all` DAG 的 `perf` stage 只跑 **warm_cache** 1/10/50（即 `SCENARIO` 的环境默认值）。本文件早先写的"cold_cache / rpc_primary_down / rpc_all_down 三场景由该 stage 负责跑"**不准确**：`scripts/perf-acceptance.sh` 只接受 `SCENARIO` 标签并把它记进结果，**本身不注入任何故障**（其文件头明确要求调用方先注入故障，cold_cache 需先重启缓存容器），而 `all` 目前没有该接线。因此范式三场景与"同 runner 固定 reference 的 p95 ≤1.20×"比较**尚未纳入 DAG**，SG-07 记为**部分完成**。已实测的 warm_cache 干净候选结果见 §8.16 D。50 观众达标是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
+**限制（如实记录；2026-10-14 复核后已修复接线）**：本文件早先写的"cold_cache / rpc_primary_down / rpc_all_down 三场景由该 stage 负责跑"**当时并不成立**——`scripts/perf-acceptance.sh` 只接受 `SCENARIO` 标签并把它记进结果，**本身不注入任何故障**，而 perf stage 默认只跑 `warm_cache`。复核发现后已把三场景**真实接线并实测**（提交 `00aff4e`，证据见 §8.16 E）：monolith 拿到两个同链端点的可停主端点，`rpc_all_down` 断言 0 放行 / 0 字节，`rpc_primary_down` 用与健康场景相同的 ≥99% 判据。p95 回归上界已实现为可运行、可失败的门（`346ac46`，`PERF_REFERENCE_REF=<ref>` 时同 runner 顺序跑 reference 与 candidate、取多轮 p95 中位数、超 1.20× 即失败）；其**实测结果记录在 §8.16 F**。50 观众与故障矩阵数字是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
 
 **SG-08 已落地**（提交 `6754161`，2026-10-13）：
 
@@ -1542,6 +1542,19 @@ M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-doc
 **本轮全阶段跑找出并修复的编排缺陷（真实缺陷，非环境抖动）**：候选 `286cb1c` 上首跑在 perf 阶段 `EXIT=1`，报 `Bind for 0.0.0.0:29091 failed: port is already allocated`。根因是编排结构，不是网络抖动：media 与 perf 都起 fullchain 栈，各自的 h5 代理都绑**固定**宿主机端口 29091（h5 页面的 API 基址推断只接受该端口），而没有任何步骤拆除上一阶段的栈——退出 trap 只在整脚本结束时触发，所以 `all` 在任何机器上都无法走到 release，而各阶段单独跑却都是绿的。修复 `f20fb92`：新增 `teardown_fullstack`，每个 fullstack 阶段（media→perf→release）结束即拆除自己的栈与其 h5 代理，阶段之间不再重叠（也避免上一套栈与 perf 实测争抢资源）；阶段失败时 `fail` 仍走退出 trap，不泄漏容器。修复后同一候选全阶段 exit 0——上表即该次运行。
 
 **本次实跑覆盖的门（不夸大）**：**M0 满足**（干净候选、统一 Docker runner、独立栈、七阶段全绿、unit 阶段必需测试 0 跳过）。**M4 仅部分满足**：吞吐判据（50 观众 ≥99%、实际 bytes、安全负例放行 0）由本表与 media 阶段的 66 检查支撑；但 `all` 的 perf stage 只跑 warm_cache，**故障矩阵与同 runner 固定 reference 的 p95 ≤1.20× 比较未接线**（见 §8.14 限制条），故 SG-07 保持 `[~]`、不勾选。
+
+**E. SG-07 故障矩阵（步骤 3）与 p95 回归上界（步骤 5）——真实注入后实测**（提交 `00aff4e`，2026-10-14）：
+
+接线（`scripts/verify-docker.sh` perf stage + `deploy/docker/compose.verify.yml`）：monolith 拿到**两个同链端点** `[http://anvil-proxy:8545, http://anvil:8545]`——`anvil-proxy` 是指向同一 anvil 的 `socat` 转发容器，可单独停掉。阶段自身先断言转发可用、再从 `/api/v1/web3/rpc-status` 读回**确实有两个端点**（不是信 compose 插值），然后才跑矩阵。`STREAMGATE_CHAIN_RPC_URLS` 只覆盖**活动链**（按 chain id 作用域，其他链保持原端点；用例 `TestLoadConfig_ChainRPCURLsOverride` / `…NoOverride`），且仅 perf 阶段设置，其余阶段单端点不变。
+
+| 场景 | 注入方式 | 观众 | success | error | bytes | ttfb p95 | 判据 | 结果 |
+|---|---|---|---|---|---|---|---|---|
+| `warm_cache` | 无（健康基线） | 1 / 10 / 50 | 28 / 280 / **1400** | 0 | 42070 / 420700 / 2103500 | 23.8 / 31.3 / 147.9 ms | ≥99% | PASS |
+| `cold_cache` | 重启 monolith（清进程内 L1）+ 定向删 `nft_cache:*`（**只删 gate 缓存，session/blacklist/限流桶保留**） | 10 | 280 | 0 | 420700 | 48.0 ms | ≥99% | PASS |
+| `rpc_primary_down` | 停 `anvil-proxy`，直接 anvil 在 | **50** | **1400** | 0 | 2103500 | 197.0 ms | ≥99%（同健康场景判据） | **PASS** |
+| `rpc_all_down` | 停 `anvil-proxy` + `anvil` | 10 | **0** | 140 | **0** | — | **0 放行 / 0 字节** | **PASS** |
+
+判据落在 harness 内（`test/load/live_test.go` 按 `SCENARIO` 标签分支）：`cold_cache`/`warm_cache` 与 `rpc_primary_down` 用同一个 ≥99% 门槛（回退若掉量就不算可用回退），`rpc_all_down` 断言 `success_count == 0` 且 `total_bytes == 0`——**单次放行即判失败**。全部阶段 exit 0，七个结果 JSON 的 `commit` 均为候选 SHA、`fixture_hash` 同一值。`rpc_primary_down` 的 p95 197.0ms vs 同观众数的 warm 147.9ms：**回退代价可测量但不掉成功**，如实记录。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
