@@ -20,6 +20,16 @@ BASE_URL="${1:-http://localhost:18080}"
 # 404 as a product failure.
 DEMO_URL="${H5_DEMO_URL:-${BASE_URL}/demo/}"
 ANVIL_URL="${ANVIL_URL:-http://localhost:18545}"
+# The docker-compose.fullchain.yml stack publishes MinIO on a fixed host port;
+# a verify stack publishes it on an ephemeral one, so only the liveness probe is
+# overridable. Defaults keep the existing flow byte-identical.
+MINIO_LIVENESS_URL="${MINIO_LIVENESS_URL:-http://localhost:19000/minio/health/live}"
+# Container names the docker exec / docker inspect checks address. The defaults
+# are the sg-fc-* containers of docker-compose.fullchain.yml; a compose-project
+# stack (deploy/docker/compose.verify.yml) overrides them with its
+# project-prefixed names.
+PG_CONTAINER="${PG_CONTAINER:-sg-fc-postgres}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-sg-fc-redis}"
 CHAIN_ID=31337
 
 # Anvil's deterministic accounts. A owns the NFT; B is a real logged-in wallet
@@ -109,9 +119,9 @@ HEALTH="$(curl -sf "$BASE_URL/health" 2>/dev/null)" || { f '/health unreachable'
 STATUS="$(json_get "$HEALTH" status)"
 [ "$STATUS" = "healthy" ] && p "Status=$STATUS" || f "Status=$STATUS"
 
-docker exec sg-fc-postgres pg_isready -U postgres >/dev/null 2>&1 && p "PostgreSQL ready" || f "PostgreSQL not ready"
-docker exec sg-fc-redis redis-cli ping >/dev/null 2>&1 && p "Redis ready" || f "Redis not ready"
-curl -sf "http://localhost:19000/minio/health/live" >/dev/null 2>&1 && p "MinIO healthy" || f "MinIO unreachable"
+docker exec "$PG_CONTAINER" pg_isready -U postgres >/dev/null 2>&1 && p "PostgreSQL ready" || f "PostgreSQL not ready"
+docker exec "$REDIS_CONTAINER" redis-cli ping >/dev/null 2>&1 && p "Redis ready" || f "Redis not ready"
+curl -sf "$MINIO_LIVENESS_URL" >/dev/null 2>&1 && p "MinIO healthy" || f "MinIO unreachable"
 
 ANVIL_ID="$(json_get "$(curl -sf -X POST "$ANVIL_URL" -H 'Content-Type: application/json' \
     -d '{"jsonrpc":"2.0","method":"eth_chainId","id":1}' 2>/dev/null)" result)"
@@ -361,7 +371,7 @@ fi
 # EXTERNAL worker — both app containers run with the embedded worker disabled.
 printf '\n=== Isolated transcoder worker ===\n'
 
-TC=sg-fc-transcoder
+TC="${TC:-sg-fc-transcoder}"
 if docker inspect "$TC" >/dev/null 2>&1; then
     TC_RUNNING="$(docker inspect -f '{{.State.Running}}' "$TC")"
     [ "$TC_RUNNING" = "true" ] && p "Worker container is running" \
@@ -400,7 +410,7 @@ if docker inspect "$TC" >/dev/null 2>&1; then
     # DB lease plus a claim/complete line in THIS container's logs prove the
     # external worker did it.
     if [ "$READY" = "1" ] && [ -n "$CONTENT_ID" ]; then
-        ATTR_ROW="$(docker exec sg-fc-postgres psql -U postgres -d streamgate -tAc \
+        ATTR_ROW="$(docker exec "$PG_CONTAINER" psql -U postgres -d streamgate -tAc \
             "SELECT id || '|' || COALESCE(lease_owner, '') FROM transcoding_tasks WHERE content_id = '$CONTENT_ID' ORDER BY created_at DESC LIMIT 1" 2>/dev/null || true)"
         ATTR_ID="${ATTR_ROW%%|*}"
         ATTR_LEASE="${ATTR_ROW#*|}"
@@ -408,9 +418,9 @@ if docker inspect "$TC" >/dev/null 2>&1; then
             p "Task $ATTR_ID carries lease_owner='$ATTR_LEASE' (DB claim recorded)"
             TC_LOGS="$(docker logs --since "$ACCEPT_STARTED_AT" "$TC" 2>&1 || true)"
             if grep -q "$ATTR_ID" <<<"$TC_LOGS"; then
-                p "sg-fc-transcoder logs claim/complete the task (external worker executed it)"
+                p "$TC logs claim/complete the task (external worker executed it)"
             else
-                f "sg-fc-transcoder logs never mention task $ATTR_ID — not attributable to the external worker"
+                f "$TC logs never mention task $ATTR_ID — not attributable to the external worker"
             fi
         else
             f "No leased task row for content $CONTENT_ID (row='${ATTR_ROW:-none}')"
@@ -419,7 +429,7 @@ if docker inspect "$TC" >/dev/null 2>&1; then
         f "Skipped worker attribution: the transcode above did not complete"
     fi
 else
-    f "sg-fc-transcoder container is absent — the isolated worker is a required service"
+    f "$TC container is absent — the isolated worker is a required service"
 fi
 
 # ---------------------------------------------------------------------------
