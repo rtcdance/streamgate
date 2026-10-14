@@ -379,18 +379,32 @@ prebuild_verify_stack() {
   fi
 }
 
-# prepare_reference_worktree <ref> — a detached worktree at the ref, with the
-# submodules it needs, OUTSIDE the working tree so nothing here is touched.
+# prepare_reference_worktree <ref> — a detached worktree at the ref, OUTSIDE
+# the working tree so nothing here is touched.
+#
+# Submodules are REUSED from the main tree, not re-cloned: `git submodule
+# update` fetches from github.com, which is slow or unreachable on some
+# networks and hung this step indefinitely. The shortcut is only valid when the
+# gitlinks match, so that is asserted first — otherwise the comparison would
+# silently build the wrong library version.
 prepare_reference_worktree() {
-  local ref="$1" wt
+  local ref="$1" wt lib
   git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1 \
     || fail "PERF_REFERENCE_REF '${ref}' is not a commit in this repository"
   wt="$(mktemp -d "${TMPDIR:-/tmp}/sg-ref-build.XXXXXX")"
   rmdir "$wt"
   git worktree add --detach "$wt" "$ref" >/dev/null 2>&1 \
     || fail "could not create a worktree at ${ref}"
-  if [ -f "$wt/.gitmodules" ]; then
-    ( cd "$wt" && git submodule update --init --recursive >/dev/null 2>&1 ) || true
+  if [ -f .gitmodules ]; then
+    if ! git diff --quiet "$ref" HEAD -- contracts/lib; then
+      git worktree remove --force "$wt" >/dev/null 2>&1 || true
+      fail "reference ref ${ref} points at different submodule commits than HEAD — cannot reuse the checked-out libraries; check them out in ${ref} and retry"
+    fi
+    for lib in contracts/lib/*/; do
+      [ -d "$lib" ] || continue
+      rm -rf "${wt:?}/${lib}"
+      cp -R "$lib" "${wt:?}/${lib}"
+    done
   fi
   printf '%s\n' "$wt"
 }
