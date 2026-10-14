@@ -1202,19 +1202,19 @@ func (s *TranscodingService) noteOutboxError(ctx context.Context, id, kind strin
 	}
 }
 
-func (s *TranscodingService) readOutboxIntent(ctx context.Context, id, kind string) ([]byte, string, bool, error) {
-	var payload []byte
-	var status string
-	err := s.db.QueryRow(ctx,
+func (s *TranscodingService) readOutboxIntent(ctx context.Context, id, kind string) (payload []byte, status string, found bool, err error) {
+	var payloadVal []byte
+	var statusVal string
+	err = s.db.QueryRow(ctx,
 		"SELECT payload, status FROM outbox WHERE id = $1 AND kind = $2", id, kind).
-		Scan(&payload, &status)
+		Scan(&payloadVal, &statusVal)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", false, nil
 	}
 	if err != nil {
 		return nil, "", false, err
 	}
-	return payload, status, true, nil
+	return payloadVal, statusVal, true, nil
 }
 
 // processTask executes a single transcoding task under the caller's context.
@@ -2182,6 +2182,98 @@ func (s *TranscodingService) StartTask(ctx context.Context, taskID string) error
 	return nil
 }
 
+// publishGenerationTx performs THE publish: the staging generation becomes the
+// served generation in one row flip, inside the same transaction as the
+// lease-guarded completion. It is monotonically forward-only (a slower, older
+// task never republished over a newer generation) and conditional on the
+// content still existing — deleting the content makes this a no-op, so an
+// in-flight worker cannot resurrect it. It returns the pre-switch generation,
+// the post-switch state and whether anything was published.
+func (s *TranscodingService) publishGenerationTx(ctx context.Context, tx *sql.Tx, contentID, profile string, outputGeneration int64) (prevGeneration, publishedNow int64, didPublish, rowExists bool, err error) {
+	if contentID == "" || outputGeneration < 1 {
+		return 0, 0, false, false, nil
+	}
+	pubErr := tx.QueryRowContext(ctx, `
+		WITH prev AS (SELECT published_generation AS g FROM contents WHERE id = $1 FOR UPDATE)
+		UPDATE contents c
+		SET published_generation = $2, published_profile = $3, updated_at = NOW()
+		FROM prev
+		WHERE c.id = $1 AND prev.g < $2
+		RETURNING prev.g`, contentID, outputGeneration, profile).Scan(&prevGeneration)
+	switch {
+	case pubErr == nil:
+		didPublish = true
+	case errors.Is(pubErr, sql.ErrNoRows):
+		// No row to switch (content deleted) or already at/after this
+		// generation: publish is a deliberate no-op.
+	default:
+		return 0, 0, false, false, fmt.Errorf("failed to publish generation: %w", pubErr)
+	}
+	// Read the post-switch state: it tells the caller which generation
+	// is (still) published when the flip above was a no-op, and whether
+	// the content row exists at all.
+	switch perr := tx.QueryRowContext(ctx, "SELECT published_generation FROM contents WHERE id = $1", contentID).Scan(&publishedNow); {
+	case perr == nil:
+		rowExists = true
+	case errors.Is(perr, sql.ErrNoRows):
+		rowExists = false
+	default:
+		return 0, 0, false, false, fmt.Errorf("failed to read published generation: %w", perr)
+	}
+	return prevGeneration, publishedNow, didPublish, rowExists, nil
+}
+
+// finalizeContentTx runs the content-side bookkeeping of a completed task: the
+// content becomes "ready" when no sibling task is still pending/processing
+// (and its source object is then removed), and the thumbnail URL is stamped.
+// Both advisory operations (source deletion, thumbnail stamp) are logged and
+// never fail the task; only the status transition does, because it is the
+// thing the caller observes.
+func (s *TranscodingService) finalizeContentTx(ctx context.Context, tx *sql.Tx, contentID string) error {
+	if contentID == "" {
+		return nil
+	}
+	var pendingCount int
+	var sourceURL string
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM transcoding_tasks WHERE content_id = $1 AND status IN ('pending', 'processing')",
+		contentID).Scan(&pendingCount); err != nil {
+		s.log.Warn("Failed to check pending tasks", zap.Error(err))
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT url FROM contents WHERE id = $1", contentID).Scan(&sourceURL); err != nil {
+		s.log.Warn("Failed to fetch content source URL for cleanup", zap.String("content_id", contentID), zap.Error(err))
+	}
+	if pendingCount == 0 {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1",
+			contentID, "ready", time.Now()); err != nil {
+			return fmt.Errorf("failed to update content status: %w", err)
+		}
+		if s.storage != nil && sourceURL != "" {
+			storageKey := strings.TrimPrefix(sourceURL, "/streamgate/")
+			if storageKey != "" && storageKey != sourceURL {
+				if err := s.storage.Delete(ctx, "streamgate", storageKey); err != nil {
+					s.log.Warn("Failed to delete source file after all profiles completed",
+						zap.String("content_id", contentID),
+						zap.String("key", storageKey),
+						zap.Error(err))
+				}
+			}
+		}
+	}
+
+	if s.storage != nil {
+		thumbnailKey := fmt.Sprintf("thumbnails/%s.jpg", contentID)
+		thumbnailURL := fmt.Sprintf("/streamgate/%s", thumbnailKey)
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE contents SET thumbnail_url = $2, updated_at = $3 WHERE id = $1",
+			contentID, thumbnailURL, time.Now()); err != nil {
+			s.log.Warn("Failed to update thumbnail URL", zap.Error(err))
+		}
+	}
+	return nil
+}
+
 // CompleteTask marks a task as completed. When the task carries an output
 // generation, the same lease-guarded transaction also performs THE publish:
 // contents.published_generation is switched forward to the validated staging
@@ -2277,84 +2369,14 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 			return fmt.Errorf("task %s is not completable (state or lease changed)", taskID)
 		}
 
-		// THE publish: the staging generation becomes the served generation in
-		// one row flip, inside the same transaction as the lease-guarded
-		// completion. It is monotonically forward-only (a slower, older task
-		// never republished over a newer generation) and conditional on the
-		// content still existing — deleting the content makes this a no-op, so
-		// an in-flight worker cannot resurrect it.
-		if contentID != "" && outputGeneration >= 1 {
-			pubErr := tx.QueryRowContext(ctx, `
-				WITH prev AS (SELECT published_generation AS g FROM contents WHERE id = $1 FOR UPDATE)
-				UPDATE contents c
-				SET published_generation = $2, published_profile = $3, updated_at = NOW()
-				FROM prev
-				WHERE c.id = $1 AND prev.g < $2
-				RETURNING prev.g`, contentID, outputGeneration, profile).Scan(&prevGeneration)
-			switch {
-			case pubErr == nil:
-				didPublish = true
-			case errors.Is(pubErr, sql.ErrNoRows):
-				// No row to switch (content deleted) or already at/after this
-				// generation: publish is a deliberate no-op.
-			default:
-				return fmt.Errorf("failed to publish generation: %w", pubErr)
-			}
-			// Read the post-switch state: it tells the caller which generation
-			// is (still) published when the flip above was a no-op, and whether
-			// the content row exists at all.
-			switch perr := tx.QueryRowContext(ctx, "SELECT published_generation FROM contents WHERE id = $1", contentID).Scan(&publishedNow); {
-			case perr == nil:
-				rowExists = true
-			case errors.Is(perr, sql.ErrNoRows):
-				rowExists = false
-			default:
-				return fmt.Errorf("failed to read published generation: %w", perr)
-			}
+		var pubErr error
+		prevGeneration, publishedNow, didPublish, rowExists, pubErr =
+			s.publishGenerationTx(ctx, tx, contentID, profile, outputGeneration)
+		if pubErr != nil {
+			return pubErr
 		}
 
-		if contentID != "" {
-			var pendingCount int
-			var sourceURL string
-			if err := tx.QueryRowContext(ctx,
-				"SELECT COUNT(*) FROM transcoding_tasks WHERE content_id = $1 AND status IN ('pending', 'processing')",
-				contentID).Scan(&pendingCount); err != nil {
-				s.log.Warn("Failed to check pending tasks", zap.Error(err))
-			}
-			if err := tx.QueryRowContext(ctx, "SELECT url FROM contents WHERE id = $1", contentID).Scan(&sourceURL); err != nil {
-				s.log.Warn("Failed to fetch content source URL for cleanup", zap.String("content_id", contentID), zap.Error(err))
-			}
-			if pendingCount == 0 {
-				if _, err := tx.ExecContext(ctx,
-					"UPDATE contents SET status = $2, updated_at = $3 WHERE id = $1",
-					contentID, "ready", time.Now()); err != nil {
-					return fmt.Errorf("failed to update content status: %w", err)
-				}
-				if s.storage != nil && sourceURL != "" {
-					storageKey := strings.TrimPrefix(sourceURL, "/streamgate/")
-					if storageKey != "" && storageKey != sourceURL {
-						if err := s.storage.Delete(ctx, "streamgate", storageKey); err != nil {
-							s.log.Warn("Failed to delete source file after all profiles completed",
-								zap.String("content_id", contentID),
-								zap.String("key", storageKey),
-								zap.Error(err))
-						}
-					}
-				}
-			}
-		}
-
-		if contentID != "" && s.storage != nil {
-			thumbnailKey := fmt.Sprintf("thumbnails/%s.jpg", contentID)
-			thumbnailURL := fmt.Sprintf("/streamgate/%s", thumbnailKey)
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE contents SET thumbnail_url = $2, updated_at = $3 WHERE id = $1",
-				contentID, thumbnailURL, time.Now()); err != nil {
-				s.log.Warn("Failed to update thumbnail URL", zap.Error(err))
-			}
-		}
-
-		return nil
+		return s.finalizeContentTx(ctx, tx, contentID)
 	})
 	if err != nil {
 		return err
