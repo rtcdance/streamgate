@@ -48,6 +48,28 @@ func TestGeneratePlaybackToken_ExpiresOnThePolicyBound(t *testing.T) {
 	assert.NoError(t, err, "the token must be valid immediately after issue")
 }
 
+// Once the TTL passes, the same capability must be refused. ParsePlaybackToken
+// has no expiry check of its own — it relies entirely on parseTokenCapability —
+// so without this case, disabling that check would go unnoticed (the SG-15
+// reverse proof demonstrated exactly that).
+func TestParsePlaybackToken_RefusesAnExpiredCapability(t *testing.T) {
+	svc := NewAuthService(signTypeTestSecret, nil, WithPlaybackTokenTTL(30*time.Second))
+
+	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1,
+		svc.PlaybackTokenTTL(), "")
+	require.NoError(t, err)
+
+	_, err = svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
+	require.NoError(t, err, "the capability must be valid immediately after issue")
+
+	// Move the clock past the TTL (plus the clock-skew tolerance).
+	svc.clockNow = func() time.Time {
+		return time.Now().Add(svc.PlaybackTokenTTL() + svc.ClockSkew() + time.Second)
+	}
+	_, err = svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
+	assert.ErrorIs(t, err, ErrTokenExpired, "an expired capability must not be accepted")
+}
+
 // A capability and an access token are signed with the same key, so the
 // audience is what stops one being spent where the other is expected.
 func TestGeneratePlaybackToken_StampsItsOwnAudience(t *testing.T) {
