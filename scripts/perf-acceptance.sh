@@ -40,6 +40,11 @@
 #   PERF_SKIP_WARMUP  set to 1 to skip the built-in fail-fast warmup — the
 #                     fault scenarios EXPECT failures, so the warmup gate must
 #                     not abort them before they measure
+#   PERF_COMMIT       overrides the commit stamped into the result JSON. The
+#                     harness defaults to `git rev-parse HEAD` of THIS checkout,
+#                     which mislabels a measurement aimed at some other build —
+#                     the reference pass in verify-docker.sh passes
+#                     `reference:<ref>` for exactly that reason.
 #
 # Scenario matrix (TRANSITION_PLAN.md SG-07): cold_cache / warm_cache /
 # rpc_primary_down / rpc_all_down. This script RUNS the labeled scenario; it
@@ -143,6 +148,7 @@ run_scenario() {
   PERF_LOGIN_PACE="${PERF_LOGIN_PACE:-}" \
   PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-}" \
   PERF_SEGMENT_SHA256="${PERF_SEGMENT_SHA256:-}" \
+  PERF_COMMIT="${PERF_COMMIT:-}" \
   PERF_RESULT_JSON="$out" \
     go test -tags load -count=1 -run TestLoad_AuthorizedMedia ./test/load/ -v
 }
