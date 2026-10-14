@@ -11,6 +11,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The reusable candidate workflow needs `packages: write` to retain the
+# scanned candidate in GHCR (non-PR runs only). Fork PR tokens stay read-only
+# regardless — PRs never push, they scan the same artifact bytes. `actions: read`
+# lets the same-SHA test-suite gate poll test.yml's status for this commit.
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
 env:
   GO_VERSION: "1.26"
   GOPROXY: "https://proxy.golang.org,direct"
@@ -257,58 +266,58 @@ jobs:
       - name: Run Anvil integration tests
         run: go test -tags=anvil -race -count=1 ./test/integration/web3/...
 
-  docker:
-    name: Candidate Image (build once, scan this digest)
-    runs-on: ubuntu-latest
-    # Every upstream gate must pass before a candidate image is built. The
-    # previous `if: always() && needs.build… && needs.security…` let this job
-    # build an image even when the Go tests had failed.
+  # SG-08: the comprehensive matrix gates the SAME SHA through a reusable
+  # workflow_call inside this DAG, instead of running as an independent
+  # workflow that merely triggers in parallel (plan §7 rule: independent
+  # workflows must gate via workflow_call or SHA status checks, not just
+  # parallel triggers). test.yml keeps schedule/workflow_dispatch for
+  # standalone runs.
+  test-suite:
+    name: Comprehensive Test Suite (same SHA)
+    uses: ./.github/workflows/test.yml
+
+  # SG-08: the ONE place candidate images are built for this SHA. The reusable
+  # workflow builds each image exactly once (docker-archive artifact with an
+  # OCI revision label), every scan job loads THAT artifact and verifies the
+  # image ID against the recorded one — scanning never rebuilds. PRs never
+  # push to the registry but scan the exact bytes they would deploy.
+  #
+  # `candidate` succeeds only when every source gate above AND every
+  # same-digest Trivy/SBOM scan inside it have passed; a failed gate skips it,
+  # which skips everything downstream (fail-closed, no if:always()).
+  candidate:
+    name: Candidate Images (build once per SHA + same-digest scan)
+    uses: ./.github/workflows/build.yml
     needs: [lint, test-go, test-contracts, test-anvil, build, security]
+
+  docker:
+    name: Candidate Smoke (same artifact)
+    runs-on: ubuntu-latest
+    # Smoke THE candidate built once for this SHA — no rebuild for smoke.
+    needs: [candidate]
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build monolith image
-        id: build-monolith
-        uses: docker/build-push-action@v6
+      - name: Download the candidate image built for this SHA
+        uses: actions/download-artifact@v4
         with:
-          context: .
-          file: deploy/docker/Dockerfile.monolith
-          push: false
-          load: true
-          tags: streamgate-monolith:ci
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          name: candidate-monolith
 
-      # The image built above is THE candidate: this scan consumes exactly the
-      # digest that was smoke-tested, so the gate cannot drift from the build
-      # (build.yml previously rebuilt a separate image to scan it, and only on
-      # non-PR events — PRs were never scanned at all).
-      - name: Run Trivy vulnerability scanner (same digest as smoke)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: streamgate-monolith:ci
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          # Blocking gate: ANY CRITICAL/HIGH fails the job, patched or not.
-          # Scanner failure also fails the job (plan SG-02 step 5).
-          exit-code: '1'
-
-      - name: Generate SBOM (same digest as smoke)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: streamgate-monolith:ci
-          format: 'spdx'
-          output: 'sbom-monolith.spdx'
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-monolith-${{ github.sha }}
-          path: sbom-monolith.spdx
+      - name: Load candidate and verify its identity
+        run: |
+          set -euo pipefail
+          docker load -i candidate-monolith.tar
+          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
+          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::loaded image ID $actual does not match the built candidate $expected"
+            exit 1
+          fi
+          rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' streamgate-monolith:candidate)"
+          if [ "$rev" != "${{ github.sha }}" ]; then
+            echo "::error::OCI revision label '$rev' does not match ${{ github.sha }}"
+            exit 1
+          fi
+          docker tag streamgate-monolith:candidate streamgate-monolith:ci
+          echo "smoke-testing candidate ${actual} (revision ${rev})"
 
       - name: Smoke test monolith (real readiness, not "file exists")
         run: |
@@ -348,7 +357,7 @@ jobs:
           wait_for redis docker exec ci-redis redis-cli ping
           wait_for minio docker exec ci-minio curl -fsS http://localhost:9000/minio/health/live
 
-          # The candidate image under test, pointed at those dependencies.
+          # The candidate under test, pointed at those dependencies.
           docker run -d --name ci-monolith --network "$net" -p 18080:8080 \
             -e APP_DEBUG=true \
             -e STREAMGATE_JWT_SECRET=ci-smoke-jwt-secret-0123456789-abcdef \
@@ -397,18 +406,200 @@ jobs:
           echo "GET /health -> $code"
           [ "$code" = "200" ] || { echo "::error::/health returned $code"; docker logs ci-monolith || true; exit 1; }
 
-  fullchain-acceptance:
-    name: Full-Chain Acceptance (real stack)
+  # ---------------------------------------------------------------------------
+  # SG-08 post-candidate gates: durability / ops / perf run against the same
+  # SHA (and, where it matters, the same candidate) and are REQUIRED jobs that
+  # can fail. None of them carries if:always() or continue-on-error.
+  # ---------------------------------------------------------------------------
+
+  durability:
+    name: Durability Gates (DB-backed task/outbox/event/registry)
     runs-on: ubuntu-latest
-    # Everything upstream must be green first: this job builds the whole stack
-    # and takes minutes, so there is no point starting it on a known-bad tree.
-    needs: [lint, test-go, test-contracts, test-anvil, build, security]
+    needs: [candidate]
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: streamgate
+          POSTGRES_PASSWORD: streamgate
+          POSTGRES_DB: streamgate_durability
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      # These packages' acceptance suites are gated on STREAMGATE_TEST_DB_DSN
+      # (they would otherwise SKIP, and a skipped required test must fail the
+      # gate — see the assertion script below). With the DSN set they run
+      # against the service container: lease/expiry SQL, outbox atomicity,
+      # event store/checkpoints/journal, registry idempotency/nonce/reorg.
+      # The required list is explicit so a package-wide zero-match run, or a
+      # skip of any of these specific tests, fails instead of going green.
+      - name: Run DB-backed durability suites
+        env:
+          STREAMGATE_TEST_DB_DSN: postgres://streamgate:streamgate@localhost:5432/streamgate_durability?sslmode=disable
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -json \
+            ./pkg/service/transcoding ./pkg/web3/event ./pkg/service/registry ./pkg/service \
+            > durability-tests.json || true
+          python3 scripts/cd/assert_required_tests.py \
+            --require 'TestIntegration_TranscodingLeaseAgainstPostgres' \
+            --require 'TestAcceptance_Event' \
+            --require 'TestAcceptance_RegistryIdempotency|TestAcceptance_NonceAcrossInstances|TestAcceptance_BroadcastUnknownRecovery|TestAcceptance_TxReceiptReorg' \
+            --require 'TestAcceptance_ChainNonceFloor|TestAcceptance_SharedNonceAuthority' \
+            --require 'TestAcceptance_TranscodeRedeliveryAndCrash|TestAcceptance_RetryAndDLQRecovery|TestAcceptance_HeartbeatRenewal' \
+            durability-tests.json
+
+      - name: Upload durability test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: durability-tests-${{ github.sha }}
+          path: durability-tests.json
+          retention-days: 7
+
+  ops:
+    name: Ops Gates (production profile, drain, shutdown)
+    runs-on: ubuntu-latest
+    needs: [candidate]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      # Profile/ops semantics: production must fail fast instead of degrading
+      # to in-memory fallbacks, the capability-window policy must hold, and
+      # drain/shutdown must behave. Filters keep the gate focused on tests
+      # that define ops behaviour; every one of them must actually run.
+      - name: Run ops/profile/drain gates
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -json \
+            -run 'TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production|TestSetDraining|TestIsDraining|TestDrainMiddleware' \
+            ./pkg/gateway ./pkg/core \
+            > ops-gateway-core.json || true
+          python3 scripts/cd/assert_required_tests.py \
+            --require 'TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production' \
+            --require 'TestSetDraining|TestIsDraining|TestDrainMiddleware' \
+            ops-gateway-core.json
+
+          go test -race -count=1 -json \
+            -run 'TestValidateProduction|TestIsProduction|TestCapabilityPolicy' \
+            ./pkg/core/config \
+            > ops-config.json || true
+          python3 scripts/cd/assert_required_tests.py \
+            --require 'TestValidateProduction|TestIsProduction' \
+            --require 'TestCapabilityPolicy' \
+            ops-config.json
+
+      - name: Upload ops test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ops-tests-${{ github.sha }}
+          path: ops-*.json
+          retention-days: 7
+
+  perf:
+    name: Perf Harness Gates (load harness + metrics overhead)
+    runs-on: ubuntu-latest
+    needs: [candidate]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      # The load harness's own correctness gates: 5xx / truncated / hash-
+      # mismatched responses must never count as success throughput, and the
+      # percentile/JSON plumbing must round-trip. The LIVE load matrix
+      # (1/10/50 viewers against a running stack) is SG-07's dispatch runner
+      # (scripts/perf-acceptance.sh), not something a CI job can honestly
+      # claim from an ephemeral container. The required list pins the harness
+      # correctness tests plus the metrics/ratelimit overhead tests.
+      - name: Run perf harness and metrics gates
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -json ./test/load ./test/performance \
+            > perf-tests.json || true
+          python3 scripts/cd/assert_required_tests.py \
+            --require 'TestPerfHarness_' \
+            --require 'TestMetricsCollection|TestRateLimitingPerformance|TestPrometheusExportPerformance' \
+            perf-tests.json
+
+      - name: Upload perf test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-tests-${{ github.sha }}
+          path: perf-tests.json
+          retention-days: 7
+
+  fullchain-acceptance:
+    name: Full-Chain Acceptance (candidate, real stack)
+    runs-on: ubuntu-latest
+    # The media gate runs against THE candidate built once for this SHA: it
+    # downloads the same artifacts the scans consumed and starts them with
+    # `--no-build`, so acceptance and promotion cannot drift (plan §7:
+    # media/durability/ops/perf/release only start from the candidate list).
+    needs: [candidate]
     timeout-minutes: 25
     env:
       # Scope the project so teardown can only ever touch this run's containers.
       COMPOSE_PROJECT_NAME: sg-ci-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download the candidate images built for this SHA
+        uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-{monolith,transcoder,api-gateway}
+          merge-multiple: true
+
+      - name: Load candidates and verify their identity
+        run: |
+          set -euo pipefail
+          verify() {  # verify <service>
+            local svc="$1" actual expected
+            docker load -i "candidate-${svc}.tar" >/dev/null
+            actual="$(docker inspect --format '{{.Id}}' "streamgate-${svc}:candidate")"
+            expected="$(python3 -c "import json;print(json.load(open('meta/${svc}.json'))['image_id'])")"
+            [ "$actual" = "$expected" ] || { echo "::error::${svc} loaded ID $actual != built candidate $expected"; exit 1; }
+            local rev
+            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "streamgate-${svc}:candidate")"
+            [ "$rev" = "${{ github.sha }}" ] || { echo "::error::${svc} OCI revision '$rev' != ${{ github.sha }}"; exit 1; }
+            echo "${svc}: ${actual} (revision ${rev})"
+          }
+          verify monolith
+          verify transcoder
+          verify api-gateway
+          # Compose resolves build-only services to <project>-<service>; the
+          # monolith carries an explicit image name in the compose file.
+          docker tag streamgate-monolith:candidate    streamgate-fullchain:latest
+          docker tag streamgate-transcoder:candidate  "${COMPOSE_PROJECT_NAME}-transcoder"
+          docker tag streamgate-api-gateway:candidate "${COMPOSE_PROJECT_NAME}-api-gateway"
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -431,27 +622,30 @@ jobs:
           npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
 
-      - name: Build the linux binaries the .quick images COPY
-        # The fullchain compose builds monolith/api-gateway from the .quick
-        # Dockerfiles, which COPY prebuilt linux binaries instead of compiling.
-        # On a clean checkout those binaries do not exist, so `up --build`
-        # failed; building them here (same commands the local Makefile uses)
-        # makes the job reproducible on a fresh runner.
-        run: |
-          set -euo pipefail
-          GOOS=linux GOARCH=amd64 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
-          GOOS=linux GOARCH=amd64 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
-
-      - name: Build and start the stack from this checkout
+      - name: Start the stack with the CANDIDATE images (no rebuild)
         # Only the services the acceptance needs: the app, the isolated
-        # transcoder worker and their dependencies (pulled in via
-        # depends_on). Starting every service in the compose file would build
-        # all 9 microservice images from source on every run.
+        # transcoder worker and the gateway mode, plus their dependencies
+        # (pulled in via depends_on). `--no-build` guarantees compose uses the
+        # tagged candidates — it can never silently rebuild a different image.
         # The acceptance script addresses services by fixed container name
         # (sg-fc-postgres / sg-fc-redis / sg-fc-transcoder), so container_name
         # fields — not the project name — are what it finds; teardown below
         # removes only this run's containers/networks/volumes.
-        run: docker compose -f docker-compose.fullchain.yml up -d --build monolith transcoder api-gateway
+        run: docker compose -f docker-compose.fullchain.yml up -d --no-build monolith transcoder api-gateway
+
+      - name: Assert the running containers are the candidate (digest check)
+        run: |
+          set -euo pipefail
+          check() {  # check <container> <candidate-tag>
+            local container="$1" tag="$2" running expected
+            running="$(docker inspect --format '{{.Image}}' "$container")"
+            expected="$(docker inspect --format '{{.Id}}' "$tag")"
+            [ "$running" = "$expected" ] || { echo "::error::container $container runs $running, expected candidate $expected"; exit 1; }
+            echo "$container runs the candidate image"
+          }
+          check sg-fc-monolith    streamgate-monolith:candidate
+          check sg-fc-transcoder  streamgate-transcoder:candidate
+          check sg-fc-api-gateway streamgate-api-gateway:candidate
 
       - name: Wait for the stack to be health-ready (120s budget)
         run: |
@@ -518,3 +712,22 @@ jobs:
       - name: Tear down this run's stack
         if: always()
         run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
+
+  publishable:
+    name: Publishable (promotion gate)
+    runs-on: ubuntu-latest
+    # The terminal promotion gate (SG-08 step 1): it depends on EVERY required
+    # gate — source gates, candidate build + same-digest scans, smoke, the
+    # same-SHA test suite, durability, ops, perf and the real media acceptance.
+    # No if:always(), no continue-on-error: any failed OR skipped upstream job
+    # (including a skipped `candidate` when a source gate failed) skips this
+    # job, so "publishable" can only be green when the whole DAG ran green.
+    # A real release remains a separate, explicitly authorized deploy.yml
+    # dispatch against the retained candidate digest — this job only declares
+    # the candidate promotable.
+    needs: [lint, test-go, test-contracts, test-anvil, build, security,
+            candidate, test-suite, docker, durability, ops, perf,
+            fullchain-acceptance]
+    steps:
+      - name: Every required gate passed for this SHA
+        run: echo "candidate is publishable (see the retain-candidate GHCR digest in the candidate workflow for the promoted artifact)"

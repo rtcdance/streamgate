@@ -1,162 +1,216 @@
 name: Docker Build & Push
 
+# SG-08: same-artifact candidate pipeline.
+#
+# This workflow is `workflow_call`-only: ci.yml is the single entry point, so a
+# candidate image is built exactly ONCE per SHA. A standalone push/PR trigger
+# here would rebuild the same SHA a second time, which is what the old layout
+# did (ci.yml rebuilt for smoke, this file rebuilt again for scanning).
+#
+# Delivery mechanism (no registry involved on PRs, which are public here):
+#   * every build exports ONE docker-archive tar, uploaded as a job artifact;
+#   * every scan / smoke job downloads that tar, `docker load`s it, and
+#     VERIFIES the loaded image ID against the ID recorded at build time —
+#     a mismatch blocks the gate;
+#   * non-PR runs additionally push the SAME loaded image to GHCR under an
+#     immutable per-SHA tag (`candidate-<sha>`); deploy.yml then references the
+#     recorded registry digest. Promotion never rebuilds.
+#
+# PRs never push to the public GHCR (the repository is public), but they scan
+# the exact same candidate bytes they would deploy.
+#
+# No top-level `permissions:` block: this workflow only ever runs through
+# workflow_call, so it inherits the caller's (ci.yml grants contents:read +
+# packages:write; job-level permissions below only narrow that).
 on:
-  workflow_dispatch:
-  push:
-    branches: [main, master]
-    tags: ['v*']
-  pull_request:
-    branches: [main, master]
-
-permissions:
-  contents: read
-  packages: write
+  workflow_call:
+    outputs:
+      monolith-image-id:
+        description: Content-addressable image ID (sha256:...) of the monolith candidate
+        value: ${{ jobs.build-monolith.outputs.image_id }}
+      transcoder-image-id:
+        description: Content-addressable image ID (sha256:...) of the transcoder candidate
+        value: ${{ jobs.build-transcoder.outputs.image_id }}
+      monolith-registry-digest:
+        description: GHCR digest of the retained monolith candidate (empty on PRs)
+        value: ${{ jobs.retain-candidate.outputs.monolith_digest }}
+      transcoder-registry-digest:
+        description: GHCR digest of the retained transcoder candidate (empty on PRs)
+        value: ${{ jobs.retain-candidate.outputs.transcoder_digest }}
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-monolith:
-    name: Build Monolith Docker Image
+    name: Build Monolith (once per SHA)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      image_id: ${{ steps.identity.outputs.image_id }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Build and push monolith
-        id: build-monolith
+      # The ONE build of the monolith candidate for this SHA. The docker
+      # exporter writes a loadable archive instead of pushing, so the same
+      # bytes serve PRs (no public push) and non-PRs (retained later by the
+      # retain-candidate job from this very archive).
+      - name: Build candidate image (export docker-archive)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./deploy/docker/Dockerfile.monolith
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          outputs: type=docker,dest=candidate-monolith.tar
+          tags: streamgate-monolith:candidate
+          # OCI revision label pins the image to this SHA (SG-08 step 2).
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Export the pushed digest
-        # The digest of what was pushed is the identity every later job must
-        # consume; rebuilding an image to scan it could scan different bytes.
+      - name: Record image identity
+        id: identity
         run: |
-          echo "${{ steps.build-monolith.outputs.digest }}" > monolith-digest.txt
-          echo "pushed digest: $(cat monolith-digest.txt)"
+          set -euo pipefail
+          docker load -i candidate-monolith.tar
+          image_id="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
+          echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
+          mkdir -p meta
+          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/monolith.json
 
-      - name: Upload digest artifact
+      - name: Upload candidate artifact
         uses: actions/upload-artifact@v4
         with:
-          name: monolith-digest-${{ github.sha }}
-          path: monolith-digest.txt
+          name: candidate-monolith
+          path: |
+            candidate-monolith.tar
+            meta/monolith.json
+          retention-days: 7
 
-  build-microservices:
-    name: Build ${{ matrix.service }} Docker Image
+  build-transcoder:
+    name: Build Transcoder (once per SHA)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [api-gateway, auth, cache, metadata, monitor, streaming, transcoder, upload, worker]
+    outputs:
+      image_id: ${{ steps.identity.outputs.image_id }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.service }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Build and push ${{ matrix.service }}
+      - name: Build candidate image (export docker-archive)
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./deploy/docker/Dockerfile.${{ matrix.service }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          file: ./deploy/docker/Dockerfile.transcoder
+          push: false
+          outputs: type=docker,dest=candidate-transcoder.tar
+          tags: streamgate-transcoder:candidate
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  scan-monolith:
-    name: Scan Monolith Image (same digest as push)
-    runs-on: ubuntu-latest
-    needs: build-monolith
-    # PRs are scanned by the CI workflow's candidate-image job, which builds
-    # one image and scans that exact digest; this job covers the pushed image
-    # so the promoted artifact is the scanned artifact (plan SG-02 step 5).
-    if: github.event_name != 'pull_request'
-    steps:
-      - name: Download the pushed digest
-        uses: actions/download-artifact@v4
+      - name: Record image identity
+        id: identity
+        run: |
+          set -euo pipefail
+          docker load -i candidate-transcoder.tar
+          image_id="$(docker inspect --format '{{.Id}}' streamgate-transcoder:candidate)"
+          echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
+          mkdir -p meta
+          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/transcoder.json
+
+      - name: Upload candidate artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: monolith-digest-${{ github.sha }}
+          name: candidate-transcoder
+          path: |
+            candidate-transcoder.tar
+            meta/transcoder.json
+          retention-days: 7
+
+  build-microservices:
+    name: Build ${{ matrix.service }} (once per SHA)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # transcoder is built by the dedicated build-transcoder job (it needs
+        # its own output for the release drill), so it is not in this matrix.
+        service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
+      - name: Build candidate image (export docker-archive)
+        uses: docker/build-push-action@v6
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          context: .
+          file: ./deploy/docker/Dockerfile.${{ matrix.service }}
+          push: false
+          outputs: type=docker,dest=candidate-${{ matrix.service }}.tar
+          tags: streamgate-${{ matrix.service }}:candidate
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Pull the pushed image at its digest
-        # No rebuild: the scan consumes exactly the bytes that were pushed.
+      - name: Record image identity
         run: |
           set -euo pipefail
-          DIGEST="$(cat monolith-digest.txt)"
-          [ -n "$DIGEST" ] || { echo "::error::pushed digest artifact was empty"; exit 1; }
-          docker pull "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}"
-          docker tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}" streamgate-monolith:scan
-          echo "scanning ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/monolith@${DIGEST}"
+          docker load -i candidate-${{ matrix.service }}.tar
+          image_id="$(docker inspect --format '{{.Id}}' streamgate-${{ matrix.service }}:candidate)"
+          mkdir -p meta
+          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/${{ matrix.service }}.json
+
+      - name: Upload candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-${{ matrix.service }}
+          path: |
+            candidate-${{ matrix.service }}.tar
+            meta/${{ matrix.service }}.json
+          retention-days: 7
+
+  scan-monolith:
+    name: Scan Monolith (same digest)
+    runs-on: ubuntu-latest
+    needs: build-monolith
+    steps:
+      - name: Download candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-monolith
+
+      - name: Load candidate and verify identity
+        id: load
+        run: |
+          set -euo pipefail
+          docker load -i candidate-monolith.tar
+          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
+          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::loaded monolith image ID $actual does not match the built candidate $expected"
+            exit 1
+          fi
+          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: streamgate-monolith:scan
+          image-ref: streamgate-monolith:candidate
           format: 'table'
           severity: 'CRITICAL,HIGH'
           # Blocking gate: ANY CRITICAL/HIGH fails the job, patched or not.
@@ -177,7 +231,7 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: streamgate-monolith:scan
+          image-ref: streamgate-monolith:candidate
           format: 'spdx'
           output: 'sbom-monolith.spdx'
 
@@ -186,3 +240,162 @@ jobs:
         with:
           name: sbom-monolith
           path: sbom-monolith.spdx
+
+  scan-transcoder:
+    name: Scan Transcoder (same digest)
+    runs-on: ubuntu-latest
+    needs: build-transcoder
+    steps:
+      - name: Download candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-transcoder
+
+      - name: Load candidate and verify identity
+        run: |
+          set -euo pipefail
+          docker load -i candidate-transcoder.tar
+          actual="$(docker inspect --format '{{.Id}}' streamgate-transcoder:candidate)"
+          expected="$(python3 -c "import json;print(json.load(open('meta/transcoder.json'))['image_id'])")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::loaded transcoder image ID $actual does not match the built candidate $expected"
+            exit 1
+          fi
+          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-transcoder:candidate
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-transcoder:candidate
+          format: 'spdx'
+          output: 'sbom-transcoder.spdx'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-transcoder
+          path: sbom-transcoder.spdx
+
+  scan-microservices:
+    name: Scan ${{ matrix.service }} (same digest)
+    runs-on: ubuntu-latest
+    needs: build-microservices
+    strategy:
+      fail-fast: false
+      matrix:
+        # transcoder is covered by the dedicated scan-transcoder job (its
+        # candidate comes from build-transcoder, not this matrix).
+        service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
+    steps:
+      - name: Download candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-${{ matrix.service }}
+
+      - name: Load candidate and verify identity
+        run: |
+          set -euo pipefail
+          docker load -i candidate-${{ matrix.service }}.tar
+          actual="$(docker inspect --format '{{.Id}}' streamgate-${{ matrix.service }}:candidate)"
+          expected="$(python3 -c "import json;print(json.load(open('meta/${{ matrix.service }}.json'))['image_id'])")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::loaded ${{ matrix.service }} image ID $actual does not match the built candidate $expected"
+            exit 1
+          fi
+          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-${{ matrix.service }}:candidate
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: streamgate-${{ matrix.service }}:candidate
+          format: 'spdx'
+          output: 'sbom-${{ matrix.service }}.spdx'
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.spdx
+
+  retain-candidate:
+    name: Retain Candidate in GHCR (same image, per-SHA tag)
+    runs-on: ubuntu-latest
+    # Retention only after every scan of this candidate passed: the bytes that
+    # land in GHCR are the scanned bytes, and nothing unscanned is retained.
+    needs: [build-monolith, build-transcoder, build-microservices,
+            scan-monolith, scan-transcoder, scan-microservices]
+    # PRs keep the candidate as artifacts only (the repository is public).
+    # Skipped on PRs by design; downstream jobs treat an empty digest as
+    # "not published" rather than as a failure. This is candidate RETENTION
+    # for later deploy/release-validation, not a release: deployment still
+    # requires the explicit deploy.yml dispatch + environment gate.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      monolith_digest: ${{ steps.push.outputs.monolith_digest }}
+      transcoder_digest: ${{ steps.push.outputs.transcoder_digest }}
+    steps:
+      - name: Download all candidate artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-*
+          # Every artifact uses unique filenames (candidate-<svc>.tar,
+          # meta/<svc>.json), so flattening them is safe and lets push_one
+          # read the paths directly.
+          merge-multiple: true
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Push the SAME loaded images — no rebuild. The registry digest recorded
+      # here is the digest every later step (deploy.yml, promotion) must use.
+      - name: Push candidates under immutable per-SHA tags
+        id: push
+        run: |
+          set -euo pipefail
+          repo="${{ env.REGISTRY }}/${{ github.repository }}"
+          sha="${{ github.sha }}"
+          push_one() {  # push_one <local-image> <repo-suffix> <output-var>
+            local local_image="$1" suffix="$2" out="$3" remote digest push_out
+            docker load -i "candidate-${suffix}.tar"
+            remote="${repo}/${suffix}:candidate-${sha}"
+            docker tag "$local_image" "$remote"
+            # The push output carries the registry digest; RepoDigests can lag
+            # one pull behind, so the printed digest is the authoritative one.
+            push_out="$(docker push "$remote" 2>&1)"
+            printf '%s\n' "$push_out"
+            digest="$(printf '%s\n' "$push_out" | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | head -1)"
+            if [ -z "$digest" ]; then
+              echo "::error::could not determine registry digest for ${remote}"
+              exit 1
+            fi
+            echo "${out}=${digest}" >> "$GITHUB_OUTPUT"
+            echo "pushed ${remote}@${digest}"
+          }
+          push_one streamgate-monolith:candidate monolith monolith_digest
+          push_one streamgate-transcoder:candidate transcoder transcoder_digest
+          for svc in api-gateway auth cache metadata monitor streaming upload worker; do
+            push_one "streamgate-${svc}:candidate" "$svc" "digest_${svc}"
+          done
