@@ -30,10 +30,10 @@ import (
 
 func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) (*redis.Client, error) {
 	redisAddr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	if cfg.IsProduction() && cfg.Redis.Host == "" {
-		// Production must not silently fall back to memory — an in-memory
+	if cfg.IsStrictProfile() && cfg.Redis.Host == "" {
+		// A strict profile must not silently fall back to memory — an in-memory
 		// blacklist would let a revoked token keep working on this instance.
-		return nil, fmt.Errorf("redis host is empty — production requires a Redis (challenge store, token blacklist, sessions)")
+		return nil, fmt.Errorf("redis host is empty — %s profile requires a Redis (challenge store, token blacklist, sessions)", cfg.EffectiveProfile())
 	}
 	client := redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
@@ -48,14 +48,15 @@ func provideRedis(cfg *config.Config, log *zap.Logger, res *AppResources) (*redi
 	ok := client.Ping(pingCtx).Err() == nil
 	pingCancel()
 	if !ok {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			_ = client.Close()
-			// Fail fast: production must not silently fall back to memory — a
-			// single-instance challenge store or blacklist would break replay
-			// protection and cross-instance revocation.
-			return nil, fmt.Errorf("redis unreachable at %s — production requires a reachable Redis", redisAddr)
+			// Fail fast: a strict profile must not silently fall back to memory
+			// — a single-instance challenge store or blacklist would break
+			// replay protection and cross-instance revocation.
+			return nil, fmt.Errorf("redis unreachable at %s — %s profile requires a reachable Redis", redisAddr, cfg.EffectiveProfile())
 		}
-		log.Warn("Redis unavailable, components will use in-memory fallbacks", zap.String("addr", redisAddr))
+		log.Warn("Redis unavailable, components will use in-memory fallbacks (demo/unit profile behavior; durable and production profiles refuse this fallback)",
+			zap.String("addr", redisAddr), zap.String("profile", cfg.EffectiveProfile()))
 		_ = client.Close()
 		return nil, nil
 	}
@@ -115,12 +116,13 @@ func provideChallengeStore(rc *RouterConfig, cfg *config.Config, log *zap.Logger
 		return rc.ChallengeStore, nil
 	}
 	if redisClient == nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: an in-memory challenge store is single-instance, so a
 			// challenge issued by one replica could be replayed against another.
-			return nil, fmt.Errorf("challenge store requires Redis — production must not fall back to in-memory")
+			return nil, fmt.Errorf("challenge store requires Redis — %s profile must not fall back to in-memory", cfg.EffectiveProfile())
 		}
-		log.Warn("Redis unavailable, falling back to in-memory challenge store")
+		log.Warn("Redis unavailable, falling back to in-memory challenge store (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()))
 		store := storage.NewMemoryChallengeStore()
 		res.ChallengeStore = store
 		return store, nil
@@ -132,20 +134,21 @@ func provideChallengeStore(rc *RouterConfig, cfg *config.Config, log *zap.Logger
 
 func provideTokenBlacklist(cfg *config.Config, log *zap.Logger, redisClient *redis.Client, res *AppResources) (storage.TokenBlacklist, error) {
 	if redisClient == nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: a revoked token must stay revoked on every replica; a
 			// process-local blacklist would keep honouring it here.
-			return nil, fmt.Errorf("token blacklist requires Redis — production must not fall back to in-memory")
+			return nil, fmt.Errorf("token blacklist requires Redis — %s profile must not fall back to in-memory", cfg.EffectiveProfile())
 		}
-		log.Warn("Redis unavailable, falling back to in-memory token blacklist")
+		log.Warn("Redis unavailable, falling back to in-memory token blacklist (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()))
 		return storage.NewMemoryTokenBlacklist(), nil
 	}
 	rbl, err := storage.NewRedisTokenBlacklist(redisClient)
 	if err != nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			return nil, fmt.Errorf("redis token blacklist init failed: %w", err)
 		}
-		log.Warn("Redis token blacklist init failed, falling back to in-memory", zap.Error(err))
+		log.Warn("Redis token blacklist init failed, falling back to in-memory (demo/unit profile behavior)", zap.Error(err))
 		return storage.NewMemoryTokenBlacklist(), nil
 	}
 	res.TokenBlacklist = rbl
@@ -183,6 +186,16 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		service.WithTokenBlacklist(tokenBlacklist),
 		service.WithJWTExpiry(jwtExpiry),
 		service.WithSIWEDomain(cfg.Auth.SIWEDomain, cfg.Auth.SIWEURI),
+		// Key separation (SG-14): access JWTs and playback capabilities verify
+		// under independent keys — an explicit capability key, else HKDF-derived
+		// from the master secret. The access key stays the master secret when
+		// unset, so tokens issued before this split keep verifying.
+		service.WithTokenKeySeparation(
+			cfg.EffectiveAccessSecret(),
+			cfg.Auth.PreviousAccessSecrets,
+			cfg.EffectiveCapabilitySecret(),
+			cfg.Auth.PreviousCapabilitySecrets,
+		),
 		// The playback capability lifetime comes from the policy rather than a
 		// constant buried in the handler.
 		service.WithPlaybackTokenTTL(cfg.Features.CapabilityTTL),
@@ -199,40 +212,41 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 
 func provideSessionStore(cfg *config.Config, log *zap.Logger, redisClient *redis.Client) (storage.SessionStore, error) {
 	if redisClient == nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: session epochs must survive restarts; an in-memory
 			// store would silently un-revoke every session on a bounce.
-			return nil, fmt.Errorf("session store requires Redis — production must not fall back to in-memory")
+			return nil, fmt.Errorf("session store requires Redis — %s profile must not fall back to in-memory", cfg.EffectiveProfile())
 		}
-		log.Warn("Redis unavailable, session epochs will not survive a restart")
+		log.Warn("Redis unavailable, session epochs will not survive a restart (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()))
 		return storage.NewMemorySessionStore(), nil
 	}
 	store, err := storage.NewRedisSessionStore(redisClient)
 	if err != nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			return nil, fmt.Errorf("redis session store init failed: %w", err)
 		}
-		log.Warn("Redis session store init failed, session epochs will not survive a restart", zap.Error(err))
+		log.Warn("Redis session store init failed, session epochs will not survive a restart (demo/unit profile behavior)", zap.Error(err))
 		return storage.NewMemorySessionStore(), nil
 	}
 	return store, nil
 }
 
 func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB, err error) {
-	if cfg.IsProduction() && cfg.Database.Host == "" {
-		return nil, nil, fmt.Errorf("database host is empty — production requires a PostgreSQL (content, gating rules, outbox)")
+	if cfg.IsStrictProfile() && cfg.Database.Host == "" {
+		return nil, nil, fmt.Errorf("database host is empty — %s profile requires a PostgreSQL (content, gating rules, outbox)", cfg.EffectiveProfile())
 	}
 	dbConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Password,
 		cfg.Database.Database, cfg.Database.SSLMode)
 	d, openErr := sql.Open("postgres", dbConnStr)
 	if openErr != nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: without Postgres there is no content, no gating rules
-			// and no durable outbox — production must not pretend otherwise.
+			// and no durable outbox — a strict profile must not pretend otherwise.
 			return nil, nil, fmt.Errorf("database open failed: %w", openErr)
 		}
-		log.Warn("Database unavailable, using in-memory fallback",
+		log.Warn("Database unavailable, using in-memory fallback (demo/unit profile behavior)",
 			zap.String("host", cfg.Database.Host),
 			zap.String("database", cfg.Database.Database))
 		return nil, nil, nil
@@ -240,12 +254,12 @@ func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer pingCancel()
 	if pingErr := d.PingContext(pingCtx); pingErr != nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			_ = d.Close()
-			return nil, nil, fmt.Errorf("database unreachable at %s — production requires a reachable PostgreSQL: %w",
-				cfg.Database.Host, pingErr)
+			return nil, nil, fmt.Errorf("database unreachable at %s — %s profile requires a reachable PostgreSQL: %w",
+				cfg.Database.Host, cfg.EffectiveProfile(), pingErr)
 		}
-		log.Warn("Database ping failed, using in-memory fallback",
+		log.Warn("Database ping failed, using in-memory fallback (demo/unit profile behavior)",
 			zap.String("host", cfg.Database.Host),
 			zap.String("database", cfg.Database.Database))
 		_ = d.Close()
@@ -429,9 +443,22 @@ func (p privateKeyProvider) UseKey(fn func(*ecdsa.PrivateKey) error) error {
 	return fn(p.key)
 }
 
-func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger, res *AppResources) service.SegmentStorage {
+// BucketProbe returns the prober for readiness checks: the concrete MinIO
+// client when one was built, else nil (injected storage that does not probe
+// simply has no storage readiness check).
+func (r *AppResources) BucketProbe() bucketProber {
+	if r.ObjStorage == nil {
+		return nil
+	}
+	if p, ok := r.ObjStorage.(bucketProber); ok {
+		return p
+	}
+	return nil
+}
+
+func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger, res *AppResources) (service.SegmentStorage, error) {
 	if rc.SegmentStorage != nil {
-		return rc.SegmentStorage
+		return rc.SegmentStorage, nil
 	}
 	minioCfg := storage.MinIOConfig{
 		Endpoint:        cfg.Storage.Endpoint,
@@ -441,17 +468,37 @@ func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger,
 	}
 	ms, err := storage.NewMinIOStorage(minioCfg)
 	if err != nil {
-		log.Warn("MinIO unavailable, segment serving disabled", zap.Error(err))
-		return nil
+		if cfg.IsStrictProfile() {
+			return nil, fmt.Errorf("minio client init failed at %s — %s profile requires private object storage: %w",
+				cfg.Storage.Endpoint, cfg.EffectiveProfile(), err)
+		}
+		log.Warn("MinIO unavailable, segment serving disabled (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()), zap.Error(err))
+		return nil, nil
 	}
 	res.ObjStorage = ms
 	bucketCtx, bucketCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer bucketCancel()
 	if err := ms.CreateBucket(bucketCtx, "streamgate"); err != nil {
-		log.Warn("Failed to create streamgate bucket", zap.Error(err))
+		if cfg.IsStrictProfile() {
+			// Without the media bucket there is no place to serve segments from,
+			// so a strict profile refuses to start rather than serving 404s.
+			_ = ms.Close()
+			return nil, fmt.Errorf("object storage bucket unavailable at %s — %s profile requires it: %w",
+				cfg.Storage.Endpoint, cfg.EffectiveProfile(), err)
+		}
+		log.Warn("Failed to create streamgate bucket (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()), zap.Error(err))
 	}
 	log.Info("MinIO storage initialized", zap.String("endpoint", cfg.Storage.Endpoint))
-	return ms
+	return ms, nil
+}
+
+// natsQueueDialer connects the NATS JetStream transcoding queue. It is a
+// package variable so tests can substitute an unreachable dialer without a
+// live broker.
+var natsQueueDialer = func(url string, log *zap.Logger) (*storage.NATSTranscodingQueue, error) {
+	return storage.NewNATSTranscodingQueue(url, log)
 }
 
 func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, res *AppResources) (*service.TranscodingService, error) {
@@ -470,18 +517,19 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 	ft := transcoder.NewFFmpegTranscoder(ffmpegCfg, log.Named("ffmpeg"))
 	videoTranscoder := transcoder.NewVideoTranscoder(ft, log.Named("ffmpeg"))
 
-	if cfg.IsProduction() && cfg.NATS.URL == "" {
-		return nil, fmt.Errorf("nats.url is empty — production requires a durable queue (transcoding tasks)")
+	if cfg.IsStrictProfile() && cfg.NATS.URL == "" {
+		return nil, fmt.Errorf("nats.url is empty — %s profile requires a durable queue (transcoding tasks)", cfg.EffectiveProfile())
 	}
 	var transcodingQueue service.TranscodingQueue
-	nq, err := storage.NewNATSTranscodingQueue(cfg.NATS.URL, log.Named("nats-queue"))
+	nq, err := natsQueueDialer(cfg.NATS.URL, log.Named("nats-queue"))
 	if err != nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: an in-memory queue loses every pending task on
-			// restart — production must not silently downgrade durability.
-			return nil, fmt.Errorf("nats unavailable at %s — production requires a durable transcoding queue: %w", cfg.NATS.URL, err)
+			// restart — a strict profile must not silently downgrade durability.
+			return nil, fmt.Errorf("nats unavailable at %s — %s profile requires a durable transcoding queue: %w", cfg.NATS.URL, cfg.EffectiveProfile(), err)
 		}
-		log.Warn("NATS unavailable, falling back to in-memory transcoding queue", zap.Error(err))
+		log.Warn("NATS unavailable, falling back to in-memory transcoding queue (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()), zap.Error(err))
 		transcodingQueue = service.NewMemoryTranscodingQueue()
 	} else {
 		log.Info("Using NATS JetStream transcoding queue", zap.String("url", cfg.NATS.URL))
@@ -596,22 +644,23 @@ func provideRuleVersionStore(cfg *config.Config, log *zap.Logger, db storage.DB,
 	if redisClient != nil {
 		redisCache, err := storage.NewRedisRuleVersionCache(redisClient)
 		if err != nil {
-			if cfg.IsProduction() {
+			if cfg.IsStrictProfile() {
 				return nil, fmt.Errorf("rule version cache unavailable: %w", err)
 			}
-			log.Warn("rule version cache unavailable, falling back to in-memory", zap.Error(err))
+			log.Warn("rule version cache unavailable, falling back to in-memory (demo/unit profile behavior)", zap.Error(err))
 		} else {
 			cache = redisCache
 		}
 	}
 	if cache == nil {
-		if cfg.IsProduction() {
+		if cfg.IsStrictProfile() {
 			// Fail fast: without a shared cache a rule change in another
 			// process stays invisible here until the local copy ages out.
-			return nil, fmt.Errorf("rule version cache requires Redis — production must not fall back to in-memory")
+			return nil, fmt.Errorf("rule version cache requires Redis — %s profile must not fall back to in-memory", cfg.EffectiveProfile())
 		}
-		log.Warn("rule version cache is process-local: a write in another process will not be " +
-			"visible until this process's copy ages out")
+		log.Warn("rule version cache is process-local: a write in another process will not be "+
+			"visible until this process's copy ages out (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()))
 		cache = storage.NewMemoryRuleVersionCache()
 	}
 

@@ -308,6 +308,23 @@ func (ms *MinIOStorage) CreateBucket(ctx context.Context, bucket string) error {
 	return nil
 }
 
+// HeadBucket reports whether the bucket exists and the endpoint is reachable,
+// without creating anything. It exists for the readiness probe (SG-14): the
+// readiness path must observe the bucket, never mutate it.
+func (ms *MinIOStorage) HeadBucket(ctx context.Context, bucket string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	exists, err := ms.client.BucketExists(ctx, bucket)
+	if err != nil {
+		return fmt.Errorf("bucket check failed: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("bucket %q does not exist", bucket)
+	}
+	return nil
+}
+
 // detectContentTypeByExt returns a MIME type based on the object name extension.
 var videoMimeTypes = map[string]string{
 	".mp4":  "video/mp4",

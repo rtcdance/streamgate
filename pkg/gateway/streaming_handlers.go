@@ -397,6 +397,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		segBucket = bucket[0]
 	}
 	router.GET(APIPrefix+"/streaming/:id/manifest.m3u8", func(c *gin.Context) {
+		markMediaRequestStart(c)
 		contentID := c.Param("id")
 		if !isValidContentID(contentID) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid content ID")
@@ -465,9 +466,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 				return
 			}
 			manifest := service.BuildMediaPlaylist(contentID, quality, segs, playbackToken)
-			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			setCapabilityResponseHeaders(c)
-			c.String(http.StatusOK, manifest)
+			serveManifestBody(c, manifest)
 			return
 		}
 
@@ -517,9 +516,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		if cached, ok := cache.GetManifest(contentID, wallet, generation); ok {
 			monitoring.StreamingCacheHitsTotal.WithLabelValues("manifest").Inc()
 			rendered := strings.ReplaceAll(cached, "{{PLAYBACK_TOKEN}}", playbackToken)
-			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			setCapabilityResponseHeaders(c)
-			c.String(http.StatusOK, rendered)
+			serveManifestBody(c, rendered)
 			return
 		}
 
@@ -561,9 +558,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			}
 			manifest := service.BuildMediaPlaylist(contentID, quality, segs, "{{PLAYBACK_TOKEN}}")
 			rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
-			c.Header("Content-Type", "application/vnd.apple.mpegurl")
-			setCapabilityResponseHeaders(c)
-			c.String(http.StatusOK, rendered)
+			serveManifestBody(c, rendered)
 			return
 		}
 
@@ -576,9 +571,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		cache.SetManifest(contentID, manifest, wallet, generation)
 
 		rendered := strings.ReplaceAll(manifest, "{{PLAYBACK_TOKEN}}", playbackToken)
-		c.Header("Content-Type", "application/vnd.apple.mpegurl")
-		setCapabilityResponseHeaders(c)
-		c.String(http.StatusOK, rendered)
+		serveManifestBody(c, rendered)
 	})
 	log.Info("Streaming routes registered")
 }
@@ -630,9 +623,7 @@ func serveStoredPlaylist(
 	ctx := c.Request.Context()
 
 	write := func(body string) {
-		c.Header("Content-Type", "application/vnd.apple.mpegurl")
-		setCapabilityResponseHeaders(c)
-		c.String(http.StatusOK, body)
+		serveManifestBody(c, body)
 	}
 
 	// A specific quality: serve that media playlist.
@@ -708,6 +699,42 @@ func setCapabilityResponseHeaders(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 }
 
+// mediaRequestStartKey holds the handler-entry timestamp of a media request in
+// the gin context, so every success path (including the shared
+// serveStoredPlaylist helper, which does not take a start parameter) measures
+// TTFB from the same instant.
+const mediaRequestStartKey = "media_request_start"
+
+// markMediaRequestStart stamps handler entry. TTFB is measured from here to the
+// first response byte; middleware time is deliberately excluded.
+func markMediaRequestStart(c *gin.Context) {
+	c.Set(mediaRequestStartKey, time.Now())
+}
+
+// mediaRequestServed records the SG-07 media metrics for one SUCCESSFUL
+// manifest/segment response: delivered payload bytes and time-to-first-byte,
+// both keyed by resource (manifest|segment) — never by content ID or wallet.
+func mediaRequestServed(c *gin.Context, resource string, bytes int64) {
+	if bytes > 0 {
+		monitoring.MediaBytesTotal.WithLabelValues(resource).Add(float64(bytes))
+	}
+	if v, ok := c.Get(mediaRequestStartKey); ok {
+		if started, ok := v.(time.Time); ok && !started.IsZero() {
+			monitoring.MediaTTFBSeconds.WithLabelValues(resource).Observe(time.Since(started).Seconds())
+		}
+	}
+}
+
+// serveManifestBody writes one SUCCESSFUL manifest response and records the
+// media metrics for it. Every 200 manifest path goes through this so a metric
+// cannot be forgotten on one of them.
+func serveManifestBody(c *gin.Context, body string) {
+	c.Header("Content-Type", "application/vnd.apple.mpegurl")
+	setCapabilityResponseHeaders(c)
+	c.String(http.StatusOK, body)
+	mediaRequestServed(c, "manifest", int64(len(body)))
+}
+
 // RegisterStreamingSegmentRoute registers the segment route. genResolver is
 // the published-generation lookup; nil keeps every content at generation 0
 // (legacy flat layout).
@@ -722,6 +749,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 	}
 
 	router.GET(APIPrefix+"/streaming/:id/segment/:num", func(c *gin.Context) {
+		markMediaRequestStart(c)
 		playbackToken := extractPlaybackToken(c)
 		if playbackToken == "" {
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "missing playback token")
@@ -877,6 +905,7 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 				if _, err := c.Writer.Write(data[rangeStart : rangeEnd+1]); err != nil {
 					log.Warn("segment range write interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
 				}
+				mediaRequestServed(c, "segment", rangeEnd-rangeStart+1)
 				monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())
 				q := c.Query("quality")
 				if q == "" {
@@ -887,8 +916,12 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			}
 
 			c.Status(http.StatusOK)
-			if _, err := io.Copy(c.Writer, best.rc); err != nil {
+			written, err := io.Copy(c.Writer, best.rc)
+			if err != nil {
 				log.Warn("segment download interrupted", zap.String("content_id", c.Param("id")), zap.Error(err))
+			}
+			if err == nil {
+				mediaRequestServed(c, "segment", written)
 			}
 			cancel()
 			monitoring.StreamingDownloadDuration.WithLabelValues("success").Observe(time.Since(start).Seconds())

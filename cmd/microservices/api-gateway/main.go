@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/core"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/core/logger"
 	"github.com/rtcdance/streamgate/pkg/gateway"
@@ -38,11 +39,18 @@ func main() {
 	if err := cfg.ValidateProduction(log); err != nil {
 		var ve *config.ValidationError
 		if errors.As(err, &ve) && ve.HasCritical() {
-			log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", ve.Critical))
+			// Criticals are fatal ONLY under the production profile: the demo
+			// and durable-acceptance stacks run on published demo values by
+			// design, so their criticals become loud warnings here.
+			if cfg.EffectiveProfile() == config.ProfileProduction {
+				log.Fatal("Critical security config validation failed (cannot be bypassed)", zap.Strings("errors", ve.Critical))
+			}
+			log.Warn("Config validation reported criticals — non-production profile, continuing",
+				zap.String("profile", cfg.EffectiveProfile()), zap.Strings("criticals", ve.Critical))
 		}
 		if cfg.Debug {
 			log.Warn("Production config validation failed (debug mode, continuing anyway)", zap.Error(err))
-		} else {
+		} else if ve == nil || !ve.HasCritical() {
 			log.Fatal("Config validation failed", zap.Error(err))
 		}
 	}
@@ -106,6 +114,9 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigChan
 	log.Info("Received shutdown signal", zap.String("signal", sig.String()))
+
+	core.SetDraining()
+	log.Info("Drain state activated, rejecting new requests")
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

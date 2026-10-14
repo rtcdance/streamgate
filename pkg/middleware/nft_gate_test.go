@@ -11,9 +11,62 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+// metricValue reads one counter/histogram series from the DEFAULT registry by
+// metric name and exact label set. Used instead of prometheus testutil, which
+// would pull in a new module (kylelemons/godebug) — this project adds no deps.
+func metricValue(t *testing.T, name string, wantLabels map[string]string) float64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, fam := range families {
+		if fam.GetName() != name {
+			continue
+		}
+		var total float64
+		matched := false
+		for _, m := range fam.GetMetric() {
+			if !labelsMatch(m, wantLabels) {
+				continue
+			}
+			matched = true
+			switch fam.GetType() {
+			case dto.MetricType_COUNTER:
+				total += m.GetCounter().GetValue()
+			case dto.MetricType_HISTOGRAM:
+				total += float64(m.GetHistogram().GetSampleCount())
+			case dto.MetricType_GAUGE:
+				total += m.GetGauge().GetValue()
+			}
+		}
+		if matched {
+			return total
+		}
+	}
+	return 0
+}
+
+func labelsMatch(m *dto.Metric, want map[string]string) bool {
+	got := map[string]string{}
+	for _, lp := range m.GetLabel() {
+		got[lp.GetName()] = lp.GetValue()
+	}
+	if len(got) != len(want) {
+		return false
+	}
+	for k, v := range want {
+		if got[k] != v {
+			return false
+		}
+	}
+	return true
+}
 
 const testContractAddr = "0x1234567890123456789012345678901234567890"
 
@@ -574,6 +627,18 @@ func (m *mockGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ s
 	return m.rules, m.err
 }
 
+// mockVersionedRuleResolver additionally reports a rule version, satisfying
+// GatingRuleVersionedResolver so the gate can label its decisions with it.
+type mockVersionedRuleResolver struct {
+	mockGatingRuleResolver
+	version int64
+	verr    error
+}
+
+func (m *mockVersionedRuleResolver) RuleVersion(_ context.Context, _ string) (int64, error) {
+	return m.version, m.verr
+}
+
 type mockBlockProver struct {
 	header    *BlockHeaderInfo
 	err       error
@@ -618,6 +683,68 @@ func (m *mockAuditLogger) Log(_ context.Context, event, _, _, _ string, _ bool, 
 }
 
 func (m *mockAuditLogger) Close() error { return nil }
+
+// TestAcceptance_GateDecisionMetricRecorded drives the real NFTGateMiddleware
+// with fakes and asserts GateDecisionTotal{decision,reason,rule_version}
+// increments on both an allow and a deny, each with the right labels.
+func TestAcceptance_GateDecisionMetricRecorded(t *testing.T) {
+	gateDecisionAllowBefore := metricValue(t, "streamgate_gate_decisions_total",
+		map[string]string{"decision": "allow", "reason": "ok", "rule_version": "7"})
+	denyBefore := metricValue(t, "streamgate_gate_decisions_total",
+		map[string]string{"decision": "deny", "reason": "insufficient_balance", "rule_version": "7"})
+
+	// Allow: the wallet holds a sufficient balance against the server-side rule.
+	allowCfg := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
+		Verifier: &mockNFTOwnershipCheckerOld{
+			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
+				return big.NewInt(3), nil
+			},
+		},
+		RuleResolver: &mockVersionedRuleResolver{
+			mockGatingRuleResolver: mockGatingRuleResolver{rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			}},
+			version: 7,
+		},
+		DefaultChainID: 1,
+	}
+	allowRouter := setupNFTGateRouter(&allowCfg)
+	w := httptest.NewRecorder()
+	allowRouter.ServeHTTP(w, authRequestWithWallet("/stream/123/manifest.m3u8", "0xOwner"))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Deny: same rules, zero balance.
+	denyCfg := NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xq"}},
+		Verifier: &mockNFTOwnershipCheckerOld{
+			balanceFn: func(_ context.Context, _ int64, _ string, _ string) (*big.Int, error) {
+				return big.NewInt(0), nil
+			},
+		},
+		RuleResolver: &mockVersionedRuleResolver{
+			mockGatingRuleResolver: mockGatingRuleResolver{rules: []GatingRule{
+				{ContractAddress: testContractAddr, TokenID: "", ChainID: 1, Standard: "erc721", MinBalance: 1},
+			}},
+			version: 7,
+		},
+		DefaultChainID: 1,
+	}
+	denyRouter := setupNFTGateRouter(&denyCfg)
+	w = httptest.NewRecorder()
+	denyRouter.ServeHTTP(w, authRequestWithWallet("/stream/123/manifest.m3u8", "0xNotOwner"))
+	require.Equal(t, http.StatusForbidden, w.Code)
+
+	gateDecisionAllowAfter := metricValue(t, "streamgate_gate_decisions_total",
+		map[string]string{"decision": "allow", "reason": "ok", "rule_version": "7"})
+	denyAfter := metricValue(t, "streamgate_gate_decisions_total",
+		map[string]string{"decision": "deny", "reason": "insufficient_balance", "rule_version": "7"})
+
+	assert.Equal(t, gateDecisionAllowBefore+1, gateDecisionAllowAfter,
+		"an allow must increment GateDecisionTotal{decision=allow,reason=ok,rule_version=7}")
+	assert.Equal(t, denyBefore+1, denyAfter,
+		"a deny must increment GateDecisionTotal{decision=deny,reason=insufficient_balance,rule_version=7}")
+}
 
 func TestNFTGateMiddleware_WithRuleResolver(t *testing.T) {
 	config := NFTGateConfig{

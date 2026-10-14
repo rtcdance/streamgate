@@ -2,6 +2,9 @@ package config
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -67,6 +70,12 @@ type Config struct {
 	// deployments). It decides which in-memory fallbacks are still permitted —
 	// see IsProduction.
 	Environment string
+
+	// Profile is the explicit runtime profile (unit|demo|durable|production).
+	// It is derived from Environment when not set explicitly; see
+	// DeriveProfile. A strict profile (durable, production) forbids the
+	// in-memory fallbacks that dev/demo/unit rely on.
+	Profile string
 
 	// Server
 	Server ServerConfig
@@ -382,6 +391,23 @@ type AuthConfig struct {
 	NonceExpiry        string
 	SIWEDomain         string
 	SIWEURI            string
+
+	// AccessSecret is the key access JWTs are signed and verified with. When
+	// empty it falls back to JWTSecret itself, which keeps every deployment
+	// that has not been migrated yet working unchanged.
+	AccessSecret string
+	// CapabilitySecret is the key playback capabilities are signed and
+	// verified with. When empty it is derived from JWTSecret via HKDF
+	// (info "streamgate/playback"), so access tokens and playback
+	// capabilities never share a verification key.
+	CapabilitySecret string
+	// PreviousAccessSecrets are retired keys that may still VERIFY (never
+	// sign) access JWTs, so a key can be rotated without invalidating tokens
+	// still inside their TTL. Bounded by MaxPreviousSecrets.
+	PreviousAccessSecrets []string
+	// PreviousCapabilitySecrets is the same bounded verify-only list for the
+	// capability key.
+	PreviousCapabilitySecrets []string
 }
 
 // CORSConfig holds CORS configuration
@@ -456,6 +482,15 @@ func LoadConfig() (*Config, error) {
 
 	// Auth
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
+	// Key separation and rotation (SG-14): the access key, the capability key
+	// and the bounded verify-only lists are bound explicitly because they
+	// decide which tokens verify — AutomaticEnv's key derivation must not be
+	// the only path to them.
+	_ = viper.BindEnv("auth.access_secret", "STREAMGATE_ACCESS_SECRET")
+	_ = viper.BindEnv("auth.capability_secret", "STREAMGATE_CAPABILITY_SECRET")
+	_ = viper.BindEnv("auth.previous_access_secrets", "AUTH_ACCESS_SECRETS")
+	_ = viper.BindEnv("auth.previous_capability_secrets", "AUTH_CAPABILITY_SECRETS")
+	_ = viper.BindEnv("app.profile", "STREAMGATE_PROFILE")
 	_ = viper.BindEnv("app.debug", "APP_DEBUG")
 	_ = viper.BindEnv("server.port", "STREAMGATE_SERVER_PORT")
 
@@ -494,7 +529,7 @@ func LoadConfig() (*Config, error) {
 		Port:        viper.GetInt("app.port"),
 		Debug:       viper.GetBool("app.debug"),
 		Environment: env,
-
+		Profile:     viper.GetString("app.profile"),
 		Server: ServerConfig{
 			Port:         viper.GetInt("server.port"),
 			ReadTimeout:  viper.GetInt("server.read_timeout"),
@@ -641,12 +676,16 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Auth: AuthConfig{
-			JWTSecret:          viper.GetString("auth.jwt_secret"),
-			JWTExpiry:          viper.GetString("auth.jwt_expiry"),
-			RefreshTokenExpiry: viper.GetString("auth.refresh_token_expiry"),
-			NonceExpiry:        viper.GetString("auth.nonce_expiry"),
-			SIWEDomain:         viper.GetString("auth.siwe_domain"),
-			SIWEURI:            viper.GetString("auth.siwe_uri"),
+			JWTSecret:                 viper.GetString("auth.jwt_secret"),
+			JWTExpiry:                 viper.GetString("auth.jwt_expiry"),
+			RefreshTokenExpiry:        viper.GetString("auth.refresh_token_expiry"),
+			NonceExpiry:               viper.GetString("auth.nonce_expiry"),
+			SIWEDomain:                viper.GetString("auth.siwe_domain"),
+			SIWEURI:                   viper.GetString("auth.siwe_uri"),
+			AccessSecret:              viper.GetString("auth.access_secret"),
+			CapabilitySecret:          viper.GetString("auth.capability_secret"),
+			PreviousAccessSecrets:     splitCommaSlice(viper.GetStringSlice("auth.previous_access_secrets")),
+			PreviousCapabilitySecrets: splitCommaSlice(viper.GetStringSlice("auth.previous_capability_secrets")),
 		},
 
 		CORS: CORSConfig{
@@ -699,6 +738,10 @@ func setDefaults() {
 	viper.SetDefault("app.service_name", "")
 	viper.SetDefault("app.port", 8080)
 	viper.SetDefault("app.debug", false)
+	// Empty means "derive" (see DeriveProfile): production when the
+	// environment names production, demo under debug, unit under test,
+	// durable otherwise.
+	viper.SetDefault("app.profile", "")
 
 	// Server defaults
 	viper.SetDefault("server.port", 8080)
@@ -834,6 +877,13 @@ func setDefaults() {
 	// Auth defaults: must set via AUTH_JWT_SECRET env var
 	viper.SetDefault("auth.jwt_secret", "")
 	viper.SetDefault("auth.nonce_expiry", "5m")
+	// Key separation defaults: empty means "derive" — the access key falls
+	// back to the master secret itself (compatible with tokens issued before
+	// the split), the capability key is HKDF-derived from it.
+	viper.SetDefault("auth.access_secret", "")
+	viper.SetDefault("auth.capability_secret", "")
+	viper.SetDefault("auth.previous_access_secrets", []string{})
+	viper.SetDefault("auth.previous_capability_secrets", []string{})
 
 	// CORS defaults
 	viper.SetDefault("cors.allowed_origins", []string{})
@@ -934,6 +984,131 @@ func (c *Config) IsProduction() bool {
 	return false
 }
 
+// Runtime profiles. "unit" injects test doubles, "demo" explicitly opts in to
+// memory fallbacks, "durable" and "production" require the real dependencies.
+const (
+	ProfileUnit       = "unit"
+	ProfileDemo       = "demo"
+	ProfileDurable    = "durable"
+	ProfileProduction = "production"
+)
+
+// MaxPreviousSecrets bounds how many retired keys a deployment may keep
+// verifying with. Signing always uses the current key; the list only lets
+// tokens still inside their TTL verify during a rotation. Unbounded growth
+// would make a removed key able to verify forever.
+const MaxPreviousSecrets = 2
+
+// DeriveProfile returns the effective runtime profile. An explicitly set
+// profile wins; otherwise it is derived: "production" only when the app is
+// NOT in debug mode and the environment names production, "unit" under the
+// test environment, and "demo" otherwise. Debug is an explicit opt-in to
+// demo behaviour, so it can never derive to production; "durable" is only
+// ever selected explicitly (the acceptance stack sets it via config).
+func DeriveProfile(environment string, debug bool, explicit string) string {
+	if p := strings.ToLower(strings.TrimSpace(explicit)); p != "" {
+		return p
+	}
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "test", "unit":
+		return ProfileUnit
+	}
+	if !debug {
+		switch strings.ToLower(strings.TrimSpace(environment)) {
+		case "production", "prod":
+			return ProfileProduction
+		}
+	}
+	return ProfileDemo
+}
+
+// EffectiveProfile returns the config's profile, deriving it when the field
+// was not set explicitly (older Config values built without LoadConfig).
+func (c *Config) EffectiveProfile() string {
+	if p := strings.ToLower(strings.TrimSpace(c.Profile)); p != "" {
+		return p
+	}
+	return DeriveProfile(c.Environment, c.Debug, "")
+}
+
+// IsStrictProfile reports whether the profile forbids in-memory fallbacks:
+// the durable-acceptance and production profiles both require the real
+// dependencies and fail startup instead of degrading.
+func (c *Config) IsStrictProfile() bool {
+	switch c.EffectiveProfile() {
+	case ProfileDurable, ProfileProduction:
+		return true
+	}
+	return false
+}
+
+// ProductionKeyPolicy reports whether production key/secrets policy is
+// enforced. Demo and durable profiles run the acceptance stack, whose keys
+// (compose acceptance secret, Anvil test key) are by design not production
+// secrets; only the production profile refuses them.
+func (c *Config) ProductionKeyPolicy() bool {
+	return c.EffectiveProfile() == ProfileProduction
+}
+
+// HKDF domain-separation labels. The access label is applied only when an
+// explicit access secret is configured; the capability label is always
+// applied to the derived capability key.
+const (
+	hkdfAccessInfo     = "streamgate/access"
+	hkdfCapabilityInfo = "streamgate/playback"
+)
+
+// DeriveCapabilitySecret derives the playback-capability verification key
+// from a master secret via HKDF-SHA256. Domain separation with a distinct
+// info string is what keeps a capability and an access token from ever
+// sharing a verification key when only the master secret is configured.
+func DeriveCapabilitySecret(masterSecret string) string {
+	key, err := hkdf.Key(sha256.New, []byte(masterSecret), nil, hkdfCapabilityInfo, 32)
+	if err != nil {
+		// crypto/hkdf with SHA-256 cannot fail for a 32-byte output; keep the
+		// fallback deterministic rather than panicking in a config path.
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(key)
+}
+
+// EffectiveAccessSecret returns the key access JWTs are signed with. It is
+// Auth.AccessSecret when set, else the legacy JWTSecret — deliberately NOT
+// derived, so a deployment that has not been migrated keeps verifying the
+// tokens it already issued.
+func (c *Config) EffectiveAccessSecret() string {
+	if s := strings.TrimSpace(c.Auth.AccessSecret); s != "" {
+		return s
+	}
+	return c.Auth.JWTSecret
+}
+
+// EffectiveCapabilitySecret returns the key playback capabilities are signed
+// with: the explicit secret when set, else derived from the master secret.
+func (c *Config) EffectiveCapabilitySecret() string {
+	if s := strings.TrimSpace(c.Auth.CapabilitySecret); s != "" {
+		return s
+	}
+	return DeriveCapabilitySecret(c.Auth.JWTSecret)
+}
+
+// insecureJWTSecrets are values that shipped in this repository, the compose
+// stack or the dev placeholder config. Any of them in a production deployment
+// means the deployment is running on a published key.
+var insecureJWTSecrets = []string{
+	"streamgate-dev-secret-32chars!!",
+	"streamgate-dev-secret",
+	"your-secret-key-change-in-production",
+	"dev-secret-key-not-for-production",
+	"fullchain-acceptance-secret-2026",
+	"jwt-secret-placeholder-set-STREAMGATE_JWT_SECRET-env",
+}
+
+// wellKnownTestPrivateKey is the first private key of the standard Anvil /
+// Hardhat test mnemonic. It is public knowledge, so it must never sign
+// anything on a production chain.
+const wellKnownTestPrivateKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
 func (c *Config) ValidateProduction(log *zap.Logger) error {
 	var ve ValidationError
 
@@ -1028,6 +1203,8 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		}
 	}
 
+	c.validateKeyPolicy(&ve)
+
 	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" { // #nosec G101 -- checking for insecure default
 		ve.Warnings = append(ve.Warnings, "storage credentials use dev default 'minioadmin'")
 	}
@@ -1081,6 +1258,59 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		return &ve
 	}
 	return nil
+}
+
+// validateKeyPolicy applies the SG-14 key/secrets policy. Published demo /
+// test secrets and the well-known Anvil key are CRITICAL only under the
+// production profile: the demo and durable-acceptance stacks run on exactly
+// these values by design (compose acceptance secret, Anvil test key), so
+// there they become warnings that the mains still log. The rotation bound and
+// explicit-key strength apply everywhere — an unbounded rotation list lets a
+// removed key verify forever, and a short explicit key is as weak as a short
+// master secret.
+func (c *Config) validateKeyPolicy(ve *ValidationError) {
+	// Bounded key rotation. Signers always use the current key; the previous
+	// list only lets tokens inside their TTL verify.
+	if len(c.Auth.PreviousAccessSecrets) > MaxPreviousSecrets {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"auth.previous_access_secrets has %d entries — maximum %d", len(c.Auth.PreviousAccessSecrets), MaxPreviousSecrets))
+	}
+	if len(c.Auth.PreviousCapabilitySecrets) > MaxPreviousSecrets {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"auth.previous_capability_secrets has %d entries — maximum %d", len(c.Auth.PreviousCapabilitySecrets), MaxPreviousSecrets))
+	}
+	if s := c.Auth.AccessSecret; s != "" && len(s) < 32 {
+		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.access_secret is only %d bytes — minimum 32 bytes required for HS256", len(s)))
+	}
+	if s := c.Auth.CapabilitySecret; s != "" && len(s) < 32 {
+		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.capability_secret is only %d bytes — minimum 32 bytes required for HS256", len(s)))
+	}
+
+	if c.ProductionKeyPolicy() {
+		for _, s := range insecureJWTSecrets {
+			if c.Auth.JWTSecret == s {
+				ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret uses a published demo/test value ('%s')", s))
+				break
+			}
+		}
+		// The Anvil/Hardhat first test key is public; signing production
+		// transactions with it would make every write reproducible by anyone.
+		if pk := strings.TrimPrefix(c.Web3.Transaction.PrivateKeyHex, "0x"); strings.EqualFold(pk, wellKnownTestPrivateKey) {
+			ve.Critical = append(ve.Critical, "web3.transaction.private_key_hex is the well-known Anvil/Hardhat test key")
+		}
+		// A dev-only signing key must not exist in a production deployment at
+		// all: it is the key that powers the demo NFT mint.
+		if strings.TrimSpace(c.Web3.AnvilDeployerKey) != "" {
+			ve.Critical = append(ve.Critical, "web3.anvil_deployer_key is set — the Anvil dev deployer key must not exist in production")
+		}
+		return
+	}
+	for _, s := range insecureJWTSecrets {
+		if c.Auth.JWTSecret == s {
+			ve.Warnings = append(ve.Warnings, fmt.Sprintf("auth.jwt_secret uses a demo/test value ('%s') — acceptable only outside the production profile", s))
+			break
+		}
+	}
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.

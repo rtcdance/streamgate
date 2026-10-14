@@ -122,3 +122,18 @@ func (a *gatingRuleResolverAdapter) GetActiveRulesForContent(ctx context.Context
 
 	return result, nil
 }
+
+// RuleVersion implements middleware.GatingRuleVersionedResolver: it reads the
+// CURRENT version from the authority. The gate uses it to label
+// GateDecisionTotal with the rule revision its decision was made under; a
+// missing authority version store reports "0".
+func (a *gatingRuleResolverAdapter) RuleVersion(ctx context.Context, contentID string) (int64, error) {
+	if a.versions == nil {
+		return 0, nil
+	}
+	v, err := a.versions.Read(ctx, contentID)
+	if err != nil {
+		return 0, err
+	}
+	return v.Version, nil
+}
