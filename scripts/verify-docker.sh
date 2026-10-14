@@ -819,12 +819,27 @@ perf_rounds() {
   done
 }
 
-# perf_seed_and_pool <project> <dir> — seed through the acceptance (its side
-# effects ARE the seed) and build the wallet pool the measured rounds reuse.
-# Sets COMPARE_CONTENT_ID / COMPARE_FIXTURE_HASH for the caller.
+# perf_seed_and_pool <project> <dir> [tolerant] — seed through the acceptance
+# (its side effects ARE the seed) and build the wallet pool the measured rounds
+# reuse. Sets COMPARE_CONTENT_ID / COMPARE_FIXTURE_HASH for the caller.
+#
+# tolerant=1 is for the REFERENCE stack only: its job is to be a perf baseline,
+# and the acceptance's browser-decode check needs a Chromium navigation that is
+# orthogonal to the measured TTFB of gated media — a single idle-page timeout
+# there must not sink a p95 comparison. The seed is still validated where it
+# matters: the content and its transcode must exist, which the assertions below
+# enforce. The candidate keeps the full 66-check gate in the media stage.
 perf_seed_and_pool() {
-  local project="$1" dir="$2"
-  run_logged compare-seed run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
+  local project="$1" dir="$2" tolerant="${3:-0}" log_file="${LOG_DIR}/compare-seed.log"
+  mkdir -p "$LOG_DIR"; : > "$log_file"
+  log "stage=compare-seed (host) → log ${log_file}"
+  if ! run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 2>&1 | tee -a "$log_file"; then
+    if [ "$tolerant" = "1" ]; then
+      log "WARNING: the reference seed's acceptance reported a failure (log: ${log_file}) — tolerated for a PERF reference; the seeded content is asserted next"
+    else
+      fail "seed acceptance failed for ${project} (log: ${log_file})"
+    fi
+  fi
   COMPARE_CONTENT_ID="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
     psql -U postgres -d streamgate -tAc "SELECT id FROM contents ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
     | tr -d '[:space:]' || true)"
@@ -862,7 +877,7 @@ perf_reference_pass() {
   VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
   unset VERIFY_BUILD_REF
   if [ -n "$saved_rpcs" ]; then export VERIFY_CHAIN_RPCS="$saved_rpcs"; fi
-  perf_seed_and_pool "$project" "$dir"
+  perf_seed_and_pool "$project" "$dir" 1
   perf_rounds "$dir" "${dir}/wallets.keys" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH"
   teardown_fullstack "$project"
 }
