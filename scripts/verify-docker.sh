@@ -635,13 +635,120 @@ stage_media() {
 # the acceptance's own wallet. Host-side: perf-acceptance.sh needs go+cast on
 # the host.
 # ---------------------------------------------------------------------------
+# wait_for_anvil_proxy <project> — the socat forwarder carries no healthcheck
+# (the image has no probe utility), so readiness is asserted through the chain
+# itself: cast, run from the anvil container, must reach the chain BY PROXY
+# NAME. A proxy that is not forwarding would leave the monolith's rpc_urls
+# pointing at a dead primary, and the fallback scenario would prove nothing.
+wait_for_anvil_proxy() {
+  local project="$1" deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T anvil \
+      cast chain-id --rpc-url http://anvil-proxy:8545 2>/dev/null | grep -q '31337'; then
+      log "anvil-proxy forwards to the anvil chain"
+      return 0
+    fi
+    sleep 2
+  done
+  fail "anvil-proxy never forwarded to the chain (project ${project})"
+}
+
+# assert_two_chain_endpoints <project> — the monolith must actually be holding
+# TWO same-chain endpoints, or the fault scenarios below degrade into a single
+# dead endpoint. Read it back from the app rather than trusting the compose
+# interpolation.
+assert_two_chain_endpoints() {
+  local port="$1"
+  python3 - "$port" <<'PY' || fail "the monolith does not expose two chain-31337 RPC endpoints"
+import json, sys, urllib.request
+port = sys.argv[1]
+with urllib.request.urlopen(f"http://localhost:{port}/api/v1/web3/rpc-status", timeout=10) as r:
+    data = json.load(r)
+for chain in data.get("chains", []):
+    if chain.get("chain_id") == 31337:
+        urls = [e.get("url", "") for e in chain.get("rpcs", [])]
+        print(f"chain 31337 endpoints: {urls}")
+        if len(urls) != 2:
+            sys.exit(f"expected 2 endpoints, got {len(urls)}: {urls}")
+        sys.exit(0)
+sys.exit("chain 31337 is not reported at all")
+PY
+}
+
+# perf_scenario <scenario> <viewers> <result-dir> <content-id> <fixture-hash>
+#   [skip-warmup] — one labelled load pass against the per-run stack. The
+# wallet pool already exists (the warm pass ran PERF_SETUP), so later passes
+# REUSE it: regenerating the pool and re-minting 50 NFTs would cost ~6 minutes
+# per scenario and cover nothing new.
+perf_scenario() {
+  local scenario="$1" viewers="$2" result_dir="$3" content_id="$4" fixture_hash="$5" skip_warmup="${6:-0}"
+  PERF_CONTENT_ID="$content_id" \
+  PERF_FIXTURE_HASH="$fixture_hash" \
+  PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
+  PERF_SKIP_WARMUP="$skip_warmup" \
+  SCENARIO="$scenario" \
+  VIEWERS_LIST="$viewers" \
+  RESULT_DIR="$result_dir" \
+  BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
+    bash scripts/perf-acceptance.sh \
+    || fail "perf-acceptance.sh failed (scenario=${scenario})"
+}
+
+# perf_fault_matrix <project> <result-dir> <content-id> <fixture-hash> — SG-07
+# step 3's fault scenarios, each with a real injection and the bar the harness
+# applies to that label (test/load/live_test.go):
+#   cold_cache       restart the monolith (its L1 is in-process) and drop the
+#                    L2 keys — sessions live in the same Redis, so ONLY
+#                    nft_cache:* is deleted; ≥99% still required.
+#   rpc_primary_down stop the proxy, keep the direct anvil: the fallback must
+#                    carry 50 concurrent viewers at ≥99%.
+#   rpc_all_down     stop both endpoints: the only acceptable result is a total
+#                    denial — 0 served, 0 media bytes.
+perf_fault_matrix() {
+  local project="$1" result_dir="$2" content_id="$3" fixture_hash="$4"
+
+  log "fault matrix: cold_cache (restart monolith, drop L2 gate keys)"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" restart monolith >/dev/null \
+    || fail "could not restart the monolith for the cold_cache scenario"
+  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
+    || fail "monolith did not come back for the cold_cache scenario"
+  # Targeted, not FLUSHALL: sessions, blacklist and rate-limit buckets share
+  # this Redis and must survive, or the run would measure a logged-out stack.
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T redis \
+    sh -c "redis-cli --scan --pattern 'nft_cache:*' | while read -r k; do [ -n \"\$k\" ] && redis-cli DEL \"\$k\"; done" >/dev/null 2>&1 || true
+  perf_scenario cold_cache 10 "$result_dir" "$content_id" "$fixture_hash"
+
+  log "fault matrix: rpc_primary_down (stop the primary proxy; fallback must serve)"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil-proxy >/dev/null \
+    || fail "could not stop the anvil-proxy for the rpc_primary_down scenario"
+  perf_scenario rpc_primary_down 50 "$result_dir" "$content_id" "$fixture_hash" 1
+
+  log "fault matrix: rpc_all_down (stop both endpoints)"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil >/dev/null \
+    || fail "could not stop the anvil for the rpc_all_down scenario"
+  perf_scenario rpc_all_down 10 "$result_dir" "$content_id" "$fixture_hash" 1
+
+  log "fault matrix: restoring the chain endpoints"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil-proxy >/dev/null 2>&1 || true
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil >/dev/null 2>&1 || true
+}
+
 stage_perf() {
   require_host_tool docker
   require_host_tool go
   require_host_tool cast
   local project="${PROJECT_NAME}-perf" result_dir content_id
+  # Two SAME-CHAIN endpoints for this stage only, the stoppable proxy FIRST:
+  # perf is where the fallback and all-down scenarios are injected, so the
+  # monolith is given a primary it can lose without losing the chain. The
+  # other fullstack stages leave this unset and keep their single endpoint.
+  # It stays exported for the whole stage because `compose restart`/`start`
+  # re-interpolate the file; it is cleared before the stage returns.
+  export VERIFY_CHAIN_RPCS="http://anvil-proxy:8545,http://anvil:8545"
   # perf targets the monolith only; the gateway is not needed for load.
-  bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
+  bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy monolith transcoder
+  wait_for_anvil_proxy "$project"
+  assert_two_chain_endpoints "$VERIFY_MONO_PORT"
   run_logged perf run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
   if [ -n "${PERF_CONTENT_ID:-}" ]; then
     content_id="$PERF_CONTENT_ID"
@@ -675,23 +782,35 @@ stage_perf() {
   BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
     bash scripts/perf-acceptance.sh \
     || fail "perf-acceptance.sh failed"
+  # SG-07 step 3: the fault matrix, injected for real against this same stack.
+  perf_fault_matrix "$project" "$result_dir" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
   log "perf results in ${result_dir}"
   ls -la "$result_dir"
   # SG-07: a result that lost its provenance (commit / scenario) is not an
-  # acceptance artefact.
+  # acceptance artefact — and every scenario must be bound to THIS candidate,
+  # not an earlier run's numbers.
   python3 - "$result_dir" <<'PY' || fail "perf results failed the provenance check"
-import glob, json, sys
-files = sorted(glob.glob(sys.argv[1] + "/warm_cache-viewers-*.json"))
+import glob, json, os, sys
+files = sorted(glob.glob(os.path.join(sys.argv[1], "*-viewers-*.json")))
 if not files:
-    sys.exit("no warm_cache result files found")
+    sys.exit("no scenario result files found")
+seen = set()
 for f in files:
     r = json.load(open(f))
     for key in ("commit", "scenario", "content_id", "viewers", "success_count"):
-        if r.get(key) in (None, ""):
+        if r.get(key) in (None, "", []):
             sys.exit(f"{f}: missing provenance field {key!r}")
-    print(f"provenance ok: {f.split('/')[-1]} commit={r['commit'][:12]} fixture_hash={r.get('fixture_hash','')[:16]}")
+    seen.add(r["scenario"])
+    print(f"provenance ok: {os.path.basename(f)} commit={r['commit'][:12]} "
+          f"success={r['success_count']} errors={r['error_count']} "
+          f"fixture_hash={str(r.get('fixture_hash',''))[:16]}")
+required = {"warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"}
+missing = sorted(required - seen)
+if missing:
+    sys.exit(f"the fault matrix is incomplete — no result for: {missing}")
 PY
   teardown_fullstack "$project"
+  unset VERIFY_CHAIN_RPCS
 }
 
 # ---------------------------------------------------------------------------

@@ -703,6 +703,23 @@ func LoadConfig() (*Config, error) {
 		cfg.Web3.Chains = chains
 	}
 
+	// STREAMGATE_CHAIN_RPC_URLS overrides the endpoint list of the ACTIVE
+	// chain (web3.chain_id), so an acceptance stack can present two same-chain
+	// endpoints — one behind a stoppable proxy — and exercise the fallback path
+	// under load without editing config.yaml. Scoped to the active chain id so
+	// every other configured chain keeps its own endpoints.
+	if raw := strings.TrimSpace(os.Getenv("STREAMGATE_CHAIN_RPC_URLS")); raw != "" {
+		if urls := splitCommaSlice([]string{raw}); len(urls) > 0 {
+			activeID := viper.GetInt64("web3.chain_id")
+			for i := range cfg.Web3.Chains {
+				if cfg.Web3.Chains[i].ID == activeID {
+					cfg.Web3.Chains[i].RPCs = urls
+					cfg.Web3.Chains[i].RPC = urls[0]
+				}
+			}
+		}
+	}
+
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return nil, fmt.Errorf("invalid server port: %d", cfg.Server.Port)
 	}

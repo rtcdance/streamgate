@@ -1003,3 +1003,80 @@ func TestTransactionConfig(t *testing.T) {
 	assert.Equal(t, float64(1.2), cfg.GasMultiplier)
 	assert.True(t, cfg.EIP1559)
 }
+
+// TestLoadConfig_ChainRPCURLsOverride pins the acceptance-only override: the
+// ACTIVE chain's endpoint list may be replaced wholesale from the environment,
+// which is how the perf stack presents two same-chain endpoints so the
+// fallback path can be exercised under load. Other chains must be untouched —
+// a global override would hand, say, Ethereum mainnet the acceptance stack's
+// local endpoints.
+func TestLoadConfig_ChainRPCURLsOverride(t *testing.T) {
+	viper.Set("web3.chains", []map[string]any{
+		{
+			"id":       31337,
+			"name":     "anvil-local",
+			"rpc_url":  "http://anvil:8545",
+			"rpc_urls": []string{"http://anvil:8545"},
+		},
+		{
+			"id":       1,
+			"name":     "ethereum",
+			"rpc_url":  "https://eth.example",
+			"rpc_urls": []string{"https://eth.example"},
+		},
+	})
+	t.Cleanup(func() { viper.Set("web3.chains", []map[string]any{}) })
+
+	_ = os.Setenv("WEB3_CHAIN_ID", "31337")
+	_ = os.Setenv("STREAMGATE_CHAIN_RPC_URLS", "http://primary:8545,http://fallback:8545")
+	t.Cleanup(func() {
+		_ = os.Unsetenv("WEB3_CHAIN_ID")
+		_ = os.Unsetenv("STREAMGATE_CHAIN_RPC_URLS")
+	})
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	var active, other *ChainConfigEntry
+	for i := range cfg.Web3.Chains {
+		switch cfg.Web3.Chains[i].ID {
+		case 31337:
+			active = &cfg.Web3.Chains[i]
+		case 1:
+			other = &cfg.Web3.Chains[i]
+		}
+	}
+
+	require.NotNil(t, active, "the active chain must be configured")
+	require.NotNil(t, other, "the non-active chain must still be configured")
+	assert.Equal(t, []string{"http://primary:8545", "http://fallback:8545"}, active.RPCs,
+		"the active chain takes the env endpoint list")
+	assert.Equal(t, "http://primary:8545", active.RPC,
+		"rpc_url mirrors the first endpoint so legacy readers stay consistent")
+	assert.Equal(t, []string{"https://eth.example"}, other.RPCs,
+		"only the active chain is overridden")
+}
+
+// TestLoadConfig_ChainRPCURLsNoOverride is the negative half: with the env
+// unset, every chain keeps the endpoint list from its own config.
+func TestLoadConfig_ChainRPCURLsNoOverride(t *testing.T) {
+	viper.Set("web3.chains", []map[string]any{
+		{
+			"id":       31337,
+			"name":     "anvil-local",
+			"rpc_url":  "http://anvil:8545",
+			"rpc_urls": []string{"http://anvil:8545"},
+		},
+	})
+	t.Cleanup(func() { viper.Set("web3.chains", []map[string]any{}) })
+
+	_ = os.Unsetenv("STREAMGATE_CHAIN_RPC_URLS")
+	_ = os.Setenv("WEB3_CHAIN_ID", "31337")
+	t.Cleanup(func() { _ = os.Unsetenv("WEB3_CHAIN_ID") })
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	require.Len(t, cfg.Web3.Chains, 1)
+	assert.Equal(t, []string{"http://anvil:8545"}, cfg.Web3.Chains[0].RPCs)
+}
