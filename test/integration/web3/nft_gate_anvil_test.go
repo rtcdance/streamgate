@@ -32,7 +32,13 @@ func (r staticRuleResolver) GetActiveRulesForContent(_ context.Context, _ string
 
 // gateRouter wires the real gate with a pre-authenticated wallet, so the test
 // exercises rule resolution, quantity verification and the decision itself.
-func gateRouter(verifier middleware.NFTOwnershipChecker, wallet string, rules ...middleware.GatingRule) *gin.Engine {
+//
+// prover is required, not optional: the gate pins every authorization to ONE
+// resolved block, and a nil prover fails closed (503) by design. This test
+// passes the real Web3Service as its own prover so the whole path — tag
+// resolution, pinned ERC-165 probe, pinned balance query — runs against a live
+// Anvil instead of a mock.
+func gateRouter(verifier middleware.NFTOwnershipChecker, prover middleware.BlockProver, wallet string, rules ...middleware.GatingRule) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -41,6 +47,7 @@ func gateRouter(verifier middleware.NFTOwnershipChecker, wallet string, rules ..
 	})
 	r.Use(middleware.NFTGateMiddleware(&middleware.NFTGateConfig{
 		Verifier:       verifier,
+		BlockProver:    prover,
 		RuleResolver:   staticRuleResolver{rules: rules},
 		DefaultChainID: anvilChainID,
 	}, zap.NewNop()))
@@ -85,7 +92,11 @@ func TestAnvil_ERC1155_Web3Service_NFTGate(t *testing.T) {
 
 	// ERC-1155 has no collection-wide quantity: asking for one must error
 	// rather than invent a total that a min>1 rule could be measured against.
-	_, err = svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), "", wallet)
+	// The block argument is nil here on purpose: this test asserts the raw
+	// on-chain quantity (the caller is not assembling an authorization from two
+	// reads), so the documented tag-based path is what we want — mineUntilSafe
+	// already advanced the safe tag past each mint below.
+	_, err = svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), "", wallet, nil)
 	require.Error(t, err, "ERC-1155 collection quantity must be refused")
 
 	ruleMin1 := middleware.GatingRule{ContractAddress: contractAddr.Hex(), TokenID: tokenID, ChainID: anvilChainID, Standard: "erc1155", MinBalance: 1}
@@ -95,23 +106,23 @@ func TestAnvil_ERC1155_Web3Service_NFTGate(t *testing.T) {
 	rc1 := transact(t, ethCli, auth, contract, "mint", auth.From, big.NewInt(7), big.NewInt(1))
 	mineUntilSafe(t, rpcURL, rc1.BlockNumber.Uint64())
 
-	qty1, err := svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), tokenID, wallet)
+	qty1, err := svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), tokenID, wallet, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, qty1.Cmp(big.NewInt(1)), "on-chain ERC-1155 quantity must be 1")
 
-	require.Equal(t, http.StatusOK, gateStatus(t, gateRouter(svc, wallet, ruleMin1), "/stream/c1/manifest.m3u8"),
+	require.Equal(t, http.StatusOK, gateStatus(t, gateRouter(svc, svc, wallet, ruleMin1), "/stream/c1/manifest.m3u8"),
 		"balance 1 must satisfy min=1")
-	require.Equal(t, http.StatusForbidden, gateStatus(t, gateRouter(svc, wallet, ruleMin2), "/stream/c1/manifest.m3u8"),
+	require.Equal(t, http.StatusForbidden, gateStatus(t, gateRouter(svc, svc, wallet, ruleMin2), "/stream/c1/manifest.m3u8"),
 		"balance 1 must NOT satisfy min=2")
 
 	// --- balance 2: min=2 now allows ---
 	rc2 := transact(t, ethCli, auth, contract, "mint", auth.From, big.NewInt(7), big.NewInt(1))
 	mineUntilSafe(t, rpcURL, rc2.BlockNumber.Uint64())
 
-	qty2, err := svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), tokenID, wallet)
+	qty2, err := svc.GetNFTOwnershipQuantity(ctx, anvilChainID, contractAddr.Hex(), tokenID, wallet, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, qty2.Cmp(big.NewInt(2)), "on-chain ERC-1155 quantity must be 2")
 
-	require.Equal(t, http.StatusOK, gateStatus(t, gateRouter(svc, wallet, ruleMin2), "/stream/c1/manifest.m3u8"),
+	require.Equal(t, http.StatusOK, gateStatus(t, gateRouter(svc, svc, wallet, ruleMin2), "/stream/c1/manifest.m3u8"),
 		"balance 2 must satisfy min=2")
 }

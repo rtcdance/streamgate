@@ -153,6 +153,14 @@ stage_unit() {
     go build ./...
     echo "== go build (-tags nats_integration) =="
     go build -tags nats_integration ./...
+    echo "== tag-gated compile precheck (anvil / load / testnet) =="
+    # Build-tagged test files are invisible to the checks above, so a call-site
+    # drift inside one (an API that gained a parameter) survives every default
+    # build and only explodes in the chain stage ten minutes later. Vet each tag
+    # here, where the feedback is immediate and the cause is obvious.
+    go vet -tags anvil ./test/... ./pkg/...
+    go vet -tags load ./test/load/
+    go vet -tags testnet ./test/...
     echo "== go mod tidy is clean =="
     cp go.mod /tmp/go.mod.before; cp go.sum /tmp/go.sum.before
     go mod tidy
