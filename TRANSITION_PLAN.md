@@ -311,7 +311,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；live 跑分（1/10/50 观众 + 故障矩阵 + reference 对比）待在干净候选上对真实栈执行后勾选）
+### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；干净候选 `f20fb92` 的 `verify-docker all` 已实跑 **warm_cache 1/10/50（50 观众 1400/1400，100%）**，见 §8.16 D；**故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）与同 runner 固定 reference 的 p95 ≤1.20× 比较尚未接线**，见 §8.14 限制条）
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -1396,10 +1396,10 @@ sequenceDiagram
 |---|---|---|
 | 每观众独立真实钱包 | PASS | 单钱包 10 观众实测 **140×429**（auth 10/min×2 请求/登录 → 6 次登录即 429；媒体共用一个 IP 桶）。harness 扩展 `Wallets[]` 池：`PERF_SETUP=1` 生成确定性钱包（keccak 派生、0600）→ 节流登录（`X-Wallet-Address` 桶隔离，pace 7s）→ 逐个 dev-mint。**50 钱包 setup 344s 实跑成功**（`TestPerfSetup_MintViewerWallets`），测试 `TestPerfHarness_MultiWalletViewerMapping` 等 5 例 `-race` 全绿 |
 | **抓出并修复合桶缺陷** | PASS（真实缺陷，非测试问题） | 多钱包下 10 观众仍 25% 成功率（120×429 = 恰好 dev 配置 120/min 的满额桶）。根因：全局限流器（`gateway.go:254`）注册在 **auth 之前** ⇒ `ratelimit.go:414` 的 wallet 分支永不执行，实际按 `ClientIP:Path` 分桶；10 个真实观众共享同一 manifest 路径键被合并成一个预算——正是 `MediaRateLimitAndNAT` 要防的 NAT 合桶。决定性证据：`http_requests_total` 媒体路由**无 429**（rlHandler 在 prometheus/logging 之前 abort）而 `rate_limit_total{redis,denied}=290`，容器日志 60 分钟 0 条 429；SG-14 钱包级媒体限流器从未被触发。修复 `f4d65bc`：`/api/v1/streaming/` 豁免于 IP 键控全局限流器，媒体预算完全交给 auth 后按 wallet+路由模板的媒体限流器；新增 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`（媒体超全局预算仍 200、非媒体仍 429），`-race` middleware+gateway 全绿 |
-| **1/10/50 观众矩阵（M4）** | **PASS，全部 100%** | `RESULT_DIR=/tmp/streamgate-perf-final`，commit `f4d65bc`，fixture hash `086df28bae4aca16`，每观众独立钱包 pool=1/10/50、paced=true：**1 观众 28/28、10 观众 280/280、50 观众 1400/1400，success 100.00%、error=0、无任何 4xx**；bytes 42070/420700/2103500（逐分片全量读取）；ttfb_p95 = 58.4/85.5/61.7ms。**M4 判据"50 观众 ≥99% 成功"实测满足**（门槛 99%，实测 100%） |
+| **1/10/50 观众矩阵（仅 M4 的吞吐判据）** | **PASS，全部 100%** | `RESULT_DIR=/tmp/streamgate-perf-final`，commit `f4d65bc`，fixture hash `086df28bae4aca16`，每观众独立钱包 pool=1/10/50、paced=true：**1 观众 28/28、10 观众 280/280、50 观众 1400/1400，success 100.00%、error=0、无任何 4xx**；bytes 42070/420700/2103500（逐分片全量读取）；ttfb_p95 = 58.4/85.5/61.7ms。**M4 判据"50 观众 ≥99% 成功"实测满足**（门槛 99%，实测 100%） |
 | 负例（安全放行 0） | PASS | 同一轮 harness 内 `logins_failed=0`；media stage 的 66 检查含全部篡改/无 NFT/过期负例（0 放行），见 media stage |
 
-**限制（如实记录）**：warm_cache 场景；cold_cache / rpc_primary_down / rpc_all_down 三场景由 verify-docker `perf` stage 负责在独立栈上跑（其 RPC 故障注入走停止 RPC 容器 + SCENARIO 标签）；固定 reference 的 p95 回归 ≤20% 比较需两次同 runner 数据，当前单轮数据仅作基线登记；50 观众达标是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
+**限制（如实记录；2026-10-14 复核修正）**：`all` DAG 的 `perf` stage 只跑 **warm_cache** 1/10/50（即 `SCENARIO` 的环境默认值）。本文件早先写的"cold_cache / rpc_primary_down / rpc_all_down 三场景由该 stage 负责跑"**不准确**：`scripts/perf-acceptance.sh` 只接受 `SCENARIO` 标签并把它记进结果，**本身不注入任何故障**（其文件头明确要求调用方先注入故障，cold_cache 需先重启缓存容器），而 `all` 目前没有该接线。因此范式三场景与"同 runner 固定 reference 的 p95 ≤1.20×"比较**尚未纳入 DAG**，SG-07 记为**部分完成**。已实测的 warm_cache 干净候选结果见 §8.16 D。50 观众达标是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
 
 **SG-08 已落地**（提交 `6754161`，2026-10-13）：
 
@@ -1502,7 +1502,7 @@ sequenceDiagram
 
 | R | 实现入口（文件/接口） | 稳定测试 ID | SHA / 实证 | 限制 |
 |---|---|---|---|---|
-| R01 核心 flow 真实运行 | `cmd/monolith` + `pkg/gateway/routes.go`（auth→gate→stream 链） | `fullchain-acceptance.sh` 66 检查（双模式） | `de4b83c..f4d65bc`；双模式 ALL 66 PASSED×多轮 | M0 的"干净候选全部 stage"待最终一次全跑 |
+| R01 核心 flow 真实运行 | `cmd/monolith` + `pkg/gateway/routes.go`（auth→gate→stream 链） | `fullchain-acceptance.sh` 66 检查（双模式） | `de4b83c..f4d65bc`；双模式 ALL 66 PASSED×多轮；**干净候选 `f20fb92` 七阶段 `verify-docker` 全绿（见 D）** | 无 |
 | R02 真钱包身份/不越权 | `pkg/service/auth_wallet.go`、`pkg/service/gating/rule.go`、`pkg/middleware/auth.go` | `TestWalletAuth_*`、`TestGatingRule_NonOwner*`、`TestHandle*Content_NotOwner` | `656bdc8`、反向证明 A 组 | session 权威源是 Redis 而非计划写的 Postgres（§8.11 已记录偏离） |
 | R03 ERC-721/1155 数量与缓存 | `pkg/web3/nft/verifier.go`、`pkg/middleware/nft_gate.go` | `TestNFTGate_ERC1155Quantity_*`、`TestAnvil_ERC1155Quantity`、chain 层负例（`fdad9f2` 新补） | `fdad9f2`、§8.4 | 无 |
 | R04 多 RPC 同链回退/同区块 | `pkg/web3/chain.go`、`BlockProver` | `TestAnvil_EndpointFailoverStaysOnTheSameChain`、`TestResolveQuantity_PinsTheAnchorBlock` | §8.9 | 同等验收仅 Anvil（README 已收窄） |
@@ -1514,6 +1514,34 @@ sequenceDiagram
 | R10 吞吐/指标有测量 | `test/load/harness.go`、`pkg/monitoring` | `TestPerfHarness_*` + live 1/10/50（50 观众 100%） | `e78eb95`、`f4d65bc`、§8.14 | p95 回归 ≤20% 需两轮同 runner 数据（首轮已登记为基线） |
 | R11 CI 可失败/可追溯 | `.github/workflows/{ci,build,deploy,release-validation}.yml`、`scripts/cd/assert_required_tests.py` | 部署失败反向证明 `EXIT=1`；coverage 门 15 例 expect fail | `6754161`、`7ce823c` | **远端真实 CI 与 release-validation 待 push 授权** |
 | R12 取舍可解释/数字可证实 | `TRANSITION_PLAN.md` §8 全部证据、`docs/resume/` | 本表 + §8.1～8.16 每条带 SHA/实测数字 | `656bdc8`、§8.x 各节 | 本人讲述/录屏/投递为人工项，单列 |
+
+**D. 干净候选全阶段实跑（M0；candidate `f20fb92`）**：
+
+M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-docker` 在独立栈完整执行"。在干净树（`git status` 空）的候选 `f20fb92c096794e30cd172bfa9f96baa1c344d71` 上执行 `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker`（即 `VERIFY_STAGE=all`），**七阶段连续全绿、脚本 exit 0**：
+
+| 阶段 | 结果 | 关键实测 |
+|---|---|---|
+| unit | PASS | `gofmt` 干净 · `go vet` 干净 · 默认与 `nats_integration` 构建通过 · **三标签预检（anvil/load/testnet）通过** · `go mod tidy` 幂等 · `golangci-lint` **0 issues** · `-race` + coverage 门（`COVERAGE_MIN=60`）通过 · coverage 门自测 15/15 能失败 |
+| chain | PASS | Forge build · ABI 防漂移 · 部署断言 + `-tags anvil` 全套（含本候选修复的 `TestAnvil_ERC1155_Web3Service_NFTGate`，真实链 BlockProver 钉定） |
+| durability | PASS | DB 支撑的 transcoding/registry/event 套件 + `TestAnvil_ContentRegistry_RegisterAndReadBack`；**必需测试 0 跳过**（22 个非必需用例按设计记 skipped） |
+| ops | PASS | profile/drain/shutdown/迁移 + **10 个 fuzz 目标各 30s** 实跑无 panic |
+| media | PASS | 独立栈、空卷、真实 migration、双模式（monolith + api-gateway）各 **ALL 66 PASSED** |
+| perf | PASS | 同一栈内 fullchain **ALL 66 PASSED**（其副作用即种子）→ warm_cache 1/10/50；三个结果 JSON 的 provenance 校验通过 |
+| release | PASS | 同 digest 空卷临时部署 → `ALL 66 PASSED` smoke → 失败演练（坏变体在创建期被拒）→ 健康版恢复 `/health` 200 → 收尾 |
+
+**perf 阶段实测**（候选 `f20fb92`；三者同一 `content_id=28ba688e-…`、同一 `fixture_hash`、`login_paced=true`、`wallet_pool_size` = 观众数、`logins_failed=0`）：
+
+| 观众 | success | error | 中止 | total bytes | ttfb p50 / p95 / p99 (ms) |
+|---|---|---|---|---|---|
+| 1 | 28 | 0 | 1 | 42070 | 6.41 / 42.11 / 46.11 |
+| 10 | 280 | 0 | 10 | 420700 | 11.36 / 50.35 / 83.53 |
+| 50 | **1400** | **0** | 50 | 2103500 | 26.27 / **151.28** / 249.47 |
+
+50 观众成功率 **100%**（M4 判据 ≥99%）。每观众 1 次 warmup 请求被主动中止，harness 记入 `aborted_count`/`transport_error` 直方图但**不计入 `error_count`**，也不计入成功采样——这三列如实保留。三个 JSON 的 `commit` 均为 `f20fb92c096794e30cd172bfa9f96baa1c344d71`，`fixture_hash=99b6b1bf8a8c4f6b65ff241285129209163438c44a2df42e17ec18b79066ff68`：证据绑定候选，不继承任何历史 run。
+
+**本轮全阶段跑找出并修复的编排缺陷（真实缺陷，非环境抖动）**：候选 `286cb1c` 上首跑在 perf 阶段 `EXIT=1`，报 `Bind for 0.0.0.0:29091 failed: port is already allocated`。根因是编排结构，不是网络抖动：media 与 perf 都起 fullchain 栈，各自的 h5 代理都绑**固定**宿主机端口 29091（h5 页面的 API 基址推断只接受该端口），而没有任何步骤拆除上一阶段的栈——退出 trap 只在整脚本结束时触发，所以 `all` 在任何机器上都无法走到 release，而各阶段单独跑却都是绿的。修复 `f20fb92`：新增 `teardown_fullstack`，每个 fullstack 阶段（media→perf→release）结束即拆除自己的栈与其 h5 代理，阶段之间不再重叠（也避免上一套栈与 perf 实测争抢资源）；阶段失败时 `fail` 仍走退出 trap，不泄漏容器。修复后同一候选全阶段 exit 0——上表即该次运行。
+
+**本次实跑覆盖的门（不夸大）**：**M0 满足**（干净候选、统一 Docker runner、独立栈、七阶段全绿、unit 阶段必需测试 0 跳过）。**M4 仅部分满足**：吞吐判据（50 观众 ≥99%、实际 bytes、安全负例放行 0）由本表与 media 阶段的 66 检查支撑；但 `all` 的 perf stage 只跑 warm_cache，**故障矩阵与同 runner 固定 reference 的 p95 ≤1.20× 比较未接线**（见 §8.14 限制条），故 SG-07 保持 `[~]`、不勾选。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
