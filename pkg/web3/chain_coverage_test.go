@@ -131,6 +131,33 @@ func TestChainClient_VerifyNFTOwnershipByRequest_GatingCombination(t *testing.T)
 	assert.True(t, ok)
 }
 
+// A balance below the configured threshold must deny. The positive cases above
+// alone would let a "ignore min_balance" regression pass unnoticed — the SG-15
+// reverse proof caught exactly that gap.
+func TestChainClient_VerifyNFTOwnershipByRequest_GatingMinBalance_BelowThreshold(t *testing.T) {
+	balanceData := "0x0000000000000000000000000000000000000000000000000000000000000001"
+	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
+		"eth_chainId": chainIDHandler(1),
+		"eth_call": func(req rpcRequest) rpcResponse {
+			return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: balanceData}
+		},
+	})
+	defer srv.Close()
+
+	client, err := NewChainClient(srv.URL, 1, zap.NewNop())
+	require.NoError(t, err)
+	defer client.Close()
+
+	ok, err := client.VerifyNFTOwnershipByRequest(context.Background(), VerifyRequest{
+		WalletAddress: "0x1234567890123456789012345678901234567890",
+		Contract:      "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f",
+		MinBalance:    2,
+		Mode:          GatingMinBalance,
+	})
+	require.NoError(t, err)
+	assert.False(t, ok, "holding 1 must not satisfy a min_balance of 2")
+}
+
 func TestChainClient_VerifyNFTOwnershipByRequest_UnsupportedMode(t *testing.T) {
 	srv := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
 		"eth_chainId": chainIDHandler(1),
