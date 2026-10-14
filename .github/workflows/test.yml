@@ -2,10 +2,12 @@ name: Comprehensive Test Suite
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, master, develop]
-  pull_request:
-    branches: [main, master, develop]
+  # SG-08: ci.yml calls this workflow as `test-suite` so the comprehensive
+  # matrix gates on the SAME SHA through one DAG (reusable workflow_call),
+  # instead of running as a parallel, un-gated sibling on push/PR. The
+  # push/PR triggers were removed for that reason; schedule keeps a nightly
+  # standalone run and workflow_dispatch keeps a manual one.
+  workflow_call:
   schedule:
     - cron: '0 2 * * *'
 
