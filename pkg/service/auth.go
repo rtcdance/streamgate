@@ -499,7 +499,7 @@ func WithTokenKeySeparation(accessSecret string, previousAccess []string, capabi
 
 // accessKeySet returns the current access key plus the retired keys that may
 // still verify it.
-func (s *AuthService) accessKeySet() (string, []string) {
+func (s *AuthService) accessKeySet() (current string, previous []string) {
 	if len(s.accessSecret) > 0 {
 		return string(s.accessSecret), s.accessPrev
 	}
@@ -508,7 +508,7 @@ func (s *AuthService) accessKeySet() (string, []string) {
 
 // capabilityKeySet returns the current capability key plus the retired keys
 // that may still verify it.
-func (s *AuthService) capabilityKeySet() (string, []string) {
+func (s *AuthService) capabilityKeySet() (current string, previous []string) {
 	if len(s.capabilitySecret) > 0 {
 		return string(s.capabilitySecret), s.capabilityPrev
 	}

@@ -269,7 +269,7 @@ func (r *gatingWriteRowScanner) Scan(dest ...interface{}) error {
 
 // gatingWriteRow builds the row a rule write returns: how many rows it applied
 // and the version it committed.
-func gatingWriteRow(applied int64, version int64) *stg.CancelRow {
+func gatingWriteRow(applied, version int64) *stg.CancelRow {
 	return stg.NewTestCancelRow(&gatingWriteRowScanner{values: []interface{}{applied, version}})
 }
 

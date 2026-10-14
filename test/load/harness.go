@@ -441,7 +441,7 @@ func postJSON(ctx context.Context, urlStr string, body []byte, out any, headers 
 // error — never counted as success throughput. On success the (validated,
 // fully-read) body is returned so the caller can parse a manifest once and
 // reuse it for the segment fan-out.
-func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cfg Config) (Sample, []byte) {
+func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cfg Config) (sample Sample, body []byte) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
 	if err != nil {
 		return Sample{URL: urlStr, Err: "build request: " + err.Error()}, nil
@@ -460,7 +460,7 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 	defer resp.Body.Close()
 
 	ttfb := time.Since(start)
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	end := time.Since(start)
 	s := Sample{URL: urlStr, StatusCode: resp.StatusCode, TTFB: ttfb, Duration: end, Bytes: int64(len(body))}
 	if err != nil {
@@ -681,7 +681,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 // run loudly, exactly as the plan requires of the setup phase. Returns the
 // tokens (pool order, one per identity), whether logins were paced, the
 // number of failed logins, and an error if any login failed.
-func RunPhase(ctx context.Context, cfg Config) ([]string, bool, int, error) {
+func RunPhase(ctx context.Context, cfg Config) (tokens []string, paced bool, loginsFailed int, err error) {
 	pool := cfg.resolveWalletPool()
 	pace := cfg.LoginPace
 	if pace == 0 {
@@ -691,7 +691,7 @@ func RunPhase(ctx context.Context, cfg Config) ([]string, bool, int, error) {
 		pace = minLoginPace
 	}
 
-	tokens := make([]string, len(pool))
+	tokens = make([]string, len(pool))
 	var failures []string
 	var lastLoginEnd time.Time
 	for i, w := range pool {

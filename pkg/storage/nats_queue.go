@@ -198,7 +198,7 @@ func (q *NATSTranscodingQueue) ensureMaxDeliverConsumer() {
 // Redelivery/duplicate publish is therefore idempotent at the broker; the DB
 // state machine remains the real guarantee.
 func (q *NATSTranscodingQueue) PublishOutbox(kind, msgID string, payload []byte) error {
-	subject := jsStreamSubject
+	var subject string
 	switch kind {
 	case models.OutboxKindTask:
 		subject = jsStreamSubject

@@ -208,11 +208,11 @@ var badWallet string
 // newTokenEchoServer serves a manifest + one segment and echoes each request's
 // Authorization header back so tests can observe WHICH wallet token each
 // virtual viewer used.
-func newTokenEchoServer(t *testing.T) (*httptest.Server, func() []string) {
+func newTokenEchoServer(t *testing.T) (srv *httptest.Server, seenTokens func() []string) {
 	t.Helper()
 	var mu sync.Mutex
 	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		seen = append(seen, r.Header.Get("Authorization"))
 		mu.Unlock()
@@ -227,13 +227,14 @@ func newTokenEchoServer(t *testing.T) (*httptest.Server, func() []string) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return srv, func() []string {
+	seenTokens = func() []string {
 		mu.Lock()
 		defer mu.Unlock()
 		cp := make([]string, len(seen))
 		copy(cp, seen)
 		return cp
 	}
+	return srv, seenTokens
 }
 
 // TestPerfHarness_MultiWalletViewerMapping pins the SG-07 rule that every
@@ -401,10 +402,8 @@ func TestPerfHarness_LoginPacing(t *testing.T) {
 func TestPerfHarness_WalletsFromKeysFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wallets.keys")
-	content := strings.Join([]string{
-		"59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
-		"0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a 0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
-	}, "\n")
+	content := "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" + "\n" +
+		"0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a 0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	pool, err := WalletsFromKeysFile(path)

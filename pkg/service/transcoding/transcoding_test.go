@@ -819,7 +819,7 @@ func TestTranscodingService_processTask(t *testing.T) {
 		}
 		svc.storeTask(task)
 
-		svc.processTask(context.Background(), task, zap.NewNop())
+		_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 		updated, _ := svc.getTask("task-proc")
 		assert.Equal(t, "completed", updated.Status)
@@ -842,7 +842,7 @@ func TestTranscodingService_processTask(t *testing.T) {
 		}
 		svc.storeTask(task)
 
-		svc.processTask(context.Background(), task, zap.NewNop())
+		_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 		updated, _ := svc.getTask("task-fail")
 		assert.Equal(t, "failed", updated.Status)
@@ -864,7 +864,7 @@ func TestTranscodingService_processTask(t *testing.T) {
 		}
 		svc.storeTask(task)
 
-		svc.processTask(context.Background(), task, zap.NewNop())
+		_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 		updated, _ := svc.getTask("task-unknown")
 		assert.Equal(t, "completed", updated.Status)

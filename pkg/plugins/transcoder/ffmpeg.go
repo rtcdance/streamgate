@@ -219,11 +219,11 @@ func (t *tailBuffer) String() string {
 	return string(t.buf)
 }
 
-func truncateForError(s string, max int) string {
-	if len(s) <= max {
+func truncateForError(s string, maxLen int) string {
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[len(s)-max:] + "…"
+	return s[len(s)-maxLen:] + "…"
 }
 
 // GetVideoInfo retrieves video file information using ffprobe

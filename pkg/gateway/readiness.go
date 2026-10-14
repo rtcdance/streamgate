@@ -41,7 +41,7 @@ func natsQueueProbe(c io.Closer) queuePinger {
 	if !ok {
 		return nil
 	}
-	if v := reflect.ValueOf(q); v.Kind() == reflect.Ptr && v.IsNil() {
+	if v := reflect.ValueOf(q); v.Kind() == reflect.Pointer && v.IsNil() {
 		return nil
 	}
 	return q

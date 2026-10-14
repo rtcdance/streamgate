@@ -1109,9 +1109,23 @@ var insecureJWTSecrets = []string{
 // anything on a production chain.
 const wellKnownTestPrivateKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
-func (c *Config) ValidateProduction(log *zap.Logger) error {
-	var ve ValidationError
+// devJWTSecrets are the dev-default JWT secrets that must never appear in a
+// production deployment (a strict subset of insecureJWTSecrets, checked
+// unconditionally by ValidateProduction).
+var devJWTSecrets = []string{
+	"streamgate-dev-secret-32chars!!",
+	"streamgate-dev-secret",
+	"your-secret-key-change-in-production",
+	"dev-secret-key-not-for-production",
+}
 
+// devDBPasswords are the dev-default database passwords refused in production.
+var devDBPasswords = []string{"streamgate_password", "streamgate_dev_password"}
+
+// validateProductionDeps collects the critical findings for the durable
+// dependencies, the on-chain registry wiring and the JWT secret. Split out of
+// ValidateProduction purely to keep that function's complexity readable.
+func (c *Config) validateProductionDeps(ve *ValidationError) {
 	// A production deployment cannot run without its durable dependencies —
 	// PostgreSQL (content, gating rules, sessions' authority, outbox), Redis
 	// (challenge store, token blacklist, session epochs, rule cache) and NATS
@@ -1156,7 +1170,13 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < 32 {
 		ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret is only %d bytes — minimum 32 bytes required for HS256", len(c.Auth.JWTSecret)))
 	}
+}
 
+// validateRuntimeWindows collects the critical findings for the capability
+// windows, the media input ceiling and the well-known insecure secrets. Each
+// of these describes a limit an operator cannot notice from the outside, so
+// each is a startup failure rather than a warning.
+func (c *Config) validateRuntimeWindows(ve *ValidationError) {
 	// Capability policy. A production deployment may tighten these, but not
 	// exceed them: each one widens the window in which a revoked, transferred or
 	// rule-blocked holding still plays. Exceeding a bound is a startup failure,
@@ -1182,12 +1202,7 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 			"capability window totals %s (ttl %s + positive cache %s + clock skew %s) — maximum %s for the transfer-revocation bound",
 			total, c.Features.CapabilityTTL, c.Features.PositiveCacheTTL, c.Features.ClockSkew, MaxTransferRevocationBound))
 	}
-	insecureSecrets := []string{
-		"streamgate-dev-secret-32chars!!",
-		"streamgate-dev-secret",
-		"your-secret-key-change-in-production",
-		"dev-secret-key-not-for-production",
-	}
+
 	// An original is untrusted media: it is written to disk and handed to FFmpeg.
 	// A ceiling above the hard limit is refused rather than warned about, because
 	// the consequence is unbounded disk and worker time on attacker-sized input.
@@ -1196,13 +1211,26 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 			"transcoding.max_input_size is %d bytes — maximum %d in production",
 			c.Transcoding.MaxInputSize, MaxTranscodeInputSize))
 	}
-	for _, s := range insecureSecrets {
+
+	for _, s := range devJWTSecrets {
 		if c.Auth.JWTSecret == s {
 			ve.Critical = append(ve.Critical, fmt.Sprintf("auth.jwt_secret uses insecure default '%s'", s))
 			break
 		}
 	}
+	for _, p := range devDBPasswords {
+		if c.Database.Password == p {
+			ve.Critical = append(ve.Critical, fmt.Sprintf("database.password uses insecure default '%s'", p))
+			break
+		}
+	}
+}
 
+func (c *Config) ValidateProduction(log *zap.Logger) error {
+	var ve ValidationError
+
+	c.validateProductionDeps(&ve)
+	c.validateRuntimeWindows(&ve)
 	c.validateKeyPolicy(&ve)
 
 	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" { // #nosec G101 -- checking for insecure default
@@ -1212,13 +1240,6 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 		ve.Warnings = append(ve.Warnings, "storage.use_ssl is disabled — use SSL for production storage connections")
 	}
 
-	insecureDBPasswords := []string{"streamgate_password", "streamgate_dev_password"}
-	for _, p := range insecureDBPasswords {
-		if c.Database.Password == p {
-			ve.Critical = append(ve.Critical, fmt.Sprintf("database.password uses insecure default '%s'", p))
-			break
-		}
-	}
 	if c.Database.SSLMode == "disable" {
 		ve.Warnings = append(ve.Warnings, "database.sslmode is 'disable'")
 	}

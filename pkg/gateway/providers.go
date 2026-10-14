@@ -497,9 +497,7 @@ func provideObjectStorage(rc *RouterConfig, cfg *config.Config, log *zap.Logger,
 // natsQueueDialer connects the NATS JetStream transcoding queue. It is a
 // package variable so tests can substitute an unreachable dialer without a
 // live broker.
-var natsQueueDialer = func(url string, log *zap.Logger) (*storage.NATSTranscodingQueue, error) {
-	return storage.NewNATSTranscodingQueue(url, log)
-}
+var natsQueueDialer = storage.NewNATSTranscodingQueue
 
 func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.DB, objStorage service.SegmentStorage, res *AppResources) (*service.TranscodingService, error) {
 	ffmpegCfg := &transcoder.FFmpegConfig{

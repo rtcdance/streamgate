@@ -80,7 +80,7 @@ func TestTranscodingService_processTask_WithDB(t *testing.T) {
 		}
 		svc.storeTask(task)
 
-		svc.processTask(context.Background(), task, zap.NewNop())
+		_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 		updated, _ := svc.getTask("task-dbskip")
 		assert.Equal(t, "processing", updated.Status)
@@ -107,7 +107,7 @@ func TestTranscodingService_processTask_WithDB(t *testing.T) {
 		}
 		svc.storeTask(task)
 
-		svc.processTask(context.Background(), task, zap.NewNop())
+		_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 		updated, _ := svc.getTask("task-dbok")
 		assert.NotEqual(t, "pending", updated.Status, "task should have progressed past pending")
@@ -318,7 +318,7 @@ func TestTranscodingService_processTask_FailOnDownloadError(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-dl-fail")
 	assert.Equal(t, "failed", updated.Status)
@@ -340,7 +340,7 @@ func TestTranscodingService_processTask_FailOnTranscodeError(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-tc-fail")
 	assert.Equal(t, "failed", updated.Status)
@@ -382,7 +382,7 @@ func TestTranscodingService_processTask_FailOnUploadError(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-up-fail")
 	assert.Equal(t, "failed", updated.Status)
@@ -404,7 +404,7 @@ func TestTranscodingService_processTask_NoStorage(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-no-storage")
 	assert.Equal(t, "completed", updated.Status)
@@ -572,7 +572,7 @@ func TestTranscodingService_processTask_WithHTTPInput(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-http")
 	assert.Equal(t, "completed", updated.Status)
@@ -623,7 +623,7 @@ func TestE2E_UploadTranscodeProgressComplete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "processing", task.Status)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	task, err = svc.GetTranscodingStatus(context.Background(), taskID)
 	require.NoError(t, err)
@@ -654,7 +654,7 @@ func TestE2E_ProgressCallbackUpdatesTask(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, err := svc.getTask("task-progress-e2e")
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestE2E_TranscodeFailDoesNotComplete(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, err := svc.getTask("task-fail-e2e")
 	require.NoError(t, err)
@@ -717,7 +717,7 @@ func TestE2E_ProgressWithDB(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, err := svc.getTask("task-db-progress")
 	require.NoError(t, err)
@@ -743,7 +743,7 @@ func TestE2E_ProgressUpdatesWithoutDB(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, err := svc.getTask("task-nodb-progress")
 	require.NoError(t, err)
@@ -770,7 +770,7 @@ func TestE2E_UploadSegmentsToStorage(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, err := svc.getTask("task-segments-e2e")
 	require.NoError(t, err)
@@ -813,7 +813,7 @@ func TestE2E_PostTranscodeHook(t *testing.T) {
 	}
 	svc.storeTask(task)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	updated, _ := svc.getTask("task-hook-e2e")
 	assert.Equal(t, "completed", updated.Status)
@@ -842,7 +842,7 @@ func TestE2E_FullPipeline_TranscodeToPlayback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "processing", task.Status)
 
-	svc.processTask(context.Background(), task, zap.NewNop())
+	_ = svc.processTask(context.Background(), task, zap.NewNop())
 
 	task, err = svc.GetTranscodingStatus(context.Background(), taskID)
 	require.NoError(t, err)
