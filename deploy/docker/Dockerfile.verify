@@ -71,8 +71,16 @@ RUN go mod download
 # Pre-warm forge's solc cache: without this, every `forge build` in a stage
 # downloads the pinned compiler from raw.githubusercontent.com, so a flaky
 # network turns a code gate into a network gate. Building once here bakes
-# solc into ~/.svm, and a download failure fails the image build loudly
-# instead of failing each stage run.
-RUN cd /src/contracts && forge build
+# solc into ~/.svm. The upstream host is occasionally unreachable, so retry
+# before failing the build loudly — a failure must never be silent, but a
+# single dropped connection should not block the image.
+RUN cd /src/contracts \
+    && ok=0 \
+    && for i in 1 2 3 4 5; do \
+         forge build && ok=1 && break; \
+         echo "forge build attempt $i failed; retrying in $((i*10))s"; \
+         sleep $((i*10)); \
+       done \
+    && [ "$ok" = "1" ]
 
 CMD ["bash"]
