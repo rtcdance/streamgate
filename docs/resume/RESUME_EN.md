@@ -29,7 +29,7 @@
 
 The main line: real wallet signature → one-time challenge → server-side NFT rules → same-block evidence → 60s capability → real HLS playback → access denied after transfer → RPC / Redis faults and recovery. **AI honesty**: most implementation code is AI-generated; I own the design decisions and acceptance criteria, review every change, and locate/fix failing cases — AI code generation is not "I designed and implemented this independently"【待本人确认 / confirm with candidate】.
 
-Evidence status: completed with measured evidence — SG-01~06, SG-10~12 (architecture / contracts / all nine media steps), SG-13 part A (chain-write idempotency; part B in flight). **Pending**: performance measurements (SG-07), same-artifact release & recovery drills (SG-08), operations / backup (SG-14), remote CI (not pushed — pending run).
+Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (architecture / contracts / all nine media steps, chain-write idempotency A+B, operations with a 17/17 backup-restore drill) and SG-07 (1/10/50 viewers at 100% success, 50 viewers = 1400/1400). **Pending**: remote CI (not pushed — pending run), the GitHub-side same-digest CD (the local release stage already ran an empty-volume deploy + refused-broken-variant + recovery drill).
 
 **Entry 1 — Signatures & resource authorization**
 
@@ -82,5 +82,5 @@ Evidence status: completed with measured evidence — SG-01~06, SG-10~12 (archit
 1. Every `[...]` placeholder replaced; every work bullet must survive 10 minutes of follow-up questions.
 2. Every 【待本人确认】 reviewed; the three "my decision" entries were genuinely yours — otherwise reword as "reviewed and co-signed".
 3. Every figure and test name points at evidence: commits `0756ea4 / e859d13 / f891091 / 313d414 / a8784ad / f7f0dd0 / c67b222 / de4b83c` and the matching §8 tables in TRANSITION_PLAN.md.
-4. Pending items (SG-07 / 08 / 14, unpushed remote CI) are presented as NOT done — no predicted numbers.
+4. Pending items (GitHub-side same-digest CD, unpushed remote CI, the cold/RPC-fault perf scenarios) are presented as NOT done — no predicted numbers.
 5. No DRM / full-decentralization / production-HA claims — boundary language is in `PROJECT_TALK_SCRIPT.md`.
