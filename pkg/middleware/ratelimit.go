@@ -357,6 +357,57 @@ func writeRateLimitResponse(c *gin.Context, rl RateLimiter, key string) {
 	c.Abort()
 }
 
+// Media rate-limit budget (SG-14, plan §SG-07 限流前置条件): one viewer gets
+// DefaultMediaRateLimit requests per DefaultMediaRateLimitWindow, in addition
+// to the pre-existing concurrent-stream semaphore. Keyed by wallet and the
+// NORMALIZED gin route template (e.g. /api/v1/streaming/:id/segment/:num), so
+// a player fetching hundreds of distinct segment names consumes ONE bucket and
+// the bucket count is bounded by (#wallets × #media routes) — never by segment
+// names or content IDs.
+const (
+	// DefaultMediaRateLimit is the per-viewer budget per window.
+	DefaultMediaRateLimit = 120
+	// DefaultMediaRateLimitWindow is the sliding window that budget applies to.
+	DefaultMediaRateLimitWindow = time.Minute
+)
+
+// NewMediaRateLimiter builds the shared media limiter over the existing
+// limiter infrastructure (in-memory sliding window when there is no Redis).
+func NewMediaRateLimiter(redisClient RedisClient) RateLimiter {
+	return NewRateLimiter(RateLimitConfig{
+		RequestsPerMinute: DefaultMediaRateLimit,
+		WindowSize:        DefaultMediaRateLimitWindow,
+		CleanupInterval:   5 * time.Minute,
+	}, redisClient)
+}
+
+// MediaRateLimitMiddleware enforces the per-viewer media budget. It MUST be
+// applied AFTER authentication (wallet known) on the streaming group; the
+// bucket key is the wallet plus the route TEMPLATE, never the raw path, so
+// segment-number variation cannot mint unbounded buckets. A wallet without a
+// token is not a viewer: such requests never reach here (auth already refused
+// them), and falling back to the client IP keeps the limiter fail-closed for
+// any caller that slips through.
+func MediaRateLimitMiddleware(rl RateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		wallet := GetWalletAddress(c)
+		if wallet == "" {
+			wallet = c.ClientIP()
+		}
+		// FullPath is the registered pattern (:id/:num), not the concrete path.
+		route := c.FullPath()
+		if route == "" {
+			route = c.Request.URL.Path
+		}
+		key := wallet + "|" + route
+		if !rl.Allow(c.Request.Context(), key) {
+			writeRateLimitResponse(c, rl, key)
+			return
+		}
+		c.Next()
+	}
+}
+
 func (s *Service) RateLimitMiddlewareWithConfig(cfg RateLimitConfig) (RateLimiter, gin.HandlerFunc) {
 	rl := NewRateLimiter(cfg, s.redisClient)
 	handler := func(c *gin.Context) {

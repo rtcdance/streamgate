@@ -479,7 +479,10 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	}
 
 	svcPlaybackTokenIssued.Inc()
-	token, err := s.signToken(claims)
+	// A capability is signed with the capability key — INDEPENDENT of the
+	// access key — so an access token can never verify as a capability (and
+	// the audience check is a second, independent discriminator).
+	token, err := s.signTokenWithKind(claims, capabilityToken)
 	if err != nil {
 		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
 		return "", err
@@ -501,7 +504,10 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 	)
 	defer span.End()
 
-	claims, err := s.ParseToken(tokenString)
+	// Verified against the capability key ONLY: with key separation an access
+	// token can never pass here even before the audience check, because the
+	// two credential kinds are signed with independent keys.
+	claims, err := s.parseTokenCapability(tokenString)
 	if err != nil {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, err

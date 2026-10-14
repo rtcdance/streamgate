@@ -164,9 +164,13 @@ Every route registers in `pkg/gateway/routes.go` (`registerRoutes`, called from 
 
 ```
 Public (no JWT):
-  GET  /health /metrics /ready /docs
+  GET  /health /ready /metrics (/metrics optional bearer gate via env STREAMGATE_METRICS_TOKEN; production must set it)
+  GET  /docs   (debug-only; not registered when app.debug=false)
   POST /api/v1/auth/{challenge,login,register,refresh}
   GET  /api/v1/web3/{rpc-status,supported-chains}
+
+Ops behind JWT (SG-14):
+  GET  /circuit-breakers   GET /docs/openapi.yaml   (/debug/pprof/* only when debug + metrics token)
 
 Streaming group — chain [PlaybackTokenAuth, JWT, NFTGate]
 (routes.go: streamGroup :68, playbackAuth :69, JWT :72, NFTGate :227, routes :235-236):

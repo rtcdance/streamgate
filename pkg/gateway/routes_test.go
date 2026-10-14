@@ -205,6 +205,8 @@ func TestRegisterInfrastructureRoutes_ReadyNotReady(t *testing.T) {
 	assert.Equal(t, false, resp["ready"])
 }
 
+// SG-14: /circuit-breakers moved behind the global JWT middleware — it leaks
+// breaker states and must answer 401 without a token, not 200.
 func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_NoService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -212,18 +214,19 @@ func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_NoService(t *testi
 	cfg := config.DefaultConfig()
 
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
+	router.Use(middleware.JWTAuthMiddleware(middleware.JWTAuthConfig{
+		Secret:    "test-jwt-secret-key-for-testing-",
+		SkipPaths: []string{"/health", "/ready", "/metrics"},
+	}, log))
+	registerProtectedOpsRoutes(router, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", http.NoBody)
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var resp map[string]interface{}
-	err := json.Unmarshal(w.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.Nil(t, resp["circuit_breakers"])
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "circuit-breakers must require auth")
 }
 
+// SG-14: with a valid JWT the breaker list is reachable again.
 func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_WithService(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -236,9 +239,16 @@ func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_WithService(t *tes
 	_ = mwSvc.DependencyCircuitBreaker("db", cbConfig)
 
 	registerInfrastructureRoutes(router, log, nil, nil, mwSvc, cfg)
+	router.Use(middleware.JWTAuthMiddleware(middleware.JWTAuthConfig{
+		Secret:    "test-jwt-secret-key-for-testing-",
+		SkipPaths: []string{"/health", "/ready", "/metrics"},
+	}, log))
+	registerProtectedOpsRoutes(router, mwSvc)
 
+	token := generateTestJWT(t, "0xholder", "test-jwt-secret-key-for-testing-", "cbrk")
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/circuit-breakers", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
@@ -249,11 +259,14 @@ func TestRegisterInfrastructureRoutes_CircuitBreakersEndpoint_WithService(t *tes
 	assert.NotNil(t, breakers)
 }
 
+// SG-14: /docs is debug-only. In a production-style config (Debug=false) the
+// route must not exist at all.
 func TestRegisterInfrastructureRoutes_DocsEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	log := zap.NewNop()
 	cfg := config.DefaultConfig()
+	cfg.Debug = true
 
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
@@ -263,6 +276,20 @@ func TestRegisterInfrastructureRoutes_DocsEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Contains(t, w.Body.String(), "Swagger")
+}
+
+func TestRegisterInfrastructureRoutes_DocsEndpoint_NotDebug(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	log := zap.NewNop()
+	cfg := config.DefaultConfig() // Debug=false
+
+	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs", http.NoBody)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code, "/docs must not be served outside debug mode")
 }
 
 func TestRegisterInfrastructureRoutes_MetricsEndpoint(t *testing.T) {
@@ -344,22 +371,16 @@ func TestRegisterRoutes_RegistersAllInfrastructureEndpoints(t *testing.T) {
 
 	registerInfrastructureRoutes(router, log, nil, nil, nil, cfg)
 
-	infraRoutes := []struct {
-		method string
-		path   string
-	}{
-		{http.MethodGet, "/health"},
-		{http.MethodGet, "/metrics"},
-		{http.MethodGet, "/ready"},
-		{http.MethodGet, "/circuit-breakers"},
-		{http.MethodGet, "/docs"},
-	}
-	for _, r := range infraRoutes {
+	// /health /metrics /ready stay public (registered before JWT).
+	for _, p := range []string{"/health", "/metrics", "/ready"} {
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(r.method, r.path, http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, p, http.NoBody)
 		router.ServeHTTP(w, req)
-		assert.NotEqual(t, http.StatusNotFound, w.Code, "route %s %s should be registered", r.method, r.path)
+		assert.NotEqual(t, http.StatusNotFound, w.Code, "route %s should be registered", p)
 	}
+	// SG-14: /circuit-breakers (behind JWT) and /docs (debug-only) are covered
+	// by their own dedicated tests and are no longer public infrastructure
+	// routes.
 }
 
 func TestRegisterRoutes_AuthRoutesRegistered(t *testing.T) {

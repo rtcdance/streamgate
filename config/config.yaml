@@ -1,3 +1,11 @@
+app:
+  # Runtime profile: unit | demo | durable | production.
+  # Empty means "derive" — production when STREAMGATE_ENV is production and
+  # APP_DEBUG is not set, unit under STREAMGATE_ENV=test, demo otherwise.
+  # durable = real dependencies required, no in-memory fallback;
+  # production = durable plus the production key/secrets policy.
+  profile: ""
+
 server:
   host: "0.0.0.0"
   port: 8080
@@ -181,6 +189,17 @@ auth:
   nonce_expiry: 5m
   siwe_domain: streamgate.io
   siwe_uri: https://streamgate.io/login
+  # Key separation (SG-14): access JWTs and playback capabilities verify under
+  # independent keys. Empty access_secret falls back to jwt_secret itself, so
+  # tokens issued before the split keep verifying; empty capability_secret is
+  # derived from jwt_secret via HKDF (info "streamgate/playback"). Set via
+  # STREAMGATE_ACCESS_SECRET / STREAMGATE_CAPABILITY_SECRET.
+  access_secret: ""
+  capability_secret: ""
+  # Bounded key rotation: retired keys that may still VERIFY (never sign), at
+  # most 2, comma-separated (AUTH_ACCESS_SECRETS / AUTH_CAPABILITY_SECRETS).
+  previous_access_secrets: []
+  previous_capability_secrets: []
 
 rate_limiting:
   enabled: true

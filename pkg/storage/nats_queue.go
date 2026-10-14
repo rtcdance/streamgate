@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/models"
+	"github.com/rtcdance/streamgate/pkg/monitoring"
 
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
@@ -29,6 +30,9 @@ const (
 	// poisonRetryDelay is how long a poison message waits before the next
 	// attempt to publish it to the DLQ (publish failure leaves it redeliverable).
 	poisonRetryDelay = 5 * time.Second
+	// queueName labels the transcoding queue in the SG-07 metrics families. It
+	// is a fixed string (low cardinality), never a message/task identifier.
+	queueName = "transcoding"
 )
 
 // jsMessage is the slice of *nats.Msg the queue settles. It exists so tests can
@@ -50,6 +54,21 @@ type natsDelivery struct {
 }
 
 func (d *natsDelivery) TaskID() string { return d.taskID }
+
+// observeQueueAge records publish→delivery latency from the broker's message
+// metadata timestamp (msg.Metadata().Timestamp, stamped by JetStream). Without
+// a usable metadata timestamp there is no publish instant to subtract, so no
+// age is recorded — the value is never guessed.
+func observeQueueAge(publishedAt time.Time) {
+	if publishedAt.IsZero() {
+		return
+	}
+	age := time.Since(publishedAt)
+	if age < 0 {
+		return
+	}
+	monitoring.QueueMessageAgeSeconds.WithLabelValues(queueName).Observe(age.Seconds())
+}
 
 func asNATSDelivery(h models.DeliveryHandle) (*natsDelivery, error) {
 	d, ok := h.(*natsDelivery)
@@ -226,6 +245,7 @@ func (q *NATSTranscodingQueue) Dequeue(ctx context.Context) (*models.Transcoding
 	stream, seq := "unknown", uint64(0)
 	if meta, merr := msg.Metadata(); merr == nil && meta != nil {
 		stream, seq = meta.Stream, meta.Sequence.Stream
+		observeQueueAge(meta.Timestamp)
 	}
 	return q.deliverPayload(msg.Data, msg, stream, seq)
 }
@@ -260,6 +280,7 @@ func (q *NATSTranscodingQueue) handlePoison(data []byte, msg jsMessage, stream s
 	if err := msg.Term(); err != nil {
 		q.logger.Warn("Failed to term poison message", zap.String("msg_id", msgID), zap.Error(err))
 	}
+	monitoring.QueueAttemptsTotal.WithLabelValues(queueName, "dlq").Inc()
 }
 
 func (q *NATSTranscodingQueue) Ack(h models.DeliveryHandle) error {
@@ -270,6 +291,7 @@ func (q *NATSTranscodingQueue) Ack(h models.DeliveryHandle) error {
 	if err := d.msg.Ack(); err != nil {
 		return fmt.Errorf("failed to ack task %s: %w", d.taskID, err)
 	}
+	monitoring.QueueAttemptsTotal.WithLabelValues(queueName, "delivered").Inc()
 	return nil
 }
 
@@ -281,6 +303,9 @@ func (q *NATSTranscodingQueue) Nak(h models.DeliveryHandle, delay time.Duration)
 	if err := d.msg.NakWithDelay(delay); err != nil {
 		return fmt.Errorf("failed to nak task %s: %w", d.taskID, err)
 	}
+	// A Nak hands the message back for another attempt: that delivery will be
+	// redelivered, which is the outcome this counts.
+	monitoring.QueueAttemptsTotal.WithLabelValues(queueName, "redelivered").Inc()
 	return nil
 }
 

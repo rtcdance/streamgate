@@ -93,7 +93,10 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	contentSvc := provideContentService(rc, db, log)
 	resources.ContentService = contentSvc
 
-	objStorage := provideObjectStorage(rc, cfg, log, resources)
+	objStorage, err := provideObjectStorage(rc, cfg, log, resources)
+	if err != nil {
+		return nil, nil, err
+	}
 	resources.SegmentStorage = objStorage
 
 	transcodingSvc, err := provideTranscodingService(cfg, log, db, objStorage, resources)
@@ -137,9 +140,36 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 
 	provideOTelTracing(cfg, log, resources)
 
+	// Readiness (SG-14): /health stays process-only, /ready answers for THIS
+	// profile's required dependencies — database, redis, the durable queue,
+	// object storage and at least one healthy same-chain RPC. The guard is
+	// installed in the global chain so it does not depend on route
+	// registration order. A nil dependency yields a nil check function: in a
+	// strict profile buildReadinessChecks turns that into an immediate
+	// "required but not available" failure; elsewhere the check is absent.
+	var rdbPing func(context.Context) error
+	if db != nil {
+		rdbPing = db.Ping
+	}
+	var rredisPing func(context.Context) error
+	if sharedRedis != nil {
+		rredisPing = func(ctx context.Context) error {
+			return sharedRedis.Ping(ctx).Err()
+		}
+	}
+	resources.Readiness = buildReadinessChecker(cfg, log, readinessInputs{
+		db:     rdbPing,
+		redis:  rredisPing,
+		queue:  natsQueueProbe(resources.NATSQueue),
+		bucket: resources.BucketProbe(),
+	})
+
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	setupMiddleware(router, cfg, log, sharedRedis, resources)
+	// Installed after setupMiddleware so it runs before the /ready route's own
+	// handler; /health never reaches it (process-only by design).
+	router.Use(readinessGuard(resources.Readiness))
 
 	svc := &serviceInit{
 		Web3Service:     web3Svc,
