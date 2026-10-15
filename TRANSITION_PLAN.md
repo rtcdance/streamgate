@@ -311,7 +311,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；干净候选的 `verify-docker` 已实跑 **warm_cache 1/10/50（50 观众 1400/1400，100%）**（§8.16 D）；**故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）已真实注入并实测**（§8.16 E）；**p95 回归上界已实现为可失败的门，实测结果见 §8.16 F**）
+### [~] SG-07 / P1：真实媒体性能与可观测性（**代码部分完成** 2026-10-13 `7af895a`；干净候选的 `verify-docker` 已实跑 warm_cache 1/10/50（50 观众 1400/1400，100%，§8.16 D）；**故障矩阵已真实注入并实测**（§8.16 E）；**同 runner reference 的 p95 回归上界已实现为可失败的门且实测 ratio=1.000**（§8.16 F）。**尚未勾选**：1/10/50 各重复 3 次与 100 观众容量探索（`a0e70e0` 开关已实现、实测待记），以及当前候选的 `all` 重跑（本机受 §8.16 G 两条环境限制阻塞））
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -1541,7 +1541,7 @@ M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-doc
 
 **本轮全阶段跑找出并修复的编排缺陷（真实缺陷，非环境抖动）**：候选 `286cb1c` 上首跑在 perf 阶段 `EXIT=1`，报 `Bind for 0.0.0.0:29091 failed: port is already allocated`。根因是编排结构，不是网络抖动：media 与 perf 都起 fullchain 栈，各自的 h5 代理都绑**固定**宿主机端口 29091（h5 页面的 API 基址推断只接受该端口），而没有任何步骤拆除上一阶段的栈——退出 trap 只在整脚本结束时触发，所以 `all` 在任何机器上都无法走到 release，而各阶段单独跑却都是绿的。修复 `f20fb92`：新增 `teardown_fullstack`，每个 fullstack 阶段（media→perf→release）结束即拆除自己的栈与其 h5 代理，阶段之间不再重叠（也避免上一套栈与 perf 实测争抢资源）；阶段失败时 `fail` 仍走退出 trap，不泄漏容器。修复后同一候选全阶段 exit 0——上表即该次运行。
 
-**本次实跑覆盖的门（不夸大）**：**M0 满足**（干净候选、统一 Docker runner、独立栈、七阶段全绿、unit 阶段必需测试 0 跳过）。**M4 仅部分满足**：吞吐判据（50 观众 ≥99%、实际 bytes、安全负例放行 0）由本表与 media 阶段的 66 检查支撑；但 `all` 的 perf stage 只跑 warm_cache，**故障矩阵与同 runner 固定 reference 的 p95 ≤1.20× 比较未接线**（见 §8.14 限制条），故 SG-07 保持 `[~]`、不勾选。
+**本次实跑覆盖的门（不夸大）**：**M0 满足（就候选 `f20fb92` 而言）**——干净树、统一 Docker runner、独立栈、七阶段全绿、unit 阶段必需测试 0 跳过。**M4 的技术判据此后由 E/F 补齐，并在后续候选上重复实测**：50 观众 ≥99%（E：1400/1400）、实际 bytes 与安全负例放行 0（E 的 `rpc_all_down` = 0 放行 / 0 字节）、故障矩阵四场景（E）、同 runner reference 的 p95 ratio = 1.000 ≤ 1.20（F）。**仍未覆盖、不勾选的部分**：(a) SG-07 步骤 2 要求的 1/10/50 **各重复 3 次**与 **100 观众容量探索**——`a0e70e0` 已实现 `PERF_MATRIX_REPEATS`/`PERF_CAPACITY` 开关，实测结果随后补入；(b) **当前候选的 `all` 重跑**——`pkg/core/config/config.go` 属产品变更，`f20fb92` 的全绿证据不覆盖它，而本机因 §8.16 G 的两条环境限制当前跑不了 unit/chain。
 
 **E. SG-07 故障矩阵（步骤 3）与 p95 回归上界（步骤 5）——真实注入后实测**（提交 `00aff4e`，2026-10-14）：
 
@@ -1554,7 +1554,34 @@ M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-doc
 | `rpc_primary_down` | 停 `anvil-proxy`，直接 anvil 在 | **50** | **1400** | 0 | 2103500 | 197.0 ms | ≥99%（同健康场景判据） | **PASS** |
 | `rpc_all_down` | 停 `anvil-proxy` + `anvil` | 10 | **0** | 140 | **0** | — | **0 放行 / 0 字节** | **PASS** |
 
-判据落在 harness 内（`test/load/live_test.go` 按 `SCENARIO` 标签分支）：`cold_cache`/`warm_cache` 与 `rpc_primary_down` 用同一个 ≥99% 门槛（回退若掉量就不算可用回退），`rpc_all_down` 断言 `success_count == 0` 且 `total_bytes == 0`——**单次放行即判失败**。全部阶段 exit 0，七个结果 JSON 的 `commit` 均为候选 SHA、`fixture_hash` 同一值。`rpc_primary_down` 的 p95 197.0ms vs 同观众数的 warm 147.9ms：**回退代价可测量但不掉成功**，如实记录。
+判据落在 harness 内（`test/load/live_test.go` 按 `SCENARIO` 标签分支）：`cold_cache`/`warm_cache` 与 `rpc_primary_down` 用同一个 ≥99% 门槛（回退若掉量就不算可用回退），`rpc_all_down` 断言 `success_count == 0` 且 `total_bytes == 0`——**单次放行即判失败**。全部阶段 exit 0，各结果 JSON 的 `commit` 为该次候选 SHA、`fixture_hash` 同一值。`rpc_primary_down` 的 p95 高于同观众数的 warm（00aff4e 轮：197.0 vs 147.9ms；1c238d3 轮：51.8 vs 57.7ms——两轮机器状态不同，故只在同轮内比较）：**回退代价可测量但不掉成功**，如实记录。
+
+上表数字取自候选 `00aff4e` 的 perf stage；故障矩阵在后续候选上**重复实测仍然通过**（`1c238d3`：warm 1/10/50 = 28/280/1400 全 0 错误，p95 20.6/24.4/57.7；cold_cache v10 = 280/280；rpc_primary_down v50 = 1400/1400；rpc_all_down v10 = 0 放行 / 0 字节）。
+
+**F. SG-07 步骤 5：同 runner 固定 reference 的 p95 回归上界（实现为可失败的门，实测 PASS）**（实现 `346ac46`；布线对齐 `1c238d3`；2026-10-15）：
+
+机制：`PERF_REFERENCE_REF=<git ref>` → 用该 ref 的源码在 detached worktree 构建**独立镜像**（`VERIFY_BUILD_REF`）、起独立 reference 栈并 seed、在**同一台 runner 上顺序**跑 `PERF_COMPARE_ROUNDS`（默认 3）轮、每轮 `PERF_COMPARE_VIEWERS`（默认 50）观众；拆栈后对候选做同样测量；两侧各取 ttfb p95 的**中位数**，候选超过 reference 的 `PERF_COMPARE_LIMIT`（默认 1.20）即让 stage **失败**。默认关闭（会翻倍 perf 阶段耗时），属校准步骤。
+
+| 侧 | 各轮 ttfb p95 (ms) | 中位数 | 成功率 |
+|---|---|---|---|
+| `reference:f20fb92` | 52.0 / 58.3 / 56.0 | **55.97** | 1400/1400 ×3 |
+| `candidate:1c238d3` | 56.0 / 60.0 / 44.9 | **55.98** | 1400/1400 ×3 |
+
+**ratio = 1.000 ≤ 1.20 → PASS（stage exit 0）**。同会话、同一 fixture 尺寸、同一负载与资源。
+
+**这个门不仅可失败，实测过程本身抓出了两个真实的方法学缺陷**（实现后实测才暴露，均已修）：
+1. **首测 ratio=1.456**（候选 78.45 / reference 53.90）。根因不是产品差异：reference 二进制早于 `STREAMGATE_CHAIN_RPC_URLS`，只能单端点；而候选被留在**故障矩阵的两端点布线**上（可停 socat 代理作主端点），于是每次缓存未命中的门读取都多付一跳 reference 从不付的开销。修复 `1c238d3`：请求比较时，候选的**全部健康测量**（1/10/50 矩阵与比较轮）都改到与 reference 相同的单端点布线，故障矩阵前再恢复两端点并**用 `/rpc-status` 复核确实恢复**。修复后 ratio = 1.000——说明首测的 1.456 是验收自身布线造成的假回归，而非候选性能退化。
+2. **reference 轮的 provenance 被标错**：首轮 JSON 的 `commit` 记成了**本 checkout 的 HEAD**（候选 SHA），把 reference 的测量标成候选的。修复 `aa0d9dc`：`perf-acceptance.sh` 透传 `PERF_COMMIT`，reference 轮标 `reference:<ref>`（上表即修复后的真实标注）。
+
+**G. 本机环境限制（如实记录；不影响代码正确性，只影响本机再验证）**：
+
+1. **solc 预取（使 `all` 的 unit/chain 在本机当前不可跑）**：
+   - 已修的真实缺陷：预取原先位于 `COPY . .` **之后**，任何一次提交都会让它重跑——把代码门变成网络门；且一次挂起的 TLS 连接能**无限**阻塞构建（实测挂了 20+ 分钟、零输出）。修复 `48be090`+`028f48e`：预取移到 `COPY` **之前**（算一次、长期复用），每次尝试 `--max-time` 封顶，并改为**尽力而为**（取不到只告警，不让无关网络的抖动失败构建）。
+   - 现状：amd64（CI 与多数用户）走 `binaries.soliditylang.org/linux-amd64/` 的 0.8.24，**sha256 取自该镜像自己的 list.json 并校验**，确定性、不依赖 GitHub；但**该镜像没有 linux-arm64 的 0.8.24**（arm64 构建自 0.8.31 起才有），本机 `raw.githubusercontent.com`（forge 自己的取法）与 GitHub release 资产下载又都不可达/极慢（实测 87s 只拿到 1MB/15MB）。因此**本机当前无法让 fresh 工具链镜像拿到编译器**。
+   - 影响：本机跑不了 `all` 的 unit/chain（`forge build` 需要编译器）。`media`/`perf`/`release` 是 host 侧阶段，不受影响（`028f48e` 起也不再为它们构建工具链镜像）。合约门在 CI（amd64）上仍是确定性的。
+2. **Chromium → Docker 发布端口（间歇性）**：本机出现浏览器侧 `page.goto: Timeout 30000ms exceeded`，而 curl 同一 URL 6ms 返回 200。已在项目之外独立复现：对既有 `sg-fc-h5-demo`(:18000) 与新建 nginx 容器(:29178) 分别跑 `npx playwright screenshot`——**同一页面在新建容器上正常截图（346KB）**，在既有容器上超时；纯 nginx 默认页在两者上都正常。已排除页面内容、端口号、IPv6/`::1`、系统代理（`scutil --proxy` 全 0）。结论：**宿主机 Docker Desktop 的宿主端口转发在 Chromium 侧的状态问题**，非项目缺陷。
+   - 影响：含浏览器解码的检查（`media`/`release` 的 66 检查、`perf` seed 的浏览器项）在本机会间歇失败。`perf` seed 已按**仅浏览器失败**精确容忍（`aa0d9dc`：要求 acceptance 自己报告 65/66 且唯一失败项是浏览器检查），任何其他失败仍会失败；`media` 阶段保持严格 66 检查、不放松。
+   - 待本机恢复（重启 Docker Desktop 或等待转发表恢复）后，才可重跑 `VERIFY_STAGE=all` 为该候选重建 M0 证据。
 
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
