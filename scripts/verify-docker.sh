@@ -1059,11 +1059,14 @@ stage_perf() {
         bash scripts/perf-acceptance.sh \
         || fail "perf-acceptance.sh failed (repeat ${rep})"
     else
+      # The 100-viewer capacity tier is measured ONCE, on the first repeat: it
+      # is an exploration of where the stack stops holding 99%, not a level of
+      # the repeated matrix, and it costs ~10 minutes of paced logins.
       PERF_CONTENT_ID="$content_id" \
       PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
       PERF_SKIP_WARMUP=1 \
       PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
-      CAPACITY="$capacity" \
+      CAPACITY=0 \
       SCENARIO="${SCENARIO:-warm_cache}" \
       VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
       RESULT_DIR="$matrix_dir" \
