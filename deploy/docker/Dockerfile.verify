@@ -12,6 +12,18 @@
 # Build:  docker build -f deploy/docker/Dockerfile.verify -t streamgate-verify:local .
 # Use:    make verify-docker VERIFY_STAGE=unit
 # ============================================================
+# Foundry binaries (forge / cast / anvil / chisel) are copied out of the pinned
+# upstream image rather than fetched by foundryup. foundryup downloads its
+# tarball from github.com/foundry-rs/foundry/releases →
+# release-assets.githubusercontent.com, which is unreachable from some networks
+# (it timed out here) even though the very same binaries are served fine from
+# ghcr.io. Sourcing them from an image removes a network dependency from the
+# build — the same fix class as the solc prewarm below (a code gate must not
+# become a network gate) — and pins the exact forge version the CI image records
+# (1.8.5). Override FOUNDRY_IMAGE to build against another version.
+ARG FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:v1.8.5
+FROM ${FOUNDRY_IMAGE} AS foundry
+
 FROM golang:1.26-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -34,11 +46,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Foundry: forge / cast / anvil, pinned to the version used by CI.
-ARG FOUNDRY_VERSION=stable
-RUN curl -L https://foundry.paradigm.xyz | bash \
-    && /root/.foundry/bin/foundryup --install "${FOUNDRY_VERSION}"
-ENV PATH="/root/.foundry/bin:${PATH}"
+# Foundry: forge / cast / anvil / chisel, copied from the pinned image above onto
+# the default PATH (the login profile under `bash -lc` resets PATH to the Debian
+# default, so /usr/local/bin is where every stage will find them).
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/chisel /usr/local/bin/
 
 # golangci-lint (v2 line — required for Go 1.26 modules).
 ARG GOLANGCI_LINT_VERSION=v2.12.2
@@ -46,11 +57,10 @@ RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/ins
         | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
 
 # Stage scripts run under `bash -lc`, whose login profile resets PATH to the
-# Debian default — that drops /root/.foundry/bin and /usr/local/go/bin. Link
-# the Foundry tools onto the default PATH and re-export the Go toolchain from
-# /etc/profile.d so every stage sees forge/anvil/cast/go/gofmt.
-RUN ln -sf /root/.foundry/bin/forge /root/.foundry/bin/cast /root/.foundry/bin/anvil /root/.foundry/bin/chisel /usr/local/bin/ \
-    && printf 'export PATH=/usr/local/go/bin:$PATH\n' > /etc/profile.d/go-toolchain.sh
+# Debian default — that drops /usr/local/go/bin. The Foundry tools already live
+# on /usr/local/bin (copied above); only the Go toolchain needs re-exporting from
+# /etc/profile.d so every stage sees go/gofmt.
+RUN printf 'export PATH=/usr/local/go/bin:$PATH\n' > /etc/profile.d/go-toolchain.sh
 
 # Bake the solc the repo pins (contracts/foundry.toml: solc = "0.8.24") into
 # Forge's svm cache, so a later `forge build` needs no network.
