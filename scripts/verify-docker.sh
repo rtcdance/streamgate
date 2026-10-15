@@ -23,6 +23,17 @@
 # image's module source. The verify stack's transcoder image needs no override:
 # its Dockerfile already defaults to goproxy.cn.
 #
+# VERIFY_PLATFORM=<docker platform> (e.g. linux/amd64) forces the toolchain
+# image to build and run under that platform. The solc prefetch in
+# Dockerfile.verify branches on `uname -m` inside the container: under
+# linux/amd64 it fetches the deterministic linux-amd64 0.8.24 from
+# binaries.soliditylang.org (sha256-verified against the mirror's own list.json),
+# which is the same path CI uses. On arm64 hosts the mirror has no 0.8.24
+# linux-arm64 build, so unit/chain (which need forge → solc) cannot run on a
+# native arm64 image — set VERIFY_PLATFORM=linux/amd64 to take the CI path.
+# Only affects the toolchain image (unit/chain/durability/ops); the compose
+# stack (media/perf/release) stays on the host's native platform.
+#
 # PERF_REFERENCE_REF=<git ref> additionally runs SG-07 step 5 in the perf
 # stage: it builds that ref into its own image, brings up a reference stack,
 # measures the same 50-viewer load for PERF_COMPARE_ROUNDS rounds, tears it
@@ -119,8 +130,18 @@ build_candidate() {
     log "using GOPROXY=${VERIFY_GOPROXY}"
     proxy_args=(--build-arg "GOPROXY=${VERIFY_GOPROXY}")
   fi
+  # VERIFY_PLATFORM forces the toolchain image onto a specific platform (e.g.
+  # linux/amd64 on an arm64 host) so the Dockerfile.verify solc prefetch takes
+  # the deterministic linux-amd64 path that CI uses.
+  local platform_args=()
+  if [ -n "${VERIFY_PLATFORM:-}" ]; then
+    log "building toolchain image for platform ${VERIFY_PLATFORM}"
+    platform_args=(--platform "${VERIFY_PLATFORM}")
+  fi
   # ${arr[@]+...} keeps an empty array safe under `set -u` on bash 3.2.
-  docker build -f deploy/docker/Dockerfile.verify ${proxy_args[@]+"${proxy_args[@]}"} -t "$IMAGE_TAG" . \
+  docker build -f deploy/docker/Dockerfile.verify \
+    ${platform_args[@]+"${platform_args[@]}"} \
+    ${proxy_args[@]+"${proxy_args[@]}"} -t "$IMAGE_TAG" . \
     || fail "candidate image build failed"
 }
 
@@ -135,13 +156,18 @@ run_in_image() {
   local stage="$1"; shift
   local log_file="${LOG_DIR}/${stage}.log"
   local net_args=()
+  local platform_args=()
   mkdir -p "$LOG_DIR"
   if docker network inspect "${PROJECT_NAME}_default" >/dev/null 2>&1; then
     net_args=(--network "${PROJECT_NAME}_default")
   fi
+  if [ -n "${VERIFY_PLATFORM:-}" ]; then
+    platform_args=(--platform "${VERIFY_PLATFORM}")
+  fi
   log "stage=${stage} → log ${log_file}"
   if ! docker run --rm \
         --name "${PROJECT_NAME}-${stage}" \
+        ${platform_args[@]+"${platform_args[@]}"} \
         ${net_args[@]+"${net_args[@]}"} \
         -v "${ARTIFACT_DIR}:/artifacts" \
         -v "${ROOT_DIR}/scripts:/src/scripts:ro" \
