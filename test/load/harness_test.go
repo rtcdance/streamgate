@@ -451,3 +451,79 @@ func TestPerfGenerateDeterministicKeys(t *testing.T) {
 		assert.Equal(t, pool[i].Wallet, pool2[i].Wallet, "generation must be deterministic")
 	}
 }
+
+// TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload pins the second
+// half of the ≥99% decision: above the M4 viewer count a healthy scenario is
+// the capacity exploration, and the only outcomes it may report are successes
+// and OBSERVABLE throttling/overload. This is the bar the perf stage applies
+// when the matrix runs at 100 viewers — it has to accept the honest ceiling
+// measurement while still failing on a holder being denied.
+func TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload(t *testing.T) {
+	base := func() *Result {
+		return &Result{Viewers: 100, SuccessCount: 400, ErrorCount: 0,
+			HTTPStatuses: map[string]int64{"200": 400}}
+	}
+
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*Result)
+		wantErr bool
+	}{
+		{name: "all successes", mutate: func(r *Result) {}, wantErr: false},
+		{name: "range responses count as success", mutate: func(r *Result) {
+			r.HTTPStatuses["206"] = 12
+		}, wantErr: false},
+		{name: "throttled by the limiter", mutate: func(r *Result) {
+			r.HTTPStatuses["429"] = 30
+			r.ErrorCount = 30
+		}, wantErr: false},
+		{name: "overloaded server", mutate: func(r *Result) {
+			r.HTTPStatuses["503"] = 17
+			r.ErrorCount = 17
+		}, wantErr: false},
+		{name: "transport timeouts under load", mutate: func(r *Result) {
+			r.HTTPStatuses["transport_error"] = 9
+			r.ErrorCount = 9
+		}, wantErr: false},
+		{name: "a denied holder", mutate: func(r *Result) {
+			r.HTTPStatuses["403"] = 1
+			r.ErrorCount = 1
+		}, wantErr: true},
+		{name: "an expired capability", mutate: func(r *Result) {
+			r.HTTPStatuses["401"] = 1
+			r.ErrorCount = 1
+		}, wantErr: true},
+		{name: "a missing route", mutate: func(r *Result) {
+			r.HTTPStatuses["404"] = 1
+			r.ErrorCount = 1
+		}, wantErr: true},
+		{name: "nothing executed", mutate: func(r *Result) {
+			r.SuccessCount, r.ErrorCount = 0, 0
+			r.HTTPStatuses = map[string]int64{}
+		}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := base()
+			tc.mutate(res)
+			err := CapacityTierViolation(res, CapacityTierViewers)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+
+	// The helper is for the capacity tier only, and the boundary is the M4
+	// count itself: an M4-sized run must be refused so a caller cannot
+	// accidentally judge the 50-viewer tier by the exploration bar instead of
+	// by ≥99%.
+	m4 := base()
+	m4.Viewers = CapacityTierViewers
+	require.Error(t, CapacityTierViolation(m4, CapacityTierViewers),
+		"the M4-sized run must not be judged as a capacity exploration")
+	above := base()
+	above.Viewers = CapacityTierViewers + 1
+	require.NoError(t, CapacityTierViolation(above, CapacityTierViewers),
+		"the first viewer count above the M4 count is the exploration")
+}

@@ -208,6 +208,14 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # SG-07 step 2 budget: the service under load is pinned to a FIXED 2 vCPU /
+    # 2 GiB so a throughput number means something and the reference
+    # comparison runs on the same basis. Without this the container inherited
+    # the whole Docker VM, so "50 viewers" described no budget at all. Recorded
+    # (with the transcoder's own fence) by scripts/perf-run-manifest.sh, which
+    # writes the run manifest the provenance gate requires.
+    cpus: 2
+    mem_limit: 2g
 
   # Submit-only: the isolated transcoder worker executes tasks, so no embedded
   # worker. CORS carries the same origin list as the monolith so a gateway-mode
@@ -263,6 +271,11 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 10
+    # Same fixed API/streaming budget as the monolith, so the two deployment
+    # modes the acceptance exercises (monolith and api-gateway) are not measured
+    # against different ceilings.
+    cpus: 2
+    mem_limit: 2g
 
   # Isolated media worker (SG-12 step 5): runs FFmpeg OUTSIDE the wallet/JWT-
   # signing trust domain. No JWT secret, no chain RPC, no anvil key. The
