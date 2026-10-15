@@ -1399,7 +1399,7 @@ sequenceDiagram
 | **1/10/50 观众矩阵（仅 M4 的吞吐判据）** | **PASS，全部 100%** | `RESULT_DIR=/tmp/streamgate-perf-final`，commit `f4d65bc`，fixture hash `086df28bae4aca16`，每观众独立钱包 pool=1/10/50、paced=true：**1 观众 28/28、10 观众 280/280、50 观众 1400/1400，success 100.00%、error=0、无任何 4xx**；bytes 42070/420700/2103500（逐分片全量读取）；ttfb_p95 = 58.4/85.5/61.7ms。**M4 判据"50 观众 ≥99% 成功"实测满足**（门槛 99%，实测 100%） |
 | 负例（安全放行 0） | PASS | 同一轮 harness 内 `logins_failed=0`；media stage 的 66 检查含全部篡改/无 NFT/过期负例（0 放行），见 media stage |
 
-**限制（如实记录；2026-10-14 复核后已修复接线）**：本文件早先写的"cold_cache / rpc_primary_down / rpc_all_down 三场景由该 stage 负责跑"**当时并不成立**——`scripts/perf-acceptance.sh` 只接受 `SCENARIO` 标签并把它记进结果，**本身不注入任何故障**，而 perf stage 默认只跑 `warm_cache`。复核发现后已把三场景**真实接线并实测**（提交 `00aff4e`，证据见 §8.16 E）：monolith 拿到两个同链端点的可停主端点，`rpc_all_down` 断言 0 放行 / 0 字节，`rpc_primary_down` 用与健康场景相同的 ≥99% 判据。p95 回归上界已实现为可运行、可失败的门（`346ac46`，`PERF_REFERENCE_REF=<ref>` 时同 runner 顺序跑 reference 与 candidate、取多轮 p95 中位数、超 1.20× 即失败）；其**实测结果记录在 §8.16 F**。50 观众与故障矩阵数字是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
+**限制（如实记录；2026-10-14 复核后已修复接线）**：本文件早先写的"cold_cache / rpc_primary_down / rpc_all_down 三场景由该 stage 负责跑"**当时并不成立**——`scripts/perf-acceptance.sh` 只接受 `SCENARIO` 标签并把它记进结果，**本身不注入任何故障**，而 perf stage 默认只跑 `warm_cache`。复核发现后已把三场景**真实接线并实测**（提交 `00aff4e`，证据见 §8.16 E）：monolith 拿到两个同链端点的可停主端点，`rpc_all_down` 断言 0 放行 / 0 字节，`rpc_primary_down` 用与健康场景相同的 ≥99% 判据。p95 回归上界已实现为可运行、可失败的门（`346ac46`，`PERF_REFERENCE_REF=<ref>` 时同 runner 顺序跑 reference 与 candidate、取多轮 p95 中位数、超 1.20× 即失败），并已**实测通过：ratio = 1.000**（候选 55.98ms vs reference 55.97ms，各 3 轮，§8.16 F）。50 观众与故障矩阵数字是本机栈（Apple Silicon、无外部流量）的数字，不外推为容量承诺。
 
 **SG-08 已落地**（提交 `6754161`，2026-10-13）：
 
@@ -1511,7 +1511,7 @@ sequenceDiagram
 | R07 任务重复/崩溃恢复 | `pkg/service/transcoding/acceptance_durability_test.go`、outbox/lease/DLQ | `TestAcceptance_TranscodeRedeliveryAndCrash`、`RetryAndDLQRecovery`、`DeliveryHandleIsolation` | `a8784ad`、verify durability stage PASS | 无 |
 | R08 链写入幂等/nonce 唯一 | `pkg/web3/tx/nonce_ledger.go`、`pkg/service/registry/` | `TestAcceptance_RegistryIdempotency`、`NonceAcrossInstances`、`BroadcastUnknownRecovery`、`TxReceiptReorg` | `0756ea4`、`9b87ca3` | 无 |
 | R09 生产不隐式回退 | `pkg/gateway/providers.go`（9 strict 分支）、profile 派生 | `TestAcceptance_ProductionDependencyFailure`、`RuntimeWiringAndProfiles` | `0e1cd89`、§8.15 | 插件微服务 /ready 仍是简易 handler |
-| R10 吞吐/指标有测量 | `test/load/harness.go`、`pkg/monitoring` | `TestPerfHarness_*` + live 1/10/50（50 观众 100%） | `e78eb95`、`f4d65bc`、§8.14 | p95 回归 ≤20% 需两轮同 runner 数据（首轮已登记为基线） |
+| R10 吞吐/指标有测量 | `test/load/harness.go`、`pkg/monitoring` | `TestPerfHarness_*` + live 1/10/50（50 观众 100%）+ 故障矩阵 + 同 runner p95 比较 | `e78eb95`、`f4d65bc`、§8.14、§8.16 E/F | 1/10/50 各重复 3 次与 100 观众容量探索的实测待补（开关 `a0e70e0`） |
 | R11 CI 可失败/可追溯 | `.github/workflows/{ci,build,deploy,release-validation}.yml`、`scripts/cd/assert_required_tests.py` | 部署失败反向证明 `EXIT=1`；coverage 门 15 例 expect fail | `6754161`、`7ce823c` | **远端真实 CI 与 release-validation 待 push 授权** |
 | R12 取舍可解释/数字可证实 | `TRANSITION_PLAN.md` §8 全部证据、`docs/resume/` | 本表 + §8.1～8.16 每条带 SHA/实测数字 | `656bdc8`、§8.x 各节 | 本人讲述/录屏/投递为人工项，单列 |
 
