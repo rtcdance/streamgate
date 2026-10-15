@@ -713,6 +713,45 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
 
+  manifest:
+    name: Candidate Manifest (one SHA, one identity)
+    runs-on: ubuntu-latest
+    # The structured candidate manifest TRANSITION_PLAN.md §7 requires, so every
+    # later job can name "the candidate" by immutable identity instead of by a
+    # tag that could point anywhere. It depends only on the image build and it
+    # FAILS when any image was built from a different SHA than this run's, so a
+    # manifest that mixes builds is never published as if it described one
+    # candidate. It is a promotion input, not a test: see `publishable`.
+    needs: [candidate]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect every candidate image's identity
+        uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Write the manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/cd/write_candidate_manifest.py \
+            --meta-dir artifacts/meta \
+            --sha "${{ github.sha }}" \
+            --build-tags "nats_integration" \
+            --platform "linux/amd64" \
+            --environment "ci" \
+            --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --out candidate-manifest.json
+
+      - name: Upload the manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-manifest-${{ github.sha }}
+          path: candidate-manifest.json
+          retention-days: 7
+
   publishable:
     name: Publishable (promotion gate)
     runs-on: ubuntu-latest
@@ -726,7 +765,7 @@ jobs:
     # dispatch against the retained candidate digest — this job only declares
     # the candidate promotable.
     needs: [lint, test-go, test-contracts, test-anvil, build, security,
-            candidate, test-suite, docker, durability, ops, perf,
+            candidate, manifest, test-suite, docker, durability, ops, perf,
             fullchain-acceptance]
     steps:
       - name: Every required gate passed for this SHA
