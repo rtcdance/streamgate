@@ -768,7 +768,10 @@ perf_fault_matrix() {
   # this Redis and must survive, or the run would measure a logged-out stack.
   docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T redis \
     sh -c "redis-cli --scan --pattern 'nft_cache:*' | while read -r k; do [ -n \"\$k\" ] && redis-cli DEL \"\$k\"; done" >/dev/null 2>&1 || true
-  perf_scenario cold_cache 10 "$result_dir" "$content_id" "$fixture_hash"
+  # skip-warmup=1: the built-in sanity run would populate the very cache this
+  # scenario exists to measure cold (and leave a stray cold_cache-viewers-1.json
+  # that looks like a real 1-viewer result).
+  perf_scenario cold_cache 10 "$result_dir" "$content_id" "$fixture_hash" 1
 
   log "fault matrix: rpc_primary_down (stop the primary proxy; fallback must serve)"
   docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil-proxy >/dev/null \
@@ -1021,19 +1024,54 @@ stage_perf() {
     log "comparison: wiring the candidate like the reference (single direct endpoint) for all healthy measurements"
     reconfigure_monolith_rpcs "$project" ""
   fi
-  # PERF_SETUP=1 makes perf-acceptance.sh generate its own per-viewer wallet
-  # pool, log each wallet in for real and dev-mint the gating DemoNFT to each
-  # — no single caller key required. A caller-provided PERF_PRIVATE_KEY /
-  # PERF_WALLET_KEYS_FILE still wins (both envs are passed through untouched).
-  PERF_CONTENT_ID="$content_id" \
-  PERF_SETUP="${PERF_SETUP:-1}" \
-  PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
-  SCENARIO="${SCENARIO:-warm_cache}" \
-  VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
-  RESULT_DIR="$result_dir" \
-  BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
-    bash scripts/perf-acceptance.sh \
-    || fail "perf-acceptance.sh failed"
+  # SG-07 step 2 asks for the matrix at each count "repeated 3 times", and for a
+  # 100-viewer capacity exploration. PERF_MATRIX_REPEATS and PERF_CAPACITY turn
+  # those on; each repeat gets its own directory so the runs are independent
+  # samples rather than one run counted repeatedly. The wallet pool is sized to
+  # cover the largest count once, and reused across repeats.
+  local matrix_repeats="${PERF_MATRIX_REPEATS:-1}" capacity="${PERF_CAPACITY:-0}" rep matrix_dir
+  for rep in $(seq 1 "$matrix_repeats"); do
+    matrix_dir="$result_dir"
+    [ "$matrix_repeats" -gt 1 ] && matrix_dir="${result_dir}/round-${rep}"
+    mkdir -p "$matrix_dir"
+    # PERF_SETUP=1 makes perf-acceptance.sh generate its own per-viewer wallet
+    # pool, log each wallet in for real and dev-mint the gating DemoNFT to each
+    # — no single caller key required. A caller-provided PERF_PRIVATE_KEY /
+    # PERF_WALLET_KEYS_FILE still wins (both envs are passed through untouched).
+    # SETUP runs on the FIRST repeat only: regenerating the pool and re-minting
+    # every round would cost minutes per round and cover nothing new.
+    local setup_flag=0
+    [ "$rep" = "1" ] && setup_flag="${PERF_SETUP:-1}"
+    log "perf matrix repeat ${rep}/${matrix_repeats} → ${matrix_dir} (capacity=${capacity})"
+    # PERF_WALLET_KEYS_FILE is pinned so the pool lands in ONE known path even
+    # when the repeat writes into a round sub-directory; every later repeat and
+    # the comparison rounds reuse exactly this file.
+    if [ "$rep" = "1" ]; then
+      PERF_CONTENT_ID="$content_id" \
+      PERF_SETUP="$setup_flag" \
+      PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
+      PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
+      CAPACITY="$capacity" \
+      SCENARIO="${SCENARIO:-warm_cache}" \
+      VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
+      RESULT_DIR="$matrix_dir" \
+      BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
+        bash scripts/perf-acceptance.sh \
+        || fail "perf-acceptance.sh failed (repeat ${rep})"
+    else
+      PERF_CONTENT_ID="$content_id" \
+      PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
+      PERF_SKIP_WARMUP=1 \
+      PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
+      CAPACITY="$capacity" \
+      SCENARIO="${SCENARIO:-warm_cache}" \
+      VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
+      RESULT_DIR="$matrix_dir" \
+      BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
+        bash scripts/perf-acceptance.sh \
+        || fail "perf-acceptance.sh failed (repeat ${rep})"
+    fi
+  done
   # SG-07 step 5: the candidate's side of the reference comparison, measured
   # BEFORE the fault matrix so it never shares the stack with a stopped
   # endpoint. The reference side already ran and is torn down.
@@ -1058,7 +1096,10 @@ stage_perf() {
   # not an earlier run's numbers.
   python3 - "$result_dir" <<'PY' || fail "perf results failed the provenance check"
 import glob, json, os, sys
-files = sorted(glob.glob(os.path.join(sys.argv[1], "*-viewers-*.json")))
+# The matrix may write straight into the result dir, or (with
+# PERF_MATRIX_REPEATS) into per-repeat round-* sub-directories; both layouts
+# must be checked, or a repeat that exists on disk goes unverified.
+files = sorted(glob.glob(os.path.join(sys.argv[1], "**", "*-viewers-*.json"), recursive=True))
 if not files:
     sys.exit("no scenario result files found")
 seen = set()
