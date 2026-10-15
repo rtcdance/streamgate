@@ -75,12 +75,24 @@ jobs:
           --health-retries 5
 
     steps:
+      # The ABI-sync guard tests (pkg/web3/contract/abi_sync_test.go) compare
+      # Go-side ABIs against the Forge build artifacts in contracts/out, so this
+      # job needs the contract submodules plus a forge build before go test.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.5
+
+      - name: Build contracts (ABI-sync guard needs the artifacts)
+        run: forge build
 
       - run: go mod download
 
