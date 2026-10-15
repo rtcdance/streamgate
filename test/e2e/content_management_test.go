@@ -38,6 +38,15 @@ func (m *MockContentStorage) Download(ctx context.Context, bucket, key string) (
 	return data, nil
 }
 
+// CopyObject mimics the server-side seal copy (SG-12): a copy of a missing
+// source produces no entry rather than an error.
+func (m *MockContentStorage) CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error {
+	if data, exists := m.data[srcKey]; exists {
+		m.data[dstKey] = data
+	}
+	return nil
+}
+
 func (m *MockContentStorage) Delete(ctx context.Context, bucket, key string) error {
 	delete(m.data, key)
 	return nil
