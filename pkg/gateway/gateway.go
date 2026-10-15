@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"embed"
 	"strconv"
 	"time"
 
@@ -17,9 +16,6 @@ import (
 	_ "github.com/lib/pq"
 	"go.uber.org/zap"
 )
-
-//go:embed migrations/*.sql
-var migrationFS embed.FS
 
 const defaultMaxBodySize int64 = 10 << 20 // 10MB global body size limit
 
