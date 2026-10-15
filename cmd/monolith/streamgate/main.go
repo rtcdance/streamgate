@@ -71,11 +71,16 @@ func main() {
 			log.Warn("Failed to open DB for auto-migration", zap.Error(err))
 		} else {
 			runner := migrate.New(db, migrations.FS)
-			if err := runner.Up(); err != nil {
+			// Bounded like the gateway's: migrations wait on the shared advisory
+			// lock while another process finishes, and an unbounded wait would
+			// hang startup instead of reporting the failure.
+			migCtx, migCancel := context.WithTimeout(context.Background(), 120*time.Second)
+			if err := runner.UpContext(migCtx); err != nil {
 				log.Warn("Auto-migration failed (continuing anyway)", zap.Error(err))
 			} else {
 				log.Info("Auto-migration completed")
 			}
+			migCancel()
 			_ = db.Close()
 		}
 	}

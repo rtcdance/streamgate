@@ -12,6 +12,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/rtcdance/streamgate/migrations"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
@@ -232,6 +233,12 @@ func provideSessionStore(cfg *config.Config, log *zap.Logger, redisClient *redis
 	return store, nil
 }
 
+// migrationTimeout bounds startup migrations, including the wait for the shared
+// advisory lock. It must exceed the slowest cold migration: a waiter that times
+// out mid-lock would fall through with the schema still being built by the
+// other process.
+const migrationTimeout = 120 * time.Second
+
 func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db storage.DB, sqlDB *sql.DB, err error) {
 	if cfg.IsStrictProfile() && cfg.Database.Host == "" {
 		return nil, nil, fmt.Errorf("database host is empty — %s profile requires a PostgreSQL (content, gating rules, outbox)", cfg.EffectiveProfile())
@@ -277,8 +284,12 @@ func provideDatabase(cfg *config.Config, log *zap.Logger, res *AppResources) (db
 	}
 	res.DB = d
 	log.Info("Database connected", zap.String("host", cfg.Database.Host))
-	migCtx, migCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	migErr := storage.RunEmbeddedMigrations(migCtx, d, migrationFS, "migrations")
+	// One migration set, shared with the monolith (cmd/monolith auto-migration
+	// and cmd/migrate). A gateway-local copy used to drift — same version
+	// numbers, different SQL — and the two binaries then raced DDL on the same
+	// schema_migrations table until one of them failed.
+	migCtx, migCancel := context.WithTimeout(context.Background(), migrationTimeout)
+	migErr := storage.RunEmbeddedMigrations(migCtx, d, migrations.FS, ".")
 	migCancel()
 	if migErr != nil {
 		log.Warn("Database migration failed, continuing with current schema", zap.Error(migErr))

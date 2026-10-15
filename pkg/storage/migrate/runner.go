@@ -8,6 +8,7 @@
 package migrate
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -79,6 +80,19 @@ func (r *Runner) upMigrations() ([]Migration, error) {
 // Up applies all pending migrations in order.
 // Each migration runs in its own transaction.
 func (r *Runner) Up() error {
+	return r.UpContext(context.Background())
+}
+
+// UpContext applies all pending migrations while holding the advisory lock
+// shared with pkg/storage.Migrator, so a second process starting at the same
+// moment waits instead of racing DDL against the same schema.
+func (r *Runner) UpContext(ctx context.Context) error {
+	release, err := LockMigrationRun(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	if err := r.ensureTrackingTable(); err != nil {
 		return fmt.Errorf("ensure tracking table: %w", err)
 	}
@@ -137,9 +151,22 @@ func (r *Runner) Up() error {
 
 // Down rolls back the last N migrations by applying their .down.sql files.
 func (r *Runner) Down(steps int) error {
+	return r.DownContext(context.Background(), steps)
+}
+
+// DownContext rolls back the last N migrations under the same advisory lock
+// UpContext takes.
+func (r *Runner) DownContext(ctx context.Context, steps int) error {
+	// Nothing to roll back, so there is nothing to lock either.
 	if steps <= 0 {
 		return nil
 	}
+
+	release, err := LockMigrationRun(ctx, r.db)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	if err := r.ensureTrackingTable(); err != nil {
 		return fmt.Errorf("ensure tracking table: %w", err)

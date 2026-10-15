@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"hash/crc32"
 	"io/fs"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	migrate "github.com/rtcdance/streamgate/pkg/storage/migrate"
 
 	"go.uber.org/zap"
 )
@@ -49,18 +51,15 @@ func (m *Migrator) SetTableName(name string) error {
 }
 
 func (m *Migrator) Up(ctx context.Context) error {
-	lockID := int64(crc32.ChecksumIEEE([]byte("streamgate_migrations")))
-	var locked bool
-	if err := m.db.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&locked); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+	// Blocking, and shared with pkg/storage/migrate.Runner: the monolith and
+	// the api-gateway migrate the same database on startup, so the loser must
+	// wait for the winner instead of skipping (which reported success while the
+	// schema was still half-built) or racing it (which failed outright).
+	release, err := migrate.LockMigrationRun(ctx, m.db)
+	if err != nil {
+		return err
 	}
-	if !locked {
-		m.log.Info("another instance is running migrations, skipping")
-		return nil
-	}
-	defer func() {
-		_, _ = m.db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
-	}()
+	defer release()
 
 	if err := m.ensureMigrationsTable(ctx); err != nil {
 		return fmt.Errorf("ensure migrations table: %w", err)
@@ -106,18 +105,13 @@ func (m *Migrator) Up(ctx context.Context) error {
 }
 
 func (m *Migrator) Down(ctx context.Context, targetVersion int) error {
-	lockID := int64(crc32.ChecksumIEEE([]byte("streamgate_migrations")))
-	var locked bool
-	if err := m.db.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&locked); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+	// Same lock as Up: a rollback that interleaves with another process's
+	// forward migration would drop objects that process just created.
+	release, err := migrate.LockMigrationRun(ctx, m.db)
+	if err != nil {
+		return err
 	}
-	if !locked {
-		m.log.Info("another instance is running migrations, skipping")
-		return nil
-	}
-	defer func() {
-		_, _ = m.db.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
-	}()
+	defer release()
 
 	if err := m.ensureMigrationsTable(ctx); err != nil {
 		return fmt.Errorf("ensure migrations table: %w", err)
@@ -256,7 +250,10 @@ func (m *Migrator) readMigrationFiles() ([]migrationFile, error) {
 		version := parts[0]
 		migrationName := strings.TrimSuffix(parts[1], ".sql")
 
-		content, err := fs.ReadFile(m.fs, m.dir+"/"+name)
+		// path.Join, not dir+"/"+name: embeddings rooted at the top level use
+		// dir ".", and "./001_x.sql" is not a valid fs path — ReadFile rejects
+		// it even though ReadDir(".") succeeds.
+		content, err := fs.ReadFile(m.fs, path.Join(m.dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}
@@ -299,7 +296,7 @@ func (m *Migrator) readDownFiles() (map[string]string, error) {
 		}
 		version := parts[0]
 
-		content, err := fs.ReadFile(m.fs, m.dir+"/"+name)
+		content, err := fs.ReadFile(m.fs, path.Join(m.dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", name, err)
 		}
