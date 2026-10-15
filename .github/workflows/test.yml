@@ -83,6 +83,25 @@ jobs:
       - name: Clear Go build cache
         run: go clean -cache
 
+      # pkg/web3/contract's ABI-sync guard compares against the Forge build
+      # artifacts in contracts/out, which no other unit job needs — build them
+      # only on the web3 leg, in contracts/ (the same cwd the local chain
+      # stage uses; at the repo root forge would compile the vendored
+      # openzeppelin-contracts fv specifications instead).
+      - name: Check out contract submodules
+        if: matrix.test-path == 'test-unit-web3'
+        run: git submodule update --init --recursive contracts/lib/forge-std contracts/lib/openzeppelin-contracts
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        if: matrix.test-path == 'test-unit-web3'
+        with:
+          version: v1.8.5
+
+      - name: Build contracts
+        if: matrix.test-path == 'test-unit-web3'
+        working-directory: contracts
+        run: forge build
+
       - name: Run unit tests
         run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
 
