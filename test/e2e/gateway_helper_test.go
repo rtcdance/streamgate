@@ -128,6 +128,16 @@ func (s *mockSegmentStorage) Delete(ctx context.Context, bucket, objectName stri
 	return nil
 }
 
+// CopyObject copies an object inside the bucket (used by the upload seal
+// path, SG-12). A missing source leaves the destination absent rather than
+// erroring, matching the object store behaviour the service relies on.
+func (s *mockSegmentStorage) CopyObject(ctx context.Context, bucket, srcKey, dstKey string) error {
+	if data, ok := s.objects[bucket+"/"+srcKey]; ok {
+		s.objects[bucket+"/"+dstKey] = data
+	}
+	return nil
+}
+
 func (s *mockSegmentStorage) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
 	for _, key := range keys {
 		delete(s.objects, bucket+"/"+key)
@@ -196,17 +206,32 @@ func newTestAuthService() (svc *service.AuthService, verifier *web3.SignatureVer
 	), verifier
 }
 
-// testJWT generates a valid JWT for testing protected routes.
-func testJWT(walletAddress string) string {
+// testJWT mints an access token bound to a session that actually exists.
+// SG-06 made session binding positive: the validator asks the auth service
+// whether the session is live and its epoch matches, and refuses a credential
+// whose session it does not know (a hardcoded session id here would be refused
+// with 401, not because the token is malformed but because nothing ever
+// started that session). StartSession seeds epoch 1, so the claims below
+// carry the id it returns at the session's birth epoch.
+func testJWT(svc *service.AuthService, walletAddress string) string {
+	sessionID, err := svc.StartSession()
+	if err != nil {
+		panic("testJWT: failed to start session: " + err.Error())
+	}
 	claims := jwt.MapClaims{
 		"wallet_address": walletAddress,
-		"session_id":     "test-session",
+		"session_id":     sessionID,
 		"auth_epoch":     1,
-		"username":       walletAddress,
-		"sub":            walletAddress,
-		"jti":            fmt.Sprintf("test-jti-%d", time.Now().UnixNano()),
-		"exp":            time.Now().Add(time.Hour).Unix(),
-		"iat":            time.Now().Unix(),
+		// The router JWT config requires both: an access token minted by
+		// this service carries them, and a token without them is refused
+		// as belonging to another issuer or another purpose.
+		"iss":      service.AccessTokenIssuer,
+		"aud":      service.AccessTokenAudience,
+		"username": walletAddress,
+		"sub":      walletAddress,
+		"jti":      fmt.Sprintf("test-jti-%d", time.Now().UnixNano()),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+		"iat":      time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	s, _ := token.SignedString([]byte("test-secret-that-is-at-least-32-chars"))

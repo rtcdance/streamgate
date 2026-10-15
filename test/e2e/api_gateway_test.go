@@ -29,7 +29,7 @@ func TestE2E_APIGatewayHealthRouting(t *testing.T) {
 
 func TestE2E_APIGatewayContentRequiresAuth(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := setupE2EServer(t, checker, nil)
+	svc, _, server := setupE2EServer(t, checker, nil)
 
 	// Without auth
 	resp, err := http.Get(server.URL + "/api/v1/content")
@@ -38,7 +38,7 @@ func TestE2E_APIGatewayContentRequiresAuth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// With auth
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req)
@@ -65,7 +65,7 @@ func TestE2E_APIGatewayCORS(t *testing.T) {
 
 func TestE2E_APIGatewayAuthentication(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := setupE2EServer(t, checker, nil)
+	svc, _, server := setupE2EServer(t, checker, nil)
 
 	// Without token → 401 on protected routes
 	req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
@@ -75,7 +75,7 @@ func TestE2E_APIGatewayAuthentication(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// With valid JWT → 200
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 	req2, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 	req2.Header.Set("Authorization", "Bearer "+jwtToken)
 	resp2, err := http.DefaultClient.Do(req2)
