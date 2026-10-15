@@ -60,7 +60,9 @@ How far the evidence reaches, precisely:
 | **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
 
 Supporting numbers live where they can be re-run, not in this file: the performance matrix
-(1/10/50 viewers, each with its own real wallet) and the recovery drill results are recorded in
+(1/10/50 viewers, each with its own real wallet), the fault matrix (cold cache, primary RPC
+stopped, every RPC stopped), the same-runner p95 comparison against a fixed reference
+(`PERF_REFERENCE_REF=<ref>`), and the recovery drill results are recorded in
 `TRANSITION_PLAN.md` §8.
 
 ### Architecture
