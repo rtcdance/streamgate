@@ -31,13 +31,21 @@
 # it doubles the perf stage's runtime, so it is a calibration step, not
 # something every `all` pass pays for.
 #
-# PERF_MATRIX_REPEATS=<n> (default 1) and PERF_CAPACITY=1 turn on the two
-# measurements SG-07 step 2 asks for beyond the single matrix pass: the 1/10/50
-# matrix repeated n times in independent per-repeat directories (round-1 …), and
-# a one-off 100-viewer capacity exploration. The proof that those results really
-# are THIS run's — and that every repeat happened — is
-# scripts/perf-provenance-check.sh, which fails the stage on a stale, mixed or
-# incomplete result set. It runs after every perf stage, repeated or not.
+# PERF_MATRIX_REPEATS=<n> (default 1) turns on the full SG-07 step-2 protocol:
+# the matrix is measured at 1/10/50/100 viewers, n times, in independent
+# per-repeat directories (round-1 …). Repeating is what makes those levels
+# statistically meaningful, so the repeated run measures ALL FOUR — the
+# 1/10/50 single-pass run that every `all` pays for is the smoke version, with
+# the 100 tier opt-in there via PERF_CAPACITY=1. The 100 tier is judged as the
+# capacity exploration (observable throttling/overload, never a denied holder);
+# the 50 tier keeps the M4 ≥99% bar.
+#
+# The proof that those results really are THIS run's, that every repeat
+# happened, and that the environment was recorded is
+# scripts/perf-provenance-check.sh, which fails the stage on a stale, mixed,
+# incomplete or unbudgeted result set. It runs after every perf stage, repeated
+# or not, and the run manifest it also requires is written by
+# scripts/perf-run-manifest.sh from the RUNNING containers.
 # ============================================================
 set -euo pipefail
 
@@ -79,6 +87,12 @@ cleanup() {
   done
 }
 trap cleanup EXIT
+# Interrupting a run must not leak its stack. An unhandled INT/TERM kills the
+# shell WITHOUT running an EXIT trap (verified by stopping a perf run: the whole
+# project stayed up and kept holding the stage's ports), which contradicts the
+# rule that every cleanup removes exactly what this run created and nothing is
+# left behind. Route the signals through the EXIT trap instead.
+trap 'exit 130' INT TERM
 
 ensure_submodules() {
   if [ -f .gitmodules ]; then
@@ -1046,6 +1060,13 @@ stage_perf() {
   # samples rather than one run counted repeatedly. The wallet pool is sized to
   # cover the largest count once, and reused across repeats.
   local matrix_repeats="${PERF_MATRIX_REPEATS:-1}" capacity="${PERF_CAPACITY:-0}" rep matrix_dir
+  # SG-07 step 2 measures the matrix at 1/10/50/100 viewers and repeats it; the
+  # single-pass run that every `all` pays for covers the M4 levels 1/10/50 and
+  # leaves the 100 tier to the explicit calibration switch. The provenance gate
+  # enforces exactly this split, so the stage's levels and the gate's
+  # expectations cannot drift apart.
+  local matrix_viewers="${VIEWERS_LIST:-}"
+  [ -n "$matrix_viewers" ] || { if [ "$matrix_repeats" -gt 1 ]; then matrix_viewers="1 10 50 100"; else matrix_viewers="1 10 50"; fi; }
   for rep in $(seq 1 "$matrix_repeats"); do
     matrix_dir="$result_dir"
     [ "$matrix_repeats" -gt 1 ] && matrix_dir="${result_dir}/round-${rep}"
@@ -1069,22 +1090,23 @@ stage_perf() {
       PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
       CAPACITY="$capacity" \
       SCENARIO="${SCENARIO:-warm_cache}" \
-      VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
+      VIEWERS_LIST="$matrix_viewers" \
       RESULT_DIR="$matrix_dir" \
       BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
         bash scripts/perf-acceptance.sh \
         || fail "perf-acceptance.sh failed (repeat ${rep})"
     else
-      # The 100-viewer capacity tier is measured ONCE, on the first repeat: it
-      # is an exploration of where the stack stops holding 99%, not a level of
-      # the repeated matrix, and it costs ~10 minutes of paced logins.
+      # Later repeats reuse the pool SETUP built and measure the SAME levels as
+      # the first (matrix_viewers), including 100 when the matrix is repeated:
+      # step 2 repeats each of 1/10/50/100, and the wallet pool always covers the
+      # largest count because SETUP sizes it from this same list.
       PERF_CONTENT_ID="$content_id" \
       PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
       PERF_SKIP_WARMUP=1 \
       PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
       CAPACITY=0 \
       SCENARIO="${SCENARIO:-warm_cache}" \
-      VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}" \
+      VIEWERS_LIST="$matrix_viewers" \
       RESULT_DIR="$matrix_dir" \
       BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
         bash scripts/perf-acceptance.sh \
@@ -1110,6 +1132,12 @@ stage_perf() {
   perf_fault_matrix "$project" "$result_dir" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
   log "perf results in ${result_dir}"
   ls -la "$result_dir"
+  # SG-07 step 2 records the environment with the numbers (platform/arch, every
+  # resource limit, tool and image versions) — a throughput figure whose budget
+  # cannot be looked up is not the artefact the step asks for. Limits are read
+  # back from the containers, so an unpinned service shows its real values.
+  bash scripts/perf-run-manifest.sh "$result_dir" "$project" "$VERIFY_COMPOSE_FILE" \
+    || fail "could not write the perf run manifest"
   # SG-07: a result that lost its provenance is not an acceptance artefact, and
   # every result must be bound to THIS candidate rather than an earlier run's
   # numbers. The gate lives in its own script so it can be exercised against the
