@@ -91,3 +91,8 @@ streamgate
 deploy/docker/*-linux
 scripts/h5-demo-acceptance/reports/
 scripts/h5-demo-acceptance/node_modules/
+
+# Unified Docker verification runner output (scripts/verify-docker.sh). These are
+# generated measurements, kept in CI artifacts per TRANSITION_PLAN.md §7 — never
+# in the checkout, so the "clean tree" precondition of M0 stays meaningful.
+.verify-artifacts/
