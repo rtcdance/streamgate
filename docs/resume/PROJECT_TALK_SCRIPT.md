@@ -161,11 +161,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 
 **4. 证据边界：压测与发布（4min）**
 
-- 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。未做的如实说：冷缓存 / RPC 故障三场景、reference vs candidate 的 p95 回归比较（需两轮同 runner 数据）；CPU/RSS 未采。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
+- 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。故障矩阵与 p95 回归比较**随后已补齐并实测**（`00aff4e`/`346ac46`）：cold_cache（重启 monolith 清 L1 + 只删 `nft_cache:*`，保留 session）、`rpc_primary_down`（monolith 配两个同链端点，停可停的 socat 主端点）、`rpc_all_down`（两个端点全停）——**50 观众走回退仍 1400/1400；全停时 0 放行、0 媒体字节**（判据落在 harness 内，单次放行即判失败）。同 runner 固定 reference 的 p95 比较：**ratio = 1.000**（候选 55.98ms vs reference `f20fb92` 55.97ms，各 3 轮中位数，超 1.20× 即失败）。过程本身抓出两个真问题：候选被留在故障矩阵的两端点布线上而 reference 只能单端点，首测因此假报 ratio=1.456（改为同布线后 1.000）；reference 轮的 provenance 一度被标成候选 SHA（改用 `PERF_COMMIT` 标注）。仍未做/未采：CPU/RSS、1/10/50 各重复 3 轮与 100 观众容量探索的实测（开关已实现）、远端 CI。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
 - 发布（本地已实跑，远端待运行）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；schema 已落地 additive 迁移 + 齐全 `.down.sql`（036–040）。**已跑**：verify-docker release stage 实跑空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）。**未跑**：GitHub 侧同 digest CD、回滚 smoke、远端 CI——本轮提交未推送。
 - 已落地的 CI 门一句话带过：覆盖率缺失/空文件即失败（自证 15/15，含 59.9% 必须失败）、迁移 `ON_ERROR_STOP`、Anvil 进候选门禁、smoke 改为"依赖就绪 → healthy → `/health` 200"（`febdf7f`）。
 
-**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；本地七阶段 Docker 验收与 50 观众负载已实测，远端 CI 与 cold/RPC 故障跑分还没跑。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
+**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；本地七阶段 Docker 验收、50 观众负载、cold/RPC 故障矩阵与同 runner p95 比较都已实测，远端 CI 还没跑（未推送）。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
 
 ### 30 分钟讲述的证据映射表（代码入口 → 测试/断言 → SHA）
 
@@ -246,7 +246,7 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 一句话：已授权 playlist、segment、init/key 的**全部响应字节**，每个响应体读完并校验大小/hash，失败不计入成功吞吐。
 关键点：固定 EXTINF 节奏 + 固定 rendition + 每观众独立真实登录持 NFT（每观众一个真实钱包，节流登录 + dev-mint）；预热 10s / 采样 30s；TTFB、p50/95/99、错误分布、HTTP 状态分布；未授权放行 0 硬门。**实测**：1/10/50 观众 = 28/28、280/280、1400/1400 全成功 0 错误，字节 42070/420700/2103500，ttfb_p95 58.4/85.5/61.7ms（commit `f4d65bc`）。50 观众 ≥99% 达标（100%）。
 必须提的排障故事：多钱包化之后 10 观众仍 120×429，定位到 IP 键控全局限流器在 auth 之前合桶（Prometheus `http_requests_total` 无 429 而 `rate_limit_total{redis,denied}=290`、容器日志 0 条 429 三重证据），媒体路径豁免后归零。
-未做如实说：cold_cache / rpc_primary_down / rpc_all_down 三场景、reference/candidate p95 回归（需两轮数据）、CPU/RSS 未采。
+故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）**已实跑**：50 观众走同链回退仍 1400/1400 无损，全端点停时 **0 放行 / 0 媒体字节**。reference/candidate 的 p95 回归比较**已实现并实测 ratio = 1.000**（各 3 轮中位数，同 runner 顺序，超 1.20× 即失败）。未做/未采如实说：CPU/RSS、1/10/50 各重复 3 轮与 100 观众容量探索的实测（开关已实现）。
 边界：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 模拟，**引用它数字的回答是错的**。
 
 **Q9 发布 digest 与 schema 回滚？（本地已实跑，远端待运行）**
