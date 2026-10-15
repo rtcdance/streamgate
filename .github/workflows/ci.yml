@@ -352,9 +352,13 @@ jobs:
             -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=streamgate \
             postgres:15-alpine
           docker run -d --name ci-redis --network "$net" redis:7-alpine
-          docker run -d --name ci-minio --network "$net" \
+          # minio/minio is no longer publicly pullable from Docker Hub (the
+          # same finding test.yml already carries); bitnamilegacy/minio is the
+          # still-published equivalent. It runs as root so the fresh named
+          # volume is writable, and takes the same MINIO_ROOT_* credentials.
+          docker run -d --name ci-minio --network "$net" --user root \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            minio/minio:latest server /data
+            bitnamilegacy/minio:2025.7.23-debian-12-r5 server /data
           docker run -d --name ci-nats --network "$net" nats:2.10-alpine -js
 
           wait_for() {  # wait_for <label> <cmd...>
