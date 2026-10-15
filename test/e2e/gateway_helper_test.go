@@ -54,8 +54,10 @@ func (m *mockNFTChecker) GetNFTInfo(ctx context.Context, chainID int64, contract
 }
 
 // GetNFTOwnershipQuantity reports the mock's balance for collection subjects
-// and 0/1 for a specific token, matching the legacy fields' meaning.
-func (m *mockNFTChecker) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contract, tokenID, owner string) (*big.Int, error) {
+// and 0/1 for a specific token, matching the legacy fields' meaning. block is
+// the caller's pinned block tag (SG-04); the mock has no chain behind it, so
+// it is accepted and ignored — balance is constant by construction.
+func (m *mockNFTChecker) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contract, tokenID, owner string, block *big.Int) (*big.Int, error) {
 	if m.balanceErr != nil {
 		return nil, m.balanceErr
 	}
