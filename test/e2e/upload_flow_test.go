@@ -108,7 +108,7 @@ func (sqlresult) LastInsertId() (int64, error) { return 0, nil }
 func (sqlresult) RowsAffected() (int64, error) { return 1, nil }
 
 // setupUploadE2EServer creates a test server with upload service wired in.
-func setupUploadE2EServer(t *testing.T, store service.SegmentStorage) *httptest.Server {
+func setupUploadE2EServer(t *testing.T, store service.SegmentStorage) (*service.AuthService, *httptest.Server) {
 	t.Helper()
 	authService, _ := newTestAuthService()
 	checker := &mockNFTChecker{verifyResult: true, balance: big.NewInt(1)}
@@ -136,7 +136,7 @@ func setupUploadE2EServer(t *testing.T, store service.SegmentStorage) *httptest.
 	t.Cleanup(func() { _ = resources.Close() })
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
-	return server
+	return authService, server
 }
 
 func TestUploadRoutes_Return503WhenNoService(t *testing.T) {
@@ -159,7 +159,7 @@ func TestUploadRoutes_Return503WhenNoService(t *testing.T) {
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 
-	token := testJWT("0xTestWallet")
+	token := testJWT(authService, "0xTestWallet")
 
 	endpoints := []struct {
 		method string
@@ -199,8 +199,8 @@ func TestUploadRoutes_Return503WhenNoService(t *testing.T) {
 func TestUploadWholeFile(t *testing.T) {
 	t.Skip("requires external service")
 	store := newMockSegmentStorage()
-	server := setupUploadE2EServer(t, store)
-	token := testJWT("0xCreatorWallet")
+	svc, server := setupUploadE2EServer(t, store)
+	token := testJWT(svc, "0xCreatorWallet")
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -261,8 +261,8 @@ func TestUploadWholeFile(t *testing.T) {
 func TestChunkedUploadInit(t *testing.T) {
 	t.Skip("requires external service")
 	store := newMockSegmentStorage()
-	server := setupUploadE2EServer(t, store)
-	token := testJWT("0xCreatorWallet")
+	svc, server := setupUploadE2EServer(t, store)
+	token := testJWT(svc, "0xCreatorWallet")
 
 	body := `{"filename":"large-video.mp4","total_size":104857600,"total_chunks":10}`
 	req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload/init", strings.NewReader(body))
@@ -299,8 +299,8 @@ func TestChunkedUploadInit(t *testing.T) {
 func TestUploadChunk(t *testing.T) {
 	t.Skip("requires external service")
 	store := newMockSegmentStorage()
-	server := setupUploadE2EServer(t, store)
-	token := testJWT("0xCreatorWallet")
+	svc, server := setupUploadE2EServer(t, store)
+	token := testJWT(svc, "0xCreatorWallet")
 
 	// Init first
 	initBody := `{"filename":"chunked.mp4","total_size":50000000,"total_chunks":5}`
@@ -359,8 +359,8 @@ func TestUploadChunk(t *testing.T) {
 
 func TestUploadNoFileProvided(t *testing.T) {
 	store := newMockSegmentStorage()
-	server := setupUploadE2EServer(t, store)
-	token := testJWT("0xCreatorWallet")
+	svc, server := setupUploadE2EServer(t, store)
+	token := testJWT(svc, "0xCreatorWallet")
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)

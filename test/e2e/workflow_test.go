@@ -20,8 +20,8 @@ import (
 func TestE2ENFTVerifyWorkflow(t *testing.T) {
 	t.Skip("requires external service")
 	checker := &mockNFTChecker{balance: big.NewInt(3)}
-	_, _, server := setupE2EServer(t, checker, nil)
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	svc, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 
 	t.Run("VerifyByBalance", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
@@ -47,8 +47,8 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 
 	t.Run("VerifyByTokenOwnership", func(t *testing.T) {
 		checker2 := &mockNFTChecker{verifyResult: true}
-		_, _, server2 := setupE2EServer(t, checker2, nil)
-		jwtToken2 := testJWT("0x1234567890123456789012345678901234567890")
+		svc2, _, server2 := setupE2EServer(t, checker2, nil)
+		jwtToken2 := testJWT(svc2, "0x1234567890123456789012345678901234567890")
 
 		body, _ := json.Marshal(map[string]interface{}{
 			"wallet":    "0x1234567890123456789012345678901234567890",
@@ -123,15 +123,19 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 
 func TestE2ETranscodingWorkflow(t *testing.T) {
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := setupE2EServer(t, checker, nil)
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	svc, _, server := setupE2EServer(t, checker, nil)
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 
 	t.Run("SubmitTask", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]interface{}{
 			"content_id": "content-42",
 			"profile":    "720p",
-			"input_url":  "https://example.com/input.mp4",
-			"priority":   1,
+			// The submit API only accepts input URLs the policy allows (SSRF
+			// guard, off-by-default external): testConfig's storage endpoint is
+			// localhost:9000, which transcodeInputAllowlist includes, so an
+			// arbitrary public host would be refused with 400.
+			"input_url": "http://localhost:9000/streamgate/input.mp4",
+			"priority":  1,
 		})
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/transcode/submit", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -150,8 +154,8 @@ func TestE2ETranscodingWorkflow(t *testing.T) {
 func TestE2EUploadWorkflow(t *testing.T) {
 	t.Skip("requires external service")
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, _, server := setupE2EServer(t, checker, newMockSegmentStorage())
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	svc, _, server := setupE2EServer(t, checker, newMockSegmentStorage())
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 
 	t.Run("UploadFile", func(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", bytes.NewReader([]byte("fake video")))
@@ -208,7 +212,7 @@ func TestE2EWeb3RPCStatus(t *testing.T) {
 
 func TestE2EContentRoutesRequireAuth(t *testing.T) {
 	checker := &mockNFTChecker{}
-	_, _, server := setupE2EServer(t, checker, nil)
+	svc, _, server := setupE2EServer(t, checker, nil)
 
 	t.Run("NoAuth_Returns401", func(t *testing.T) {
 		resp, err := http.Get(server.URL + "/api/v1/content")
@@ -218,7 +222,7 @@ func TestE2EContentRoutesRequireAuth(t *testing.T) {
 	})
 
 	t.Run("WithAuth_NoDB_Returns503", func(t *testing.T) {
-		jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+		jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 		req, _ := http.NewRequest("GET", server.URL+"/api/v1/content", http.NoBody)
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
 		resp, err := http.DefaultClient.Do(req)
@@ -243,8 +247,8 @@ func TestE2ENFTGateEnriched403(t *testing.T) {
 		Standard:        "erc721",
 		MinBalance:      1,
 	}}}
-	_, _, server := setupE2EServer(t, checker, nil, gateway.WithGatingRuleResolver(rules))
-	jwtToken := testJWT("0x1234567890123456789012345678901234567890")
+	svc, _, server := setupE2EServer(t, checker, nil, gateway.WithGatingRuleResolver(rules))
+	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
 
 	t.Run("StreamingWithoutNFT_Enriched403", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8", http.NoBody)
