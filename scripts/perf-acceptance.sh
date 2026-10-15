@@ -104,12 +104,18 @@ if [ "${PERF_SETUP:-0}" = "1" ]; then
   export PERF_WALLET_KEYS_FILE="${PERF_WALLET_KEYS_FILE:-$RESULT_DIR/wallets.keys}"
   export PERF_WALLETS="${PERF_WALLETS:-$max_viewers}"
   echo "perf-acceptance: SETUP — generating $PERF_WALLETS wallets, pacing logins, minting DemoNFT to each"
+  # SETUP needs PERF_GO_TIMEOUT too, and for the strongest reason: the paced
+  # logins (~6s per wallet, so the auth limiter is never tripped) put the
+  # 100-viewer pool at ~10 minutes BEFORE any minting happens — strictly longer
+  # than Go's 10m default. Passing the budget only to the scenario run left the
+  # documented capacity exploration dying here as "panic: test timed out after
+  # 10m0s" with the pool half built.
   PERF_BASE_URL="$BASE_URL" \
   PERF_CHAIN_ID="$PERF_CHAIN_ID" \
   PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
   PERF_WALLETS="$PERF_WALLETS" \
   PERF_SETUP=1 \
-    go test -tags load -count=1 -run TestPerfSetup_MintViewerWallets ./test/load/ -v
+    go test -tags load -count=1 -timeout "$PERF_GO_TIMEOUT" -run TestPerfSetup_MintViewerWallets ./test/load/ -v
   echo "perf-acceptance: SETUP complete — wallet pool in $PERF_WALLET_KEYS_FILE"
 fi
 
