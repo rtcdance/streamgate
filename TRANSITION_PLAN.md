@@ -160,7 +160,7 @@ flowchart LR
 
 ## 5. 逐项执行任务书
 
-### [ ] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口
+### [x] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口（完成 2026-10-15：冻结干净候选 `3d45fed` 上单次 `make verify-docker`（`VERIFY_STAGE=all`）七阶段全绿 exit 0，§8.16 G 第 4 条）
 
 **依赖**：SG-10。**目的**：后续任务不能建立在无法编译、自动 skip 或依赖本机隐藏文件的测试上。
 
@@ -1593,14 +1593,12 @@ M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-doc
        - 修复（`deploy/docker/Dockerfile.verify`）：改为从**钉住的上游镜像 `ghcr.io/foundry-rs/foundry:v1.8.5`** 用 multi-stage `COPY --from` 取 `forge`/`cast`/`anvil`/`chisel`，不再走 GitHub release（`ARG FOUNDRY_IMAGE` 可覆盖）。ghcr 本机可达（镜像 pull 成功；容器内 `forge Version: 1.8.5`；digest `sha256:32c8ea9e…`），版本与 CI 记录的 1.8.5 一致（且比 `foundryup stable` 浮动更确定）；因该镜像是 multi-arch，按 **tag** 钉住而非按 digest（否则会破坏 arm64 原生构建）。
        - 实测：`VERIFY_PLATFORM=linux/amd64` 下构建成功（COPY 机制先以本地已拉的 `stable` 镜像冒烟验证通过），`VERIFY_STAGE=chain` **PASS**：`forge build` + `forge test` 46/46（含 `invariant_*` 256×32 runs、0 reverts）+ `go test -tags=anvil -race` 全绿。
      - **unit / durability 同轮**：unit arm64 原生 PASS（覆盖率 71%）；durability amd64 PASS（必需测试 0 跳过）。
-     - **结论（2026-10-15 更新）**：`VERIFY_PLATFORM=linux/amd64` 是**正确的 CI 平台路线**；本机两条环境限制（第 1 条 Foundry 供源、第 2 条 Chromium 转发）在本轮均已解除，剩余只是「冻结干净候选后跑完整 `all`」这一需要提交授权的前置。
+     - **结论（2026-10-15 更新）**：`VERIFY_PLATFORM=linux/amd64` 是**正确的 CI 平台路线**；本机两条环境限制（第 1 条 Foundry 供源、第 2 条 Chromium 转发）在本轮均已解除，**冻结候选 `3d45fed` 上的单次 `all` 七阶段全绿已实跑（见第 4 条）**，M0 成立。
 
-4. **本轮逐阶段证据（2026-10-15；当前工作树，未冻结）**：在「冻结干净候选」前置未满足（工作树有 3 处未提交修改：本计划、`scripts/verify-docker.sh`、`deploy/docker/Dockerfile.verify`）时，逐阶段为本轮候选实跑，**7 阶段全部 PASS**：
-   - `VERIFY_PLATFORM=linux/amd64`：`chain` **PASS**（`forge build` + `forge test` 46/46 + anvil/web3 Go 全绿）、`durability` **PASS**（必需 0 skip）、`ops` **PASS**（首跑受并发 docker 负载影响，fuzz 协调器报 `context deadline exceeded`；空闲重跑 PASS，未持久化 crasher ⇒ 负载假阳性，非缺陷）。
-   - `unit` **PASS**：单次 `all`（amd64）内 unit PASS；另有一次**原生 arm64** 实跑 PASS（覆盖率 71%、coverage gate 自检 15/15，该次早于本轮 `Dockerfile.verify` 的 Foundry 改动）。
-   - host 侧：`media` **PASS**（双模式各 `ALL 66 PASSED`；首跑因第 2 条间歇转发在浏览器项失败，重跑通过）、`perf` **PASS**（provenance 6 文件绑定 `a2ed3b11`：warm 1/10/50 = 28/280/1400 全 0 错误；故障矩阵 cold_cache 280/0、rpc_primary_down 1400/0、rpc_all_down **0 放行 / 140 错误**）、`release` **PASS**（`release-smoke` ALL 66，浏览器 `currentTime=3.62s`；失败演练：坏变体创建期被拒 + 健康版恢复）。
-   - **如实边界**：这是**逐阶段**证据，**不是 M0**——M0 要求**单一 `all` 运行 + 冻结的干净候选**。本表证明"两条环境阻塞移除后各门均可过"；M0 仍待提交授权、冻结后执行。
-   - **本轮单次 `all` 运行（2026-10-15）**：`VERIFY_PLATFORM=linux/amd64` 的单次 `all` 依次 PASS 了 unit/chain/durability/ops，到 `media` 时**在浏览器播放检查失败（该阶段 65/66）**，未到 perf/release。这正是第 2 条**间歇转发**对「单次运行」判据的直接影响：逐阶段（尤其 media/perf/release 的浏览器项）可重跑通过，但**单次 `all` 在本机不可靠**。故本机 **M0 仍受阻于宿主转发**（非代码缺陷）——注意 **CI 不受此限**：CI 的浏览器跑在容器内的 Playwright 镜像（`PW_CHANNEL=""` 用自带 Chromium），不经宿主机端口转发，故 CI 的 `all` 是这条判据的正确取证环境。
+4. **M0 冻结候选的单次 `all` 实跑（2026-10-15，候选 `3d45fed`）**：用户授权提交后，三处修改（`VERIFY_PLATFORM` 旋钮、ghcr Foundry 供源、本计划证据）分三个提交冻结，`git status` 空、HEAD=`3d45fed`。随后执行**单次** `VERIFY_PLATFORM=linux/amd64 VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker`（即 `VERIFY_STAGE=all`，结果目录开跑即清空）：**七阶段连续全绿、脚本 exit 0**——
+   - `unit` PASS（gofmt/vet/lint 0 issues/race + 覆盖率门）→ `chain` PASS（forge build + forge test 46/46 + anvil/web3 Go 全绿）→ `durability` PASS（必需测试 0 跳过）→ `ops` PASS（profile/drain 门 + 10 个 fuzz 目标各 30s）→ `media` PASS（双模式各 `ALL 66 PASSED`）→ `perf` PASS（warm 1/10/50 = 28/280/1400 全 0 错误 + 故障矩阵 + **provenance 6 文件绑定 `3d45fedbd30a`**）→ `release-smoke` PASS（ALL 66 + 失败演练：坏变体创建期被拒 + 健康版恢复）。
+   - 7 个 per-stage 日志（`.verify-artifacts/logs/`，时间戳 16:35–17:30 连续）+ `ALL_EXIT=0` + **零 `[verify:FAIL]` 标记**。**M0 与候选 `f20fb92` 同等成立**——且此轮候选含 `pkg/core/config/config.go` 产品变更，D 段"`f20fb92` 证据不覆盖它"的缺口自此补上（该单文件另由 `TestLoadConfig_ChainRPCURLsOverride` 与实跑故障矩阵覆盖）。
+   - 与前两次单次 `all` 的对比（如实保留）：在 Foundry/Chromium 两个阻塞移除前，单次 `all` 曾止于 media（浏览器 65/66，第 2 条间歇转发）；本轮同判据下 media/release 浏览器项全过（`currentTime=3.62s`），证明那两条**确实只是环境阻塞**而非判据放宽——本轮未对 media 放松 66 检查。
 
 **H. SG-07 步骤 2 的原文复核与实测（固定预算合并运行；候选 `a2ed3b11`）**
 
@@ -1664,7 +1662,7 @@ M0 要求"全新 checkout + submodules，统一 Docker runner，`make verify-doc
 
 | 任务 | 状态 | 证据位置 |
 |---|---|---|
-| SG-00 可复现 Docker 验收入口 | **脚手架完成；勾选待冻结干净候选** | `f20fb92` 七阶段全绿（M0 就 `f20fb92` 满足）；当前候选 `all` 重跑受 §8.16 G 环境限制，勾选以「干净候选」为准（§8.2 unit 行 + §8.16 D/G） |
+| SG-00 可复现 Docker 验收入口 | **完成** | 冻结干净候选 `3d45fed` 上单次 `make verify-docker`（all）七阶段全绿 exit 0；§8.16 G 第 4 条 |
 | SG-01～06（合约 fixture、真钱包、NFT 门、媒体、生命周期） | 完成 | §8.1～8.11 |
 | SG-07 性能与可观测性 | **完成** | 固定预算合并运行（候选 `a2ed3b11`）：1/10/50/100 × 3 全部 100% 成功、故障矩阵 4 场景全过（rpc_all_down = 0 放行 / 0 字节）、p95 ratio=1.029 ≤ 1.20；§8.16 H（权威集合）+ D/E/F（历史对照） |
 | SG-08 CI/CD 同产物 DAG | 完成（静态） | `6754161` + `7ce823c`；§8.14。远端**真实运行**待 push 授权 |
