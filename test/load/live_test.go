@@ -173,7 +173,19 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 	// expected outcome it can name on its own.
 	switch scenario {
 	case "cold_cache", "warm_cache":
-		// Healthy: the SG-07 bar is ≥99% success at 50 viewers.
+		// Healthy scenarios carry two different claims. M4's bar — ≥99% success
+		// — is defined at 50 viewers; above that the same scenario IS the
+		// capacity exploration, whose acceptance is not "stays at 99%" but
+		// "throttles or overloads observably, and never turns a holder away"
+		// (TRANSITION_PLAN.md §5 SG-07 验收). Judging this tier by the M4 bar
+		// would replace the specified acceptance with a stricter one and make
+		// the ceiling unreportable, so it is judged by its own rule.
+		if res.Viewers > load.CapacityTierViewers {
+			require.NoError(t, load.CapacityTierViolation(res, load.CapacityTierViewers))
+			t.Logf("capacity tier at %d viewers: success=%d errors=%d bytes=%d statuses=%v — judged as an exploration, not by the M4 bar",
+				res.Viewers, res.SuccessCount, res.ErrorCount, res.TotalBytes, res.HTTPStatuses)
+			break
+		}
 		total := res.SuccessCount + res.ErrorCount
 		require.Greater(t, total, int64(0), "no requests were executed")
 		successRate := float64(res.SuccessCount) / float64(total)

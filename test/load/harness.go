@@ -217,6 +217,56 @@ func ComputePercentiles(samples []float64) Percentiles {
 	return out
 }
 
+// CapacityTierViewers is the viewer count the M4 throughput bar is defined at
+// (TRANSITION_PLAN.md §6 M4: "50 观众 ≥99% 成功"). A healthy run measured above
+// it is the capacity exploration of §5 SG-07 step 2, judged by its own
+// acceptance (§5 SG-07 验收) rather than by the M4 bar.
+const CapacityTierViewers = 50
+
+// CapacityTierViolation returns why a capacity-exploration run is not an
+// acceptable result, or nil when it is.
+//
+// The two tiers make different claims. M4 asks for ≥99% success at 50 viewers;
+// the capacity tier asks that "如超过预算需可观测的限流 / 过载而不能错误放行" —
+// by definition it is allowed to exceed the budget. Applying the ≥99% bar here
+// would make the exploration unreportable (the first honest measurement of the
+// ceiling would fail the stage) and would quietly replace the specified
+// acceptance with a stricter one. So this tier fails only on what the
+// acceptance actually forbids:
+//
+//   - no request executed: the run proves nothing;
+//   - a response that is neither a success nor observable throttling/overload —
+//     429, 5xx or a transport error. A 401/403/404 means a real NFT holder was
+//     DENIED rather than throttled, which is a correctness failure, not capacity.
+//
+// Wrongful admission cannot happen in this tier by construction: every viewer is
+// a real logged-in NFT holder, and a response counts as a success only after its
+// whole body is read (and, when PERF_SEGMENT_SHA256 is set, its digest matches),
+// so bytes are never attributed to an unverified response.
+func CapacityTierViolation(res *Result, capacityViewers int) error {
+	if res.Viewers <= capacityViewers {
+		return fmt.Errorf("run has %d viewers, not above the capacity threshold %d", res.Viewers, capacityViewers)
+	}
+	if total := res.SuccessCount + res.ErrorCount; total == 0 {
+		return fmt.Errorf("no requests were executed at %d viewers — the capacity tier proves nothing", res.Viewers)
+	}
+	statuses := make([]string, 0, len(res.HTTPStatuses))
+	for status := range res.HTTPStatuses {
+		statuses = append(statuses, status)
+	}
+	sort.Strings(statuses)
+	for _, status := range statuses {
+		switch {
+		case status == "200", status == "206":
+		case status == "429", status == "transport_error", strings.HasPrefix(status, "5"):
+		default:
+			return fmt.Errorf("capacity tier: %d response(s) with status %q — beyond the budget a holder may only be observably throttled or overloaded, never denied (success=%d errors=%d)",
+				res.HTTPStatuses[status], status, res.SuccessCount, res.ErrorCount)
+		}
+	}
+	return nil
+}
+
 func (c Config) validate() error {
 	if c.BaseURL == "" {
 		return fmt.Errorf("Config.BaseURL is required")

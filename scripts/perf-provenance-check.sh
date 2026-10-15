@@ -14,11 +14,17 @@
 #   2. ALL of them are stamped with ONE commit, and that commit is the HEAD of
 #      this checkout (`git rev-parse HEAD` — the same fallback the harness uses)
 #      — so a file inherited from another run or another build fails here;
-#   3. the four fault-matrix scenarios are all present;
-#   4. when the matrix was repeated (matrix_repeats > 1), every round-N
-#      directory holds the full warm set (1/10/50) — a repeat that silently did
-#      not happen is a failure, not a gap — and the result directory root holds
-#      NO warm_cache result, which is what proves the pre-run clean-up worked.
+#   3. the run manifest (environment.json, SG-07 step 2's platform / resource
+#      limit / tool and image version record) is present and bound to the same
+#      commit;
+#   4. the four fault-matrix scenarios are all present;
+#   5. when the matrix was repeated (matrix_repeats > 1), EVERY round-N
+#      directory holds the full warm set (1/10/50/100 — step 2 repeats all four)
+#      and the rounds all measured the same levels, so a level that ran once
+#      cannot pass as three samples; the result directory root must hold NO
+#      warm_cache result, which is what proves the pre-run clean-up worked.
+#      A single-pass run (matrix_repeats = 1, the smoke run every `all` pays
+#      for) is held to the M4 levels 1/10/50.
 #
 # Non-zero exit fails the perf stage. The companion step in verify-docker.sh
 # removes the previous run's result files before measuring, so requirement 4's
@@ -42,7 +48,31 @@ import glob, json, os, sys
 root, repeats, head = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 FIELDS = ("commit", "scenario", "content_id", "viewers", "success_count", "fixture_hash")
 REQUIRED_SCENARIOS = {"warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"}
-WARM_SET = {1, 10, 50}
+# SG-07 step 2 measures the matrix at 1/10/50/100 viewers, each repeated. The
+# repeated protocol must cover all four; the single-pass smoke run (repeats = 1)
+# only has to cover the M4 levels.
+REPEATED_WARM_SET = {1, 10, 50, 100}
+SINGLE_WARM_SET = {1, 10, 50}
+
+# SG-07 step 2 also requires the run to record the environment it was measured
+# in (platform/arch, every resource limit, tool/image versions, commit). That
+# lives beside the results, so it is checked with them: a result set whose
+# budget cannot be looked up is not the artefact the step asks for.
+env_path = os.path.join(root, "environment.json")
+if not os.path.exists(env_path):
+    sys.exit(f"no run manifest at {env_path} — SG-07 step 2 requires the environment "
+             f"to be recorded with the results")
+try:
+    env = json.load(open(env_path))
+except Exception as exc:
+    sys.exit(f"{env_path}: not readable as JSON ({exc})")
+for key in ("commit", "host", "services", "tools", "loader"):
+    if env.get(key) in (None, "", [], {}):
+        sys.exit(f"environment.json: missing {key!r}")
+if env["commit"] != head:
+    sys.exit(f"environment.json was written for {env['commit']} but HEAD is {head}")
+print(f"environment: commit={env['commit'][:12]} platform={env['host'].get('docker_platform')} "
+      f"vm_cpus={env['host'].get('docker_vm_cpus')} services={sorted(env['services'])}")
 
 # The matrix may write straight into the result dir (repeats = 1) or into
 # per-repeat round-N sub-directories; both layouts must be covered.
@@ -79,22 +109,46 @@ missing = sorted(REQUIRED_SCENARIOS - scenarios)
 if missing:
     sys.exit(f"the fault matrix is incomplete — no result for: {missing}")
 
+def subdir_of(rel):
+    """The directory a result sits in: '' for the result dir root, else round-N."""
+    return rel.split(os.sep, 1)[0] if os.sep in rel else ""
+
+def warm_counts(subdir):
+    """Viewer counts measured by warm_cache runs directly inside subdir."""
+    return {r["viewers"] for rel, r in records.items()
+            if subdir_of(rel) == subdir and r["scenario"] == "warm_cache"}
+
 if repeats > 1:
+    # A repeat is only a repeat if it measured the SAME levels. Checking the
+    # levels per round (not just "the round exists") is what stops a level that
+    # ran once from being presented as three samples, and ensures the 100-viewer
+    # tier is part of the repeated protocol rather than a one-off.
     for rep in range(1, repeats + 1):
         d = f"round-{rep}"
-        warm = {r["viewers"] for rel, r in records.items()
-                if rel.split(os.sep, 1)[0] == d and r["scenario"] == "warm_cache"}
+        warm = warm_counts(d)
         if not warm:
             sys.exit(f"{d}: no warm_cache result — repeat {rep} did not happen")
-        gap = sorted(WARM_SET - warm)
+        gap = sorted(REPEATED_WARM_SET - warm)
         if gap:
-            sys.exit(f"{d}: warm matrix incomplete — no result for viewers {gap}")
+            sys.exit(f"{d}: warm matrix incomplete — no result for viewers {gap} "
+                     f"(SG-07 step 2 repeats 1/10/50/100)")
+    sets = {d: frozenset(warm_counts(d)) for d in [f"round-{r}" for r in range(1, repeats + 1)]}
+    if len(set(sets.values())) != 1:
+        sys.exit(f"the repeats did not measure the same levels: { {k: sorted(v) for k, v in sets.items()} } "
+                 f"— a level added to one round only is not a repeated measurement")
     root_scenarios = {r["scenario"] for rel, r in records.items() if os.sep not in rel}
     if "warm_cache" in root_scenarios:
         sys.exit("the result dir root holds a warm_cache result while the matrix was "
                  "repeated — a stale file from another run survived; run with a clean "
                  "result directory")
-    print(f"provenance: {repeats} repeat(s) × warm {sorted(WARM_SET)} complete, "
+    print(f"provenance: {repeats} repeat(s) × warm {sorted(REPEATED_WARM_SET)} complete, "
+          f"fault matrix complete, single commit {head}")
+else:
+    # The single-pass smoke run: the matrix must still have run at the M4 levels.
+    gap = sorted(SINGLE_WARM_SET - warm_counts(""))
+    if gap:
+        sys.exit(f"the single-pass matrix did not run at viewers {gap}")
+    print(f"provenance: single-pass warm {sorted(SINGLE_WARM_SET)} complete, "
           f"fault matrix complete, single commit {head}")
 
 print(f"provenance: PASS ({len(records)} result file(s) bound to {head[:12]})")

@@ -35,6 +35,7 @@
 #                     sha256-verified (mismatch = error, never success)
 #   VIEWERS_LIST      viewer counts to run            (default "1 10 50")
 #   CAPACITY          set to 1 to append 100 viewers as a capacity exploration
+#                     (no-op when VIEWERS_LIST already lists 100)
 #   RESULT_DIR        where JSON results go           (default /tmp/streamgate-perf-<ts>)
 #   SCENARIO          scenario label                  (default warm_cache)
 #   PERF_SKIP_WARMUP  set to 1 to skip the built-in fail-fast warmup — the
@@ -69,8 +70,15 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:18080}"
 SCENARIO="${SCENARIO:-warm_cache}"
 VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}"
+# CAPACITY appends the 100-viewer tier to a single-pass matrix. It is a no-op
+# when 100 is already listed: the repeated protocol (SG-07 step 2) puts 100 in
+# VIEWERS_LIST itself, and appending it again would measure that tier twice
+# under one label.
 if [ "${CAPACITY:-0}" = "1" ]; then
-  VIEWERS_LIST="$VIEWERS_LIST 100"
+  case " $VIEWERS_LIST " in
+    *" 100 "*) echo "perf-acceptance: CAPACITY=1 ignored — 100 viewers are already in VIEWERS_LIST" >&2 ;;
+    *) VIEWERS_LIST="$VIEWERS_LIST 100" ;;
+  esac
 fi
 PERF_INTERVAL="${PERF_INTERVAL:-2s}"
 PERF_WARMUP="${PERF_WARMUP:-10s}"
