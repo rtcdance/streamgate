@@ -92,6 +92,7 @@ jobs:
           version: v1.8.5
 
       - name: Build contracts (ABI-sync guard needs the artifacts)
+        working-directory: contracts
         run: forge build
 
       - run: go mod download
