@@ -40,6 +40,10 @@
 #   PERF_SKIP_WARMUP  set to 1 to skip the built-in fail-fast warmup — the
 #                     fault scenarios EXPECT failures, so the warmup gate must
 #                     not abort them before they measure
+#   PERF_GO_TIMEOUT   go test -timeout for one scenario (default 1800s). The
+#                     paced login phase needs ~10 minutes at 100 viewers, which
+#                     is longer than Go's 10m default — a real hang still fails,
+#                     just after the full budget.
 #   PERF_COMMIT       overrides the commit stamped into the result JSON. The
 #                     harness defaults to `git rev-parse HEAD` of THIS checkout,
 #                     which mislabels a measurement aimed at some other build —
@@ -73,6 +77,12 @@ PERF_WARMUP="${PERF_WARMUP:-10s}"
 PERF_DURATION="${PERF_DURATION:-30s}"
 PERF_CHAIN_ID="${PERF_CHAIN_ID:-31337}"
 RESULT_DIR="${RESULT_DIR:-/tmp/streamgate-perf-$(date +%Y%m%d-%H%M%S)}"
+# Go's default test timeout is 10m. The login phase is PACED (~6s per wallet, so
+# the auth limiter is never tripped), which means a 100-viewer capacity run
+# spends ~10 minutes logging in before it measures anything — strictly longer
+# than the default. Without an explicit budget the documented 100-viewer
+# exploration can never complete: it dies as "panic: test timed out after 10m0s".
+PERF_GO_TIMEOUT="${PERF_GO_TIMEOUT:-1800s}"
 
 die() { echo "perf-acceptance: FATAL: $*" >&2; exit 1; }
 
@@ -150,7 +160,8 @@ run_scenario() {
   PERF_SEGMENT_SHA256="${PERF_SEGMENT_SHA256:-}" \
   PERF_COMMIT="${PERF_COMMIT:-}" \
   PERF_RESULT_JSON="$out" \
-    go test -tags load -count=1 -run TestLoad_AuthorizedMedia ./test/load/ -v
+    go test -tags load -count=1 -timeout "$PERF_GO_TIMEOUT" \
+      -run TestLoad_AuthorizedMedia ./test/load/ -v
 }
 
 # PERF_SKIP_WARMUP=1 for the fault scenarios: the warmup exists to fail fast on
