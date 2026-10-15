@@ -162,7 +162,9 @@ func main() {
 	log.Info("Transcoding role: external worker — claims and executes tasks submitted by the app processes")
 
 	// Minimal health endpoint for the compose healthcheck; no business routes.
-	healthServer := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Server.Port), Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// ReadHeaderTimeout bounds header read time so a slow client cannot hold the
+	// connection open indefinitely (Slowloris / CWE-400), gosec G112.
+	healthServer := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Server.Port), ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
 			http.NotFound(w, r)
 			return
