@@ -23,6 +23,13 @@ WORKDIR /app
 
 COPY --from=builder /app/streamgate .
 COPY --from=builder /app/h5-demo ./h5-demo
+# Config files, like every other service image (Dockerfile.api-gateway etc.).
+# Without them this image ran on compiled-in defaults only: non-env values such
+# as web3.anvil_demo_contract silently disappeared, the demo NFT minter was
+# disabled, and the full-chain acceptance could not mint on the monolith — the
+# image under acceptance therefore exercised a different configuration than the
+# artifact that gets deployed.
+COPY --from=builder /app/config ./config
 
 RUN chown -R appuser:appgroup /app
 
