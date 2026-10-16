@@ -66,6 +66,9 @@ COPY --from=foundry /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvi
 #     which is what CI's network uses and has always used);
 #   * a final version assertion, so the layer either contains a runnable
 #     golangci-lint or the BUILD fails — it can never cache a broken toolchain.
+# pipefail below is a bash option (Debian's /bin/sh is dash and rejects it),
+# so this RUN — and the ones after it — run under bash explicitly.
+SHELL ["/bin/bash", "-c"]
 ARG GOLANGCI_LINT_VERSION=v2.12.2
 ARG GOLANGCI_LINT_PROXY=https://goproxy.cn,direct
 RUN set -euxo pipefail; \
