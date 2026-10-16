@@ -1,52 +1,108 @@
 name: Release Validation (temporary deploy + failure drill)
 
-# Plan SG-08 "默认必须完成的 CD = 临时 Docker 环境真实部署验收"。
-# This workflow deploys a CANDIDATE DIGEST into a brand-new compose
-# environment with empty volumes, runs migrations, waits for real health,
-# plays the minimum real smoke (the same fullchain acceptance script the CI
-# runs), then rehearses a failure: a deliberately broken deploy must actually
-# fail and the previous healthy version must come back. The drill passes only
-# when BOTH are asserted — a green run that merely rolled back a silently
-# successful bad deploy is exactly what this exists to prevent.
+# Plan SG-08 "默认必须完成的 CD = 临时 Docker 环境真实部署验收".
+# This workflow deploys THE CANDIDATE into a brand-new compose environment with
+# empty volumes, applies the actual migrations, waits for real health, runs the
+# same fullchain acceptance script CI runs (through the h5-demo front door),
+# then rehearses the plan's THREE failure classes — broken start, broken
+# health, broken smoke. Every class asserts BOTH that B actually failed AND
+# that the healthy version A came back; a green run that merely rolled back a
+# silently successful bad deploy is exactly what this exists to prevent.
 #
-# No production secrets are required or used. Trigger manually
-# (workflow_dispatch) with the candidate digest produced by CI for that SHA.
+# Two entry points, one job:
+#   * workflow_call (ci.yml's D node, plan §7 P -> D): the candidate comes from
+#     THIS run's build artifacts (the same docker-archive tars the scans
+#     consumed), verified against meta/<svc>.json — deployed bytes are build
+#     bytes;
+#   * workflow_dispatch (manual, e.g. pre-release): three per-SHA GHCR tags
+#     `candidate-<candidate_sha>`, optionally pinned by image_digest so a moved
+#     tag fails instead of deploying something else.
+# Mode is chosen by `inputs.candidate_sha` (only set by workflow_dispatch),
+# never by github.event_name — a caller's event (e.g. a manual ci.yml dispatch)
+# is inherited by the called workflow and would misroute it.
+# In both modes compose starts with `--no-build`, so a deployment can never
+# silently rebuild a different image than the one verified above.
+#
+# No production secrets are required or used.
 
 on:
-  workflow_dispatch:
+  workflow_call:
+    # Call mode (ci.yml's D node) leaves all of these empty: the candidate is
+    # this run's build artifacts, no registry pull and no rollback leg.
     inputs:
+      candidate_sha:
+        description: "Dispatch mode only: 40-hex candidate SHA. Empty in call mode (the run's own artifacts are used)."
+        type: string
+        required: false
+        default: ""
       image_digest:
-        description: "Candidate monolith digest to validate (image@sha256:...)"
-        required: true
+        description: "Dispatch mode only: optional GHCR digest pin for the monolith candidate."
+        type: string
+        required: false
+        default: ""
       previous_digest:
-        description: "Previous known-good digest for the rollback-compatibility step. Empty = skip the previous-image step with an explicit notice."
+        description: "Dispatch mode only: previous known-good monolith digest for rollback-compatibility."
+        type: string
         required: false
         default: ""
       image_ref:
-        description: "Registry reference without digest (e.g. ghcr.io/rtcdance/streamgate/monolith)"
+        description: "Dispatch mode only: monolith repository reference (other two derived from its prefix)."
+        type: string
         required: false
         default: ghcr.io/rtcdance/streamgate/monolith
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: "Candidate commit SHA (40 hex). The three services deploy from the immutable per-SHA tags :candidate-<sha>."
+        required: true
+      image_digest:
+        description: "Optional pin: expected GHCR digest of the monolith candidate (sha256:...). When set, the tag must resolve to exactly this digest or the run fails."
+        required: false
+        default: ""
+      previous_digest:
+        description: "Previous known-good monolith digest for the rollback-compatibility step. Empty = skip the previous-image step with an explicit notice."
+        required: false
+        default: ""
+      image_ref:
+        description: "Registry reference of the monolith repository (transcoder/api-gateway are derived from its prefix)."
+        required: false
+        default: ghcr.io/rtcdance/streamgate/monolith
+
+permissions:
+  contents: read
+  packages: read
 
 env:
   # The temporary environment is its own compose project with its own
   # volumes — nothing this workflow does can touch another deployment.
   PROJECT: sg-relval-${{ github.run_id }}
+  GO_VERSION: "1.26"
 
 jobs:
   validate:
     name: Temporary deploy, smoke, and failure drill
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate inputs
+      - name: Validate inputs (dispatch mode)
+        if: inputs.candidate_sha != ''
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
-          case "${{ inputs.image_digest }}" in
-            *@sha256:*) echo "candidate: ${{ inputs.image_ref }}@${{ inputs.image_digest }}" ;;
-            *) echo "::error::image_digest must be an immutable sha256 digest"; exit 1;;
-          esac
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_sha must be a 40-hex commit SHA"; exit 1; }
+          if [ -n "$IMAGE_DIGEST" ]; then
+            [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::image_digest must be sha256:<hex>"; exit 1; }
+          fi
+          echo "candidate tags pinned at $CANDIDATE_SHA"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Install tooling (ffmpeg + Playwright + foundry)
         run: |
@@ -63,23 +119,86 @@ jobs:
           forge install || true
           forge build
 
-      - name: Build linux binaries for the .quick images
-        run: |
-          set -euo pipefail
-          GOOS=linux GOARCH=amd64 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
-          GOOS=linux GOARCH=amd64 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
-
-      - name: Log in and pull the candidate by digest
+      # ---- obtain the candidate ------------------------------------------------
+      # Both modes end with the SAME local tag set (streamgate-<svc>:candidate),
+      # so every deployment, assertion and drill below is mode-independent.
+      - name: Log in to GHCR (dispatch mode)
+        if: inputs.candidate_sha != ''
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull candidate image at the pinned digest
+      - name: Pull the candidate's three per-SHA images (dispatch mode)
+        if: inputs.candidate_sha != ''
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          MONOLITH_REF: ${{ inputs.image_ref }}
+          EXPECTED_DIGEST: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
-          docker pull "${{ inputs.image_ref }}@${{ inputs.image_digest }}"
+          prefix="${MONOLITH_REF%/monolith}"
+          for svc in monolith transcoder api-gateway; do
+            docker pull "${prefix}/${svc}:candidate-${CANDIDATE_SHA}"
+            docker tag  "${prefix}/${svc}:candidate-${CANDIDATE_SHA}" "streamgate-${svc}:candidate"
+          done
+          # The optional pin: a per-SHA tag that was ever moved must not be
+          # deployed as if it were the digest the operator asked for.
+          if [ -n "$EXPECTED_DIGEST" ]; then
+            resolved="$(docker buildx imagetools inspect "${prefix}/monolith:candidate-${CANDIDATE_SHA}" --format '{{println .Digest}}' | head -1)"
+            [ "$resolved" = "$EXPECTED_DIGEST" ] || { echo "::error::monolith tag resolves to $resolved, expected pin $EXPECTED_DIGEST"; exit 1; }
+            echo "digest pin verified: $resolved"
+          fi
+          for svc in monolith transcoder api-gateway; do
+            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "streamgate-${svc}:candidate")"
+            [ "$rev" = "$CANDIDATE_SHA" ] || { echo "::error::${svc} OCI revision '$rev' != candidate_sha $CANDIDATE_SHA"; exit 1; }
+            echo "${svc}: revision ${rev}"
+          done
+
+      - name: Download this run's candidate artifacts (call mode)
+        if: inputs.candidate_sha == ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: candidate-{monolith,transcoder,api-gateway}
+          merge-multiple: true
+
+      - name: Verify the loaded candidates against the build record (call mode)
+        if: inputs.candidate_sha == ''
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          verify() {  # verify <service>
+            local svc="$1" actual expected
+            docker load -i "candidate-${svc}.tar" >/dev/null
+            actual="$(docker inspect --format '{{.Id}}' "streamgate-${svc}:candidate")"
+            expected="$(python3 -c "import json;print(json.load(open('meta/${svc}.json'))['image_id'])")"
+            [ "$actual" = "$expected" ] || { echo "::error::${svc} loaded ID $actual != built candidate $expected"; exit 1; }
+            local rev
+            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "streamgate-${svc}:candidate")"
+            [ "$rev" = "$EXPECTED_SHA" ] || { echo "::error::${svc} OCI revision '$rev' != $EXPECTED_SHA"; exit 1; }
+            echo "${svc}: ${actual} (revision ${rev})"
+          }
+          verify monolith
+          verify transcoder
+          verify api-gateway
+
+      # ---- migrations on an empty database (rollback leg only) ----------------
+      # The rollback leg below needs the NEW schema to exist BEFORE the previous
+      # application boots against it (a previous image self-migrates only its
+      # OWN embedded set, so testing it against an empty database would prove
+      # nothing about the new schema). The candidate's OWN migration evidence is
+      # collected in the deploy step, on its own empty volumes.
+      - name: Apply the new migrations for the rollback-compatibility leg
+        if: inputs.previous_digest != ''
+        run: |
+          set -euo pipefail
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait postgres
+          DATABASE_HOST=localhost DATABASE_PORT=15432 \
+          DATABASE_USER=postgres DATABASE_PASSWORD=postgres \
+          DATABASE_NAME=streamgate DATABASE_SSLMODE=disable \
+            go run ./cmd/migrate up
 
       - name: Rollback-compatibility (previous app against the NEW schema)
         # Additive migrations must not break the previous application version;
@@ -91,100 +210,256 @@ jobs:
         run: |
           set -euo pipefail
           docker pull "$PREVIOUS_REF"
-          # Tag the previous digest so the compose file can reference it by a stable name.
-          docker tag "$PREVIOUS_REF" streamgate-relval:previous
-          docker compose -p "${PROJECT}-prev" -f docker-compose.fullchain.yml \
-            up -d --build --wait monolith 2>&1 | tail -20
+          # The compose file references streamgate-fullchain:latest — tagging the
+          # previous image anywhere else would let `up --no-build` find no image
+          # (and the old `--build` here silently rebuilt a THIRD image instead).
+          docker tag "$PREVIOUS_REF" streamgate-fullchain:latest
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
+            up -d --no-build --wait monolith 2>&1 | tail -20
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
-          [ "$code" = "200" ] || { echo "::error::previous app is not healthy against the new schema (HTTP $code)"; docker compose -p "${PROJECT}-prev" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
+          [ "$code" = "200" ] || { echo "::error::previous app is not healthy against the new schema (HTTP $code)"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
           echo "previous app healthy against new schema"
-          docker compose -p "${PROJECT}-prev" -f docker-compose.fullchain.yml down -v --remove-orphans
 
-      - name: Deploy the candidate into a clean environment
-        env:
-          CANDIDATE: ${{ inputs.image_ref }}@${{ inputs.image_digest }}
+      # ---- deploy the candidate ------------------------------------------------
+      - name: Deploy the candidate into a clean environment (no rebuild)
         run: |
           set -euo pipefail
-          # A clean environment from empty volumes: tag the candidate under
-          # the name the compose file builds, then let compose bring up the
-          # full stack (dependencies via depends_on) without rebuilding it.
-          docker tag "$CANDIDATE" streamgate-fullchain:latest
-          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
-            up -d --build --wait monolith transcoder api-gateway
+          # The candidate deploys from EMPTY volumes (plan SG-08 step 4), the
+          # migration runs as an observable step on those volumes before the app
+          # boots, and `--no-build` guarantees compose uses the tagged
+          # candidates — it can never silently rebuild a different image (the
+          # previous `--build` overwrote the candidate tag with a fresh local
+          # build on every run).
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml down -v --remove-orphans
+          docker tag streamgate-monolith:candidate    streamgate-fullchain:latest
+          docker tag streamgate-transcoder:candidate  "${PROJECT}-transcoder"
+          docker tag streamgate-api-gateway:candidate "${PROJECT}-api-gateway"
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait postgres
+          DATABASE_HOST=localhost DATABASE_PORT=15432 \
+          DATABASE_USER=postgres DATABASE_PASSWORD=postgres \
+          DATABASE_NAME=streamgate DATABASE_SSLMODE=disable \
+            go run ./cmd/migrate up
+          # h5-demo is the browser harness's front door; the acceptance script
+          # runs against its nginx origin, exactly as CI's full-chain job wires it.
+          # A failed `--wait` must still dump why (under set -e it exits first).
+          if ! docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
+              up -d --no-build --wait monolith transcoder api-gateway h5-demo; then
+            echo "::error::stack did not become healthy"
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith
+            exit 1
+          fi
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
-          [ "$code" = "200" ] || { echo "::error::candidate did not serve /health"; exit 1; }
+          [ "$code" = "200" ] || { echo "::error::candidate did not serve /health"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
           echo "candidate healthy"
 
+      - name: Assert the running containers are the candidate
+        run: |
+          set -euo pipefail
+          check() {  # check <container> <candidate-tag>
+            local container="$1" tag="$2" running expected
+            running="$(docker inspect --format '{{.Image}}' "$container")"
+            expected="$(docker inspect --format '{{.Id}}' "$tag")"
+            [ "$running" = "$expected" ] || { echo "::error::container $container runs $running, expected candidate $expected"; exit 1; }
+            echo "$container runs the candidate image"
+          }
+          check sg-fc-monolith    streamgate-monolith:candidate
+          check sg-fc-transcoder  streamgate-transcoder:candidate
+          check sg-fc-api-gateway streamgate-api-gateway:candidate
+
       - name: Record the deployed revision and digest
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          TRIGGER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           mkdir -p relval-manifest
-          docker inspect sg-fc-monolith --format '{{json .Config.Labels}}' > relval-manifest/monolith-labels.json
-          docker inspect sg-fc-monolith --format '{{.Image}}' > relval-manifest/monolith-image-digest.txt
+          if [ -n "$CANDIDATE_SHA" ]; then mode=dispatch; candidate_sha="$CANDIDATE_SHA"; else mode=call; candidate_sha="$TRIGGER_SHA"; fi
+          docker inspect streamgate-monolith:candidate --format '{{json .Config.Labels}}' > relval-manifest/monolith-labels.json
+          docker inspect streamgate-monolith:candidate --format '{{.Id}}' > relval-manifest/monolith-image-id.txt
           docker images --digests streamgate-fullchain > relval-manifest/images.txt
           {
-            echo "commit=${{ github.sha }}"
-            echo "candidate=${{ inputs.image_ref }}@${{ inputs.image_digest }}"
+            echo "mode=$mode"
+            echo "triggerSha=$TRIGGER_SHA"
+            echo "candidateSha=$candidate_sha"
+            echo "monolithImageId=$(docker inspect streamgate-monolith:candidate --format '{{.Id}}')"
             echo "environment=temporary-docker-${PROJECT}"
             echo "startedAt=$(date -u +%FT%TZ)"
           } > relval-manifest/manifest.txt
+          cat relval-manifest/manifest.txt
 
       - name: Minimum real play smoke (full-chain acceptance)
         env:
           PW_CHANNEL: ""
+          H5_BASE: http://localhost:18000
+          H5_DEMO_URL: http://localhost:18000/
         run: bash scripts/fullchain-acceptance.sh http://localhost:18080
 
-      - name: Failure drill — broken deploy B must FAIL, then A must recover
-        # The drill harness passes only when the broken attempt actually fails
-        # AND the healthy version is restored; the plan forbids a green result
-        # that merely survives a rollback.
+      # ---- three failure-class drills (plan SG-08 step 5) ----------------------
+      # Each class: inject the fault, assert B ACTUALLY FAILED (exited /
+      # unhealthy / non-zero smoke — refusing to report success otherwise), then
+      # restore A and assert /health 200. Both assertions must hold for every
+      # class; a drill that cannot even start its broken variant fails too.
+      - name: Drill 1 — broken start must fail, then A recovers
         run: |
           set -euo pipefail
+          DRILL="${PROJECT}-drill-start"
 
-          echo "== attempt B: broken start (bad JWT secret -> production validation must refuse) =="
-          # Deploy a deliberately broken variant of the same stack: an invalid
-          # JWT secret makes config validation fail at startup, so the
-          # container cannot become healthy.
+          echo "== attempt B: broken start (production profile + short JWT -> startup validation must refuse) =="
           if docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
-              run -d --name "${PROJECT}-broken" \
+              run -d --name "$DRILL" \
+              -e STREAMGATE_PROFILE=production \
               -e STREAMGATE_JWT_SECRET=broken \
-              -e STREAMGATE_TRANSCODING_ENABLED=false \
-              monolith >/dev/null 2>&1; then
-            echo "broken container started, waiting for it to fail its health check..."
-            for i in $(seq 1 45); do
-              state=$(docker inspect -f '{{.State.Status}}' "${PROJECT}-broken" 2>/dev/null || echo missing)
-              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${PROJECT}-broken" 2>/dev/null || echo missing)
-              if [ "$state" = "exited" ] || [ "$health" = "unhealthy" ]; then
-                echo "ASSERTION 1: broken deploy B FAILED as required (state=$state health=$health)"
-                break
-              fi
+              monolith >/dev/null; then
+            echo "broken container started, waiting for it to fail..."
+            state=missing; health=missing; exit_code=127
+            for i in $(seq 1 60); do
+              state=$(docker inspect -f '{{.State.Status}}' "$DRILL" 2>/dev/null || echo missing)
+              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$DRILL" 2>/dev/null || echo missing)
+              if [ "$state" = "exited" ] || [ "$health" = "unhealthy" ]; then break; fi
               sleep 2
             done
-            state=$(docker inspect -f '{{.State.Status}}' "${PROJECT}-broken" 2>/dev/null || echo missing)
-            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${PROJECT}-broken" 2>/dev/null || echo missing)
-            if [ "$state" != "exited" ] && [ "$health" != "unhealthy" ]; then
-              echo "::error::ASSERTION 1 FAILED: broken deploy B did NOT fail (state=$state health=$health) — refusing to report success"
-              docker logs "${PROJECT}-broken" || true
-              docker rm -f "${PROJECT}-broken" >/dev/null 2>&1 || true
+            exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$DRILL" 2>/dev/null || echo 127)
+            if [ "$state" = "exited" ] && [ "$exit_code" = "0" ]; then
+              echo "::error::ASSERTION 1 FAILED: the broken deploy exited 0 — a refused startup must exit non-zero"
+              docker logs "$DRILL" || true
+              docker rm -f "$DRILL" >/dev/null 2>&1 || true
               exit 1
             fi
-            docker rm -f "${PROJECT}-broken" >/dev/null 2>&1 || true
+            if [ "$state" != "exited" ] && [ "$health" != "unhealthy" ]; then
+              echo "::error::ASSERTION 1 FAILED: broken deploy B did NOT fail (state=$state health=$health) — refusing to report success"
+              docker logs "$DRILL" || true
+              docker rm -f "$DRILL" >/dev/null 2>&1 || true
+              exit 1
+            fi
+            echo "ASSERTION 1: broken start FAILED as required (state=$state health=$health exit=$exit_code)"
+            docker rm -f "$DRILL" >/dev/null 2>&1 || true
           else
             echo "::error::could not even start the broken variant — the drill cannot assert anything"
             exit 1
           fi
 
           echo "== attempt A again: the healthy version must come back =="
-          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith
-          for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
-            [ "$code" = "200" ] && break
+          if ! docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith; then
+            echo "::error::ASSERTION 2 FAILED: compose up of healthy A errored"
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith || true
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
+          [ "$code" = "200" ] || { echo "::error::ASSERTION 2 FAILED: healthy version A did not recover (HTTP $code)"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
+          echo "ASSERTION 2: healthy deploy A RECOVERED (HTTP 200)"
+
+      - name: Drill 2 — broken health must go unhealthy while running, then A recovers
+        run: |
+          set -euo pipefail
+          DRILL="${PROJECT}-drill-health"
+
+          echo "== attempt B: broken health (process alive, healthcheck failing) =="
+          # A running process whose health endpoint never answers: the container
+          # stays up but the healthcheck (wget /health, start_period 30s +
+          # 5 retries x 15s) must drive it to unhealthy.
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
+            run -d --name "$DRILL" --entrypoint sh monolith -c 'exec sleep 600' >/dev/null
+          state=missing; health=missing
+          for i in $(seq 1 90); do
+            state=$(docker inspect -f '{{.State.Status}}' "$DRILL" 2>/dev/null || echo missing)
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$DRILL" 2>/dev/null || echo missing)
+            if [ "$health" = "unhealthy" ]; then break; fi
             sleep 2
           done
+          if [ "$state" != "running" ] || [ "$health" != "unhealthy" ]; then
+            echo "::error::ASSERTION 1 FAILED: expected running/unhealthy, got state=$state health=$health — refusing to report success"
+            docker logs "$DRILL" 2>/dev/null | tail -50 || true
+            docker rm -f "$DRILL" >/dev/null 2>&1 || true
+            exit 1
+          fi
+          echo "ASSERTION 1: broken health FAILED as required (state=$state health=$health)"
+          docker rm -f "$DRILL" >/dev/null 2>&1 || true
+
+          echo "== attempt A again: the healthy version must come back =="
+          if ! docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith; then
+            echo "::error::ASSERTION 2 FAILED: compose up of healthy A errored"
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith || true
+            exit 1
+          fi
           code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
-          [ "$code" = "200" ] || { echo "::error::ASSERTION 2 FAILED: healthy version A did not recover (HTTP $code)"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
+          [ "$code" = "200" ] || { echo "::error::ASSERTION 2 FAILED: healthy version A did not recover (HTTP $code)"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
           echo "ASSERTION 2: healthy deploy A RECOVERED (HTTP 200)"
-          echo "drill PASSED: B failed and A recovered — both required"
+
+      - name: Drill 3 — broken smoke must fail acceptance, then A recovers
+        # An instance that is HEALTHY (/health 200, container healthy) but
+        # functionally broken (chain RPC dead): health probes cannot see it, so
+        # only the real acceptance run fails — which is the point of this class.
+        run: |
+          set -euo pipefail
+          DRILL="${PROJECT}-drill-smoke"
+
+          echo "== swap A for a healthy-but-broken instance (dead chain RPC) =="
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml stop monolith
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml \
+            run -d --name "$DRILL" \
+            -e STREAMGATE_ETH_RPC=http://127.0.0.1:1 \
+            -p 18080:8080 \
+            monolith >/dev/null
+          code=000; health=none
+          for i in $(seq 1 45); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
+            health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$DRILL" 2>/dev/null || echo missing)
+            if [ "$code" = "200" ] && [ "$health" = "healthy" ]; then break; fi
+            sleep 2
+          done
+          if [ "$code" != "200" ] || [ "$health" != "healthy" ]; then
+            echo "::error::ASSERTION 0 FAILED: the broken instance must be HEALTHY for this drill to mean anything (http=$code health=$health) — that would duplicate drill 2"
+            docker logs "$DRILL" 2>/dev/null | tail -50 || true
+            docker rm -f "$DRILL" >/dev/null 2>&1 || true
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith
+            exit 1
+          fi
+          echo "instance is healthy but chain-dead (http=$code container=$health) — acceptance must now fail"
+
+          echo "== attempt B: acceptance against the broken instance must exit non-zero =="
+          # Bounded: the acceptance must fail fast on a chain-dead instance, and
+          # a hanging browser step must never turn into an infinite drill (a
+          # timeout is still a non-zero failure, reported as such below).
+          smoke_rc=0
+          PW_CHANNEL="" H5_BASE=http://localhost:18000 H5_DEMO_URL=http://localhost:18000/ \
+            timeout --signal=TERM --kill-after=60 900 bash scripts/fullchain-acceptance.sh http://localhost:18080 \
+            || smoke_rc=$?
+          if [ "$smoke_rc" -eq 0 ]; then
+            echo "::error::ASSERTION 1 FAILED: acceptance PASSED on a chain-dead instance — refusing to report success"
+            docker rm -f "$DRILL" >/dev/null 2>&1 || true
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith
+            exit 1
+          fi
+          echo "ASSERTION 1: broken smoke FAILED as required (acceptance exited non-zero, rc=$smoke_rc)"
+          docker rm -f "$DRILL" >/dev/null 2>&1 || true
+
+          echo "== attempt A again: the healthy version must come back =="
+          if ! docker compose -p "$PROJECT" -f docker-compose.fullchain.yml up -d --wait monolith; then
+            echo "::error::ASSERTION 2 FAILED: compose up of healthy A errored"
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true
+            docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith || true
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health || echo 000)
+          [ "$code" = "200" ] || { echo "::error::ASSERTION 2 FAILED: healthy version A did not recover (HTTP $code)"; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps || true; docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --tail 100 monolith; exit 1; }
+          echo "ASSERTION 2: healthy deploy A RECOVERED (HTTP 200)"
+          echo "drill PASSED: all three failure classes failed as required and A recovered after each"
+
+      - name: Collect redacted diagnostics on failure
+        if: failure()
+        run: |
+          set -uo pipefail
+          mkdir -p relval-manifest
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml ps > relval-manifest/compose-ps.txt 2>&1 || true
+          docker compose -p "$PROJECT" -f docker-compose.fullchain.yml logs --no-color --tail 500 > relval-manifest/compose-logs.txt 2>&1 || true
+          sed -i -E 's/0x[0-9a-fA-F]{64}/0xREDACTED/g'          relval-manifest/compose-logs.txt || true
+          sed -i -E 's/(Bearer )[A-Za-z0-9._-]+/\1REDACTED/g'   relval-manifest/compose-logs.txt || true
+          sed -i -E 's/(X-Amz-Signature=)[A-Za-z0-9]+/\1REDACTED/g' relval-manifest/compose-logs.txt || true
+          sed -i -E 's/([A-Za-z_]*(SECRET|TOKEN|PASSWORD)[A-Za-z_]*=)[^ "]+/\1REDACTED/g' relval-manifest/compose-logs.txt || true
+          cp -R scripts/h5-demo-acceptance/reports/. relval-manifest/ 2>/dev/null || true
 
       - name: Upload release manifest
         if: always()
@@ -193,6 +468,7 @@ jobs:
           name: release-validation-${{ github.run_id }}
           path: relval-manifest/
           retention-days: 30
+          if-no-files-found: ignore
 
       - name: Tear down the temporary environment
         if: always()
