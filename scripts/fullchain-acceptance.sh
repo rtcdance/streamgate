@@ -890,12 +890,36 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
 JSON
     HARNESS="$(cd "$(dirname "$0")/h5-demo-acceptance" 2>/dev/null && pwd || echo '')"
     if [ -n "$HARNESS" ] && [ -d "$HARNESS/node_modules/playwright" ]; then
-        if (cd "$HARNESS" && SG_PLAYBACK_FILE=/tmp/sg-playback.json node run.mjs --only=06-playback >"$WORKDIR/playback.log" 2>&1); then
+        # The harness defaults to localhost:18000 — the h5-demo nginx front door,
+        # which is the page's intended host (it carries the demo CSP, the font
+        # allowances and the SPA fallback for /favicon.ico). Serving the same page
+        # from the monolith instead puts it behind the app's stricter demoCSP and
+        # its JWT middleware, which the harness records as runtime errors. So the
+        # URL is passed through untouched, and a caller that runs no nginx (none
+        # should) would fail loudly rather than silently switch front doors.
+        # The liveness URLs, by contrast, must follow the mode under test — that
+        # is what the harness's own stack pre-check asserts.
+        if (cd "$HARNESS" && \
+            SG_PLAYBACK_FILE=/tmp/sg-playback.json \
+            H5_BASE="${H5_BASE:-}" \
+            API_BASE="${API_BASE:-$BASE_URL}" \
+            MONOLITH_BASE="${MONOLITH_BASE:-$BASE_URL}" \
+            ANVIL_BASE="${ANVIL_BASE:-$ANVIL_URL}" \
+            node run.mjs --only=06-playback >"$WORKDIR/playback.log" 2>&1); then
             ADV="$(grep -oE 'currentTime=[0-9.]+s' "$WORKDIR/playback.log" | head -1)"
             p "Browser played the stream and time advanced (${ADV:-ok})"
         else
-            f "Browser playback failed: $(grep -m1 -E 'FAIL|Error' "$WORKDIR/playback.log" 2>/dev/null | head -c 200)"
+            # Match the report's failure marker, not the word "Error": a passing
+            # check named playback-no-fatal-error contains it and would be quoted
+            # here as if it were the cause.
+            DETAIL="$(grep -m1 -E '✗|FAILED' "$WORKDIR/playback.log" 2>/dev/null | head -c 200)"
+            [ -n "$DETAIL" ] || DETAIL="$(tail -c 200 "$WORKDIR/playback.log" 2>/dev/null | tr '\n' ' ')"
+            f "Browser playback failed: $DETAIL"
         fi
+        # The log is the only place the harness explains itself; the tmp dir it
+        # lives in is not collected by the CI diagnostics, so keep a copy next to
+        # the reports that are.
+        cp "$WORKDIR/playback.log" "$HARNESS/reports/playback.log" 2>/dev/null || true
     else
         f "Playwright not installed under scripts/h5-demo-acceptance (run npm install)"
     fi
