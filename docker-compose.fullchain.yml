@@ -492,6 +492,12 @@ services:
     volumes:
       - ./h5-demo:/usr/share/nginx/html:ro
       - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    # deploy/nginx/default.conf proxies to host.docker.internal:18080/:28080.
+    # Docker Desktop defines that name for every container, Linux engines do
+    # not — without it nginx exits at startup ("host not found in upstream"),
+    # which is exactly the CI runner's environment.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       monolith:
         condition: service_healthy
