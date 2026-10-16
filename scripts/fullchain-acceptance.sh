@@ -294,8 +294,13 @@ if [ -n "$TOKEN_A" ]; then
     MINT="$(cat /tmp/sg-mint.json 2>/dev/null || true)"
     MINTED_BAL="$(json_get "$MINT" balance)"
     MINT_TX="$(printf '%s' "$MINT" | python3 -c "import sys,json;print((json.load(sys.stdin).get('tx_hashes') or [''])[0])" 2>/dev/null || echo '')"
-    if [ -n "$MINTED_BAL" ]; then
+    # balance=0 is NOT evidence of ownership: a mint sent to a contract with no
+    # code returns a successful receipt while transferring nothing, so the
+    # gate then fails closed and the real cause stays hidden upstream.
+    if [ -n "$MINTED_BAL" ] && [ "$MINTED_BAL" != "0" ]; then
         p "Wallet A minted an NFT (balance=$MINTED_BAL)"
+    elif [ -n "$MINTED_BAL" ]; then
+        f "dev-mint reported balance=0 — nothing was minted (HTTP $MINT_CODE)"
     else
         f "dev-mint failed: HTTP $MINT_CODE ${MINT:0:160}"
     fi
