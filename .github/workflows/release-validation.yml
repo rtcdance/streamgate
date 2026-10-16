@@ -146,7 +146,7 @@ jobs:
           # The optional pin: a per-SHA tag that was ever moved must not be
           # deployed as if it were the digest the operator asked for.
           if [ -n "$EXPECTED_DIGEST" ]; then
-            resolved="$(docker buildx imagetools inspect "${prefix}/monolith:candidate-${CANDIDATE_SHA}" --format '{{println .Digest}}' | head -1)"
+            resolved="$(docker buildx imagetools inspect "${prefix}/monolith:candidate-${CANDIDATE_SHA}" --format '{{println .Manifest.Digest}}' | head -1)"
             [ "$resolved" = "$EXPECTED_DIGEST" ] || { echo "::error::monolith tag resolves to $resolved, expected pin $EXPECTED_DIGEST"; exit 1; }
             echo "digest pin verified: $resolved"
           fi
