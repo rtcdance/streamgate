@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -203,10 +204,49 @@ func (m *DemoNFTMinter) Mint(ctx context.Context, wallet common.Address, count i
 		result.TotalMinted++
 	}
 
+	// Confirm every broadcast BEFORE reporting a balance: reading immediately
+	// after SendTransaction races the mempool, so the reported balance can be
+	// the pre-mint one (observed: receipt later 0x1 while the response said
+	// 0). Same-signer nonces execute in order, so the last receipt proves all
+	// earlier mints landed too. A reverted or unconfirmed tx is a failure —
+	// never a success response carrying a balance that contradicts it.
+	if len(result.TxHashes) > 0 {
+		for i, hash := range result.TxHashes {
+			receipt, rerr := waitMined(ctx, m.client, common.HexToHash(hash))
+			if rerr != nil {
+				return result, fmt.Errorf("mint tx %s not confirmed: %w", hash, rerr)
+			}
+			if receipt.Status != types.ReceiptStatusSuccessful {
+				return result, fmt.Errorf("mint tx %s reverted (receipt status %d) at index %d", hash, receipt.Status, i)
+			}
+		}
+	}
+
 	bal, err := m.BalanceOf(ctx, wallet)
 	if err != nil {
 		return result, fmt.Errorf("balance after mint: %w", err)
 	}
 	result.Balance = bal
 	return result, nil
+}
+
+// waitMined polls the receipt until it exists or ctx expires. Polling is
+// deliberately interval-based (not a single call): anvil mines on block-time
+// and the acceptance budget assumes a bounded confirmation wait.
+func waitMined(ctx context.Context, client *ethclient.Client, txHash common.Hash) (*types.Receipt, error) {
+	const poll = 200 * time.Millisecond
+	for {
+		receipt, err := client.TransactionReceipt(ctx, txHash)
+		if err == nil {
+			return receipt, nil
+		}
+		if !errors.Is(err, ethereum.NotFound) {
+			return nil, fmt.Errorf("fetch receipt: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(poll):
+		}
+	}
 }
