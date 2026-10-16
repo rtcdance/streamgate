@@ -89,12 +89,19 @@ services:
         reservations:
           cpus: '0.30'
           memory: 256M
+    # Healthy = contracts DEPLOYED, not merely "anvil answers": the entrypoint
+    # cold-compiles before forge create (minutes on a pinned core), and the app
+    # signs with the same deployer key — starting it mid-compile spends the
+    # CREATE nonces, so DemoNFT lands off-address and every mint/gate then
+    # fails (observed: DemoNFT at 0x9fE467... instead of 0x5FbDB2...).
+    # The generous failure budget only delays the unhealthy verdict; a passing
+    # check marks healthy within one interval.
     healthcheck:
-      test: ["CMD-SHELL", "cast chain-id --rpc-url http://localhost:8545 | grep -q '31337'"]
-      interval: 30s
+      test: ["CMD-SHELL", "cast code --rpc-url http://localhost:8545 0x5FbDB2315678afecb367f032d93F642f64180aa3 | grep -qE '^0x[0-9a-fA-F]{20,}' && cast code --rpc-url http://localhost:8545 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512 | grep -qE '^0x[0-9a-fA-F]{20,}'"]
+      interval: 10s
       timeout: 5s
-      start_period: 15s
-      retries: 5
+      start_period: 600s
+      retries: 30
 
   consul:
     image: hashicorp/consul:latest
