@@ -745,6 +745,18 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
 
+  # Plan §7 DAG: P[真实性能与故障测试] → D[临时部署 / smoke / 恢复演练].
+  # The temporary deploy + three-class failure drills (SG-08 step 5) run against
+  # THIS run's candidate artifacts — the same docker-archive tars the scans and
+  # the media acceptance consumed — in a brand-new empty-volume compose project.
+  # Sequential after every acceptance gate above it, so a red media/durability/
+  # ops/perf gate skips it (fail-closed) and a green one is deployed, smoked and
+  # drilled before anything is called publishable.
+  release-validation:
+    name: Release Validation (temporary deploy + 3-class failure drills)
+    uses: ./.github/workflows/release-validation.yml
+    needs: [fullchain-acceptance, durability, ops, perf]
+
   manifest:
     name: Candidate Manifest (one SHA, one identity)
     runs-on: ubuntu-latest
@@ -789,7 +801,8 @@ jobs:
     runs-on: ubuntu-latest
     # The terminal promotion gate (SG-08 step 1): it depends on EVERY required
     # gate — source gates, candidate build + same-digest scans, smoke, the
-    # same-SHA test suite, durability, ops, perf and the real media acceptance.
+    # same-SHA test suite, durability, ops, perf, the real media acceptance and
+    # the release validation (temporary deploy + failure drills).
     # No if:always(), no continue-on-error: any failed OR skipped upstream job
     # (including a skipped `candidate` when a source gate failed) skips this
     # job, so "publishable" can only be green when the whole DAG ran green.
@@ -798,7 +811,7 @@ jobs:
     # the candidate promotable.
     needs: [lint, test-go, test-contracts, test-anvil, build, security,
             candidate, manifest, test-suite, docker, durability, ops, perf,
-            fullchain-acceptance]
+            fullchain-acceptance, release-validation]
     steps:
       - name: Every required gate passed for this SHA
         run: echo "candidate is publishable (see the retain-candidate GHCR digest in the candidate workflow for the promoted artifact)"
