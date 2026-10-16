@@ -545,7 +545,11 @@ server {
 }
 NGINX
   docker rm -f "${project}-h5" >/dev/null 2>&1 || true
+  # host.docker.internal is defined by Docker Desktop only; on a Linux engine
+  # nginx would exit at startup ("host not found in upstream"), so map the
+  # host gateway explicitly.
   docker run -d --name "${project}-h5" -p "${VERIFY_H5_PORT}:8080" \
+    --add-host host.docker.internal:host-gateway \
     -v "${ROOT_DIR}/h5-demo:/usr/share/nginx/html:ro" \
     -v "${conf}:/etc/nginx/conf.d/default.conf:ro" \
     nginx:alpine >/dev/null \
