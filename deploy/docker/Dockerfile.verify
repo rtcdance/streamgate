@@ -52,9 +52,35 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 COPY --from=foundry /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/chisel /usr/local/bin/
 
 # golangci-lint (v2 line — required for Go 1.26 modules).
+#
+# The official installer fetches install.sh from raw.githubusercontent.com and
+# then the release tarball from release-assets.githubusercontent.com — both
+# unreachable from some networks (raw timed out here; same host class as the
+# solc/foundry notes above). The old `curl | sh` had no pipefail, so a timed-out
+# curl fed an EMPTY script to sh, sh exited 0, and Docker cached a successful
+# layer containing no binary: the unit stage later died with "golangci-lint:
+# command not found" (observed 2026-10-17). Three changes make that impossible:
+#   * pipefail + fetch timeouts, so a failed download cannot look like success;
+#   * a fallback `go install @version` over the module proxy — it works exactly
+#     where `go mod download` works (the fast path stays the official installer,
+#     which is what CI's network uses and has always used);
+#   * a final version assertion, so the layer either contains a runnable
+#     golangci-lint or the BUILD fails — it can never cache a broken toolchain.
 ARG GOLANGCI_LINT_VERSION=v2.12.2
-RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-        | sh -s -- -b /usr/local/bin "${GOLANGCI_LINT_VERSION}"
+ARG GOLANGCI_LINT_PROXY=https://goproxy.cn,direct
+RUN set -euxo pipefail; \
+    v="${GOLANGCI_LINT_VERSION}"; \
+    if curl -sSfL --connect-timeout 10 --max-time 60 \
+         https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+       | sh -s -- -b /usr/local/bin "$v"; then \
+      echo "golangci-lint ${v} installed from the official installer"; \
+    else \
+      echo "official installer unreachable — falling back to go install via ${GOLANGCI_LINT_PROXY}"; \
+      GOBIN=/usr/local/bin GOPROXY="${GOLANGCI_LINT_PROXY}" \
+        go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${v}"; \
+    fi; \
+    command -v golangci-lint; \
+    golangci-lint version
 
 # Stage scripts run under `bash -lc`, whose login profile resets PATH to the
 # Debian default — that drops /usr/local/go/bin. The Foundry tools already live
