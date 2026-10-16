@@ -587,7 +587,7 @@ make verify-docker
 
 ## 8. 执行状态与证据登记
 
-**计划编写完成，SG 实施与 M 验收均待执行。** 本次只保留 `TRANSITION_PLAN.md` 文档变更，隔离诊断改动不进入实施交付。既有用户工作区变更保留。
+**本节为随执行推进的证据登记（2026-10-16 更新）**：SG-00～14 全部完成，SG-15 仅剩远端 CI（见 §8.17 主线状态表，那是当前状态的权威口径）。各小节标题中的"部分完成 / 保持未勾选"是**该小节写作时点的状态快照**，其后续结论以勾选的 §5 与 §8.17 为准，不再逐条回填。既有用户工作区变更保留。
 
 | 范围                   | 目前状态 / 链接                                                                                           | 可以证明什么                                                                                                                                                                                                                                                             |
 | -------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1502,7 +1502,7 @@ sequenceDiagram
 
 | R | 实现入口（文件/接口） | 稳定测试 ID | SHA / 实证 | 限制 |
 |---|---|---|---|---|
-| R01 核心 flow 真实运行 | `cmd/monolith` + `pkg/gateway/routes.go`（auth→gate→stream 链） | `fullchain-acceptance.sh` 66 检查（双模式） | `de4b83c..f4d65bc`；双模式 ALL 66 PASSED×多轮；**干净候选 `f20fb92` 七阶段 `verify-docker` 全绿（见 D）** | 无 |
+| R01 核心 flow 真实运行 | `cmd/monolith` + `pkg/gateway/routes.go`（auth→gate→stream 链） | `fullchain-acceptance.sh` 66 检查（双模式） | `de4b83c..f4d65bc`；双模式 ALL 66 PASSED×多轮；**冻结候选 `ee97d5a` 单次 `verify-docker all` 七阶段全绿 exit 0（§8.16 I）** | 无 |
 | R02 真钱包身份/不越权 | `pkg/service/auth_wallet.go`、`pkg/service/gating/rule.go`、`pkg/middleware/auth.go` | `TestWalletAuth_*`、`TestGatingRule_NonOwner*`、`TestHandle*Content_NotOwner` | `656bdc8`、反向证明 A 组 | session 权威源是 Redis 而非计划写的 Postgres（§8.11 已记录偏离） |
 | R03 ERC-721/1155 数量与缓存 | `pkg/web3/nft/verifier.go`、`pkg/middleware/nft_gate.go` | `TestNFTGate_ERC1155Quantity_*`、`TestAnvil_ERC1155Quantity`、chain 层负例（`fdad9f2` 新补） | `fdad9f2`、§8.4 | 无 |
 | R04 多 RPC 同链回退/同区块 | `pkg/web3/chain.go`、`BlockProver` | `TestAnvil_EndpointFailoverStaysOnTheSameChain`、`TestResolveQuantity_PinsTheAnchorBlock` | §8.9 | 同等验收仅 Anvil（README 已收窄） |
