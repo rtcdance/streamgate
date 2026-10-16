@@ -286,14 +286,18 @@ DEMO_CONTRACT="${DEMO_CONTRACT:-0x5FbDB2315678afecb367f032d93F642f64180aa3}"
 p "DemoNFT contract=$DEMO_CONTRACT (chain $CHAIN_ID)"
 
 if [ -n "$TOKEN_A" ]; then
-    MINT="$(curl -sf -X POST "$BASE_URL/api/v1/nft/dev/mint" -H "Authorization: Bearer $TOKEN_A" \
-        -H 'Content-Type: application/json' -d '{"count":1}' 2>/dev/null)" || MINT=""
+    # No -f here: a rejected mint must still show its status and body. With -f
+    # an unregistered route (404) and a refused mint (500) both collapse into an
+    # empty string, which is how a missing dev-mint route stayed invisible.
+    MINT_CODE="$(curl -s -o /tmp/sg-mint.json -w '%{http_code}' -X POST "$BASE_URL/api/v1/nft/dev/mint" \
+        -H "Authorization: Bearer $TOKEN_A" -H 'Content-Type: application/json' -d '{"count":1}' 2>/dev/null || echo 000)"
+    MINT="$(cat /tmp/sg-mint.json 2>/dev/null || true)"
     MINTED_BAL="$(json_get "$MINT" balance)"
     MINT_TX="$(printf '%s' "$MINT" | python3 -c "import sys,json;print((json.load(sys.stdin).get('tx_hashes') or [''])[0])" 2>/dev/null || echo '')"
     if [ -n "$MINTED_BAL" ]; then
         p "Wallet A minted an NFT (balance=$MINTED_BAL)"
     else
-        f "dev-mint failed: ${MINT:0:160}"
+        f "dev-mint failed: HTTP $MINT_CODE ${MINT:0:160}"
     fi
 
     # The mint must actually land on chain: a success response without a
