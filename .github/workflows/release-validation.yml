@@ -13,7 +13,9 @@ name: Release Validation (temporary deploy + failure drill)
 #   * workflow_call (ci.yml's D node, plan §7 P -> D): the candidate comes from
 #     THIS run's build artifacts (the same docker-archive tars the scans
 #     consumed), verified against meta/<svc>.json — deployed bytes are build
-#     bytes;
+#     bytes; the rollback-compatibility leg still runs against the pinned
+#     previous_digest default, because promotion must refuse a schema the
+#     previous app cannot serve (plan SG-08 step 6);
 #   * workflow_dispatch (manual, e.g. pre-release): three per-SHA GHCR tags
 #     `candidate-<candidate_sha>`, optionally pinned by image_digest so a moved
 #     tag fails instead of deploying something else.
@@ -27,8 +29,9 @@ name: Release Validation (temporary deploy + failure drill)
 
 on:
   workflow_call:
-    # Call mode (ci.yml's D node) leaves all of these empty: the candidate is
-    # this run's build artifacts, no registry pull and no rollback leg.
+    # Call mode (ci.yml's D node) leaves candidate_sha/image_digest empty: the
+    # candidate is this run's build artifacts. previous_digest keeps its pinned
+    # default so the rollback leg runs in BOTH modes.
     inputs:
       candidate_sha:
         description: "Dispatch mode only: 40-hex candidate SHA. Empty in call mode (the run's own artifacts are used)."
@@ -41,12 +44,17 @@ on:
         required: false
         default: ""
       previous_digest:
-        description: "Dispatch mode only: previous known-good monolith digest for rollback-compatibility."
+        description: "Previous known-good monolith digest for rollback-compatibility (an ancestor GHCR candidate). Empty = the leg is skipped with an explicit notice — never silently omitted."
         type: string
         required: false
-        default: ""
+        # Pin by digest (never a tag): this is the proven ancestor that served
+        # the 3c783a8 M0 run (candidate-2a5927b0 tag → this digest, resolved via
+        # imagetools). In call mode it is exactly what makes SG-08 step 6
+        # ("无法兼容时拒绝 promotion") enforceable — without it the D node would
+        # deploy and drill but never prove the new schema is backward compatible.
+        default: "sha256:8158e6f35324efa8eccf8610e859ff3a928db99410b12945da040da4f33fc0d3"
       image_ref:
-        description: "Dispatch mode only: monolith repository reference (other two derived from its prefix)."
+        description: "Monolith repository reference for pulling the previous image (other two services derived from its prefix)."
         type: string
         required: false
         default: ghcr.io/rtcdance/streamgate/monolith
@@ -122,8 +130,9 @@ jobs:
       # ---- obtain the candidate ------------------------------------------------
       # Both modes end with the SAME local tag set (streamgate-<svc>:candidate),
       # so every deployment, assertion and drill below is mode-independent.
-      - name: Log in to GHCR (dispatch mode)
-        if: inputs.candidate_sha != ''
+      # Login is unconditional: dispatch mode pulls the candidate per-SHA tags,
+      # call mode pulls previous_digest for the rollback leg — both from GHCR.
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -190,6 +199,10 @@ jobs:
       # OWN embedded set, so testing it against an empty database would prove
       # nothing about the new schema). The candidate's OWN migration evidence is
       # collected in the deploy step, on its own empty volumes.
+      - name: Rollback-compatibility skipped (no previous digest)
+        if: inputs.previous_digest == ''
+        run: echo "::notice::previous_digest is empty — the rollback-compatibility leg (SG-08 step 6) was NOT executed; a promotion run must not treat this as a pass."
+
       - name: Apply the new migrations for the rollback-compatibility leg
         if: inputs.previous_digest != ''
         run: |
