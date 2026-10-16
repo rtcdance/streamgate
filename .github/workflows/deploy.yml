@@ -34,6 +34,13 @@ jobs:
   resolve-target:
     name: Resolve deployment target
     runs-on: ubuntu-latest
+    # Without these declared outputs every `needs.resolve-target.outputs.*`
+    # below evaluates to the empty string: the deploy jobs would never run
+    # (a selected target silently skipped) and the report job would always
+    # print "NOT EXECUTED" — exactly the green-skip the plan forbids.
+    outputs:
+      selected: ${{ steps.resolve.outputs.selected }}
+      target: ${{ steps.resolve.outputs.target }}
     steps:
       - name: Report the selected target
         id: resolve
@@ -70,7 +77,7 @@ jobs:
           [ -n "$DEPLOY_USER" ] || { echo "::error::DEPLOY_USER secret is not configured"; missing=1; }
           [ -n "$IMAGE_DIGEST" ] || { echo "::error::image_digest input is required (deploy by immutable digest, never by tag)"; missing=1; }
           case "$IMAGE_DIGEST" in
-            "": ;;
+            "") ;;
             *@sha256:*) ;;
             *) echo "::error::image_digest must pin a sha256 digest, got: $IMAGE_DIGEST"; missing=1;;
           esac
@@ -132,7 +139,7 @@ jobs:
           [ -n "$KUBE_CONFIG" ]  || { echo "::error::KUBE_CONFIG secret is not configured"; missing=1; }
           [ -n "$IMAGE_DIGEST" ] || { echo "::error::image_digest input is required"; missing=1; }
           case "$IMAGE_DIGEST" in
-            "": ;;
+            "") ;;
             *@sha256:*) ;;
             *) echo "::error::image_digest must pin a sha256 digest"; missing=1;;
           esac
@@ -191,5 +198,12 @@ jobs:
           echo "kubernetes deploy: $k8s_result"
           if [ "$docker_result" = "failure" ] || [ "$k8s_result" = "failure" ]; then
             echo "::error::A selected deployment FAILED"
+            exit 1
+          fi
+          # Fail-closed: a selected target must have ACTUALLY deployed. If the
+          # matching deploy job was skipped (or errored) there was no rollout —
+          # reporting success would be exactly the green-skip the plan forbids.
+          if [ "$docker_result" != "success" ] && [ "$k8s_result" != "success" ]; then
+            echo "::error::target was selected but no deploy job succeeded (docker-compose=$docker_result kubernetes=$k8s_result)"
             exit 1
           fi
