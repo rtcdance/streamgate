@@ -3,7 +3,7 @@
 NFT-gated streaming platform in Go. Core flow: **wallet sign-in → NFT ownership check → protected HLS streaming**.
 
 - Microkernel plugin architecture, dual-mode: monolith (dev) or 9 microservices (prod)
-- 11 build targets (`make build-all`) · 254 test files · ~73.4% coverage · 60% CI floor
+- 11 build targets (`make build-all`) · 314 test files · ~71% coverage (verify-docker unit gate) · 60% CI floor
 
 ## Stack
 
