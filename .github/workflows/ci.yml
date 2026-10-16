@@ -648,7 +648,15 @@ jobs:
         # (sg-fc-postgres / sg-fc-redis / sg-fc-transcoder), so container_name
         # fields — not the project name — are what it finds; teardown below
         # removes only this run's containers/networks/volumes.
-        run: docker compose -f docker-compose.fullchain.yml up -d --no-build monolith transcoder api-gateway
+        #
+        # h5-demo is the demo page's front door (nginx, one listener per
+        # deployment mode) and is what scripts/verify-docker.sh serves the media
+        # stage from. Without it the browser harness would have to load the same
+        # page from the monolith, where the app's demoCSP blocks the page's font
+        # stylesheet and the JWT middleware answers /favicon.ico with 401 — both
+        # recorded as runtime errors, i.e. a front-door difference reported as a
+        # product failure.
+        run: docker compose -f docker-compose.fullchain.yml up -d --no-build monolith transcoder api-gateway h5-demo
 
       - name: Assert the running containers are the candidate (digest check)
         run: |
@@ -683,6 +691,12 @@ jobs:
           # Empty channel = use the bundled Chromium we just installed, not a
           # host Chrome that does not exist on the runner.
           PW_CHANNEL: ""
+          # The demo page and its API calls go through the nginx front door that
+          # proxies to THIS mode (:18000 → monolith). The harness's own stack
+          # pre-check and page load then exercise the same origin the mode under
+          # test serves, exactly as scripts/verify-docker.sh wires it.
+          H5_BASE: http://localhost:18000
+          H5_DEMO_URL: http://localhost:18000/
         run: |
           # Stage budgets live in the script: 180s transcode, 90s browser.
           bash scripts/fullchain-acceptance.sh http://localhost:18080
@@ -690,11 +704,12 @@ jobs:
       - name: Full-chain acceptance against the api-gateway deployment mode
         # The same script must pass through the gateway wiring so the two
         # deployment modes cannot drift (SG-05 step 7). The gateway does not
-        # host the H5 static page and this job runs no separate h5-demo
-        # container, so the demo URL points at the monolith's built-in copy.
+        # host the H5 static page, so the demo comes from the nginx front door's
+        # second listener, which proxies /api to THIS mode (:18001 → api-gateway).
         env:
           PW_CHANNEL: ""
-          H5_DEMO_URL: http://localhost:18080/demo/
+          H5_BASE: http://localhost:18001
+          H5_DEMO_URL: http://localhost:18001/
         run: |
           deadline=$((SECONDS + 60))
           until curl -sf http://localhost:28080/health >/dev/null 2>&1; do
