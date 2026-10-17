@@ -1,48 +1,17 @@
-# StreamGate verify stack (VERIFY_STAGE=media|perf|release)
-# ------------------------------------------------------------
-# Project-scoped twin of docker-compose.fullchain.yml for
-# `scripts/verify-docker.sh`. Unlike the fullchain file this one deliberately:
-#   * has NO container_name        — compose names containers <project>-<service>-<idx>,
-#                                    so several stacks coexist and the sg-fc-*
-#                                    fullchain stack is never touched
-#   * uses host ports allocated by the orchestrator at run time
-#                                    (VERIFY_MONO_PORT / VERIFY_GW_PORT /
-#                                    VERIFY_MINIO_PORT / VERIFY_ANVIL_PORT,
-#                                    picked free per run so parallel runs never
-#                                    clash; the fallback values below only keep
-#                                    `docker compose config -q` valid when the
-#                                    script's own up is not what runs)
-#   * uses NO top-level entrypoints — contracts/docker-entrypoint.sh needs a
-#                                    bind-mounted repo and a cpuset that does not
-#                                    exist everywhere, and the acceptance's anvil
-#                                    checks work against a bare chain. The
-#                                    orchestrator deploys DemoNFT/ContentRegistry
-#                                    itself before the app needs them.
-#
-# The quick images bake ./h5-demo in, and the monolith serves it at /demo —
-# the browser spec loads the page from H5_BASE=<monolith-origin>/demo, so a
-# gateway-mode run is cross-origin and both app services carry
-# ${VERIFY_CORS_ORIGINS} (the monolith's origin) in their CORS list.
-#
-# Images must be prebuilt: the orchestrator tags them to
-# ${VERIFY_IMAGE_PREFIX}-<service> before `up` and `--no-build` makes compose
-# use them verbatim; the transcoder builds from source (Dockerfile.transcoder).
-#
-# Usage: docker compose -p streamgate-verify-$$ \
-#          -f deploy/docker/compose.verify.yml up -d [--no-build] <services...>
-
+# Dedicated verification project: no host ports or fixed container names.
+# The controller joins this network and reaches services by DNS; all runtime
+# images are prebuilt, pinned or verified against the candidate manifest.
 services:
-  # Published (ephemeral host port) so the orchestrator can run
-  # `go run ./cmd/migrate up` against it — the app itself never auto-migrates,
-  # exactly like the fullchain stack whose schema comes from `make migrate-up`.
+  # Migrations reach Postgres over the project network before app startup.
   postgres:
-    image: postgres:15-alpine
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: streamgate
-    ports:
-      - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -52,7 +21,10 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     volumes:
       - redis-data:/data
     healthcheck:
@@ -61,20 +33,21 @@ services:
       timeout: 3s
       retries: 10
 
-  # Published so the host-side acceptance's MinIO liveness probe reaches it.
+  # MinIO liveness is checked through the controller-local front.
   # Overridable: some registry mirrors do not serve docker.io/minio/minio.
   # root: the bitnami-derived image runs as a non-root user that cannot write
   # a freshly created named volume (FATAL "file access denied"); the running
   # sg-fc stack resolves this the same way.
   minio:
-    image: ${VERIFY_MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5}
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: ${VERIFY_MINIO_IMAGE:-bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20}
     user: root
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "${VERIFY_MINIO_PORT:-19001}:9000"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -84,7 +57,10 @@ services:
       retries: 10
 
   nats:
-    image: nats:2.10-alpine
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
     command: ["-js", "-m", "8222"]
     volumes:
       - nats-data:/data
@@ -95,7 +71,10 @@ services:
       retries: 10
 
   consul:
-    image: hashicorp/consul:latest
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: hashicorp/consul:1.21.5@sha256:6126c30072690cb3173a450ff5bde120c3a01e11c9dccab83b1b2314d4c828bd
     command: agent -server -bootstrap-expect=1 -ui -client=0.0.0.0
     volumes:
       - consul-data:/consul/data
@@ -105,7 +84,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # Published so the host-side acceptance's cast/JSON-RPC checks reach it.
+  # Controller-local cast/JSON-RPC checks reach Anvil over this network.
   # The stock foundry image's ENTRYPOINT is ["/bin/sh","-c"], which would run
   # "anvil" with DEFAULT args (127.0.0.1 bind only — unreachable from a
   # published port), so the entrypoint is overridden explicitly.
@@ -116,11 +95,12 @@ services:
   # DemoNFT/ContentRegistry at their deterministic addresses before the app
   # needs them.
   anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: ghcr.io/foundry-rs/foundry:v1.8.5@sha256:32c8ea9ef052a440cb1620175987a3f49eff8b068a0c6a3d09ebf7f5f9a0e043
     entrypoint: ["anvil"]
     command: ["--host", "0.0.0.0", "--chain-id", "31337", "--block-time", "2", "--slots-in-an-epoch", "1"]
-    ports:
-      - "${VERIFY_ANVIL_PORT:-18546}:8545"
     healthcheck:
       test: ["CMD-SHELL", "cast chain-id --rpc-url http://localhost:8545 | grep -q '31337'"]
       interval: 30s
@@ -136,7 +116,10 @@ services:
   # too, which is the different `rpc_all_down` scenario. Not published: only
   # the app containers reach it, by service name.
   anvil-proxy:
-    image: alpine/socat:latest
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
     command: ["TCP-LISTEN:8545,fork,reuseaddr", "TCP:anvil:8545"]
     depends_on:
       anvil:
@@ -151,14 +134,12 @@ services:
   # (Postgres + outbox + JetStream) but the isolated transcoder worker
   # executes them.
   monolith:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
     image: ${VERIFY_IMAGE_PREFIX:-streamgate-verify}-monolith:latest
     # Repo root: the quick Dockerfiles COPY deploy/docker/<binaries> and config/,
     # so the build context must be the module root, not this file's directory.
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.monolith.quick
-    ports:
-      - "${VERIFY_MONO_PORT:-18081}:8080"
     environment:
       - APP_DEBUG=true
       - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
@@ -221,12 +202,10 @@ services:
   # worker. CORS carries the same origin list as the monolith so a gateway-mode
   # browser spec (H5_BASE=MONOLITH_BASE) never trips the CORS gate.
   api-gateway:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
     image: ${VERIFY_IMAGE_PREFIX:-streamgate-verify}-api-gateway:latest
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.api-gateway.quick
-    ports:
-      - "${VERIFY_GW_PORT:-28081}:8080"
     environment:
       - APP_DEBUG=true
       - STREAMGATE_JWT_SECRET=fullchain-acceptance-secret-2026
@@ -282,9 +261,10 @@ services:
   # fences (cap_drop ALL / read-only rootfs / memory+cpu limits) are what the
   # acceptance asserts on the RUNNING container.
   transcoder:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.transcoder
+    image: ${VERIFY_IMAGE_PREFIX:-streamgate-verify}-transcoder:latest
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
     environment:
       - APP_DEBUG=true
       - STREAMGATE_DB_HOST=postgres
@@ -319,9 +299,24 @@ services:
     mem_limit: 1g
     cpus: 2
 
+networks:
+  default:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+
 volumes:
   postgres-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   redis-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   minio-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   nats-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   consul-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}

@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.9-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 
 WORKDIR /app
 
@@ -11,11 +11,11 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -trimpath -installsuffix cgo -o streamgate ./cmd/monolith/streamgate
+RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -a -trimpath -installsuffix cgo -o streamgate ./cmd/monolith/streamgate
 
-FROM alpine:3.21
+FROM alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
 
-RUN apk add --no-cache --upgrade ca-certificates ffmpeg wget
+RUN apk add --no-cache --upgrade ca-certificates ffmpeg=6.1.2-r1 wget
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 

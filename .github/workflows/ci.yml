@@ -21,7 +21,7 @@ permissions:
   actions: read
 
 env:
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.26.9"
   GOPROXY: "https://proxy.golang.org,direct"
   GONOSUMDB: "gonum.org/*"
   GONOSUMCHECK: "gonum.org/*"
@@ -31,15 +31,15 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           version: v2.12.2
           args: --timeout=5m
@@ -78,16 +78,16 @@ jobs:
       # The ABI-sync guard tests (pkg/web3/contract/abi_sync_test.go) compare
       # Go-side ABIs against the Forge build artifacts in contracts/out, so this
       # job needs the contract submodules plus a forge build before go test.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
           version: v1.8.5
 
@@ -96,6 +96,21 @@ jobs:
         run: forge build
 
       - run: go mod download
+
+      - name: Verify required-test checker positive and negative cases
+        run: |
+          python3 scripts/cd/test_assert_required_tests.py
+          python3 scripts/cd/test_verify_proxy.py
+          python3 scripts/cd/test_candidate_manifest.py
+          python3 scripts/cd/test_image_identity.py
+          python3 scripts/cd/test_verify_shell.py
+          python3 scripts/cd/test_assert_candidate_evidence.py
+
+      - name: Verify H5 API origin inference in pinned Node container
+        run: >-
+          docker run --rm -v "$PWD:/work:ro" -w /work
+          node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+          node scripts/cd/test_h5_api_base.cjs
 
       - name: Clear Go build cache
         run: go clean -cache
@@ -149,7 +164,7 @@ jobs:
           ./scripts/check-coverage.sh coverage.out 60
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         with:
           files: ./coverage.out
           flags: unittests
@@ -163,13 +178,13 @@ jobs:
       run:
         working-directory: contracts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.8.5
 
       - name: Install Forge dependencies
         run: forge install
@@ -186,9 +201,9 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -212,9 +227,9 @@ jobs:
     name: Security Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -244,10 +259,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY" || true
         continue-on-error: true
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
 
       - name: Run Slither
-        uses: crytic/slither-action@v0.4.0
+        uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         with:
           target: contracts/
           # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
@@ -259,16 +274,16 @@ jobs:
     name: Anvil Integration (Web3)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.8.5
 
       - name: Build contracts (Forge artifacts the Anvil suite loads)
         working-directory: contracts
@@ -310,7 +325,7 @@ jobs:
     needs: [candidate]
     steps:
       - name: Download the candidate image built for this SHA
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: candidate-monolith
 
@@ -448,9 +463,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -469,20 +484,17 @@ jobs:
           STREAMGATE_TEST_DB_DSN: postgres://streamgate:streamgate@localhost:5432/streamgate_durability?sslmode=disable
         run: |
           set -euo pipefail
+          go_test_rc=0
           go test -race -count=1 -json \
             ./pkg/service/transcoding ./pkg/web3/event ./pkg/service/registry ./pkg/service \
-            > durability-tests.json || true
+            > durability-tests.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
-            --require 'TestIntegration_TranscodingLeaseAgainstPostgres' \
-            --require 'TestAcceptance_Event' \
-            --require 'TestAcceptance_RegistryIdempotency|TestAcceptance_NonceAcrossInstances|TestAcceptance_BroadcastUnknownRecovery|TestAcceptance_TxReceiptReorg' \
-            --require 'TestAcceptance_ChainNonceFloor|TestAcceptance_SharedNonceAuthority' \
-            --require 'TestAcceptance_TranscodeRedeliveryAndCrash|TestAcceptance_RetryAndDLQRecovery|TestAcceptance_HeartbeatRenewal' \
+            --suite durability-tests --exit-code "$go_test_rc" \
             durability-tests.json
 
       - name: Upload durability test log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: durability-tests-${{ github.sha }}
           path: durability-tests.json
@@ -493,9 +505,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [candidate]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -509,27 +521,27 @@ jobs:
       - name: Run ops/profile/drain gates
         run: |
           set -euo pipefail
+          go_test_rc=0
           go test -race -count=1 -json \
             -run 'TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production|TestSetDraining|TestIsDraining|TestDrainMiddleware' \
             ./pkg/gateway ./pkg/core \
-            > ops-gateway-core.json || true
+            > ops-gateway-core.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
-            --require 'TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production' \
-            --require 'TestSetDraining|TestIsDraining|TestDrainMiddleware' \
+            --suite ops-gateway-core --exit-code "$go_test_rc" \
             ops-gateway-core.json
 
+          go_test_rc=0
           go test -race -count=1 -json \
-            -run 'TestValidateProduction|TestIsProduction|TestCapabilityPolicy' \
+            -run 'TestValidateProduction|TestIsProduction|TestCapabilityPolicy|TestDeriveProfile' \
             ./pkg/core/config \
-            > ops-config.json || true
+            > ops-config.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
-            --require 'TestValidateProduction|TestIsProduction' \
-            --require 'TestCapabilityPolicy' \
+            --suite ops-config --exit-code "$go_test_rc" \
             ops-config.json
 
       - name: Upload ops test logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ops-tests-${{ github.sha }}
           path: ops-*.json
@@ -540,9 +552,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [candidate]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -559,16 +571,16 @@ jobs:
       - name: Run perf harness and metrics gates
         run: |
           set -euo pipefail
+          go_test_rc=0
           go test -race -count=1 -json ./test/load ./test/performance \
-            > perf-tests.json || true
+            > perf-tests.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
-            --require 'TestPerfHarness_' \
-            --require 'TestMetricsCollection|TestRateLimitingPerformance|TestPrometheusExportPerformance' \
+            --suite perf-tests --exit-code "$go_test_rc" \
             perf-tests.json
 
       - name: Upload perf test log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: perf-tests-${{ github.sha }}
           path: perf-tests.json
@@ -587,10 +599,10 @@ jobs:
       # Scope the project so teardown can only ever touch this run's containers.
       COMPOSE_PROJECT_NAME: sg-ci-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download the candidate images built for this SHA
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: candidate-{monolith,transcoder,api-gateway}
           merge-multiple: true
@@ -618,9 +630,9 @@ jobs:
           docker tag streamgate-transcoder:candidate  "${COMPOSE_PROJECT_NAME}-transcoder"
           docker tag streamgate-api-gateway:candidate "${COMPOSE_PROJECT_NAME}-api-gateway"
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.8.5
 
       - name: Build contracts (artifacts the stack deploys)
         working-directory: contracts
@@ -735,7 +747,7 @@ jobs:
 
       - name: Upload diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fullchain-acceptance-diagnostics
           path: ci-artifacts/
@@ -768,10 +780,10 @@ jobs:
     # candidate. It is a promotion input, not a test: see `publishable`.
     needs: [candidate]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Collect every candidate image's identity
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: candidate-*
           merge-multiple: true
@@ -790,7 +802,7 @@ jobs:
             --out candidate-manifest.json
 
       - name: Upload the manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-manifest-${{ github.sha }}
           path: candidate-manifest.json

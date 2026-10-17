@@ -84,7 +84,7 @@ env:
   # The temporary environment is its own compose project with its own
   # volumes — nothing this workflow does can touch another deployment.
   PROJECT: sg-relval-${{ github.run_id }}
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.26.9"
 
 jobs:
   validate:
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Validate inputs (dispatch mode)
         if: inputs.candidate_sha != ''
@@ -107,7 +107,7 @@ jobs:
           fi
           echo "candidate tags pinned at $CANDIDATE_SHA"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -125,9 +125,9 @@ jobs:
       # directory") on the runner — observed on run 38988013226, the first time
       # this workflow ever executed. The action is the CI-proven path and puts
       # forge/cast/anvil on PATH for the contract build below.
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.8.5
 
       - name: Build contracts (the stack deploys them to Anvil)
         working-directory: contracts
@@ -141,7 +141,7 @@ jobs:
       # Login is unconditional: dispatch mode pulls the candidate per-SHA tags,
       # call mode pulls previous_digest for the rollback leg — both from GHCR.
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -175,7 +175,7 @@ jobs:
 
       - name: Download this run's candidate artifacts (call mode)
         if: inputs.candidate_sha == ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: candidate-{monolith,transcoder,api-gateway}
           merge-multiple: true
@@ -484,7 +484,7 @@ jobs:
 
       - name: Upload release manifest
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-validation-${{ github.run_id }}
           path: relval-manifest/
