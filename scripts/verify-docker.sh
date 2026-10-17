@@ -19,9 +19,11 @@
 # the sg-fc-* fullchain stack never collide, and every cleanup below removes
 # ONLY the containers this run created.
 #
-# VERIFY_GOPROXY (e.g. https://goproxy.cn,direct) overrides the toolchain
-# image's module source. The verify stack's transcoder image needs no override:
-# its Dockerfile already defaults to goproxy.cn.
+# VERIFY_GOPROXY (e.g. https://goproxy.cn,direct) overrides the module source
+# for BOTH the toolchain image and the host cross-build that produces the
+# verify stack's binaries (see prebuild_verify_stack). The verify stack's
+# transcoder image needs no override: its Dockerfile already defaults to
+# goproxy.cn.
 #
 # VERIFY_PLATFORM=<docker platform> (e.g. linux/amd64) forces the toolchain
 # image to build and run under that platform. The solc prefetch in
@@ -417,9 +419,22 @@ prebuild_verify_stack() {
   else
     log "cross-building linux binaries for the verify stack (GOARCH=$(go env GOARCH))"
   fi
+  # This is the one stage contract step that runs the HOST Go toolchain, and it
+  # ignored VERIFY_GOPROXY: the host's own GOPROXY (commonly `direct`) decided
+  # where these modules came from, so on a restricted network the perf / media /
+  # release stacks could not be built at all — observed here as
+  # `unrecognized import path "go.uber.org/ratelimit": ... dial tcp ... i/o
+  # timeout` against a half-populated host module cache, i.e. a code gate turned
+  # into a network gate with no way to point it elsewhere. Pass the same source
+  # the toolchain image uses; the module bytes are still pinned by go.sum.
+  local build_env=(CGO_ENABLED=0 "GOOS=$goos" "GOARCH=$(go env GOARCH)")
+  if [ -n "${VERIFY_GOPROXY:-}" ]; then
+    log "host cross-build uses GOPROXY=${VERIFY_GOPROXY}"
+    build_env+=("GOPROXY=${VERIFY_GOPROXY}")
+  fi
   ( cd "$src" \
-    && CGO_ENABLED=0 GOOS="$goos" GOARCH="$(go env GOARCH)" go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate \
-    && CGO_ENABLED=0 GOOS="$goos" GOARCH="$(go env GOARCH)" go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway ) \
+    && env ${build_env[@]+"${build_env[@]}"} go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate \
+    && env ${build_env[@]+"${build_env[@]}"} go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway ) \
     || fail "cross-build of the verify stack binaries failed"
   docker build -f "$src/deploy/docker/Dockerfile.monolith.quick" -t "${project}-monolith" "$src" \
     || fail "monolith image build failed"
