@@ -217,6 +217,7 @@ stage_unit() {
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
     python3 scripts/cd/test_verify_shell.py
+    python3 scripts/cd/test_verify_controller_cancel.py
     python3 scripts/cd/test_assert_candidate_evidence.py
     node scripts/cd/test_h5_api_base.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
