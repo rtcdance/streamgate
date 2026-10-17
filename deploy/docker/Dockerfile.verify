@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1.4@sha256:9ba7531bd80fb0a858632727cf7a112fbfd19b17e94c4e84ced81e24ef1a0dbc
 # ============================================================
 # StreamGate verification toolchain image
 # ============================================================
@@ -21,17 +21,21 @@
 # build — the same fix class as the solc prewarm below (a code gate must not
 # become a network gate) — and pins the exact forge version the CI image records
 # (1.8.5). Override FOUNDRY_IMAGE to build against another version.
-ARG FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:v1.8.5
+ARG FOUNDRY_IMAGE=ghcr.io/foundry-rs/foundry:v1.8.5@sha256:32c8ea9ef052a440cb1620175987a3f49eff8b068a0c6a3d09ebf7f5f9a0e043
 FROM ${FOUNDRY_IMAGE} AS foundry
+FROM docker:28.4.0-cli@sha256:6a73c9433f2ba4279815be1e60f5739288b939dda1e48151d8c393537802de37 AS dockercli
+FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS nodejs
 
-FROM golang:1.26-bookworm
+FROM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV DOCKER_BUILDKIT=1
+ARG FFMPEG_VERSION=7:5.1.9-0+deb12u1
 
 # System toolchain: ffmpeg for media, jq/curl/git for scripting, build-essential
 # for cgo-dependent test paths, python3 for helper scripts.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg \
+        ffmpeg=${FFMPEG_VERSION} \
         jq \
         curl \
         git \
@@ -42,46 +46,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Node 22 + Playwright browser system dependencies (the H5 acceptance suite
 # drives a real Chromium via `npm ci`).
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=nodejs /usr/local/ /usr/local/
+COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
 # Foundry: forge / cast / anvil / chisel, copied from the pinned image above onto
 # the default PATH (the login profile under `bash -lc` resets PATH to the Debian
 # default, so /usr/local/bin is where every stage will find them).
 COPY --from=foundry /usr/local/bin/forge /usr/local/bin/cast /usr/local/bin/anvil /usr/local/bin/chisel /usr/local/bin/
 
-# golangci-lint (v2 line — required for Go 1.26 modules).
-#
-# The official installer fetches install.sh from raw.githubusercontent.com and
-# then the release tarball from release-assets.githubusercontent.com — both
-# unreachable from some networks (raw timed out here; same host class as the
-# solc/foundry notes above). The old `curl | sh` had no pipefail, so a timed-out
-# curl fed an EMPTY script to sh, sh exited 0, and Docker cached a successful
-# layer containing no binary: the unit stage later died with "golangci-lint:
-# command not found" (observed 2026-10-17). Three changes make that impossible:
-#   * pipefail + fetch timeouts, so a failed download cannot look like success;
-#   * a fallback `go install @version` over the module proxy — it works exactly
-#     where `go mod download` works (the fast path stays the official installer,
-#     which is what CI's network uses and has always used);
-#   * a final version assertion, so the layer either contains a runnable
-#     golangci-lint or the BUILD fails — it can never cache a broken toolchain.
-# pipefail below is a bash option (Debian's /bin/sh is dash and rejects it),
-# so this RUN — and the ones after it — run under bash explicitly.
+# Compile the exact lint version from its Go module, avoiding a mutable
+# installer fetched from upstream HEAD.
 SHELL ["/bin/bash", "-c"]
 ARG GOLANGCI_LINT_VERSION=v2.12.2
 ARG GOLANGCI_LINT_PROXY=https://goproxy.cn,direct
 RUN set -euxo pipefail; \
     v="${GOLANGCI_LINT_VERSION}"; \
-    if curl -sSfL --connect-timeout 10 --max-time 60 \
-         https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-       | sh -s -- -b /usr/local/bin "$v"; then \
-      echo "golangci-lint ${v} installed from the official installer"; \
-    else \
-      echo "official installer unreachable — falling back to go install via ${GOLANGCI_LINT_PROXY}"; \
-      GOBIN=/usr/local/bin GOPROXY="${GOLANGCI_LINT_PROXY}" \
-        go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${v}"; \
-    fi; \
+    GOBIN=/usr/local/bin GOPROXY="${GOLANGCI_LINT_PROXY}" \
+      go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${v}"; \
     command -v golangci-lint; \
     golangci-lint version
 
@@ -105,12 +87,8 @@ RUN printf 'export PATH=/usr/local/go/bin:$PATH\n' > /etc/profile.d/go-toolchain
 #     unreachable from some networks (it hung a build here for 20+ minutes).
 #     The mirror's own list.json publishes the sha256, so the bytes are pinned
 #     and verified — a reachable transport, not a weaker supply chain.
-#   * BEST EFFORT: on a platform where the mirror has no build of the pinned
-#     version (it has no 0.8.24 for linux-arm64) or when the network is down,
-#     this warns and continues. The image still builds, and forge fetches the
-#     compiler when a stage first compiles — the prewarm is an optimisation,
-#     never a gate that can hang or fail a build for a reason unrelated to the
-#     candidate's code.
+#   * Mandatory: an unavailable or unverified compiler fails the image build.
+#     The controller defaults to linux/amd64 for this pinned solc binary.
 #
 # The layout is exactly the one forge creates and reads:
 # ~/.svm/.global-version, ~/.svm/<version>/.lock, ~/.svm/<version>/solc-<version>.
@@ -134,12 +112,12 @@ RUN set -eu; \
       chmod +x "/root/.svm/${SOLC_VERSION}/solc-${SOLC_VERSION}"; \
       echo "solc ${SOLC_VERSION} baked into ~/.svm from the solidity mirror (${artifact})"; \
     else \
-      echo "WARNING: solc ${SOLC_VERSION} was NOT pre-baked for $(uname -m) (mirror has no build of this version, or the network is down);"; \
-      echo "WARNING: forge will fetch it on first compile, so that stage needs network access."; \
+      echo "ERROR: pinned solc ${SOLC_VERSION} is unavailable for $(uname -m)" >&2; \
+      exit 1; \
     fi
 
 WORKDIR /src
-COPY . .
+COPY go.mod go.sum ./
 
 # Module downloads go straight to VCS by default: the build network cannot
 # reach proxy.golang.org / sum.golang.org (github can), matching the host's
@@ -153,5 +131,12 @@ ENV GOSUMDB=off
 # Warm the module cache; contracts submodules must already be checked out
 # (the runner runs `git submodule update --init --recursive` beforehand).
 RUN go mod download
+COPY . .
+COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+RUN set -euo pipefail; test "$(go env GOVERSION)" = go1.26.9 \
+    && test "$(node --version)" = v22.23.3 \
+    && test "$(docker compose version --short)" = 2.39.4 \
+    && docker buildx version \
+    && ffmpeg -version
 
 CMD ["bash"]

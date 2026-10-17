@@ -14,9 +14,10 @@ function inferApiBase() {
     try {
         const current = new URL(window.location.href);
         const port = current.port || (current.protocol === 'https:' ? '443' : '80');
-        if (ACCEPTANCE_BACKEND_PORTS.has(port)) {
+        const stored = localStorage.getItem('streamgate_api_base');
+        const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(current.hostname);
+        if (ACCEPTANCE_BACKEND_PORTS.has(port) || (loopback && !stored)) {
             const pageOrigin = normalizeBaseUrl(current.origin);
-            const stored = localStorage.getItem('streamgate_api_base');
             if (stored && normalizeBaseUrl(stored) !== pageOrigin) {
                 localStorage.setItem('streamgate_api_base', pageOrigin);
                 console.log(`Auto-corrected API base: ${stored} → ${pageOrigin}`);

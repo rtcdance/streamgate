@@ -30,12 +30,15 @@ export default async function spec06Playback({ page, snap }) {
         return { passed: false, checks };
     }
     if (!desc.entryUrl || !desc.jwt) {
-        checks.push(check('playback-descriptor', false, `entryUrl/jwt missing: ${JSON.stringify(desc)}`));
+        checks.push(check('playback-descriptor', false, `entryUrl present=${Boolean(desc.entryUrl)}, jwt present=${Boolean(desc.jwt)}`));
         return { passed: false, checks };
     }
     checks.push(check('playback-descriptor', true, `content=${desc.contentId}`));
 
     await page.goto(`${H5_BASE}/`, { waitUntil: 'domcontentloaded' });
+    const secureContext = await page.evaluate(() => window.isSecureContext);
+    checks.push(check('playback-secure-context', secureContext, 'H5 must use a trusted localhost or HTTPS origin'));
+    if (!secureContext) return { passed: false, checks };
     await page.addScriptTag({ url: `${H5_BASE}/vendor/hls.min.js` });
     const hlsAvailable = await page.evaluate(() => typeof window.Hls !== 'undefined');
     checks.push(check('hlsjs-available', hlsAvailable, 'the demo ships hls.js'));

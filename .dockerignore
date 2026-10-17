@@ -45,3 +45,8 @@ test/
 .github/
 .gitlab-ci.yml
 .mergify.yml
+
+# Verification results and archived images must never re-enter a build context.
+.verify-artifacts/
+**/node_modules/
+**/reports/
