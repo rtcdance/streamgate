@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "suites": {
+    "durability-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAcceptance_ChainNonceFloor"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAcceptance_SharedNonceAuthority"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_BroadcastUnknownRecovery"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_NonceAcrossInstances"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_RegistryIdempotency"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_TxReceiptReorg"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestAcceptance_HeartbeatRenewal"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestAcceptance_RetryAndDLQRecovery"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestAcceptance_TranscodeRedeliveryAndCrash"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestIntegration_TranscodingLeaseAgainstPostgres"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventBatchCursorSafety"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventBatchSizeBounded"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventCheckpointFilterVersion"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventFilterWhitelist"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventReorgJournalRollback"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventStoreDurability"
+      }
+    ],
+    "durability-anvil": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration",
+        "test": "TestAnvil_ContentRegistry_RegisterAndReadBack"
+      }
+    ],
+    "ops-gateway-core": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core",
+        "test": "TestDrainMiddleware_Draining"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core",
+        "test": "TestDrainMiddleware_NotDraining"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core",
+        "test": "TestDrainMiddleware_TableDriven"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core",
+        "test": "TestIsDraining_Initial"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core",
+        "test": "TestSetDraining"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestBuildProviders_DevStillFallsBackToMemory"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestBuildProviders_ProductionWithoutDatabaseFailsFast"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestBuildProviders_ProductionWithoutNATSFailsFast"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestBuildProviders_ProductionWithoutRedisAddrFailsFast"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestBuildProviders_ProductionWithoutRedisFailsFast"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestSetupRouter_ProductionWithoutDepsFailsFast"
+      }
+    ],
+    "ops-config": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestCapabilityPolicy_MaximaSumToTheBound"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestDeriveProfile"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestIsProduction"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_AcceptsPolicyDefaults"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_AllowsExactlyTheCeiling"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_ProductionSecretsRejected"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_RegistryConfiguredMustBeComplete"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_RejectsASumOverTheBound"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_RejectsOversizedCapabilityWindows"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/core/config",
+        "test": "TestValidateProduction_RequiresDependenciesInProd"
+      }
+    ],
+    "ops-gateway-sg14": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestAcceptance_MediaRateLimitAndNAT"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestAcceptance_ProtectedOpsEndpoints"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestAcceptance_StreamingDrain503Health200"
+      }
+    ],
+    "ops-middleware": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestAcceptance_GateDecisionMetricRecorded"
+      }
+    ],
+    "ops-monitoring": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/monitoring",
+        "test": "TestMonitoring_NoHighCardinalityLabels"
+      }
+    ],
+    "ops-keyrotation": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAcceptance_KeyRotationAndAudience"
+      }
+    ],
+    "perf-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_LoginPacing"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_MultiWalletViewerMapping"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ParseManifestURIs"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ResolveURI"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_SingleWalletStillWorks"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_StatsCorrectness"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ValidationRejectsUnsuccessfulRequests"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_WalletsFromKeysFile"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/performance",
+        "test": "TestMetricsCollection"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/performance",
+        "test": "TestPrometheusExportPerformance"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/performance",
+        "test": "TestRateLimitingPerformance"
+      }
+    ]
+  }
+}

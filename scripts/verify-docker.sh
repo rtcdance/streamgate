@@ -1,72 +1,24 @@
 #!/usr/bin/env bash
-# ============================================================
-# StreamGate — unified Docker verification entry
-# ============================================================
-# Builds the verification toolchain image once (Go + Foundry + FFmpeg + Node +
-# golangci-lint) and runs the requested stage, so a clean checkout needs no
-# host toolchain beyond Docker itself. Every stage runs against the same
-# candidate source state.
-#
-#   scripts/verify-docker.sh                 # VERIFY_STAGE=all
-#   VERIFY_STAGE=unit scripts/verify-docker.sh
-#   make verify-docker VERIFY_STAGE=chain
-#
-# Stage contract lives in TRANSITION_PLAN.md §5 SG-00. Go-only stages (unit,
-# chain, durability, ops) run INSIDE the toolchain image. The stages that need
-# docker CLI + host tools (media, perf, release) run on the host against a
-# project-scoped compose stack (deploy/docker/compose.verify.yml): unique
-# project name, ephemeral host ports, no container_name — so parallel runs and
-# the sg-fc-* fullchain stack never collide, and every cleanup below removes
-# ONLY the containers this run created.
-#
-# VERIFY_GOPROXY (e.g. https://goproxy.cn,direct) overrides the module source
-# for BOTH the toolchain image and the host cross-build that produces the
-# verify stack's binaries (see prebuild_verify_stack). The verify stack's
-# transcoder image needs no override: its Dockerfile already defaults to
-# goproxy.cn.
-#
-# VERIFY_PLATFORM=<docker platform> (e.g. linux/amd64) forces the toolchain
-# image to build and run under that platform. The solc prefetch in
-# Dockerfile.verify branches on `uname -m` inside the container: under
-# linux/amd64 it fetches the deterministic linux-amd64 0.8.24 from
-# binaries.soliditylang.org (sha256-verified against the mirror's own list.json),
-# which is the same path CI uses. On arm64 hosts the mirror has no 0.8.24
-# linux-arm64 build, so unit/chain (which need forge → solc) cannot run on a
-# native arm64 image — set VERIFY_PLATFORM=linux/amd64 to take the CI path.
-# Only affects the toolchain image (unit/chain/durability/ops); the compose
-# stack (media/perf/release) stays on the host's native platform.
-#
-# PERF_REFERENCE_REF=<git ref> additionally runs SG-07 step 5 in the perf
-# stage: it builds that ref into its own image, brings up a reference stack,
-# measures the same 50-viewer load for PERF_COMPARE_ROUNDS rounds, tears it
-# down, measures the candidate the same way, and fails if the candidate's
-# median ttfb p95 exceeds PERF_COMPARE_LIMIT (default 1.20). Off by default —
-# it doubles the perf stage's runtime, so it is a calibration step, not
-# something every `all` pass pays for.
-#
-# PERF_MATRIX_REPEATS=<n> (default 1) turns on the full SG-07 step-2 protocol:
-# the matrix is measured at 1/10/50/100 viewers, n times, in independent
-# per-repeat directories (round-1 …). Repeating is what makes those levels
-# statistically meaningful, so the repeated run measures ALL FOUR — the
-# 1/10/50 single-pass run that every `all` pays for is the smoke version, with
-# the 100 tier opt-in there via PERF_CAPACITY=1. The 100 tier is judged as the
-# capacity exploration (observable throttling/overload, never a denied holder);
-# the 50 tier keeps the M4 ≥99% bar.
-#
-# The proof that those results really are THIS run's, that every repeat
-# happened, and that the environment was recorded is
-# scripts/perf-provenance-check.sh, which fails the stage on a stale, mixed,
-# incomplete or unbudgeted result set. It runs after every perf stage, repeated
-# or not, and the run manifest it also requires is written by
-# scripts/perf-run-manifest.sh from the RUNNING containers.
-# ============================================================
+# Every stage runs inside the pinned verification controller. The host only
+# invokes Shell, Git and Docker; project services never publish host ports.
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="${VERIFY_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 cd "$ROOT_DIR"
+if [ "${VERIFY_IN_CONTROLLER:-}" != 1 ]; then
+  exec bash "$ROOT_DIR/scripts/verify-controller.sh" "$@"
+fi
+git config --global --add safe.directory "$ROOT_DIR"
 
 VERIFY_STAGE="${VERIFY_STAGE:-${1:-all}}"
-IMAGE_TAG="${VERIFY_IMAGE:-streamgate-verify:local}"
+if [ "$VERIFY_STAGE" = all ]; then
+  source_status="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=normal)" || exit 1
+  if [ -n "$source_status" ]; then
+    echo 'complete acceptance requires a frozen clean candidate' >&2
+    exit 1
+  fi
+fi
+IMAGE_TAG="${VERIFY_TOOL_IMAGE_ID:-${VERIFY_IMAGE:-streamgate-verify:local}}"
 PROJECT_NAME="${VERIFY_PROJECT:-streamgate-verify-$$}"
 ARTIFACT_DIR="${VERIFY_ARTIFACTS:-${ROOT_DIR}/.verify-artifacts}"
 LOG_DIR="${ARTIFACT_DIR}/logs"
@@ -75,37 +27,79 @@ VERIFY_COMPOSE_FILE="deploy/docker/compose.verify.yml"
 # Space-separated list of compose projects this run created; the cleanup trap
 # removes exactly these and nothing else.
 CREATED_PROJECTS=""
+PROXY_PIDS=""
+BUILT_BINARIES=()
+REFERENCE_WORKTREE=""
+CANDIDATE_PREFIX="${VERIFY_CANDIDATE_PREFIX:-${PROJECT_NAME}-candidate}"
+CANDIDATE_BUILT=0
+CANDIDATE_MANIFEST="${VERIFY_CANDIDATE_MANIFEST:-${ARTIFACT_DIR}/candidate.json}"
+if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 
 ALL_STAGES=(unit chain durability ops media perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[verify:FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
 
-require_host_tool() {
-  command -v "$1" >/dev/null 2>&1 || fail "host tool '$1' is required but not found"
+require_controller_tool() {
+  command -v "$1" >/dev/null 2>&1 || fail "controller tool '$1' is required but not found"
+}
+
+# platform_variant_available <image> — is the requested platform variant usable
+# from the local store? `docker image inspect --platform` is not a reliable
+# answer on every engine: on this host (Docker 29 desktop-linux, classic image
+# store) it exits 0 and prints an empty Os/Arch for an index-only reference that
+# is stored as a foreign architecture, so trusting it returns early and the
+# later `docker run --platform` fails against the native image — observed as
+# "image with reference nginx:alpine was found but does not provide the
+# specified platform (linux/amd64)" at the H5 proxy step. `docker create`
+# resolves the variant exactly the way `docker run` will, without starting it
+# and without contacting a registry.
+platform_variant_available() {
+  local id
+  id="$(timeout 60 docker create --pull never --platform "$VERIFY_PLATFORM" "$1" 2>/dev/null)" || return 1
+  docker rm -f "$id" >/dev/null 2>&1 || :
+  return 0
+}
+
+ensure_runtime_image() {
+  local image="$1" attempt
+  [[ "$image" =~ @sha256:[0-9a-f]{64}$ ]] || fail "runtime image must use an immutable SHA256 reference: ${image}"
+  if platform_variant_available "$image"; then return; fi
+  for attempt in 1 2 3; do
+    if timeout 300 docker pull --platform "$VERIFY_PLATFORM" "$image" \
+      && platform_variant_available "$image"; then
+      return
+    fi
+    log "pinned runtime image not usable for ${VERIFY_PLATFORM} yet (attempt ${attempt}/3): ${image}"
+  done
+  fail "could not prepare pinned runtime image for ${VERIFY_PLATFORM}: ${image}"
 }
 
 cleanup() {
-  # Only ever tear down the projects this run created (the acceptance infra
-  # project plus every fullstack project). The sg-fc-* stack is never touched:
-  # it addresses its containers by container_name, which no project-scoped
-  # compose command here can ever name.
-  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
-  local p
+  local rc=$? cleanup_rc=0 p pid binary
+  trap - EXIT INT TERM
+  for pid in $PROXY_PIDS; do kill "$pid" >/dev/null 2>&1 || :; done
+  for binary in ${BUILT_BINARIES[@]+"${BUILT_BINARIES[@]}"}; do rm -f "$binary" || cleanup_rc=1; done
+  if [ -n "${REFERENCE_WORKTREE:-}" ]; then
+    git worktree remove --force "$REFERENCE_WORKTREE" >/dev/null 2>&1 || cleanup_rc=1
+  fi
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || cleanup_rc=1
   for p in $CREATED_PROJECTS; do
-    docker compose -p "$p" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
-    # The release drill and the h5 proxy run as plain containers (no project
-    # label), so compose's --remove-orphans cannot see them; remove by name.
-    docker rm -f "${p}-drill-monolith" "${p}-h5" >/dev/null 2>&1 || true
+    docker network disconnect "${p}_default" "$VERIFY_CONTROLLER" >/dev/null 2>&1 || :
+    docker compose -p "$p" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || cleanup_rc=1
+    local ids
+    ids="$(docker ps -aq --filter "label=com.docker.compose.project=${p}")" || { ids=""; cleanup_rc=1; }
+    if [ -n "$ids" ]; then docker rm -f $ids >/dev/null 2>&1 || cleanup_rc=1; fi
   done
+  if [ "$cleanup_rc" != 0 ]; then
+    printf '%s\n' "verify cleanup failed; original exit=${rc}" >&2
+    if [ "$rc" = 0 ]; then rc=1; fi
+  fi
+  exit "$rc"
 }
 trap cleanup EXIT
-# Interrupting a run must not leak its stack. An unhandled INT/TERM kills the
-# shell WITHOUT running an EXIT trap (verified by stopping a perf run: the whole
-# project stayed up and kept holding the stage's ports), which contradicts the
-# rule that every cleanup removes exactly what this run created and nothing is
-# left behind. Route the signals through the EXIT trap instead.
-trap 'exit 130' INT TERM
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 ensure_submodules() {
   if [ -f .gitmodules ]; then
@@ -167,16 +161,25 @@ run_in_image() {
     platform_args=(--platform "${VERIFY_PLATFORM}")
   fi
   log "stage=${stage} → log ${log_file}"
-  if ! docker run --rm \
+  set +e
+  docker run --rm --pull never \
         --name "${PROJECT_NAME}-${stage}" \
+        --label "com.docker.compose.project=${PROJECT_NAME}" \
+        --label "com.streamgate.verify.run=${PROJECT_NAME}" \
         ${platform_args[@]+"${platform_args[@]}"} \
         ${net_args[@]+"${net_args[@]}"} \
         -v "${ARTIFACT_DIR}:/artifacts" \
         -v "${ROOT_DIR}/scripts:/src/scripts:ro" \
         -v "${ROOT_DIR}/test:/src/test:ro" \
         -w /src \
-        "${IMAGE_TAG}" bash -lc "$1" 2>&1 | tee "$log_file"; then
-    fail "stage '${stage}' failed (log: ${log_file})"
+        "${IMAGE_TAG}" bash -lc "$1" 2>&1 | tee "$log_file"
+  local statuses=("${PIPESTATUS[@]}")
+  set -e
+  local rc="${statuses[0]}"
+  if [ "$rc" = 0 ]; then rc="${statuses[1]}"; fi
+  if [ "$rc" != 0 ]; then
+    log "stage '${stage}' failed with exit ${rc} (log: ${log_file})"
+    exit "$rc"
   fi
   log "stage=${stage} PASS"
 }
@@ -190,9 +193,18 @@ run_logged() {
   local log_file="${LOG_DIR}/${stage}.log"
   mkdir -p "$LOG_DIR"
   : > "$log_file"   # a re-run must not append to the previous run's log
-  log "stage=${stage} (host) → log ${log_file}"
-  if ! "$@" 2>&1 | tee -a "$log_file"; then
-    fail "stage '${stage}' failed (log: ${log_file})"
+  log "stage=${stage} (controller) → log ${log_file}"
+  # A function in `if ! function | tee` loses errexit throughout its body.
+  # Use an independent shell context and preserve the original exit status.
+  set +e
+  ( set -e; "$@" ) 2>&1 | tee -a "$log_file"
+  local statuses=("${PIPESTATUS[@]}")
+  set -e
+  local rc="${statuses[0]}"
+  if [ "$rc" = 0 ]; then rc="${statuses[1]}"; fi
+  if [ "$rc" != 0 ]; then
+    log "stage '${stage}' failed with exit ${rc} (log: ${log_file})"
+    exit "$rc"
   fi
   log "stage=${stage} PASS"
 }
@@ -200,6 +212,13 @@ run_logged() {
 stage_unit() {
   run_in_image unit '
     set -euo pipefail
+    python3 scripts/cd/test_assert_required_tests.py
+    python3 scripts/cd/test_verify_proxy.py
+    python3 scripts/cd/test_candidate_manifest.py
+    python3 scripts/cd/test_image_identity.py
+    python3 scripts/cd/test_verify_shell.py
+    python3 scripts/cd/test_assert_candidate_evidence.py
+    node scripts/cd/test_h5_api_base.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
     ( cd contracts && forge build )
     echo "== gofmt =="
@@ -260,12 +279,16 @@ stage_chain() {
 # postgres), and the required-test assertion turns "skipped" into a failure.
 # ---------------------------------------------------------------------------
 stage_durability() {
-  require_host_tool docker
+  require_controller_tool docker
   # Postgres only — the same scratch service the CI durability job provides.
   # The DB-backed suites that need Redis/MinIO skip on their own and are not
   # part of the required list.
   log "bringing up scratch Postgres on project ${PROJECT_NAME}"
-  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait postgres \
+  local pg_image
+  pg_image="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" config --format json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["postgres"]["image"])')" || fail "cannot resolve scratch Postgres image"
+  ensure_runtime_image "$pg_image"
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 postgres \
     || fail "could not start the scratch Postgres"
   # The toolchain image ships no psql, so the scratch database is provisioned
   # from the host through the project's postgres container; the tests then
@@ -283,23 +306,22 @@ stage_durability() {
     set -euo pipefail
     export STREAMGATE_TEST_DB_DSN="postgres://postgres:postgres@postgres:5432/streamgate_durability?sslmode=disable"
     echo "== DB-backed durability suites (transcoding/registry/event/integration) =="
+    go_test_rc=0
     go test -race -count=1 -json \
       ./pkg/service/transcoding ./pkg/service/registry ./pkg/web3/event ./pkg/service ./test/integration/... \
-      > /artifacts/durability-tests.json || true
+      > /artifacts/durability-tests.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestIntegration_TranscodingLeaseAgainstPostgres" \
-      --require "TestAcceptance_Event" \
-      --require "TestAcceptance_RegistryIdempotency|TestAcceptance_NonceAcrossInstances|TestAcceptance_BroadcastUnknownRecovery|TestAcceptance_TxReceiptReorg" \
-      --require "TestAcceptance_ChainNonceFloor|TestAcceptance_SharedNonceAuthority" \
+      --suite durability-tests --exit-code "$go_test_rc" \
       /artifacts/durability-tests.json
     echo "== anvil-tagged DB-backed content lifecycle suite (self-contained chain) =="
     # The anvil suite loads contracts/out/*.json, so forge artifacts must exist
     # before it runs (the same prerequisite CI pins).
     ( cd contracts && forge build )
+    go_test_rc=0
     go test -tags=anvil -race -count=1 -json ./test/integration \
-      > /artifacts/durability-anvil.json || true
+      > /artifacts/durability-anvil.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestAnvil_ContentRegistry_RegisterAndReadBack" \
+      --suite durability-anvil --exit-code "$go_test_rc" \
       /artifacts/durability-anvil.json
   '
 }
@@ -313,59 +335,60 @@ stage_ops() {
   run_in_image ops '
     set -euo pipefail
     echo "== ops/profile/drain gates (same filters as the CI ops job) =="
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production|TestSetDraining|TestIsDraining|TestDrainMiddleware" \
       ./pkg/gateway ./pkg/core \
-      > /artifacts/ops-gateway-core.json || true
+      > /artifacts/ops-gateway-core.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production" \
-      --require "TestSetDraining|TestIsDraining|TestDrainMiddleware" \
+      --suite ops-gateway-core --exit-code "$go_test_rc" \
       /artifacts/ops-gateway-core.json
 
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestValidateProduction|TestIsProduction|TestCapabilityPolicy|TestDeriveProfile" \
       ./pkg/core/config \
-      > /artifacts/ops-config.json || true
+      > /artifacts/ops-config.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestValidateProduction|TestIsProduction" \
-      --require "TestCapabilityPolicy" \
-      --require "TestDeriveProfile" \
+      --suite ops-config --exit-code "$go_test_rc" \
       /artifacts/ops-config.json
 
     echo "== SG-14 ops acceptance suites (protected endpoints, rate limit, drain/health, metrics) =="
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestAcceptance_ProtectedOpsEndpoints|TestAcceptance_MediaRateLimitAndNAT|TestAcceptance_StreamingDrain503Health200" \
       ./pkg/gateway \
-      > /artifacts/ops-gateway-sg14.json || true
+      > /artifacts/ops-gateway-sg14.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestAcceptance_ProtectedOpsEndpoints" \
-      --require "TestAcceptance_MediaRateLimitAndNAT" \
-      --require "TestAcceptance_StreamingDrain503Health200" \
+      --suite ops-gateway-sg14 --exit-code "$go_test_rc" \
       /artifacts/ops-gateway-sg14.json
 
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestAcceptance_GateDecisionMetricRecorded" \
       ./pkg/middleware \
-      > /artifacts/ops-middleware.json || true
+      > /artifacts/ops-middleware.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestAcceptance_GateDecisionMetricRecorded" \
+      --suite ops-middleware --exit-code "$go_test_rc" \
       /artifacts/ops-middleware.json
 
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestMonitoring_NoHighCardinalityLabels" \
       ./pkg/monitoring \
-      > /artifacts/ops-monitoring.json || true
+      > /artifacts/ops-monitoring.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestMonitoring_NoHighCardinalityLabels" \
+      --suite ops-monitoring --exit-code "$go_test_rc" \
       /artifacts/ops-monitoring.json
 
     echo "== SG-14 key rotation / audience separation suite =="
+    go_test_rc=0
     go test -race -count=1 -json \
       -run "TestAcceptance_KeyRotationAndAudience" \
       ./pkg/service \
-      > /artifacts/ops-keyrotation.json || true
+      > /artifacts/ops-keyrotation.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
-      --require "TestAcceptance_KeyRotationAndAudience" \
+      --suite ops-keyrotation --exit-code "$go_test_rc" \
       /artifacts/ops-keyrotation.json
 
     echo "== short fuzz pass over every Fuzz target (seed corpus + 30s mutation) =="
@@ -385,7 +408,7 @@ stage_ops() {
 }
 
 # ---------------------------------------------------------------------------
-# Shared host-side plumbing for the fullstack stages (media / perf / release):
+# Shared controller plumbing for the fullstack stages (media / perf / release):
 # a project-scoped stack from deploy/docker/compose.verify.yml.
 # ---------------------------------------------------------------------------
 
@@ -399,53 +422,56 @@ wait_health() {
   done
 }
 
-# prebuild_verify_stack <project> — cross-compiles STATIC linux binaries (the
-# quick Dockerfiles COPY them in; they must not be run on the host, and the
-# host artifacts are removed right after the image builds) and tags the images
-# where compose expects them. The transcoder image needs no proxy override:
-# Dockerfile.transcoder defaults to goproxy.cn internally.
+# Build the candidate once. References have a separate manifest and can never
+# replace the candidate's identity or become its rollback baseline implicitly.
 prebuild_verify_stack() {
-  local project="$1" goos
-  command -v go >/dev/null 2>&1 || fail "host Go toolchain is required to build the verify stack images"
-  goos="$(go env GOOS)"; [ "$goos" = "darwin" ] && goos=linux
-  # VERIFY_BUILD_REF builds a REFERENCE image instead of the working tree: its
-  # Docker images come from a detached worktree at that ref, so the reference
-  # comparison (SG-07 step 5) measures a real second build rather than a flag
-  # on the same binary. The worktree is removed once the images exist.
-  local src="$ROOT_DIR"
+  local project="$1" src="$ROOT_DIR" prefix="$CANDIDATE_PREFIX" manifest="$CANDIDATE_MANIFEST"
+  local revision service binary archive
   if [ -n "${VERIFY_BUILD_REF:-}" ]; then
     src="$(prepare_reference_worktree "$VERIFY_BUILD_REF")"
-    log "cross-building linux binaries for the REFERENCE ref ${VERIFY_BUILD_REF} (GOARCH=$(go env GOARCH))"
-  else
-    log "cross-building linux binaries for the verify stack (GOARCH=$(go env GOARCH))"
+    REFERENCE_WORKTREE="$src"
+    prefix="${project}-reference"
+    manifest="${ARTIFACT_DIR}/reference.json"
+  elif [ "$CANDIDATE_BUILT" = 1 ]; then
+    python3 scripts/cd/candidate_manifest.py "$manifest" --revision "$(git rev-parse HEAD)" --platform "$VERIFY_PLATFORM" || fail "candidate identity changed"
+    VERIFY_IMAGE_PREFIX="$prefix"
+    export VERIFY_IMAGE_PREFIX
+    return
   fi
-  # This is the one stage contract step that runs the HOST Go toolchain, and it
-  # ignored VERIFY_GOPROXY: the host's own GOPROXY (commonly `direct`) decided
-  # where these modules came from, so on a restricted network the perf / media /
-  # release stacks could not be built at all — observed here as
-  # `unrecognized import path "go.uber.org/ratelimit": ... dial tcp ... i/o
-  # timeout` against a half-populated host module cache, i.e. a code gate turned
-  # into a network gate with no way to point it elsewhere. Pass the same source
-  # the toolchain image uses; the module bytes are still pinned by go.sum.
-  local build_env=(CGO_ENABLED=0 "GOOS=$goos" "GOARCH=$(go env GOARCH)")
-  if [ -n "${VERIFY_GOPROXY:-}" ]; then
-    log "host cross-build uses GOPROXY=${VERIFY_GOPROXY}"
-    build_env+=("GOPROXY=${VERIFY_GOPROXY}")
-  fi
-  ( cd "$src" \
-    && env ${build_env[@]+"${build_env[@]}"} go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate \
-    && env ${build_env[@]+"${build_env[@]}"} go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway ) \
-    || fail "cross-build of the verify stack binaries failed"
-  docker build -f "$src/deploy/docker/Dockerfile.monolith.quick" -t "${project}-monolith" "$src" \
-    || fail "monolith image build failed"
-  docker build -f "$src/deploy/docker/Dockerfile.api-gateway.quick" -t "${project}-api-gateway" "$src" \
-    || fail "api-gateway image build failed"
-  docker build -f "$src/deploy/docker/Dockerfile.transcoder" -t "${project}-transcoder" "$src" \
-    || fail "transcoder image build failed"
-  rm -f "$src/deploy/docker/streamgate-linux" "$src/deploy/docker/api-gateway-linux"
+  revision="$(git -C "$src" rev-parse HEAD)"
+  log "building shared images for ${revision} inside verification controller"
+  for service in monolith api-gateway transcoder; do
+    case "$service" in
+      monolith) binary=./cmd/monolith/streamgate ;;
+      *) binary="./cmd/microservices/${service}" ;;
+    esac
+    [ ! -e "$src/deploy/docker/${service}-linux" ] || fail "generated binary already exists: ${service}-linux"
+    BUILT_BINARIES=("$src/deploy/docker/${service}-linux")
+    ( cd "$src" && CGO_ENABLED=0 GOOS=linux \
+      go build -tags nats_integration -trimpath -o "deploy/docker/${service}-linux" "$binary" ) \
+      || fail "${service} compile failed"
+    DOCKER_BUILDKIT=1 docker build --platform "$VERIFY_PLATFORM" \
+      --label "org.opencontainers.image.revision=${revision}" \
+      --label "com.streamgate.build.tags=nats_integration" \
+      --build-arg "BINARY_NAME=${service}" \
+      -f "$ROOT_DIR/deploy/docker/Dockerfile.verify-runtime" \
+      -t "${prefix}-${service}:latest" "$src" || fail "${service} image build failed"
+    rm -f "$src/deploy/docker/${service}-linux"
+    BUILT_BINARIES=()
+  done
+  archive="${ARTIFACT_DIR}/$(basename "$manifest" .json)-images.tar"
+  docker save -o "$archive" "${prefix}-monolith:latest" "${prefix}-api-gateway:latest" "${prefix}-transcoder:latest" \
+    || fail "candidate image archive failed"
+  python3 scripts/cd/candidate_manifest.py "$manifest" --prefix "$prefix" \
+    --archive "$archive" --revision "$revision" --platform "$VERIFY_PLATFORM" || fail "candidate manifest failed"
   if [ -n "${VERIFY_BUILD_REF:-}" ]; then
-    git worktree remove --force "$src" >/dev/null 2>&1 || true
+    git worktree remove --force "$src" || fail "reference worktree cleanup failed"
+    REFERENCE_WORKTREE=""
+  else
+    CANDIDATE_BUILT=1
   fi
+  VERIFY_IMAGE_PREFIX="$prefix"
+  export VERIFY_IMAGE_PREFIX
 }
 
 # prepare_reference_worktree <ref> — a detached worktree at the ref, OUTSIDE
@@ -485,8 +511,8 @@ prepare_reference_worktree() {
 # both have code before the app needs them.
 deploy_chain_contracts() {
   local rpc="$1" code
-  command -v cast >/dev/null 2>&1 || fail "host cast (Foundry) is required to deploy the verify chain contracts"
-  command -v forge >/dev/null 2>&1 || fail "host forge (Foundry) is required to deploy the verify chain contracts"
+  command -v cast >/dev/null 2>&1 || fail "controller cast (Foundry) is required to deploy the verify chain contracts"
+  command -v forge >/dev/null 2>&1 || fail "controller forge (Foundry) is required to deploy the verify chain contracts"
   local key="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
   local demo="0x5FbDB2315678afecb367f032d93F642f64180aa3"
   local registry="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
@@ -512,80 +538,118 @@ deploy_chain_contracts() {
 # ensure_playwright — npm ci + bundled Chromium once per host; skipped once
 # installed.
 ensure_playwright() {
-  if [ ! -d scripts/h5-demo-acceptance/node_modules/playwright ]; then
-    log "installing Playwright harness deps (npm ci)"
-    ( cd scripts/h5-demo-acceptance && npm ci --no-audit --no-fund ) \
-      || fail "npm ci for the h5-demo acceptance harness failed"
-  fi
+  log "installing locked Playwright harness deps (npm ci)"
+  ( cd scripts/h5-demo-acceptance && npm ci --no-audit --no-fund ) \
+    || fail "npm ci for the h5-demo acceptance harness failed"
   log "ensuring Playwright chromium is installed"
-  ( cd scripts/h5-demo-acceptance && npx playwright install chromium ) \
-    || fail "playwright chromium install failed"
+  # Playwright's default 30s download timeout is shorter than a cold
+  # chrome-for-testing fetch over a slow link, so the whole media stage died on
+  # "Request to https://storage.googleapis.com/... timed out after 30000ms"
+  # even though nothing was wrong with the candidate. Retry with a bounded,
+  # longer timeout; the browser build itself stays pinned by package-lock.json,
+  # so this changes only how long we wait for those bytes.
+  local attempt
+  for attempt in 1 2 3; do
+    if ( cd scripts/h5-demo-acceptance \
+      && PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=180000 \
+         npx playwright install --with-deps chromium ); then
+      return
+    fi
+    log "playwright chromium install failed (attempt ${attempt}/3)"
+  done
+  fail "playwright chromium install failed"
 }
 
-# The browser spec needs the H5 page to be served exactly the way the sg-fc
-# stack serves it: through nginx whose /demo/ location carries its own
-# add_header (which in nginx cancels the server-level CSP inheritance, so the
-# page loads WITHOUT a Content-Security-Policy header), on a host port the
-# page's own API-base inference accepts (h5-demo/js/api.js hardcodes an
-# accepted set containing 29091, which the sg-fc stack never binds).
-VERIFY_H5_PORT=29091
-
-# start_h5_nginx <project> <upstream-port> — (re)starts the per-run h5 proxy
-# in front of the CURRENT mode's API. One container, re-run between the two
-# acceptance modes so /api always points at the mode under test.
+# H5 and the browser communicate through loopback in the controller network
+# namespace. Nginx reaches the selected app by project service DNS.
+VERIFY_H5_PORT=""
 start_h5_nginx() {
-  local project="$1" port="$2"
+  local project="$1" port="$2" upstream=monolith
+  [ "$port" != "$VERIFY_GW_PORT" ] || upstream=api-gateway
   local conf="${ARTIFACT_DIR}/nginx-h5-${project}.conf"
+  local nginx_image=nginx:alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+  ensure_runtime_image "$nginx_image"
   cat > "$conf" <<NGINX
 server {
     listen 8080;
     server_name localhost;
     root /usr/share/nginx/html;
     index index.html;
-
-    # Mirror deploy/nginx/default.conf: this location's own add_header cancels
-    # the server-level header inheritance, so /demo/ is served without a CSP
-    # header — the same surface the sg-fc stack exposes to the browser spec.
     location ^~ /demo/ {
         alias /usr/share/nginx/html/;
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
         add_header Expires "0" always;
     }
-
-    location /health { proxy_pass http://host.docker.internal:${port}/health; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; }
-    location /metrics { proxy_pass http://host.docker.internal:${port}/metrics; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; }
-    location /api/ { proxy_pass http://host.docker.internal:${port}; proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; client_max_body_size 500M; }
+    location /health { proxy_pass http://${upstream}:8080/health; }
+    location /metrics { proxy_pass http://${upstream}:8080/metrics; }
+    location /api/ { proxy_pass http://${upstream}:8080; proxy_set_header Host \$host; client_max_body_size 500M; }
     location / { try_files \$uri \$uri/ /index.html; }
 }
 NGINX
-  docker rm -f "${project}-h5" >/dev/null 2>&1 || true
-  # host.docker.internal is defined by Docker Desktop only; on a Linux engine
-  # nginx would exit at startup ("host not found in upstream"), so map the
-  # host gateway explicitly.
-  docker run -d --name "${project}-h5" -p "${VERIFY_H5_PORT}:8080" \
-    --add-host host.docker.internal:host-gateway \
-    -v "${ROOT_DIR}/h5-demo:/usr/share/nginx/html:ro" \
+  # Serve the frontend bytes from this candidate's image, rather than a live
+  # checkout that could change independently while its media is being tested.
+  local static_dir extract_id
+  static_dir="$(mktemp -d "${ARTIFACT_DIR}/h5-${project}.XXXXXX")" || fail "H5 artifact directory failed"
+  extract_id="$(docker create \
+    --platform "$VERIFY_PLATFORM" \
+    --label "com.docker.compose.project=${project}" \
+    --label "com.streamgate.verify.run=${PROJECT_NAME}" \
+    "${VERIFY_IMAGE_PREFIX}-monolith:latest")" || fail "H5 image extraction container failed"
+  docker cp "${extract_id}:/app/h5-demo/." "$static_dir/" || fail "H5 candidate extraction failed"
+  docker rm "$extract_id" >/dev/null || fail "H5 extraction container cleanup failed"
+  docker rm -f "${project}-h5" >/dev/null 2>&1 || :
+  docker run -d --pull never --platform "$VERIFY_PLATFORM" --name "${project}-h5" --network "${project}_default" --network-alias verify-h5 \
+    --label "com.docker.compose.project=${project}" \
+    --label "com.docker.compose.service=h5" \
+    --label "com.streamgate.verify.run=${PROJECT_NAME}" \
+    -v "${static_dir}:/usr/share/nginx/html:ro" \
     -v "${conf}:/etc/nginx/conf.d/default.conf:ro" \
-    nginx:alpine >/dev/null \
-    || fail "could not start the h5 proxy container"
-  wait_health "http://localhost:${VERIFY_H5_PORT}/demo/" 60 \
-    || fail "h5 proxy not serving /demo/ on port ${VERIFY_H5_PORT}"
-  log "h5 proxy on :${VERIFY_H5_PORT} → upstream localhost:${port}"
+    "$nginx_image" >/dev/null \
+    || fail "could not start H5 proxy"
+  wait_health "http://localhost:${VERIFY_H5_PORT}/demo/" 60 || fail "H5 proxy did not become ready"
+}
+
+start_project_front() {
+  local project="$1" config="${ARTIFACT_DIR}/${1}-front.json" ready="${ARTIFACT_DIR}/${1}-front.ready"
+  python3 - "$config" <<'PYCONFIG'
+import json, sys
+services = [("monolith", 8080), ("api-gateway", 8080), ("minio", 9000), ("anvil", 8545), ("postgres", 5432), ("verify-h5", 8080)]
+with open(sys.argv[1], "w") as output:
+    json.dump([dict(listen=0, host=host, port=port) for host, port in services], output)
+PYCONFIG
+  rm -f "$ready"
+  python3 scripts/cd/verify_proxy.py "$config" "$ready" > "${ARTIFACT_DIR}/${project}-front.log" 2>&1 &
+  PROJECT_PROXY_PID=$!
+  PROXY_PIDS="${PROXY_PIDS} ${PROJECT_PROXY_PID}"
+  local deadline=$((SECONDS + 10))
+  while [ ! -f "$ready" ]; do
+    kill -0 "$PROJECT_PROXY_PID" 2>/dev/null || fail "project front exited before readiness"
+    [ "$SECONDS" -lt "$deadline" ] || fail "project front readiness timeout"
+    sleep 0.1
+  done
+  local ports
+  ports="$(python3 - "$ready" <<'PYPORTS'
+import json, sys
+ports = json.load(open(sys.argv[1]))
+print(*(ports[host] for host in ("monolith", "api-gateway", "minio", "anvil", "postgres", "verify-h5")))
+PYPORTS
+)" || fail "project front did not report bound ports"
+  read -r VERIFY_MONO_PORT VERIFY_GW_PORT VERIFY_MINIO_PORT VERIFY_ANVIL_PORT VERIFY_PG_PORT VERIFY_H5_PORT <<< "$ports"
 }
 
 # run_fullchain <project> <monolith-port> <gateway-port> <anvil-port> <minio-port> —
 # the 66-check acceptance against BOTH deployment modes of the verify stack,
-# with the stack's project-prefixed container names and published ports. When
+# with project-scoped containers and controller-local front ports. When
 # gw_port == mono_port only the monolith mode runs (perf/release do not start
 # a gateway). The H5 page comes from the per-run nginx proxy above, whose /api
 # upstream is switched to the mode under test.
 run_fullchain() {
   local project="$1" mono_port="$2" gw_port="$3" anvil_port="$4" minio_port="$5"
-  require_host_tool curl
-  require_host_tool python3
-  require_host_tool cast
-  require_host_tool ffmpeg
+  require_controller_tool curl
+  require_controller_tool python3
+  require_controller_tool cast
+  require_controller_tool ffmpeg
   ensure_playwright
   local common_env=(
     PG_CONTAINER="${project}-postgres-1"
@@ -639,18 +703,15 @@ diag_stack_logs() {
 # migrate-up`). Runs BEFORE the app services come up, so they never boot
 # against an unmigrated database.
 migrate_verify_stack() {
-  local project="$1" pg_port
-  pg_port="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" port postgres 5432 2>/dev/null \
-    | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1)"
-  [ -n "$pg_port" ] || fail "no published port for postgres (project ${project})"
-  log "applying database migrations on localhost:${pg_port}"
-  DATABASE_HOST=localhost DATABASE_PORT="$pg_port" \
+  local project="$1"
+  log "applying database migrations through project network"
+  DATABASE_HOST=localhost DATABASE_PORT="$VERIFY_PG_PORT" \
   DATABASE_USER=postgres DATABASE_PASSWORD=postgres \
   DATABASE_NAME=streamgate DATABASE_SSLMODE=disable \
     go run ./cmd/migrate up || fail "database migrations failed (project ${project})"
 }
 
-# bring_up_fullstack <project> [service...] — prebuild, allocate free host
+# bring_up_fullstack <project> [service...] — build once, allocate loopback
 # ports (so the CORS list can be computed BEFORE `up`), start the INFRA,
 # migrate, then start the app services and wait for their health endpoints.
 # Registers the project for cleanup and exports VERIFY_{MONO,GW,MINIO,ANVIL}_PORT
@@ -662,18 +723,10 @@ bring_up_fullstack() {
     services=(postgres redis minio nats anvil monolith transcoder api-gateway)
   fi
   CREATED_PROJECTS="${CREATED_PROJECTS} ${project}"
-  # One free host port per published service, picked now so VERIFY_CORS_ORIGINS
-  # (interpolated by compose at up time) can name the monolith's real origin.
-  VERIFY_MONO_PORT="$(free_port)"
-  VERIFY_GW_PORT="$(free_port)"
-  VERIFY_MINIO_PORT="$(free_port)"
-  VERIFY_ANVIL_PORT="$(free_port)"
-  VERIFY_IMAGE_PREFIX="$project"
-  # CORS: the h5 demo page runs on the verify stack's nginx origin (:29091),
-  # and the browser spec's hls.js XHRs the API directly from that page — so
-  # the API's allow-list must carry BOTH the monolith's own origin (gateway
-  # mode) and the page origin, mirroring how docker-compose.fullchain.yml
-  # lists http://localhost:18000 (its nginx) in the monolith's CORS list.
+  # Reserve ephemeral loopback listeners atomically before building or making
+  # network requests. A bind(0)/close probe would race later outgoing sockets.
+  start_project_front "$project"
+  # The H5 browser origin is a dynamic localhost secure context.
   VERIFY_CORS_ORIGINS="http://localhost:${VERIFY_MONO_PORT},http://localhost:${VERIFY_H5_PORT}"
   export VERIFY_MONO_PORT VERIFY_GW_PORT VERIFY_MINIO_PORT VERIFY_ANVIL_PORT \
     VERIFY_IMAGE_PREFIX VERIFY_CORS_ORIGINS
@@ -688,16 +741,25 @@ bring_up_fullstack() {
       *) infra+=("$svc") ;;
     esac
   done
+  if [[ " ${app[*]} " = *' api-gateway '* && " ${infra[*]} " != *' consul '* ]]; then
+    infra+=(consul)
+  fi
   if [ "${#infra[@]}" -gt 0 ]; then
+    local image images
+    images="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" config --format json \
+      | python3 -c 'import json,sys; c=json.load(sys.stdin); print(*(c["services"][s]["image"] for s in sys.argv[1:]), sep="\n")' "${infra[@]}")" \
+      || fail "could not resolve pinned infrastructure images"
+    while IFS= read -r image; do ensure_runtime_image "$image"; done <<< "$images"
     log "starting verify infra (project ${project}): ${infra[*]}"
-    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --wait "${infra[@]}" \
+    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --pull never --wait --wait-timeout 180 "${infra[@]}" \
       || fail "verify infra failed to start (project ${project})"
+    docker network connect "${project}_default" "$VERIFY_CONTROLLER" || fail "controller network attach failed"
     migrate_verify_stack "$project"
     deploy_chain_contracts "http://localhost:${VERIFY_ANVIL_PORT}"
   fi
   if [ "${#app[@]}" -gt 0 ]; then
     log "starting verify app services (project ${project}): ${app[*]}"
-    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --wait "${app[@]}" \
+    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never --wait --wait-timeout 300 "${app[@]}" \
       || fail "verify app services failed to start (project ${project})"
   fi
   for svc in "${services[@]}"; do
@@ -716,37 +778,31 @@ bring_up_fullstack() {
     done
     log "stack healthy after ${SECONDS}s"
   fi
+  local manifest="$CANDIDATE_MANIFEST"
+  if [ -n "${VERIFY_BUILD_REF:-}" ]; then manifest="${ARTIFACT_DIR}/reference.json"; fi
+  python3 scripts/cd/candidate_manifest.py "$manifest" --project "$project" --platform "$VERIFY_PLATFORM" || fail "stage candidate identity mismatch"
 }
 
-# teardown_fullstack <project> — remove a fullstack stage's stack AND its h5
-# proxy the moment that stage finishes, instead of leaving both for the exit
-# trap. In `all` the fullstack stages (media → perf → release) run back to
-# back, and they must not overlap: the h5 proxy binds the FIXED host port
-# 29091 (the page's API-base inference accepts no other — see start_h5_nginx),
-# so a stack left up by the previous stage still holds it and the next stage
-# dies on "port is already allocated"; and a co-resident full stack would
-# compete with perf's measured run. On a stage failure `fail` exits and the
-# exit trap still cleans everything up, so this only handles the happy path.
+# Release only the current project's services and controller forwarding process.
 teardown_fullstack() {
   local project="$1"
-  docker rm -f "${project}-h5" >/dev/null 2>&1 || true
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || true
-}
-
-# free_port — an unused TCP port on 127.0.0.1, found via Python (the host
-# toolchain requirement already includes python3 for the acceptance script).
-free_port() {
-  python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'
+  if [ -n "${PROJECT_PROXY_PID:-}" ]; then
+    kill "$PROJECT_PROXY_PID" 2>/dev/null || :
+    wait "$PROJECT_PROXY_PID" 2>/dev/null || :
+    PROXY_PIDS="${PROXY_PIDS/ $PROJECT_PROXY_PID/}"
+    PROJECT_PROXY_PID=""
+  fi
+  docker rm -f "${project}-h5" >/dev/null 2>&1 || :
+  docker network disconnect "${project}_default" "$VERIFY_CONTROLLER" || fail "controller network disconnect failed"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans || fail "project cleanup failed"
 }
 
 # ---------------------------------------------------------------------------
 # media (SG-05 / SG-06): real wallet login, real media decode, real browser
-# playback — the full 66-check acceptance against BOTH deployment modes of a
-# fullchain-style verify stack. Host-side: needs docker CLI, cast, ffmpeg and
-# Playwright.
+# playback against BOTH deployment modes, with all tools in the controller.
 # ---------------------------------------------------------------------------
 stage_media() {
-  require_host_tool docker
+  require_controller_tool docker
   local project="${PROJECT_NAME}-media"
   bring_up_fullstack "$project"
   run_logged media run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_GW_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
@@ -965,7 +1021,7 @@ perf_seed_and_pool() {
 reconfigure_monolith_rpcs() {
   local project="$1" rpcs="$2"
   VERIFY_CHAIN_RPCS="$rpcs" \
-    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build monolith >/dev/null \
+    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never monolith >/dev/null \
     || fail "could not recreate the monolith with STREAMGATE_CHAIN_RPC_URLS='${rpcs}'"
   wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
     || fail "monolith did not come back after the RPC reconfiguration"
@@ -1034,9 +1090,9 @@ PY
 }
 
 stage_perf() {
-  require_host_tool docker
-  require_host_tool go
-  require_host_tool cast
+  require_controller_tool docker
+  require_controller_tool go
+  require_controller_tool cast
   local project="${PROJECT_NAME}-perf" result_dir content_id
   # Reference comparison first, while NO other fullstack stack is up: it needs
   # the same fixed h5 port and the same resources, sequentially — not alongside
@@ -1211,7 +1267,7 @@ stage_perf() {
 # gate AND the healthy image must recover — before final teardown.
 # ---------------------------------------------------------------------------
 stage_release() {
-  require_host_tool docker
+  require_controller_tool docker
   local project="${PROJECT_NAME}-release"
   # Empty volumes by construction: a fresh project name per run; the cleanup
   # trap's `down -v` removes them again.
@@ -1227,6 +1283,8 @@ stage_release() {
   # either the runtime refuses to create it (missing binary → non-zero
   # `docker run`) or it starts and exits. Both are the required failure.
   if docker run -d --name "${drill}-monolith" \
+    --label "com.docker.compose.project=${project}" \
+    --label "com.streamgate.verify.run=${PROJECT_NAME}" \
     -e STREAMGATE_DB_HOST=postgres -e STREAMGATE_DB_PORT=5432 \
     -e STREAMGATE_DB_USER=postgres -e STREAMGATE_DB_PASSWORD=postgres \
     -e STREAMGATE_DB_NAME=streamgate -e STREAMGATE_REDIS_HOST=redis \
@@ -1256,7 +1314,7 @@ stage_release() {
   # recovery drill rather than the container that was never stopped.
   docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop monolith >/dev/null 2>&1 \
     || fail "could not stop the monolith for the recovery drill"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build monolith \
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never monolith \
     || fail "healthy image did not come back in the recovery drill"
   wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
     || fail "healthy image did not recover within the health budget"
@@ -1277,24 +1335,19 @@ run_stage() {
   esac
 }
 
-# stage_needs_toolchain_image <stage> — only the Go-only stages execute INSIDE
-# the toolchain image (run_in_image). media / perf / release drive the compose
-# stack from the host, so building that image for them would add a
-# network-dependent build step to a path that never reads it.
-stage_needs_toolchain_image() {
-  case "$1" in
-    unit|chain|durability|ops|all) return 0 ;;
-    *) return 1 ;;
-  esac
+assert_final_candidate_evidence() {
+  # A partial implementation must never produce an overall green run. These
+  # gates become executable evidence as each approved batch is completed.
+  python3 scripts/cd/assert_candidate_evidence.py "$ARTIFACT_DIR"
 }
 
 mkdir -p "$ARTIFACT_DIR"
 ensure_submodules
 validate_compose
-if stage_needs_toolchain_image "$VERIFY_STAGE"; then
+if [ "${VERIFY_TOOLS_READY:-}" != 1 ]; then
   build_candidate
 else
-  log "stage '${VERIFY_STAGE}' runs on the host against the verify stack; skipping the toolchain image build (only unit/chain/durability/ops read it)"
+  log "using controller toolchain ${IMAGE_TAG}"
 fi
 
 if [ "$VERIFY_STAGE" = "all" ]; then
@@ -1302,6 +1355,7 @@ if [ "$VERIFY_STAGE" = "all" ]; then
   for stage in "${ALL_STAGES[@]}"; do
     run_stage "$stage"
   done
+  assert_final_candidate_evidence
 else
   run_stage "$VERIFY_STAGE"
 fi

@@ -61,7 +61,7 @@ jobs:
     if: needs.resolve-target.outputs.selected == 'true' && needs.resolve-target.outputs.target == 'docker-compose'
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Validate credentials (missing = FAIL, not skip)
         env:
@@ -127,7 +127,7 @@ jobs:
     if: needs.resolve-target.outputs.selected == 'true' && needs.resolve-target.outputs.target == 'kubernetes'
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Validate credentials (missing = FAIL, not skip)
         env:
@@ -149,7 +149,7 @@ jobs:
           fi
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
         with:
           version: 'v1.28.0'
 

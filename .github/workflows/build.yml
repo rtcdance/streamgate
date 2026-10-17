@@ -48,25 +48,27 @@ jobs:
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       # The ONE build of the monolith candidate for this SHA. The docker
       # exporter writes a loadable archive instead of pushing, so the same
       # bytes serve PRs (no public push) and non-PRs (retained later by the
       # retain-candidate job from this very archive).
       - name: Build candidate image (export docker-archive)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./deploy/docker/Dockerfile.monolith
           push: false
+          platforms: linux/amd64
           outputs: type=docker,dest=candidate-monolith.tar
           tags: streamgate-monolith:candidate
           # OCI revision label pins the image to this SHA (SG-08 step 2).
           labels: |
+            com.streamgate.build.tags=nats_integration
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.sha }}
@@ -81,16 +83,18 @@ jobs:
           image_id="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
           echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
           mkdir -p meta
-          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/monolith.json
+          python3 scripts/cd/image_identity.py \
+            --tag streamgate-monolith:candidate --archive candidate-monolith.tar \
+            --revision "${{ github.sha }}" --out meta/monolith.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-monolith
           path: |
             candidate-monolith.tar
             meta/monolith.json
-          retention-days: 7
+          retention-days: 30
 
   build-transcoder:
     name: Build Transcoder (once per SHA)
@@ -98,20 +102,22 @@ jobs:
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build candidate image (export docker-archive)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./deploy/docker/Dockerfile.transcoder
           push: false
+          platforms: linux/amd64
           outputs: type=docker,dest=candidate-transcoder.tar
           tags: streamgate-transcoder:candidate
           labels: |
+            com.streamgate.build.tags=nats_integration
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.sha }}
@@ -126,16 +132,18 @@ jobs:
           image_id="$(docker inspect --format '{{.Id}}' streamgate-transcoder:candidate)"
           echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
           mkdir -p meta
-          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/transcoder.json
+          python3 scripts/cd/image_identity.py \
+            --tag streamgate-transcoder:candidate --archive candidate-transcoder.tar \
+            --revision "${{ github.sha }}" --out meta/transcoder.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-transcoder
           path: |
             candidate-transcoder.tar
             meta/transcoder.json
-          retention-days: 7
+          retention-days: 30
 
   build-microservices:
     name: Build ${{ matrix.service }} (once per SHA)
@@ -147,20 +155,22 @@ jobs:
         # its own output for the release drill), so it is not in this matrix.
         service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build candidate image (export docker-archive)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./deploy/docker/Dockerfile.${{ matrix.service }}
           push: false
+          platforms: linux/amd64
           outputs: type=docker,dest=candidate-${{ matrix.service }}.tar
           tags: streamgate-${{ matrix.service }}:candidate
           labels: |
+            com.streamgate.build.tags=nats_integration
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.sha }}
@@ -173,16 +183,18 @@ jobs:
           docker load -i candidate-${{ matrix.service }}.tar
           image_id="$(docker inspect --format '{{.Id}}' streamgate-${{ matrix.service }}:candidate)"
           mkdir -p meta
-          printf '{"image_id":"%s","commit":"%s"}\n' "$image_id" "${{ github.sha }}" > meta/${{ matrix.service }}.json
+          python3 scripts/cd/image_identity.py \
+            --tag streamgate-${{ matrix.service }}:candidate --archive candidate-${{ matrix.service }}.tar \
+            --revision "${{ github.sha }}" --out meta/${{ matrix.service }}.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-${{ matrix.service }}
           path: |
             candidate-${{ matrix.service }}.tar
             meta/${{ matrix.service }}.json
-          retention-days: 7
+          retention-days: 30
 
   scan-monolith:
     name: Scan Monolith (same digest)
@@ -190,7 +202,7 @@ jobs:
     needs: build-monolith
     steps:
       - name: Download candidate artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: candidate-monolith
 
@@ -208,7 +220,7 @@ jobs:
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-monolith:candidate
           format: 'table'
@@ -229,14 +241,14 @@ jobs:
           exit-code: '1'
 
       - name: Generate SBOM
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-monolith:candidate
           format: 'spdx'
           output: 'sbom-monolith.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-monolith
           path: sbom-monolith.spdx
@@ -247,7 +259,7 @@ jobs:
     needs: build-transcoder
     steps:
       - name: Download candidate artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: candidate-transcoder
 
@@ -264,7 +276,7 @@ jobs:
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-transcoder:candidate
           format: 'table'
@@ -272,14 +284,14 @@ jobs:
           exit-code: '1'
 
       - name: Generate SBOM
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-transcoder:candidate
           format: 'spdx'
           output: 'sbom-transcoder.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-transcoder
           path: sbom-transcoder.spdx
@@ -296,7 +308,7 @@ jobs:
         service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
     steps:
       - name: Download candidate artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: candidate-${{ matrix.service }}
 
@@ -313,7 +325,7 @@ jobs:
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-${{ matrix.service }}:candidate
           format: 'table'
@@ -321,14 +333,14 @@ jobs:
           exit-code: '1'
 
       - name: Generate SBOM
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: streamgate-${{ matrix.service }}:candidate
           format: 'spdx'
           output: 'sbom-${{ matrix.service }}.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.spdx
@@ -354,7 +366,7 @@ jobs:
       transcoder_digest: ${{ steps.push.outputs.transcoder_digest }}
     steps:
       - name: Download all candidate artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: candidate-*
           # Every artifact uses unique filenames (candidate-<svc>.tar,
@@ -363,7 +375,7 @@ jobs:
           merge-multiple: true
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}

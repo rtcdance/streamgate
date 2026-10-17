@@ -2,9 +2,230 @@
 
 > **当前有效执行入口（2026-10-11）**：本文件上半部分的 SG-00～SG-17 与 M0～M8 是本轮唯一任务和验收标准。下方“历史计划与验收记录”保留旧结论，旧复选框、执行顺序、AUTHZ_RED 临时开关及求职时限不约束本轮，也不证明本轮完成。
 >
-> **本次交付是计划，未交付功能修改。** SG 任务均待后续 AI 实施；本轮不将既有 CI 绿灯写成新方案验收成功。只有用户要求“执行本计划”后才开始实施。
+> **2026-10-17 已获准实施修复计划。** 当前 A～F 修复与整体重新验收执行中；历史候选 ab172c2 的 55/55 CI success 保留为历史事实，不代表本轮已完成。下方旧完成结论按其记录时点解释，本节修复状态优先。
 
 **架构复审定稿**：主线共 16 项，条件扩展 2 项。新增 SG-10～15 补齐可信架构、合约标准与状态机、媒体任务恢复、链外一致性和运维边界；原 HLS / native 条件项调整为 SG-16 / 17。第 1.1 节冻结需求，第 6 节验收，第 5 节 SG-15 做最终收口。后续 AI 按此实施并修复验证失败，无需再做一轮开放式功能规划。
+
+## 0. StreamGate 主线修复与整体重新验收计划
+
+> **批准时间：2026-10-17；实施状态：执行中，尚未整体验收通过。** 本节完整保存本轮批准的修复方案，作为下方 SG 任务与验收标准的补充和修正；历史证据继续保留，并按其适用 SHA 解释。
+>
+> **当前实施记录（2026-10-17）：** A 批执行中。Docker 内验收工具回归共 54/54 通过（测试日志校验器 20、候选身份 11、单镜像元数据 3、整体证据索引 9、localhost 前门 2、Shell 退出码与清理 9）；`ops-config` 清单的 12 个 Go 测试实际执行并通过。所有修改的工作流与两份专用 Compose 已通过 YAML 解析，Compose 配置检查通过。上述是开发中证据，工作区尚未冻结为新候选，不能据此勾选 A 或整体完成。
+>
+> **真实入口状态：** 首次专用媒体运行 `sg-repair-a-20261017-47821` 因控制器缺少 Buildx、旧构建器选错基础镜像平台而失败；退出后按本轮标签查询，容器、网络与卷均为空，遗留的本轮编译文件已清理。已补齐 Buildx、强制 BuildKit、目标平台校验、动态 localhost 监听与原始退出码保护；第二次独立运行 `sg-repair-a-20261017-47822` 正在执行，结果未定。B～F 尚未完成；未运行本轮远端 CI。
+>
+> **本地原始记录：** `.verify-artifacts/repair-a-tools-tests.log`（身份与脚本 hash 见同目录 `repair-a-tools-tests.meta.json`）、`.verify-artifacts/sg-repair-a-20261017-47821/controller.log`、`.verify-artifacts/sg-repair-a-20261017-47822/controller.log`。54 项回归使用的工具镜像 Docker image ID 为 `sha256:89a7d69349a85af7cb5e5ccb8ea67ae990be283fb6adc6eb51bc7ef97579a167`，脚本挂载自当前工作区；该 ID 不代表应用候选身份。远端 artifact 保留与完整候选证明仍待后续验收。
+
+### 0.1 目标与执行边界
+
+以当前 `73a052c` 为修复起点。历史候选 `ab172c2` 的 CI run `39005594931` 已确认 55/55 jobs 成功，保留其真实记录；本轮需要补齐实现与验收覆盖，使 **SG-00～SG-15、M0～M5、M7、M8，以及 M6 的 AI 交付部分全部满足原定标准**。
+
+执行时将本方案并入唯一计划文档 `TRANSITION_PLAN.md`，不新增评审报告或第二份计划。
+
+- 重新打开 SG-00、01、02、03、06、07、08、12、13、14、15。
+- SG-04、05、09、10、11 保留已有实现与历史证据，并纳入新候选回归。
+- SG-16/17 保持条件任务；真人讲述、录屏、投递和生产部署单列。
+- 继续使用现有 Go、Postgres、Redis、MinIO、JetStream、Foundry、FFmpeg、Playwright，不新增 Go 依赖。
+- 执行中发现原验收范围内的新缺陷，归入对应 SG 修复；不得通过降低判据、关闭入口或新增功能规划绕开失败。
+
+### 0.2 修复批次与实现要求
+
+#### A. 修复验收门与 Docker 入口
+
+**对应：SG-00、02、08；先完成本批次。**
+
+**测试结果判定**
+
+修复 `scripts/cd/assert_required_tests.py`：
+
+- 接收并检查原始 `go test` 退出码；非零退出直接失败，包括编译失败、超时和 package 级失败。
+- 必需测试清单按 **package＋完整测试 ID** 登记；每个 ID 都必须实际执行并通过。
+- 必需父测试下出现失败或 skip 子用例，整门失败。
+- 空文件、截断 JSON、非法 JSON、缺少 package 完成事件、任一必需用例缺失均失败。
+- 不再用“多个正则中任意命中一个”证明完整执行；旧 `--require` 调用全部迁移。
+- 保留覆盖率整数比较及现有负例；禁止用无条件 `|| true` 丢失失败状态。
+
+新增校验器负例：缺一个必需用例、package 编译失败、必需子用例 skip、日志中途截断，以及部分测试通过但整个命令失败。
+
+**Docker 可复现与产物身份**
+
+- 宿主仅依赖 Shell、Git、Docker/Compose；Go、Foundry、FFmpeg、Node、Playwright 和应用构建全部在工具容器执行。
+- 容器使用项目网络和服务名通信；浏览器通过同网络命名空间的 localhost 前门访问 H5，保持 secure context。
+- 去除固定容器名、固定宿主端口及 `host.docker.internal` 依赖。
+- 每个候选只构建一次应用镜像，所有运行阶段读取同一产物清单，禁止 media/perf/release 各自重建。
+- 清单分别记录 `imageID`、`archiveSHA256`、`registryDigest`、实际 build tags、platform、revision，避免把不同类型摘要混为一谈。
+- 清理只按本次 Compose project 标签定位；成功、失败、取消均清理自己的资源，并保留原始失败退出码。
+- 工具、基础镜像、Foundry 版本及 GitHub Actions 均固定版本和不可变摘要/完整 commit SHA。
+
+**本批出口：** 校验器正负例通过；Docker 构建与阶段入口可运行。其他批次未完成时，完整 `all` 仍应如实失败。
+
+#### B. 统一 HTTP/gRPC 授权并封闭规则竞态
+
+**对应：SG-01、03、06。**
+
+**一个授权流程覆盖两个入口**
+
+在业务层收口钱包身份、规则解析、NFT 数量核验和能力签发：
+
+- HTTP 与 gRPC 共用 access token 验证，严格检查 HS256、issuer、audience、用途、过期、会话存在、会话版本和恢复 epoch。
+- 保留现有 REST URL、protobuf 和 gRPC metadata：`authorization`、`playback-token`；重复或冲突凭据拒绝。
+- 新签发 access token 使用明确的 `token_type=access`；playback token 仍为 `playback`。
+- gRPC 使用真实数量比较，执行 ERC-721/1155、tokenID、min_balance 和 OR 规则，不再调用布尔持仓接口代替阈值判断。
+- HTTP/gRPC 能力统一 TTL 60 秒、时钟容差最多 5 秒；删除 gRPC 硬编码的 2 分钟。
+- 能力必须继承调用方登录会话；生产及持久验收路径禁止在签发时自动创建独立会话。
+- gRPC 同时提交 access token 与 capability 时，钱包、session 和 epoch 必须一致。
+
+**同一规则快照完成授权与签发**
+
+增加业务接口：
+
+- `ResolvePolicySnapshot`：用单个数据库快照取得规则、规则版本及原始读取时间。
+- `AuthorizePlayback`：返回不可由 transport 自行拼装的授权结果，包含主体、规则版本、链/区块证据及会话绑定。
+- 能力签发只使用该授权结果，不重新读取新版本后给旧授权结果“换标签”。
+
+签发前发现规则版本改变时，重新完整授权一次；再次变化则拒绝，不无限重试。所有缓存层保留原始读取时间，合计 age 不超过 5 秒。
+
+**验收：**
+
+- gRPC 持有 1 个、要求 2 个时拒绝；合法持有者能实际取得媒体。
+- HTTP/gRPC 均满足 logout、规则撤销 ≤5 秒，NFT 转移后的能力失效 ≤70 秒。
+- 用确定性屏障构造“旧规则已通过→规则提高→继续签发”，不得得到带新版本的可用能力。
+- 保留每次 manifest 重查 NFT、分片只验能力与撤销状态的既定语义。
+
+#### C. 补齐恢复 epoch 与生产 registry
+
+**对应：SG-06、08、13、14。**
+
+**恢复凭据失效**
+
+新增 additive migration：建立单行 `auth_control_state`，保存随机 UUID `restore_epoch` 与更新时间。使用已有 UUID 库初始化，不新增数据库扩展。
+
+- 保留现有 `auth_epoch` 作为 Redis 会话版本。
+- access token、现有 refresh 流程、capability 增加 `restore_epoch`。
+- 所有认证入口比较 Postgres 权威恢复 epoch；缓存总 age ≤5 秒，读取缓存不刷新 age，必要依赖不可验证时拒绝。
+- 缺少新字段的旧凭据拒绝，允许本轮升级后重新登录。
+- refresh 保持现有输入契约和 5 分钟 grace，同时检查用途、session、会话版本及恢复 epoch；不得复活已撤销会话。
+
+**全新环境恢复**
+
+重写恢复演练，禁止对现有 `sg-fc-*` 栈 DROP 数据库：
+
+1. 在专用源栈停止业务写入、暂停广播并排空正在提交的操作。
+2. 保存一致的 Postgres 快照及实际 MinIO 对象备份，记录对象逐项 hash。
+3. 创建独立 project 和空卷，恢复 DB 与对象。
+4. 在放入流量前生成新的 Postgres `restore_epoch`，清空旧缓存。
+5. registry 广播保持暂停，核对当前链、已知交易、receipt 和 nonce reservation。
+6. 仅在状态可解释且一致时恢复广播；存在未知 nonce 消耗时保持暂停并报告。
+7. 验证旧 access、refresh、capability 全部失效，新登录可实际播放；记录本次 RPO/RTO。
+
+**Registry 配置与部署身份**
+
+- registry signer 改用已有 `web3.transaction.private_key_hex`；`AnvilDeployerKey` 仅供 Demo，生产继续禁止。
+- registry 地址为空表示显式关闭；已启用但 signer、RPC、链或部署身份不合格时，启动/readiness 失败，不静默降级。
+- 部署清单记录 chainID、address、deployTx、runtimeCodeHash、ABIHash、编译器和 artifact 身份。
+- 启动核对实际链 ID、非空 runtime code 及 code hash；运行镜像内 ABI hash 必须与部署清单一致。
+- registry 确认策略接入声明的 safe/finalized；记录并核对 receipt 区块 hash，禁止把固定“最新高度＋2”描述为该策略确认。
+- 自动 bump/cancel 继续默认关闭。
+
+**验收：** 正确生产 profile 配置可启用 registry；错误链、错误代码、错误 ABI、缺 signer 均拒绝；恢复旧 Redis 快照也不能复活旧凭据。
+
+#### D. 补齐真实故障恢复与必需 fuzz
+
+**对应：SG-12、13、14。**
+
+保留现有 fake/unit 测试，新增使用**候选镜像＋真实 Postgres/JetStream/MinIO/Anvil**的验收。
+
+- 使用仅 durable 验收 profile 可启用的内部屏障，production 配置出现该开关即启动失败；不增加业务 HTTP 故障入口。
+- 屏障、代理和容器操作均有超时，按可观察状态触发故障，不依赖随机 sleep。
+- worker 真实 kill/restart：覆盖入队前后、半成品输出、结果提交后/Ack 前、租约失效、两个 worker 争抢、三次 attempt、DLQ 发布与确认间崩溃。
+- 核验任务状态跨进程恢复、默认 ≤60 秒重新 claim 或明确失败、仅一个 published generation、旧 worker 不能覆盖新结果。
+- Anvil 真实接收交易后由代理丢弃响应，验证重启后复用 raw tx/hash/nonce；覆盖广播前后 kill、receipt 重组和历史恢复。
+- 真实日志订阅覆盖 ERC-721、ERC-1155 Batch、断流补漏、checkpoint 提交失败和 64-block 范围重组；事件只能加速失效。
+- 新增 `FuzzNFTQuantity`、`FuzzWalletMessage`、`FuzzProtectedMediaPath`，验证数量、非法输入拒绝和路径隔离属性；现有“只保证不 panic”的 fuzz 不代替这些要求。
+- 各必需 fuzz：PR seeds＋5 秒，最终候选各 30 秒。未知退出或超时按失败处理。
+
+**本批出口：** 原故障矩阵每一行都有真实场景 ID、屏障事件、状态变化、断言和候选身份；mock 证据不得标为 Docker/Anvil 故障实证。
+
+#### E. 完整性能与可观测性验收
+
+**对应：SG-07、14。**
+
+- 将完整性能矩阵做成候选发布必需 job；远端不能只运行 harness 自测。
+- 固定 1/10/50/100 观众、预热 10 秒、采样 30 秒、重复 3 次；独立真钱包登录，使用同一 rendition 和 EXTINF 播放节奏。
+- API/streaming 固定 2 vCPU/2 GiB；worker 固定 2 vCPU/1 GiB；负载器固定 1 vCPU/512 MiB。基础设施资源限额纳入版本化验收配置，两侧完全一致。
+- 播放采样期间不转码；转码 RTF 单独测量。
+- 冷缓存、暖缓存、primary 故障回退、全部 RPC 故障均为必需场景。
+- 50 观众正常及 fallback 成功率 ≥99%，媒体 hash 全对；100 观众作为容量探索，超载必须可观察且不能错误放行。
+- 认证错误、429、服务超时不能从成功率分母删除；采样边界取消单列，零样本或缺观众样本失败。
+- 冻结安全修复基线 S，reference 与 candidate 在同一 runner 顺序运行；各 3 轮，以 p95 中位数比较，candidate ≤reference×1.20。
+- 必须采集实际 CPU、RSS、RPC、cache、queue、媒体 bytes、转码时长与 RTF；补通 worker probe 时长至任务元数据，不能只定义空指标。
+- 移除 Prometheus 的持续增长 `rule_version` 标签，版本放受控日志/trace；指标标签使用固定枚举。
+- 每轮清空自己的结果目录，校验 SHA、镜像、fixture、配置、轮次、场景和样本完整性；成功与失败都上传结果。
+
+安全基线 S 同时作为允许回退的最低版本。历史有已知授权缺陷的镜像仅用于隔离兼容测试，不作为实际回退目标。
+
+#### F. CI/CD、求职材料与收口
+
+**对应：SG-08、09、10、11、15。**
+
+最终候选 DAG：
+
+**源码质量/安全/Forge/Anvil → 构建一次候选与扫描 → 真实媒体/gRPC/故障/恢复 → 完整性能 → 临时部署与三类失败恢复 → 证据汇总 → publishable。**
+
+- PR 可执行短性能 smoke；最终候选模式必须执行完整矩阵、reference 比较、恢复与 fuzz，不允许通过默认开关跳过。
+- 临时 CD 从空卷启动，执行真实迁移、钱包登录、播放和候选身份核对。
+- 保留坏启动、坏健康、坏 smoke 三类演练；每类同时证明 B 失败及 A 恢复。失败部署不能因回滚成功变绿。
+- 前一应用＋新 schema 运行实际业务 smoke；迁移保持 additive，不自动执行 destructive down。
+- 每个必需 job/场景缺失、失败、取消、skip、证据身份不符均阻断 publishable。
+- 固定 Actions 完整 SHA 和工具版本；fork PR 不获得生产 secrets。
+- 更新架构图、能力表、中文/英文简历与讲述稿，准确覆盖 HTTP/gRPC、恢复边界及实际测量条件。
+- 保留历史 CI、同卷恢复及旧性能数据的原始记录，并明确适用 SHA；删除“未来新增等于可选”等错误完成解释。
+
+### 0.3 必需验收矩阵
+
+| 验收门 | 本轮必须补齐的证明 |
+|---|---|
+| M0 | 仅 Git/Docker 的干净环境执行完整入口；无宿主开发工具依赖；阶段共享候选产物 |
+| M1 | HTTP/gRPC 同等身份、owner、数量与区块策略；未授权媒体字节及非法代签次数为 0 |
+| M2 | 两种入口的真实签名、上传、独立 worker、HLS/Range、FFmpeg 解码、浏览器真播 |
+| M3 | 规则并发修改、logout、恢复 epoch、RPC 故障；5 秒与 70 秒边界实际成立 |
+| M4 | 新候选完整观众/故障矩阵、真实资源数据、同 runner reference 比较 |
+| M5 | 新候选精确 SHA 全部必需 jobs；同产物临时 CD、schema 兼容与三类恢复 |
+| M6 | AI 求职材料真实且可追溯；个人讲述与实操保持人工待确认 |
+| M7 | 合约/ABI/code 身份；真实未知广播、nonce、receipt/reorg、checkpoint 恢复 |
+| M8 | strict profile、隔离 worker、资源上界、真实 kill/恢复、全新卷备份恢复 |
+
+额外保留四项反向证明：移除 owner 校验、忽略数量阈值、接受过期能力、部署核心命令失败。必须使对应验收失败；只在隔离副本执行，坏实现不得提交。
+
+### 0.4 执行顺序、兼容与证据
+
+执行顺序固定为 **A → B → C → D → E → F**。每批先补失败用例，再修复，再做相关 Docker 验证；最终进行整链验收。
+
+兼容默认值：
+
+- REST 与 protobuf 不改 wire shape。
+- 新增 JWT claim 导致旧凭据重新登录，不保留绕过新校验的兼容分支。
+- 新 migration 使用下一个未占用编号，增加恢复控制表，不删除历史业务数据。
+- registry 生产 signer 与 Demo signer 分离；现有生产部署仍不在本轮范围。
+- 不新增正式直播、跨链、DRM、支付、账户抽象或原生播放器功能。
+
+证据至少包含：
+
+`任务/场景 ID、candidateSHA、imageID、registryDigest（适用时）、fixtureHash、配置Hash、命令、PASS/FAIL/SKIP、CI run、artifact、限制。`
+
+原始结果作为 CI artifact 保存至少 30 天；计划内保存摘要和链接。密钥、JWT、能力 URL 与恢复备份不得进入公开日志或提交。
+
+### 0.5 最终完成条件
+
+1. 所有功能、测试、配置和能力说明提交后，冻结干净候选 C。
+2. 对 C 从空专用卷执行完整 `make verify-docker`，再运行精确 SHA 的候选模式远端 CI。
+3. 所有必需门通过且无关键 skip；R01～R12 均能追溯到代码、场景和该候选证据。
+4. SG-15 只能在上述条件成立后完成；历史绿灯不能补新候选缺失的门。
+5. 如回填证据产生新提交，最终 HEAD 再完整验收；最后一次 run/digest 放 CI artifact 和最终答复，不再因回写该 run 产生无限证据提交。
+6. 推送和远端 CI 使用已获得的明确授权；无授权时标为待远端验收，不能宣布整体完成。生产发布、真人事项及 SG-16/17 不代填。
+7. 最终报告只列实际完成状态、最终 SHA/digest/run、关键测量和人工待办。
+
+**本方案完成的标志是原计划的实现、测试和证据同时闭环。**
 
 ## 1. 目标、定位与范围
 
@@ -160,7 +381,7 @@ flowchart LR
 
 ## 5. 逐项执行任务书
 
-### [x] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口（完成 2026-10-15：冻结干净候选 `3d45fed` 上单次 `make verify-docker`（`VERIFY_STAGE=all`）七阶段全绿 exit 0，§8.16 G 第 4 条；2026-10-16 再验证：候选 `ee97d5a` 单次 `all` 七阶段全绿 exit 0（§8.16 I，已被两个验收语义提交超越）；2026-10-16：候选 `3c783a8` 单次 `all` 七阶段全绿 exit 0，§8.16 J；**2026-10-17 终态：当前冻结候选 `ab172c2` 单次 `all` 七阶段全绿 exit 0，§8.16 K**）
+### [ ] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口（完成 2026-10-15：冻结干净候选 `3d45fed` 上单次 `make verify-docker`（`VERIFY_STAGE=all`）七阶段全绿 exit 0，§8.16 G 第 4 条；2026-10-16 再验证：候选 `ee97d5a` 单次 `all` 七阶段全绿 exit 0（§8.16 I，已被两个验收语义提交超越）；2026-10-16：候选 `3c783a8` 单次 `all` 七阶段全绿 exit 0，§8.16 J；**2026-10-17 终态：当前冻结候选 `ab172c2` 单次 `all` 七阶段全绿 exit 0，§8.16 K**）
 
 **依赖**：SG-10。**目的**：后续任务不能建立在无法编译、自动 skip 或依赖本机隐藏文件的测试上。
 
@@ -191,7 +412,7 @@ flowchart LR
 
 **验收**：全新 checkout（含 submodules）无主机 Go / Foundry / Node 环境也能运行；初期 all 可因后续任务未完成而失败，但已实现阶段不得假绿。Anvil 基础测试 PASS 且无必需 SKIP，Forge 实际部署 / mint 成功；H5 lock 文件被跟踪；端口冲突与缺工具测试明确失败。后续任务补齐后 all 必须通过。
 
-### [x] SG-01 / P0：NFT 数量、规则与缓存隔离
+### [ ] SG-01 / P0：NFT 数量、规则与缓存隔离
 
 **依赖**：SG-00、SG-11。**文件范围**：`pkg/middleware/nft_gate.go` / `nft_cache.go` 与新策略回归；`pkg/service/web3_nft.go`、`pkg/web3/nft/verifier.go` 及对应测试。
 
@@ -209,7 +430,7 @@ flowchart LR
 
 **完成**：实际路由冷、暖、并发结果一致；不能只修 collection 就勾选整个任务。保留缺陷修复前失败与修复后通过的证据。
 
-### [x] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁
+### [ ] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁
 
 **依赖**：SG-00。**文件范围**：`Makefile`、`scripts/check-coverage.sh` 与其回归；`.github/workflows/ci.yml`、`test.yml`、`build.yml`、数据库迁移步骤。
 
@@ -227,7 +448,7 @@ flowchart LR
 
 **完成**：本项校验器 / 依赖负例通过，同 SHA 的当时已实现 jobs 与镜像构建 / 扫描通过；PR 镜像扫描确实执行。后续媒体 / 性能 / CD 验收留给对应任务，最终 M5 仍需全部 jobs 通过；不因尚未实现的后续任务阻断进入 SG-03。
 
-### [x] SG-03 / P0：钱包身份、资源所有权与服务器签名权限
+### [ ] SG-03 / P0：钱包身份、资源所有权与服务器签名权限
 
 **依赖**：SG-01、SG-02、SG-11。**文件范围**：`pkg/service/auth_wallet.go`、`pkg/gateway/auth_handlers.go`、`pkg/middleware/auth.go`；gating_rule handlers / service / gateway 装配；content / upload / transcode / transaction 实际路由及对应回归。
 
@@ -294,7 +515,7 @@ flowchart LR
 
 **完成**：实际签名、真实转码、服务端 gate、解码与浏览器时间推进均通过，入口一次执行可复现；没有 fixture / 关键测试没有运行 / holder 404 必须失败。
 
-### [x] SG-06 / P1：续期、转移与规则 / 会话撤销
+### [ ] SG-06 / P1：续期、转移与规则 / 会话撤销
 
 **依赖**：SG-04、SG-05、SG-13。**文件范围**：playback token issuer / auth middleware、`auth_wallet.go`、`nft_gate.go`、规则与会话 Redis 版本、H5 播放续期及测试。
 
@@ -311,7 +532,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [x] SG-07 / P1：真实媒体性能与可观测性（**完成 2026-10-15**；代码 `7af895a`。权威集合为候选 `a2ed3b11` 的固定预算合并运行（§8.16 H）：1/10/50/100 观众 × 3 重复全部 **100% 成功、0 错误**；四类故障场景全过（`rpc_all_down` = **0 放行 / 0 媒体字节**，§8.16 E）；同 runner 固定 reference 的 p95 回归 **ratio=1.029 ≤ 1.20**（§8.16 F，健康窗口内）。五项验收判据（50 并发 ≥99%、字节校验全对、100 容量探索、全 RPC 故障 0 放行、p95 不超 1.20×）全部实测满足。**本任务验收判据不依赖当前候选的 `all` 重跑**——该项属 M0 范畴；2026-10-17 已在候选 `ab172c2` 的单次 `all` 中一并重跑通过（§8.16 K.1），§8.16 G/I/J 记录的宿主限制不再阻断本机单次全绿）
+### [ ] SG-07 / P1：真实媒体性能与可观测性（**完成 2026-10-15**；代码 `7af895a`。权威集合为候选 `a2ed3b11` 的固定预算合并运行（§8.16 H）：1/10/50/100 观众 × 3 重复全部 **100% 成功、0 错误**；四类故障场景全过（`rpc_all_down` = **0 放行 / 0 媒体字节**，§8.16 E）；同 runner 固定 reference 的 p95 回归 **ratio=1.029 ≤ 1.20**（§8.16 F，健康窗口内）。五项验收判据（50 并发 ≥99%、字节校验全对、100 容量探索、全 RPC 故障 0 放行、p95 不超 1.20×）全部实测满足。**本任务验收判据不依赖当前候选的 `all` 重跑**——该项属 M0 范畴；2026-10-17 已在候选 `ab172c2` 的单次 `all` 中一并重跑通过（§8.16 K.1），§8.16 G/I/J 记录的宿主限制不再阻断本机单次全绿）
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -332,7 +553,7 @@ flowchart LR
 
 **完成**：至少一组可重放的真实结果、一个有 profile 的工程判断、指标能解释 RPC / cache / media 故障；简历只引用实际测值及条件。
 
-### [x] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复（**完成**：workflow 落地 `6754161`+`7ce823c`；本轮补齐 ci.yml D 节点、三类失败演练、release-validation 双入口 / call 模式回滚腿 / Foundry 供源，并修复 deploy.yml 三缺陷——`80d8acc`+`98ba658`+`2622b0d`+`eba92c9`+`e5c64bc`；远端真实运行 **run 39005594931 同 SHA 55/55 success、零 skip**，D 节点三类演练 + 回滚腿全绿，见 §8.16 K.2）
+### [ ] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复（**完成**：workflow 落地 `6754161`+`7ce823c`；本轮补齐 ci.yml D 节点、三类失败演练、release-validation 双入口 / call 模式回滚腿 / Foundry 供源，并修复 deploy.yml 三缺陷——`80d8acc`+`98ba658`+`2622b0d`+`eba92c9`+`e5c64bc`；远端真实运行 **run 39005594931 同 SHA 55/55 success、零 skip**，D 节点三类演练 + 回滚腿全绿，见 §8.16 K.2）
 
 **依赖**：SG-02、SG-05、SG-06、SG-07、SG-10～14。**文件范围**：`.github/workflows/ci.yml` / `build.yml` / `deploy.yml`、Docker 部署脚本 / 配置；有真实 K8s 目标时才改其发布路径。
 
@@ -410,7 +631,7 @@ flowchart LR
 
 **完成**：不能再以“ERC-165 返回 true”证明标准合规；旧假标准 / 重用 ID 用例修复前红、修复后绿；绑定契约与服务输入一致。参考 [ERC-721](https://eips.ethereum.org/EIPS/eip-721)、[ERC-165](https://eips.ethereum.org/EIPS/eip-165)、[OpenZeppelin ERC721](https://docs.openzeppelin.com/contracts/5.x/api/token/erc721) 和 [Solidity ABI](https://docs.soliditylang.org/en/latest/abi-spec.html)。
 
-### [x] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全
+### [ ] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全
 
 **依赖**：SG-00、SG-03、SG-04、SG-11。**文件范围**：upload / content / transcoding / streamingsvc、`pkg/plugins/transcoder/`、`pkg/storage/nats_queue.go`、任务模型 / migrations / 测试；复用 Postgres / JetStream，不引入通用工作流框架。
 
@@ -430,7 +651,7 @@ flowchart LR
 
 **完成**：任务状态跨重启可查询，原件 digest 对应实际字节，业务副作用只有一份，未完成 generation 不可播放；分片时长 / seek 正确，SSRF 目标服务实际收到 0 请求，子进程 / 临时文件 / 资源泄漏有验证。参考 [NATS acknowledgment / redelivery / DLQ](https://docs.nats.io/learn/jetstream/acknowledgment) 与 [OWASP SSRF](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)。
 
-### [x] SG-13 / P0→P1：链外一致性、交易幂等与有限事件恢复
+### [ ] SG-13 / P0→P1：链外一致性、交易幂等与有限事件恢复
 
 **依赖**：SG-03、SG-04、SG-11、SG-12。**文件范围**：content / upload、registry binding / provider、`pkg/web3/tx/`、`pkg/service/web3_tx_track.go`、`pkg/web3/event/`、`pkg/service/web3.go`、Postgres models / migrations / 测试。只为现有登记和授权失效流程提供可靠性，不建设通用交易平台或全链 indexer。
 
@@ -455,7 +676,7 @@ flowchart LR
 
 **完成**：真实 Anvil → 固定合约 → durable receipt / digest / creator 关联一致；幂等、未知广播状态、nonce、checkpoint / 重组都有故障用例。不把内存结构、打印 tx hash 或固定链跟踪写成完整交易生命周期。
 
-### [x] SG-14 / P1：运行治理、资源预算、配置与恢复（完成 2026-10-14，`0e1cd89` + `4fd01ab` + `4639775`；证据见 §8.15）
+### [ ] SG-14 / P1：运行治理、资源预算、配置与恢复（完成 2026-10-14，`0e1cd89` + `4fd01ab` + `4639775`；证据见 §8.15）
 
 **依赖**：SG-05、SG-06、SG-12、SG-13。**文件范围**：gateway / middleware / health、config / providers、core shutdown、H5 页面与脚本、监控、部署配置与现有 API 文档；默认临时 Docker 验收，不需要新云服务或 KMS。
 
@@ -476,7 +697,7 @@ flowchart LR
 
 **完成**：约束落实为配置 / 接线 / 测试，完整恢复使用自己专用环境且不触碰现有用户数据。运行图、指标和失败行为可在面试现场解释。参考 [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)、[OWASP XSS Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)。
 
-### [x] SG-15 / P1：一次收口、需求追溯与交付冻结（**完成 2026-10-17**：R01～R12 追溯、反向证明 4/4、干净候选 `ab172c2` 单次 `all` 七阶段全绿 exit 0 且同 SHA CI 全绿；§8.16 K、§8.17）
+### [ ] SG-15 / P1：一次收口、需求追溯与交付冻结（**完成 2026-10-17**：R01～R12 追溯、反向证明 4/4、干净候选 `ab172c2` 单次 `all` 七阶段全绿 exit 0 且同 SHA CI 全绿；§8.16 K、§8.17）
 
 **依赖**：主线 SG-00～14 全部实现（包括 SG-09 的 AI 成品）；不依赖 SG-16 / 17。**文件范围**：本计划、必要 README / agent docs / resume 的最终事实修订与 CI 验收 runner；无新功能开发。
 

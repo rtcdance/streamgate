@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.9-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 
 WORKDIR /app
 
@@ -15,9 +15,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -tags nats_integration -trimpath -installsuffix cgo -o api-gateway ./cmd/microservices/api-gateway
 
 # Final stage
-FROM alpine:3.21
+FROM alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
 
-RUN apk add --no-cache --upgrade ca-certificates wget ffmpeg
+RUN apk add --no-cache --upgrade ca-certificates wget ffmpeg=6.1.2-r1
 
 # Create non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

@@ -1,23 +1,16 @@
-# StreamGate acceptance stack (SG-00)
-# ------------------------------------------------------------
-# Dedicated stack for `make verify-docker`. Unlike docker-compose.acceptance.yml
-# this file deliberately has:
-#   * NO container_name  — so several runs can coexist and compose scopes names
-#                          by project (streamgate-verify-<pid>)
-#   * NO fixed host ports — only container ports are declared, so Docker assigns
-#                          an ephemeral host port and parallel runs never clash
-#   * project-scoped named volumes — data is never shared with another run
-#
-# Usage: docker compose -p streamgate-verify-$$ -f deploy/docker/compose.acceptance.yml up -d
+# Dedicated verification project: no host ports or fixed container names.
+# The controller joins this network and reaches services by DNS; all runtime
+# images are prebuilt, pinned or verified against the candidate manifest.
 services:
   postgres:
-    image: postgres:15-alpine
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: streamgate
-    ports:
-      - "5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -27,9 +20,10 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
-    ports:
-      - "6379"
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     volumes:
       - redis-data:/data
     healthcheck:
@@ -43,14 +37,15 @@ services:
   # else in this repo (compose.verify.yml, the CI test jobs). It runs as root
   # so a freshly created volume is writable, and takes the same MINIO_ROOT_*.
   minio:
-    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
     user: root
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -60,10 +55,11 @@ services:
       retries: 10
 
   nats:
-    image: nats:2.10-alpine
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
     command: ["-js", "-m", "8222"]
-    ports:
-      - "4222"
     volumes:
       - nats-data:/data
     healthcheck:
@@ -73,20 +69,35 @@ services:
       retries: 10
 
   anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: ghcr.io/foundry-rs/foundry:v1.8.5@sha256:32c8ea9ef052a440cb1620175987a3f49eff8b068a0c6a3d09ebf7f5f9a0e043
     # --slots-in-an-epoch 1 keeps the `safe` head advancing so the production
     # safe-tagged NFT reads observe freshly mined blocks.
-    command: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
-    ports:
-      - "8545"
+    entrypoint: ["anvil"]
+    command: [ "--host", "0.0.0.0", "--chain-id", "31337", "--slots-in-an-epoch", "1"]
     healthcheck:
       test: ["CMD-SHELL", "cast block-number --rpc-url http://localhost:8545 >/dev/null 2>&1"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+networks:
+  default:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+
 volumes:
   postgres-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   redis-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   minio-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   nats-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
