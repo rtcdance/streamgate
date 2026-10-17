@@ -112,14 +112,22 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install tooling (ffmpeg + Playwright + foundry)
+      - name: Install tooling (ffmpeg + Playwright)
         run: |
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           (cd scripts/h5-demo-acceptance && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium)
-          curl -L https://foundry.paradigm.xyz | bash
-          "$HOME/.foundry/bin/foundryup"
-          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+
+      # Foundry through the pinned toolchain action, exactly as ci.yml's
+      # full-chain job installs it. The upstream installer now places foundryup
+      # in ~/.config/.foundry/bin, so the previous `curl … | bash` followed by
+      # "$HOME/.foundry/bin/foundryup" died with exit 127 ("No such file or
+      # directory") on the runner — observed on run 38988013226, the first time
+      # this workflow ever executed. The action is the CI-proven path and puts
+      # forge/cast/anvil on PATH for the contract build below.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
 
       - name: Build contracts (the stack deploys them to Anvil)
         working-directory: contracts
