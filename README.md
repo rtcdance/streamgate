@@ -55,7 +55,7 @@ How far the evidence reaches, precisely:
 |-------|--------|---------------|
 | **Docker (local runner)** | Verified, stage by stage | The seven stages each ran green against a per-run isolated stack (dynamic ports, empty volumes, own compose project). This is the acceptance gate for this repo; the single `all` run is the final gate and is recorded in `TRANSITION_PLAN.md` §8. |
 | **Anvil (local chain)** | Verified | Real chain end-to-end: wallet sign-in, pinned-block NFT evidence, transfer revocation, reorg, endpoint failover. `make test-anvil`. |
-| **GitHub CI** | Wired, not yet run | The full DAG (`ci.yml` → `build.yml`, one image build per SHA, same-digest scan/deploy) runs only after a push — which needs the maintainer's authorization. |
+| **GitHub CI** | Verified — [run 39005594931](https://github.com/rtcdance/streamgate/actions/runs/39005594931) | The full DAG (`ci.yml` → `build.yml`, one image build per SHA, same-digest scan/deploy) ran green on the frozen candidate `ab172c2`: 55/55 jobs success, zero skipped, including the temporary empty-volume deploy with real migrations and the three-class failure drills. |
 | **Testnet (Sepolia)** | Not verified | Wired behind `make test-testnet`, requires `SEPOLIA_RPC`. Never claimed as acceptance. |
 | **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
 
@@ -237,8 +237,10 @@ Features planned for future releases.
 
 ## 📊 Performance Metrics
 
-> **These are design targets, not measured results.** No load, soak, or capacity test has been
-> run against this repository. They describe the shape of the design; they are not evidence.
+> **These are design targets, not measured results.** The table describes the shape of the design.
+> Measured results are recorded in `TRANSITION_PLAN.md` §8.16: fixed-budget local runs
+> (1/10/50/100 concurrent viewers, fault-injection matrix, p95 regression ratio) and the CI
+> perf-harness gate. No production capacity or soak test has been run.
 
 | Metric | Design target |
 |--------|---------------|
@@ -333,7 +335,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 | **Observability stack** | `/metrics` (RED) on every service; the Grafana/Jaeger scrape stack was removed during simplification |
 | **IPFS** | Not wired into the upload path |
 | **Decentralization** | Self-hosted infrastructure, not a peer-to-peer network — ownership checks read the chain, the platform itself is centralized |
-| **Load testing** | No load or soak test has been run; the metrics table above is design targets only |
+| **Load testing** | No production capacity or soak test has been run; measured fixed-budget local runs are recorded in `TRANSITION_PLAN.md` §8.16 |
 
 See `TRANSITION_PLAN.md` for the engineering plan and `docs/ARCHITECTURE.md` for the architecture.
 

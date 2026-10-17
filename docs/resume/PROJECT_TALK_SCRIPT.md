@@ -10,7 +10,7 @@
 ## 零、状态速览（被问进度就照这个说）
 
 - ✅ SG-01～06、SG-10、SG-11、SG-12（九步全部）、SG-13 A+B、SG-02、SG-14（含备份恢复演练 17/17）、SG-07 性能实测（1/10/50 观众各 100% 成功）；证据登记 `TRANSITION_PLAN.md` §8。
-- ⏳ **远端 CI（提交未推送，run 待运行）**、SG-08 的 GitHub 侧同 digest CD（本地 release stage 已实跑空卷部署 + 失败/恢复双断言，远端 workflow 仍待运行）。
+- ✅ **远端 CI 已运行并全绿**：冻结候选 `ab172c2` 的同 SHA run [39005594931](https://github.com/rtcdance/streamgate/actions/runs/39005594931) = **55/55 jobs success、零 skip**，含 SG-08 的 GitHub 侧同 digest CD（D 节点临时空卷部署 + 真 migration + 三类失败演练 + 回滚腿，计划 §8.16 K.2）。生产 rollout 未做（无 target / secrets / 授权）。
 - 实测口径：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；70s 撤销上界**实测 67s**；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。
 
 ---
@@ -161,11 +161,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 
 **4. 证据边界：压测与发布（4min）**
 
-- 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`；后续权威集合见下）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。故障矩阵与 p95 回归比较**随后已补齐并实测**（`00aff4e`/`346ac46`）：cold_cache（重启 monolith 清 L1 + 只删 `nft_cache:*`，保留 session）、`rpc_primary_down`（monolith 配两个同链端点，停可停的 socat 主端点）、`rpc_all_down`（两个端点全停）——**50 观众走回退仍 1400/1400；全停时 0 放行、0 媒体字节**（判据落在 harness 内，单次放行即判失败）。同 runner 固定 reference 的 p95 比较：早期布线对齐后 ratio = 1.000（候选 55.98ms vs reference `f20fb92` 55.97ms，各 3 轮中位数，超 1.20× 即失败）；**权威合并运行（候选 `a2ed3b11`，计划 §8.16 H）ratio = 1.029 ≤ 1.20**（72.95 vs 70.89ms），引用以 1.029 为准。过程本身抓出两个真问题：候选被留在故障矩阵的两端点布线上而 reference 只能单端点，首测因此假报 ratio=1.456（改为同布线后 1.000）；reference 轮的 provenance 一度被标成候选 SHA（改用 `PERF_COMMIT` 标注）。1/10/50 × 3 重复与 100 观众容量探索**已实测**（全部 100% 成功、2800/2800，§8.16 H）；仍未采：CPU/RSS、远端 CI。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
-- 发布（本地已实跑，远端待运行）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；schema 已落地 additive 迁移 + 齐全 `.down.sql`（036–040）。**已跑**：verify-docker release stage 实跑空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）。**未跑**：GitHub 侧同 digest CD、回滚 smoke、远端 CI——本轮提交未推送。
+- 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`；后续权威集合见下）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。故障矩阵与 p95 回归比较**随后已补齐并实测**（`00aff4e`/`346ac46`）：cold_cache（重启 monolith 清 L1 + 只删 `nft_cache:*`，保留 session）、`rpc_primary_down`（monolith 配两个同链端点，停可停的 socat 主端点）、`rpc_all_down`（两个端点全停）——**50 观众走回退仍 1400/1400；全停时 0 放行、0 媒体字节**（判据落在 harness 内，单次放行即判失败）。同 runner 固定 reference 的 p95 比较：早期布线对齐后 ratio = 1.000（候选 55.98ms vs reference `f20fb92` 55.97ms，各 3 轮中位数，超 1.20× 即失败）；**权威合并运行（候选 `a2ed3b11`，计划 §8.16 H）ratio = 1.029 ≤ 1.20**（72.95 vs 70.89ms），引用以 1.029 为准。过程本身抓出两个真问题：候选被留在故障矩阵的两端点布线上而 reference 只能单端点，首测因此假报 ratio=1.456（改为同布线后 1.000）；reference 轮的 provenance 一度被标成候选 SHA（改用 `PERF_COMMIT` 标注）。1/10/50 × 3 重复与 100 观众容量探索**已实测**（全部 100% 成功、2800/2800，§8.16 H）；该矩阵取自本机固定预算运行，CI 的 perf job 只跑 harness / 指标开销门（非 live 矩阵）。仍未采：CPU/RSS。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
+- 发布（本地与远端均已实跑）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；schema 已落地 additive 迁移 + 齐全 `.down.sql`（036–040）。**已跑**：verify-docker release stage 实跑空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）；**远端** `ab172c2` 同 SHA run 39005594931 的 D 节点（`workflow_call` 模式）实跑空卷部署 + 真 migration + 回滚兼容腿 + 三类失败演练全绿（计划 §8.16 K.2）。**未跑**：生产 rollout（无 target / secrets / 授权）。
 - 已落地的 CI 门一句话带过：覆盖率缺失/空文件即失败（自证 15/15，含 59.9% 必须失败）、迁移 `ON_ERROR_STOP`、Anvil 进候选门禁、smoke 改为"依赖就绪 → healthy → `/health` 200"（`febdf7f`）。
 
-**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；本地七阶段 Docker 验收、50 观众负载、cold/RPC 故障矩阵与同 runner p95 比较都已实测，远端 CI 还没跑（未推送）。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
+**5. 收尾（2min）**："这个项目证明的是链上权限如何影响真实媒体访问——每条授权语义都有一个会失败的测试守着，每个数字都指得到 SHA。边界我不回避：平台仍是信任中心，RPC 是信任前提，NFT 持有不是版权，不是 DRM；本地七阶段 Docker 验收、50 观众负载、cold/RPC 故障矩阵与同 runner p95 比较都已实测，远端 CI 也在冻结候选同 SHA 上跑绿了（run 39005594931，55/55）。下一步最有价值的是 HLS AES-128 密钥门控（条件任务），那是传输加密层，我不会把它说成 DRM。"
 
 ### 30 分钟讲述的证据映射表（代码入口 → 测试/断言 → SHA）
 
@@ -249,11 +249,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）**已实跑**：50 观众走同链回退仍 1400/1400 无损，全端点停时 **0 放行 / 0 媒体字节**。reference/candidate 的 p95 回归比较**已实现并实测**：早期布线对齐后 ratio = 1.000（候选 55.98ms vs reference 55.97ms），权威合并运行（候选 `a2ed3b11`，计划 §8.16 H）**ratio = 1.029 ≤ 1.20**（72.95 vs 70.89ms，各 3 轮中位数，超 1.20× 即失败）——引用以 1.029 为准。1/10/50 × 3 重复与 100 观众容量探索**已实测**（全部 100% 成功，§8.16 H）；未采的如实说：CPU/RSS。
 边界：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 模拟，**引用它数字的回答是错的**。
 
-**Q9 发布 digest 与 schema 回滚？（本地已实跑，远端待运行）**
-一句话：设计是"一 SHA 一候选、全程同 digest、additive 迁移可回滚"；**本地 release stage 已实跑**（空卷部署 smoke ALL 66 PASSED + 坏变体被拒 + 健康镜像恢复），GitHub 侧同 digest CD 与远端 CI 未推送待运行。
+**Q9 发布 digest 与 schema 回滚？（本地与远端均已实跑）**
+一句话：设计是"一 SHA 一候选、全程同 digest、additive 迁移可回滚"；**本地 release stage 已实跑**（空卷部署 smoke ALL 66 PASSED + 坏变体被拒 + 健康镜像恢复），**远端** `ab172c2` 同 SHA run 39005594931 的 D 节点也已实跑（临时空卷部署 + 真 migration + 回滚兼容腿 + 三类失败演练，计划 §8.16 K.2）。
 关键点：候选清单 `{candidateSHA, images:{service:digest}}`，扫描/部署/发布只认 `image@sha256:`，提升不换 digest；临时栈空卷 + 真 migration + 真播放 smoke；恢复演练必须"B 确实失败 + A 恢复"双断言，rollback 成功不能掩盖 deploy 失败；schema 全 additive 且 `.down.sql` 齐全（036–040），迁移失败会红（`ON_ERROR_STOP`，删掉了 `|| true`）。
 测试：`scripts/check-coverage_test.sh` 15/15（含 59.9% 必须失败）、`make test-ci COVERAGE_MIN=99` 必须非零、smoke"就绪→healthy→`/health` 200"已在真实依赖栈实测；反向证明"部署命令失败 harness 必须非零退出"实测 `EXIT=1`。
-边界：本机绿灯是预检，权威门是 CI/Docker——本轮提交未推送，M5 远端部分是"待运行"。
+边界：本机绿灯是预检，权威门是 CI/Docker——冻结候选 `ab172c2` 的同 SHA 远端 CI 已全绿（run 39005594931，55/55、零 skip），M5 的远端部分据此成立；生产 rollout 未做。
 
 **Q10 用了 AI 吗？你本人做了什么？**
 一句话：用了，大部分代码 AI 生成；我的工作是设计决策、验收判据、评审与排障——**AI 的代码生成不能自动转成"我独立设计实现"**。
@@ -332,7 +332,7 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 | 故障定位与修复决策（Range、规则缓存 30s、90s 窗口、latest 泄漏、nonce 三分配器冲突） | 个人排障 | 修复 SHA 见第三节映射表 | 【待本人确认】 |
 | 两道现场小练习的定位与讲解 | 本人现场完成 | 第五节 | 【待本人确认】（需实际练习过） |
 | 代码实现 | **AI 辅助生成** | 仓库提交记录 | 如实说明，不 claim 独立实现 |
-| 实测结果（ALL 66 PASSED、67s、SSRF 0 请求、worker 归因） | 客观可复跑 | `scripts/fullchain-acceptance.sh`、`dependency-fault-acceptance.sh`、`TRANSITION_PLAN.md` §8 | ✅（远端 CI ⏳ 待运行） |
+| 实测结果（ALL 66 PASSED、67s、SSRF 0 请求、worker 归因） | 客观可复跑 | `scripts/fullchain-acceptance.sh`、`dependency-fault-acceptance.sh`、`TRANSITION_PLAN.md` §8 | ✅（远端 CI run 39005594931 全绿） |
 | 录制演示、回答追问、投递与面试 | 本人进行 | — | AI 不代录屏、不代答、不代发消息 |
 | ChainPulse 条目 | 独立项目 | 证据另行整理 | 不引用 StreamGate 验收为其背书 |
 
@@ -345,4 +345,4 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 3. "不说完全去中心化、不说无需信任、不说生产高可用已验证——这三样我都没有证据。"
 4. "capability 是 bearer：被复制后撤销/到期前可能被别人用；钱包绑定不等于持有私钥的证明；跨钱包负例覆盖 JWT 主体冲突与签名篡改，不是防分享。"
 5. "已下载的媒体、播放器缓冲、已拿到的密钥**不可远程收回**——所以它是 token-gated 访问控制，**不是 DRM**，我也不这么包装它。"
-6. "远端 CI **待运行**（未推送）——没跑完的我不写成数字；本地七阶段与 50 观众负载已实测，数字都指得到 commit。"
+6. "远端 CI **已跑绿**——冻结候选 `ab172c2` 的同 SHA run 39005594931 55/55、零 skip；本机七阶段与 50 观众负载也已实测，数字都指得到 commit。生产 rollout 没做，我不把它说成部署成功。"
