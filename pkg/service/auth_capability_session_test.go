@@ -10,18 +10,15 @@ import (
 
 const capSessionWallet = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
 
-// A capability must name a session, because every playlist and segment resolves
-// it through ParsePlaybackToken, which requires the binding.
-func TestGeneratePlaybackToken_AlwaysNamesASession(t *testing.T) {
+// A capability must inherit the caller's session; issuance must never silently
+// create a separate session, because that would leave media in flight beyond
+// the caller's login (a logout could no longer reach it).
+func TestGeneratePlaybackToken_RefusesWithoutACallerSuppliedSession(t *testing.T) {
 	svc := NewAuthService(signTypeTestSecret, nil)
 
-	token, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "")
-	require.NoError(t, err)
-
-	claims, err := svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
-	require.NoError(t, err)
-	assert.NotEmpty(t, claims.SessionID, "the capability must carry a session")
-	assert.EqualValues(t, 1, claims.AuthEpoch)
+	_, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session")
 }
 
 // WithSessionBinding is what lets a logout reach media already in flight: the

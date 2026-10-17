@@ -62,6 +62,11 @@ type grpcMockNFTChecker struct {
 	ownsErr error
 	balance *big.Int
 	balErr  error
+	// quantity, when set, is the REAL quantity the authorizer compares.
+	quantity *big.Int
+	// requiresBlock makes the quantity read refuse a nil block, mirroring the
+	// gate's contract that every read is pinned to a resolved block.
+	requiresBlock bool
 }
 
 func (m *grpcMockNFTChecker) VerifyNFTOwnership(_ context.Context, _ int64, _, _, _ string) (bool, error) {
@@ -80,6 +85,12 @@ func (m *grpcMockNFTChecker) GetNFTInfo(_ context.Context, _ int64, _, _ string)
 	return nil, nil
 }
 func (m *grpcMockNFTChecker) GetNFTOwnershipQuantity(_ context.Context, _ int64, _, _, _ string, block *big.Int) (*big.Int, error) {
+	if m.requiresBlock && block == nil {
+		return nil, errors.New("block evidence is required")
+	}
+	if m.quantity != nil {
+		return new(big.Int).Set(m.quantity), nil
+	}
 	if m.ownsErr != nil {
 		return nil, m.ownsErr
 	}
@@ -187,7 +198,10 @@ func generateTestJWT(t *testing.T, wallet, secret, jti string) string {
 		"wallet_address": wallet,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"jti":            jti,
+		"iss":            service.AccessTokenIssuer,
+		"aud":            service.AccessTokenAudience,
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),
 	}
@@ -365,7 +379,7 @@ func TestVerifyGRPCJWT_NoAuthMethods(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, err := verifyGRPCJWT(context.Background(), tt.method, "secret", nil)
+			ctx, err := verifyGRPCJWT(context.Background(), tt.method, "secret", nil, nil)
 			assert.NoError(t, err)
 			assert.NotNil(t, ctx)
 		})
@@ -373,7 +387,7 @@ func TestVerifyGRPCJWT_NoAuthMethods(t *testing.T) {
 }
 
 func TestVerifyGRPCJWT_MissingMetadata(t *testing.T) {
-	ctx, err := verifyGRPCJWT(context.Background(), "/some.Service/Method", "secret", nil)
+	ctx, err := verifyGRPCJWT(context.Background(), "/some.Service/Method", "secret", nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, ctx)
 	st, ok := status.FromError(err)
@@ -383,7 +397,7 @@ func TestVerifyGRPCJWT_MissingMetadata(t *testing.T) {
 
 func TestVerifyGRPCJWT_MissingAuthorization(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, newCtx)
 	st, ok := status.FromError(err)
@@ -395,7 +409,7 @@ func TestVerifyGRPCJWT_EmptyToken(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 		"authorization": "Bearer ",
 	}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, newCtx)
 	st, ok := status.FromError(err)
@@ -407,7 +421,7 @@ func TestVerifyGRPCJWT_InvalidToken(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 		"authorization": "Bearer invalid.token.here",
 	}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", "secret", nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, newCtx)
 }
@@ -418,7 +432,7 @@ func TestVerifyGRPCJWT_ValidToken(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 		"authorization": "Bearer " + token,
 	}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, nil)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, nil, nil)
 	require.NoError(t, err)
 	wallet := grpcWalletFromContext(newCtx)
 	assert.Equal(t, "0xTestWallet", wallet)
@@ -433,7 +447,7 @@ func TestVerifyGRPCJWT_RevokedToken(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 		"authorization": "Bearer " + token,
 	}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, bl)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, nil, bl)
 	assert.Error(t, err)
 	assert.Nil(t, newCtx)
 	st, ok := status.FromError(err)
@@ -447,7 +461,7 @@ func TestVerifyGRPCJWT_NoWalletInClaims(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 		"authorization": "Bearer " + token,
 	}))
-	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, nil)
+	newCtx, err := verifyGRPCJWT(ctx, "/some.Service/Method", secret, nil, nil)
 	assert.Error(t, err)
 	assert.Nil(t, newCtx)
 }
@@ -590,7 +604,7 @@ func TestGrpcStreamLoggingInterceptor(t *testing.T) {
 
 func TestGrpcStreamAuthInterceptor(t *testing.T) {
 	log := zap.NewNop()
-	interceptor := grpcStreamAuthInterceptor("secret", nil, log)
+	interceptor := grpcStreamAuthInterceptor("secret", nil, nil, log)
 
 	t.Run("no auth method passes through", func(t *testing.T) {
 		stream := &mockServerStream{ctx: context.Background()}
@@ -612,7 +626,7 @@ func TestGrpcStreamAuthInterceptor(t *testing.T) {
 func TestGrpcAuthInterceptor(t *testing.T) {
 	secret := "test-secret-key-that-is-at-least-32-chars"
 	log := zap.NewNop()
-	interceptor := grpcAuthInterceptor(secret, nil, log)
+	interceptor := grpcAuthInterceptor(secret, nil, nil, log)
 
 	t.Run("no auth method passes through", func(t *testing.T) {
 		resp, err := interceptor(context.Background(), "req", &grpc.UnaryServerInfo{FullMethod: "/auth.AuthService/GetNonce"}, func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -1026,11 +1040,9 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 
 	t.Run("NFT verification fails", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
-		srv := &streamingGrpcServer{
-			nftVerifier:  &grpcMockNFTChecker{owns: false, ownsErr: errors.New("rpc fail")},
-			ruleResolver: grpcMockGatingRuleResolver{},
-			log:          log,
-		}
+		ctx = context.WithValue(ctx, grpcSessionKey, "s1")
+		ctx = context.WithValue(ctx, grpcEpochKey, int64(1))
+		srv := newManifestServerWithGate(t, &grpcMockNFTChecker{owns: false, ownsErr: errors.New("rpc fail")}, 1)
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -1040,11 +1052,9 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 
 	t.Run("NFT not owned", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), grpcWalletKey, "0xWallet")
-		srv := &streamingGrpcServer{
-			nftVerifier:  &grpcMockNFTChecker{owns: false},
-			ruleResolver: grpcMockGatingRuleResolver{},
-			log:          log,
-		}
+		ctx = context.WithValue(ctx, grpcSessionKey, "s1")
+		ctx = context.WithValue(ctx, grpcEpochKey, int64(1))
+		srv := newManifestServerWithGate(t, &grpcMockNFTChecker{owns: false}, 1)
 		resp, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -1097,7 +1107,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 	})
 
 	t.Run("invalid segment id", func(t *testing.T) {
-		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "")
+		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "", service.WithSessionBinding(startTestSession(t, authSvc), 1))
 		require.NoError(t, err)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
@@ -1118,7 +1128,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 	})
 
 	t.Run("invalid content id", func(t *testing.T) {
-		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "")
+		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "", service.WithSessionBinding(startTestSession(t, authSvc), 1))
 		require.NoError(t, err)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
@@ -1134,7 +1144,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 	})
 
 	t.Run("no segment storage", func(t *testing.T) {
-		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "")
+		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "", service.WithSessionBinding(startTestSession(t, authSvc), 1))
 		require.NoError(t, err)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
@@ -1152,7 +1162,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 	})
 
 	t.Run("segment not found", func(t *testing.T) {
-		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "")
+		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "", service.WithSessionBinding(startTestSession(t, authSvc), 1))
 		require.NoError(t, err)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,
@@ -1171,7 +1181,7 @@ func TestStreamingGrpcServer_GetSegment_AuthChecks(t *testing.T) {
 	})
 
 	t.Run("segment found", func(t *testing.T) {
-		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "")
+		playbackToken, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, 2*time.Minute, "", service.WithSessionBinding(startTestSession(t, authSvc), 1))
 		require.NoError(t, err)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
 			"playback-token": playbackToken,

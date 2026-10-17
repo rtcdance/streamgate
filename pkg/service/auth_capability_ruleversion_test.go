@@ -16,7 +16,7 @@ func TestGeneratePlaybackToken_CarriesTheRuleVersion(t *testing.T) {
 	svc.SetRuleVersionReader(func(context.Context, string) (int64, error) { return 7, nil })
 
 	token, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "")
+		svc.PlaybackTokenTTL(), "", WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	claims, err := svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
@@ -34,7 +34,7 @@ func TestParsePlaybackToken_RefusesACapabilityFromBeforeARuleChange(t *testing.T
 	svc.SetRuleVersionReader(func(context.Context, string) (int64, error) { return version, nil })
 
 	token, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "")
+		svc.PlaybackTokenTTL(), "", WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	_, err = svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
@@ -53,7 +53,7 @@ func TestParsePlaybackToken_RefusesWhenTheRuleVersionIsUnreadable(t *testing.T) 
 	svc.SetRuleVersionReader(func(context.Context, string) (int64, error) { return 1, nil })
 
 	token, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "")
+		svc.PlaybackTokenTTL(), "", WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	svc.SetRuleVersionReader(func(context.Context, string) (int64, error) {
@@ -72,7 +72,7 @@ func TestGeneratePlaybackToken_FailsWhenTheRuleVersionCannotBeRead(t *testing.T)
 	})
 
 	_, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "")
+		svc.PlaybackTokenTTL(), "", WithSessionBinding(newSessionID(t, svc), 1))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rule version")
 }
@@ -89,7 +89,7 @@ func TestGeneratePlaybackToken_ExplicitRuleVersionSkipsTheIssuanceRead(t *testin
 	})
 
 	token, err := svc.GeneratePlaybackToken(t.Context(), capSessionWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "", WithRuleVersion(9))
+		svc.PlaybackTokenTTL(), "", WithRuleVersion(9), WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 	assert.Equal(t, 0, reads, "issuance must not read the authority when the version is supplied")
 

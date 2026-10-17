@@ -31,7 +31,8 @@ func TestGRPC_GetSegment_TokenWithoutWallet_Unauthenticated(t *testing.T) {
 	authSvc := service.NewAuthService(grpcAuthzSecret, nil)
 	srv := &streamingGrpcServer{authSvc: authSvc, log: zap.NewNop()}
 
-	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xabc", "content-1", "", "", 1, time.Minute, "")
+	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xabc", "content-1", "", "", 1, time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	require.NoError(t, err)
 
 	md := metadata.Pairs("playback-token", token)
@@ -50,7 +51,8 @@ func TestGRPC_GetSegment_TokenWithMatchingWallet_PassesAuth(t *testing.T) {
 	authSvc := service.NewAuthService(grpcAuthzSecret, nil)
 	srv := &streamingGrpcServer{authSvc: authSvc, log: zap.NewNop()}
 
-	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xabc", "content-1", "", "", 1, time.Minute, "")
+	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xabc", "content-1", "", "", 1, time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	require.NoError(t, err)
 
 	md := metadata.Pairs("playback-token", token)
@@ -70,7 +72,8 @@ func TestGRPC_GetSegment_TokenWalletMismatch_Unauthenticated(t *testing.T) {
 	authSvc := service.NewAuthService(grpcAuthzSecret, nil)
 	srv := &streamingGrpcServer{authSvc: authSvc, log: zap.NewNop()}
 
-	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xother", "content-1", "", "", 1, time.Minute, "")
+	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xother", "content-1", "", "", 1, time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	require.NoError(t, err)
 
 	md := metadata.Pairs("playback-token", token)

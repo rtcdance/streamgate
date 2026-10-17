@@ -151,6 +151,7 @@ func mustValidJWT(t *testing.T, wallet string) string {
 		"wallet_address": wallet,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Add(-time.Minute).Unix(),
 	})
@@ -209,7 +210,7 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 	}
 	g.Use(middleware.NFTGateMiddleware(&gateCfg, log))
 	RegisterStreamingSegmentRoute(g, log, authSvc, store, lim, cache, nil, "streamgate")
-	RegisterStreamingRoutes(g, log, authSvc, nil, store, lim, cache, nil, "streamgate")
+	RegisterStreamingRoutes(g, log, authSvc, nil, store, lim, cache, nil, testPlaybackAuthorizer(t), "streamgate")
 
 	return r
 }

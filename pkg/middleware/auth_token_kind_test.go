@@ -30,6 +30,7 @@ func baseAccessClaims(extra map[string]interface{}) jwt.MapClaims {
 		"wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),
 		"iss":            "streamgate",
@@ -85,16 +86,20 @@ func TestJWTAuth_RejectsUnknownTokenType(t *testing.T) {
 func TestJWTAuth_AcceptsAccessTokenType(t *testing.T) {
 	r := tokenKindRouter(t, JWTAuthConfig{Secret: tokenKindTestSecret})
 
-	for _, kind := range []interface{}{"access", nil} {
-		claims := baseAccessClaims(nil)
-		if kind != nil {
-			claims["token_type"] = kind
-		} else {
-			delete(claims, "token_type")
-		}
-		token := signWithClaims(t, tokenKindTestSecret, jwt.SigningMethodHS256, claims)
-		assert.Equal(t, http.StatusOK, callProtected(t, r, token))
-	}
+	token := signWithClaims(t, tokenKindTestSecret, jwt.SigningMethodHS256,
+		baseAccessClaims(map[string]interface{}{"token_type": "access"}))
+	assert.Equal(t, http.StatusOK, callProtected(t, r, token))
+}
+
+// An absent token_type predates the scheme and is now refused rather than
+// grandfathered in: only an explicit "access" purpose is accepted.
+func TestJWTAuth_RejectsAnAbsentTokenType(t *testing.T) {
+	r := tokenKindRouter(t, JWTAuthConfig{Secret: tokenKindTestSecret})
+
+	claims := baseAccessClaims(nil)
+	delete(claims, "token_type")
+	token := signWithClaims(t, tokenKindTestSecret, jwt.SigningMethodHS256, claims)
+	assert.Equal(t, http.StatusUnauthorized, callProtected(t, r, token))
 }
 
 func TestJWTAuth_IssuerEnforced(t *testing.T) {

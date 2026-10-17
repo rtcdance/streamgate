@@ -125,6 +125,7 @@ func (p *GatewayPlugin) Start(ctx context.Context) error {
 		Web3Service:        resources.Web3Service,
 		NFTVerifier:        resources.NFTVerifier,
 		GatingRuleResolver: resources.GatingRuleResolver,
+		PlaybackAuthorizer: resources.PlaybackAuthorizer,
 		ContentService:     resources.ContentService,
 		SegmentStorage:     resources.SegmentStorage,
 		UploadService:      resources.UploadService,

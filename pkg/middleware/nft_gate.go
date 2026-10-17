@@ -482,19 +482,28 @@ func normalizedMinBalance(minBalance int) (int64, error) {
 	}
 }
 
-// evaluateGatingRules applies OR semantics over the active rules: any rule that
+// PolicyDecision is the outcome of evaluating a rule set against a wallet: which
+// rule granted access, at which anchor. It is exported so the business layer can
+// authorize playback with the SAME tested evaluation the HTTP gate uses.
+type PolicyDecision struct {
+	Allowed      bool
+	GrantingRule *GatingRule
+	Anchor       *BlockHeaderInfo
+}
+
+// EvaluatePolicy applies OR semantics over the active rules: any rule that
 // verifies to a sufficient quantity grants access. If no rule grants access, a
 // rule that could not be verified at all produces a service error so the caller
 // answers 503 rather than a misleading 403.
 //
-// On success it also returns the block the granting rule was read at, so the
-// caller can report which chain state authorized the request.
-func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (bool, *BlockHeaderInfo, error) {
+// On success it also returns which rule granted and the block it was read at, so
+// the caller can bind an authorization to a specific chain state.
+func EvaluatePolicy(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (PolicyDecision, error) {
 	var firstUnverifiable error
 
 	for _, rule := range rules {
 		if err := validateGatingRule(rule); err != nil {
-			return false, nil, err
+			return PolicyDecision{}, err
 		}
 		minBalance, _ := normalizedMinBalance(rule.MinBalance)
 
@@ -512,14 +521,28 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 		}
 
 		if quantity.Cmp(big.NewInt(minBalance)) >= 0 {
-			return true, anchor, nil
+			granting := rule
+			return PolicyDecision{Allowed: true, GrantingRule: &granting, Anchor: anchor}, nil
 		}
 	}
 
 	if firstUnverifiable != nil {
-		return false, nil, firstUnverifiable
+		return PolicyDecision{}, firstUnverifiable
 	}
-	return false, nil, nil
+	return PolicyDecision{Allowed: false}, nil
+}
+
+// evaluateGatingRules keeps the boolean shape the HTML gate has always used,
+// delegating the decision to EvaluatePolicy.
+func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, rules []GatingRule, walletAddress string) (bool, *BlockHeaderInfo, error) {
+	decision, err := EvaluatePolicy(ctx, config, logger, rules, walletAddress)
+	if err != nil {
+		return false, nil, err
+	}
+	if !decision.Allowed {
+		return false, nil, nil
+	}
+	return true, decision.Anchor, nil
 }
 
 // resolveQuantity returns the holder's quantity EVIDENCE for one subject, along

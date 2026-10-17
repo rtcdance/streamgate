@@ -551,7 +551,7 @@ func TestStreamingExt_RegisterRoutes(t *testing.T) {
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
 
-	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil, nil)
 
 	routes := r.Routes()
 	found := false
@@ -626,7 +626,8 @@ func TestStreamingExt_SegmentRoute_NoObjStorage(t *testing.T) {
 
 	RegisterStreamingSegmentRoute(r, zap.NewNop(), authSvc, nil, limiter, cache, nil)
 
-	token, _ := authSvc.GeneratePlaybackToken(context.Background(), "0x1234567890abcdef1234567890abcdef12345678", "content1", "", "", 1, 5*time.Minute, "")
+	token, _ := authSvc.GeneratePlaybackToken(context.Background(), "0x1234567890abcdef1234567890abcdef12345678", "content1", "", "", 1, 5*time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/segment/seg0.ts?playback_token="+token, http.NoBody)
 	r.ServeHTTP(w, req)
@@ -646,7 +647,7 @@ func TestStreamingExt_ManifestRoute_InvalidContentID(t *testing.T) {
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
 
-	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/bad%20id/manifest.m3u8", http.NoBody)
@@ -668,7 +669,7 @@ func TestStreamingExt_ManifestRoute_LimiterFull(t *testing.T) {
 	limiter := newStreamLimiter(1)
 	limiter.tryAcquire()
 
-	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, nil, limiter, cache, nil, nil)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, APIPrefix+"/streaming/content1/manifest.m3u8", http.NoBody)

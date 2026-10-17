@@ -93,7 +93,8 @@ func TestAcceptance_KeyRotationAndAudience(t *testing.T) {
 		assert.Equal(t, middleware.TokenKeyID(rotNewAccessSecret), tokenKid(t, access),
 			"an access token must carry the current access key's kid")
 
-		capability, err := svc.GeneratePlaybackToken(ctx, rotAccessWallet, "content-1", "", "", 1, time.Minute, "")
+		capability, err := svc.GeneratePlaybackToken(ctx, rotAccessWallet, "content-1", "", "", 1, time.Minute, "",
+			WithSessionBinding(newSessionID(t, svc), 1))
 		require.NoError(t, err)
 		assert.Equal(t, middleware.TokenKeyID(rotCapSecret), tokenKid(t, capability),
 			"a capability must carry the capability key's kid")

@@ -252,6 +252,12 @@ const (
 	AccessTokenIssuer   = "streamgate"
 	AccessTokenAudience = "streamgate-api"
 
+	// AccessTokenType is the explicit purpose stamped on every access JWT, so
+	// the shared policy accepts ONLY a credential minted as an access token.
+	AccessTokenType = "access"
+	// CapabilityTokenType is the purpose stamped on playback capabilities.
+	CapabilityTokenType = "playback"
+
 	// PlaybackCapabilityAudience is the audience stamped on playback
 	// capabilities. It is deliberately distinct from AccessTokenAudience: both
 	// are signed with the same key, so the audience is what stops a capability
@@ -923,6 +929,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 
 	newClaims := &Claims{
 		Username:      claims.Username,
+		TokenType:     AccessTokenType,
 		WalletAddress: claims.WalletAddress,
 		JTI:           generateID(),
 		SessionID:     claims.SessionID,
@@ -981,6 +988,7 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 	}
 	claims := &Claims{
 		Username:         user.Username,
+		TokenType:        AccessTokenType,
 		WalletAddress:    user.WalletAddress,
 		JTI:              generateID(),
 		SessionID:        sessionID,

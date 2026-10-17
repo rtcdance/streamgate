@@ -116,6 +116,7 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 		"wallet_address": "0xBench",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})
 	tokenStr, _ := tok.SignedString([]byte("bench-secret-key"))

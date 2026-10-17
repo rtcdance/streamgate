@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -47,6 +48,11 @@ type GRPCServices struct {
 	DB                 Pinger
 	Cache              Pinger
 	Blacklist          middleware.TokenBlacklistChecker
+	// PlaybackAuthorizer is the shared HTTP/gRPC authorization: the gRPC manifest
+	// path authorizes through it instead of a boolean ownership check, so the two
+	// entry points make the same decision over the same evidence. nil ⇒ the gRPC
+	// manifest path fails closed.
+	PlaybackAuthorizer *service.PlaybackAuthorizer
 	// GenerationResolver reports the published artifact generation; nil means
 	// generation 0 (legacy flat layout), matching the pre-generation behaviour.
 	GenerationResolver PublishedGenerationResolver
@@ -78,13 +84,13 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 			grpcRequestIDUnaryInterceptor(),
 			grpcRecoveryInterceptor(log),
 			grpcLoggingInterceptor(log),
-			grpcAuthInterceptor(jwtSecret, svcs.Blacklist, log),
+			grpcAuthInterceptor(jwtSecret, svcs.AuthService, svcs.Blacklist, log),
 		),
 		grpc.ChainStreamInterceptor(
 			grpcRequestIDStreamInterceptor(),
 			grpcStreamRecoveryInterceptor(log),
 			grpcStreamLoggingInterceptor(log),
-			grpcStreamAuthInterceptor(jwtSecret, svcs.Blacklist, log),
+			grpcStreamAuthInterceptor(jwtSecret, svcs.AuthService, svcs.Blacklist, log),
 		),
 	}
 
@@ -169,6 +175,7 @@ func SetupGRPCServer(ctx context.Context, cfg *config.Config, log *zap.Logger, s
 			authSvc:      svcs.AuthService,
 			nftVerifier:  svcs.NFTVerifier,
 			ruleResolver: svcs.GatingRuleResolver,
+			authorizer:   svcs.PlaybackAuthorizer,
 			streamingSvc: svcs.StreamingSvc,
 			segStore:     svcs.SegmentStorage,
 			genResolver:  newGenerationResolver(svcs.GenerationResolver),
@@ -701,6 +708,9 @@ type streamingGrpcServer struct {
 	authSvc      *service.AuthService
 	nftVerifier  middleware.NFTOwnershipChecker
 	ruleResolver middleware.GatingRuleResolver
+	// authorizer is the shared HTTP/gRPC authorization. When nil the manifest
+	// path fails closed.
+	authorizer   *service.PlaybackAuthorizer
 	streamingSvc *service.StreamingService
 	segStore     service.SegmentStorage
 	// genResolver is the published-generation lookup (nil-safe: a nil resolver
@@ -729,39 +739,53 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 	// The authorization subject comes from server-side gating rules, never from
 	// caller metadata (same rule as the HTTP path): a caller-named contract
 	// would let anyone pass by verifying ownership of an NFT they already hold.
-	if s.ruleResolver == nil {
-		return nil, status.Error(codes.Internal, "gating rules unavailable; access denied for safety")
-	}
-	gatingRules, err := s.ruleResolver.GetActiveRulesForContent(ctx, req.ContentId)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to resolve gating rules")
-	}
-	if len(gatingRules) == 0 {
-		return nil, status.Error(codes.PermissionDenied, "content is gated; no active gating rules are configured for it")
-	}
-
-	if s.nftVerifier == nil {
+	//
+	// The manifest is authorized through the SHARED authorizer, which compares
+	// the real on-chain quantity (ERC-721/1155, tokenID, min_balance, OR rules)
+	// rather than a boolean ownership answer, and mints the capability from the
+	// resulting authorization.
+	if s.authorizer == nil {
 		return nil, status.Error(codes.Internal, "NFT verification service unavailable; access denied for safety")
 	}
-	owned := false
-	var ruleContract, ruleTokenID string
-	var ruleChainID int64
-	for _, rule := range gatingRules {
-		ok, verifyErr := s.nftVerifier.VerifyNFTOwnership(ctx, rule.ChainID, rule.ContractAddress, rule.TokenID, wallet)
-		if verifyErr == nil && ok {
-			owned = true
-			ruleContract, ruleTokenID, ruleChainID = rule.ContractAddress, rule.TokenID, rule.ChainID
-			break
+
+	sessionID, epoch := grpcSessionFromContext(ctx)
+	session := service.SessionBinding{SessionID: sessionID, AuthEpoch: epoch}
+
+	// If the caller ALSO carries a playback capability, it must agree with the
+	// access token's wallet, session and epoch. Disagreement is refused.
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if toks := md.Get("playback-token"); len(toks) > 0 && toks[0] != "" {
+			fingerprint := ""
+			if v := md.Get("x-client-fingerprint"); len(v) > 0 {
+				fingerprint = v[0]
+			}
+			capClaims, capErr := s.authSvc.ParsePlaybackToken(ctx, toks[0], req.ContentId, fingerprint)
+			if capErr != nil {
+				return nil, status.Error(codes.Unauthenticated, "invalid playback token")
+			}
+			if capClaims.WalletAddress != wallet || capClaims.SessionID != sessionID || capClaims.AuthEpoch != epoch {
+				return nil, status.Error(codes.PermissionDenied, "conflicting playback credentials")
+			}
 		}
 	}
-	if !owned {
-		s.log.Warn("NFT ownership verification failed against server-side gating rules",
+
+	authz, err := s.authorizer.AuthorizePlayback(ctx, req.ContentId, wallet, session)
+	if err != nil {
+		s.log.Warn("NFT authorization failed",
 			zap.String("wallet", wallet),
-			zap.String("content_id", req.ContentId))
-		return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
+			zap.String("content_id", req.ContentId),
+			zap.Error(err))
+		switch {
+		case errors.Is(err, service.ErrNoGatingRules):
+			return nil, status.Error(codes.PermissionDenied, "content is gated; no active gating rules are configured for it")
+		case errors.Is(err, service.ErrAuthorizationUnavailable):
+			return nil, status.Error(codes.Internal, "failed to resolve gating rules")
+		default:
+			return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
+		}
 	}
 
-	playbackToken, err := s.authSvc.GeneratePlaybackToken(ctx, wallet, req.ContentId, ruleContract, ruleTokenID, ruleChainID, 2*time.Minute, "")
+	playbackToken, err := s.authSvc.IssueCapability(ctx, authz, s.authSvc.PlaybackTokenTTL(), "")
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to generate playback token")
 	}
@@ -1095,13 +1119,25 @@ var grpcNoAuthMethods = map[string]bool{
 
 type grpcContextKey string
 
-const grpcWalletKey grpcContextKey = "grpc_wallet_address"
+const (
+	grpcWalletKey  grpcContextKey = "grpc_wallet_address"
+	grpcSessionKey grpcContextKey = "grpc_session_id"
+	grpcEpochKey   grpcContextKey = "grpc_auth_epoch"
+)
 
 func grpcWalletFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(grpcWalletKey).(string); ok {
 		return v
 	}
 	return ""
+}
+
+// grpcSessionFromContext returns the session and epoch the interceptor injected
+// from a validated access token.
+func grpcSessionFromContext(ctx context.Context) (string, int64) {
+	sessionID, _ := ctx.Value(grpcSessionKey).(string)
+	epoch, _ := ctx.Value(grpcEpochKey).(int64)
+	return sessionID, epoch
 }
 
 // grpcRequestIDKey is the context key for the gRPC request ID.
@@ -1136,9 +1172,9 @@ func grpcRequestIDStreamInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-func grpcAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.UnaryServerInterceptor {
+func grpcAuthInterceptor(jwtSecret string, authSvc *service.AuthService, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		newCtx, err := verifyGRPCJWT(ctx, info.FullMethod, jwtSecret, blacklist)
+		newCtx, err := verifyGRPCJWT(ctx, info.FullMethod, jwtSecret, authSvc, blacklist)
 		if err != nil {
 			return nil, err
 		}
@@ -1146,9 +1182,9 @@ func grpcAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistCh
 	}
 }
 
-func grpcStreamAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.StreamServerInterceptor {
+func grpcStreamAuthInterceptor(jwtSecret string, authSvc *service.AuthService, blacklist middleware.TokenBlacklistChecker, log *zap.Logger) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		newCtx, err := verifyGRPCJWT(ss.Context(), info.FullMethod, jwtSecret, blacklist)
+		newCtx, err := verifyGRPCJWT(ss.Context(), info.FullMethod, jwtSecret, authSvc, blacklist)
 		if err != nil {
 			return err
 		}
@@ -1156,7 +1192,11 @@ func grpcStreamAuthInterceptor(jwtSecret string, blacklist middleware.TokenBlack
 	}
 }
 
-func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, blacklist middleware.TokenBlacklistChecker) (context.Context, error) {
+// verifyGRPCJWT authenticates a caller's access token with the SAME policy the
+// HTTP middleware applies (HS256 only, issuer, audience, purpose, session and
+// epoch), then injects the wallet, session and epoch into the context. The
+// signature is verified here; the policy checks are shared.
+func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *service.AuthService, blacklist middleware.TokenBlacklistChecker) (context.Context, error) {
 	if grpcNoAuthMethods[fullMethod] {
 		return ctx, nil
 	}
@@ -1179,7 +1219,9 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, blacklist 
 
 	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		// Pin HS256 EXACTLY: HS384/HS512 are valid HMAC tokens but are not what
+		// this service issues, so they must not be accepted here.
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return []byte(jwtSecret), nil
@@ -1188,20 +1230,24 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, blacklist 
 		return nil, status.Error(codes.Unauthenticated, "invalid token")
 	}
 
-	if blacklist != nil {
-		if jti, ok := claims["jti"].(string); ok && jti != "" {
-			if blacklist.IsTokenRevoked(ctx, jti) {
-				return nil, status.Error(codes.Unauthenticated, "token has been revoked")
-			}
-		}
+	policy := middleware.AccessPolicy{
+		Issuer:    service.AccessTokenIssuer,
+		Audience:  service.AccessTokenAudience,
+		Blacklist: blacklist,
+	}
+	// Only wire the session validator when a real service is present: a typed-nil
+	// *service.AuthService stored in the interface would be non-nil and panic.
+	if authSvc != nil {
+		policy.SessionValidator = authSvc
+	}
+	decision, err := middleware.AuthorizeAccessClaims(ctx, policy, claims)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
 
-	wallet, _ := claims["wallet_address"].(string)
-	if wallet == "" {
-		return nil, status.Error(codes.Unauthenticated, "wallet address required in token")
-	}
-
-	ctx = context.WithValue(ctx, grpcWalletKey, wallet)
+	ctx = context.WithValue(ctx, grpcWalletKey, decision.Wallet)
+	ctx = context.WithValue(ctx, grpcSessionKey, decision.SessionID)
+	ctx = context.WithValue(ctx, grpcEpochKey, decision.AuthEpoch)
 	return ctx, nil
 }
 

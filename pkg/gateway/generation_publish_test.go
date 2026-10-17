@@ -941,6 +941,8 @@ func newGenPublishFixture(t *testing.T) *genPublishFixture {
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set("wallet_address", genTestWallet)
+		c.Set("session_id", "test-session")
+		c.Set("auth_epoch", int64(1))
 		c.Next()
 	})
 	authSvc := newGatewayTestAuthService()
@@ -948,7 +950,7 @@ func newGenPublishFixture(t *testing.T) *genPublishFixture {
 	limiter := newStreamLimiter(100)
 	resolver := newPublishedGenerationResolver(db)
 	RegisterStreamingSegmentRoute(router, zap.NewNop(), authSvc, store, limiter, streamCache, resolver)
-	RegisterStreamingRoutes(router, zap.NewNop(), authSvc, streamingSvc, store, limiter, streamCache, resolver)
+	RegisterStreamingRoutes(router, zap.NewNop(), authSvc, streamingSvc, store, limiter, streamCache, resolver, testPlaybackAuthorizer(t))
 
 	f := &genPublishFixture{
 		fake:       globalGenDB,
@@ -1007,7 +1009,8 @@ func (f *genPublishFixture) runToCompletion(t *testing.T, contentID, profile str
 func (f *genPublishFixture) token(t *testing.T, contentID string) string {
 	t.Helper()
 	token, err := f.authSvc.GeneratePlaybackToken(context.Background(),
-		genTestWallet, contentID, "", "", 1, 5*time.Minute, "")
+		genTestWallet, contentID, "", "", 1, 5*time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, f.authSvc), 1))
 	require.NoError(t, err)
 	return token
 }

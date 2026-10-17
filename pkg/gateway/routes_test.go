@@ -500,7 +500,7 @@ func TestRegisterProtectedRoutes_NFTRoutesPresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasNFTRoute := false
@@ -542,7 +542,7 @@ func TestRegisterProtectedRoutes_AuthProtectedRoutesPresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasProfileRoute := false
@@ -585,7 +585,7 @@ func TestRegisterProtectedRoutes_StreamingManifestRoutePresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasManifestRoute := false
@@ -628,7 +628,7 @@ func TestRegisterProtectedRoutes_ContentRoutesPresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasContentListRoute := false
@@ -671,7 +671,7 @@ func TestRegisterProtectedRoutes_TranscodingRoutesPresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasSubmitRoute := false
@@ -714,7 +714,7 @@ func TestRegisterProtectedRoutes_GatingRuleRoutesWhenServiceSet(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasGatingRoute := false
@@ -757,7 +757,7 @@ func TestRegisterProtectedRoutes_NoGatingRuleRoutesWhenServiceNil(t *testing.T) 
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	for _, r := range routes {
@@ -796,7 +796,7 @@ func TestRegisterProtectedRoutes_PlaybackStatsRoutesWhenServiceSet(t *testing.T)
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasStatsRoute := false
@@ -839,7 +839,7 @@ func TestRegisterProtectedRoutes_CategoryRoutesWhenServiceSet(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	hasCategoryRoute := false
@@ -881,7 +881,7 @@ func TestRegisterProtectedRoutes_UploadRoutesPresent(t *testing.T) {
 	streamLim := newStreamLimiter(10)
 	streamCache := NewStreamingCache()
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, router.Group("/"), nil, &AppResources{})
 
 	routes := router.Routes()
 	routePaths := make(map[string]bool)

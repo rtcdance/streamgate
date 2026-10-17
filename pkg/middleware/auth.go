@@ -181,83 +181,25 @@ func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger,
 	return claims, true
 }
 
-// authorizeAccessClaims applies the access-token policy to parsed claims:
-// credential kind, issuer, audience, live session binding, revocation and the
-// wallet claim. Every rejection aborts with 401 and returns ok=false. On
-// success it returns the session binding the caller must install on the
-// request.
+// authorizeAccessClaims applies the shared access-token policy to parsed claims
+// and maps any rejection back to the exact HTTP status/body/code this
+// middleware returned before the policy moved into AuthorizeAccessClaims — so
+// HTTP behaviour is unchanged apart from the tightened token kind (an absent
+// token_type is now refused).
 func authorizeAccessClaims(c *gin.Context, config JWTAuthConfig, claims jwt.MapClaims) (sessionID string, epoch int64, ok bool) {
-	// A playback capability is NOT an access token. It is issued to be spent
-	// on the streaming routes only (where PlaybackTokenAuth validates it),
-	// so it must never authorise a management API call through this
-	// middleware. Whitelist the acceptable kinds rather than blacklisting
-	// the known-bad ones, so a future credential type is rejected by
-	// default instead of silently accepted.
-	switch tokenType, _ := claims["token_type"].(string); tokenType {
-	case "", "access":
-	default:
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "token is not an access token", "code": "UNAUTHORIZED",
-		})
+	policy := AccessPolicy{
+		Issuer:           config.Issuer,
+		Audience:         config.Audience,
+		SessionValidator: config.SessionValidator,
+		Blacklist:        config.Blacklist,
+	}
+	decision, err := AuthorizeAccessClaims(c.Request.Context(), policy, claims)
+	if err != nil {
+		status, msg, code := AccessErrorBody(err)
+		c.AbortWithStatusJSON(status, gin.H{"error": msg, "code": code})
 		return "", 0, false
 	}
-
-	if config.Issuer != "" {
-		iss, _ := claims["iss"].(string)
-		if iss != config.Issuer {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token issuer mismatch", "code": "UNAUTHORIZED",
-			})
-			return "", 0, false
-		}
-	}
-
-	if config.Audience != "" && !audienceContains(claims["aud"], config.Audience) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "token audience mismatch", "code": "UNAUTHORIZED",
-		})
-		return "", 0, false
-	}
-
-	// Every credential must be bound to a live session. A token without the
-	// fields predates the scheme, so it is refused outright rather than
-	// grandfathered in — otherwise revocation could be bypassed by simply
-	// presenting an older token.
-	sessionID, _ = claims["session_id"].(string)
-	if sessionID == "" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "token is not bound to a session", "code": "UNAUTHORIZED",
-		})
-		return "", 0, false
-	}
-	epoch, hasEpoch := numericClaim(claims["auth_epoch"])
-	if !hasEpoch {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "token carries no auth epoch", "code": "UNAUTHORIZED",
-		})
-		return "", 0, false
-	}
-	if config.SessionValidator != nil && !config.SessionValidator.SessionValid(sessionID, epoch) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-			"error": "session is no longer valid", "code": "UNAUTHORIZED",
-		})
-		return "", 0, false
-	}
-
-	if config.Blacklist != nil {
-		jti, _ := claims["jti"].(string)
-		if jti != "" && config.Blacklist.IsTokenRevoked(c.Request.Context(), jti) {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked", "code": "TOKEN_REVOKED"})
-			return "", 0, false
-		}
-	}
-
-	walletAddress, _ := claims["wallet_address"].(string)
-	if walletAddress == "" {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token missing wallet address", "code": "UNAUTHORIZED"})
-		return "", 0, false
-	}
-	return sessionID, epoch, true
+	return decision.SessionID, decision.AuthEpoch, true
 }
 
 // JWTAuthMiddleware returns a gin middleware that validates JWT tokens

@@ -40,7 +40,8 @@ func TestAuthService_PlaybackTokenTTL(t *testing.T) {
 func TestGeneratePlaybackToken_ExpiresOnThePolicyBound(t *testing.T) {
 	svc := NewAuthService(signTypeTestSecret, nil, WithPlaybackTokenTTL(2*time.Second))
 
-	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "")
+	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -56,7 +57,7 @@ func TestParsePlaybackToken_RefusesAnExpiredCapability(t *testing.T) {
 	svc := NewAuthService(signTypeTestSecret, nil, WithPlaybackTokenTTL(30*time.Second))
 
 	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1,
-		svc.PlaybackTokenTTL(), "")
+		svc.PlaybackTokenTTL(), "", WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	_, err = svc.ParsePlaybackToken(t.Context(), token, "content-1", "")
@@ -75,7 +76,8 @@ func TestParsePlaybackToken_RefusesAnExpiredCapability(t *testing.T) {
 func TestGeneratePlaybackToken_StampsItsOwnAudience(t *testing.T) {
 	svc := NewAuthService(signTypeTestSecret, nil)
 
-	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "")
+	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, svc.PlaybackTokenTTL(), "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	claims, err := svc.ParseToken(token)
@@ -102,7 +104,8 @@ func TestParsePlaybackToken_RejectsAnAccessToken(t *testing.T) {
 func TestGeneratePlaybackToken_ZeroTTLFallsBackToThePolicy(t *testing.T) {
 	svc := NewAuthService(signTypeTestSecret, nil)
 
-	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, 0, "")
+	token, err := svc.GeneratePlaybackToken(t.Context(), signTypeTestWallet, "content-1", "", "", 1, 0, "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	claims, err := svc.ParseToken(token)
