@@ -104,12 +104,28 @@ while [ "$tries" -lt 30 ]; do
   read -t 1 -r _ < /dev/null || :
   tries=$((tries + 1))
 done
-[ -n "$state" ] || fail "the verification controller did not start: ${VERIFY_CONTROLLER}"
+if [ -z "$state" ]; then
+  echo "the verification controller did not start: ${VERIFY_CONTROLLER}" >&2
+  exit 1
+fi
+# A detached container's output never reaches this shell, and cleanup removes
+# the container, so without this the whole controller log (including every
+# stage result) would be lost. Follow it only once the container exists — the
+# backgrounded `docker run` and `docker logs -f` otherwise race, and the
+# follower dies with "No such container" before any stage output is streamed.
+# A background follower cannot block the INT/TERM traps the way a foreground
+# `docker run` did. The copy in the run's artifacts also survives cleanup.
+: > "${VERIFY_ARTIFACTS}/controller.log"
+docker logs -f "$VERIFY_CONTROLLER" 2>&1 | tee -a "${VERIFY_ARTIFACTS}/controller.log" &
+LOG_FOLLOWER=$!
 while :; do
   case "$state" in exited|dead) break ;; esac
   read -t 1 -r _ < /dev/null || :
   state="$(docker inspect --format '{{.State.Status}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || state=""
   [ -n "$state" ] || break
 done
+# `docker logs -f` ends by itself once the container stops; wait only for it so
+# the tail of the log is not truncated by this shell exiting first.
+wait "$LOG_FOLLOWER" 2>/dev/null || :
 rc="$(docker inspect --format '{{.State.ExitCode}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || rc=1
 exit "$rc"
