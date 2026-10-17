@@ -554,6 +554,7 @@ func TestAuthService_ValidatePlaybackToken_WithBlacklist(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-abc",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 

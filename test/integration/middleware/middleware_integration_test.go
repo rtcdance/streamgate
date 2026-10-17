@@ -37,6 +37,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 		"wallet_address": "0xTest",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})
 	tokenStr, _ := tok.SignedString([]byte("test-secret-key-at-least-32-chars!"))

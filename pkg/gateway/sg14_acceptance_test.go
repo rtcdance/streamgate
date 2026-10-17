@@ -206,9 +206,12 @@ func TestAcceptance_MediaRateLimitAndNAT(t *testing.T) {
 	// Real playback capabilities so an allowed request reaches the handler
 	// instead of stopping at token validation — the assertions are about the
 	// limiter, not about auth.
-	playbackA, err := authSvc.GeneratePlaybackToken(context.Background(), walletA, "content-1", "", "", 31337, time.Hour, "")
+	sessionID := startTestSession(t, authSvc)
+	playbackA, err := authSvc.GeneratePlaybackToken(context.Background(), walletA, "content-1", "", "", 31337, time.Hour, "",
+		service.WithSessionBinding(sessionID, 1))
 	require.NoError(t, err)
-	playbackB, err := authSvc.GeneratePlaybackToken(context.Background(), walletB, "content-1", "", "", 31337, time.Hour, "")
+	playbackB, err := authSvc.GeneratePlaybackToken(context.Background(), walletB, "content-1", "", "", 31337, time.Hour, "",
+		service.WithSessionBinding(sessionID, 1))
 	require.NoError(t, err)
 
 	segmentReq := func(token, playback, name string) *httptest.ResponseRecorder {

@@ -250,6 +250,7 @@ func TestAuthService_PlaybackTokenLifecycle(t *testing.T) {
 		11155111,
 		time.Minute,
 		"fp-abc123",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -770,6 +771,7 @@ func TestAuthService_GeneratePlaybackToken_AuthTest(t *testing.T) {
 			1,
 			0,
 			"fp-abc",
+			WithSessionBinding(newSessionID(t, auth), 1),
 		)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
@@ -785,6 +787,7 @@ func TestAuthService_GeneratePlaybackToken_AuthTest(t *testing.T) {
 			1,
 			5*time.Minute,
 			"fp-abc",
+			WithSessionBinding(newSessionID(t, auth), 1),
 		)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
@@ -803,6 +806,7 @@ func TestAuthService_ValidatePlaybackToken_FingerprintMismatch(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-correct",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -823,6 +827,7 @@ func TestAuthService_ValidatePlaybackToken_WalletMismatch(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-abc",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 

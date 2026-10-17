@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -136,4 +137,66 @@ func (a *gatingRuleResolverAdapter) RuleVersion(ctx context.Context, contentID s
 		return 0, err
 	}
 	return v.Version, nil
+}
+
+// ResolvePolicySnapshot implements service.PolicySnapshotResolver: one
+// consistent read yielding the rules, the version they were read at, and the
+// authority's read time. It asks the version authority FIRST — an unreadable
+// authority is a refusal, never a silently-cached answer — then reuses the
+// cached rule set only while that version still matches. Putting the version and
+// its read time together is what lets the issuance path pin an authorization to
+// exactly the revision it decided under.
+func (a *gatingRuleResolverAdapter) ResolvePolicySnapshot(ctx context.Context, contentID string) (service.PolicySnapshot, error) {
+	if a.versions == nil {
+		// Without a version authority a snapshot cannot be pinned, so it cannot
+		// exist: a caller must fail closed rather than authorize against a
+		// version it cannot name.
+		return service.PolicySnapshot{}, fmt.Errorf("rule version authority is unavailable")
+	}
+	if a.svc == nil {
+		return service.PolicySnapshot{}, fmt.Errorf("gating rule service is unavailable")
+	}
+
+	version, err := a.versions.Read(ctx, contentID)
+	if err != nil {
+		return service.PolicySnapshot{}, err
+	}
+
+	a.mu.RLock()
+	cached, ok := a.cache[contentID]
+	a.mu.RUnlock()
+	if ok && cached.version == version.Version && time.Now().Before(cached.expiresAt) {
+		return service.PolicySnapshot{
+			ContentID:  contentID,
+			Rules:      cached.rules,
+			Version:    version.Version,
+			VerifiedAt: version.VerifiedAt,
+		}, nil
+	}
+
+	rules, err := a.svc.GetActiveRulesForContent(ctx, contentID)
+	if err != nil {
+		return service.PolicySnapshot{}, err
+	}
+	result := make([]middleware.GatingRule, len(rules))
+	for i, r := range rules {
+		result[i] = middleware.GatingRule{
+			ContractAddress: r.ContractAddress,
+			TokenID:         r.TokenID,
+			ChainID:         r.ChainID,
+			Standard:        r.Standard,
+			MinBalance:      r.MinBalance,
+		}
+	}
+
+	a.mu.Lock()
+	a.cache[contentID] = cachedRules{rules: result, version: version.Version, expiresAt: time.Now().Add(a.cacheTTL)}
+	a.mu.Unlock()
+
+	return service.PolicySnapshot{
+		ContentID:  contentID,
+		Rules:      result,
+		Version:    version.Version,
+		VerifiedAt: version.VerifiedAt,
+	}, nil
 }

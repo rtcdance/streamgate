@@ -538,6 +538,7 @@ func TestGeneratePlaybackToken_DefaultTTL(t *testing.T) {
 		1,
 		0,
 		"fp-abc",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -580,6 +581,7 @@ func TestValidatePlaybackToken_ContentMismatch(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-abc",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -600,6 +602,7 @@ func TestValidatePlaybackToken_WalletMismatch(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-abc",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -620,6 +623,7 @@ func TestValidatePlaybackToken_FingerprintMismatch(t *testing.T) {
 		1,
 		time.Minute,
 		"fp-correct",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -778,6 +782,7 @@ func TestValidatePlaybackToken_EmptyWalletRejected(t *testing.T) {
 		1,
 		time.Minute,
 		"",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -800,6 +805,7 @@ func TestParsePlaybackToken_FingerprintBoundTokenRequiresFingerprint(t *testing.
 		1,
 		time.Minute,
 		"fp-bound",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 
@@ -826,6 +832,7 @@ func TestParsePlaybackToken_UnboundTokenNoFingerprintRequired(t *testing.T) {
 		1,
 		time.Minute,
 		"",
+		WithSessionBinding(newSessionID(t, auth), 1),
 	)
 	require.NoError(t, err)
 

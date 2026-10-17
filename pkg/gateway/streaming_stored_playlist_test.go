@@ -90,13 +90,15 @@ func newStoredPlaylistRouter(t *testing.T, store *fakeSegmentStore) (*gin.Engine
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Set("wallet_address", "0x1234567890abcdef1234567890abcdef12345678")
+		c.Set("session_id", "test-session")
+		c.Set("auth_epoch", int64(1))
 		c.Next()
 	})
 	authSvc := newGatewayTestAuthService()
 	streamingSvc := service.NewStreamingService(nil, nil, nil, "http://localhost")
 	cache := NewStreamingCache()
 	limiter := newStreamLimiter(100)
-	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, store, limiter, cache, nil)
+	RegisterStreamingRoutes(r, zap.NewNop(), authSvc, streamingSvc, store, limiter, cache, nil, testPlaybackAuthorizer(t))
 	return r, authSvc
 }
 
@@ -112,7 +114,8 @@ func TestStreamingExt_ManifestQuality_ServesTheStoredPlaylist(t *testing.T) {
 	r, authSvc := newStoredPlaylistRouter(t, store)
 
 	token, err := authSvc.GeneratePlaybackToken(context.Background(),
-		"0x1234567890abcdef1234567890abcdef12345678", "c1", "", "", 1, 5*time.Minute, "")
+		"0x1234567890abcdef1234567890abcdef12345678", "c1", "", "", 1, 5*time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
@@ -161,7 +164,8 @@ func TestStreamingExt_ManifestQuality_FallsBackWithoutStoredPlaylist(t *testing.
 	r, authSvc := newStoredPlaylistRouter(t, store)
 
 	token, err := authSvc.GeneratePlaybackToken(context.Background(),
-		"0x1234567890abcdef1234567890abcdef12345678", "c1", "", "", 1, 5*time.Minute, "")
+		"0x1234567890abcdef1234567890abcdef12345678", "c1", "", "", 1, 5*time.Minute, "",
+		service.WithSessionBinding(startTestSession(t, authSvc), 1))
 	require.NoError(t, err)
 
 	w := httptest.NewRecorder()

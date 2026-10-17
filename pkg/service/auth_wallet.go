@@ -360,6 +360,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 	}
 	claims := &Claims{
 		Username:         walletAddress,
+		TokenType:        AccessTokenType,
 		WalletAddress:    walletAddress,
 		JTI:              generateID(),
 		SessionID:        sessionID,
@@ -370,7 +371,12 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 	return s.signToken(claims)
 }
 
-// GeneratePlaybackToken creates a short-lived token for segment access after manifest authorization.
+// GeneratePlaybackToken is the low-level signing primitive for a playback
+// capability. It requires an explicit session binding and rule version, and it
+// silently creates neither. Transports MUST NOT call it directly: they mint a
+// capability through IssueCapability, which consumes an authorization result so
+// the subject, rule version and session binding can never be re-labelled.
+//
 // PlaybackTokenOption customises capability issuance.
 type PlaybackTokenOption func(*playbackTokenOptions)
 
@@ -427,17 +433,12 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		apply(&opts)
 	}
 	if opts.sessionID == "" {
-		// A capability must always name a session, because every playlist and
-		// segment resolves it through ParsePlaybackToken, which requires the
-		// binding. With no caller-supplied session it gets its own — valid, but
-		// only revocable by revoking that session. The production path always
-		// supplies the requesting session so a logout reaches media in flight.
-		sessionID, err := s.StartSession()
-		if err != nil {
-			monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
-			return "", err
-		}
-		opts.sessionID, opts.authEpoch = sessionID, 1
+		// A capability must inherit the caller's login session. Creating a
+		// separate session here would leave media already handed to a player
+		// valid past the caller's logout — the exact thing session binding
+		// exists to prevent. Transports must supply the requesting session.
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", errors.New("a capability must inherit the caller's session")
 	}
 	if !opts.ruleVersionSet {
 		// The version the capability is issued under comes from the authority, so
@@ -454,7 +455,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 
 	claims := &Claims{
 		Username:          walletAddress,
-		TokenType:         "playback",
+		TokenType:         CapabilityTokenType,
 		WalletAddress:     walletAddress,
 		ContentID:         contentID,
 		Contract:          contract,
@@ -491,6 +492,65 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	return token, nil
 }
 
+// IssueCapability mints a playback capability from an AUTHORIZATION RESULT. It is
+// the only path transports may use to issue a capability: the subject, rule
+// version and session binding all come from the authorization, so a capability
+// can never be minted from request-supplied values or re-labelled with a newer
+// rule version. It does not re-read the rule version and never creates a session.
+//
+// The sealing of PlaybackAuthorization means a transport cannot assemble one
+// itself; only AuthorizePlayback produces a usable authorization.
+func (s *AuthService) IssueCapability(ctx context.Context, authz *PlaybackAuthorization, ttl time.Duration, clientFingerprint string) (string, error) {
+	if authz == nil || authz.seal != authorizationSeal {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", errors.New("a capability requires an authorization result")
+	}
+	if authz.session.SessionID == "" {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", ErrAuthorizationSessionRequired
+	}
+	if ttl <= 0 {
+		// The policy default, not a second hardcoded window.
+		ttl = s.PlaybackTokenTTL()
+	}
+
+	claims := &Claims{
+		Username:          authz.wallet,
+		TokenType:         CapabilityTokenType,
+		WalletAddress:     authz.wallet,
+		ContentID:         authz.contentID,
+		Contract:          authz.rule.ContractAddress,
+		TokenID:           authz.rule.TokenID,
+		ChainID:           authz.rule.ChainID,
+		JTI:               generateID(),
+		ClientFingerprint: clientFingerprint,
+		SessionID:         authz.session.SessionID,
+		AuthEpoch:         authz.session.AuthEpoch,
+		// The version the authorization granted under — never re-read.
+		RuleVersion: authz.ruleVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: "streamgate",
+			// A capability and an access token are signed with the same key, so
+			// the audience is what stops one being presented where the other is
+			// expected.
+			Audience:  jwt.ClaimStrings{PlaybackCapabilityAudience},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Subject:   authz.contentID,
+		},
+	}
+
+	svcPlaybackTokenIssued.Inc()
+	token, err := s.signTokenWithKind(claims, capabilityToken)
+	if err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", err
+	}
+	monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "success").Inc()
+	return token, nil
+}
+
 // ParsePlaybackToken validates a playback token against the requested content
 // WITHOUT a wallet-binding check: the wallet comes FROM the token's claims.
 // Used by paths where the token itself is the credential (PlaybackTokenAuth
@@ -512,7 +572,7 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, err
 	}
-	if claims.TokenType != "playback" {
+	if claims.TokenType != CapabilityTokenType {
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, errors.New("not a playback token")
 	}

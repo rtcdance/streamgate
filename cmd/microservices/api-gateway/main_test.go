@@ -216,7 +216,10 @@ func newTestRouter(authService *service.AuthService, verifier middleware.NFTOwne
 		}
 		nftGroup := authGroup.Group("/")
 		nftGroup.Use(middleware.NFTGateMiddleware(&nftGateConfig, zap.NewNop()))
-		gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil, segStorage, nil, nil, nil)
+		authorizer := service.NewPlaybackAuthorizer(&nftGateConfig, staticGatingRuleResolver{rules: []middleware.GatingRule{
+			{ContractAddress: "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", TokenID: "", ChainID: 11155111, Standard: "erc721", MinBalance: 1},
+		}}, zap.NewNop())
+		gateway.RegisterStreamingRoutes(nftGroup, zap.NewNop(), authService, nil, segStorage, nil, nil, nil, authorizer)
 
 		// Segment route uses playback token, not NFT gate
 		authGroup.GET("/api/v1/streaming/:id/segment/:num", func(c *gin.Context) {
@@ -265,12 +268,21 @@ func testJWT(walletAddress string) string {
 		"sub":            walletAddress,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	s, _ := token.SignedString([]byte("test-secret-that-is-at-least-32-chars"))
 	return s
+}
+
+// sessionBindingOption starts a live session so a test capability inherits one.
+func sessionBindingOption(t *testing.T, svc *service.AuthService) service.PlaybackTokenOption {
+	t.Helper()
+	sessionID, err := svc.StartSession()
+	require.NoError(t, err)
+	return service.WithSessionBinding(sessionID, 1)
 }
 
 func TestRegisterAuthRoutes_ChallengeAndLogin(t *testing.T) {
@@ -373,6 +385,7 @@ func TestRegisterStreamingRoutes_SegmentAcceptsPlaybackToken(t *testing.T) {
 		11155111,
 		time.Minute,
 		"",
+		sessionBindingOption(t, authService),
 	)
 	require.NoError(t, err)
 
@@ -769,4 +782,15 @@ func (staticBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) (*mid
 
 func (s staticGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ string) ([]middleware.GatingRule, error) {
 	return s.rules, nil
+}
+
+// ResolvePolicySnapshot pins the same rules to a fixed version so the streaming
+// authorizer can mint a capability from an authorization result.
+func (s staticGatingRuleResolver) ResolvePolicySnapshot(_ context.Context, contentID string) (service.PolicySnapshot, error) {
+	return service.PolicySnapshot{
+		ContentID:  contentID,
+		Rules:      s.rules,
+		Version:    1,
+		VerifiedAt: time.Now(),
+	}, nil
 }

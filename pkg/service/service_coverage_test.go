@@ -1119,7 +1119,8 @@ func TestAuthService_GeneratePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 }
@@ -1128,7 +1129,8 @@ func TestAuthService_ValidatePlaybackToken(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	claims, err := svc.ValidatePlaybackToken(context.Background(), token, "content1", "", "0xWallet")
@@ -1141,7 +1143,8 @@ func TestAuthService_ValidatePlaybackToken_Mismatch(t *testing.T) {
 	storage := NewMockAuthStorage()
 	svc := NewAuthService("test-secret-that-is-at-least-32-chars", storage)
 
-	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "")
+	token, err := svc.GeneratePlaybackToken(context.Background(), "0xWallet", "content1", "0xContract", "1", 1, 5*time.Minute, "",
+		WithSessionBinding(newSessionID(t, svc), 1))
 	require.NoError(t, err)
 
 	_, err = svc.ValidatePlaybackToken(context.Background(), token, "different-content", "", "0xWallet")

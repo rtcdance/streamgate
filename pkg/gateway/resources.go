@@ -49,6 +49,11 @@ type AppResources struct {
 	// GatingRuleResolver feeds the gRPC streaming server (the HTTP gate reads
 	// it via serviceInit); nil means gRPC manifest access is denied (fail-closed).
 	GatingRuleResolver middleware.GatingRuleResolver
+	// PlaybackAuthorizer is the shared HTTP/gRPC authorization, built from the
+	// HTTP gate's configuration so both entry points decide over the same
+	// evidence (and the same rule snapshot). It feeds the gRPC streaming server;
+	// nil means gRPC manifest access is denied (fail-closed).
+	PlaybackAuthorizer *service.PlaybackAuthorizer
 	// GenerationResolver reports the published artifact generation for a
 	// content; it is built by SetupRouter and feeds the gRPC streaming server
 	// (the HTTP routes get the same resolver directly). nil ⇒ generation 0.

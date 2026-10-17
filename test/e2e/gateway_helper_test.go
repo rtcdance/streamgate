@@ -222,6 +222,7 @@ func testJWT(svc *service.AuthService, walletAddress string) string {
 		"wallet_address": walletAddress,
 		"session_id":     sessionID,
 		"auth_epoch":     1,
+		"token_type":     service.AccessTokenType,
 		// The router JWT config requires both: an access token minted by
 		// this service carries them, and a token without them is refused
 		// as belonging to another issuer or another purpose.

@@ -387,7 +387,7 @@ func (l *streamLimiter) release() {
 // RegisterStreamingRoutes registers the manifest routes. genResolver is the
 // published-generation lookup; nil keeps every content at generation 0 (legacy
 // flat layout), which is also what existing callers get.
-func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, genResolver PublishedGenerationResolver, bucket ...string) {
+func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, genResolver PublishedGenerationResolver, authorizer *service.PlaybackAuthorizer, bucket ...string) {
 	if cache == nil {
 		cache = NewStreamingCache()
 	}
@@ -477,13 +477,6 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
 			return
 		}
-		contract := middleware.GetNFTContract(c)
-		chainID, _ := c.Get("nft_chain_id")
-		tokenID := c.Query("token_id")
-		var chainIDInt int64 = 1
-		if v, ok := chainID.(int64); ok {
-			chainIDInt = v
-		}
 		if limiter != nil && !limiter.tryAcquire() {
 			c.Header("Retry-After", "1")
 			abortWithError(c, http.StatusServiceUnavailable, ErrStreamLimitReached, "too many concurrent streams; try again shortly")
@@ -498,15 +491,36 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		monitoring.StreamingManifestsTotal.Inc()
 
-		// The capability lifetime comes from the policy (60s by default). It used
-		// to be hardcoded to 30 minutes, which meant a revoked or transferred
-		// holding kept playing for half an hour.
-		//
-		// It also inherits THIS request's session, so a logout revokes the
-		// capability along with the rest of the login rather than leaving it
-		// valid until it expires.
+		// The NFT gate has already authorized this playlist, so authorizing again
+		// here is the SAME decision over the same ≤5s evidence. It exists so the
+		// capability is minted from an immutable authorization RESULT: the subject,
+		// rule and rule version come from server-side rules, never from
+		// ?contract=/?token_id. The capability inherits THIS request's session, so
+		// a logout revokes it with the rest of the login, and it expires on the
+		// shared 60s policy rather than a hardcoded window.
+		if authorizer == nil {
+			abortWithError(c, http.StatusInternalServerError, ErrInternalError, "authorization is unavailable")
+			return
+		}
 		sessionID, authEpoch := middleware.GetSessionBinding(c)
-		generatedToken, err := authService.GeneratePlaybackToken(c.Request.Context(), wallet, contentID, contract, tokenID, chainIDInt, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"), service.WithSessionBinding(sessionID, authEpoch))
+		authz, authzErr := authorizer.AuthorizePlayback(c.Request.Context(), contentID, wallet,
+			service.SessionBinding{SessionID: sessionID, AuthEpoch: authEpoch})
+		if authzErr != nil {
+			// The gate let this request through, so a failure here is either the
+			// same denial over slightly newer evidence (403), a broken credential
+			// binding (401), or a genuine service failure (503). Answering 403 for
+			// the last one would disguise an RPC outage as "you hold no NFT".
+			switch {
+			case errors.Is(authzErr, service.ErrAuthorizationUnavailable):
+				abortWithError(c, http.StatusServiceUnavailable, ErrNFTVerifyError, "verification service unavailable")
+			case errors.Is(authzErr, service.ErrAuthorizationSessionRequired):
+				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+			default:
+				abortWithError(c, http.StatusForbidden, ErrNFTRequired, "nft access denied")
+			}
+			return
+		}
+		generatedToken, err := authService.IssueCapability(c.Request.Context(), authz, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
 			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
 			return

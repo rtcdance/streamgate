@@ -140,7 +140,7 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	RegisterAuthRoutes(router, log, cfg, svc.AuthService, authRL)
 	RegisterWeb3Routes(router, log, svc.Web3Service)
 
-	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, streamGroup, genResolver)
+	registerProtectedRoutes(router, cfg, log, svc, streamLim, streamCache, streamGroup, genResolver, res)
 }
 
 func buildCircuitBreakerConfig(cfg *config.Config) middleware.CircuitBreakerConfig {
@@ -304,7 +304,7 @@ func registerProtectedOpsRoutes(router *gin.Engine, mwSvc *middleware.Service) {
 	router.StaticFile("/docs/openapi.yaml", filepath.Join(".", "docs", "api", "openapi.yaml"))
 }
 
-func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup, genResolver PublishedGenerationResolver) {
+func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc *serviceInit, streamLim *streamLimiter, streamCache *StreamingCache, streamGroup *gin.RouterGroup, genResolver PublishedGenerationResolver, res *AppResources) {
 	RegisterAuthProtectedRoutes(router, log, svc.AuthService)
 
 	cbSvc := middleware.NewService(log)
@@ -328,6 +328,16 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		BlockTag:       parseBlockTag(cfg.Web3.BlockTag),
 		GatingMode:     cfg.Features.GatingMode, // empty → "closed" (fail-closed default set by the middleware)
 	}
+	// One authorization flow serves both entry points: the gRPC streaming server
+	// authorizes through this authorizer, built from the SAME gate config so it
+	// shares the evidence cache, instead of a boolean ownership check. The rule
+	// adapter is used as the snapshot resolver when it can produce a pinned
+	// snapshot; with no resolver the gRPC path fails closed.
+	var snapshotResolver service.PolicySnapshotResolver
+	if r, ok := svc.GatingRuleResolver.(service.PolicySnapshotResolver); ok {
+		snapshotResolver = r
+	}
+	res.PlaybackAuthorizer = service.NewPlaybackAuthorizer(&nftGateConfig, snapshotResolver, log)
 	// Streaming routes (manifest + segment) live on streamGroup, whose chain is
 	// [PlaybackTokenAuth, JWT, NFTGate] — the group was created before the
 	// global JWT Use in registerRoutes.
@@ -358,7 +368,7 @@ func registerProtectedRoutes(router *gin.Engine, cfg *config.Config, log *zap.Lo
 		c.Next()
 	})
 	RegisterStreamingSegmentRoute(streamGroup, log, svc.AuthService, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
-	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, genResolver, cfg.Storage.Bucket)
+	RegisterStreamingRoutes(streamGroup, log, svc.AuthService, svc.StreamingSvc, svc.SegmentStorage, streamLim, streamCache, genResolver, res.PlaybackAuthorizer, cfg.Storage.Bucket)
 
 	// A typed-nil *RegistryHub must not slip into the interface: the handler's
 	// nil check decides between 503 (registry disabled) and real handling.
