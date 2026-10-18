@@ -77,6 +77,13 @@ type Config struct {
 	// in-memory fallbacks that dev/demo/unit rely on.
 	Profile string
 
+	// Acceptance is the internal fault-injection contract of the durable
+	// acceptance stack. It is a first-class config section rather than an
+	// environment variable read at a call site, so a deployment cannot enable
+	// it by accident and so load/validation can refuse it outside the durable
+	// profile. See AcceptanceConfig.
+	Acceptance AcceptanceConfig
+
 	// Server
 	Server ServerConfig
 
@@ -430,6 +437,30 @@ type CircuitBreakerConfig struct {
 	WindowTime       string
 }
 
+// AcceptanceConfig drives the internal fault barrier of the durable acceptance
+// stack. A scenario observes the exact instant a component reaches a fault
+// point (the barrier writes a "reached" marker) and then acts, so a fault is
+// triggered by an observable state instead of by timing luck. It is deliberately
+// NOT a business HTTP fault endpoint: no request can inject a failure.
+//
+// It may only be enabled under the durable profile. LoadConfig refuses any other
+// profile, and the production validator reports it as critical, so a production
+// deployment that carries the switch fails at startup.
+type AcceptanceConfig struct {
+	// FaultBarrier enables the barrier. False (the default) means every barrier
+	// point is a no-op and costs nothing.
+	FaultBarrier bool `yaml:"fault_barrier"`
+	// FaultBarrierDir is the absolute rendezvous directory. Each point owns
+	// <dir>/<point>.reached (written by the component) and <dir>/<point>.release
+	// (written by the harness).
+	FaultBarrierDir string `yaml:"fault_barrier_dir"`
+	// FaultBarrierTimeout bounds how long a reached point waits for its release.
+	// A point that is never released fails loudly rather than continuing, so a
+	// scenario that did not actually fire cannot be recorded as passed. Zero
+	// means the 30s default.
+	FaultBarrierTimeout time.Duration `yaml:"fault_barrier_timeout"`
+}
+
 // LoadConfig loads configuration from environment and config files.
 // Reads base config.yaml first, then merges environment-specific config
 // (config.{STREAMGATE_ENV}.yaml). STREAMGATE_ENV defaults to "dev".
@@ -494,6 +525,11 @@ func LoadConfig() (*Config, error) {
 	// the only path to them.
 	_ = viper.BindEnv("auth.access_secret", "STREAMGATE_ACCESS_SECRET")
 	_ = viper.BindEnv("auth.capability_secret", "STREAMGATE_CAPABILITY_SECRET")
+
+	// Acceptance fault barrier (durable profile only; see AcceptanceConfig).
+	_ = viper.BindEnv("acceptance.fault_barrier", "STREAMGATE_FAULT_BARRIER")
+	_ = viper.BindEnv("acceptance.fault_barrier_dir", "STREAMGATE_FAULT_BARRIER_DIR")
+	_ = viper.BindEnv("acceptance.fault_barrier_timeout", "STREAMGATE_FAULT_BARRIER_TIMEOUT")
 	_ = viper.BindEnv("auth.previous_access_secrets", "AUTH_ACCESS_SECRETS")
 	_ = viper.BindEnv("auth.previous_capability_secrets", "AUTH_CAPABILITY_SECRETS")
 	_ = viper.BindEnv("app.profile", "STREAMGATE_PROFILE")
@@ -536,6 +572,12 @@ func LoadConfig() (*Config, error) {
 		Debug:       viper.GetBool("app.debug"),
 		Environment: env,
 		Profile:     viper.GetString("app.profile"),
+
+		Acceptance: AcceptanceConfig{
+			FaultBarrier:        viper.GetBool("acceptance.fault_barrier"),
+			FaultBarrierDir:     viper.GetString("acceptance.fault_barrier_dir"),
+			FaultBarrierTimeout: viper.GetDuration("acceptance.fault_barrier_timeout"),
+		},
 		Server: ServerConfig{
 			Port:         viper.GetInt("server.port"),
 			ReadTimeout:  viper.GetInt("server.read_timeout"),
@@ -751,6 +793,22 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("invalid gRPC port: %d", cfg.GRPC.Port)
 	}
 
+	if cfg.Acceptance.FaultBarrier {
+		// The fault barrier injects failures into a running process, so it may
+		// only ever be enabled under the durable acceptance profile. Refusing it
+		// at LOAD time (not only at validation) is what makes "production cannot
+		// carry this switch" true for every entry point: LoadConfig is the single
+		// door every main goes through, and a refusal here is fatal there.
+		if cfg.EffectiveProfile() != ProfileDurable {
+			return nil, fmt.Errorf(
+				"acceptance.fault_barrier may only be enabled under the %q profile (effective profile %q)",
+				ProfileDurable, cfg.EffectiveProfile())
+		}
+		if strings.TrimSpace(cfg.Acceptance.FaultBarrierDir) == "" {
+			return nil, fmt.Errorf("acceptance.fault_barrier_dir is required when the fault barrier is enabled")
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -766,6 +824,11 @@ func setDefaults() {
 	// environment names production, demo under debug, unit under test,
 	// durable otherwise.
 	viper.SetDefault("app.profile", "")
+
+	// Acceptance fault barrier: off unless the durable profile turns it on.
+	viper.SetDefault("acceptance.fault_barrier", false)
+	viper.SetDefault("acceptance.fault_barrier_dir", "")
+	viper.SetDefault("acceptance.fault_barrier_timeout", 30*time.Second)
 
 	// Server defaults
 	viper.SetDefault("server.port", 8080)
@@ -1165,6 +1228,16 @@ func (c *Config) validateProductionDeps(ve *ValidationError) {
 	}
 	if c.NATS.URL == "" {
 		ve.Critical = append(ve.Critical, "nats.url is empty — production requires a durable queue (transcoding tasks)")
+	}
+
+	// A deployment outside the durable acceptance profile must never carry the
+	// fault barrier: it injects failures into live traffic. LoadConfig already
+	// refuses the switch; this keeps the refusal visible (and fatal) for a Config
+	// assembled programmatically. The durable profile itself is allowed to.
+	if c.Acceptance.FaultBarrier && c.EffectiveProfile() != ProfileDurable {
+		ve.Critical = append(ve.Critical, fmt.Sprintf(
+			"acceptance.fault_barrier may only be enabled under the %q profile (effective profile %q) — it injects failures and must never reach a production deployment",
+			ProfileDurable, c.EffectiveProfile()))
 	}
 
 	// The on-chain content registry may be explicitly disabled (empty address),

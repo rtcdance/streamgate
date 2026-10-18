@@ -61,6 +61,62 @@ func TestValidateProduction_RequiresDependenciesInProd(t *testing.T) {
 	})
 }
 
+// The acceptance fault barrier injects failures into a running process, so only
+// the durable acceptance profile may carry the switch — and a production config
+// that does must be a CRITICAL finding (every main treats criticals as fatal
+// under the production profile), never a warning.
+func TestValidateProduction_RefusesTheFaultBarrier(t *testing.T) {
+	cfg := productionConfigBase()
+	cfg.Profile = ProfileProduction
+	require.NoError(t, cfg.ValidateProduction(zap.NewNop()), "the base config must be clean")
+	require.Equal(t, ProfileProduction, cfg.EffectiveProfile())
+
+	cfg.Acceptance.FaultBarrier = true
+	cfg.Acceptance.FaultBarrierDir = t.TempDir()
+
+	err := cfg.ValidateProduction(zap.NewNop())
+	require.Error(t, err, "a production config carrying the fault barrier must not validate")
+	ve, ok := err.(*ValidationError)
+	require.True(t, ok, "must be a ValidationError, got %T", err)
+	assert.True(t, ve.HasCritical(), "the fault barrier must be CRITICAL in production, not a warning")
+	assert.Contains(t, err.Error(), "fault_barrier")
+
+	t.Run("the durable profile may carry it", func(t *testing.T) {
+		durable := productionConfigBase()
+		durable.Profile = ProfileDurable
+		durable.Acceptance = AcceptanceConfig{FaultBarrier: true, FaultBarrierDir: t.TempDir()}
+
+		durableErr := durable.ValidateProduction(zap.NewNop())
+		if durableErr == nil {
+			return
+		}
+		for _, critical := range durableErr.(*ValidationError).Critical {
+			assert.NotContains(t, critical, "fault_barrier",
+				"the durable acceptance profile is the one profile allowed to enable the barrier")
+		}
+	})
+}
+
+// LoadConfig is the single door every main goes through, so the refusal lives
+// there too: a config that enables the barrier without the durable profile must
+// not even load.
+func TestLoadConfig_RefusesTheFaultBarrierOutsideDurable(t *testing.T) {
+	t.Setenv("STREAMGATE_FAULT_BARRIER", "true")
+
+	_, err := LoadConfig()
+	require.Error(t, err, "enabling the fault barrier under a non-durable profile must fail the load")
+	assert.Contains(t, err.Error(), "fault_barrier")
+
+	t.Setenv("STREAMGATE_PROFILE", ProfileDurable)
+	t.Setenv("STREAMGATE_FAULT_BARRIER_DIR", t.TempDir())
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err, "the durable profile may enable the barrier with an absolute directory")
+	require.NotNil(t, cfg)
+	assert.True(t, cfg.Acceptance.FaultBarrier)
+	assert.Equal(t, ProfileDurable, cfg.EffectiveProfile())
+}
+
 func TestValidateProduction_RegistryConfiguredMustBeComplete(t *testing.T) {
 	t.Run("registry enabled without signer key rejected", func(t *testing.T) {
 		cfg := productionConfigBase()
