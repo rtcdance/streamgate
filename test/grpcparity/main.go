@@ -250,12 +250,12 @@ func jwtExpiry(token string) (int64, error) {
 	return int64(exp), nil
 }
 
-func fetchSegment(base, segPath string) ([]byte, int, error) {
+func fetchSegment(base, segPath string) (body []byte, status int, err error) {
 	target := base + segPath
 	if !strings.HasPrefix(segPath, "/") {
 		target = strings.TrimRight(base, "/") + "/" + segPath
 	}
-	req, err := http.NewRequest(http.MethodGet, target, nil)
+	req, err := http.NewRequest(http.MethodGet, target, http.NoBody)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -265,7 +265,7 @@ func fetchSegment(base, segPath string) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, resp.StatusCode, err
 	}

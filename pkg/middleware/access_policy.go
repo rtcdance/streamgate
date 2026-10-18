@@ -73,7 +73,7 @@ var (
 
 // AccessErrorBody returns the HTTP status/body/code a policy error maps to. It
 // keeps the wrapper byte-identical to the previous inline checks.
-func AccessErrorBody(err error) (int, string, string) {
+func AccessErrorBody(err error) (status int, message, code string) {
 	var pe *accessPolicyError
 	if errors.As(err, &pe) {
 		return 401, pe.msg, pe.code

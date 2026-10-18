@@ -90,7 +90,9 @@ func (a *PlaybackAuthorization) Rule() middleware.GatingRule { return a.rule }
 func (a *PlaybackAuthorization) RuleVersion() int64 { return a.ruleVersion }
 
 // BlockEvidence is the block the grant was read at.
-func (a *PlaybackAuthorization) BlockEvidence() (uint64, string) { return a.blockNumber, a.blockHash }
+func (a *PlaybackAuthorization) BlockEvidence() (blockNumber uint64, blockHash string) {
+	return a.blockNumber, a.blockHash
+}
 
 // Session is the login session the capability will inherit.
 func (a *PlaybackAuthorization) Session() SessionBinding { return a.session }

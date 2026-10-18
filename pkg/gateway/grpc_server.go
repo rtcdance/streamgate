@@ -1134,9 +1134,13 @@ func grpcWalletFromContext(ctx context.Context) string {
 
 // grpcSessionFromContext returns the session and epoch the interceptor injected
 // from a validated access token.
-func grpcSessionFromContext(ctx context.Context) (string, int64) {
-	sessionID, _ := ctx.Value(grpcSessionKey).(string)
-	epoch, _ := ctx.Value(grpcEpochKey).(int64)
+func grpcSessionFromContext(ctx context.Context) (sessionID string, epoch int64) {
+	if value, ok := ctx.Value(grpcSessionKey).(string); ok {
+		sessionID = value
+	}
+	if value, ok := ctx.Value(grpcEpochKey).(int64); ok {
+		epoch = value
+	}
 	return sessionID, epoch
 }
 
