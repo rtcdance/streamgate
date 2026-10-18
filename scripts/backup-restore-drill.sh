@@ -112,6 +112,20 @@ dst_psql() { docker exec "$DST_PG" psql -U postgres -d streamgate -tAc "$1"; }
 
 json_get() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || true; }
 
+# normalize_number <value> — a chain JSON field may be a hex string ("0x2a") or
+# a bare number depending on the cast build, so comparisons go through this
+# rather than through a string equality that silently depends on the format.
+normalize_number() {
+    python3 -c "
+import sys
+value = sys.argv[1].strip()
+try:
+    print(int(value, 16) if value[:2].lower() == '0x' else int(value))
+except Exception:
+    sys.exit(1)
+" "$1" 2>/dev/null || true
+}
+
 http_code() { # http_code <method> <url> [header...]
     local method="$1" url="$2"; shift 2
     curl -s -o /dev/null -w '%{http_code}' -X "$method" --max-time 20 "$@" "$url" 2>/dev/null || echo 000
@@ -166,6 +180,23 @@ wait_health() { # wait_health <url> <seconds>
     local url="$1" deadline=$((SECONDS + $2))
     while [ "$SECONDS" -lt "$deadline" ]; do
         [ "$(http_code GET "$url")" = "200" ] && return 0
+        sleep 2
+    done
+    return 1
+}
+
+# wait_forwarder <container-name> — the chain forwarder carries no healthcheck
+# (the socat image has no probe utility), so `docker compose up --wait` refuses
+# it as "no healthcheck configured". Readiness is therefore asserted through the
+# chain itself: cast, run from the controller, must reach the SOURCE chain BY THE
+# FORWARDER'S CONTAINER NAME (both stacks' containers are reachable by name on
+# the shared network).
+wait_forwarder() {
+    local host="$1" deadline=$((SECONDS + 60))
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        if [ "$(cast chain-id --rpc-url "http://${host}:8545" 2>/dev/null | tr -d '[:space:]')" = "$CHAIN_ID" ]; then
+            return 0
+        fi
         sleep 2
     done
     return 1
@@ -340,9 +371,16 @@ docker run --rm -v "${DST_PROJECT}_redis-data:/data" -v "${ARTIFACTS}:/art:ro" "
     sh -c 'cp /art/redis-dump.rdb /data/dump.rdb' || die "Redis restore failed"
 p "objects and the Redis snapshot restored into FRESH target volumes"
 
-dst_compose up -d --no-build --no-deps --pull never --wait --wait-timeout 240 postgres redis minio nats consul anvil >/dev/null \
+dst_compose up -d --no-build --no-deps --pull never --wait --wait-timeout 240 postgres redis minio nats consul >/dev/null \
     || die "the target infrastructure did not become ready"
-p "target infrastructure up (postgres/redis/minio/nats, plus the chain forwarder)"
+# The chain forwarder is started WITHOUT --wait: it carries no healthcheck, and
+# `--wait` refuses a service that has none. Its readiness is asserted through the
+# chain itself, which is the only question that matters for the apps.
+dst_compose up -d --no-build --no-deps --pull never anvil >/dev/null \
+    || die "the target chain forwarder did not start"
+wait_forwarder "${DST_PROJECT}-anvil-1" \
+    || die "the target chain forwarder never forwarded to the chain"
+p "target infrastructure up (postgres/redis/minio/nats/consul, and the chain forwarder reaches chain ${CHAIN_ID})"
 
 docker exec -i "$DST_PG" psql -U postgres -d streamgate -v ON_ERROR_STOP=1 < "$PG_DUMP" >/dev/null \
     || die "the Postgres dump did not apply cleanly to the target"
@@ -427,7 +465,7 @@ OBSERVED_CODE_HASH="$(anvil_cast keccak "$REG_CODE" 2>/dev/null | tr -d '[:space
 [ "$OBSERVED_CODE_HASH" = "$MANIFEST_CODE_HASH" ] \
     && p "the chain's runtime code hash matches the deployment record ($MANIFEST_CODE_HASH)" \
     || f "runtime code hash mismatch: chain $OBSERVED_CODE_HASH vs record $MANIFEST_CODE_HASH"
-[ "$REGISTRY_ADDR" = "$MANIFEST_ADDR" ] \
+[ "$(printf '%s' "$REGISTRY_ADDR" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$MANIFEST_ADDR" | tr '[:upper:]' '[:lower:]')" ] \
     && p "the registry address in the snapshot matches the deployment record" \
     || f "registry address mismatch: snapshot $REGISTRY_ADDR vs record $MANIFEST_ADDR"
 
@@ -440,10 +478,11 @@ while IFS=$'\t' read -r cid txh blk bhash status; do
         RECEIPT_MISMATCH=$((RECEIPT_MISMATCH + 1))
         continue
     fi
-    r_blk="$(json_get "$receipt" blockNumber)"
-    r_hash="$(json_get "$receipt" blockHash)"
-    r_status="$(json_get "$receipt" status)"
-    if [ "${r_status:-}" = "0x1" ] && [ "${r_blk:-}" = "0x$(printf '%x' "$blk")" ] && [ "${r_hash,,}" = "${bhash,,}" ]; then
+    r_blk="$(normalize_number "$(json_get "$receipt" blockNumber)")"
+    r_status="$(normalize_number "$(json_get "$receipt" status)")"
+    r_hash="$(printf '%s' "$(json_get "$receipt" blockHash)" | tr '[:upper:]' '[:lower:]')"
+    b_hash="$(printf '%s' "$bhash" | tr '[:upper:]' '[:lower:]')"
+    if [ "${r_status:-x}" = "1" ] && [ "${r_blk:-x}" = "$blk" ] && [ "$r_hash" = "$b_hash" ]; then
         printf '  content %s: tx %s confirmed in block %s, receipt block hash still canonical\n' "$cid" "${txh:0:18}…" "$blk"
     else
         f "receipt mismatch for $txh: block ${r_blk:-none} hash ${r_hash:-none} status ${r_status:-none} (recorded block $blk hash $bhash)"
