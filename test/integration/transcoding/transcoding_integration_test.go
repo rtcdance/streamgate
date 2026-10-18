@@ -74,6 +74,14 @@ func newTranscodingService(t *testing.T, db storage.DB) *service.TranscodingServ
 	return service.NewTranscodingService(db, queue)
 }
 
+func ensureContent(t *testing.T, db *storage.Database, id string) {
+	t.Helper()
+	_, err := db.Exec(context.Background(),
+		"INSERT INTO contents (id, title, type, owner_id) VALUES ($1, $2, 'video', '00000000-0000-0000-0000-000000000000') ON CONFLICT (id) DO NOTHING",
+		id, "integration "+id)
+	require.NoError(t, err)
+}
+
 func TestTranscodingService_Transcode(t *testing.T) {
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -82,6 +90,7 @@ func TestTranscodingService_Transcode(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000001")
 	taskID, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000001", "1080p", "http://localhost:8080/input.mp4", 5, "0xOwner")
 	require.NoError(t, err)
 	require.NotEmpty(t, taskID)
@@ -95,6 +104,7 @@ func TestTranscodingService_GetTranscodingStatus(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000002")
 	taskID, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000002", "720p", "http://localhost:8080/input.mp4", 5, "0xOwner")
 	require.NoError(t, err)
 
@@ -112,6 +122,7 @@ func TestTranscodingService_UpdateTaskStatus(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000003")
 	taskID, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000003", "480p", "http://localhost:8080/input.mp4", 5, "0xOwner")
 	require.NoError(t, err)
 
@@ -132,9 +143,10 @@ func TestTranscodingService_ListTasks(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000001")
 
-	for i := 0; i < 3; i++ {
-		_, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000001", "1080p", "http://localhost:8080/input.mp4", 5, "0xOwner")
+	for _, profile := range []string{"1080p", "720p", "480p"} {
+		_, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000001", profile, "http://localhost:8080/input.mp4", 5, "0xOwner")
 		require.NoError(t, err)
 	}
 
@@ -151,6 +163,7 @@ func TestTranscodingService_CancelTask(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000004")
 	taskID, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000004", "1080p", "http://localhost:8080/input.mp4", 5, "0xOwner")
 	require.NoError(t, err)
 
@@ -170,6 +183,7 @@ func TestTranscodingService_DeleteTask(t *testing.T) {
 	defer helpers.CleanupTestDB(t, db)
 
 	svc := newTranscodingService(t, db)
+	ensureContent(t, db, "00000000-0000-0000-0000-000000000005")
 	taskID, err := svc.Transcode(context.Background(), "00000000-0000-0000-0000-000000000005", "1080p", "http://localhost:8080/input.mp4", 5, "0xOwner")
 	require.NoError(t, err)
 
