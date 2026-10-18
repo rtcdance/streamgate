@@ -1017,14 +1017,20 @@ JSON
             MONOLITH_BASE="${MONOLITH_BASE:-$BASE_URL}" \
             ANVIL_BASE="${ANVIL_BASE:-$ANVIL_URL}" \
             node run.mjs --only=06-playback >"$WORKDIR/playback.log" 2>&1); then
-            ADV="$(grep -oE 'currentTime=[0-9.]+s' "$WORKDIR/playback.log" | head -1)"
+            # `|| true` is load-bearing: the script runs under `set -e` WITH
+            # `pipefail`, so a grep that finds nothing makes the whole assignment
+            # return non-zero and the shell exits SILENTLY — no FAIL line, no
+            # summary. That is exactly the browser-failure path, which the perf
+            # stage (and the recovery drill) tolerate by name; before this the
+            # failure was invisible and the tolerance could never trigger.
+            ADV="$(grep -oE 'currentTime=[0-9.]+s' "$WORKDIR/playback.log" 2>/dev/null | head -1 || true)"
             p "Browser played the stream and time advanced (${ADV:-ok})"
         else
             # Match the report's failure marker, not the word "Error": a passing
             # check named playback-no-fatal-error contains it and would be quoted
-            # here as if it were the cause.
-            DETAIL="$(grep -m1 -E '✗|FAILED' "$WORKDIR/playback.log" 2>/dev/null | head -c 200)"
-            [ -n "$DETAIL" ] || DETAIL="$(tail -c 200 "$WORKDIR/playback.log" 2>/dev/null | tr '\n' ' ')"
+            # here as if it were the cause. `|| true`: see the note above.
+            DETAIL="$(grep -m1 -E '✗|FAILED' "$WORKDIR/playback.log" 2>/dev/null | head -c 200 || true)"
+            [ -n "$DETAIL" ] || DETAIL="$(tail -c 200 "$WORKDIR/playback.log" 2>/dev/null | tr '\n' ' ' || true)"
             f "Browser playback failed: $DETAIL"
         fi
         # The log is the only place the harness explains itself; the tmp dir it

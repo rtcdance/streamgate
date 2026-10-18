@@ -107,8 +107,11 @@ dst_compose() { docker compose -p "$DST_PROJECT" -f "$COMPOSE" -f "$DST_EXTRA" "
 # publish and nothing to reach over HTTP.
 anvil_cast() { docker exec "$SRC_ANVIL" cast "$@" --rpc-url "http://localhost:8545"; }
 
-src_psql() { docker exec "$SRC_PG" psql -U postgres -d streamgate -tAc "$1"; }
-dst_psql() { docker exec "$DST_PG" psql -U postgres -d streamgate -tAc "$1"; }
+# `|| true`: a psql error must surface as the failing CHECK (an empty value that
+# does not match), not as a silent abort of the whole drill. psql's own message
+# still reaches the log through stderr.
+src_psql() { docker exec "$SRC_PG" psql -U postgres -d streamgate -tAc "$1" || true; }
+dst_psql() { docker exec "$DST_PG" psql -U postgres -d streamgate -tAc "$1" || true; }
 
 json_get() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || true; }
 
