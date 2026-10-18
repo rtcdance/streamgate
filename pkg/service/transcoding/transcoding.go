@@ -676,18 +676,22 @@ func (s *TranscodingService) settleTerminal(ctx context.Context, task *Transcodi
 		s.cleanupTaskStaging(ctx, task.ID)
 	}
 	if s.queue != nil {
-		if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil {
+		var err error
+		if s.db != nil {
+			err = s.publishIntent(ctx, task.ID, models.OutboxKindDLQ, payload)
+		} else {
+			err = s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload)
+		}
+		if err != nil {
+			if s.db != nil {
+				s.noteOutboxError(ctx, task.ID, models.OutboxKindDLQ, err)
+			}
 			if log != nil {
-				log.Error("DLQ publish failed, intent stays recoverable",
+				log.Error("DLQ settlement failed, intent stays recoverable",
 					zap.String("task_id", task.ID), zap.Error(err))
 			}
 			s.nak(handle, nakBusyDelay, log)
 			return
-		}
-		if s.db != nil {
-			if err := s.markOutboxDelivered(ctx, task.ID, models.OutboxKindDLQ); err != nil && log != nil {
-				log.Warn("failed to mark DLQ intent delivered", zap.String("task_id", task.ID), zap.Error(err))
-			}
 		}
 	}
 	// The DLQ intent is published and marked delivered but the original message
@@ -718,15 +722,16 @@ func (s *TranscodingService) settleAlreadyFailed(ctx context.Context, task *Tran
 		return
 	}
 	if status != "delivered" {
-		if err := s.queue.PublishOutbox(models.OutboxKindDLQ, task.ID, payload); err != nil {
+		// The durable delivery mark is part of settling the original message.
+		// If it fails after PubAck, retain the original delivery and republish
+		// the same DLQ message ID on recovery rather than Acking pending state.
+		if err := s.publishIntent(ctx, task.ID, models.OutboxKindDLQ, payload); err != nil {
+			s.noteOutboxError(ctx, task.ID, models.OutboxKindDLQ, err)
 			if log != nil {
-				log.Error("DLQ publish failed on redelivery", zap.String("task_id", task.ID), zap.Error(err))
+				log.Error("DLQ settlement failed on redelivery", zap.String("task_id", task.ID), zap.Error(err))
 			}
 			s.nak(handle, nakBusyDelay, log)
 			return
-		}
-		if err := s.markOutboxDelivered(ctx, task.ID, models.OutboxKindDLQ); err != nil && log != nil {
-			log.Warn("failed to mark DLQ intent delivered", zap.String("task_id", task.ID), zap.Error(err))
 		}
 	}
 	s.ack(handle, log)
@@ -880,21 +885,7 @@ func (s *TranscodingService) pumpOutbox(ctx context.Context) (int, error) {
 
 	published := 0
 	for _, in := range pending {
-		// The intent row is committed and still pending: a crash now must leave
-		// the enqueue undone, so the next start republishes it.
-		s.arriveAt(ctx, "outbox.before_publish")
-		if err := s.queue.PublishOutbox(in.kind, in.id, in.payload); err != nil {
-			s.noteOutboxError(ctx, in.id, in.kind, err)
-			continue
-		}
-		// The broker acknowledged the publish but the intent is not yet marked
-		// delivered: a crash here republishes the same message id, which the
-		// broker deduplicates.
-		s.arriveAt(ctx, "outbox.after_publish")
-		// Mark delivered only after PubAck. If this write fails the row stays
-		// pending and the next pass republishes; the message ID makes that a
-		// broker-side no-op.
-		if err := s.markOutboxDelivered(ctx, in.id, in.kind); err != nil {
+		if err := s.publishIntent(ctx, in.id, in.kind, in.payload); err != nil {
 			s.noteOutboxError(ctx, in.id, in.kind, err)
 			continue
 		}
@@ -2036,7 +2027,12 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 		// the broker acknowledged, and only then is the intent delivered.
 		if s.queue != nil {
 			if payload, merr := json.Marshal(task); merr == nil {
-				s.publishIntent(ctx, task.ID, models.OutboxKindTask, payload)
+				if err := s.publishIntent(ctx, task.ID, models.OutboxKindTask, payload); err != nil {
+					s.noteOutboxError(ctx, task.ID, models.OutboxKindTask, err)
+					if s.log != nil {
+						s.log.Warn("immediate outbox publish deferred", zap.String("id", task.ID), zap.Error(err))
+					}
+				}
 			}
 		}
 	} else {
@@ -2052,20 +2048,23 @@ func (s *TranscodingService) Transcode(ctx context.Context, contentID, profile, 
 	return taskID, nil
 }
 
-// publishIntent publishes one outbox intent immediately. Success marks the row
-// delivered (only after the broker acknowledged); failure leaves the row
-// pending for the outbox pump.
-func (s *TranscodingService) publishIntent(ctx context.Context, id, kind string, payload []byte) {
+// publishIntent is shared by immediate submission and the background pump.
+// The committed intent stays pending across both crash windows; redelivery
+// reuses its stable message ID after an unknown PubAck or a failed DB write.
+func (s *TranscodingService) publishIntent(ctx context.Context, id, kind string, payload []byte) error {
 	if s.queue == nil {
-		return
+		return nil
+	}
+	if err := s.faultPoint("outbox.before_publish").Arrive(ctx); err != nil {
+		return fmt.Errorf("before outbox publish: %w", err)
 	}
 	if err := s.queue.PublishOutbox(kind, id, payload); err != nil {
-		s.noteOutboxError(ctx, id, kind, err)
-		return
+		return err
 	}
-	if err := s.markOutboxDelivered(ctx, id, kind); err != nil && s.log != nil {
-		s.log.Warn("failed to mark outbox intent delivered", zap.String("id", id), zap.Error(err))
+	if err := s.faultPoint("outbox.after_publish").Arrive(ctx); err != nil {
+		return fmt.Errorf("after outbox publish: %w", err)
 	}
+	return s.markOutboxDelivered(ctx, id, kind)
 }
 
 // countOwnerActiveTasks counts an owner's pending or processing tasks, from
