@@ -574,10 +574,24 @@ ensure_playwright() {
   # even though nothing was wrong with the candidate. Retry with a bounded,
   # longer timeout; the browser build itself stays pinned by package-lock.json,
   # so this changes only how long we wait for those bytes.
+  #
+  # VERIFY_PLAYWRIGHT_DOWNLOAD_HOST redirects WHERE those bytes come from, for the
+  # same reason VERIFY_GOPROXY exists for modules and the toolchain image sources
+  # solc/foundry from a mirror: this network cannot move the 175 MiB from
+  # cdn.playwright.dev (measured ~127 KB/s on the host, and the container saw no
+  # progress at all after ~20 minutes), which would make a code gate wait on a
+  # network gate. The browser build is still identified by the pinned
+  # package-lock.json, so the bytes are the same artifact.
+  local -a download_env=()
+  if [ -n "${VERIFY_PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
+    log "playwright browser downloads come from ${VERIFY_PLAYWRIGHT_DOWNLOAD_HOST} (VERIFY_PLAYWRIGHT_DOWNLOAD_HOST)"
+    download_env=(PLAYWRIGHT_DOWNLOAD_HOST="${VERIFY_PLAYWRIGHT_DOWNLOAD_HOST}")
+  fi
   local attempt
   for attempt in 1 2 3; do
     if ( cd scripts/h5-demo-acceptance \
       && PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=180000 \
+         env "${download_env[@]+"${download_env[@]}"}" \
          npx playwright install --with-deps chromium ); then
       return
     fi
