@@ -640,7 +640,7 @@ PYPORTS
 }
 
 # run_fullchain <project> <monolith-port> <gateway-port> <anvil-port> <minio-port> —
-# the 66-check acceptance against BOTH deployment modes of the verify stack,
+# the 71-check acceptance against BOTH deployment modes of the verify stack,
 # with project-scoped containers and controller-local front ports. When
 # gw_port == mono_port only the monolith mode runs (perf/release do not start
 # a gateway). The H5 page comes from the per-run nginx proxy above, whose /api
@@ -668,6 +668,7 @@ run_fullchain() {
   if ! env "${common_env[@]}" \
     H5_DEMO_URL="http://localhost:${VERIFY_H5_PORT}/demo/" \
     API_BASE="http://localhost:${mono_port}" \
+    GRPC_TARGET="monolith:9090" \
     bash scripts/fullchain-acceptance.sh "http://localhost:${mono_port}"; then
     diag_stack_logs "$project"
     return 1
@@ -680,6 +681,7 @@ run_fullchain() {
     if ! env "${common_env[@]}" \
       H5_DEMO_URL="http://localhost:${VERIFY_H5_PORT}/demo/" \
       API_BASE="http://localhost:${gw_port}" \
+      GRPC_TARGET="api-gateway:9090" \
       bash scripts/fullchain-acceptance.sh "http://localhost:${gw_port}"; then
       diag_stack_logs "$project"
       return 1
@@ -965,7 +967,7 @@ acceptance_failed_only_in_browser() {
   local log_file="$1" summary
   summary="$(grep -aE '^RESULT: [0-9]+ PASSED, [0-9]+ FAILED' "$log_file" | tail -1)"
   [ -n "$summary" ] || return 1
-  [ "$(printf '%s' "$summary" | sed -E 's/^RESULT: ([0-9]+) PASSED.*/\1/')" = "65" ] || return 1
+  [ "$(printf '%s' "$summary" | sed -E 's/^RESULT: ([0-9]+) PASSED.*/\1/')" = "70" ] || return 1
   [ "$(printf '%s' "$summary" | sed -E 's/.* ([0-9]+) FAILED.*/\1/')" = "1" ] || return 1
   grep -aq '^FAIL: Browser playback failed' "$log_file"
 }
@@ -979,14 +981,14 @@ acceptance_failed_only_in_browser() {
 # orthogonal to the measured TTFB of gated media — a single idle-page timeout
 # there must not sink a p95 comparison. The seed is still validated where it
 # matters: the content and its transcode must exist, which the assertions below
-# enforce. The candidate keeps the full 66-check gate in the media stage.
+# enforce. The candidate keeps the full 71-check gate in the media stage.
 perf_seed_and_pool() {
   local project="$1" dir="$2" tolerant="${3:-0}" log_file="${LOG_DIR}/compare-seed.log"
   mkdir -p "$LOG_DIR"; : > "$log_file"
   log "stage=compare-seed (host) → log ${log_file}"
   if ! run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 2>&1 | tee -a "$log_file"; then
     if [ "$tolerant" = "1" ] && acceptance_failed_only_in_browser "$log_file"; then
-      log "WARNING: the seed acceptance failed ONLY the browser check (log: ${log_file}) — tolerated for the perf stage, whose seed needs a seeded content and transcode; the media stage keeps the strict 66-check gate"
+      log "WARNING: the seed acceptance failed ONLY the browser check (log: ${log_file}) — tolerated for the perf stage, whose seed needs a seeded content and transcode; the media stage keeps the strict 71-check gate"
     else
       fail "seed acceptance failed for ${project} (log: ${log_file})"
     fi
@@ -1115,12 +1117,12 @@ stage_perf() {
   # The seed's acceptance is tolerated ONLY for the browser check — the perf
   # stage needs a seeded content and its transcode, and a Chromium page-load
   # timeout is orthogonal to that. Any other check failing still fails here, and
-  # the media stage keeps the strict 66-check gate.
+  # the media stage keeps the strict 71-check gate.
   : > "${LOG_DIR}/perf.log"
   log "stage=perf (host) → log ${LOG_DIR}/perf.log"
   if ! run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 2>&1 | tee -a "${LOG_DIR}/perf.log"; then
     if acceptance_failed_only_in_browser "${LOG_DIR}/perf.log"; then
-      log "WARNING: the perf seed failed ONLY the browser check — tolerated here; the media stage keeps the strict 66-check gate"
+      log "WARNING: the perf seed failed ONLY the browser check — tolerated here; the media stage keeps the strict 71-check gate"
     else
       fail "perf seed acceptance failed (log: ${LOG_DIR}/perf.log)"
     fi
