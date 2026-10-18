@@ -85,6 +85,14 @@ func TestTranscodingMetrics_RTFUsesMeasuredTranscodeWall(t *testing.T) {
 		"RTF must use measured transcode wall time, excluding queue/download/upload delays")
 }
 
+func TestTranscodingMetrics_ProfileLabelsAreBounded(t *testing.T) {
+	labels := map[string]string{"outcome": "failed", "profile": "unknown"}
+	before := transcodingCounter(t, "streamgate_transcoding_tasks_total", labels)
+	recordTranscodingOutcome("failed", "legacy-unbounded-profile-value", nil)
+	after := transcodingCounter(t, "streamgate_transcoding_tasks_total", labels)
+	require.Equal(t, before+1, after, "unknown profile names must share the bounded unknown series")
+}
+
 // TestTranscodingMetrics_CompleteTask_CountsSucceeded pins the memory-mode
 // terminal path: CompleteTask increments TranscodingTasksTotal{ succeeded }.
 func TestTranscodingMetrics_CompleteTask_CountsSucceeded(t *testing.T) {
