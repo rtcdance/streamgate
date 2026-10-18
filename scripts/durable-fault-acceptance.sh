@@ -23,6 +23,7 @@ PG_CONTAINER=""
 MONO_CONTAINER=""
 TC_CONTAINER=""
 TC_CONTAINER_2=""
+MINIO_CONTAINER=""
 WORKER_RECLAIM_BOUND="${WORKER_RECLAIM_BOUND:-60}"
 # Bounded observation window that covers the broker's own redelivery timer
 # (jsAckWait 30s in the candidate) plus a margin. A predicate is polled for the
@@ -39,12 +40,13 @@ while [ "$#" -gt 0 ]; do
     --candidate-sha) CANDIDATE_SHA="$2"; shift 2 ;;
     --pg-container) PG_CONTAINER="$2"; shift 2 ;;
     --mono-container) MONO_CONTAINER="$2"; shift 2 ;;
+    --minio-container) MINIO_CONTAINER="$2"; shift 2 ;;
     --transcoder-container) TC_CONTAINER="$2"; shift 2 ;;
     --transcoder-container-2) TC_CONTAINER_2="$2"; shift 2 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA PG_CONTAINER MONO_CONTAINER TC_CONTAINER; do
+for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA PG_CONTAINER MINIO_CONTAINER MONO_CONTAINER TC_CONTAINER; do
   [ -n "${!required}" ] || { printf 'missing --%s\n' "$(printf '%s' "$required" | tr 'A-Z_' 'a-z-')" >&2; exit 2; }
 done
 
@@ -214,6 +216,19 @@ task_row() { sql_scalar "SELECT id FROM transcoding_tasks WHERE content_id='${CO
 field() { sql_scalar "SELECT ${2} FROM transcoding_tasks WHERE id='${1}'"; }
 published_generation() { sql_scalar "SELECT COALESCE(published_generation,0) FROM contents WHERE id='${CONTENT_ID}'"; }
 task_count() { sql_scalar "SELECT count(*) FROM transcoding_tasks WHERE content_id='${CONTENT_ID}'"; }
+
+# object_path_from_url <url> — "<bucket>/<key>" of an object URL, so the source
+# of a task can be removed from the object store itself. The worker fetches the
+# URL carried by the MESSAGE, so editing the task row would change nothing while
+# deleting the object is a fault the candidate really observes.
+object_path_from_url() {
+  python3 - "$1" <<'PY'
+import sys, urllib.parse
+path = urllib.parse.urlparse(sys.argv[1]).path.lstrip('/')
+parts = path.split('/', 1)
+print(f"{parts[0]}/{parts[1]}" if len(parts) > 1 and parts[1] else '')
+PY
+}
 
 # ---------------------------------------------------------------------------
 # 0. Preconditions: the durable profile really is in force, and the barrier
@@ -431,9 +446,14 @@ barrier_reset
 arm worker.claimed
 if seed_content fw05 && wait_reached worker.claimed 60; then
   TASK="$(task_row)"
-  sql_exec "UPDATE transcoding_tasks SET input_url='http://minio:9000/streamgate/fault-absent-input.mp4' WHERE id='${TASK}'" \
-    || f "FW05: could not destroy the task input"
-  p "FW05: destroyed the input of task ${TASK} while it was parked before the first fetch"
+  OBJ="$(object_path_from_url "$(field "$TASK" input_url)")"
+  if [ -n "$OBJ" ] \
+    && docker exec "$MINIO_CONTAINER" mc rm --force "local/${OBJ}" >/dev/null 2>&1 \
+    && ! docker exec "$MINIO_CONTAINER" mc stat "local/${OBJ}" >/dev/null 2>&1; then
+    p "FW05: deleted the source object ${OBJ} while the task was parked before its first fetch"
+  else
+    f "FW05: could not delete the source object (${OBJ:-cannot derive a key from the task input URL})"
+  fi
   for attempt in 1 2; do
     release_point worker.claimed
     if wait_reached worker.claimed 60; then

@@ -71,6 +71,10 @@
       {
         "package": "github.com/rtcdance/streamgate/test/integration",
         "test": "TestAnvil_ContentRegistry_RegisterAndReadBack"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration",
+        "test": "TestAnvil_RegistryDurableIntentLifecycle"
       }
     ],
     "ops-gateway-core": [

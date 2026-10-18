@@ -812,7 +812,7 @@ bring_up_fullstack() {
   if [ "${#app[@]}" -gt 0 ]; then
     log "starting verify app services (project ${project}): ${app[*]}"
     docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never --wait --wait-timeout 300 "${app[@]}" \
-      || fail "verify app services failed to start (project ${project})"
+      || { diag_stack_logs "$project"; fail "verify app services failed to start (project ${project})"; }
   fi
   for svc in "${services[@]}"; do
     case "$svc" in
@@ -1519,6 +1519,7 @@ stage_faults() {
       --artifact-dir "$artifacts" --helper-image "$IMAGE_TAG" \
       --candidate-sha "$(git rev-parse HEAD)" \
       --pg-container "${project}-postgres-1" \
+      --minio-container "${project}-minio-1" \
       --mono-container "${project}-monolith-1" \
       --transcoder-container "${project}-transcoder-1" \
       --transcoder-container-2 "${project}-transcoder-2" )
