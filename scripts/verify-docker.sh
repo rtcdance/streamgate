@@ -1436,6 +1436,7 @@ stage_recovery() {
     --src-api "http://localhost:${src_mono}" \
     --dst-api "http://localhost:${dst_mono}" \
     --artifacts "$artifacts" \
+    --controller "$VERIFY_CONTROLLER" \
     --candidate-sha "$(git rev-parse HEAD)"
 
   # The restored stack must run the candidate images, exactly like every other
