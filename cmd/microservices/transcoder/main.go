@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/core/logger"
 	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
@@ -158,6 +159,14 @@ func main() {
 		service.WithQueueLimit(cfg.Transcoding.MaxQueuePending),
 		service.WithOwnerTaskLimit(cfg.Transcoding.MaxOwnerPending),
 	)
+	// The durable acceptance stack rendezvous at the worker's claim, staging,
+	// publish and Ack points; Load returns nil for every profile but durable, so
+	// the isolated worker has no fault points in production.
+	workerBarrier, berr := barrier.Load(cfg, log.Named("transcode-barrier"))
+	if berr != nil {
+		log.Warn("transcoding fault barrier refused", zap.Error(berr))
+	}
+	svc.SetFaultBarrier(workerBarrier)
 	svc.StartWorker(log.Named("transcode-worker"))
 	log.Info("Transcoding role: external worker — claims and executes tasks submitted by the app processes")
 

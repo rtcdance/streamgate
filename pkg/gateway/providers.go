@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rtcdance/streamgate/migrations"
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/plugins/transcoder"
@@ -568,6 +569,13 @@ func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) (*Re
 		// a fixed depth over the latest height.
 		BlockTag: cfg.Web3.BlockTag,
 	}, log)
+	// The durable acceptance stack rendezvous between the persisted signed tx
+	// and the broadcast; Load returns nil for every profile but durable.
+	faultBarrier, berr := barrier.Load(cfg, log)
+	if berr != nil {
+		log.Warn("registry publisher fault barrier refused", zap.Error(berr))
+	}
+	publisher.SetFaultBarrier(faultBarrier)
 
 	log.Info("On-chain content registry enabled (durable intents)",
 		zap.String("contract", cfg.Web3.ContentRegistryAddress),
@@ -697,6 +705,13 @@ func provideTranscodingService(cfg *config.Config, log *zap.Logger, db storage.D
 		service.WithQueueLimit(cfg.Transcoding.MaxQueuePending),
 		service.WithOwnerTaskLimit(cfg.Transcoding.MaxOwnerPending),
 	)
+	// The durable acceptance stack rendezvous at the worker's claim, staging,
+	// publish and Ack points; Load returns nil for every profile but durable.
+	workerBarrier, wberr := barrier.Load(cfg, log.Named("transcode-barrier"))
+	if wberr != nil {
+		log.Warn("transcoding fault barrier refused", zap.Error(wberr))
+	}
+	svc.SetFaultBarrier(workerBarrier)
 	// The role of THIS process, decided by transcoding.enabled: when the flag
 	// is off the process still submits (task row + outbox intent in one
 	// transaction, published to JetStream) but must not parse untrusted media —

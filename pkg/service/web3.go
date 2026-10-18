@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/web3"
@@ -311,6 +312,14 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger, opts 
 					store = web3.NewMemoryEventStore()
 				}
 				indexer.SetEventStore(store)
+				// The durable acceptance stack rendezvous on the checkpoint
+				// commit; Load returns nil for every profile but durable, so
+				// production traffic never has a fault point.
+				faultBarrier, berr := barrier.Load(cfg, logger)
+				if berr != nil {
+					logger.Warn("Event indexer fault barrier refused", zap.Error(berr))
+				}
+				indexer.SetFaultBarrier(faultBarrier)
 				indexerCtx, indexerCancel := context.WithCancel(context.Background())
 				if err := indexer.Start(indexerCtx); err != nil {
 					indexerCancel()

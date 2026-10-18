@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/google/uuid"
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/web3/tx"
 	"go.uber.org/zap"
 )
@@ -100,6 +101,11 @@ type Publisher struct {
 	owner    string
 	log      *zap.Logger
 
+	// faultBarrier is the internal fault barrier of the durable acceptance
+	// stack. It is nil unless the durable acceptance profile turned it on, so a
+	// production publisher has no fault points at all.
+	faultBarrier *barrier.Barrier
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -116,6 +122,22 @@ func NewPublisher(store *Store, client ChainClient, pipeline TxPipeline, cfg Pub
 		cfg:      cfg.withDefaults(),
 		owner:    fmt.Sprintf("%s/%s/%s", host, os.Getenv("SERVICE_NAME"), uuid.NewString()[:8]),
 		log:      log.Named("registry-publisher"),
+	}
+}
+
+// SetFaultBarrier installs the internal fault barrier of the durable acceptance
+// stack. A nil barrier — the only state a non-durable deployment can reach —
+// makes every point a no-op.
+func (p *Publisher) SetFaultBarrier(b *barrier.Barrier) {
+	p.faultBarrier = b
+}
+
+// arriveAt announces a fault point and waits for the harness to release it. A
+// point that is never released bounds itself by the barrier timeout and is
+// logged rather than allowed to wedge the publisher loop forever.
+func (p *Publisher) arriveAt(ctx context.Context, name string) {
+	if err := p.faultBarrier.Point(name).Arrive(ctx); err != nil {
+		p.log.Warn("fault barrier point was not released", zap.String("point", name), zap.Error(err))
 	}
 }
 
@@ -228,6 +250,10 @@ func (p *Publisher) drivePending(ctx context.Context, in *Intent) error {
 	if err := p.persistBroadcastFacts(ctx, in, signed); err != nil {
 		return err
 	}
+
+	// The signed raw tx, its nonce and its hash survive in the DB, but nothing
+	// has been handed to a node yet: a crash here must reuse exactly these bytes.
+	p.arriveAt(ctx, "publisher.before_broadcast")
 
 	return p.broadcast(ctx, in, signed, StatusSubmitted)
 }
@@ -355,6 +381,9 @@ func (p *Publisher) handleReceipt(ctx context.Context, in *Intent, receipt *type
 			return err
 		}
 	}
+	// The receipt is durable and the intent is back on 'submitted', but the
+	// confirmation decision has not been evaluated yet.
+	p.arriveAt(ctx, "publisher.after_receipt")
 	return p.maybeConfirm(ctx, in.ContentID, receipt.BlockNumber.Uint64(), receipt.BlockHash.Hex())
 }
 
