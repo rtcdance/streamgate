@@ -126,17 +126,14 @@ var (
 	// SG-07 metric families. Label sets are deliberately low-cardinality:
 	// NO wallet address, NO full content ID, NO token, NO session ID, NO
 	// private key ever becomes a label (see TestMonitoring_NoHighCardinalityLabels).
-	// rule_version is the gating-rule revision, bounded by rule edits.
-
-	// GateDecisionTotal counts NFT-gate allow/deny decisions per rule version.
-	// Wired (SG-14 part 2): pkg/middleware/nft_gate.go records every verdict;
-	// the rule_version label is "0" when the resolver reports no version.
+	// GateDecisionTotal uses fixed outcome and reason enums. Rule versions
+	// belong in controlled logs; rule edits must not allocate new time series.
 	GateDecisionTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streamgate_gate_decisions_total",
-			Help: "NFT gate decisions by outcome, reason and gating-rule version (SG-07)",
+			Help: "NFT gate decisions by outcome and reason (SG-07)",
 		},
-		[]string{"decision", "reason", "rule_version"},
+		[]string{"decision", "reason"},
 	)
 
 	// QueueMessageAgeSeconds observes publish→consume latency on the media task
@@ -178,13 +175,23 @@ var (
 	// TranscodingRTF records transcoding real-time factor (processing time /
 	// media duration). Profile label bounds cardinality; never content IDs.
 	// Wired (SG-14 part 2): pkg/service/transcoding/transcoding.go, ONLY when
-	// the task metadata carries "media_duration_seconds" — no duration, no
-	// observation (RTF is never faked).
+	// task metadata carries media duration and measured transcode wall time.
+	// Missing or invalid values produce no RTF observation.
 	TranscodingRTF = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "streamgate_transcoding_rtf",
 			Help:    "Transcoding real-time factor: processing seconds per media second (SG-07)",
 			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 16},
+		},
+		[]string{"profile"},
+	)
+	// TranscodingDurationSeconds observes the same measured wall time stored
+	// on a successful task; metadata without a measurement emits no sample.
+	TranscodingDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "streamgate_transcoding_duration_seconds",
+			Help:    "Successful transcoder call wall seconds, including probe and excluding download/upload",
+			Buckets: []float64{0.01, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 600, 3600},
 		},
 		[]string{"profile"},
 	)
@@ -238,6 +245,7 @@ func init() {
 		QueueAttemptsTotal,
 		TranscodingTasksTotal,
 		TranscodingRTF,
+		TranscodingDurationSeconds,
 		MediaBytesTotal,
 		MediaTTFBSeconds,
 		prometheus.NewGoCollector(),

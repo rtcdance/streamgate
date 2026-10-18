@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	transcodingsvc "github.com/rtcdance/streamgate/pkg/service/transcoding"
+
 	"go.uber.org/zap"
 )
 
@@ -228,6 +230,7 @@ func truncateForError(s string, maxLen int) string {
 
 // GetVideoInfo retrieves video file information using ffprobe
 func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) (*VideoInfo, error) {
+	probeStarted := time.Now()
 	// ffprobe gets its OWN deadline: the caller context may carry a long
 	// transcode budget (or none at all), and a hung probe must not inherit it.
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ft.config.ProbeTimeout)
@@ -326,6 +329,7 @@ func (ft *FFmpegTranscoder) GetVideoInfo(ctx context.Context, inputPath string) 
 		return nil, fmt.Errorf("failed to extract video duration")
 	}
 
+	transcodingsvc.ReportMediaProbe(ctx, info.Duration, time.Since(probeStarted))
 	return info, nil
 }
 

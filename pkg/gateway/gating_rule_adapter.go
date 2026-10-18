@@ -125,8 +125,8 @@ func (a *gatingRuleResolverAdapter) GetActiveRulesForContent(ctx context.Context
 }
 
 // RuleVersion implements middleware.GatingRuleVersionedResolver: it reads the
-// CURRENT version from the authority. The gate uses it to label
-// GateDecisionTotal with the rule revision its decision was made under; a
+// CURRENT version from the authority. The gate uses it in controlled
+// decision logs; revisions are never Prometheus labels. A
 // missing authority version store reports "0".
 func (a *gatingRuleResolverAdapter) RuleVersion(ctx context.Context, contentID string) (int64, error) {
 	if a.versions == nil {

@@ -685,13 +685,13 @@ func (m *mockAuditLogger) Log(_ context.Context, event, _, _, _ string, _ bool, 
 func (m *mockAuditLogger) Close() error { return nil }
 
 // TestAcceptance_GateDecisionMetricRecorded drives the real NFTGateMiddleware
-// with fakes and asserts GateDecisionTotal{decision,reason,rule_version}
+// with fakes and asserts GateDecisionTotal{decision,reason}
 // increments on both an allow and a deny, each with the right labels.
 func TestAcceptance_GateDecisionMetricRecorded(t *testing.T) {
 	gateDecisionAllowBefore := metricValue(t, "streamgate_gate_decisions_total",
-		map[string]string{"decision": "allow", "reason": "ok", "rule_version": "7"})
+		map[string]string{"decision": "allow", "reason": "ok"})
 	denyBefore := metricValue(t, "streamgate_gate_decisions_total",
-		map[string]string{"decision": "deny", "reason": "insufficient_balance", "rule_version": "7"})
+		map[string]string{"decision": "deny", "reason": "insufficient_balance"})
 
 	// Allow: the wallet holds a sufficient balance against the server-side rule.
 	allowCfg := NFTGateConfig{
@@ -736,14 +736,14 @@ func TestAcceptance_GateDecisionMetricRecorded(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code)
 
 	gateDecisionAllowAfter := metricValue(t, "streamgate_gate_decisions_total",
-		map[string]string{"decision": "allow", "reason": "ok", "rule_version": "7"})
+		map[string]string{"decision": "allow", "reason": "ok"})
 	denyAfter := metricValue(t, "streamgate_gate_decisions_total",
-		map[string]string{"decision": "deny", "reason": "insufficient_balance", "rule_version": "7"})
+		map[string]string{"decision": "deny", "reason": "insufficient_balance"})
 
 	assert.Equal(t, gateDecisionAllowBefore+1, gateDecisionAllowAfter,
-		"an allow must increment GateDecisionTotal{decision=allow,reason=ok,rule_version=7}")
+		"an allow must increment GateDecisionTotal{decision=allow,reason=ok}")
 	assert.Equal(t, denyBefore+1, denyAfter,
-		"a deny must increment GateDecisionTotal{decision=deny,reason=insufficient_balance,rule_version=7}")
+		"a deny must increment GateDecisionTotal{decision=deny,reason=insufficient_balance}")
 }
 
 func TestNFTGateMiddleware_WithRuleResolver(t *testing.T) {

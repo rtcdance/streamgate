@@ -170,17 +170,11 @@ func main() {
 	svc.StartWorker(log.Named("transcode-worker"))
 	log.Info("Transcoding role: external worker — claims and executes tasks submitted by the app processes")
 
-	// Minimal health endpoint for the compose healthcheck; no business routes.
+	// Health and ops metrics only; no business routes or signing credentials.
 	// ReadHeaderTimeout bounds header read time so a slow client cannot hold the
 	// connection open indefinitely (Slowloris / CWE-400), gosec G112.
-	healthServer := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Server.Port), ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"healthy","service":"transcoder"}`))
-	})}
+	healthServer := &http.Server{Addr: fmt.Sprintf(":%d", cfg.Server.Port), ReadHeaderTimeout: 10 * time.Second,
+		Handler: newWorkerHTTPHandler(os.Getenv("STREAMGATE_METRICS_TOKEN"))}
 	go func() {
 		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("Health server error", zap.Error(err))
