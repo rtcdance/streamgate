@@ -40,6 +40,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/service/registry"
 	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
+	web3contract "github.com/rtcdance/streamgate/pkg/web3/contract"
 	"github.com/rtcdance/streamgate/test/helpers"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -130,6 +131,30 @@ func startAnvil(t *testing.T) (rpcURL string, cleanup func()) {
 	return "", nil
 }
 
+// writeRegistryManifest records the deployment identity of the contract this
+// test just deployed, so the production provider can verify it at startup
+// exactly as it does against the real stack: chain id, address, runtime code
+// hash, and the ABI hash this binary implements.
+func writeRegistryManifest(t *testing.T, ctx context.Context, client *ethclient.Client, addr common.Address, deployTx *types.Transaction) string {
+	t.Helper()
+	code, err := client.CodeAt(ctx, addr, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, code, "the freshly deployed contract must have runtime code")
+
+	manifest, err := web3contract.BuildContentRegistryManifest(
+		anvilChainID, addr.Hex(), deployTx.Hash().Hex(),
+		"test-compiler", "contracts/src/ContentRegistry.sol:ContentRegistry", "test-artifact-hash",
+		code,
+	)
+	require.NoError(t, err)
+
+	raw, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "content-registry.json")
+	require.NoError(t, os.WriteFile(path, raw, 0o600))
+	return path
+}
+
 func TestAnvil_ContentRegistry_RegisterAndReadBack(t *testing.T) {
 	rpcURL, cleanup := startAnvil(t)
 	defer cleanup()
@@ -162,8 +187,10 @@ func TestAnvil_ContentRegistry_RegisterAndReadBack(t *testing.T) {
 	cfg.Web3.AnvilDeployerKey = anvilKey0
 	cfg.Web3.EthereumRPC = rpcURL
 	cfg.Web3.ChainID = anvilChainID
+	cfg.Web3.ContentRegistryManifest = writeRegistryManifest(t, ctx, ethClient, addr, deployTx)
 
-	registry := gateway.ProvideContentRegistry(cfg, zap.NewNop())
+	registry, err := gateway.ProvideContentRegistry(cfg, zap.NewNop())
+	require.NoError(t, err)
 	require.NotNil(t, registry, "binding must be constructible with the config above")
 
 	binding, ok := registry.(*web3.ContentRegistryBinding)
@@ -252,6 +279,7 @@ func TestAnvil_RegistryDurableIntentLifecycle(t *testing.T) {
 	cfg.Web3.AnvilDeployerKey = anvilKey0
 	cfg.Web3.EthereumRPC = rpcURL
 	cfg.Web3.ChainID = anvilChainID
+	cfg.Web3.ContentRegistryManifest = writeRegistryManifest(t, ctx, ethClient, addr, deployTx)
 
 	// Each run starts a FRESH Anvil chain, so the persisted nonce ledger for
 	// this (chain, signer) belongs to a chain that no longer exists and must
@@ -271,7 +299,8 @@ func TestAnvil_RegistryDurableIntentLifecycle(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	hub := gateway.ProvideRegistryHub(cfg, zap.NewNop(), db)
+	hub, err := gateway.ProvideRegistryHub(cfg, zap.NewNop(), db)
+	require.NoError(t, err)
 	require.NotNil(t, hub, "hub must be constructible against real Anvil + real Postgres")
 
 	// Content creation writes the intent in the same transaction as the row.

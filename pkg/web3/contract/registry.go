@@ -31,30 +31,9 @@ func NewContentRegistry(address string) *ContentRegistry {
 	}
 }
 
-// ContentRegistryABI mirrors contracts/src/ContentRegistry.sol — the two MUST
-// stay in sync (the 2026-10-10 review found them diverged, which made every
-// on-chain registration call revert against the deployed contract).
-const ContentRegistryABI = `[
-  {"inputs":[{"name":"contentId","type":"string"},{"name":"creator","type":"address"},{"name":"contentDigest","type":"bytes32"},{"name":"metadataURI","type":"string"}],"name":"registerContent","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"name":"contentId","type":"string"}],"name":"contentExists","outputs":[{"name":"","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"name":"contentId","type":"string"}],"name":"getContent","outputs":[{"name":"record","type":"tuple","components":[{"name":"contentId","type":"string"},{"name":"creator","type":"address"},{"name":"contentDigest","type":"bytes32"},{"name":"metadataURI","type":"string"},{"name":"status","type":"uint8"},{"name":"createdAt","type":"uint256"},{"name":"updatedAt","type":"uint256"}]}],"stateMutability":"view","type":"function"},
-  {"inputs":[],"name":"getContentCount","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"name":"offset","type":"uint256"},{"name":"limit","type":"uint256"}],"name":"getContentIds","outputs":[{"name":"page","type":"string[]"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"name":"contentId","type":"string"},{"name":"newStatus","type":"uint8"}],"name":"updateContentStatus","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"name":"contentId","type":"string"}],"name":"removeContent","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"anonymous":false,"inputs":[{"indexed":true,"name":"contentKey","type":"bytes32"},{"indexed":false,"name":"contentId","type":"string"},{"indexed":true,"name":"creator","type":"address"},{"indexed":false,"name":"contentDigest","type":"bytes32"},{"indexed":false,"name":"metadataURI","type":"string"},{"indexed":false,"name":"timestamp","type":"uint256"}],"name":"ContentRegistered","type":"event"},
-  {"anonymous":false,"inputs":[{"indexed":true,"name":"contentKey","type":"bytes32"},{"indexed":false,"name":"contentId","type":"string"},{"indexed":false,"name":"oldStatus","type":"uint8"},{"indexed":false,"name":"newStatus","type":"uint8"},{"indexed":false,"name":"timestamp","type":"uint256"}],"name":"ContentStatusUpdated","type":"event"},
-  {"inputs":[{"name":"contentId","type":"string"}],"name":"ContentAlreadyExists","type":"error"},
-  {"inputs":[{"name":"contentId","type":"string"}],"name":"ContentNotFound","type":"error"},
-  {"inputs":[{"name":"caller","type":"address"},{"name":"creator","type":"address"}],"name":"UnauthorizedCaller","type":"error"},
-  {"inputs":[{"name":"from","type":"uint8"},{"name":"to","type":"uint8"}],"name":"IllegalStateTransition","type":"error"},
-  {"inputs":[],"name":"InvalidCreator","type":"error"},
-  {"inputs":[],"name":"InvalidContentId","type":"error"},
-  {"inputs":[],"name":"InvalidContentDigest","type":"error"},
-  {"inputs":[],"name":"MetadataURITooLong","type":"error"},
-  {"inputs":[],"name":"InvalidPagination","type":"error"},
-  {"inputs":[],"name":"RenounceDisabled","type":"error"}
-]`
+// ContentRegistryABI lives in content_registry_abi.go: it is a verbatim mirror of
+// the compiled artifact, which is what makes the deployment-record hash check
+// meaningful. See that file for why subset would not do.
 
 const ContentRegistryBytecode = "0x"
 

@@ -30,6 +30,11 @@ COPY --from=builder /app/h5-demo ./h5-demo
 # image under acceptance therefore exercised a different configuration than the
 # artifact that gets deployed.
 COPY --from=builder /app/config ./config
+# The chain's deployment record (batch C). The registry's deployment identity is
+# verified against it at startup, so the image must ship it: without it an
+# enabled registry cannot be verified and startup fails rather than silently
+# advertising a registration path it cannot honour.
+COPY --from=builder /app/deployments ./deployments
 
 RUN chown -R appuser:appgroup /app
 

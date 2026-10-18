@@ -30,6 +30,10 @@ COPY --from=builder /app/api-gateway .
 # Copy config files
 COPY --from=builder /app/config ./config
 
+# The chain's deployment record (batch C): the registry's deployment identity is
+# verified against it at startup.
+COPY --from=builder /app/deployments ./deployments
+
 # Set ownership
 RUN chown -R appuser:appgroup /app
 

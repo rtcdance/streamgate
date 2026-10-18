@@ -1,4 +1,4 @@
-.PHONY: help build build-all build-all-parallel build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn clean test test-ci test-coverage-gate test-anvil test-testnet h5-demo-acceptance h5-demo-acceptance-spec bench fullchain-test docker-build docker-bake docker-bake-load docker-push docker-up docker-down lint lint-fix lint-verbose fmt migrate-up migrate-down migrate-down-all migrate-reset proto-gen mocks contracts-install contracts-build contracts-test contracts-coverage contracts-deploy-anvil contracts-deploy-sepolia contracts-gas-report fullchain-deploy fullchain-teardown deploy-monolith deploy-microservices deploy-status deploy-teardown deploy-logs one-click-deploy demo demo-down challenge run-monolith run-api-gateway run-transcoder run-upload run-streaming run-learn dev dev-setup version tree profile
+.PHONY: help build build-all build-all-parallel build-monolith build-api-gateway build-transcoder build-upload build-streaming build-metadata build-cache build-auth build-worker build-monitor build-learn clean test test-ci test-coverage-gate test-anvil test-testnet h5-demo-acceptance h5-demo-acceptance-spec bench fullchain-test docker-build docker-bake docker-bake-load docker-push docker-up docker-down lint lint-fix lint-verbose fmt migrate-up migrate-down migrate-down-all migrate-reset proto-gen mocks contracts-install contracts-build contracts-test contracts-coverage contracts-deploy-anvil contracts-deploy-sepolia contracts-gas-report contracts-manifest-anvil fullchain-deploy fullchain-teardown deploy-monolith deploy-microservices deploy-status deploy-teardown deploy-logs one-click-deploy demo demo-down challenge run-monolith run-api-gateway run-transcoder run-upload run-streaming run-learn dev dev-setup version tree profile
 
 # Variables
 BINARY_MONOLITH := streamgate
@@ -576,6 +576,12 @@ contracts-deploy-sepolia:
 
 contracts-gas-report:
 	@cd contracts && forge test --gas-report
+
+# The ContentRegistry DEPLOYMENT RECORD the running image is verified against at
+# startup (chain id, address, deploy tx, runtime code hash, ABI hash, compiler,
+# artifact). Regenerate after any contract change.
+contracts-manifest-anvil:
+	@./scripts/registry-manifest.sh
 
 # Proto generation
 proto-gen:
