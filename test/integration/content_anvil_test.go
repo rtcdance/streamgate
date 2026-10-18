@@ -236,6 +236,136 @@ func TestAnvil_ContentRegistry_RegisterAndReadBack(t *testing.T) {
 	require.Equal(t, "ipfs://integration-test", record.MetadataURI)
 }
 
+// manifestWith patches ONE field of a valid deployment record and writes the
+// result to a fresh file. Corrupting exactly one field is what makes each case
+// below attributable to that field: everything else stays verifiable.
+func manifestWith(t *testing.T, validPath, field string, value any) string {
+	t.Helper()
+	raw, err := os.ReadFile(validPath)
+	require.NoError(t, err)
+	var document map[string]any
+	require.NoError(t, json.Unmarshal(raw, &document))
+	document[field] = value
+	patched, err := json.Marshal(document)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "content-registry-patched.json")
+	require.NoError(t, os.WriteFile(path, patched, 0o600))
+	return path
+}
+
+// TestAnvil_ContentRegistry_RefusesAnUnverifiableIdentity is the rejection half
+// of §0.2 C's acceptance: "正确生产 profile 配置可启用 registry；错误链、错误代码、
+// 错误 ABI、缺 signer 均拒绝". It runs against a REAL chain and the REAL startup
+// path (gateway.ProvideContentRegistry), so the refusals are not an artefact of a
+// stub chain reader — the same client that would verify a healthy deployment is
+// the one that has to refuse each corrupted record.
+func TestAnvil_ContentRegistry_RefusesAnUnverifiableIdentity(t *testing.T) {
+	rpcURL, cleanup := startAnvil(t)
+	defer cleanup()
+
+	registryABI, registryBin := loadRegistryArtifact(t)
+	ethClient, err := ethclient.Dial(rpcURL)
+	require.NoError(t, err)
+	defer ethClient.Close()
+
+	key, err := crypto.HexToECDSA(strings.TrimPrefix(anvilKey0, "0x"))
+	require.NoError(t, err)
+	auth, err := bind.NewKeyedTransactorWithChainID(key, big.NewInt(anvilChainID))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	auth.Context = ctx
+
+	addr, deployTx, _, err := bind.DeployContract(auth, registryABI, registryBin, ethClient)
+	require.NoError(t, err)
+	_, err = bind.WaitMined(ctx, ethClient, deployTx)
+	require.NoError(t, err)
+
+	validManifest := writeRegistryManifest(t, ctx, ethClient, addr, deployTx)
+
+	// The control: the untouched record DOES enable the registry. Without this,
+	// a rejection below could just as well mean the fixture never worked.
+	cfg := registryConfigForTest(rpcURL, addr.Hex(), validManifest)
+	registry, err := gateway.ProvideContentRegistry(cfg, zap.NewNop())
+	require.NoError(t, err, "a complete production-shaped record must enable the registry")
+	require.NotNil(t, registry)
+
+	unconnected := common.HexToAddress("0x000000000000000000000000000000000000dEaD").Hex()
+	cases := []struct {
+		name    string
+		want    string
+		corrupt func(t *testing.T) *config.Config
+	}{
+		{
+			name: "wrong chain",
+			want: "chain",
+			corrupt: func(t *testing.T) *config.Config {
+				return registryConfigForTest(rpcURL, addr.Hex(),
+					manifestWith(t, validManifest, "chain_id", anvilChainID+1))
+			},
+		},
+		{
+			name: "wrong runtime code hash",
+			want: "code hash",
+			corrupt: func(t *testing.T) *config.Config {
+				return registryConfigForTest(rpcURL, addr.Hex(),
+					manifestWith(t, validManifest, "runtime_code_hash",
+						crypto.Keccak256Hash([]byte("not-the-deployed-code")).Hex()))
+			},
+		},
+		{
+			name: "wrong ABI hash",
+			want: "ABI hash",
+			corrupt: func(t *testing.T) *config.Config {
+				return registryConfigForTest(rpcURL, addr.Hex(),
+					manifestWith(t, validManifest, "abi_hash",
+						crypto.Keccak256Hash([]byte("not-the-shipped-abi")).Hex()))
+			},
+		},
+		{
+			name: "address without runtime code",
+			want: "no runtime code",
+			corrupt: func(t *testing.T) *config.Config {
+				return registryConfigForTest(rpcURL, unconnected,
+					manifestWith(t, validManifest, "address", unconnected))
+			},
+		},
+		{
+			name: "no signer",
+			want: "registry signer",
+			corrupt: func(t *testing.T) *config.Config {
+				bad := registryConfigForTest(rpcURL, addr.Hex(), validManifest)
+				bad.Web3.AnvilDeployerKey = ""
+				bad.Web3.Transaction.PrivateKeyHex = ""
+				return bad
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			registry, err := gateway.ProvideContentRegistry(tc.corrupt(t), zap.NewNop())
+			require.Error(t, err, "an unverifiable deployment identity must refuse to start")
+			require.Nil(t, registry, "no registry may be advertised once its identity is unverifiable")
+			require.Contains(t, strings.ToLower(err.Error()), strings.ToLower(tc.want),
+				"the refusal must name what is wrong: %v", err)
+		})
+	}
+}
+
+// registryConfigForTest is the minimum a registry config needs: the RPC and the
+// chain of the chain under test, the address to verify, the demo signer (this
+// test chain is not a strict profile) and the deployment record.
+func registryConfigForTest(rpcURL, address, manifestPath string) *config.Config {
+	cfg := &config.Config{}
+	cfg.Web3.ContentRegistryAddress = address
+	cfg.Web3.AnvilDeployerKey = anvilKey0
+	cfg.Web3.EthereumRPC = rpcURL
+	cfg.Web3.ChainID = anvilChainID
+	cfg.Web3.ContentRegistryManifest = manifestPath
+	return cfg
+}
+
 // TestAnvil_RegistryDurableIntentLifecycle drives the SG-13 durable path end
 // to end: content creation records the register intent in the SAME DB
 // transaction as the contents row, the registry publisher signs (raw tx
