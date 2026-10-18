@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -46,7 +47,11 @@ func NewSecurePrivateKey(key *ecdsa.PrivateKey) (*SecurePrivateKey, error) {
 }
 
 func NewSecurePrivateKeyFromHex(hexKey string) (*SecurePrivateKey, error) {
-	key, err := crypto.HexToECDSA(hexKey)
+	// Every other consumer of this setting (the config validator, the registry
+	// signer, the demo minter) accepts the 0x-prefixed form, so a deployment that
+	// sets web3.transaction.private_key_hex the documented way must not be the
+	// one place that refuses it. crypto.HexToECDSA takes bare hex.
+	key, err := crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(hexKey), "0x"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid private key hex: %w", err)
 	}
