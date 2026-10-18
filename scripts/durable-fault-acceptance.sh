@@ -225,7 +225,16 @@ login() {
 seed_content() {
   local tag="$1" token upload_resp upload_id complete_resp
   if [ -z "$TOKEN_A" ]; then
-    TOKEN_A="$(login "$KEY_A" "$WALLET_A")" || return 1
+    local attempt
+    for attempt in 1 2 3; do
+      TOKEN_A="$(login "$KEY_A" "$WALLET_A")" && break
+      TOKEN_A=""
+      # The auth limiter is 10/min; a fresh login after a restart can still
+      # collide with the window and must wait it out rather than report a
+      # missing barrier point.
+      sleep 7
+    done
+    [ -n "$TOKEN_A" ] || return 1
   fi
   token="$TOKEN_A"
   upload_resp="$(curl -sf -X POST "$BASE_URL/api/v1/upload" -H "Authorization: Bearer $token" \
@@ -650,6 +659,9 @@ if seed_content fo01 && wait_reached outbox.before_publish 60; then
   barrier_reset
   container_start "$MONO_CONTAINER"
   container_start "$TC_CONTAINER"
+  # A token minted before this restart may belong to a session the new process
+  # no longer knows; FO02's seed must perform a real login.
+  TOKEN_A=""
   if [ "$INTENT_STATUS" = "pending" ] && [ -z "$CLAIMED" ]; then
     p "FO01: while the submitter was parked the intent was still pending and no worker had claimed the task"
     record FO01-parked outbox.before_publish PASS "outbox=pending, lease_owner empty"
@@ -687,7 +699,10 @@ fi
 log 'FO02 kill at outbox.after_publish'
 barrier_reset
 arm outbox.after_publish
-if seed_content fo02 && wait_reached outbox.after_publish 60; then
+if ! seed_content fo02; then
+  f "FO02: seed_content failed (login/upload/complete-upload) before the barrier could fire"
+  record FO02 outbox.after_publish FAIL "seed failed"
+elif wait_reached outbox.after_publish 60; then
   TASK="$(task_row)"
   INTENT_STATUS="$(sql_scalar "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'")"
   # Paired with FO01: the whole stack dies with the broker already holding the
@@ -699,6 +714,9 @@ if seed_content fo02 && wait_reached outbox.after_publish 60; then
   barrier_reset
   container_start "$MONO_CONTAINER"
   container_start "$TC_CONTAINER"
+  # Do not present a token minted before the restart: session storage may not
+  # survive it, and FO02's seed must exercise a real login against the new process.
+  TOKEN_A=""
   if [ "$INTENT_STATUS" = "pending" ]; then
     p "FO02: the broker had already accepted the publish while the intent was still pending"
     record FO02-parked outbox.after_publish PASS "outbox=pending immediately after PubAck"
