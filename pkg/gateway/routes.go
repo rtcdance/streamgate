@@ -65,6 +65,10 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 		// session is live and its epoch is current, so a logout invalidates every
 		// credential of that session at once.
 		SessionValidator: svc.AuthService,
+		// The recovery epoch is checked against the Postgres authority the service
+		// holds, so a database restore invalidates every outstanding credential —
+		// access, refresh and capability alike.
+		RestoreEpochValidator: svc.AuthService,
 		SkipPaths: []string{
 			APIPrefix + "/auth/challenge",
 			APIPrefix + "/auth/login",

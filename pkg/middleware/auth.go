@@ -95,6 +95,10 @@ type JWTAuthConfig struct {
 	// the session fields to be present, so a token predating the scheme is
 	// refused rather than grandfathered in.
 	SessionValidator SessionValidator
+	// RestoreEpochValidator reports the Postgres-authoritative recovery epoch.
+	// A credential is accepted only while its restore_epoch claim equals that
+	// value, so a database restore invalidates every outstanding credential.
+	RestoreEpochValidator RestoreEpochValidator
 }
 
 // SessionValidator reports whether a credential's session is live and its epoch
@@ -188,10 +192,11 @@ func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger,
 // token_type is now refused).
 func authorizeAccessClaims(c *gin.Context, config JWTAuthConfig, claims jwt.MapClaims) (sessionID string, epoch int64, ok bool) {
 	policy := AccessPolicy{
-		Issuer:           config.Issuer,
-		Audience:         config.Audience,
-		SessionValidator: config.SessionValidator,
-		Blacklist:        config.Blacklist,
+		Issuer:                config.Issuer,
+		Audience:              config.Audience,
+		SessionValidator:      config.SessionValidator,
+		RestoreEpochValidator: config.RestoreEpochValidator,
+		Blacklist:             config.Blacklist,
 	}
 	decision, err := AuthorizeAccessClaims(c.Request.Context(), policy, claims)
 	if err != nil {

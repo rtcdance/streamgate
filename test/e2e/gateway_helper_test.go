@@ -218,14 +218,19 @@ func testJWT(svc *service.AuthService, walletAddress string) string {
 	if err != nil {
 		panic("testJWT: failed to start session: " + err.Error())
 	}
+	epoch, ok := svc.RestoreEpoch()
+	if !ok {
+		panic("testJWT: the auth service has no readable restore epoch")
+	}
 	claims := jwt.MapClaims{
 		"wallet_address": walletAddress,
 		"session_id":     sessionID,
 		"auth_epoch":     1,
+		"restore_epoch":  epoch,
 		"token_type":     service.AccessTokenType,
-		// The router JWT config requires both: an access token minted by
+		// The router JWT config requires all of these: an access token minted by
 		// this service carries them, and a token without them is refused
-		// as belonging to another issuer or another purpose.
+		// as belonging to another issuer, another purpose or another epoch.
 		"iss":      service.AccessTokenIssuer,
 		"aud":      service.AccessTokenAudience,
 		"username": walletAddress,

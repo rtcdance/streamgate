@@ -618,10 +618,11 @@ func TestAuthService_RefreshToken_GracePeriod(t *testing.T) {
 
 	sessionID, _ := auth.StartSession()
 	claims := &Claims{
-		Username:  "grace",
-		JTI:       generateID(),
-		SessionID: sessionID,
-		AuthEpoch: 1,
+		Username:     "grace",
+		JTI:          generateID(),
+		SessionID:    sessionID,
+		AuthEpoch:    1,
+		RestoreEpoch: currentRestoreEpoch(t, auth),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-2 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-time.Hour)),
@@ -681,6 +682,7 @@ func TestAuthService_VerifyToken(t *testing.T) {
 	t.Run("valid token", func(t *testing.T) {
 		claims := &Claims{
 			WalletAddress: "verify-user",
+			RestoreEpoch:  currentRestoreEpoch(t, auth),
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 				IssuedAt:  jwt.NewNumericDate(time.Now()),

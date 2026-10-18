@@ -198,6 +198,7 @@ func generateTestJWT(t *testing.T, wallet, secret, jti string) string {
 		"wallet_address": wallet,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  "test-restore-epoch",
 		"token_type":     "access",
 		"jti":            jti,
 		"iss":            service.AccessTokenIssuer,

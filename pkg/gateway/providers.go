@@ -156,7 +156,7 @@ func provideTokenBlacklist(cfg *config.Config, log *zap.Logger, redisClient *red
 	return rbl, nil
 }
 
-func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) (*service.AuthService, error) {
+func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, db storage.DB, web3Svc *service.Web3Service, challengeStore storage.ChallengeStore, challengeTTL time.Duration, redisClient *redis.Client, res *AppResources) (*service.AuthService, error) {
 	if rc.AuthService != nil {
 		return rc.AuthService, nil
 	}
@@ -168,6 +168,10 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		return nil, err
 	}
 	sessionStore, err := provideSessionStore(cfg, log, redisClient)
+	if err != nil {
+		return nil, err
+	}
+	restoreEpochs, err := provideRestoreEpochStore(cfg, log, db, redisClient)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +212,55 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, w
 		// Session epochs must outlive the process: an in-memory store would
 		// forget every session on restart and silently un-revoke them.
 		service.WithSessionStore(sessionStore),
+		// The restore epoch is a LAYER ABOVE the session. It is read from Postgres
+		// through the age-bounded cache, so a restore invalidates credentials this
+		// process issued without a restart.
+		service.WithRestoreEpochStore(restoreEpochs),
 	), nil
+}
+
+// provideRestoreEpochStore builds the restore-epoch authority: Postgres owns the
+// epoch (the single auth_control_state row), Redis shares the committed value
+// across processes, and the age bound comes from the configured positive-cache
+// TTL — the same 5s bound the rest of the credential policy is computed from.
+//
+// Without the Postgres authority a restore is invisible: the fallback is
+// process-local, so it would keep serving pre-restore credentials until the
+// process restarted. A strict profile therefore refuses the fallback outright
+// rather than degrade silently.
+func provideRestoreEpochStore(cfg *config.Config, log *zap.Logger, db storage.DB, redisClient *redis.Client) (*storage.CachingRestoreEpochStore, error) {
+	var authority storage.RestoreEpochStore
+	if db != nil {
+		authority = storage.NewPostgresRestoreEpochStore(db)
+	} else {
+		if cfg.IsStrictProfile() {
+			return nil, fmt.Errorf("restore epoch authority requires PostgreSQL — %s profile must not fall back to a process-local epoch", cfg.EffectiveProfile())
+		}
+		log.Warn("restore epoch authority is process-local: a database restore will not invalidate "+
+			"credentials issued by this process until it restarts (demo/unit profile behavior)",
+			zap.String("profile", cfg.EffectiveProfile()))
+		authority = storage.NewMemoryRestoreEpochStore()
+	}
+
+	var cache storage.RestoreEpochCache
+	if redisClient != nil {
+		redisCache, err := storage.NewRedisRestoreEpochCache(redisClient)
+		if err != nil {
+			if cfg.IsStrictProfile() {
+				return nil, fmt.Errorf("restore epoch cache unavailable: %w", err)
+			}
+			log.Warn("restore epoch cache unavailable, falling back to in-memory (demo/unit profile behavior)", zap.Error(err))
+		} else {
+			cache = redisCache
+		}
+	}
+	if cache == nil {
+		log.Warn("restore epoch cache is process-local: a rotation in another process will not be " +
+			"visible here until this process's copy ages out (demo/unit profile behavior)")
+		cache = storage.NewMemoryRestoreEpochCache()
+	}
+
+	return storage.NewCachingRestoreEpochStore(authority, cache, cfg.Features.PositiveCacheTTL), nil
 }
 
 func provideSessionStore(cfg *config.Config, log *zap.Logger, redisClient *redis.Client) (storage.SessionStore, error) {

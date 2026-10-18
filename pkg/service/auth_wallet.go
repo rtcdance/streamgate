@@ -358,6 +358,12 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	// A credential with no restore epoch could not be invalidated by a restore,
+	// so minting FAILS when the authority cannot be read.
+	restoreEpoch, err := s.stampRestoreEpoch()
+	if err != nil {
+		return "", err
+	}
 	claims := &Claims{
 		Username:         walletAddress,
 		TokenType:        AccessTokenType,
@@ -365,6 +371,7 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 		JTI:              generateID(),
 		SessionID:        sessionID,
 		AuthEpoch:        1,
+		RestoreEpoch:     restoreEpoch,
 		RegisteredClaims: accessTokenClaims(walletAddress, s.jwtExpiry),
 	}
 
@@ -453,6 +460,16 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		opts.ruleVersion = version
 	}
 
+	// The restore epoch the capability is minted under. It is read from the
+	// authority at issuance — never from the request — and minting FAILS if it
+	// cannot be read, because a capability with no restore epoch would survive a
+	// restore.
+	restoreEpoch, err := s.stampRestoreEpoch()
+	if err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", err
+	}
+
 	claims := &Claims{
 		Username:          walletAddress,
 		TokenType:         CapabilityTokenType,
@@ -465,6 +482,7 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 		ClientFingerprint: clientFingerprint,
 		SessionID:         opts.sessionID,
 		AuthEpoch:         opts.authEpoch,
+		RestoreEpoch:      restoreEpoch,
 		RuleVersion:       opts.ruleVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: "streamgate",
@@ -514,6 +532,15 @@ func (s *AuthService) IssueCapability(ctx context.Context, authz *PlaybackAuthor
 		ttl = s.PlaybackTokenTTL()
 	}
 
+	// The restore epoch comes from the authority at issuance — never from the
+	// request — and minting FAILS if it cannot be read: a capability with no
+	// restore epoch would survive a restore.
+	restoreEpoch, err := s.stampRestoreEpoch()
+	if err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", err
+	}
+
 	claims := &Claims{
 		Username:          authz.wallet,
 		TokenType:         CapabilityTokenType,
@@ -526,6 +553,7 @@ func (s *AuthService) IssueCapability(ctx context.Context, authz *PlaybackAuthor
 		ClientFingerprint: clientFingerprint,
 		SessionID:         authz.session.SessionID,
 		AuthEpoch:         authz.session.AuthEpoch,
+		RestoreEpoch:      restoreEpoch,
 		// The version the authorization granted under — never re-read.
 		RuleVersion: authz.ruleVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -615,6 +643,13 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, ErrTokenRevoked
 	}
+	// The recovery epoch. Every playlist, segment, init and key request goes
+	// through here, so a restore that rotates the epoch stops media already in
+	// flight everywhere at once — not just for the login session that requested it.
+	if err := s.requireCurrentRestoreEpoch(claims.RestoreEpoch); err != nil {
+		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
+		return nil, err
+	}
 	// The authorization-rule version. A segment request cannot afford a chain
 	// query, so the capability carries the version it was issued under and is
 	// refused once the content's rules move. Without this, raising a rule's
@@ -700,6 +735,12 @@ func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*Tok
 	}
 	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
 		return &TokenVerifyResult{Valid: false}, ErrTokenExpired
+	}
+	// The recovery epoch. /auth/verify is an authentication entry point like any
+	// other: reporting a pre-restore credential as valid while every real entry
+	// point refuses it would be worse than useless to a client.
+	if err := s.requireCurrentRestoreEpoch(claims.RestoreEpoch); err != nil {
+		return &TokenVerifyResult{Valid: false}, err
 	}
 	if s.blacklist != nil && claims.JTI != "" && s.blacklist.IsRevoked(ctx, claims.JTI) {
 		return &TokenVerifyResult{Valid: false}, ErrTokenRevoked
