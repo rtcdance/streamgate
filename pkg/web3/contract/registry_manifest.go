@@ -170,7 +170,7 @@ func RuntimeCodeHash(code []byte) string {
 // it derives the code hash, and it pins the ABI hash from the ABI this binary
 // ships, so a manifest written here and a manifest written by the tooling are
 // directly comparable.
-func BuildContentRegistryManifest(chainID int64, address, deployTx, compiler, artifact string, artifactHash string, runtimeCode []byte) (*ContentRegistryManifest, error) {
+func BuildContentRegistryManifest(chainID int64, address, deployTx, compiler, artifact, artifactHash string, runtimeCode []byte) (*ContentRegistryManifest, error) {
 	abiHash, err := RuntimeRegistryABIHash()
 	if err != nil {
 		return nil, err
