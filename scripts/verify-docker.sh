@@ -324,7 +324,11 @@ stage_durability() {
     export STREAMGATE_TEST_DB_DSN="postgres://postgres:postgres@postgres:5432/streamgate_durability?sslmode=disable"
     echo "== DB-backed durability suites (transcoding/registry/event/integration) =="
     go_test_rc=0
-    go test -race -count=1 -json \
+    # These packages share ONE scratch database and truncate its tables in
+    # setup/cleanup. Go runs packages in parallel by default, so concurrent
+    # truncations deadlocked and one package could delete another fixture
+    # between INSERT and SELECT. Serialize the packages; the suite is small.
+    go test -race -count=1 -p 1 -json \
       ./pkg/service/transcoding ./pkg/service/registry ./pkg/web3/event ./pkg/service ./test/integration/... \
       > /artifacts/durability-tests.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \

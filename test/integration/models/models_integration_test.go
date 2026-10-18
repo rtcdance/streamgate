@@ -2,6 +2,7 @@ package models_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestModels_UserPersistence(t *testing.T) {
 	}
 
 	// Save user using direct SQL
-	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
+	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
 	require.NoError(t, err)
 
 	// Retrieve user
@@ -147,8 +148,17 @@ func TestModels_TaskPersistence(t *testing.T) {
 
 	// Retrieve task
 	var retrieved models.Task
-	err = db.QueryRow(context.Background(), "SELECT id, type, status, priority, payload, created_at, started_at, completed_at FROM tasks WHERE type = $1", task.Type).Scan(&retrieved.ID, &retrieved.Type, &retrieved.Status, &retrieved.Priority, &retrieved.Payload, &retrieved.CreatedAt, &retrieved.StartedAt, &retrieved.CompletedAt)
+	var payloadRaw []byte
+	var startedAt, completedAt sql.NullTime
+	err = db.QueryRow(context.Background(), "SELECT id, type, status, priority, payload, created_at, started_at, completed_at FROM tasks WHERE type = $1", task.Type).Scan(&retrieved.ID, &retrieved.Type, &retrieved.Status, &retrieved.Priority, &payloadRaw, &retrieved.CreatedAt, &startedAt, &completedAt)
 	require.NoError(t, err)
+	if startedAt.Valid {
+		retrieved.StartedAt = startedAt.Time
+	}
+	if completedAt.Valid {
+		retrieved.CompletedAt = completedAt.Time
+	}
+	require.NoError(t, json.Unmarshal(payloadRaw, &retrieved.Payload))
 	require.Equal(t, task.Type, retrieved.Type)
 }
 
@@ -235,7 +245,7 @@ func TestModels_Relationships(t *testing.T) {
 		Email:    "test_relationships@example.com",
 	}
 
-	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password_hash, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
+	_, err := db.Exec(context.Background(), "INSERT INTO users (username, password, email) VALUES ($1, $2, $3)", user.Username, "hashedpassword", user.Email)
 	require.NoError(t, err)
 
 	// Get user ID

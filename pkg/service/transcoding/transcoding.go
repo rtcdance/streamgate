@@ -219,6 +219,9 @@ func NewTranscodingService(db storage.DB, queue TranscodingQueue, opts ...Transc
 	for _, opt := range opts {
 		opt(svc)
 	}
+	if svc.log == nil {
+		svc.log = zap.NewNop()
+	}
 	return svc
 }
 
