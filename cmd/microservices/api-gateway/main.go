@@ -81,14 +81,20 @@ func main() {
 	}
 
 	grpcServices := &gateway.GRPCServices{
-		AuthService:    resources.AuthService,
-		Web3Service:    resources.Web3Service,
-		NFTVerifier:    resources.NFTVerifier,
-		StreamingSvc:   resources.StreamingSvc,
-		ContentService: resources.ContentService,
-		SegmentStorage: resources.SegmentStorage,
-		UploadService:  resources.UploadService,
-		TranscodingSvc: resources.TranscodingSvc,
+		AuthService:        resources.AuthService,
+		Web3Service:        resources.Web3Service,
+		NFTVerifier:        resources.NFTVerifier,
+		GatingRuleResolver: resources.GatingRuleResolver,
+		StreamingSvc:       resources.StreamingSvc,
+		ContentService:     resources.ContentService,
+		SegmentStorage:     resources.SegmentStorage,
+		UploadService:      resources.UploadService,
+		TranscodingSvc:     resources.TranscodingSvc,
+		// The shared HTTP/gRPC authorizer must reach the standalone entry point
+		// too: without it the gRPC manifest path fails closed with Internal while
+		// the HTTP path authorizes normally, breaking parity between the modes.
+		PlaybackAuthorizer: resources.PlaybackAuthorizer,
+		GenerationResolver: resources.GenerationResolver,
 	}
 	grpcServer := gateway.SetupGRPCServer(context.Background(), cfg, log, grpcServices)
 
