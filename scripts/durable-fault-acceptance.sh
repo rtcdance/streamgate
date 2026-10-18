@@ -19,6 +19,7 @@ BASE_URL=""
 ARTIFACT_DIR=""
 HELPER_IMAGE=""
 CANDIDATE_SHA=""
+RUN_LABEL=""
 PG_CONTAINER=""
 MONO_CONTAINER=""
 TC_CONTAINER=""
@@ -38,6 +39,7 @@ while [ "$#" -gt 0 ]; do
     --artifact-dir) ARTIFACT_DIR="$2"; shift 2 ;;
     --helper-image) HELPER_IMAGE="$2"; shift 2 ;;
     --candidate-sha) CANDIDATE_SHA="$2"; shift 2 ;;
+    --run-label) RUN_LABEL="$2"; shift 2 ;;
     --pg-container) PG_CONTAINER="$2"; shift 2 ;;
     --mono-container) MONO_CONTAINER="$2"; shift 2 ;;
     --minio-container) MINIO_CONTAINER="$2"; shift 2 ;;
@@ -46,7 +48,7 @@ while [ "$#" -gt 0 ]; do
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA PG_CONTAINER MINIO_CONTAINER MONO_CONTAINER TC_CONTAINER; do
+for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA RUN_LABEL PG_CONTAINER MINIO_CONTAINER MONO_CONTAINER TC_CONTAINER; do
   [ -n "${!required}" ] || { printf 'missing --%s\n' "$(printf '%s' "$required" | tr 'A-Z_' 'a-z-')" >&2; exit 2; }
 done
 
@@ -82,17 +84,31 @@ require_tool ffmpeg
 barrier_boot() {
   docker rm -f "$HELPER" >/dev/null 2>&1 || :
   docker run -d --name "$HELPER" \
-    --label "com.streamgate.verify.run=${PROJECT}" \
+    --label "com.streamgate.verify.run=${RUN_LABEL}" \
     --label "com.docker.compose.project=${PROJECT}" \
     -v "${PROJECT}_fault-barrier:/b" \
     --entrypoint sh "$HELPER_IMAGE" -c 'while :; do sleep 3600; done' >/dev/null \
     || return 1
   local deadline=$((SECONDS + 30))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    docker exec "$HELPER" sh -c 'test -d /b' 2>/dev/null && return 0
+    docker exec "$HELPER" sh -c 'test -d /b' 2>/dev/null && break
     sleep 0.3
   done
-  return 1
+  docker exec "$HELPER" sh -c 'test -d /b' 2>/dev/null || return 1
+  # Docker creates a fresh named volume root-owned, while every candidate
+  # container runs as its own non-root user — so the directory has to be handed
+  # to THAT user or the candidate cannot write a single marker (observed as
+  # "cannot publish the reached marker: permission denied", which turns every
+  # scenario into a silent no-op). The uid is read from the running worker
+  # rather than hard-coded, so an image that changes its user cannot quietly
+  # break the rendezvous again.
+  local app_uid app_gid
+  app_uid="$(docker exec "$TC_CONTAINER" id -u 2>/dev/null)" || return 1
+  app_gid="$(docker exec "$TC_CONTAINER" id -g 2>/dev/null)" || return 1
+  [ -n "$app_uid" ] && [ -n "$app_gid" ] || return 1
+  docker exec "$HELPER" chown "${app_uid}:${app_gid}" /b >/dev/null 2>&1 || return 1
+  docker exec "$HELPER" chmod 0770 /b >/dev/null 2>&1 || return 1
+  return 0
 }
 
 barrier_reset() { docker exec "$HELPER" sh -c 'rm -f /b/*.armed /b/*.reached /b/*.release' 2>/dev/null; }
@@ -249,6 +265,21 @@ if barrier_boot; then
 else
   f "could not start the barrier helper container (the barrier cannot be driven)"
   record F00-helper preconditions FAIL "helper=${HELPER} unavailable"
+fi
+
+# Prove the rendezvous in BOTH directions before trusting any scenario, and in
+# particular prove it as the CANDIDATE's own user: a directory the harness can
+# write is no evidence that a non-root app container can. A probe written by the
+# worker user must be visible here, and this side must be able to consume it.
+PROBE=".probe-$$"
+if docker exec --user "$(docker exec "$TC_CONTAINER" id -u 2>/dev/null)" "$TC_CONTAINER" \
+     sh -c ": > /var/lib/streamgate/barrier/${PROBE}" 2>/dev/null \
+   && docker exec "$HELPER" sh -c "test -f /b/${PROBE} && rm -f /b/${PROBE}" 2>/dev/null; then
+  p "the worker's own user can write the rendezvous and this side can consume it"
+  record F00-barrierwrite preconditions PASS "wrote and consumed /b/${PROBE} as the worker user"
+else
+  f "the worker user cannot write the rendezvous (every scenario would be a silent no-op)"
+  record F00-barrierwrite preconditions FAIL "probe as the worker user failed"
 fi
 
 if curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
