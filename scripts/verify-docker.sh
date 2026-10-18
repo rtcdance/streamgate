@@ -45,7 +45,7 @@ if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 # that RUNS the browser must look in the same place the browser was installed to.
 export PLAYWRIGHT_BROWSERS_PATH="${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 
-ALL_STAGES=(unit chain durability ops media recovery perf release)
+ALL_STAGES=(unit chain durability ops faults media recovery perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[verify:FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -1486,17 +1486,59 @@ stage_recovery() {
   log "recovery: both stacks torn down"
 }
 
+# ---------------------------------------------------------------------------
+# faults (SG-12 / SG-13 / SG-14, 0.2 D): the internal fault barrier of the
+# DURABLE acceptance profile, driven against a real stack — candidate images,
+# real Postgres, real JetStream, real MinIO, real Anvil, the isolated worker
+# executing real FFmpeg work. Every fault is injected at a state the candidate
+# itself announces, never after a guessed sleep.
+# ---------------------------------------------------------------------------
+stage_faults() {
+  require_controller_tool docker
+  local project="${PROJECT_NAME}-faults"
+  local helper="${project}-barrier"
+  local artifacts="${ARTIFACT_DIR}/faults"
+  mkdir -p "$artifacts"
+
+  # The durable profile is what the barrier requires, and a strict profile
+  # resolves its registry signer from web3.transaction.private_key_hex (the
+  # demo deployer key above is refused there). Every one of these is unset
+  # again before the stage returns, so the later stages keep their defaults.
+  export VERIFY_PROFILE=durable
+  export VERIFY_PRIVATE_KEY_HEX=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+  export VERIFY_FAULT_BARRIER=true
+  export VERIFY_FAULT_BARRIER_TIMEOUT="${VERIFY_FAULT_TIMEOUT:-25s}"
+
+  bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
+  # The harness needs the barrier volume; pre-remove any helper left behind by a
+  # cancelled run (its label makes the controller's own cleanup catch it too).
+  docker rm -f "$helper" >/dev/null 2>&1 || :
+  ( set -e; run_logged faults bash scripts/durable-fault-acceptance.sh \
+      --project "$project" --compose "$VERIFY_COMPOSE_FILE" \
+      --base-url "http://localhost:${VERIFY_MONO_PORT}" \
+      --artifact-dir "$artifacts" --helper-image "$IMAGE_TAG" \
+      --candidate-sha "$(git rev-parse HEAD)" \
+      --pg-container "${project}-postgres-1" \
+      --mono-container "${project}-monolith-1" \
+      --transcoder-container "${project}-transcoder-1" \
+      --transcoder-container-2 "${project}-transcoder-2" )
+  docker rm -f "$helper" >/dev/null 2>&1 || :
+  unset VERIFY_PROFILE VERIFY_PRIVATE_KEY_HEX VERIFY_FAULT_BARRIER VERIFY_FAULT_BARRIER_TIMEOUT
+  teardown_fullstack "$project"
+}
+
 run_stage() {
   case "$1" in
     unit) stage_unit ;;
     chain) stage_chain ;;
     durability) stage_durability ;;
     ops) stage_ops ;;
+    faults) stage_faults ;;
     media) stage_media ;;
     recovery) stage_recovery ;;
     perf) stage_perf ;;
     release) stage_release ;;
-    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|media|recovery|perf|release|all)" ;;
+    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|faults|media|recovery|perf|release|all)" ;;
   esac
 }
 

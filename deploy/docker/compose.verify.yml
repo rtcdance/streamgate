@@ -172,6 +172,21 @@ services:
       - WEB3_CHAIN_ID=31337
       - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
       - STREAMGATE_CONTENT_REGISTRY_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+      # The profile is overridable so the fault stage can run the DURABLE
+      # acceptance profile (which is what the internal fault barrier requires);
+      # every other stage leaves it empty and keeps its derived profile.
+      - STREAMGATE_PROFILE=${VERIFY_PROFILE:-}
+      # A durable profile resolves its registry signer from
+      # web3.transaction.private_key_hex (the demo deployer key above is refused
+      # there); empty everywhere else leaves signer resolution unchanged.
+      - STREAMGATE_PRIVATE_KEY_HEX=${VERIFY_PRIVATE_KEY_HEX:-}
+      # The internal fault barrier of the durable acceptance stack. Off by
+      # default; the config refuses to start if it is on outside durable.
+      - STREAMGATE_FAULT_BARRIER=${VERIFY_FAULT_BARRIER:-false}
+      - STREAMGATE_FAULT_BARRIER_DIR=/var/lib/streamgate/barrier
+      - STREAMGATE_FAULT_BARRIER_TIMEOUT=${VERIFY_FAULT_BARRIER_TIMEOUT:-30s}
+    volumes:
+      - fault-barrier:/var/lib/streamgate/barrier
     depends_on:
       postgres:
         condition: service_healthy
@@ -231,6 +246,15 @@ services:
       - WEB3_CHAIN_ID=31337
       - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
       - STREAMGATE_CONTENT_REGISTRY_ADDRESS=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+      # See the monolith's notes: profile / registry signer / fault barrier are
+      # all overridable per stage and inert by default.
+      - STREAMGATE_PROFILE=${VERIFY_PROFILE:-}
+      - STREAMGATE_PRIVATE_KEY_HEX=${VERIFY_PRIVATE_KEY_HEX:-}
+      - STREAMGATE_FAULT_BARRIER=${VERIFY_FAULT_BARRIER:-false}
+      - STREAMGATE_FAULT_BARRIER_DIR=/var/lib/streamgate/barrier
+      - STREAMGATE_FAULT_BARRIER_TIMEOUT=${VERIFY_FAULT_BARRIER_TIMEOUT:-30s}
+    volumes:
+      - fault-barrier:/var/lib/streamgate/barrier
     depends_on:
       postgres:
         condition: service_healthy
@@ -278,6 +302,14 @@ services:
       - STREAMGATE_STORAGE_SECRET_KEY=minioadmin
       - STREAMGATE_STORAGE_BUCKET=streamgate
       - STREAMGATE_NATS_URL=nats://nats:4222
+      # The worker is the process the fault stage kills and restarts, so it
+      # carries the profile and the barrier switch too.
+      - STREAMGATE_PROFILE=${VERIFY_PROFILE:-}
+      - STREAMGATE_FAULT_BARRIER=${VERIFY_FAULT_BARRIER:-false}
+      - STREAMGATE_FAULT_BARRIER_DIR=/var/lib/streamgate/barrier
+      - STREAMGATE_FAULT_BARRIER_TIMEOUT=${VERIFY_FAULT_BARRIER_TIMEOUT:-30s}
+    volumes:
+      - fault-barrier:/var/lib/streamgate/barrier
     depends_on:
       postgres:
         condition: service_healthy
@@ -318,5 +350,12 @@ volumes:
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
   consul-data:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+  # Internal rendezvous of the durable acceptance stack (0.2 D): the app
+  # containers announce a fault point here and the harness releases it. It is
+  # only ever written to when STREAMGATE_FAULT_BARRIER is on, which the config
+  # refuses outside the durable profile.
+  fault-barrier:
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}

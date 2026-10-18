@@ -880,10 +880,17 @@ func (s *TranscodingService) pumpOutbox(ctx context.Context) (int, error) {
 
 	published := 0
 	for _, in := range pending {
+		// The intent row is committed and still pending: a crash now must leave
+		// the enqueue undone, so the next start republishes it.
+		s.arriveAt(ctx, "outbox.before_publish")
 		if err := s.queue.PublishOutbox(in.kind, in.id, in.payload); err != nil {
 			s.noteOutboxError(ctx, in.id, in.kind, err)
 			continue
 		}
+		// The broker acknowledged the publish but the intent is not yet marked
+		// delivered: a crash here republishes the same message id, which the
+		// broker deduplicates.
+		s.arriveAt(ctx, "outbox.after_publish")
 		// Mark delivered only after PubAck. If this write fails the row stays
 		// pending and the next pass republishes; the message ID makes that a
 		// broker-side no-op.
