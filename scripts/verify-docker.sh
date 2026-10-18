@@ -35,6 +35,16 @@ CANDIDATE_BUILT=0
 CANDIDATE_MANIFEST="${VERIFY_CANDIDATE_MANIFEST:-${ARTIFACT_DIR}/candidate.json}"
 if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 
+# A persistent Playwright browser cache. The harness download is ~290MB, and the
+# controller container is removed with every run, so without this every run (and
+# every stage that invokes the acceptance) re-fetches it. VERIFY_PLAYWRIGHT_
+# BROWSERS_PATH is forwarded into the controller by scripts/verify-controller.sh;
+# on a path inside the mounted checkout the cache survives the run. Unset, this is
+# Playwright's own default location, so CI and a plain `make verify-docker` behave
+# exactly as before. It is exported (not passed per-command) because the harness
+# that RUNS the browser must look in the same place the browser was installed to.
+export PLAYWRIGHT_BROWSERS_PATH="${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+
 ALL_STAGES=(unit chain durability ops media recovery perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
@@ -542,7 +552,16 @@ ensure_playwright() {
   log "installing locked Playwright harness deps (npm ci)"
   ( cd scripts/h5-demo-acceptance && npm ci --no-audit --no-fund ) \
     || fail "npm ci for the h5-demo acceptance harness failed"
-  log "ensuring Playwright chromium is installed"
+  if [ "${VERIFY_SKIP_BROWSER_INSTALL:-0}" = "1" ]; then
+    # The browser download is ~290MB. A stage whose CRITERIA do not include the
+    # browser check (the recovery drill decodes real media itself) may skip it: the
+    # acceptance then reports exactly one browser failure, which that stage
+    # tolerates by name. It cannot be used to fake a gate — a stage whose gate DOES
+    # include the browser check (media) fails loudly on a missing browser.
+    log "skipping the Playwright browser download (VERIFY_SKIP_BROWSER_INSTALL=1)"
+    return
+  fi
+  log "ensuring Playwright chromium is installed (cache: ${PLAYWRIGHT_BROWSERS_PATH})"
   # Playwright's default 30s download timeout is shorter than a cold
   # chrome-for-testing fetch over a slow link, so the whole media stage died on
   # "Request to https://storage.googleapis.com/... timed out after 30000ms"
@@ -1376,15 +1395,16 @@ stage_recovery() {
 
   # 1. The dedicated source stack, seeded through the full acceptance: its side
   #    effects ARE the seed (a gated content with real media and a real on-chain
-  #    registration). The browser check is tolerated the same way the perf
-  #    stage tolerates it — the drill decodes real media from the restored state
-  #    itself, and the media stage keeps the strict gate.
+  #    registration). The browser check is NOT part of this stage's criteria — the
+  #    drill decodes real media from the restored state itself — so the ~290MB
+  #    browser download is skipped and the one resulting browser failure is
+  #    tolerated by name. The media stage keeps the strict gate.
   bring_up_fullstack "$src"
   local src_mono="$VERIFY_MONO_PORT" src_anvil="$VERIFY_ANVIL_PORT" src_minio="$VERIFY_MINIO_PORT"
   local src_front="$PROJECT_PROXY_PID"
   mkdir -p "$LOG_DIR"; : > "$seed_log"
   log "stage=recovery-seed (controller) → log ${seed_log}"
-  if ! run_fullchain "$src" "$src_mono" "$src_mono" "$src_anvil" "$src_minio" 2>&1 | tee -a "$seed_log"; then
+  if ! VERIFY_SKIP_BROWSER_INSTALL=1 run_fullchain "$src" "$src_mono" "$src_mono" "$src_anvil" "$src_minio" 2>&1 | tee -a "$seed_log"; then
     if acceptance_failed_only_in_browser "$seed_log"; then
       log "WARNING: the recovery seed failed ONLY the browser check (log: ${seed_log}) — tolerated here"
     else
