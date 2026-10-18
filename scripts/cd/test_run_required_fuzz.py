@@ -10,9 +10,8 @@ RUNNER = Path(__file__).with_name("run-required-fuzz.sh")
 MODULE = "github.com/rtcdance/streamgate/"
 PRESENT = MODULE + "pkg/fake"
 
-# The exact shape the Go fuzz coordinator prints when its budget deadline races
-# its own shutdown: the deadline is reported as the failure, yet real mutations
-# ran and no failing input was recorded.
+# A nonzero fuzz result with progress but no recorded crashing input. That
+# output still cannot prove the requested mutation budget completed.
 BENIGN_DEADLINE = (
     "fuzz: elapsed: 0s, gathering baseline coverage: 1/1 completed, now fuzzing with 4 workers\n"
     "fuzz: elapsed: 3s, execs: 45359 (15118/sec), new interesting: 1 (total: 2)\n"
@@ -106,14 +105,28 @@ class RequiredFuzzRunner(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("GATE FAILURE", result.stderr)
 
-    def test_only_the_engine_budget_deadline_is_accepted_once(self):
-        """A racing shutdown is repeated, then accepted only because no input failed."""
+    def test_engine_budget_deadline_with_nonzero_exit_fails(self):
+        """Progress and absence of a crasher do not prove successful completion."""
         result = self.invoke(
             [entry(PRESENT, "FuzzPresent")], go_exit=1, go_output=BENIGN_DEADLINE
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(self.invocations()), 2, "a racing run must be repeated once")
-        self.assertIn("NOTE", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.invocations()), 1)
+        self.assertIn("GATE FAILURE", result.stderr)
+
+    def test_short_deadline_log_cannot_prove_thirty_second_budget(self):
+        result = self.invoke(
+            [entry(PRESENT, "FuzzPresent")], seconds="30",
+            go_exit=1, go_output=BENIGN_DEADLINE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_timeout_exit_cannot_be_accepted_from_progress_text(self):
+        result = self.invoke(
+            [entry(PRESENT, "FuzzPresent")], go_exit=124,
+            go_output=BENIGN_DEADLINE,
+        )
+        self.assertNotEqual(result.returncode, 0)
 
     def test_a_deadline_that_also_recorded_a_crasher_fails(self):
         output = BENIGN_DEADLINE + "Failing input written to testdata/fuzz/FuzzPresent/deadbeef\n"
