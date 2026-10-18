@@ -116,6 +116,7 @@ func BenchmarkAPI_Authentication(b *testing.B) {
 		"wallet_address": "0xBench",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  "test-restore-epoch",
 		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})

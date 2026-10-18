@@ -62,7 +62,7 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 		return nil, nil, err
 	}
 
-	authService, err := provideAuthService(rc, cfg, log, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
+	authService, err := provideAuthService(rc, cfg, log, db, web3Svc, challengeStore, challengeTTL, sharedRedis, resources)
 	if err != nil {
 		return nil, nil, err
 	}

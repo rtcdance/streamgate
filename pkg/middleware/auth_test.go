@@ -18,6 +18,7 @@ func generateTestJWT(secret, walletAddress string, expiresAt time.Time) string {
 		"wallet_address": walletAddress,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  tokenKindTestRestoreEpoch,
 		"token_type":     "access",
 		"username":       walletAddress,
 		"sub":            walletAddress,

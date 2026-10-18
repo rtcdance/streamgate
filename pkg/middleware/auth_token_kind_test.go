@@ -15,6 +15,11 @@ import (
 
 const tokenKindTestSecret = "token-kind-test-secret-at-least-32!"
 
+// tokenKindTestRestoreEpoch is the recovery epoch every claim set in these tests
+// carries. It is opaque to the policy: the only rule is that the claim must be
+// present (and, when a validator is wired, match the authority).
+const tokenKindTestRestoreEpoch = "test-restore-epoch"
+
 func signWithClaims(t *testing.T, secret string, method jwt.SigningMethod, claims jwt.MapClaims) string {
 	t.Helper()
 	tok := jwt.NewWithClaims(method, claims)
@@ -30,6 +35,7 @@ func baseAccessClaims(extra map[string]interface{}) jwt.MapClaims {
 		"wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  tokenKindTestRestoreEpoch,
 		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Unix(),

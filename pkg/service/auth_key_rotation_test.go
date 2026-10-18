@@ -50,6 +50,16 @@ func newSeparatedAuthService(t *testing.T, access string, prevAccess []string, c
 	return svc
 }
 
+// currentRestoreEpoch returns the recovery epoch svc's authority currently
+// reports. Claim sets that are hand-built in tests must carry it: every
+// credential the service issues does, and one that does not is refused by design.
+func currentRestoreEpoch(t *testing.T, svc *AuthService) string {
+	t.Helper()
+	epoch, ok := svc.RestoreEpoch()
+	require.True(t, ok, "the test service must have a readable restore epoch authority")
+	return epoch
+}
+
 // mintAccess signs an access token under svc's CURRENT access key and returns
 // it plus the session it is bound to.
 func mintAccess(t *testing.T, svc *AuthService, wallet string) (token, sessionID string, epoch int64) {
@@ -62,6 +72,7 @@ func mintAccess(t *testing.T, svc *AuthService, wallet string) (token, sessionID
 		JTI:           "jti-" + wallet,
 		SessionID:     sessionID,
 		AuthEpoch:     1,
+		RestoreEpoch:  currentRestoreEpoch(t, svc),
 	}
 	claims.RegisteredClaims = accessTokenClaims(wallet, time.Hour)
 	token, err = svc.signToken(claims)

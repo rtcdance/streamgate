@@ -1239,6 +1239,9 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 	// *service.AuthService stored in the interface would be non-nil and panic.
 	if authSvc != nil {
 		policy.SessionValidator = authSvc
+		// The same service is the restore-epoch authority, so the gRPC entry point
+		// compares against the SAME Postgres value the HTTP entry point does.
+		policy.RestoreEpochValidator = authSvc
 	}
 	decision, err := middleware.AuthorizeAccessClaims(ctx, policy, claims)
 	if err != nil {

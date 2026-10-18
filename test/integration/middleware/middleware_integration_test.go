@@ -37,6 +37,7 @@ func TestMiddlewareStack_Integration(t *testing.T) {
 		"wallet_address": "0xTest",
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  "test-restore-epoch",
 		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 	})

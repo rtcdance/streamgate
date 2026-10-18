@@ -219,6 +219,7 @@ func makeTestJWT(t *testing.T, secret, wallet string) string {
 		"wallet_address": wallet,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
+		"restore_epoch":  "test-restore-epoch",
 		"token_type":     "access",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

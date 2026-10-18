@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,10 +147,15 @@ type AuthService struct {
 	playbackTokenTTL  time.Duration
 	// clockSkew is the tolerance applied to exp/nbf checks. It is a real input to
 	// the revocation bound, so it comes from config rather than a constant.
-	clockSkew         time.Duration
-	sessionMu         sync.RWMutex
-	sessionCache      map[string]cachedSession
-	sessionStore      stg.SessionStore
+	clockSkew    time.Duration
+	sessionMu    sync.RWMutex
+	sessionCache map[string]cachedSession
+	sessionStore stg.SessionStore
+	// restoreEpochs is the Postgres-authoritative recovery epoch. Every credential
+	// this service issues carries it and every entry point compares against it, so
+	// a restore regenerates one value and invalidates the whole credential
+	// universe at once.
+	restoreEpochs     stg.RestoreEpochStore
 	ruleVersionMu     sync.RWMutex
 	ruleVersionReader RuleVersionReader
 	eip712Verifier    web3.EIP712VerifierInterface
@@ -237,6 +244,12 @@ type Claims struct {
 	// predates the scheme and is refused rather than grandfathered in.
 	SessionID string `json:"session_id,omitempty"`
 	AuthEpoch int64  `json:"auth_epoch,omitempty"`
+	// RestoreEpoch is the recovery epoch the credential was minted under. It is a
+	// LAYER ABOVE the session: auth_epoch dies with its session, while a restore
+	// regenerates restore_epoch and invalidates every session and every capability
+	// at once. REQUIRED on every credential; one that carries none predates the
+	// scheme and is refused rather than grandfathered in.
+	RestoreEpoch string `json:"restore_epoch,omitempty"`
 	// RuleVersion is the authorization-rule version the capability was issued
 	// under. A segment request cannot re-read the chain, so this is how a rule
 	// change reaches media already in flight: the capability is stale the moment
@@ -485,6 +498,84 @@ func WithSessionStore(store stg.SessionStore) AuthServiceOption {
 	}
 }
 
+// The restore-epoch refusals. They are deliberately distinct: an operator needs
+// to tell "the credential predates the restore-epoch scheme", "the credential
+// was minted before a restore" and "the authority could not be read" apart.
+var (
+	// ErrRestoreEpochClaimMissing means the credential carries no restore_epoch
+	// claim at all — it predates the scheme.
+	ErrRestoreEpochClaimMissing = errors.New("credential carries no restore epoch")
+	// ErrRestoreEpochStale means the credential's restore epoch is not the
+	// current authoritative one: it was minted before a restore.
+	ErrRestoreEpochStale = errors.New("credential predates the current restore epoch")
+	// ErrRestoreEpochUnreadable means the authoritative epoch could not be read.
+	// It is a refusal, not a wildcard: an epoch that cannot be checked is not an
+	// epoch that matches.
+	ErrRestoreEpochUnreadable = errors.New("restore epoch authority is unavailable")
+)
+
+// WithRestoreEpochStore sets the authority every credential's restore_epoch is
+// minted from and checked against. Without it the service falls back to an
+// in-memory authority, and a restore that rotates the Postgres epoch would not
+// be seen here at all — which is why the wiring refuses that fallback in a
+// strict profile.
+func WithRestoreEpochStore(store stg.RestoreEpochStore) AuthServiceOption {
+	return func(s *AuthService) {
+		if store != nil {
+			s.restoreEpochs = store
+		}
+	}
+}
+
+// RestoreEpoch reports the authoritative restore epoch and whether it could be
+// read. It satisfies middleware.RestoreEpochValidator, so both transports
+// compare a credential's claim against ONE source.
+func (s *AuthService) RestoreEpoch() (string, bool) {
+	if s.restoreEpochs == nil {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	current, err := s.restoreEpochs.Current(ctx)
+	if err != nil || current.Unknown() {
+		return "", false
+	}
+	return current.Epoch, true
+}
+
+// requireCurrentRestoreEpoch refuses a credential whose restore_epoch claim is
+// absent or does not match the authoritative value.
+//
+// Presence is required, not defaulted: treating "absent" as "current" would
+// grandfather in exactly the credentials a restore exists to invalidate. An
+// unreadable authority is a refusal for the same reason.
+func (s *AuthService) requireCurrentRestoreEpoch(claim string) error {
+	if claim == "" {
+		return ErrRestoreEpochClaimMissing
+	}
+	current, ok := s.RestoreEpoch()
+	if !ok {
+		return ErrRestoreEpochUnreadable
+	}
+	if !strings.EqualFold(current, claim) {
+		return ErrRestoreEpochStale
+	}
+	return nil
+}
+
+// stampRestoreEpoch reads the authoritative epoch for a credential being minted.
+//
+// It NEVER falls back to an empty value: a credential with no restore epoch
+// could not be invalidated by a restore, so minting fails instead of producing
+// an un-revocable credential.
+func (s *AuthService) stampRestoreEpoch() (string, error) {
+	current, ok := s.RestoreEpoch()
+	if !ok {
+		return "", ErrRestoreEpochUnreadable
+	}
+	return current, nil
+}
+
 // WithTokenKeySeparation splits verification into an access key and a
 // capability key. capabilitySecret is REQUIRED here (derive it with
 // config.DeriveCapabilitySecret when only a master secret is configured);
@@ -593,8 +684,12 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		clockSkew:         DefaultClockSkew,
 		sessionCache:      make(map[string]cachedSession),
 		sessionStore:      stg.NewMemorySessionStore(),
-		siweDomain:        "streamgate.io",
-		siweURI:           "https://streamgate.io/login",
+		// The fallback restore-epoch authority is process-local, so a restore that
+		// rotates the Postgres epoch is invisible to it. The wiring replaces it in
+		// every real deployment and refuses the fallback in a strict profile.
+		restoreEpochs: stg.NewMemoryRestoreEpochStore(),
+		siweDomain:    "streamgate.io",
+		siweURI:       "https://streamgate.io/login",
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -927,6 +1022,17 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		return "", fmt.Errorf("session is no longer valid")
 	}
 
+	// The recovery epoch. A refresh is still an issuance: presenting a token
+	// minted before a restore must not re-mint a credential that outlives it, so
+	// the claim is checked here and stamped fresh on the replacement.
+	if err := s.requireCurrentRestoreEpoch(claims.RestoreEpoch); err != nil {
+		return "", err
+	}
+	restoreEpoch, err := s.stampRestoreEpoch()
+	if err != nil {
+		return "", err
+	}
+
 	newClaims := &Claims{
 		Username:      claims.Username,
 		TokenType:     AccessTokenType,
@@ -934,6 +1040,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		JTI:           generateID(),
 		SessionID:     claims.SessionID,
 		AuthEpoch:     epoch,
+		RestoreEpoch:  restoreEpoch,
 	}
 	newClaims.RegisteredClaims = accessTokenClaims(claims.Subject, s.jwtExpiry)
 	newClaims.RegisteredClaims.ID = generateID()
@@ -986,6 +1093,12 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A credential with no restore epoch could not be invalidated by a restore,
+	// so minting FAILS when the authority cannot be read.
+	restoreEpoch, err := s.stampRestoreEpoch()
+	if err != nil {
+		return "", err
+	}
 	claims := &Claims{
 		Username:         user.Username,
 		TokenType:        AccessTokenType,
@@ -993,6 +1106,7 @@ func (s *AuthService) generateToken(user *models.User) (string, error) {
 		JTI:              generateID(),
 		SessionID:        sessionID,
 		AuthEpoch:        1,
+		RestoreEpoch:     restoreEpoch,
 		RegisteredClaims: accessTokenClaims(user.ID, s.jwtExpiry),
 	}
 
