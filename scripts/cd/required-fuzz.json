@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "comment": "The REQUIRED fuzz contract of TRANSITION_PLAN section 0.2 (batch D). A blanket discovery pass over every Fuzz target keeps succeeding if one of these is renamed or deleted, so the set that must exist and must complete its mutation budget is registered here. PR runs seeds + 5s, the final candidate runs seeds + 30s; a non-zero exit or a timeout is a failure.",
+  "required": [
+    {
+      "package": "github.com/rtcdance/streamgate/pkg/middleware",
+      "fuzz": "FuzzNFTQuantity",
+      "property": "the gate grants if and only if the observed quantity reaches the rule's normalized min_balance; a negative min_balance or an unusable verifier answer never grants"
+    },
+    {
+      "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+      "fuzz": "FuzzWalletMessage",
+      "property": "an EIP-191 signature authorizes exactly the message it was made over, never a different message and never an unrelated signature"
+    },
+    {
+      "package": "github.com/rtcdance/streamgate/pkg/gateway",
+      "fuzz": "FuzzProtectedMediaPath",
+      "property": "every segment-candidate object key stays inside the requested content's namespace: relative, clean, no traversal segment, no generation-private directory"
+    }
+  ]
+}
