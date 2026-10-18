@@ -173,6 +173,7 @@ func (q *NATSTranscodingQueue) ensureDLQStream() {
 func (q *NATSTranscodingQueue) ensureMaxDeliverConsumer() {
 	want := &nats.ConsumerConfig{
 		Durable:    jsConsumerName,
+		AckPolicy:  nats.AckExplicitPolicy,
 		MaxDeliver: jsMaxDeliver,
 		AckWait:    jsAckWait,
 	}
@@ -180,7 +181,18 @@ func (q *NATSTranscodingQueue) ensureMaxDeliverConsumer() {
 	if err == nil {
 		// A consumer left behind by an older build (MaxDeliver=5) would keep
 		// silently exhausting messages; converge it to the current policy.
-		if info.Config.MaxDeliver != jsMaxDeliver || info.Config.AckWait != jsAckWait {
+		//
+		// AckPolicy is part of the policy, not an implementation detail: a
+		// consumer created with the zero value is ack_policy=none, and the broker
+		// then treats every message as acknowledged the moment it is delivered.
+		// No Ack/Nak has any effect, and an in-flight task whose worker dies is
+		// never redelivered — it is stranded until some unrelated restart's
+		// recovery happens to pick it up, which is exactly the "≤60s re-claim or
+		// explicit failure" guarantee this queue exists to provide. This was
+		// created with the zero value before the durable acceptance ran against a
+		// real JetStream, so the convergence check must include it.
+		if info.Config.MaxDeliver != jsMaxDeliver || info.Config.AckWait != jsAckWait ||
+			info.Config.AckPolicy != nats.AckExplicitPolicy {
 			if _, uerr := q.js.UpdateConsumer(jsStreamName, want); uerr != nil {
 				q.logger.Warn("Failed to update consumer MaxDeliver/AckWait", zap.Error(uerr))
 			}
