@@ -885,6 +885,103 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 9b. gRPC authorization parity (HTTP and gRPC share one authorization flow)
+# ---------------------------------------------------------------------------
+# The plan requires Docker-level evidence that the gRPC entry point authorizes
+# through the SAME flow as HTTP: a wallet holding 1 against a rule requiring 2
+# is denied, a legitimate holder actually obtains media, and conflicting dual
+# credentials are refused. GRPC_TARGET follows the deployment mode under test
+# (monolith or api-gateway); the controller reaches the service by NAME on the
+# project network. A gRPC check that cannot run is a FAILURE, never a skip.
+printf '\n=== gRPC authorization parity ===\n'
+
+GRPC_TARGET="${GRPC_TARGET:-monolith:9090}"
+
+# grpc_parity <mode> <label> [client-args...] — runs the parity client and turns
+# its exit status into ONE acceptance check. The client's output is captured so
+# a failure is diagnosable; an unreachable target makes `go run` fail and this
+# check FAIL rather than skip. `go run` uses the repo root as its working
+# directory, exactly like the existing `go run ./cmd/migrate` usage.
+grpc_parity() {
+    local mode="$1" label="$2"; shift 2
+    local out rc=0 detail
+    out="$(go run ./test/grpcparity --target "$GRPC_TARGET" --content "$CONTENT_ID" \
+        --mode "$mode" "$@" 2>&1)" || rc=$?
+    detail="$(printf '%s' "$out" | tail -n 1)"
+    if [ "$rc" = "0" ]; then
+        p "$label"
+    else
+        f "$label — ${detail:-the gRPC parity client failed with no output}"
+    fi
+}
+
+# The holder (1 owned, 1 required) must be authorized over gRPC; the segment
+# URL it hands back must carry a capability on the shared 60s policy and
+# actually serve media with NO Authorization header.
+if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
+    grpc_parity holder-ok "gRPC holder is authorized and obtains real media (shared 60s capability)" \
+        --token "$TOKEN_A" --http-base "$BASE_URL"
+else
+    f "gRPC holder-ok could not run: missing content id or the holder's token"
+fi
+
+# A real logged-in wallet holding nothing must be refused over gRPC.
+if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_B" ]; then
+    grpc_parity non-holder-denied "gRPC non-holder is denied (PermissionDenied)" \
+        --token "$TOKEN_B"
+else
+    f "gRPC non-holder-denied could not run: missing content id or the non-holder's token"
+fi
+
+# The holder owns at least the single NFT this leg minted (see the mint section
+# above). The rule must require MORE than the holder actually holds: the stack
+# is seeded once but the acceptance runs against it twice (monolith, then
+# api-gateway), so by the second leg the holder owns more than one. Deriving the
+# threshold from the real on-chain balance keeps the assertion true in both
+# legs; on a fresh leg it is exactly the 1-owned / 2-required case the plan
+# names. The change propagates through a cache, so the HTTP manifest is polled
+# rather than assumed.
+if [ -n "${RULE_ID:-}" ] && [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
+    HOLDER_BAL="$(cast call --rpc-url "$ANVIL_URL" "$DEMO_CONTRACT" 'balanceOf(address)(uint256)' "$WALLET_A" 2>/dev/null | awk '{print $1}' || true)"
+    case "$HOLDER_BAL" in
+        ''|*[!0-9]*) THRESHOLD=2 ;;
+        *)           THRESHOLD=$((HOLDER_BAL + 1)) ;;
+    esac
+    put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":$THRESHOLD}"
+    THRESH_CODE="$(wait_for_manifest 403 20)"
+    case "$THRESH_CODE" in
+        403) grpc_parity threshold-denied "gRPC holder below the rule threshold (holds ${HOLDER_BAL:-?}, requires $THRESHOLD) is denied (PermissionDenied)" \
+                --token "$TOKEN_A" ;;
+        503) f "gRPC threshold-denied not attributable to min_balance (HTTP manifest 503)" ;;
+        *)   f "Rule raised to min_balance=$THRESHOLD but the holder was still served (last=$THRESH_CODE)" ;;
+    esac
+    # Restore the rule so later checks are not poisoned, and prove it is back.
+    put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":1}"
+    GRPC_RESTORED="$(wait_for_manifest 200 20)"
+    [ "$GRPC_RESTORED" = "200" ] && p "Rule restored to min_balance=1 after the gRPC threshold check" \
+        || f "Holder is not served again after restoring min_balance=1 (last=$GRPC_RESTORED)"
+else
+    f "gRPC threshold-denied could not run: missing rule id, content id or the holder's token"
+fi
+
+# Dual credentials that disagree: wallet B's access token carrying wallet A's
+# capability must be refused by the gRPC path.
+if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$TOKEN_B" ]; then
+    CONFLICT_MASTER="$(curl -s -H "Authorization: Bearer $TOKEN_A" \
+        "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+    CONFLICT_URI="$(printf '%s' "$CONFLICT_MASTER" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1 || true)"
+    CONFLICT_CAP="$(printf '%s' "$CONFLICT_URI" | grep -oE 'playback_token=[A-Za-z0-9._-]+' | head -1 | cut -d= -f2 || true)"
+    if [ -n "$CONFLICT_CAP" ]; then
+        grpc_parity conflict-denied "gRPC refuses a capability belonging to another wallet (dual credentials)" \
+            --token "$TOKEN_B" --capability "$CONFLICT_CAP"
+    else
+        f "gRPC conflict-denied could not run: could not extract A's capability from the manifest"
+    fi
+else
+    f "gRPC conflict-denied could not run: missing content id, holder or non-holder token"
+fi
+
+# ---------------------------------------------------------------------------
 # 10. Browser playback: real hls.js, real time advance
 # ---------------------------------------------------------------------------
 printf '\n=== Browser playback ===\n'
