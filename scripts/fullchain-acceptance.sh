@@ -729,17 +729,21 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         -H 'Content-Type: application/json' -d "{\"contract_address\":\"$TAMPER_CONTRACT\"}" >/dev/null 2>&1 || true
 
     TAMPER_CODE=""
-    TAMPER_DEADLINE=$((SECONDS + 30))
+    # The bound the plan names for a rule change reaching the gate is 5 seconds.
+    # A 30s deadline would pass a 25s propagation while the log said nothing about
+    # how long it took, so the deadline IS the bound (one second of poll
+    # resolution is the only slack).
+    TAMPER_DEADLINE=$((SECONDS + 5))
     while [ "$SECONDS" -lt "$TAMPER_DEADLINE" ]; do
         TAMPER_CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
             "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
         [ "$TAMPER_CODE" != "200" ] && break
-        sleep 3
+        sleep 1
     done
     case "$TAMPER_CODE" in
-        403) p "Rule retargeted to a contract the holder lacks → denied (403)" ;;
-        503) p "Rule retargeted → refused, dependency unverifiable (503)" ;;
-        *)   f "Tampered contract still served after 30s (last=$TAMPER_CODE)" ;;
+        403) p "Rule retargeted to a contract the holder lacks → denied within the 5s bound (403)" ;;
+        503) p "Rule retargeted → refused within the 5s bound, dependency unverifiable (503)" ;;
+        *)   f "Tampered contract still served 5s after the change (last=$TAMPER_CODE)" ;;
     esac
 
     # Point the rule back at the real contract FIRST, so each denial below is
@@ -773,9 +777,9 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
     # the capability it already handed out. With the contract unchanged, a denial
     # here can only come from the threshold.
     put_rule '{"min_balance":999999}'
-    BAR_CODE="$(wait_for_manifest 403 15)"
+    BAR_CODE="$(wait_for_manifest 403 5)"
     case "$BAR_CODE" in
-        403) p "Raising the rule threshold denies the holder on re-request (403)" ;;
+        403) p "Raising the rule threshold denies the holder on the next request within the 5s bound (403)" ;;
         503) f "Threshold change could not be verified (503) — the denial is not attributable to min_balance" ;;
         *)   f "Holder still served after the threshold was raised (last=$BAR_CODE)" ;;
     esac
@@ -785,16 +789,19 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
     # already in flight instead of waiting out the capability's TTL.
     if [ -n "$PRE_CAP_URL" ]; then
         CAP_REVOKED=0
-        CAP_DEADLINE=$((SECONDS + 10))
+        # The bound the plan names is 5 seconds, so the deadline IS 5 seconds: a
+        # longer one would pass a 9-second revocation while the message claimed
+        # 5. One second of poll resolution is the only slack.
+        CAP_DEADLINE=$((SECONDS + 5))
         while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
             C="$(curl -s -o /dev/null -w '%{http_code}' "$PRE_CAP_URL")"
             if [ "$C" = "401" ] || [ "$C" = "403" ]; then CAP_REVOKED=1; break; fi
             sleep 1
         done
         if [ "$CAP_REVOKED" = "1" ]; then
-            p "A capability issued BEFORE the rule change is refused within the bound"
+            p "A capability issued BEFORE the rule change is refused within the 5s bound"
         else
-            f "A capability issued before the rule change is still accepted after 10s"
+            f "A capability issued before the rule change is still accepted 5s after the change"
         fi
     else
         f "Could not obtain a pre-change capability"
@@ -948,7 +955,9 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ]; then
         *)           THRESHOLD=$((HOLDER_BAL + 1)) ;;
     esac
     put_rule "{\"contract_address\":\"$DEMO_CONTRACT\",\"min_balance\":$THRESHOLD}"
-    THRESH_CODE="$(wait_for_manifest 403 20)"
+    # The rule change must reach the gate within the 5s bound, so the HTTP thumb
+    # waits exactly that long rather than a looser multiple of it.
+    THRESH_CODE="$(wait_for_manifest 403 5)"
     case "$THRESH_CODE" in
         403) grpc_parity threshold-denied "gRPC holder below the rule threshold (holds ${HOLDER_BAL:-?}, requires $THRESHOLD) is denied (PermissionDenied)" \
                 --token "$TOKEN_A" ;;
@@ -1073,7 +1082,9 @@ if [ -n "$KEY_A" ]; then
 
         if [ -n "$CAP_URL" ]; then
             CAP_DEAD=0
-            CAP_DEADLINE=$((SECONDS + 10))
+            # The named bound is 5 seconds, so the deadline is 5 seconds: a 10s
+            # deadline would pass a revocation at 9s while the message said 5.
+            CAP_DEADLINE=$((SECONDS + 5))
             while [ "$SECONDS" -lt "$CAP_DEADLINE" ]; do
                 C="$(curl -s -o /dev/null -w '%{http_code}' "$CAP_URL")"
                 if [ "$C" = "401" ] || [ "$C" = "403" ]; then CAP_DEAD=1; break; fi
@@ -1082,13 +1093,14 @@ if [ -n "$KEY_A" ]; then
             if [ "$CAP_DEAD" = "1" ]; then
                 p "Logout revokes an ALREADY-ISSUED capability within the 5s bound"
             else
-                f "Capability still accepted 10s after logout — it did not inherit the session"
+                f "Capability still accepted 5s after logout — it did not inherit the session"
             fi
         fi
 
-        # The revocation must be visible within the session cache bound (5s).
+        # The revocation must be visible within the session cache bound (5s), so
+        # the deadline is that bound rather than a looser one.
         REVOKED=0
-        DEADLINE=$((SECONDS + 10))
+        DEADLINE=$((SECONDS + 5))
         while [ "$SECONDS" -lt "$DEADLINE" ]; do
             C="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $LOGOUT_TOKEN" "$BASE_URL/api/v1/auth/profile")"
             if [ "$C" = "401" ] || [ "$C" = "403" ]; then REVOKED=1; break; fi
@@ -1097,7 +1109,7 @@ if [ -n "$KEY_A" ]; then
         if [ "$REVOKED" = "1" ]; then
             p "Logout revokes the session within the 5s bound"
         else
-            f "Token still accepted 10s after logout — the session was not revoked"
+            f "Token still accepted 5s after logout — the session was not revoked"
         fi
     else
         f "Could not log in to exercise logout"
