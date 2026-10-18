@@ -35,7 +35,7 @@ CANDIDATE_BUILT=0
 CANDIDATE_MANIFEST="${VERIFY_CANDIDATE_MANIFEST:-${ARTIFACT_DIR}/candidate.json}"
 if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 
-ALL_STAGES=(unit chain durability ops media perf release)
+ALL_STAGES=(unit chain durability ops media recovery perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[verify:FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -1325,6 +1325,116 @@ stage_release() {
   teardown_fullstack "$project"
 }
 
+# ---------------------------------------------------------------------------
+# recovery (M8): the fresh-environment recovery drill. A DEDICATED source stack
+# is seeded through the acceptance, then its state is snapshotted and restored
+# into an INDEPENDENT project with EMPTY volumes while the chain survives; the
+# drill proves that the restored snapshot cannot revive a pre-restore credential
+# and that a fresh login really plays. Nothing is ever dropped and the sg-fc-*
+# stacks are never touched — the drill only owns the two projects below.
+# scripts/backup-restore-drill.sh carries the seven steps of the plan.
+# ---------------------------------------------------------------------------
+RECOVERY_HELPER_IMAGE="alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507"
+RECOVERY_SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+
+# write_recovery_chain_override <dst-project> <src-project> <file> — the target
+# project reads the SAME chain the snapshot's history was written to. A recovery
+# restores the APPLICATION's state onto a chain that survives the failure, so a
+# fresh Anvil would make every recorded transaction and nonce reservation
+# unexplainable. The target's `anvil` service is therefore a forwarder into the
+# source stack's chain (the same socat image the perf stage already uses, with
+# the base service's `anvil` entrypoint and healthcheck replaced).
+write_recovery_chain_override() {
+  local dst="$1" src="$2" file="$3"
+  cat > "$file" <<YAML
+services:
+  anvil:
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT}
+    platform: ${VERIFY_PLATFORM}
+    image: ${RECOVERY_SOCAT_IMAGE}
+    entrypoint: ["socat"]
+    command: ["TCP-LISTEN:8545,fork,reuseaddr", "TCP:${src}-anvil-1:8545"]
+    healthcheck:
+      disable: true
+    networks:
+      - default
+      - chain
+networks:
+  chain:
+    external: true
+    name: ${src}_default
+YAML
+}
+
+stage_recovery() {
+  require_controller_tool docker
+  local src="${PROJECT_NAME}-recovery-src"
+  local dst="${PROJECT_NAME}-recovery-dst"
+  local override="${ARTIFACT_DIR}/recovery-dst-chain.yml"
+  local seed_log="${LOG_DIR}/recovery-seed.log"
+
+  # 1. The dedicated source stack, seeded through the full acceptance: its side
+  #    effects ARE the seed (a gated content with real media and a real on-chain
+  #    registration). The browser check is tolerated the same way the perf
+  #    stage tolerates it — the drill decodes real media from the restored state
+  #    itself, and the media stage keeps the strict gate.
+  bring_up_fullstack "$src"
+  local src_mono="$VERIFY_MONO_PORT" src_anvil="$VERIFY_ANVIL_PORT" src_minio="$VERIFY_MINIO_PORT"
+  local src_front="$PROJECT_PROXY_PID"
+  mkdir -p "$LOG_DIR"; : > "$seed_log"
+  log "stage=recovery-seed (controller) → log ${seed_log}"
+  if ! run_fullchain "$src" "$src_mono" "$src_mono" "$src_anvil" "$src_minio" 2>&1 | tee -a "$seed_log"; then
+    if acceptance_failed_only_in_browser "$seed_log"; then
+      log "WARNING: the recovery seed failed ONLY the browser check (log: ${seed_log}) — tolerated here"
+    else
+      fail "recovery seed acceptance failed for ${src} (log: ${seed_log})"
+    fi
+  fi
+
+  # 2. The target project's front (loopback in the controller), the images it
+  #    needs and the chain-forwarding override. The drill creates the project
+  #    and its EMPTY volumes, restores into them, reconciles the chain and only
+  #    then starts the application.
+  ensure_runtime_image "$RECOVERY_HELPER_IMAGE"
+  ensure_runtime_image "$RECOVERY_SOCAT_IMAGE"
+  start_project_front "$dst"
+  local dst_mono="$VERIFY_MONO_PORT" dst_front="$PROJECT_PROXY_PID"
+  CREATED_PROJECTS="${CREATED_PROJECTS} ${dst}"
+  write_recovery_chain_override "$dst" "$src" "$override"
+  export VERIFY_CORS_ORIGINS="http://localhost:${src_mono},http://localhost:${dst_mono},http://localhost:${VERIFY_H5_PORT}"
+  docker compose -p "$dst" -f "$VERIFY_COMPOSE_FILE" -f "$override" config -q \
+    || fail "the recovery override does not compose with ${VERIFY_COMPOSE_FILE}"
+
+  # 3. The drill itself. Its artifacts carry the scenario ids, the candidate
+  #    identity, every check's PASS/FAIL and the recorded RPO/RTO.
+  local artifacts="${ARTIFACT_DIR}/recovery"
+  mkdir -p "$artifacts"
+  run_logged recovery bash scripts/backup-restore-drill.sh \
+    --src-project "$src" --dst-project "$dst" \
+    --compose "$VERIFY_COMPOSE_FILE" --dst-extra "$override" \
+    --src-api "http://localhost:${src_mono}" \
+    --dst-api "http://localhost:${dst_mono}" \
+    --artifacts "$artifacts" \
+    --candidate-sha "$(git rev-parse HEAD)"
+
+  # The restored stack must run the candidate images, exactly like every other
+  # stage — the identity check is what makes the drill's playback evidence the
+  # candidate's evidence.
+  python3 scripts/cd/candidate_manifest.py "$CANDIDATE_MANIFEST" --project "$dst" --platform "$VERIFY_PLATFORM" \
+    || fail "recovery stage candidate identity mismatch"
+
+  # 4. Both stacks go away HERE, not at the end of the run: the perf stage
+  #    measures a fixed-resource stack and must not compete with leftovers.
+  kill "$dst_front" "$src_front" >/dev/null 2>&1 || :
+  local p
+  for p in "$dst" "$src"; do
+    docker compose -p "$p" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 \
+      || log "WARNING: recovery cleanup of ${p} reported an error"
+  done
+  log "recovery: both stacks torn down"
+}
+
 run_stage() {
   case "$1" in
     unit) stage_unit ;;
@@ -1332,9 +1442,10 @@ run_stage() {
     durability) stage_durability ;;
     ops) stage_ops ;;
     media) stage_media ;;
+    recovery) stage_recovery ;;
     perf) stage_perf ;;
     release) stage_release ;;
-    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|media|perf|release|all)" ;;
+    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|media|recovery|perf|release|all)" ;;
   esac
 }
 
