@@ -317,8 +317,16 @@ docker exec "$SRC_PG" pg_dump -U postgres streamgate > "$PG_DUMP" || die "pg_dum
 [ -s "$PG_DUMP" ] || die "pg_dump produced an empty file"
 p "Postgres snapshot captured ($(wc -c < "$PG_DUMP" | tr -d ' ') bytes, application stopped)"
 
+# The per-item hash list covers the STORED objects. `/data/.minio.sys/tmp` is
+# PRUNED: it is MinIO's staging area for writes that are still in flight and for
+# the ones it discarded (its own `.trash`), so it is transient by design and
+# legitimately differs between two independently running stores. Everything else
+# — the bucket objects AND the store's own format/config identity — must be
+# identical, so the check stays strict everywhere it carries meaning.
+OBJECT_INVENTORY='find /data -path /data/.minio.sys/tmp -prune -o -type f -print | sort | xargs -r sha256sum'
+
 docker run --rm -v "${SRC_PROJECT}_minio-data:/data:ro" -v "${ARTIFACTS}:/art" "$HELPER_IMAGE" \
-    sh -c 'tar -C /data -cf /art/objects.tar . && find /data -type f | sort | xargs -r sha256sum > /art/objects-before.txt' \
+    sh -c "tar -C /data -cf /art/objects.tar . && $OBJECT_INVENTORY > /art/objects-before.txt" \
     || die "object backup failed"
 OBJECT_COUNT="$(wc -l < "$OBJECTS_BEFORE" | tr -d ' ')"
 [ "$OBJECT_COUNT" -gt 0 ] || die "the object store backup captured nothing — the restore would prove nothing"
@@ -687,7 +695,7 @@ else
 fi
 
 docker run --rm -v "${DST_PROJECT}_minio-data:/data:ro" -v "${ARTIFACTS}:/art" "$HELPER_IMAGE" \
-    sh -c 'find /data -type f | sort | xargs -r sha256sum > /art/objects-after.txt' \
+    sh -c "$OBJECT_INVENTORY > /art/objects-after.txt" \
     || die "could not re-inventory the restored objects"
 OBJECT_HASH_PAIRS="$(diff -u "$OBJECTS_BEFORE" "$OBJECTS_AFTER" > "$ARTIFACTS/objects-diff.txt" 2>&1 && echo equal || echo differ)"
 [ "$OBJECT_HASH_PAIRS" = "equal" ] \
