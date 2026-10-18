@@ -634,13 +634,49 @@ func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ConvergesLegacyConfig(t *
 	require.NotNil(t, updated)
 	assert.Equal(t, -1, updated.MaxDeliver)
 	assert.Equal(t, 30*time.Second, updated.AckWait)
+	assert.Equal(t, nats.AckExplicitPolicy, updated.AckPolicy)
+}
+
+// TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ConvergesAckPolicy pins a
+// defect the durable acceptance found against a real JetStream: the consumer was
+// created with the zero AckPolicy, which marshals as ack_policy=none. The broker
+// then acknowledges every message on delivery, so an in-flight task whose worker
+// dies is never redelivered — no Ack or Nak has any effect, and the task is
+// stranded far past the "≤60s re-claim or explicit failure" guarantee. A
+// consumer carrying that policy must converge to explicit.
+func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ConvergesAckPolicy(t *testing.T) {
+	var updated *nats.ConsumerConfig
+	js := &mockJetStream{
+		consumerInfoFn: func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			return &nats.ConsumerInfo{Config: nats.ConsumerConfig{
+				Durable:    name,
+				AckPolicy:  nats.AckNonePolicy,
+				MaxDeliver: -1,
+				AckWait:    30 * time.Second,
+			}}, nil
+		},
+		updateConsumerFn: func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			updated = cfg
+			return &nats.ConsumerInfo{}, nil
+		},
+	}
+
+	q := &NATSTranscodingQueue{logger: zap.NewNop(), js: js}
+	q.ensureMaxDeliverConsumer()
+	require.NotNil(t, updated, "an ack_policy=none consumer must be converged")
+	assert.Equal(t, nats.AckExplicitPolicy, updated.AckPolicy)
 }
 
 func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ExistingMatchedConfig(t *testing.T) {
 	updateCalled := false
 	js := &mockJetStream{
 		consumerInfoFn: func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
-			return &nats.ConsumerInfo{Config: nats.ConsumerConfig{Durable: name, MaxDeliver: -1, AckWait: 30 * time.Second}}, nil
+			return &nats.ConsumerInfo{Config: nats.ConsumerConfig{
+				Durable:    name,
+				AckPolicy:  nats.AckExplicitPolicy,
+				MaxDeliver: -1,
+				AckWait:    30 * time.Second,
+			}}, nil
 		},
 		updateConsumerFn: func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
 			updateCalled = true
@@ -654,11 +690,13 @@ func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_ExistingMatchedConfig(t *
 }
 
 func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_CreateNew(t *testing.T) {
+	var created *nats.ConsumerConfig
 	js := &mockJetStream{
 		consumerInfoFn: func(stream, name string, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
 			return nil, errors.New("not found")
 		},
 		addConsumerFn: func(stream string, cfg *nats.ConsumerConfig, opts ...nats.JSOpt) (*nats.ConsumerInfo, error) {
+			created = cfg
 			return &nats.ConsumerInfo{}, nil
 		},
 	}
@@ -669,6 +707,9 @@ func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_CreateNew(t *testing.T) {
 	}
 
 	q.ensureMaxDeliverConsumer()
+	require.NotNil(t, created)
+	assert.Equal(t, nats.AckExplicitPolicy, created.AckPolicy,
+		"the queue must never create a consumer the broker can auto-acknowledge")
 }
 
 func TestNATSTranscodingQueue_ensureMaxDeliverConsumer_AddFails(t *testing.T) {
