@@ -85,6 +85,8 @@
 
 > **E 批已实测（非估算）：** `go test -race -count=1` 对 `pkg/monitoring`、`pkg/middleware`、`pkg/gateway`、`pkg/service/transcoding`、`cmd/microservices/transcoder` 全部通过；`go vet` 同范围通过；同一工具镜像内 `golangci-lint` 对五个受影响包为 **0 issues**；`gofmt -l` 无输出。`TestMedia_WorkerProbeMetadata` 在工具容器内用真实 FFmpeg 执行：`media_seconds=2.000000 probe_seconds=0.268328 transcode_seconds=0.687862 rtf=0.343931`，并断言两条 histogram 各增加 1、sum 与元数据一致。资源摘要解析用固定 before/after fixture 实测输出 `cpu_seconds_delta=2.0`、`rss_bytes=150000000`。`bash -n scripts/perf-acceptance.sh` 通过。提交 `f3ae202` 前对 `./pkg/...` 执行完整 `go test -race -count=1`（含该改动）全部通过。
 
+> **E/ops 门复跑（2026-10-18）：** `VERIFY_STAGE=ops VERIFY_PROJECT=sg-repair-e-1018-0125`（revision `02f833f`，工具镜像 `sha256:7d0efa8a…`）**`stage=ops PASS`、exit 0**：六个套件分别 11/12/3/1/1/1 全过，`TestAcceptance_GateDecisionMetricRecorded` 与 `TestMonitoring_NoHighCardinalityLabels` 在真实门内通过；三个必需 fuzz 目标各 30 秒 PASS，其余 10 个 fuzz 目标各 30 秒 PASS。该门验证了固定标签枚举和 log-only 规则版本没有破坏既有观测契约，但不包含性能矩阵；E 仍未关闭。证据：`.verify-artifacts/sg-repair-e-1018-0125/{logs/ops.log,controller.log}`。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
