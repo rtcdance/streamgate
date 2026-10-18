@@ -877,6 +877,13 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 			defer limiter.release()
 		}
 		quality := c.Query("quality")
+		// The quality becomes an object-key directory, so an unusable label is
+		// refused at the boundary instead of being silently dropped later: a
+		// client that asked for a rendition it cannot name must be told.
+		if quality != "" && !isValidRenditionName(quality) {
+			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid quality")
+			return
+		}
 		segName := c.Param("num")
 		if !validateSegmentName(segName) {
 			abortWithError(c, http.StatusBadRequest, ErrInvalidRequest, "invalid segment name")
@@ -1110,6 +1117,23 @@ type segmentCandidate struct {
 	prio int
 }
 
+// isValidRenditionName reports whether a quality/rendition label may be used as
+// a single object-key path segment. The accepted set is deliberately narrow:
+// rendition labels and profiles ("720p", "640x360", "en", a profile name) never
+// need anything else, so refusing separators, dots and traversal sequences keeps
+// a client-supplied quality from constructing a key outside the content prefix.
+func isValidRenditionName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for _, ch := range name {
+		if (ch < 'a' || ch > 'z') && (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '-' && ch != '_' {
+			return false
+		}
+	}
+	return true
+}
+
 func validateSegmentName(segName string) bool {
 	if strings.Contains(segName, "\\") || strings.Contains(segName, "..") {
 		return false
@@ -1160,10 +1184,11 @@ func buildSegmentCandidates(contentID, segName, quality string, cache *Streaming
 	}
 	if len(qlist) > 0 {
 		for q := range qlist {
-			// A quality that names a generation directory would construct a
-			// staging key; it can only come from the client, never from our
-			// own (filtered) listing.
-			if isGenerationDirName(q) {
+			// A quality that is not a bare rendition label — or that names a
+			// generation directory — would construct a key outside this content's
+			// namespace. Neither can come from our own (filtered) listing, but the
+			// builder must not depend on that: it refuses the value itself.
+			if !isValidRenditionName(q) || isGenerationDirName(q) {
 				continue
 			}
 			prio := 1
@@ -1176,7 +1201,7 @@ func buildSegmentCandidates(contentID, segName, quality string, cache *Streaming
 			})
 		}
 	} else {
-		if quality != "" && !isGenerationDirName(quality) {
+		if isValidRenditionName(quality) && !isGenerationDirName(quality) {
 			candidates = append(candidates, segmentCandidate{
 				key:  fmt.Sprintf("streams/%s/%s/%s", contentID, quality, segName),
 				prio: 2,
@@ -1199,6 +1224,13 @@ func buildPublishedGenerationCandidates(contentID, segName, quality string, cach
 	var candidates []segmentCandidate
 	seen := make(map[string]bool)
 	add := func(subdir string, prio int) {
+		// Only a bare rendition label may become a directory inside this
+		// generation; anything else (a traversal sequence, a separator, a nested
+		// generation directory) would escape the prefix, so it is dropped here
+		// rather than trusted from the caller or from a listing.
+		if !isValidRenditionName(subdir) || isGenerationDirName(subdir) {
+			return
+		}
 		key := fmt.Sprintf("%s/%s/%s", base, subdir, segName)
 		if seen[key] {
 			return
@@ -1206,9 +1238,7 @@ func buildPublishedGenerationCandidates(contentID, segName, quality string, cach
 		seen[key] = true
 		candidates = append(candidates, segmentCandidate{key: key, prio: prio})
 	}
-	if quality != "" && !isGenerationDirName(quality) {
-		add(quality, 2)
-	}
+	add(quality, 2)
 	if qlist, ok := cache.GetSegmentIndex(contentID, generation); ok {
 		for q := range qlist {
 			prio := 1
