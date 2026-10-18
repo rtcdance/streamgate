@@ -6,6 +6,11 @@ ARG BINARY_NAME
 COPY deploy/docker/${BINARY_NAME}-linux ./service
 COPY config ./config
 COPY h5-demo ./h5-demo
+# The chain's deployment record (batch C). The verify stack enables the
+# registry (STREAMGATE_CONTENT_REGISTRY_ADDRESS is set), and an enabled registry
+# verifies its deployment identity at startup — without this the app refuses to
+# start instead of advertising a registration path it cannot honour.
+COPY deployments ./deployments
 RUN chown -R appuser:appgroup /app
 USER appuser
 EXPOSE 8080 9090
