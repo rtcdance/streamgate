@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/models"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
@@ -115,6 +116,10 @@ type TranscodingService struct {
 	maxAttempts int
 	// outboxInterval is how often pending outbox intents are re-published.
 	outboxInterval time.Duration
+	// faultBarrier is the internal fault barrier of the durable acceptance
+	// stack (TRANSITION_PLAN 0.2 D). It is nil unless the durable acceptance
+	// profile turned it on, so a production worker has no fault points at all.
+	faultBarrier *barrier.Barrier
 }
 
 const defaultUploadConcurrency = 5
@@ -154,6 +159,34 @@ func (s *TranscodingService) SetMaxInputBytes(n int64) {
 		s.mu.Lock()
 		s.maxInputBytes = n
 		s.mu.Unlock()
+	}
+}
+
+// SetFaultBarrier installs the internal fault barrier of the durable acceptance
+// stack. A nil barrier — the only state a non-durable deployment can reach,
+// because the config refuses the switch anywhere else — makes every point a
+// no-op.
+func (s *TranscodingService) SetFaultBarrier(b *barrier.Barrier) {
+	s.mu.Lock()
+	s.faultBarrier = b
+	s.mu.Unlock()
+}
+
+// faultPoint resolves one named fault point for this worker. It is a no-op
+// handle when no barrier is installed, so call sites stay unconditional.
+func (s *TranscodingService) faultPoint(name string) *barrier.Point {
+	s.mu.RLock()
+	b := s.faultBarrier
+	s.mu.RUnlock()
+	return b.Point(name)
+}
+
+// arriveAt announces a fault point and waits for the harness to release it. A
+// point that is never released bounds itself by the barrier timeout and is
+// logged rather than allowed to wedge the worker forever.
+func (s *TranscodingService) arriveAt(ctx context.Context, name string) {
+	if err := s.faultPoint(name).Arrive(ctx); err != nil && s.log != nil {
+		s.log.Warn("fault barrier point was not released", zap.String("point", name), zap.Error(err))
 	}
 }
 
@@ -499,6 +532,9 @@ func (s *TranscodingService) handleDelivery(ctx context.Context, task *Transcodi
 			zap.Int("attempt", lease.attempt),
 			zap.Int("generation", lease.generation))
 	}
+	// The task is claimed and the claim survives in the DB; this is the window
+	// in which a killed worker must be recoverable by lease expiry alone.
+	s.arriveAt(ctx, "worker.claimed")
 	s.executeClaimed(ctx, task, handle, lease, log)
 }
 
@@ -539,6 +575,10 @@ func (s *TranscodingService) executeClaimed(ctx context.Context, task *Transcodi
 	cancel()
 
 	if err == nil {
+		// The result is committed (including the published generation); a crash
+		// here must be recovered from the committed generation, never by
+		// re-running the transcode.
+		s.arriveAt(ctx, "worker.before_ack")
 		s.ack(handle, log)
 		return
 	}
@@ -650,6 +690,10 @@ func (s *TranscodingService) settleTerminal(ctx context.Context, task *Transcodi
 			}
 		}
 	}
+	// The DLQ intent is published and marked delivered but the original message
+	// is still un-acked: a crash here must be settled by redelivery, which
+	// re-publishes only if the intent is not yet marked delivered.
+	s.arriveAt(ctx, "worker.dlq_before_ack")
 	s.ack(handle, log)
 }
 
@@ -1380,6 +1424,9 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 		}
 	}
 
+	// Every rendition is written to the staging area, but the task row is not
+	// yet marked complete: a crash here must leave no visible output.
+	s.arriveAt(taskCtx, "worker.partial_output")
 	if err := s.CompleteTask(taskCtx, task.ID, outputURL); err != nil {
 		if s.log != nil {
 			s.log.Error("Failed to mark task as completed in DB", zap.String("task_id", task.ID), zap.Error(err))
@@ -2381,6 +2428,11 @@ func (s *TranscodingService) CompleteTask(ctx context.Context, taskID, outputURL
 	if err != nil {
 		return err
 	}
+
+	// The completion transaction is committed. From here the published
+	// generation is durable, so any recovery observes it rather than re-running
+	// the transcode.
+	s.arriveAt(ctx, "worker.after_publish")
 
 	// Post-commit, best-effort cleanup. Only ever this task's own artifacts or
 	// the generation it superseded — never anything else.

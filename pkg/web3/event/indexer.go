@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	"go.uber.org/zap"
 )
@@ -80,6 +81,10 @@ type EventIndexer struct {
 	filterVersion      string
 	allowUnfiltered    bool
 	paused             atomic.Bool
+	// faultBarrier is the internal fault barrier of the durable acceptance
+	// stack. It is nil unless the durable acceptance profile turned it on, so a
+	// production indexer has no fault points at all.
+	faultBarrier *barrier.Barrier
 }
 
 type IndexedEvent struct {
@@ -303,6 +308,27 @@ func (ei *EventIndexer) SetFilterVersion(version string) {
 	ei.mu.Lock()
 	defer ei.mu.Unlock()
 	ei.filterVersion = version
+}
+
+// SetFaultBarrier installs the internal fault barrier of the durable acceptance
+// stack. A nil barrier — the only state a non-durable deployment can reach —
+// makes every point a no-op.
+func (ei *EventIndexer) SetFaultBarrier(b *barrier.Barrier) {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.faultBarrier = b
+}
+
+// arriveAt announces a fault point and waits for the harness to release it. A
+// point that is never released bounds itself by the barrier timeout and is
+// logged rather than allowed to wedge the indexer loop forever.
+func (ei *EventIndexer) arriveAt(ctx context.Context, name string) {
+	ei.mu.RLock()
+	b := ei.faultBarrier
+	ei.mu.RUnlock()
+	if err := b.Point(name).Arrive(ctx); err != nil {
+		ei.logger.Warn("fault barrier point was not released", zap.String("point", name), zap.Error(err))
+	}
 }
 
 // filterKey scopes durable checkpoints by (filter version, contract
@@ -627,6 +653,10 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			if len(logs) > 0 {
 				endBlockHash = logs[len(logs)-1].BlockHash.Hex()
 			}
+			// The batch is decoded and about to become the durable cursor: a
+			// crash here must leave the cursor where it was, so the next start
+			// replays these blocks instead of skipping them.
+			ei.arriveAt(ctx, "indexer.checkpoint_before_commit")
 			if err := ds.SaveBatch(ctx, chainID, ei.filterKey(), events, batchEnd, endBlockHash); err != nil {
 				ei.logger.Error("Failed to commit batch, cursor not advanced",
 					zap.Uint64("from_block", batchStart),
