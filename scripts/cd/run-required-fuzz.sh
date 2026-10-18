@@ -27,24 +27,6 @@ manifest="${REQUIRED_FUZZ_MANIFEST:-$here/required-fuzz.json}"
 log_dir="${FUZZ_LOG_DIR:-/artifacts}"
 module="github.com/rtcdance/streamgate/"
 
-# The fuzz engine's shutdown races with its own budget deadline: the coordinator
-# reads `ctx.Err()` after the deadline closes the channel but before the cancel
-# has propagated to the worker context, so it reports `context deadline
-# exceeded` as a failure instead of a clean end-of-budget. That is benign ONLY
-# when the engine reports literally that deadline, executed real mutations, and
-# recorded no failing input — a crasher, a seed failure or a panic always fails,
-# whatever the exit status says. A racing run is repeated once so the verdict
-# normally rests on a run that simply exited 0.
-benign_budget_deadline() {
-  local log="$1"
-  grep -qE '^[[:space:]]*context deadline exceeded[[:space:]]*$' "$log" || return 1
-  grep -qE '^fuzz: elapsed: [0-9]' "$log" || return 1
-  if grep -qE 'Failing input written to|failure while testing seed corpus entry|^panic:|hung or terminated unexpectedly|communicating with fuzzing coordinator' "$log"; then
-    return 1
-  fi
-  return 0
-}
-
 mkdir -p "$log_dir"
 plan="$log_dir/required-fuzz.plan"
 identities="$log_dir/required-fuzz.identities"
@@ -91,34 +73,21 @@ while read -r package fuzz <&3; do
   printf '%s %s\n' "${dir#./}" "$fuzz" >> "$identities"
 
   log="$log_dir/required-fuzz-${fuzz}.log"
-  attempt=1
-  while :; do
-    suffix=""
-    if [ "$attempt" -gt 1 ]; then suffix=", attempt ${attempt}"; fi
-    echo "-- required fuzz ${package}:${fuzz} (seeds + ${seconds}s mutation${suffix}) --"
+  echo "-- required fuzz ${package}:${fuzz} (seeds + ${seconds}s mutation) --"
+  rc=0
+  go test -count=1 -run '^$' -fuzz "^${fuzz}\$" \
+    -fuzztime "${seconds}s" -timeout "${budget}s" "$dir" >"$log" 2>&1 || rc=$?
 
-    rc=0
-    go test -count=1 -run '^$' -fuzz "^${fuzz}\$" \
-      -fuzztime "${seconds}s" -timeout "${budget}s" "$dir" >"$log" 2>&1 || rc=$?
-
-    if [ "$rc" -eq 0 ]; then
-      echo "   PASS ${fuzz} (budget ${budget}s; log: ${log})"
-      break
-    fi
-    if benign_budget_deadline "$log"; then
-      if [ "$attempt" -lt 2 ]; then
-        echo "   NOTE ${fuzz} exited ${rc} through the fuzz engine's own budget deadline (upstream shutdown race, no failing input recorded); repeating the run"
-        attempt=$((attempt + 1))
-        continue
-      fi
-      echo "   NOTE ${fuzz} exited ${rc} through the fuzz engine's own budget deadline again, still recording no failing input; accepting the budget as spent (log: ${log})"
-      break
-    fi
+  # A deadline message and progress output cannot establish successful
+  # completion. Preserve every nonzero result, including coordinator shutdown
+  # failures, so infrastructure failures cannot silently satisfy this gate.
+  if [ "$rc" -eq 0 ]; then
+    echo "   PASS ${fuzz} (budget ${budget}s; log: ${log})"
+  else
     echo "GATE FAILURE: required fuzz ${fuzz} exited ${rc}; log: ${log}" >&2
     tail -n 25 "$log" >&2 || true
     failed=1
-    break
-  done
+  fi
 done 3< "$plan"
 
 if [ "$failed" -ne 0 ]; then
