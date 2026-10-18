@@ -117,7 +117,7 @@ type GatingRuleResolver interface {
 // GatingRuleVersionedResolver is an OPTIONAL extension of GatingRuleResolver:
 // a resolver that can also report the rule version its resolved set was read
 // at. Resolvers that do not implement it are treated as carrying no version
-// ("0"), so the gate's rule_version metric label degrades instead of guessing.
+// ("0") in decision logs instead of guessing a version.
 type GatingRuleVersionedResolver interface {
 	RuleVersion(ctx context.Context, contentID string) (int64, error)
 }
@@ -253,6 +253,13 @@ func NFTGateMiddleware(config *NFTGateConfig, logger *zap.Logger) gin.HandlerFun
 		config.GatingMode = "closed"
 	}
 	config.Enabled.Store(true)
+	recordGateDecision := func(decision, reason, ruleVersion string) {
+		monitoring.GateDecisionTotal.WithLabelValues(decision, reason).Inc()
+		if logger != nil {
+			logger.Debug("NFT gate decision", zap.String("decision", decision),
+				zap.String("reason", reason), zap.String("rule_version", ruleVersion))
+		}
+	}
 
 	return func(c *gin.Context) {
 		if !config.Enabled.Load() {
@@ -415,8 +422,8 @@ func resolveGatingRules(c *gin.Context, config *NFTGateConfig, logger *zap.Logge
 	c.Set("gating_rules", resolved)
 	c.Set("gating_rule_id", contentID)
 	c.Set("gating_rules_count", len(resolved))
-	// Best-effort: the rule version labels GateDecisionTotal. A resolver that
-	// cannot report one (or whose read fails) leaves the label at "0" — the
+	// Best-effort: the rule version is retained for controlled decision logs.
+	// A resolver that cannot report one leaves the log field at "0" — the
 	// decision itself is not affected by the version lookup failing.
 	if rv, ok := config.RuleResolver.(GatingRuleVersionedResolver); ok {
 		if v, verr := rv.RuleVersion(c.Request.Context(), contentID); verr == nil {
@@ -436,13 +443,6 @@ func gateRuleVersion(c *gin.Context) string {
 		}
 	}
 	return "0"
-}
-
-// recordGateDecision increments GateDecisionTotal{decision, reason, rule_version}.
-// decision ∈ {"allow","deny"}, reason a short bounded enum, rule_version the
-// server-resolved rule revision ("0" when none applied).
-func recordGateDecision(decision, reason, ruleVersion string) {
-	monitoring.GateDecisionTotal.WithLabelValues(decision, reason, ruleVersion).Inc()
 }
 
 // validateGatingRule rejects rules that cannot be evaluated meaningfully, so a

@@ -70,6 +70,21 @@ func tcLabelsMatch(m *dto.Metric, want map[string]string) bool {
 	return true
 }
 
+func TestTranscodingMetrics_RTFUsesMeasuredTranscodeWall(t *testing.T) {
+	started := time.Now().Add(-time.Hour)
+	task := &TranscodingTask{StartedAt: &started, Metadata: map[string]interface{}{
+		"media_duration_seconds":     10.0,
+		"transcode_duration_seconds": 0.2,
+	}}
+	labels := map[string]string{"profile": "360p"}
+	beforeCount, beforeSum := transcodingHistogram(t, "streamgate_transcoding_rtf", labels)
+	recordTranscodingOutcome("succeeded", "360p", task)
+	afterCount, afterSum := transcodingHistogram(t, "streamgate_transcoding_rtf", labels)
+	require.Equal(t, beforeCount+1, afterCount)
+	require.InDelta(t, 0.02, afterSum-beforeSum, 0.000001,
+		"RTF must use measured transcode wall time, excluding queue/download/upload delays")
+}
+
 // TestTranscodingMetrics_CompleteTask_CountsSucceeded pins the memory-mode
 // terminal path: CompleteTask increments TranscodingTasksTotal{ succeeded }.
 func TestTranscodingMetrics_CompleteTask_CountsSucceeded(t *testing.T) {
@@ -151,6 +166,7 @@ func TestTranscodingMetrics_RTF_OnlyWhenDurationKnown(t *testing.T) {
 	task.Status = "processing"
 	task.StartedAt = &started
 	task.Metadata["media_duration_seconds"] = 100.0
+	task.Metadata["transcode_duration_seconds"] = 1.0
 	svc.storeTask(task)
 
 	countBefore, _ := transcodingHistogram(t, "streamgate_transcoding_rtf",

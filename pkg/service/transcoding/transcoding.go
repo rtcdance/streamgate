@@ -33,10 +33,8 @@ type PostTranscodeHook func(ctx context.Context, contentID, profile, outputURL s
 
 // recordTranscodingOutcome counts one terminal task transition in
 // TranscodingTasksTotal{outcome,profile}. RTF (TranscodingRTF) is recorded ONLY
-// when a real media duration is known: it may come from the task metadata key
-// "media_duration_seconds" (seconds, set by a transcoder that plumbs its probe
-// result in). Without a duration there is nothing to divide the wall time by,
-// and RTF is deliberately NOT recorded rather than faked.
+// when both probe media duration and measured transcoder wall time are known.
+// Queue, download and post-processing time are excluded from this RTF.
 func recordTranscodingOutcome(outcome, profile string, task *TranscodingTask) {
 	if profile == "" && task != nil {
 		profile = task.Profile
@@ -48,12 +46,13 @@ func recordTranscodingOutcome(outcome, profile string, task *TranscodingTask) {
 	if outcome != "succeeded" || task == nil || task.StartedAt == nil || task.Metadata == nil {
 		return
 	}
-	dur, ok := task.Metadata["media_duration_seconds"].(float64)
-	if !ok || dur <= 0 {
+	wall, ok := task.Metadata["transcode_duration_seconds"].(float64)
+	if !ok || !finitePositive(wall) {
 		return
 	}
-	wall := time.Since(*task.StartedAt).Seconds()
-	if wall <= 0 {
+	monitoring.TranscodingDurationSeconds.WithLabelValues(profile).Observe(wall)
+	dur, ok := task.Metadata["media_duration_seconds"].(float64)
+	if !ok || !finitePositive(dur) || !finitePositive(wall/dur) {
 		return
 	}
 	monitoring.TranscodingRTF.WithLabelValues(profile).Observe(wall / dur)
@@ -1267,6 +1266,9 @@ func (s *TranscodingService) readOutboxIntent(ctx context.Context, id, kind stri
 //nolint:gocyclo // processTask has complex step logic, refactoring would be too invasive
 func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingTask, log *zap.Logger) error {
 	task.Status = "processing"
+	for _, key := range []string{"media_duration_seconds", "probe_duration_seconds", "transcode_duration_seconds", "transcoding_rtf"} {
+		delete(task.Metadata, key)
+	}
 	now := time.Now()
 	task.StartedAt = &now
 	s.storeTask(task)
@@ -1324,6 +1326,16 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 	}
 
 	var lastDBProgress int
+	var probeMu sync.Mutex
+	var mediaDuration float64
+	var probeElapsed time.Duration
+	taskCtx = WithMediaProbeObserver(taskCtx, func(seconds float64, elapsed time.Duration) {
+		probeMu.Lock()
+		mediaDuration = seconds
+		probeElapsed += elapsed
+		probeMu.Unlock()
+	})
+	transcodeStarted := time.Now()
 	err = s.transcoder.TranscodeHLS(taskCtx, inputPath, outputDir, profile, func(variant string, progress float64) {
 		if variant != "" {
 			if task.Metadata == nil {
@@ -1373,6 +1385,22 @@ func (s *TranscodingService) processTask(ctx context.Context, task *TranscodingT
 			}
 		}
 	})
+	transcodeWall := time.Since(transcodeStarted).Seconds()
+	probeMu.Lock()
+	measuredDuration, measuredProbe := mediaDuration, probeElapsed
+	probeMu.Unlock()
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]interface{})
+	}
+	task.Metadata["transcode_duration_seconds"] = transcodeWall
+	if finitePositive(measuredDuration) && measuredProbe > 0 {
+		task.Metadata["media_duration_seconds"] = measuredDuration
+		task.Metadata["probe_duration_seconds"] = measuredProbe.Seconds()
+		if err == nil && finitePositive(transcodeWall/measuredDuration) {
+			task.Metadata["transcoding_rtf"] = transcodeWall / measuredDuration
+		}
+	}
+	s.storeTask(task)
 
 	if err != nil {
 		if log != nil {
@@ -2831,11 +2859,7 @@ func (s *TranscodingService) storeTask(task *TranscodingTask) {
 		}
 	}
 
-	taskCopy := *task
-	if taskCopy.Metadata == nil {
-		taskCopy.Metadata = make(map[string]interface{})
-	}
-	s.tasks[task.ID] = &taskCopy
+	s.tasks[task.ID] = taskSnapshot(task)
 }
 
 func (s *TranscodingService) getTask(taskID string) (*TranscodingTask, error) {
@@ -2847,11 +2871,7 @@ func (s *TranscodingService) getTask(taskID string) (*TranscodingTask, error) {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	taskCopy := *task
-	if taskCopy.Metadata == nil {
-		taskCopy.Metadata = make(map[string]interface{})
-	}
-	return &taskCopy, nil
+	return taskSnapshot(task), nil
 }
 
 func (s *TranscodingService) updateTask(taskID string, update func(task *TranscodingTask)) error {
@@ -2879,11 +2899,7 @@ func (s *TranscodingService) listTasks(contentID, ownerWallet string, limit, off
 		if ownerWallet != "" && task.OwnerWallet != ownerWallet {
 			continue
 		}
-		taskCopy := *task
-		if taskCopy.Metadata == nil {
-			taskCopy.Metadata = make(map[string]interface{})
-		}
-		tasks = append(tasks, &taskCopy)
+		tasks = append(tasks, taskSnapshot(task))
 	}
 
 	if offset >= len(tasks) {

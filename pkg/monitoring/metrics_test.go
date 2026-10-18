@@ -226,8 +226,8 @@ func TestRPCProviderFromURL(t *testing.T) {
 func TestMonitoring_NoHighCardinalityLabels(t *testing.T) {
 	// Exercise the SG-07 families once so every child series exists and its
 	// labels are gathered, then scan ALL gathered families.
-	GateDecisionTotal.WithLabelValues("allow", "rule_ok", "7").Inc()
-	GateDecisionTotal.WithLabelValues("deny", "not_owner", "7").Inc()
+	GateDecisionTotal.WithLabelValues("allow", "ok").Inc()
+	GateDecisionTotal.WithLabelValues("deny", "insufficient_balance").Inc()
 	QueueMessageAgeSeconds.WithLabelValues("transcode").Observe(0.5)
 	QueueAttemptsTotal.WithLabelValues("transcode", "delivered").Inc()
 	QueueAttemptsTotal.WithLabelValues("transcode", "redelivered").Inc()
@@ -235,6 +235,7 @@ func TestMonitoring_NoHighCardinalityLabels(t *testing.T) {
 	TranscodingTasksTotal.WithLabelValues("succeeded", "360p").Inc()
 	TranscodingTasksTotal.WithLabelValues("failed", "360p").Inc()
 	TranscodingRTF.WithLabelValues("360p").Observe(0.8)
+	TranscodingDurationSeconds.WithLabelValues("360p").Observe(1.6)
 	MediaBytesTotal.WithLabelValues("segment").Add(1024)
 	MediaBytesTotal.WithLabelValues("manifest").Add(512)
 	MediaTTFBSeconds.WithLabelValues("segment").Observe(0.02)
@@ -245,7 +246,7 @@ func TestMonitoring_NoHighCardinalityLabels(t *testing.T) {
 	forbiddenFragments := []string{
 		"wallet", "contentid", "content_id", "token", "session", "privatekey",
 		"private_key", "secret", "apikey", "api_key", "address", "fingerprint",
-		"jti", "nonce",
+		"jti", "nonce", "rule_version",
 	}
 
 	checked := 0
