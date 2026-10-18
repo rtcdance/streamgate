@@ -65,6 +65,66 @@
       {
         "package": "github.com/rtcdance/streamgate/pkg/web3/event",
         "test": "TestAcceptance_EventStoreDurability"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_ImmediateOutboxPublish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_ImmediateOutboxPublish/outbox.before_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_ImmediateOutboxPublish/outbox.after_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_CanceledOutboxPublishRemainsRecoverable"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_CanceledOutboxPublishRemainsRecoverable/outbox.before_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_CanceledOutboxPublishRemainsRecoverable/outbox.after_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_DLQOutboxPublish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_DLQOutboxPublish/terminal/outbox.before_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_DLQOutboxPublish/terminal/outbox.after_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_DLQOutboxPublish/redelivery/outbox.before_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestFaultBarrier_DLQOutboxPublish/redelivery/outbox.after_publish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestOutbox_DLQDeliveryMarkFailureRetainsOriginalDelivery"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestOutbox_DLQDeliveryMarkFailureRetainsOriginalDelivery/terminal"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestOutbox_DLQDeliveryMarkFailureRetainsOriginalDelivery/redelivery"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestIntegration_DLQDeliveredUpdateFailureAgainstPostgres"
       }
     ],
     "durability-anvil": [
