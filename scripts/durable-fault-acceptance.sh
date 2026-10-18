@@ -152,7 +152,11 @@ sql_exec() { docker exec "$PG_CONTAINER" psql -U postgres -d streamgate -v ON_ER
 # for the WHOLE window; a divergence returns immediately so a re-executed task
 # is caught rather than waited out.
 stable_for() {
-  local sql="$1" want="$2" window="$3" deadline=$((SECONDS + window)) got
+  local sql="$1" want="$2" window="$3" got
+  # A second statement on purpose: a local declared in the same `local` command
+  # is not visible to a sibling assignment, so `deadline=$((SECONDS + window))`
+  # on that line read an unbound variable under `set -u`.
+  local deadline=$((SECONDS + window))
   while [ "$SECONDS" -lt "$deadline" ]; do
     got="$(sql_scalar "$sql")"
     if [ "$got" != "$want" ]; then STABLELAST="$got"; return 1; fi
