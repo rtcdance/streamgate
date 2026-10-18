@@ -87,6 +87,8 @@
 
 > **E/ops 门复跑（2026-10-18）：** `VERIFY_STAGE=ops VERIFY_PROJECT=sg-repair-e-1018-0125`（revision `02f833f`，工具镜像 `sha256:7d0efa8a…`）**`stage=ops PASS`、exit 0**：六个套件分别 11/12/3/1/1/1 全过，`TestAcceptance_GateDecisionMetricRecorded` 与 `TestMonitoring_NoHighCardinalityLabels` 在真实门内通过；三个必需 fuzz 目标各 30 秒 PASS，其余 10 个 fuzz 目标各 30 秒 PASS。该门验证了固定标签枚举和 log-only 规则版本没有破坏既有观测契约，但不包含性能矩阵；E 仍未关闭。证据：`.verify-artifacts/sg-repair-e-1018-0125/{logs/ops.log,controller.log}`。
 
+> **unit 门复跑（2026-10-18）：** `VERIFY_STAGE=unit VERIFY_PROJECT=sg-repair-u-1018-0140`（revision `7c219a7`，工具镜像 `sha256:84426a15…`）**`stage=unit PASS`、exit 0**：`golangci-lint` **0 issues**；完整 `go test`（含 `test/integration/...`，其中 models/transcoding 已修复）全部通过；覆盖率 **18862/26430 = 71%** 满足 60% 下限，`check-coverage` 自检 **15/15** 通过。证据：`.verify-artifacts/sg-repair-u-1018-0140/{logs/unit.log,controller.log}`。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
