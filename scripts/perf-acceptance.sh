@@ -153,10 +153,70 @@ HEALTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/hea
 mkdir -p "$RESULT_DIR"
 cd "$(dirname "$0")/.."
 
+# Resource metrics are scraped from the app's own /metrics before and after
+# each measured scenario. process_cpu_seconds_total gives the CPU actually
+# consumed during the window; process_resident_memory_bytes is the RSS at the
+# end. Scraping is best-effort for stacks that gate /metrics, but a successful
+# scrape is recorded verbatim so no number is inferred after the fact.
+snapshot_metrics() {
+  local path="$1"
+  if curl -fsS --max-time 5 "$BASE_URL/metrics" > "$path.tmp" 2>/dev/null; then
+    mv "$path.tmp" "$path"
+  else
+    rm -f "$path.tmp"
+    echo "perf-acceptance: WARNING: $BASE_URL/metrics unavailable — resource sample skipped" >&2
+  fi
+}
+
+summarize_resources() {
+  local before="$1" after="$2" out="$3" scenario="$4" viewers="$5"
+  [ -s "$before" ] && [ -s "$after" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$before" "$after" "$out" "$scenario" "$viewers" <<'PY'
+import json, sys
+
+def sample(path):
+    values = {}
+    with open(path) as fh:
+        for line in fh:
+            if not line or line.startswith("#"):
+                continue
+            name = line.split(" ", 1)[0].split("{", 1)[0]
+            if name not in ("process_cpu_seconds_total", "process_resident_memory_bytes"):
+                continue
+            try:
+                values[name] = float(line.rsplit(" ", 1)[1])
+            except ValueError:
+                continue
+    return values
+
+before, after = sample(sys.argv[1]), sample(sys.argv[2])
+cpu_before, cpu_after = before.get("process_cpu_seconds_total"), after.get("process_cpu_seconds_total")
+record = {
+    "scenario": sys.argv[4],
+    "viewers": int(sys.argv[5]),
+    "cpu_seconds_before": cpu_before,
+    "cpu_seconds_after": cpu_after,
+    "cpu_seconds_delta": (cpu_after - cpu_before) if cpu_before is not None and cpu_after is not None else None,
+    "rss_bytes": after.get("process_resident_memory_bytes"),
+}
+with open(sys.argv[3], "w") as fh:
+    json.dump(record, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PY
+}
+
 run_scenario() {
   local viewers="$1"
   local out="$RESULT_DIR/${SCENARIO}-viewers-${viewers}.json"
+  local capture=1
+  [ "${PERF_WARMUP:-10s}" = "0s" ] && capture=0
+  local before_metrics="$RESULT_DIR/metrics-${SCENARIO}-${viewers}-before.prom"
+  local after_metrics="$RESULT_DIR/metrics-${SCENARIO}-${viewers}-after.prom"
+  local resources="$RESULT_DIR/resources-${SCENARIO}-${viewers}.json"
   echo "perf-acceptance: scenario=$SCENARIO viewers=$viewers pace=$PERF_INTERVAL warmup=$PERF_WARMUP duration=$PERF_DURATION -> $out"
+  [ "$capture" = 1 ] && snapshot_metrics "$before_metrics"
+  local rc=0
   PERF_BASE_URL="$BASE_URL" \
   PERF_SCENARIO="$SCENARIO" \
   PERF_PRIVATE_KEY="${PERF_PRIVATE_KEY:-}" \
@@ -175,7 +235,13 @@ run_scenario() {
   PERF_COMMIT="${PERF_COMMIT:-}" \
   PERF_RESULT_JSON="$out" \
     go test -tags load -count=1 -timeout "$PERF_GO_TIMEOUT" \
-      -run TestLoad_AuthorizedMedia ./test/load/ -v
+      -run TestLoad_AuthorizedMedia ./test/load/ -v || rc=$?
+  if [ "$capture" = 1 ]; then
+    snapshot_metrics "$after_metrics"
+    summarize_resources "$before_metrics" "$after_metrics" "$resources" "$SCENARIO" "$viewers" \
+      || echo "perf-acceptance: WARNING: resource summary failed" >&2
+  fi
+  return "$rc"
 }
 
 # PERF_SKIP_WARMUP=1 for the fault scenarios: the warmup exists to fail fast on
