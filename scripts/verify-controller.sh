@@ -93,19 +93,28 @@ docker run -d --init --platform "$VERIFY_PLATFORM" --name "$VERIFY_CONTROLLER" \
   -v "${ROOT_DIR}:${ROOT_DIR}" -v "${VERIFY_ARTIFACTS}:${VERIFY_ARTIFACTS}" \
   -w "$ROOT_DIR" "${forward_env[@]}" \
   -e VERIFY_IN_CONTROLLER=1 -e VERIFY_TOOLS_READY=1 \
-  "$VERIFY_TOOL_IMAGE_ID" bash "$VERIFY_ARTIFACTS/execution/verify-driver.sh" "$@" >/dev/null &
+  "$VERIFY_TOOL_IMAGE_ID" bash "$VERIFY_ARTIFACTS/execution/verify-driver.sh" "$@" \
+  >/dev/null 2>"${VERIFY_ARTIFACTS}/controller-start.err" &
 state="" tries=0
-# A failed `docker run` must surface as an error rather than as an endless poll.
-while [ "$tries" -lt 30 ]; do
+# A failed `docker run` must surface as an error rather than as an endless poll,
+# so its stderr is kept instead of discarded.
+while [ "$tries" -lt 60 ]; do
   state="$(docker inspect --format '{{.State.Status}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || state=""
   [ -n "$state" ] && break
-  # `read -t` is a bash builtin: a pending INT/TERM runs the cleanup trap at
-  # once instead of waiting for an external `sleep` child to finish.
-  read -t 1 -r _ < /dev/null || :
+  # A real one-second tick. `read -t` on /dev/null returns at EOF immediately,
+  # so it does NOT wait: the loop burned all its retries before the container was
+  # even created and reported "did not start" while the controller was in fact
+  # running. `sleep` is an external command, so a pending INT/TERM runs its trap
+  # when the tick finishes — at most a second later, which keeps a cancelled run
+  # responsive.
+  sleep 1
   tries=$((tries + 1))
 done
 if [ -z "$state" ]; then
   echo "the verification controller did not start: ${VERIFY_CONTROLLER}" >&2
+  if [ -s "${VERIFY_ARTIFACTS}/controller-start.err" ]; then
+    cat "${VERIFY_ARTIFACTS}/controller-start.err" >&2
+  fi
   exit 1
 fi
 # A detached container's output never reaches this shell, and cleanup removes
@@ -120,7 +129,7 @@ docker logs -f "$VERIFY_CONTROLLER" 2>&1 | tee -a "${VERIFY_ARTIFACTS}/controlle
 LOG_FOLLOWER=$!
 while :; do
   case "$state" in exited|dead) break ;; esac
-  read -t 1 -r _ < /dev/null || :
+  sleep 1
   state="$(docker inspect --format '{{.State.Status}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || state=""
   [ -n "$state" ] || break
 done
