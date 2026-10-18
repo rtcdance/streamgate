@@ -278,7 +278,13 @@ stage_chain() {
     echo "== forge test =="
     ( cd contracts && forge test )
     echo "== anvil integration + web3 service tests =="
-    go test -tags=anvil -race -count=1 ./test/integration/web3/... ./pkg/service/...
+    # `./test/integration/` (the package root) carries the Anvil suites that prove
+    # the deployment IDENTITY — the ContentRegistry roundtrip, the refusals for an
+    # unverifiable record, and the endpoint-failover/block-evidence suite. They
+    # were reachable only by a hand-typed command; the default build excludes them
+    # (anvil build tag) and the coverage set reaches the package WITHOUT that tag,
+    # so both gates walked past them.
+    go test -tags=anvil -race -count=1 ./test/integration/ ./test/integration/web3/... ./pkg/service/...
   '
 }
 

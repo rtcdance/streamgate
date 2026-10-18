@@ -270,7 +270,7 @@ docker-down:
 # Run Anvil-based Web3 integration tests (requires foundry)
 test-anvil:
 	@echo "Running Anvil integration tests..."
-	$(GO) test -tags=anvil -v -count=1 -timeout 120s ./test/integration/web3/ -run TestAnvil
+	$(GO) test -tags=anvil -v -count=1 -timeout 300s ./test/integration/ ./test/integration/web3/ -run TestAnvil
 	@echo "✓ Anvil integration tests complete"
 
 # Run testnet integration tests (requires SEPOLIA_RPC env)
