@@ -237,6 +237,20 @@ PY
 log 'preconditions'
 printf 'candidate=%s media_sha256=%s\n' "$CANDIDATE_SHA" "$MEDIA_SHA" | tee "${ARTIFACT_DIR}/fault-context.txt"
 
+# The barrier is a rendezvous on a shared volume. This process needs the same
+# volume mounted where it can read and write the marker files, and it has no
+# access to the app containers' mounts — hence the helper. Without it every
+# `arm`/`wait_reached` would silently do nothing and the stack would run every
+# scenario to completion, which is exactly the failure mode the barrier exists
+# to prevent. So a helper that cannot start is a hard failure.
+if barrier_boot; then
+  p "barrier helper container is live and sees the shared barrier volume"
+  record F00-helper preconditions PASS "helper=${HELPER}"
+else
+  f "could not start the barrier helper container (the barrier cannot be driven)"
+  record F00-helper preconditions FAIL "helper=${HELPER} unavailable"
+fi
+
 if curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
   p "monolith answers /health at ${BASE_URL}"
   record F00 preconditions PASS "monolith healthy"
@@ -278,6 +292,9 @@ barrier_reset
 # Scenario FW01 — kill between claim and execution.
 # ---------------------------------------------------------------------------
 log 'FW01 kill at worker.claimed'
+# Arm the point BEFORE seeding: the claim happens the instant the pump publishes
+# the message, so arming after the seed would race the worker to the marker.
+arm worker.claimed
 if seed_content fw01 && wait_reached worker.claimed 60; then
   TASK="$(task_row)"
   AT_KILL_ATTEMPT="$(field "$TASK" attempt)"
@@ -454,16 +471,15 @@ if seed_content fw05 && wait_reached worker.claimed 60; then
   else
     f "FW05: could not delete the source object (${OBJ:-cannot derive a key from the task input URL})"
   fi
-  for attempt in 1 2; do
-    release_point worker.claimed
-    if wait_reached worker.claimed 60; then
-      # still armed: the retry re-claims and parks again
-      continue
-    fi
-    break
-  done
-  # Third claim: the attempt cap is spent, so this execution goes terminal.
+  # Let the parked claim go and arm the terminal window now. Attempts 2 and 3
+  # follow on the worker's own retry delays (2s then 4s); the third exhausts the
+  # cap, so that execution goes terminal and parks at the DLQ publish/confirm
+  # point — armed here, so it cannot slip past before we observe it. The claim
+  # point is disarmed first: it is still selected, and a point that stays armed
+  # would re-park each retry for a full barrier timeout instead of walking
+  # through (Arrive consumes the release, so the marker would not persist).
   arm worker.dlq_before_ack
+  unarm worker.claimed
   release_point worker.claimed
   if wait_reached worker.dlq_before_ack 120; then
     p "FW05: the task reached the DLQ publish/confirm window after $(field "$TASK" attempt) attempts"
@@ -575,10 +591,18 @@ if seed_content fo01 && wait_reached outbox.before_publish 60; then
   TASK="$(task_row)"
   INTENT_STATUS="$(sql_scalar "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'")"
   CLAIMED="$(field "$TASK" lease_owner)"
+  # Two pumps really run in this stack: the monolith submits with no embedded
+  # worker and drives a standalone pump, the isolated transcoder drives the same
+  # pump from its worker context — and BOTH park here before publishing. Killing
+  # only one would leave the other to time out of the barrier and publish, so the
+  # enrichment after the restart would prove nothing. Crash the whole stack: no
+  # process survives to publish, and only a restart can recover the intent.
   container_kill "$MONO_CONTAINER"
+  container_kill "$TC_CONTAINER"
   unarm outbox.before_publish
   barrier_reset
   container_start "$MONO_CONTAINER"
+  container_start "$TC_CONTAINER"
   if [ "$INTENT_STATUS" = "pending" ] && [ -z "$CLAIMED" ]; then
     p "FO01: while the submitter was parked the intent was still pending and no worker had claimed the task"
     record FO01-parked outbox.before_publish PASS "outbox=pending, lease_owner empty"
@@ -619,10 +643,15 @@ arm outbox.after_publish
 if seed_content fo02 && wait_reached outbox.after_publish 60; then
   TASK="$(task_row)"
   INTENT_STATUS="$(sql_scalar "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'")"
+  # Paired with FO01: the whole stack dies with the broker already holding the
+  # message and the intent still pending, so the only way the row converges is a
+  # restart republishing the SAME message id.
   container_kill "$MONO_CONTAINER"
+  container_kill "$TC_CONTAINER"
   unarm outbox.after_publish
   barrier_reset
   container_start "$MONO_CONTAINER"
+  container_start "$TC_CONTAINER"
   if [ "$INTENT_STATUS" = "pending" ]; then
     p "FO02: the broker had already accepted the publish while the intent was still pending"
     record FO02-parked outbox.after_publish PASS "outbox=pending immediately after PubAck"
