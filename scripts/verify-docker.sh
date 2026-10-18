@@ -408,15 +408,25 @@ stage_ops() {
       --suite ops-keyrotation --exit-code "$go_test_rc" \
       /artifacts/ops-keyrotation.json
 
-    echo "== short fuzz pass over every Fuzz target (seed corpus + 30s mutation) =="
+    echo "== required fuzz contract (seeds + 30s mutation each, fail-closed) =="
+    bash scripts/cd/run-required-fuzz.sh 30
+
+    echo "== short fuzz pass over every remaining Fuzz target (seed corpus + 30s mutation) =="
     fuzz_files="$(grep -rl "^func Fuzz" --include="*_test.go" pkg test 2>/dev/null || true)"
     if [ -z "$fuzz_files" ]; then
       echo "GATE FAILURE: the fuzz contract names Fuzz targets but none exist under pkg/ or test/"
       exit 1
     fi
+    # The required contract already spent the same budget on its own targets; a
+    # duplicate pass would add no evidence and double the wall clock of this stage.
+    required_ids="$(cat /artifacts/required-fuzz.identities 2>/dev/null || true)"
     for f in $fuzz_files; do
       d="$(dirname "$f")"
       for t in $(grep -h "^func Fuzz" "$f" | sed -E "s/^func (Fuzz[A-Za-z0-9_]+).*/\1/"); do
+        if grep -qxF "$d $t" <<< "$required_ids"; then
+          echo "-- skip $d/$t (already covered by the required fuzz contract) --"
+          continue
+        fi
         echo "-- fuzz $d/$t (30s) --"
         go test -run "^$" -fuzz "^${t}\$" -fuzztime 30s "./$d"
       done

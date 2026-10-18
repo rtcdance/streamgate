@@ -105,6 +105,7 @@ jobs:
           python3 scripts/cd/test_image_identity.py
           python3 scripts/cd/test_verify_shell.py
           python3 scripts/cd/test_assert_candidate_evidence.py
+          python3 scripts/cd/test_run_required_fuzz.py
 
       - name: Verify H5 API origin inference in pinned Node container
         run: >-
@@ -143,6 +144,20 @@ jobs:
           STREAMGATE_DB_NAME: streamgate_test
           STREAMGATE_REDIS_HOST: localhost
           STREAMGATE_REDIS_PORT: 6379
+
+      - name: Required fuzz contract (seeds + 5s mutation each)
+        env:
+          FUZZ_LOG_DIR: fuzz-logs
+        run: bash scripts/cd/run-required-fuzz.sh 5
+
+      - name: Upload required fuzz logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: required-fuzz-${{ github.sha }}
+          path: fuzz-logs/
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Verify the coverage gate can fail
         run: bash scripts/check-coverage_test.sh
