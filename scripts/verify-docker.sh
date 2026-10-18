@@ -1517,7 +1517,7 @@ stage_faults() {
       --project "$project" --compose "$VERIFY_COMPOSE_FILE" \
       --base-url "http://localhost:${VERIFY_MONO_PORT}" \
       --artifact-dir "$artifacts" --helper-image "$IMAGE_TAG" \
-      --candidate-sha "$(git rev-parse HEAD)" \
+      --candidate-sha "$(git rev-parse HEAD)" --run-label "$PROJECT_NAME" \
       --pg-container "${project}-postgres-1" \
       --minio-container "${project}-minio-1" \
       --mono-container "${project}-monolith-1" \
