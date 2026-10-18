@@ -41,7 +41,9 @@ func TestLoad_DisabledIsNilAndEveryCallIsAnop(t *testing.T) {
 	// not exist is a harness bug, not a component no-op.
 	require.Error(t, p.Release())
 	require.Error(t, p.WaitReached(context.Background(), time.Millisecond))
+	require.Error(t, b.Arm("worker.after_commit"))
 	require.False(t, p.Reached())
+	require.False(t, p.Armed())
 	require.Equal(t, "", p.Name())
 }
 
@@ -83,9 +85,57 @@ func TestLoad_CreatesTheDirectoryAndDefaultsTheTimeout(t *testing.T) {
 	assert.True(t, info.IsDir())
 }
 
+func TestArrive_OnlyBlocksAtAnArmedPoint(t *testing.T) {
+	b, err := Load(durableConfig(t.TempDir(), 5*time.Second), zap.NewNop())
+	require.NoError(t, err)
+
+	// Not armed: the component walks through and leaves no state behind. This is
+	// what keeps a scenario paying only for the fault it actually injects.
+	p := b.Point("worker.claimed")
+	require.NoError(t, p.Arrive(context.Background()))
+	assert.False(t, p.Armed())
+	assert.False(t, p.Reached(), "an unarmed point must not announce itself")
+
+	require.NoError(t, b.Arm("worker.claimed"))
+	assert.True(t, p.Armed())
+
+	done := make(chan error, 1)
+	go func() { done <- p.Arrive(context.Background()) }()
+	require.NoError(t, p.WaitReached(context.Background(), 3*time.Second))
+	require.NoError(t, p.Release())
+	require.NoError(t, <-done)
+
+	// Disarm and the same point is inert again.
+	require.NoError(t, b.Disarm("worker.claimed"))
+	require.NoError(t, p.Arrive(context.Background()))
+	assert.False(t, p.Reached())
+}
+
+func TestArm_ClearsAStaleIterationOfTheSamePoint(t *testing.T) {
+	dir := t.TempDir()
+	b, err := Load(durableConfig(dir, 80*time.Millisecond), zap.NewNop())
+	require.NoError(t, err)
+
+	// A killed process can leave a reached marker behind; arming must not treat
+	// it as this scenario's state.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "worker.claimed.reached"), []byte("stale"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "worker.claimed.release"), []byte("stale"), 0o644))
+	require.NoError(t, b.Arm("worker.claimed"))
+
+	assert.NoFileExists(t, filepath.Join(dir, "worker.claimed.reached"))
+	assert.NoFileExists(t, filepath.Join(dir, "worker.claimed.release"))
+	assert.FileExists(t, filepath.Join(dir, "worker.claimed.armed"))
+
+	// With the stale release gone, the point really blocks and really times out.
+	err = b.Point("worker.claimed").Arrive(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no release within")
+}
+
 func TestArrive_PublishesTheReachedStateThenContinuesOnRelease(t *testing.T) {
 	b, err := Load(durableConfig(t.TempDir(), 5*time.Second), zap.NewNop())
 	require.NoError(t, err)
+	require.NoError(t, b.Arm("worker.after_commit"))
 	p := b.Point("worker.after_commit")
 
 	done := make(chan error, 1)
@@ -110,6 +160,7 @@ func TestArrive_PublishesTheReachedStateThenContinuesOnRelease(t *testing.T) {
 func TestArrive_IsARendezvousSoTheSamePointServesAgain(t *testing.T) {
 	b, err := Load(durableConfig(t.TempDir(), 5*time.Second), zap.NewNop())
 	require.NoError(t, err)
+	require.NoError(t, b.Arm("worker.before_broadcast"))
 	p := b.Point("worker.before_broadcast")
 
 	for round := 1; round <= 2; round++ {
@@ -124,6 +175,7 @@ func TestArrive_IsARendezvousSoTheSamePointServesAgain(t *testing.T) {
 func TestArrive_FailsLoudlyWhenTheScenarioNeverReleases(t *testing.T) {
 	b, err := Load(durableConfig(t.TempDir(), 80*time.Millisecond), zap.NewNop())
 	require.NoError(t, err)
+	require.NoError(t, b.Arm("publisher.after_broadcast"))
 	p := b.Point("publisher.after_broadcast")
 
 	err = p.Arrive(context.Background())
@@ -135,6 +187,7 @@ func TestArrive_FailsLoudlyWhenTheScenarioNeverReleases(t *testing.T) {
 func TestArrive_StopsWaitingWhenTheComponentIsCancelled(t *testing.T) {
 	b, err := Load(durableConfig(t.TempDir(), 5*time.Second), zap.NewNop())
 	require.NoError(t, err)
+	require.NoError(t, b.Arm("indexer.checkpoint"))
 	p := b.Point("indexer.checkpoint")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,9 +219,11 @@ func TestReset_ClearsMarkersButLeavesForeignFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(keep, []byte("{}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "worker.after_commit.reached"), []byte("stale"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "worker.after_commit.release"), []byte("stale"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "worker.after_commit.armed"), []byte("stale"), 0o644))
 
 	require.NoError(t, b.Reset())
 	assert.NoFileExists(t, filepath.Join(dir, "worker.after_commit.reached"))
 	assert.NoFileExists(t, filepath.Join(dir, "worker.after_commit.release"))
+	assert.NoFileExists(t, filepath.Join(dir, "worker.after_commit.armed"))
 	assert.FileExists(t, keep, "Reset must only own the markers it writes")
 }

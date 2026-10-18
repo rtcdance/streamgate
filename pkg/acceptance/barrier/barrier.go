@@ -30,6 +30,7 @@ import (
 const (
 	reachedSuffix = ".reached"
 	releaseSuffix = ".release"
+	armedSuffix   = ".armed"
 	pollInterval  = 10 * time.Millisecond
 	// defaultTimeout bounds a point that the harness never releases. A scenario
 	// that did not actually fire must fail loudly; waiting forever would turn it
@@ -107,6 +108,17 @@ type Point struct {
 	name    string
 }
 
+// hostname is cached: inside a container it is the container id, which is what
+// lets a harness attribute a reached marker to the process that wrote it when
+// several replicas announce the same point.
+var hostname = func() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
+}()
+
 // Name identifies the point in logs and in the harness contract.
 func (p *Point) Name() string {
 	if p == nil {
@@ -125,6 +137,22 @@ func (p *Point) Reached() bool {
 	return err == nil
 }
 
+// Armed reports whether the harness has selected this point for injection.
+// Nil-safe (always false). An unarmed point never blocks: the component walks
+// through every state it was not asked to stop at, so a scenario pays only for
+// the fault it actually injects.
+func (p *Point) Armed() bool {
+	if p == nil {
+		return false
+	}
+	_, err := os.Stat(p.armedPath())
+	return err == nil
+}
+
+func (p *Point) armedPath() string {
+	return filepath.Join(p.barrier.dir, p.name+armedSuffix)
+}
+
 func (p *Point) reachedPath() string {
 	return filepath.Join(p.barrier.dir, p.name+reachedSuffix)
 }
@@ -134,7 +162,8 @@ func (p *Point) releasePath() string {
 }
 
 // Arrive announces that the component reached this point and waits for the
-// harness to release it. It is a no-op when no barrier is configured.
+// harness to release it. It is a no-op when no barrier is configured, and also
+// when this point is not armed — a scenario only stops where it asked to.
 //
 // The reached marker is published BEFORE any waiting, because it is the only
 // state the harness acts on. The marker is withdrawn when Arrive returns — on
@@ -146,10 +175,13 @@ func (p *Point) Arrive(ctx context.Context) error {
 	if p == nil {
 		return nil
 	}
+	if !p.Armed() {
+		return nil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	marker := fmt.Sprintf("%d %s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+	marker := fmt.Sprintf("%s %d %s\n", hostname, os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
 	if err := os.WriteFile(p.reachedPath(), []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("fault barrier %s: cannot publish the reached marker: %w", p.name, err)
 	}
@@ -188,6 +220,36 @@ func (p *Point) Arrive(ctx context.Context) error {
 	}
 }
 
+// Arm selects one point for injection. Any stale reached/release pair left by
+// an earlier scenario is cleared first, so the state the harness observes next
+// is the state THIS scenario produced and not a leftover.
+func (b *Barrier) Arm(name string) error {
+	if b == nil {
+		return errors.New("fault barrier: no barrier is configured")
+	}
+	p := b.Point(name)
+	for _, path := range []string{p.reachedPath(), p.releasePath()} {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("fault barrier %s: cannot clear %s: %w", name, path, err)
+		}
+	}
+	if err := os.WriteFile(p.armedPath(), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+		return fmt.Errorf("fault barrier %s: cannot arm: %w", name, err)
+	}
+	return nil
+}
+
+// Disarm removes the selection so the point stops blocking.
+func (b *Barrier) Disarm(name string) error {
+	if b == nil {
+		return nil
+	}
+	if err := os.Remove(b.Point(name).armedPath()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("fault barrier %s: cannot disarm: %w", name, err)
+	}
+	return nil
+}
+
 // Reset removes every marker in the rendezvous directory. A harness calls it
 // before a scenario so that a marker left by a killed process cannot be mistaken
 // for the state this scenario produced.
@@ -204,7 +266,7 @@ func (b *Barrier) Reset() error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if !strings.HasSuffix(name, reachedSuffix) && !strings.HasSuffix(name, releaseSuffix) {
+		if !strings.HasSuffix(name, reachedSuffix) && !strings.HasSuffix(name, releaseSuffix) && !strings.HasSuffix(name, armedSuffix) {
 			continue
 		}
 		if rmErr := os.Remove(filepath.Join(b.dir, name)); rmErr != nil && !os.IsNotExist(rmErr) {
