@@ -25,6 +25,10 @@ MONO_CONTAINER=""
 TC_CONTAINER=""
 TC_CONTAINER_2=""
 MINIO_CONTAINER=""
+# One real wallet login is reused for every seed. The auth limiter is 10/min;
+# re-logging in for each of the eight scenarios walks into a 429 late in the
+# run, which used to surface as "the outbox point never fired".
+TOKEN_A=""
 WORKER_RECLAIM_BOUND="${WORKER_RECLAIM_BOUND:-60}"
 # Bounded observation window that covers the broker's own redelivery timer
 # (jsAckWait 30s in the candidate) plus a margin. A predicate is polled for the
@@ -220,7 +224,10 @@ login() {
 # everything downstream of it is the production path.
 seed_content() {
   local tag="$1" token upload_resp upload_id complete_resp
-  token="$(login "$KEY_A" "$WALLET_A")" || return 1
+  if [ -z "$TOKEN_A" ]; then
+    TOKEN_A="$(login "$KEY_A" "$WALLET_A")" || return 1
+  fi
+  token="$TOKEN_A"
   upload_resp="$(curl -sf -X POST "$BASE_URL/api/v1/upload" -H "Authorization: Bearer $token" \
     -F "file=@${MEDIA};filename=fault-${tag}.mp4")" || return 1
   upload_id="$(json_get "$upload_resp" upload_id)"
@@ -499,6 +506,11 @@ arm worker.claimed
 if seed_content fw05 && wait_reached worker.claimed 60; then
   TASK="$(task_row)"
   OBJ="$(object_path_from_url "$(field "$TASK" input_url)")"
+  # The server image carries mc but its default "local" alias has empty
+  # credentials; set them before the fault, otherwise the delete silently fails
+  # and the task completes instead of walking the retry budget.
+  docker exec "$MINIO_CONTAINER" mc alias set local http://127.0.0.1:9000 \
+    "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" >/dev/null 2>&1 || :
   if [ -n "$OBJ" ] \
     && docker exec "$MINIO_CONTAINER" mc rm --force "local/${OBJ}" >/dev/null 2>&1 \
     && ! docker exec "$MINIO_CONTAINER" mc stat "local/${OBJ}" >/dev/null 2>&1; then
