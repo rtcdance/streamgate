@@ -355,6 +355,11 @@ type Web3Config struct {
 	AnvilDemoContract      string
 	AnvilDeployerKey       string
 	ContentRegistryAddress string // deployed ContentRegistry contract; empty disables on-chain registration
+	// ContentRegistryManifest is the deployment record the registry is verified
+	// against at startup (chain id, address, deploy tx, runtime code hash, ABI
+	// hash, compiler, artifact). Empty uses the default
+	// deployments/content-registry.<chain_id>.json the image ships.
+	ContentRegistryManifest string
 }
 
 // RPCRateLimitConfig holds RPC rate limiting configuration
@@ -479,6 +484,7 @@ func LoadConfig() (*Config, error) {
 	_ = viper.BindEnv("web3.anvil_demo_contract", "STREAMGATE_ANVIL_DEMO_CONTRACT")
 	_ = viper.BindEnv("web3.anvil_deployer_key", "STREAMGATE_ANVIL_DEPLOYER_KEY")
 	_ = viper.BindEnv("web3.content_registry_address", "STREAMGATE_CONTENT_REGISTRY_ADDRESS")
+	_ = viper.BindEnv("web3.content_registry_manifest", "STREAMGATE_CONTENT_REGISTRY_MANIFEST")
 
 	// Auth
 	_ = viper.BindEnv("auth.jwt_secret", "STREAMGATE_JWT_SECRET")
@@ -580,14 +586,15 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Web3: Web3Config{
-			EthereumRPC:            viper.GetString("web3.ethereum_rpc"),
-			EthereumWSURL:          viper.GetString("web3.ethereum_ws_url"),
-			SolanaRPC:              viper.GetString("web3.solana_rpc"),
-			ChainID:                viper.GetInt64("web3.chain_id"),
-			BlockTag:               viper.GetString("web3.block_tag"),
-			AnvilDemoContract:      viper.GetString("web3.anvil_demo_contract"),
-			AnvilDeployerKey:       viper.GetString("web3.anvil_deployer_key"),
-			ContentRegistryAddress: viper.GetString("web3.content_registry_address"),
+			EthereumRPC:             viper.GetString("web3.ethereum_rpc"),
+			EthereumWSURL:           viper.GetString("web3.ethereum_ws_url"),
+			SolanaRPC:               viper.GetString("web3.solana_rpc"),
+			ChainID:                 viper.GetInt64("web3.chain_id"),
+			BlockTag:                viper.GetString("web3.block_tag"),
+			AnvilDemoContract:       viper.GetString("web3.anvil_demo_contract"),
+			AnvilDeployerKey:        viper.GetString("web3.anvil_deployer_key"),
+			ContentRegistryAddress:  viper.GetString("web3.content_registry_address"),
+			ContentRegistryManifest: viper.GetString("web3.content_registry_manifest"),
 			Transaction: TransactionConfig{
 				PrivateKeyHex:            viper.GetString("web3.transaction.private_key_hex"),
 				GasLimit:                 viper.GetUint64("web3.transaction.gas_limit"),
@@ -808,6 +815,7 @@ func setDefaults() {
 	viper.SetDefault("web3.chain_id", 11155111) // Sepolia
 	viper.SetDefault("web3.block_tag", "safe")
 	viper.SetDefault("web3.content_registry_address", "")
+	viper.SetDefault("web3.content_registry_manifest", "")
 
 	// Monitoring defaults
 	viper.SetDefault("monitoring.prometheus_port", 9090)
@@ -1165,8 +1173,17 @@ func (c *Config) validateProductionDeps(ve *ValidationError) {
 	// worse, advertise registration availability that cannot be honoured.
 	if c.Web3.ContentRegistryAddress != "" {
 		var missing []string
-		if c.Web3.AnvilDeployerKey == "" {
-			missing = append(missing, "web3.anvil_deployer_key (signer)")
+		// Production registry transactions are signed with the configured
+		// transaction key. web3.anvil_deployer_key exists only for the local Anvil
+		// demo stack, so it is accepted as the registry signer ONLY outside a
+		// strict profile — a strict profile refusing it here is what stops a demo
+		// key from silently signing production registry transactions.
+		if c.Web3.Transaction.PrivateKeyHex == "" {
+			if c.IsStrictProfile() {
+				missing = append(missing, "web3.transaction.private_key_hex (signer) — web3.anvil_deployer_key is demo-only")
+			} else if c.Web3.AnvilDeployerKey == "" {
+				missing = append(missing, "web3.transaction.private_key_hex or web3.anvil_deployer_key (signer)")
+			}
 		}
 		if c.Web3.ChainID <= 0 {
 			missing = append(missing, "web3.chain_id")

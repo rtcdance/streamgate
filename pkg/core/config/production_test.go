@@ -109,7 +109,35 @@ func TestValidateProduction_RegistryConfiguredMustBeComplete(t *testing.T) {
 	t.Run("complete registry config passes", func(t *testing.T) {
 		cfg := productionConfigBase()
 		cfg.Web3.ContentRegistryAddress = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+		cfg.Web3.Transaction.PrivateKeyHex = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+		assert.NoError(t, cfg.ValidateProduction(zap.NewNop()))
+	})
+
+	// The demo key must not be able to sign production registry transactions:
+	// the signer comes from web3.transaction.private_key_hex, and the Anvil
+	// deployer key is accepted only outside a strict profile.
+	t.Run("production registry refuses the demo deployer key as its signer", func(t *testing.T) {
+		cfg := productionConfigBase()
+		cfg.Environment = "production"
+		cfg.Web3.ContentRegistryAddress = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
 		cfg.Web3.AnvilDeployerKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+		cfg.Web3.Transaction.PrivateKeyHex = ""
+
+		err := cfg.ValidateProduction(zap.NewNop())
+		assert.Error(t, err, "a demo deployer key must not sign production registry transactions")
+		if err != nil {
+			assert.Contains(t, err.Error(), "web3.transaction.private_key_hex")
+		}
+	})
+
+	// Outside a strict profile the demo stack's key is the signer, so the demo
+	// configuration stays valid.
+	t.Run("non-production registry accepts the demo deployer key", func(t *testing.T) {
+		cfg := productionConfigBase()
+		cfg.Environment = "dev"
+		cfg.Web3.ContentRegistryAddress = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+		cfg.Web3.AnvilDeployerKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+		cfg.Web3.Transaction.PrivateKeyHex = ""
 		assert.NoError(t, cfg.ValidateProduction(zap.NewNop()))
 	})
 }

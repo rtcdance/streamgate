@@ -120,9 +120,13 @@ func SetupRouter(cfg *config.Config, log *zap.Logger, opts ...RouterOption) (*gi
 	// SG-13 A: the durable on-chain registration stack replaces the old
 	// synchronous post-commit chain call. The intent commits with the content
 	// row, the publisher submits and tracks the chain write, and the attest
-	// endpoint exposes the durable status. Everything degrades to "registry
-	// disabled" when config or database is missing.
-	registryHub := ProvideRegistryHub(cfg, log, db)
+	// endpoint exposes the durable status. An EMPTY address disables it; once an
+	// address is configured, an unqualified signer/RPC/chain or an unverifiable
+	// deployment identity is a STARTUP FAILURE rather than a silent downgrade.
+	registryHub, err := ProvideRegistryHub(cfg, log, db)
+	if err != nil {
+		return nil, nil, err
+	}
 	if registryHub != nil {
 		if contentSvc != nil {
 			contentSvc.SetRegistryIntent(registryHub.Store)

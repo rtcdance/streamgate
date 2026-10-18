@@ -1,0 +1,10 @@
+{
+  "chain_id": 31337,
+  "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+  "deploy_tx": "0x75b6509915e24e04d9b5b7ddce26f05c2bee81e1c3e5e3eaa379919bdc330d2b",
+  "runtime_code_hash": "0x26ae3221e9c2b8f4e93ae42f5159e8ea0d83e194c47f4b557d20b5a8f10cb9a2",
+  "abi_hash": "2e551339142160e367088ff875212c9b25174a15eaf184d481592be65201037f",
+  "compiler": "solc 0.8.24+commit.e11b9ed9",
+  "artifact": "contracts/out/ContentRegistry.sol/ContentRegistry.json",
+  "artifact_hash": "f0285c456a961e5346a6842c7334f565163279c866c6d8018bf5db067b26a4d5"
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -365,18 +366,50 @@ func provideContentService(rc *RouterConfig, db storage.DB, log *zap.Logger) *se
 	return nil
 }
 
-// provideContentRegistry wires the on-chain content registration binding when
-// a deployed ContentRegistry address is configured. Every missing piece
-// (address, signer key, RPC) degrades to nil — content creation must never
-// depend on the chain being reachable (the service degrades the same way at
-// registration time).
-func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) content.ContentRegistry {
+// ErrContentRegistryDisabled means the registry was explicitly turned off by an
+// empty address. It is NOT a failure: "no address" is the documented way to
+// disable on-chain registration. Every OTHER reason the registry cannot be built
+// is an error, because an enabled-but-unqualified registry must not degrade
+// silently into "registration unavailable".
+var ErrContentRegistryDisabled = fmt.Errorf("web3.content_registry_address not set (on-chain registration disabled)")
+
+// ProvideContentRegistry wires the on-chain content registration binding when a
+// deployed ContentRegistry address is configured.
+//
+// Configured means configured: the signer, RPC and DEPLOYMENT IDENTITY are all
+// verified before the binding is handed out. Content creation still degrades at
+// registration time when the chain is briefly unreachable, but an unverifiable
+// deployment is a startup failure, not a warning.
+func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) (content.ContentRegistry, error) {
 	binding, _, _, _, err := buildContentRegistryBinding(cfg, log)
 	if err != nil {
-		log.Info("On-chain content registry disabled", zap.Error(err))
-		return nil
+		if errors.Is(err, ErrContentRegistryDisabled) {
+			log.Info("On-chain content registry disabled", zap.Error(err))
+			return nil, nil
+		}
+		return nil, err
 	}
-	return binding
+	return binding, nil
+}
+
+// resolveRegistrySigner returns the key that signs registry transactions.
+//
+// Production uses web3.transaction.private_key_hex — the same configured key
+// every other on-chain transaction path uses. web3.anvil_deployer_key exists only
+// for the local Anvil demo stack, so it may drive the registry ONLY outside a
+// strict profile: a strict profile refuses it rather than letting a well-known
+// demo key sign production registry transactions.
+func resolveRegistrySigner(cfg *config.Config) (string, error) {
+	if pk := strings.TrimSpace(cfg.Web3.Transaction.PrivateKeyHex); pk != "" {
+		return pk, nil
+	}
+	if pk := strings.TrimSpace(cfg.Web3.AnvilDeployerKey); pk != "" {
+		if cfg.IsStrictProfile() {
+			return "", fmt.Errorf("registry signer must come from web3.transaction.private_key_hex — web3.anvil_deployer_key is demo-only and must not sign %s registry transactions", cfg.EffectiveProfile())
+		}
+		return pk, nil
+	}
+	return "", fmt.Errorf("no registry signer configured: set web3.transaction.private_key_hex")
 }
 
 // buildContentRegistryBinding performs the shared validation/dial and returns
@@ -384,13 +417,14 @@ func ProvideContentRegistry(cfg *config.Config, log *zap.Logger) content.Content
 // signer key, chain id).
 func buildContentRegistryBinding(cfg *config.Config, log *zap.Logger) (*web3contract.ContentRegistryBinding, *ethclient.Client, *ecdsa.PrivateKey, *big.Int, error) {
 	if cfg.Web3.ContentRegistryAddress == "" {
-		return nil, nil, nil, nil, fmt.Errorf("web3.content_registry_address not set")
+		return nil, nil, nil, nil, ErrContentRegistryDisabled
 	}
-	if cfg.Web3.AnvilDeployerKey == "" {
-		return nil, nil, nil, nil, fmt.Errorf("no deployer key to sign registration txs")
+	signerKey, err := resolveRegistrySigner(cfg)
+	if err != nil {
+		return nil, nil, nil, nil, err
 	}
 	if cfg.Web3.EthereumRPC == "" {
-		return nil, nil, nil, nil, fmt.Errorf("no ethereum rpc configured")
+		return nil, nil, nil, nil, fmt.Errorf("content registry is enabled but web3.ethereum_rpc is empty")
 	}
 
 	ethClient, err := ethclient.Dial(cfg.Web3.EthereumRPC)
@@ -398,19 +432,26 @@ func buildContentRegistryBinding(cfg *config.Config, log *zap.Logger) (*web3cont
 		return nil, nil, nil, nil, fmt.Errorf("rpc dial failed: %w", err)
 	}
 
-	key := strings.TrimPrefix(cfg.Web3.AnvilDeployerKey, "0x")
-	pk, err := crypto.HexToECDSA(key)
+	pk, err := crypto.HexToECDSA(strings.TrimPrefix(signerKey, "0x"))
 	if err != nil {
 		ethClient.Close()
-		return nil, nil, nil, nil, fmt.Errorf("invalid deployer key: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("invalid registry signer key: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	chainID, err := ethClient.ChainID(ctx)
 	if err != nil {
 		ethClient.Close()
 		return nil, nil, nil, nil, fmt.Errorf("chain id resolve failed: %w", err)
+	}
+
+	// The deployment identity is checked BEFORE the binding is advertised: an
+	// image whose ABI disagrees with the deployed contract would revert every
+	// registration, which is worse than refusing to start.
+	if err := verifyRegistryDeployment(cfg, log, ethClient, chainID.Int64()); err != nil {
+		ethClient.Close()
+		return nil, nil, nil, nil, err
 	}
 
 	reader := web3contract.NewContractInteractor(ethClient, log.Named("registry-reader"))
@@ -424,6 +465,42 @@ func buildContentRegistryBinding(cfg *config.Config, log *zap.Logger) (*web3cont
 	})
 	binding := web3contract.NewContentRegistryBinding(cfg.Web3.ContentRegistryAddress, reader, writer, log.Named("content-registry"))
 	return binding, ethClient, pk, chainID, nil
+}
+
+// verifyRegistryDeployment loads the chain's deployment record and checks it
+// against BOTH the chain and this binary:
+//
+//   - the record names the configured address and the chain the process is on,
+//   - that address holds non-empty runtime code whose hash matches the record,
+//   - the ABI this binary implements hashes to the record's ABI hash.
+//
+// Any mismatch is fatal. The record path defaults to the file the image ships
+// (deployments/content-registry.<chain_id>.json) and can be overridden with
+// web3.content_registry_manifest.
+func verifyRegistryDeployment(cfg *config.Config, log *zap.Logger, client *ethclient.Client, chainID int64) error {
+	path := strings.TrimSpace(cfg.Web3.ContentRegistryManifest)
+	if path == "" {
+		path = web3contract.ContentRegistryManifestPath(chainID)
+	}
+	manifest, err := web3contract.LoadContentRegistryManifest(path)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(manifest.Address, cfg.Web3.ContentRegistryAddress) {
+		return fmt.Errorf("content registry manifest %s records address %s but web3.content_registry_address is %s",
+			path, manifest.Address, cfg.Web3.ContentRegistryAddress)
+	}
+	if err := manifest.VerifyIdentity(context.Background(), client, chainID); err != nil {
+		return fmt.Errorf("content registry deployment identity check failed (%s): %w", path, err)
+	}
+	log.Info("On-chain content registry identity verified",
+		zap.String("address", manifest.Address),
+		zap.Int64("chain_id", chainID),
+		zap.String("runtime_code_hash", manifest.RuntimeCodeHash),
+		zap.String("abi_hash", manifest.ABIHash),
+		zap.String("compiler", manifest.Compiler),
+		zap.String("artifact", manifest.Artifact))
+	return nil
 }
 
 // RegistryHub is the durable on-chain registration stack (SG-13 A): the
@@ -455,21 +532,25 @@ func (h *RegistryHub) Close() {
 	h.Publisher.Stop()
 }
 
-// ProvideRegistryHub builds the full durable registry stack. Returning nil
-// (registry disabled) is the same degradation ProvideContentRegistry performs,
-// but here a missing DATABASE also disables it: an intent that cannot be
-// persisted must not be broadcast (A.4 — database unwritable ⇒ do not
-// broadcast).
-func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) *RegistryHub {
+// ProvideRegistryHub builds the full durable registry stack. A nil hub with a
+// nil error means the registry is explicitly disabled (empty address).
+//
+// Every other outcome is an error, and the caller must fail startup on it:
+// an enabled registry without a database, an unqualified signer/RPC/chain or an
+// unverifiable deployment identity must not silently degrade into "registration
+// unavailable" (A.4 — database unwritable ⇒ do not broadcast).
+func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) (*RegistryHub, error) {
 	binding, ethClient, pk, chainID, err := buildContentRegistryBinding(cfg, log)
 	if err != nil {
-		log.Info("On-chain content registry disabled", zap.Error(err))
-		return nil
+		if errors.Is(err, ErrContentRegistryDisabled) {
+			log.Info("On-chain content registry disabled", zap.Error(err))
+			return nil, nil
+		}
+		return nil, err
 	}
 	if db == nil {
-		log.Warn("On-chain content registry disabled (no database: durable register intents require Postgres)")
 		ethClient.Close()
-		return nil
+		return nil, fmt.Errorf("content registry is enabled but there is no database: durable register intents require PostgreSQL")
 	}
 
 	adapter := txtx.NewEthClientAdapter(ethClient)
@@ -483,6 +564,9 @@ func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) *Reg
 	publisher := registry.NewPublisher(store, adapter, binding, registry.PublisherConfig{
 		Signer:  crypto.PubkeyToAddress(pk.PublicKey).Hex(),
 		ChainID: chainID.Int64(),
+		// The confirmation point comes from the DECLARED finality policy, not from
+		// a fixed depth over the latest height.
+		BlockTag: cfg.Web3.BlockTag,
 	}, log)
 
 	log.Info("On-chain content registry enabled (durable intents)",
@@ -494,7 +578,7 @@ func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) *Reg
 		Idempotency: idem,
 		Service:     svc,
 		Publisher:   publisher,
-	}
+	}, nil
 }
 
 // privateKeyProvider adapts a fixed ECDSA key to tx.KeyProvider.

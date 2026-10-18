@@ -9,6 +9,10 @@ WORKDIR /app
 COPY deploy/docker/streamgate-linux ./streamgate
 COPY config ./config
 COPY h5-demo ./h5-demo
+# The chain's deployment record (batch C): the registry's deployment identity is
+# verified against it at startup, so an enabled registry without it fails startup
+# instead of silently advertising a registration path it cannot honour.
+COPY deployments ./deployments
 
 RUN chown -R appuser:appgroup /app && chmod +x ./streamgate
 

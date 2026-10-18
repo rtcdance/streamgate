@@ -143,16 +143,44 @@ func (f *fakeChain) GetBlockNumber(_ context.Context) (uint64, error) {
 	return f.head, nil
 }
 
+// fakeSafeDepth is how far the fake chain's declared finality tags lag the head.
+// A real chain's "safe" block trails the head, which is precisely the property a
+// bare "head + N" heuristic fails to model.
+const fakeSafeDepth = 2
+
+func (f *fakeChain) headerLocked(number uint64) *types.Header {
+	if h, ok := f.headers[number]; ok {
+		return h
+	}
+	if number > f.head {
+		return nil
+	}
+	// A header exists at every height up to the head on a real chain, so the fake
+	// answers for heights the test did not script explicitly.
+	return &types.Header{Number: new(big.Int).SetUint64(number), Extra: []byte("synthetic")}
+}
+
 func (f *fakeChain) HeaderByNumber(_ context.Context, number *big.Int) (*types.Header, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if number == nil {
-		if h, ok := f.headers[f.head]; ok {
+		if h := f.headerLocked(f.head); h != nil {
 			return h, nil
 		}
 		return nil, errors.New("header not found")
 	}
-	if h, ok := f.headers[number.Uint64()]; ok {
+	// go-ethereum's sentinels: -4 = safe, -3 = finalized.
+	switch number.Int64() {
+	case -4, -3:
+		if f.head < fakeSafeDepth {
+			return nil, errors.New("no finality yet")
+		}
+		if h := f.headerLocked(f.head - fakeSafeDepth); h != nil {
+			return h, nil
+		}
+		return nil, errors.New("header not found")
+	}
+	if h := f.headerLocked(number.Uint64()); h != nil {
 		return h, nil
 	}
 	return nil, errors.New("header not found")
@@ -506,7 +534,7 @@ func TestAcceptance_TxReceiptReorg(t *testing.T) {
 
 	client := newFakeChain()
 	pipeline := newFakePipeline(t, client)
-	pubCfg := registry.PublisherConfig{Signer: testSigner, ChainID: testChainID, Confirmations: 2}
+	pubCfg := registry.PublisherConfig{Signer: testSigner, ChainID: testChainID, BlockTag: "safe"}
 	pub := registry.NewPublisher(store, client, pipeline, pubCfg, zap.NewNop())
 
 	// 1. Broadcast accepted → submitted (no receipt yet).

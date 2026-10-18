@@ -40,13 +40,18 @@ type TxPipeline interface {
 
 // PublisherConfig are the tunables of the intent publisher.
 type PublisherConfig struct {
-	Signer        string
-	ChainID       int64
-	PollInterval  time.Duration // loop cadence, default 2s
-	LeaseTTL      time.Duration // claim lease, default 30s
-	Confirmations uint64        // policy confirmation point, default 2
-	BatchSize     int           // default 25
-	MaxAttempts   int           // signing attempts before permanent failure, default 5
+	Signer  string
+	ChainID int64
+	// BlockTag is the DECLARED finality policy the confirmation point is read
+	// from: "safe" (default) or "finalized". Confirmation is only meaningful when
+	// it names the chain's own finality notion — a fixed "head plus N" depth says
+	// nothing about reorg risk on a chain that has a real finality gadget, so it
+	// is deliberately not the policy any more.
+	BlockTag     string
+	PollInterval time.Duration // loop cadence, default 2s
+	LeaseTTL     time.Duration // claim lease, default 30s
+	BatchSize    int           // default 25
+	MaxAttempts  int           // signing attempts before permanent failure, default 5
 }
 
 func (c PublisherConfig) withDefaults() PublisherConfig {
@@ -56,8 +61,8 @@ func (c PublisherConfig) withDefaults() PublisherConfig {
 	if c.LeaseTTL <= 0 {
 		c.LeaseTTL = 30 * time.Second
 	}
-	if c.Confirmations == 0 {
-		c.Confirmations = 2
+	if c.BlockTag == "" {
+		c.BlockTag = "safe"
 	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = 25
@@ -66,6 +71,23 @@ func (c PublisherConfig) withDefaults() PublisherConfig {
 		c.MaxAttempts = 5
 	}
 	return c
+}
+
+// finalitySentinel maps the declared finality tag onto go-ethereum's block-number
+// sentinels: -4 is "safe", -3 is "finalized", nil is "latest". An unknown tag is
+// refused rather than silently treated as latest, because a confirmation that
+// does not name the chain's own finality notion is not a confirmation.
+func finalitySentinel(tag string) (*big.Int, error) {
+	switch strings.ToLower(strings.TrimSpace(tag)) {
+	case "safe", "":
+		return big.NewInt(-4), nil
+	case "finalized":
+		return big.NewInt(-3), nil
+	case "latest":
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unsupported registry finality tag %q", tag)
+	}
 }
 
 // Publisher drives the intent state machine. It runs inside app processes
@@ -333,17 +355,43 @@ func (p *Publisher) handleReceipt(ctx context.Context, in *Intent, receipt *type
 			return err
 		}
 	}
-	return p.maybeConfirm(ctx, in.ContentID, receipt.BlockNumber.Uint64())
+	return p.maybeConfirm(ctx, in.ContentID, receipt.BlockNumber.Uint64(), receipt.BlockHash.Hex())
 }
 
-// maybeConfirm applies the confirmation policy: head >= receipt block + N.
-// receipt.status=1 alone is NOT finality (A.5).
-func (p *Publisher) maybeConfirm(ctx context.Context, contentID string, blockNumber uint64) error {
-	head, err := p.client.GetBlockNumber(ctx)
+// maybeConfirm applies the DECLARED finality policy: an intent is confirmed once
+// the block its receipt landed in is at or below the chain's declared finality
+// tag ("safe" by default, "finalized" for stricter deployments).
+//
+// Receipt status=1 is still not finality, and neither is a depth heuristic over
+// the latest height. On top of the tag comparison the receipt's block hash is
+// re-checked against the canonical chain at that height: a receipt that names a
+// block no longer on the canonical chain is a reorg, and must not be confirmed.
+func (p *Publisher) maybeConfirm(ctx context.Context, contentID string, blockNumber uint64, blockHash string) error {
+	sentinel, err := finalitySentinel(p.cfg.BlockTag)
 	if err != nil {
-		return nil // stays submitted; the next pass re-evaluates
+		return err
 	}
-	if head < blockNumber+p.cfg.Confirmations {
+	final, err := p.client.HeaderByNumber(ctx, sentinel)
+	if err != nil || final == nil {
+		// The node cannot answer the declared policy question yet; stay submitted
+		// and re-evaluate on the next pass.
+		return nil
+	}
+	if final.Number.Uint64() < blockNumber {
+		return nil
+	}
+	// The receipt is inside the finalized range, but its block must still be the
+	// canonical one at that height.
+	canonical, err := p.client.HeaderByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+	if err != nil || canonical == nil {
+		return nil
+	}
+	if !strings.EqualFold(canonical.Hash().Hex(), blockHash) {
+		p.log.Warn("registry: refusing to confirm — the receipt block is no longer canonical",
+			zap.String("content_id", contentID),
+			zap.Uint64("block_number", blockNumber),
+			zap.String("receipt_block_hash", blockHash),
+			zap.String("canonical_block_hash", canonical.Hash().Hex()))
 		return nil
 	}
 	return p.store.MarkConfirmed(ctx, contentID, StatusSubmitted)
