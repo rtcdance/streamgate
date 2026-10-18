@@ -34,7 +34,8 @@
 #   scripts/backup-restore-drill.sh \
 #     --src-project P --dst-project Q --compose FILE --dst-extra FILE \
 #     --src-api http://localhost:PORT --dst-api http://localhost:PORT \
-#     --artifacts DIR [--candidate-sha SHA] [--content-id ID]
+#     --artifacts DIR --controller NAME \
+#     [--candidate-sha SHA] [--content-id ID]
 set -euo pipefail
 
 CHAIN_ID="${CHAIN_ID:-31337}"
@@ -42,12 +43,12 @@ HELPER_IMAGE="${HELPER_IMAGE:-alpine:3.21@sha256:ce64758a109eb420d874a118f87920e
 WALLET_KEY="${WALLET_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
 
 SRC_PROJECT=""; DST_PROJECT=""; COMPOSE=""; DST_EXTRA=""
-SRC_API=""; DST_API=""; ARTIFACTS=""
+SRC_API=""; DST_API=""; ARTIFACTS=""; CONTROLLER=""
 CONTENT_ID="${CONTENT_ID:-}"
 CANDIDATE_SHA="${CANDIDATE_SHA:-unknown}"
 
 usage() {
-    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
 }
 
@@ -60,6 +61,7 @@ while [ "$#" -gt 0 ]; do
         --src-api)      SRC_API="${2:-}"; shift 2 ;;
         --dst-api)      DST_API="${2:-}"; shift 2 ;;
         --artifacts)    ARTIFACTS="${2:-}"; shift 2 ;;
+        --controller)   CONTROLLER="${2:-}"; shift 2 ;;
         --candidate-sha) CANDIDATE_SHA="${2:-}"; shift 2 ;;
         --content-id)   CONTENT_ID="${2:-}"; shift 2 ;;
         -h|--help)      usage ;;
@@ -67,7 +69,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-for required in SRC_PROJECT DST_PROJECT COMPOSE DST_EXTRA SRC_API DST_API ARTIFACTS; do
+for required in SRC_PROJECT DST_PROJECT COMPOSE DST_EXTRA SRC_API DST_API ARTIFACTS CONTROLLER; do
     eval "value=\${$required}"
     [ -n "$value" ] || { printf 'missing --%s\n' "$(printf '%s' "$required" | tr '_' '-')" >&2; usage; }
 done
@@ -106,6 +108,13 @@ dst_compose() { docker compose -p "$DST_PROJECT" -f "$COMPOSE" -f "$DST_EXTRA" "
 # ships cast, and the chain is the one both stacks share, so there is nothing to
 # publish and nothing to reach over HTTP.
 anvil_cast() { docker exec "$SRC_ANVIL" cast "$@" --rpc-url "http://localhost:8545"; }
+
+# cast_keccak <data> — `cast keccak` takes NO `--rpc-url` (it needs no chain at
+# all, and clap rejects the flag with exit 2), so it cannot go through
+# `anvil_cast`. Routing it there produced an empty hash with the error swallowed
+# by `2>/dev/null`, which read as a chain/record mismatch rather than a bug in
+# this script.
+cast_keccak() { docker exec "$SRC_ANVIL" cast keccak "$1"; }
 
 # `|| true`: a psql error must surface as the failing CHECK (an empty value that
 # does not match), not as a silent abort of the whole drill. psql's own message
@@ -385,6 +394,16 @@ wait_forwarder "${DST_PROJECT}-anvil-1" \
     || die "the target chain forwarder never forwarded to the chain"
 p "target infrastructure up (postgres/redis/minio/nats/consul, and the chain forwarder reaches chain ${CHAIN_ID})"
 
+# The target application is read through the controller-local front proxy, which
+# resolves the project's SERVICE ALIASES ("monolith", "api-gateway", ...) on the
+# project network at connection time. The controller therefore has to BE on that
+# network; without this every request from here to the restored stack would be a
+# resolution failure, indistinguishable from a health failure. (The source stack
+# gets this in its bring-up; the target is created here, so it is attached here.)
+docker network connect "${DST_PROJECT}_default" "$CONTROLLER" \
+    || die "could not attach the controller to the target project network"
+p "the controller is on the target project network (its front can reach the restored stack)"
+
 docker exec -i "$DST_PG" psql -U postgres -d streamgate -v ON_ERROR_STOP=1 < "$PG_DUMP" >/dev/null \
     || die "the Postgres dump did not apply cleanly to the target"
 RESTORED="$(dst_psql "SELECT COUNT(*) FROM contents")"
@@ -463,14 +482,24 @@ if [ -n "$REG_CODE" ] && [ "$REG_CODE" != "0x" ]; then
     p "the registry contract has runtime code at $REGISTRY_ADDR"
 else
     f "no runtime code at the registry address $REGISTRY_ADDR"
+    CHAIN_INCONSISTENT=1
 fi
-OBSERVED_CODE_HASH="$(anvil_cast keccak "$REG_CODE" 2>/dev/null | tr -d '[:space:]' || true)"
-[ "$OBSERVED_CODE_HASH" = "$MANIFEST_CODE_HASH" ] \
-    && p "the chain's runtime code hash matches the deployment record ($MANIFEST_CODE_HASH)" \
-    || f "runtime code hash mismatch: chain $OBSERVED_CODE_HASH vs record $MANIFEST_CODE_HASH"
-[ "$(printf '%s' "$REGISTRY_ADDR" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$MANIFEST_ADDR" | tr '[:upper:]' '[:lower:]')" ] \
-    && p "the registry address in the snapshot matches the deployment record" \
-    || f "registry address mismatch: snapshot $REGISTRY_ADDR vs record $MANIFEST_ADDR"
+OBSERVED_CODE_HASH="$(cast_keccak "$REG_CODE" 2>/dev/null | tr -d '[:space:]' || true)"
+if [ "$OBSERVED_CODE_HASH" = "$MANIFEST_CODE_HASH" ]; then
+    p "the chain's runtime code hash matches the deployment record ($MANIFEST_CODE_HASH)"
+else
+    f "runtime code hash mismatch: chain ${OBSERVED_CODE_HASH:-<none>} vs record $MANIFEST_CODE_HASH"
+    # The chain is then running a different contract than the one the deployment
+    # record names. That is an unexplainable environment, not a cosmetic delta:
+    # resuming the broadcast would register content against code nobody verified.
+    CHAIN_INCONSISTENT=1
+fi
+if [ "$(printf '%s' "$REGISTRY_ADDR" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$MANIFEST_ADDR" | tr '[:upper:]' '[:lower:]')" ]; then
+    p "the registry address in the snapshot matches the deployment record"
+else
+    f "registry address mismatch: snapshot $REGISTRY_ADDR vs record $MANIFEST_ADDR"
+    CHAIN_INCONSISTENT=1
+fi
 
 RECEIPT_MISMATCH=0
 while IFS=$'\t' read -r cid txh blk bhash status; do
@@ -492,11 +521,20 @@ while IFS=$'\t' read -r cid txh blk bhash status; do
         RECEIPT_MISMATCH=$((RECEIPT_MISMATCH + 1))
     fi
 done < "$REGISTRY_STATE"
-[ "$RECEIPT_MISMATCH" -eq 0 ] \
-    && p "every recorded registration transaction is known to the chain and its receipt block is still canonical" \
-    || f "$RECEIPT_MISMATCH recorded transaction(s) could not be reconciled"
+if [ "$RECEIPT_MISMATCH" -eq 0 ]; then
+    p "every recorded registration transaction is known to the chain and its receipt block is still canonical"
+else
+    f "$RECEIPT_MISMATCH recorded transaction(s) could not be reconciled"
+    # A recorded registration the chain cannot account for (unknown, or confirmed
+    # in a block that is no longer canonical) is exactly the "state is not
+    # explainable" case step 6 is written around.
+    CHAIN_INCONSISTENT=1
+fi
 
-EXPLAINED_MAX="$(src_psql "
+# The ledger is read from the RESTORED database, not from the source: step 2
+# stopped the source's Postgres, so a read there answers nothing (and its failure
+# would be misread as a missing reservation rather than a stopped container).
+EXPLAINED_MAX="$(dst_psql "
 SELECT GREATEST(
   COALESCE((SELECT MAX(nonce) FROM tx_nonce_reservations WHERE chain_id = ${CHAIN_ID} AND signer = '${SIGNER_ADDR}'), -1),
   COALESCE((SELECT MAX(nonce) FROM tx_signed_attempts  WHERE chain_id = ${CHAIN_ID} AND signer = '${SIGNER_ADDR}'), -1),
