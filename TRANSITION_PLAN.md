@@ -75,6 +75,13 @@
 
 > **上述本进程改动的提交与边界（2026-10-18）：** Go outbox 实现／测试已提交 `532402390ccdf0904c61656766374c4181742d3e`；必需 fuzz 非零退出判定已单独提交 `c7b8d8f`。本条覆盖前述“尚未提交”的时点状态。原始验证在提交前挂载源码完成，按 provenance 的逐文件 hash 关联上述实现；不冒充干净候选精确 SHA 的完整验收。临时工具容器、空 Postgres 和专用网络均已清理；未推送、未触发远端 CI。后续应从包含这些提交的 HEAD 构建新开发候选，补完 Docker／故障矩阵、E／F 和最终整链验收；当前不关闭 D 或 SG-15。
 
+> **E 批进展（2026-10-18 本地补充，进行中）：** 已提交 `fa9d483`（指标基数与真实 probe／RTF 测量）和 `5914424`（性能场景资源采样）。① `GateDecisionTotal` 移除持续增长的 `rule_version` 标签，改为固定 `decision`／`reason` 枚举；规则版本只进入受控 debug 日志。新增 `TestGateDecision_RuleEditsDoNotCreateSeries`：同一 outcome／reason 连续经历 51 个规则版本后仍只有同一组 series，日志逐条带版本且只有 3 个字段。② 转码器把真实 ffprobe 结果经 task-local observer 回传：任务元数据新增 `media_duration_seconds`、`probe_duration_seconds`、`transcode_duration_seconds`、`transcoding_rtf`；RTF 只在媒体时长与实测转码墙钟都有限且为正时记录，队列／下载／上传时间不计入。新增 `TranscodingDurationSeconds`；任务读取改为深拷贝，避免调用方修改内部 metadata。worker 新增受可选 bearer token 保护的 `/metrics`（未设置时保持既有内部抓取策略），暴露 Go collector 的 `process_cpu_seconds_total` 与 `process_resident_memory_bytes`。③ `perf-acceptance.sh` 在每个实测场景前后抓取应用 `/metrics`，保留原始 Prometheus 快照并写 `resources-<scenario>-<viewers>.json`（CPU 秒数增量、RSS）；缓存、队列、媒体字节、RTF 家族同样随快照留存，`/metrics` 被门禁拒绝时只警告不改变场景结果。
+
+> **E 批已实测（非估算）：** `go test -race -count=1` 对 `pkg/monitoring`、`pkg/middleware`、`pkg/gateway`、`pkg/service/transcoding`、`cmd/microservices/transcoder` 全部通过；`go vet` 同范围通过；`gofmt -l` 无输出。`TestMedia_WorkerProbeMetadata` 在工具容器内用真实 FFmpeg 执行：`media_seconds=2.000000 probe_seconds=0.268328 transcode_seconds=0.687862 rtf=0.343931`，并断言两条 histogram 各增加 1、sum 与元数据一致。资源摘要解析用固定 before/after fixture 实测输出 `cpu_seconds_delta=2.0`、`rss_bytes=150000000`。`bash -n scripts/perf-acceptance.sh` 通过。
+
+> **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
+
+
 ### 0.1 目标与执行边界
 
 以当前 `73a052c` 为修复起点。历史候选 `ab172c2` 的 CI run `39005594931` 已确认 55/55 jobs 成功，保留其真实记录；本轮需要补齐实现与验收覆盖，使 **SG-00～SG-15、M0～M5、M7、M8，以及 M6 的 AI 交付部分全部满足原定标准**。
