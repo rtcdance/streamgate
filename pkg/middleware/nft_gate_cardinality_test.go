@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -74,4 +75,23 @@ func TestGateDecision_RuleEditsDoNotCreateSeries(t *testing.T) {
 	require.Equal(t, "allow", fields["decision"])
 	require.Equal(t, "ok", fields["reason"])
 	require.Len(t, fields, 3, "decision logs must not include wallet credentials or capability URLs")
+}
+
+func TestNFTMetrics_UnknownChainsUseBoundedBucket(t *testing.T) {
+	labels := map[string]string{"chain_id": "other", "result": "false"}
+	before := metricValue(t, "streamgate_nft_verify_total", labels)
+	cfg := &NFTGateConfig{
+		BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 100, Hash: "0xanchor"}},
+		Verifier: &mockNFTOwnershipCheckerOld{quantityFn: func(context.Context, int64, string, string, string) (*big.Int, error) {
+			return nil, errors.New("unsupported RPC chain")
+		}},
+	}
+	for chain := int64(900000000); chain < 900000050; chain++ {
+		decision, _ := EvaluatePolicy(context.Background(), cfg, zap.NewNop(), []GatingRule{
+			{ContractAddress: testContractAddr, ChainID: chain, Standard: "erc721", MinBalance: 1},
+		}, "0xOwner")
+		require.False(t, decision.Allowed)
+	}
+	after := metricValue(t, "streamgate_nft_verify_total", labels)
+	require.Equal(t, before+50, after, "unsupported rule chain IDs must reuse one bounded metric bucket")
 }

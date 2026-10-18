@@ -39,7 +39,10 @@ func recordTranscodingOutcome(outcome, profile string, task *TranscodingTask) {
 	if profile == "" && task != nil {
 		profile = task.Profile
 	}
-	if profile == "" {
+	// Legacy or malformed DB values must not allocate arbitrary series.
+	switch profile {
+	case "1080p", "720p", "480p", "360p", "abr":
+	default:
 		profile = "unknown"
 	}
 	monitoring.TranscodingTasksTotal.WithLabelValues(outcome, profile).Inc()

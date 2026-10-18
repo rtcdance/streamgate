@@ -659,6 +659,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 	}
 
 	v, err, _ := nftSF.Do(cacheKey, func() (interface{}, error) {
+		metricChain := nftMetricChainID(chainID)
 		if config.CircuitBreaker != nil && !config.CircuitBreaker.Allow() {
 			return nil, fmt.Errorf("nft verification circuit breaker is open for chain %d", chainID)
 		}
@@ -668,7 +669,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		// the mixed-height evidence this exists to prevent.
 		anchor, anchorErr := resolveAnchor(ctx, config, chainID)
 		if anchorErr != nil {
-			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			nftVerifyTotal.WithLabelValues(metricChain, "false").Inc()
 			if config.CircuitBreaker != nil {
 				config.CircuitBreaker.RecordFailure()
 			}
@@ -677,10 +678,10 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		pinnedBlock := new(big.Int).SetUint64(anchor.Number)
 
 		quantity, verifyErr := config.Verifier.GetNFTOwnershipQuantity(ctx, chainID, contract, tokenID, walletAddress, pinnedBlock)
-		nftVerifyDuration.WithLabelValues(fmt.Sprintf("%d", chainID)).Observe(time.Since(start).Seconds())
+		nftVerifyDuration.WithLabelValues(metricChain).Observe(time.Since(start).Seconds())
 
 		if verifyErr != nil {
-			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			nftVerifyTotal.WithLabelValues(metricChain, "false").Inc()
 			if config.CircuitBreaker != nil {
 				config.CircuitBreaker.RecordFailure()
 			}
@@ -689,13 +690,13 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		if quantity == nil || quantity.Sign() < 0 {
 			// A nil or negative quantity is not evidence of ownership; treat it
 			// as an unusable answer rather than a permissive one.
-			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			nftVerifyTotal.WithLabelValues(metricChain, "false").Inc()
 			return nil, fmt.Errorf("verifier returned no usable quantity for chain %d contract %s", chainID, contract)
 		}
 
 		// The anchor must not have moved while we were reading it.
 		if reorgErr := verifyAnchorUnchanged(ctx, config, chainID, anchor); reorgErr != nil {
-			nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "false").Inc()
+			nftVerifyTotal.WithLabelValues(metricChain, "false").Inc()
 			config.reorgActive.Store(true)
 			config.reorgDetectedAt.Store(time.Now().UnixNano())
 			logger.Warn("Block changed under an NFT authorization read",
@@ -704,7 +705,7 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 			return nil, reorgErr
 		}
 
-		nftVerifyTotal.WithLabelValues(fmt.Sprintf("%d", chainID), "true").Inc()
+		nftVerifyTotal.WithLabelValues(metricChain, "true").Inc()
 		if config.CircuitBreaker != nil {
 			config.CircuitBreaker.RecordSuccess()
 		}
@@ -911,6 +912,15 @@ func chainName(chainID int64) string {
 		return cfg.Name
 	}
 	return fmt.Sprintf("Chain %d", chainID)
+}
+
+// Keep request-controlled, unsupported chain IDs out of time-series labels.
+// The actual RPC target and cache identity continue to use the original ID.
+func nftMetricChainID(chainID int64) string {
+	if _, configured := web3.GetChainConfig(chainID); configured {
+		return strconv.FormatInt(chainID, 10)
+	}
+	return "other"
 }
 
 func boolStr(b bool) string {
