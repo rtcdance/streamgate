@@ -671,6 +671,20 @@ ensure_playwright() {
     fi
     log "playwright chromium install failed (attempt ${attempt}/3)"
   done
+  # --with-deps runs apt-get, so an unreachable distribution mirror sinks the
+  # install even when the browser bytes are already in the cache (observed:
+  # "Could not connect to debian.map.fastlydns.net ... connection timed out").
+  # A mirror outage is not a reason to fail the run: retry WITHOUT the
+  # OS-dependency step, which needs no network once the browser is cached. The
+  # browser check is untouched and still fails loudly if that browser cannot
+  # launch, so this cannot turn a broken browser into a passing gate.
+  if compgen -G "${PLAYWRIGHT_BROWSERS_PATH:-/nonexistent}/chromium-*" >/dev/null 2>&1; then
+    log "retrying the install without --with-deps (chromium already cached; apt was the only network user)"
+    ( cd scripts/h5-demo-acceptance \
+      && PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT=180000 \
+         env "${download_env[@]+"${download_env[@]}"}" \
+         npx playwright install chromium ) && return
+  fi
   fail "playwright chromium install failed"
 }
 
