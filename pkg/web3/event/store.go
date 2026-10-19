@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -43,6 +44,9 @@ type DurableEventStore interface {
 	SaveBatch(ctx context.Context, chainID int64, filterKey string, events []*IndexedEvent, endBlock uint64, endBlockHash string) error
 	// LoadScopedCheckpoint returns the last committed block for the filter.
 	LoadScopedCheckpoint(ctx context.Context, chainID int64, filterKey string) (uint64, error)
+	// InitializeScopedCheckpoint persists a fresh start before subscription and
+	// returns any existing cursor unchanged, including a valid genesis cursor.
+	InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64) (uint64, error)
 	// RollbackScopedCheckpoint moves the checkpoint back after a reorg.
 	RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64) error
 	// SaveBlockJournal appends journaled block hashes, keeping only the newest
@@ -120,6 +124,26 @@ func (s *PostgresEventStore) LoadScopedCheckpoint(ctx context.Context, chainID i
 		return 0, fmt.Errorf("event store: load checkpoint: %w", err)
 	}
 	return uint64(n), nil
+}
+
+func (s *PostgresEventStore) InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64) (uint64, error) {
+	if initial > math.MaxInt64 {
+		return 0, fmt.Errorf("event store: initial checkpoint exceeds database range")
+	}
+	var cursor int64
+	err := s.db.QueryRow(ctx, `
+		INSERT INTO event_checkpoints (chain_id, filter_key, block_number, block_hash)
+		VALUES ($1, $2, $3, '')
+		ON CONFLICT (chain_id, filter_key)
+		DO UPDATE SET block_number = event_checkpoints.block_number
+		RETURNING block_number`, chainID, filterKey, int64(initial)).Scan(&cursor)
+	if err != nil {
+		return 0, fmt.Errorf("event store: initialize checkpoint: %w", err)
+	}
+	if cursor < 0 {
+		return 0, fmt.Errorf("event store: invalid negative checkpoint")
+	}
+	return uint64(cursor), nil
 }
 
 func (s *PostgresEventStore) RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64) error {

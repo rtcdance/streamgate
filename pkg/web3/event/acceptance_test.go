@@ -13,6 +13,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -35,6 +36,62 @@ const (
 	testWhitelistA = "0x0000000000000000000000000000000000000abc"
 	testWhitelistB = "0x0000000000000000000000000000000000000def"
 )
+
+func TestAcceptance_EventInitialCursorSurvivesImmediateRestart(t *testing.T) {
+	for _, head := range []uint64{0, 100} {
+		t.Run(fmt.Sprint(head), func(t *testing.T) {
+			db := openEventTestDB(t)
+			ctx := context.Background()
+			store := NewPostgresEventStore(db)
+			cfg := EventIndexerConfig{ContractAddresses: []string{testWhitelistA}, EventSignatures: []string{transferSig}, ChainID: testEventChainID, FilterVersion: "initial-cursor", ConfirmationBlocks: 2, UpdateInterval: time.Hour}
+			first, err := NewEventIndexerWithConfig(&mockEventReader{blockNum: head}, cfg, zap.NewNop())
+			require.NoError(t, err)
+			first.SetEventStore(store)
+			require.NoError(t, first.Start(ctx))
+			first.Stop()
+			var rows int
+			require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM event_checkpoints WHERE chain_id=$1 AND filter_key=$2 AND block_number=$3`, testEventChainID, first.filterKey(), head).Scan(&rows))
+			require.Equal(t, 1, rows, "the initial cursor must exist before any indexing tick")
+			reader := &mockEventReader{blockNum: head + 20, logs: []types.Log{makeTransferLog(head+1, common.HexToHash("0xa1"), 0), makeTransferLog(head+2, common.HexToHash("0xb2"), 0)}}
+			restarted, err := NewEventIndexerWithConfig(reader, cfg, zap.NewNop())
+			require.NoError(t, err)
+			restarted.SetEventStore(store)
+			require.NoError(t, restarted.Start(ctx))
+			defer restarted.Stop()
+			require.Equal(t, head, restarted.GetCurrentBlock(), "zero is also a valid persisted cursor")
+			require.NoError(t, restarted.indexEvents(ctx))
+			events, err := store.GetEventsByBlockRange(head+1, head+2)
+			require.NoError(t, err)
+			require.Len(t, events, 2, "every log emitted while the process was down must be recovered")
+		})
+	}
+}
+
+func TestAcceptance_EventInitialCursorWriteFailureStopsStart(t *testing.T) {
+	db := openEventTestDB(t)
+	ctx := context.Background()
+	_, err := NewPostgresEventStore(db).InitializeScopedCheckpoint(ctx, testEventChainID, "overflow", ^uint64(0))
+	require.ErrorContains(t, err, "exceeds database range")
+	t.Cleanup(func() {
+		_, cleanupErr := db.Exec(ctx, `DROP TRIGGER IF EXISTS test_initial_cursor_failure ON event_checkpoints; DROP FUNCTION IF EXISTS test_initial_cursor_failure()`)
+		require.NoError(t, cleanupErr)
+	})
+	_, err = db.Exec(ctx, `CREATE OR REPLACE FUNCTION test_initial_cursor_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.chain_id = 991341 THEN RAISE EXCEPTION 'initial checkpoint unavailable'; END IF; RETURN NEW; END $$;
+CREATE TRIGGER test_initial_cursor_failure BEFORE INSERT ON event_checkpoints FOR EACH ROW EXECUTE FUNCTION test_initial_cursor_failure()`)
+	require.NoError(t, err)
+	idx, err := NewEventIndexerWithConfig(&mockEventReader{blockNum: 100}, EventIndexerConfig{ContractAddresses: []string{testWhitelistA}, ChainID: testEventChainID, FilterVersion: "initial-failure", UpdateInterval: time.Hour}, zap.NewNop())
+	require.NoError(t, err)
+	idx.SetEventStore(NewPostgresEventStore(db))
+	require.ErrorContains(t, idx.Start(ctx), "cannot start without a durable cursor")
+	require.False(t, idx.started.Load(), "a failed start must remain retryable")
+	var rows int
+	require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM event_checkpoints WHERE chain_id=$1`, testEventChainID).Scan(&rows))
+	require.Zero(t, rows)
+	_, err = db.Exec(ctx, `DROP TRIGGER test_initial_cursor_failure ON event_checkpoints`)
+	require.NoError(t, err)
+	require.NoError(t, idx.Start(ctx))
+	idx.Stop()
+}
 
 func requireEventTestDSN(t *testing.T) string {
 	t.Helper()

@@ -14,6 +14,20 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_reorg_requires_two_nonempty_distinct_canonical_hashes(self):
+        source = SOURCE.parent / "durable-fault-acceptance.sh"
+        old = "0x" + "a" * 64
+        for actual, previous, expected in [("", old, 1), ("null", old, 1), (old, old, 1),
+                                           ("0x" + "b" * 64, "", 1), ("0x" + "b" * 64, old, 0)]:
+            script = '\n'.join(['set -euo pipefail', 'block_hash() { printf "%s" "$ACTUAL"; }',
+                                 function("changed_block_hash", source),
+                                 'changed_block_hash 10 "$PREVIOUS"'])
+            import os
+            result = subprocess.run(["bash", "-c", script], env={**os.environ, "ACTUAL": actual, "PREVIOUS": previous}, capture_output=True, text=True)
+            with self.subTest(actual=actual, previous=previous):
+                self.assertEqual(result.returncode, expected)
+                if expected == 0: self.assertEqual(result.stdout, actual)
+
     def test_recovery_seed_requires_full_business_acceptance(self):
         source = function("stage_recovery")
         self.assertNotIn("VERIFY_SKIP_BROWSER_INSTALL", source)
