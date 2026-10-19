@@ -489,10 +489,10 @@ func (s scriptedGatingRules) ListActiveContractAddresses(context.Context, int64)
 // newStubRPCServer answers just enough JSON-RPC for the indexer to start
 // (eth_chainId for the connect probe, eth_blockNumber for the start cursor,
 // eth_getLogs for the polling loop). It is not a chain.
-func newStubRPCServer(t *testing.T) (*httptest.Server, int64) {
+func newStubRPCServer(t *testing.T) (server *httptest.Server, chainID int64) {
 	t.Helper()
-	const chainID = 31337
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	chainID = 31337
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
