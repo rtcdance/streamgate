@@ -1396,10 +1396,18 @@ print(m.group(0).lower() if m else '')
 "
 }
 # chain_send <to> <signature> [args...] — one real signed transaction from the
-# controller, returning the hash the NODE computed for it.
+# controller, returning the hash the NODE computed for it. A failed send prints
+# its RPC error instead of being swallowed, so "no receipt" has a visible cause.
 chain_send() {
   local to="$1" sig="$2"; shift 2
-  cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>/dev/null | tx_hash_of
+  local err out
+  err="$(mktemp)"
+  out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>"$err")"
+  if [ -z "$out" ]; then
+    echo "chain_send ${sig} to ${to} produced no receipt: $(tr '\n' ' ' < "$err")" >&2
+  fi
+  rm -f "$err"
+  printf '%s' "$out" | tx_hash_of
 }
 erc721_mint() { chain_send "$DEMO_NFT" 'mint(address)' "$WALLET_A"; }
 erc1155_mint() { chain_send "${ERC1155_ADDR}" 'mint(address,uint256,uint256)' "$1" "$2" "$3"; }
