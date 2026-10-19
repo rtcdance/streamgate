@@ -237,11 +237,43 @@ block_hash() {
   cast rpc --rpc-url "$ANVIL_URL" eth_getBlockByNumber "$(hexq "$1")" false 2>/dev/null \
     | python3 -c "import sys,json;print(json.load(sys.stdin).get('hash',''))" 2>/dev/null
 }
+# receipt_field <tx> <field> — reads one field of a receipt, and prints NOTHING
+# unless the node really returned a receipt. Foundry v1.8.5 answers a failing
+# `cast receipt --json` with a structured ENVELOPE
+# ({"schema_version":1,"success":false,"data":null,...}) instead of an empty
+# stdout, so a naive `d.get('blockHash')` has to be told the two envelopes apart
+# before it can be trusted: a false "the tx is mined" would turn the FR01
+# assertion (the tx must NOT be on chain while parked) upside down.
 receipt_field() {
   cast receipt --rpc-url "$ANVIL_URL" "$1" --json 2>/dev/null \
-    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$2','') or '')" 2>/dev/null
+    | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print(''); raise SystemExit
+if isinstance(d, dict) and 'schema_version' in d:
+    if not d.get('success'):
+        print(''); raise SystemExit
+    d = d.get('data') or {}
+    if isinstance(d, dict) and isinstance(d.get('receipt'), dict):
+        d = d['receipt']
+value = d.get('$2') if isinstance(d, dict) else None
+print('' if value is None else value)
+" 2>/dev/null
 }
 tx_mined() { [ -n "$(receipt_field "$1" blockHash)" ]; }
+# tx_known <tx> — whether the NODE has ever seen this transaction, read straight
+# off eth_getTransactionByHash (null means "never seen"). This is the primary
+# evidence for "the signed transaction was persisted but not handed to a node",
+# and unlike a receipt it does not depend on whether the tx has been mined yet.
+tx_known() {
+  local out
+  out="$(cast rpc --rpc-url "$ANVIL_URL" eth_getTransactionByHash "$1" 2>/dev/null | tr -d ' \t\r\n')"
+  # `cast rpc` prints string results QUOTED, so the quotes go before the compare.
+  out="${out//\"/}"
+  [ -n "$out" ] && [ "$out" != "null" ]
+}
 # anvil_rollback un-mines the newest N blocks: the honest way to produce a real
 # reorg on a chain that keeps producing blocks. Bounded by anvil itself; a
 # refusal is a FAILURE, never a skip.
@@ -1008,12 +1040,12 @@ if seed_content fr01 && wait_reached publisher.before_broadcast 120; then
     f "FR01: parked state status=${FR_STATUS:-none} tx=${FR_TX:-none} nonce=${FR_NONCE:-none} block=${FR_BLOCK:-empty} raw=${FR_RAW:+present}"
     record FR01-park publisher.before_broadcast FAIL "status=${FR_STATUS:-none} raw=${FR_RAW:+present}"
   fi
-  if [ -n "$FR_NONCE" ] && [ "$FR_CHAINNONCE" = "$FR_NONCE" ] && ! tx_mined "$FR_TX"; then
-    p "FR01: the node never saw the tx (chain nonce ${FR_CHAINNONCE} == the reserved nonce, no receipt)"
-    record FR01-unsent publisher.before_broadcast PASS "chain nonce=${FR_CHAINNONCE} unused, no receipt"
+  if [ -n "$FR_NONCE" ] && [ "$FR_CHAINNONCE" = "$FR_NONCE" ] && ! tx_known "$FR_TX"; then
+    p "FR01: the node never saw the tx (chain nonce ${FR_CHAINNONCE} == the reserved nonce, no transaction entry)"
+    record FR01-unsent publisher.before_broadcast PASS "chain nonce=${FR_CHAINNONCE} unused, eth_getTransactionByHash=null"
   else
-    f "FR01: chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent)"
-    record FR01-unsent publisher.before_broadcast FAIL "chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?}"
+    f "FR01: chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} known_to_node=$(tx_known "$FR_TX" && printf yes || printf no) receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent)"
+    record FR01-unsent publisher.before_broadcast FAIL "chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} node_knows_tx=$(tx_known "$FR_TX" && printf yes || printf no)"
   fi
   container_kill "$MONO_CONTAINER"
   unarm publisher.before_broadcast
@@ -1319,6 +1351,10 @@ fi
 DEMO_NFT="0x5FbDB2315678afecb367f032d93F642f64180aa3"
 # Anvil account 1: a second subject, so a transfer is not the same actor.
 WALLET_B="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+# The log topics the stored payload carries, so a durable row can be attributed to
+# a real event kind without relying on the (in-memory only) decoded form.
+TRANSFER_TOPIC="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+TRANSFER_BATCH_TOPIC="0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb"
 
 event_cursor() { sql_scalar "SELECT block_number FROM event_checkpoints ORDER BY updated_at DESC LIMIT 1"; }
 # tx_hash_of parses a transaction hash out of cast's output, whichever shape the
@@ -1357,13 +1393,35 @@ erc1155_batch() {
 
 # The NFT gate caches EVIDENCE per subject; the event path must be able to delete
 # exactly those keys. Planting them with the gate's own key shape is what makes
-# the invalidation observable from outside the candidate process.
-gate_cache_key() { printf 'nft_cache:31337:%s:%s:%s:%s' "$1" "$2" "$3" "$4"; }
-plant_gate_cache() {
-  docker exec "$REDIS_CONTAINER" redis-cli -n 0 SET "$1" \
-    '{"expires":"2030-01-01T00:00:00Z","balance":"1"}' EX 600 >/dev/null 2>&1
+# the invalidation observable from outside the candidate process — so the shape
+# here must match nftCacheKey() byte for byte: chain, LOWER-CASED contract,
+# token id, LOWER-CASED standard, LOWER-CASED wallet. A mixed-case plant is a key
+# no writer ever produces and no deleter can match.
+gate_cache_key() { printf 'nft_cache:31337:%s:%s:%s:%s' "$(lower "$1")" "$2" "$(lower "$3")" "$(lower "$4")"; }
+lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+# The app's Redis DB comes from the profile's config file (config.yaml: 0,
+# config.dev.yaml: 1), so a plant aimed at the wrong DB is invisible to both the
+# gate and the invalidation. Rather than assuming, the DB is DISCOVERED from a key
+# the candidate itself writes: every HTTP request leaves a rate-limit counter
+# behind, so the harness reads which DB holds one.
+APP_REDIS_DB=""
+detect_app_redis_db() {
+  local db key
+  # Force a fresh candidate-written key first: the rate limiter counts every HTTP
+  # request, so one health call guarantees a counter exists right now — a scan
+  # against keys that had already expired would pick the wrong DB or none at all.
+  curl -s -o /dev/null -m 5 "$BASE_URL/health" >/dev/null 2>&1 || :
+  for db in $(seq 0 15); do
+    key="$(docker exec "$REDIS_CONTAINER" redis-cli -n "$db" --scan --pattern 'streamgate:*' 2>/dev/null | head -1)"
+    if [ -n "$key" ]; then APP_REDIS_DB="$db"; return 0; fi
+  done
+  return 1
 }
-gate_cache_alive() { docker exec "$REDIS_CONTAINER" redis-cli -n 0 EXISTS "$1" 2>/dev/null | tr -d '\r'; }
+plant_gate_cache() {
+  docker exec "$REDIS_CONTAINER" redis-cli -n "$APP_REDIS_DB" SET "$1" \
+    '{"HasNFT":true,"Balance":1,"BlockNumber":1,"BlockHash":"0xfeed","Expires":"2030-01-01T00:00:00Z","ObservedAt":"2026-01-01T00:00:00Z"}' EX 600 >/dev/null 2>&1
+}
+gate_cache_alive() { docker exec "$REDIS_CONTAINER" redis-cli -n "$APP_REDIS_DB" EXISTS "$1" 2>/dev/null | tr -d '\r'; }
 # wait_cache_gone <seconds> — every planted key must be gone within the window.
 wait_cache_gone() {
   local deadline=$((SECONDS + $1)) alive key
@@ -1409,8 +1467,12 @@ if [ -d contracts ] \
         src/DemoERC1155.sol:DemoERC1155 --legacy --broadcast ) >"$WORKDIR/erc1155.log" 2>&1; then
   ERC1155_ADDR="$(python3 -c "
 import re
-m=re.findall(r'0x[0-9a-fA-F]{40}', open('$WORKDIR/erc1155.log').read())
-print(m[-1].lower() if m else '')
+# The 40-hex regex alone is not enough: forge also prints a 64-hex transaction
+# hash, and its first 40 hex digits are a *substring* of that hash — so a greedy
+# 'last 40-hex match' silently picked the tx hash up and the whitelist below
+# pointed at an address with no code. Anchor on the label forge itself prints.
+m = re.search(r'Deployed to:\s*(0x[0-9a-fA-F]{40})', open('$WORKDIR/erc1155.log').read())
+print(m.group(1).lower() if m else '')
 " 2>/dev/null)"
 fi
 if [ -n "$ERC1155_ADDR" ] && [ "$(cast code --rpc-url "$ANVIL_URL" "$ERC1155_ADDR" 2>/dev/null)" != "0x" ]; then
@@ -1470,6 +1532,11 @@ fi
 # ---------------------------------------------------------------------------
 log 'FI01 ERC-721 transfer through the real subscription'
 barrier_reset
+if detect_app_redis_db; then
+  p "FI01: the candidate's Redis DB is ${APP_REDIS_DB}, discovered from its own rate-limit key"
+else
+  f "FI01: no candidate-written Redis key was found in DBs 0-15, so a planted cache key cannot be attributed"
+fi
 PLANTED_KEYS=(
   "$(gate_cache_key "$DEMO_NFT" 1 erc721 "$WALLET_A")"
   "$(gate_cache_key "$DEMO_NFT" 2 erc721 "$WALLET_A")"
@@ -1486,12 +1553,15 @@ else
   record FI01-plant preconditions FAIL "planted key missing from Redis"
 fi
 if [ -n "$TXH" ]; then
-  if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='Transfer' AND reorged=FALSE" 1 40; then
-    p "FI01: the real subscription stored the ERC-721 Transfer with its canonical type"
-    record FI01-indexed Transfer PASS "tx=${TXH:0:12} stored as event_type=Transfer"
+  # The stored row keeps the raw log shape (event_type stays "ContractEvent" —
+  # classification to "Transfer" happens on dispatch, in memory), so the durable
+  # evidence for "this is an ERC-721 Transfer" is the topic, not the type column.
+  if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND reorged=FALSE AND payload->'topics'->>0='${TRANSFER_TOPIC}'" 1 40; then
+    p "FI01: the real subscription stored the ERC-721 Transfer log"
+    record FI01-indexed Transfer PASS "tx=${TXH:0:12} stored with the ERC-721 Transfer topic"
   else
     f "FI01: the ERC-721 Transfer was never indexed (tx=${TXH:0:12})"
-    record FI01-indexed Transfer FAIL "no stored event for the tx"
+    record FI01-indexed Transfer FAIL "no stored Transfer-topic event for the tx"
     docker logs --tail 80 "$MONO_CONTAINER" 2>&1 | grep -iE "indexer|event|transfer|subscription" | tail -8 | sed 's/^/   /'
   fi
   if wait_cache_gone 45; then
@@ -1522,19 +1592,37 @@ if [ -n "$ERC1155_ADDR" ]; then
   for key in "${PLANTED_KEYS[@]}"; do plant_gate_cache "$key"; done
   TXH="$(erc1155_batch)"
   if [ -n "$TXH" ]; then
-    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='TransferBatch' AND reorged=FALSE" 1 40; then
-      IDS="$(sql_scalar "SELECT payload->'decoded'->>'ids' FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='TransferBatch' LIMIT 1" \
-        | python3 -c "import sys,re;print(re.sub(r'\D','',sys.stdin.read()))" 2>/dev/null)"
-      if [ "$IDS" = "12" ]; then
-        p "FI02: the batch event was stored and both token ids were parsed out of it"
-        record FI02-batch TransferBatch PASS "tx=${TXH:0:12} ids=1,2 decoded from the batch payload"
+    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND reorged=FALSE AND payload->'topics'->>0='${TRANSFER_BATCH_TOPIC}'" 1 40; then
+      # The ids of a batch are ABI-encoded in the log DATA (ids and values are not
+      # indexed), so the durable row itself is decoded here: word 0 and word 1 are
+      # the offsets of the two arrays, then length + elements each.
+      IDS="$(sql_scalar "SELECT payload->>'data' FROM event_store_events WHERE tx_hash='${TXH}' AND reorged=FALSE LIMIT 1" \
+        | python3 -c "
+import sys
+data = sys.stdin.read().strip()
+if data.startswith('0x'):
+    data = data[2:]
+try:
+    raw = bytes.fromhex(data)
+    words = [raw[i*32:(i+1)*32] for i in range(len(raw)//32)]
+    o1 = int.from_bytes(words[0], 'big') // 32
+    o2 = int.from_bytes(words[1], 'big') // 32
+    ids = [int.from_bytes(words[o1+1+i], 'big') for i in range(int.from_bytes(words[o1], 'big'))]
+    vals = [int.from_bytes(words[o2+1+i], 'big') for i in range(int.from_bytes(words[o2], 'big'))]
+    print(','.join(str(i) for i in ids) + '|' + ','.join(str(v) for v in vals))
+except Exception:
+    print('')
+" 2>/dev/null)"
+      if [ "$IDS" = "1,2|1,3" ]; then
+        p "FI02: the batch event was stored and both ids/values decoded out of its log data"
+        record FI02-batch TransferBatch PASS "tx=${TXH:0:12} ids=1,2 values=1,3 decoded from the TransferBatch log data"
       else
-        f "FI02: the batch event landed but its ids decoded as '${IDS}' where '12' was required"
-        record FI02-batch TransferBatch FAIL "decoded ids='${IDS}'"
+        f "FI02: the batch event landed but its log data decoded as '${IDS}' where '1,2|1,3' was required"
+        record FI02-batch TransferBatch FAIL "decoded ids|values='${IDS}'"
       fi
     else
       f "FI02: the TransferBatch was never indexed (tx=${TXH:0:12})"
-      record FI02-batch TransferBatch FAIL "no stored batch event"
+      record FI02-batch TransferBatch FAIL "no stored TransferBatch-topic event for the tx"
     fi
     if wait_cache_gone 45; then
       p "FI02: the batch invalidated the cached evidence of every id it carried"
@@ -1617,26 +1705,43 @@ wait_chain_after "$((FI04_MAX + 13))" 120 \
 if wait_reached indexer.checkpoint_before_commit 90; then
   C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
   ROWS_BEFORE="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}'")"
+  FI04_BLOCK="$(receipt_field "$FI04_TX" blockNumber | tr -d '\r')"
+  FI04_BLOCK="$(hexdec "$FI04_BLOCK" 2>/dev/null)" || FI04_BLOCK=""
   container_kill "$MONO_CONTAINER"
   unarm indexer.checkpoint_before_commit
   barrier_reset
   container_start "$MONO_CONTAINER"
   TOKEN_A=""
   if wait_worker_up "$MONO_CONTAINER" 120; then
+    # A row existing at the park proves nothing: the live subscription path also
+    # writes rows and never moves the batch cursor. The claim under test is that
+    # the CRASHED BATCH (the one whose cursor commit was interrupted) is replayed
+    # without duplicating and the durable cursor then advances — so the cursor is
+    # the thing that has to be OBSERVED moving, bounded, never assumed.
+    ROW_WAIT=0
+    C_AFTER="${C_BEFORE:-0}"
     if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}' AND reorged=FALSE" 1 120; then
-      C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
-      ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}'")"
-      if [ "$ROWS" = "1" ] && [ "$C_AFTER" -gt "$C_BEFORE" ]; then
-        p "FI04: the crashed batch was replayed without duplicating and the cursor advanced past it"
-        record FI04 checkpoint-before-commit PASS "row count=1 (was ${ROWS_BEFORE:-0} before the kill), cursor ${C_BEFORE} -> ${C_AFTER}"
-      else
-        f "FI04: rows=${ROWS} cursor ${C_BEFORE} -> ${C_AFTER} where exactly one row and a forward cursor were required"
-        record FI04 checkpoint-before-commit FAIL "rows=${ROWS} cursor=${C_AFTER}"
-      fi
-    else
+      ROW_WAIT=1
+      CUR_DEADLINE=$((SECONDS + 90))
+      while [ "$SECONDS" -lt "$CUR_DEADLINE" ] && [ "${C_AFTER:-0}" -le "${C_BEFORE:-0}" ]; do
+        sleep 1
+        C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
+      done
+    fi
+    ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}'")"
+    if [ -z "$FI04_BLOCK" ] || [ "${C_BEFORE:-0}" -ge "${FI04_BLOCK:-0}" ]; then
+      f "FI04: the cursor was already at/after the log's block ${FI04_BLOCK:-?} when parked, so the kill landed after the commit and proves nothing"
+      record FI04 checkpoint-before-commit FAIL "cursor ${C_BEFORE:-?} not behind block ${FI04_BLOCK:-?} at the park"
+    elif [ "$ROW_WAIT" = "1" ] && [ "$ROWS" = "1" ] && [ "${C_AFTER:-0}" -gt "${C_BEFORE:-0}" ]; then
+      p "FI04: the crashed batch was replayed without duplicating and the cursor advanced past it"
+      record FI04 checkpoint-before-commit PASS "row count=1 (no duplicate; ${ROWS_BEFORE} written by the live subscription before the kill), cursor ${C_BEFORE} -> ${C_AFTER}, log block ${FI04_BLOCK}"
+    elif [ "$ROW_WAIT" = "0" ]; then
       f "FI04: the log from the crashed batch was never indexed after the restart"
       record FI04 checkpoint-before-commit FAIL "no row for ${FI04_TX:0:12}"
       docker logs --tail 80 "$MONO_CONTAINER" 2>&1 | grep -iE "indexer|checkpoint|batch" | tail -8 | sed 's/^/   /'
+    else
+      f "FI04: rows=${ROWS} cursor ${C_BEFORE} -> ${C_AFTER} where exactly one row and a forward cursor were required"
+      record FI04 checkpoint-before-commit FAIL "rows=${ROWS} cursor=${C_AFTER} (block ${FI04_BLOCK:-?})"
     fi
   else
     f "FI04: the monolith did not come back healthy"
@@ -1678,11 +1783,29 @@ if wait_worker_up "$MONO_CONTAINER" 120; then
     if [ -n "$BOOKED" ]; then
       BH_BEFORE="$(block_hash "$BOOKED")"
       HEAD="$(head_number)"
-      DEPTH=$((HEAD - BOOKED + 2))
-      [ "$DEPTH" -lt 3 ] && DEPTH=3
-      if [ "$DEPTH" -le 64 ] && [ "$((HEAD - DEPTH))" -gt 4 ] && anvil_rollback "$DEPTH"; then
-        p "FI05: reorged ${DEPTH} blocks, orphaning block ${BOOKED} inside the range the pass just indexed"
-        record FI05-reorg indexer.after_index_before_reorg_check PASS "rolled back ${DEPTH} blocks from head ${HEAD}, orphaned block ${BOOKED}"
+      # A reorg REPLACES a height, it does not erase it: anvil's rollback keeps
+      # every block at or below the rewind point canonical and mines NEW blocks
+      # above it. So the rewind must land BELOW the orphaned height (a few blocks
+      # under it) and then the chain has to be allowed to mine replacements past
+      # it — only then does height BOOKED exist with a different hash, which is
+      # exactly the state a real reorg leaves behind and the only state the
+      # detector can prove. Un-mining below BOOKED and checking immediately (the
+      # previous shape of this scenario) asks for a header that does not exist yet
+      # and turns the check into a silent skip.
+      REWIND=$((BOOKED - 3))
+      DEPTH=$((HEAD - REWIND))
+      if [ "$DEPTH" -gt 64 ] || [ "$REWIND" -le 4 ]; then
+        f "FI05: a ${DEPTH}-block rewind to ${REWIND} is outside the journal depth (64)"
+        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rewind depth=${DEPTH} unusable"
+      elif anvil_rollback "$DEPTH" && wait_chain_after "$BOOKED" 120; then
+        BH_AFTER="$(block_hash "$BOOKED")"
+        if [ -n "$BH_AFTER" ] && [ "$BH_AFTER" != "$BH_BEFORE" ]; then
+          p "FI05: reorged the chain below block ${BOOKED} and re-mined past it, replacing that height with a different block"
+          record FI05-reorg indexer.after_index_before_reorg_check PASS "rewound ${DEPTH} blocks from head ${HEAD} to ${REWIND}, re-mined past ${BOOKED}: ${BH_BEFORE:0:14} -> ${BH_AFTER:0:14}"
+        else
+          f "FI05: block ${BOOKED} still carries hash ${BH_AFTER:0:14} after the rewind, so no reorg was produced"
+          record FI05-reorg indexer.after_index_before_reorg_check FAIL "block ${BOOKED} hash unchanged"
+        fi
       else
         f "FI05: could not orphan block ${BOOKED} (depth=${DEPTH} head=${HEAD})"
         record FI05-reorg indexer.after_index_before_reorg_check FAIL "rollback depth=${DEPTH} unusable"
@@ -1692,24 +1815,32 @@ if wait_worker_up "$MONO_CONTAINER" 120; then
       record FI05-reorg indexer.after_index_before_reorg_check FAIL "no event block inside the indexed range"
     fi
     # The check runs after this release, over the SAME range: the orphaned event
-    # is what has to trigger the journal rollback.
+    # is what has to trigger the journal rollback. The cursor rewind to the
+    # common ancestor is a TRANSIENT state (the next pass re-indexes and moves
+    # forward again), so it is sampled at high frequency instead of trusted to
+    # still be there when the poll below finishes.
     release_point indexer.after_index_before_reorg_check
     unarm indexer.after_index_before_reorg_check
     REORG_ROWS=0
-    for _ in $(seq 1 60); do
+    MIN_CURSOR=""
+    SAMPLED_CURSOR=""
+    DEADLINE=$((SECONDS + 60))
+    while [ "$SECONDS" -lt "$DEADLINE" ]; do
       REORG_ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE block_hash='${BH_BEFORE:-}' AND reorged=TRUE")"
       REORG_ROWS="${REORG_ROWS:-0}"
-      [ "$REORG_ROWS" -gt 0 ] && break
-      sleep 1
+      SAMPLED_CURSOR="$(event_cursor)"; SAMPLED_CURSOR="${SAMPLED_CURSOR:-0}"
+      if [ -z "$MIN_CURSOR" ] || [ "$SAMPLED_CURSOR" -lt "$MIN_CURSOR" ]; then MIN_CURSOR="$SAMPLED_CURSOR"; fi
+      if [ "$REORG_ROWS" -gt 0 ] && [ -n "$MIN_CURSOR" ] && [ "$MIN_CURSOR" -lt "${BOOKED:-0}" ]; then break; fi
+      sleep 0.5
     done
     ORPHANS="$(sql_scalar "SELECT count(*) FROM event_block_journal WHERE orphaned=TRUE")"; ORPHANS="${ORPHANS:-0}"
     C_FINAL="$(event_cursor)"; C_FINAL="${C_FINAL:-0}"
-    if [ "$REORG_ROWS" -gt 0 ] && [ "$ORPHANS" -gt 0 ] && [ "$C_FINAL" -lt "${BOOKED:-0}" ]; then
-      p "FI05: the orphaned event was flagged, the journal marked orphaned, and the cursor rolled back to the common ancestor"
-      record FI05 indexer.after_index_before_reorg_check PASS "reorged rows=${REORG_ROWS}, journal orphaned=${ORPHANS}, cursor ${C_AFTER} -> ${C_FINAL} (orphaned block ${BOOKED})"
+    if [ "$REORG_ROWS" -gt 0 ] && [ "$ORPHANS" -gt 0 ] && [ -n "$MIN_CURSOR" ] && [ "$MIN_CURSOR" -lt "${BOOKED:-0}" ]; then
+      p "FI05: the orphaned event was flagged, the journal marked orphaned, and the cursor rewound to the common ancestor"
+      record FI05 indexer.after_index_before_reorg_check PASS "reorged rows=${REORG_ROWS}, journal orphaned=${ORPHANS}, cursor dipped ${C_AFTER} -> ${MIN_CURSOR} (orphaned block ${BOOKED}), now ${C_FINAL}"
     else
-      f "FI05: reorged=${REORG_ROWS} journal_orphaned=${ORPHANS} cursor ${C_AFTER} -> ${C_FINAL} (expected reorged>0, cursor < ${BOOKED:-?})"
-      record FI05 indexer.after_index_before_reorg_check FAIL "reorged=${REORG_ROWS} orphaned=${ORPHANS} cursor=${C_FINAL}"
+      f "FI05: reorged=${REORG_ROWS} journal_orphaned=${ORPHANS} min_cursor=${MIN_CURSOR:-?} (expected reorged>0, min cursor < ${BOOKED:-?})"
+      record FI05 indexer.after_index_before_reorg_check FAIL "reorged=${REORG_ROWS} orphaned=${ORPHANS} min_cursor=${MIN_CURSOR:-?}"
       docker logs --tail 150 "$MONO_CONTAINER" 2>&1 | grep -iE "reorg|journal|ancestor|indexer" | tail -10 | sed 's/^/   /'
     fi
   else
