@@ -1449,6 +1449,10 @@ stage_faults() {
   export VERIFY_PRIVATE_KEY_HEX=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
   export VERIFY_FAULT_BARRIER=true
   export VERIFY_FAULT_BARRIER_TIMEOUT="${VERIFY_FAULT_TIMEOUT:-25s}"
+  # The NFT event indexer only subscribes over WebSocket when this is set, and
+  # the log-subscription faults (gap fill, checkpoint commit, reorg) cannot be
+  # injected without it. Empty in every other stage, so polling stays the norm.
+  export VERIFY_ETH_WS_URL="ws://anvil:8545"
 
   bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
   # The harness needs the barrier volume; pre-remove any helper left behind by a
@@ -1459,13 +1463,14 @@ stage_faults() {
       --base-url "http://localhost:${VERIFY_MONO_PORT}" \
       --artifact-dir "$artifacts" --helper-image "$IMAGE_TAG" \
       --candidate-sha "$(git rev-parse HEAD)" --run-label "$PROJECT_NAME" \
+      --anvil-url "http://anvil:8545" \
       --pg-container "${project}-postgres-1" \
       --minio-container "${project}-minio-1" \
       --mono-container "${project}-monolith-1" \
       --transcoder-container "${project}-transcoder-1" \
       --transcoder-container-2 "${project}-transcoder-2" )
   docker rm -f "$helper" >/dev/null 2>&1 || :
-  unset VERIFY_PROFILE VERIFY_PRIVATE_KEY_HEX VERIFY_FAULT_BARRIER VERIFY_FAULT_BARRIER_TIMEOUT
+  unset VERIFY_PROFILE VERIFY_PRIVATE_KEY_HEX VERIFY_FAULT_BARRIER VERIFY_FAULT_BARRIER_TIMEOUT VERIFY_ETH_WS_URL
   teardown_fullstack "$project"
 }
 

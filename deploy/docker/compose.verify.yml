@@ -191,6 +191,10 @@ services:
       - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
       - STREAMGATE_ETH_RPC=http://anvil:8545
+      # The NFT event indexer subscribes over WebSocket ONLY when this is set; the
+      # fault stage turns it on so the real log subscription can be faulted (gap
+      # fill, checkpoint commit, reorg). Empty everywhere else keeps polling.
+      - STREAMGATE_ETH_WS_URL=${VERIFY_ETH_WS_URL:-}
       # Empty by default: the app then uses config.yaml's single endpoint for
       # chain 31337. The perf stage sets this to two SAME-CHAIN endpoints
       # (the stoppable anvil-proxy first) so the fallback path can be exercised
@@ -273,6 +277,8 @@ services:
       - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
       - STREAMGATE_ETH_RPC=http://anvil:8545
+      # See the monolith's note: the log indexer needs a WS endpoint.
+      - STREAMGATE_ETH_WS_URL=${VERIFY_ETH_WS_URL:-}
       # See the monolith's note: config.yaml's web3.chain_id default is 1.
       - WEB3_CHAIN_ID=31337
       - STREAMGATE_ANVIL_DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80

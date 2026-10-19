@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rtcdance/streamgate/migrations"
 	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
 	"github.com/rtcdance/streamgate/pkg/core/config"
@@ -413,6 +415,33 @@ func resolveRegistrySigner(cfg *config.Config) (string, error) {
 	return "", fmt.Errorf("no registry signer configured: set web3.transaction.private_key_hex")
 }
 
+// registryBroadcastPoint is the internal fault point of the registry RPC client:
+// while the durable acceptance harness switches it on, the response to a
+// broadcast the node ALREADY accepted is discarded, so the scenario covers the
+// "handed over, never told the outcome" window instead of the easy one before
+// the send (TRANSITION_PLAN.md section 0.2 D).
+const registryBroadcastPoint = "registry.broadcast"
+
+// dialRegistryClient dials the registry RPC endpoint, wrapped with the fault
+// proxy under the durable acceptance profile only. Every other profile gets a
+// plain client: the switch cannot even be switched on outside durable, and an
+// unconfigured barrier hands the base transport back untouched.
+func dialRegistryClient(cfg *config.Config, log *zap.Logger) (*ethclient.Client, error) {
+	faultBarrier, berr := barrier.Load(cfg, log.Named("registry-proxy"))
+	if berr != nil {
+		log.Warn("registry proxy fault barrier refused", zap.Error(berr))
+	}
+	if faultBarrier == nil {
+		return ethclient.Dial(cfg.Web3.EthereumRPC)
+	}
+	transport := faultBarrier.Transport(http.DefaultTransport, registryBroadcastPoint, "eth_sendRawTransaction")
+	rpcClient, err := rpc.DialOptions(context.Background(), cfg.Web3.EthereumRPC, rpc.WithHTTPClient(&http.Client{Transport: transport}))
+	if err != nil {
+		return nil, err
+	}
+	return ethclient.NewClient(rpcClient), nil
+}
+
 // buildContentRegistryBinding performs the shared validation/dial and returns
 // the binding plus the pieces a durable registry hub also needs (chain client,
 // signer key, chain id).
@@ -428,7 +457,7 @@ func buildContentRegistryBinding(cfg *config.Config, log *zap.Logger) (*web3cont
 		return nil, nil, nil, nil, fmt.Errorf("content registry is enabled but web3.ethereum_rpc is empty")
 	}
 
-	ethClient, err := ethclient.Dial(cfg.Web3.EthereumRPC)
+	ethClient, err := dialRegistryClient(cfg, log)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("rpc dial failed: %w", err)
 	}
