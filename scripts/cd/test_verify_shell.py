@@ -14,6 +14,23 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_source_freeze_rejects_dirty_tree_or_changed_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args], text=True).strip()
+            git("init", "-q"); git("config", "user.name", "Acceptance Test"); git("config", "user.email", "test@example.invalid")
+            source = root / "source.go"; source.write_text("original\n")
+            git("add", "source.go"); git("commit", "-qm", "initial")
+            revision = git("rev-parse", "HEAD")
+            script = '\n'.join(['set -euo pipefail', 'fail() { exit 1; }', function("assert_clean_revision"),
+                                 'assert_clean_revision ' + shlex.quote(directory) + ' ' + revision])
+            self.assertEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 0)
+            source.write_text("edited\n")
+            self.assertNotEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 0)
+            git("add", "source.go"); git("commit", "-qm", "changed head")
+            self.assertNotEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 0)
+
     def run_shell(self, body):
         with tempfile.TemporaryDirectory() as directory:
             script = '\n'.join([
@@ -137,12 +154,31 @@ class VerifyShellTests(unittest.TestCase):
                 "require_controller_tool() { :; }", "bring_up_fullstack() { :; }",
                 "wait_for_anvil_proxy() { :; }", "assert_two_chain_endpoints() { :; }",
                 "run_fullchain() { echo seed-invoked; return 17; }",
-                "acceptance_failed_only_in_browser() { return 1; }", function("stage_perf"), "stage_perf",
+                "acceptance_failed_only_in_browser() { return 1; }",
+                function("perf_acceptance_config"), function("perf_acceptance_list"),
+                function("stage_perf"), "stage_perf",
             ])
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
             self.assertIn("seed-invoked", result.stdout, result.stderr)
             self.assertNotEqual(result.returncode, 0, "the original seed failure must still fail")
             self.assertIn("seed-invoked", (root / "logs" / "perf.log").read_text())
+
+    def test_reference_setup_smoke_uses_reference_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); target = "a" * 40
+            script = "\n".join([
+                "set -euo pipefail", "LOG_DIR=" + shlex.quote(directory), "PERF_COMPARE_VIEWERS=50",
+                "VERIFY_COMPOSE_FILE=unused", "VERIFY_MONO_PORT=1", "VERIFY_ANVIL_PORT=2", "VERIFY_MINIO_PORT=3",
+                "log() { :; }", "fail() { exit 1; }", "run_fullchain() { :; }",
+                "docker() { case \"$*\" in *'SELECT id FROM'*) echo 11111111-1111-4111-8111-111111111111 ;; *'SELECT file_hash'*) echo " + "e" * 64 + " ;; *) return 1 ;; esac; }",
+                "perf_prepare_fixture() { PERF_WALLET_KEYS_FILE=keys; }",
+                "bash() { printf '%s' \"${PERF_COMMIT:-missing}\" > " + shlex.quote(str(root / "target")) + "; }",
+                function("perf_seed_and_pool"),
+                "perf_seed_and_pool own-project " + shlex.quote(directory) + " 1 " + target,
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / "target").read_text(), target)
 
     def test_cleanup_removes_only_own_private_files(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -36,6 +36,7 @@ REFERENCE_WORKTREE=""
 CANDIDATE_PREFIX="${VERIFY_CANDIDATE_PREFIX:-${PROJECT_NAME}-candidate}"
 CANDIDATE_BUILT=0
 CANDIDATE_MANIFEST="${VERIFY_CANDIDATE_MANIFEST:-${ARTIFACT_DIR}/candidate.json}"
+VERIFY_SOURCE_REVISION="$(git rev-parse HEAD)"
 if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 
 # A persistent Playwright browser cache. The harness download is ~290MB, and the
@@ -52,6 +53,14 @@ ALL_STAGES=(unit chain durability ops faults media recovery perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[verify:FAIL]\033[0m %s\n' "$*" >&2; exit 1; }
+
+assert_clean_revision() {
+  local source="$1" expected="$2" actual status
+  actual="$(git -C "$source" rev-parse HEAD)" || fail "source revision is unavailable"
+  [ "$actual" = "$expected" ] || fail "source HEAD changed during candidate acceptance"
+  status="$(GIT_OPTIONAL_LOCKS=0 git -C "$source" status --porcelain --untracked-files=normal)" || fail "source state is unavailable"
+  [ -z "$status" ] || fail "candidate source contains uncommitted or concurrent modifications"
+}
 
 require_controller_tool() {
   command -v "$1" >/dev/null 2>&1 || fail "controller tool '$1' is required but not found"
@@ -472,6 +481,7 @@ wait_health() {
 prebuild_verify_stack() {
   local project="$1" src="$ROOT_DIR" prefix="$CANDIDATE_PREFIX" manifest="$CANDIDATE_MANIFEST"
   local revision service binary archive
+  assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
   if [ -n "${VERIFY_BUILD_REF:-}" ]; then
     src="$(prepare_reference_worktree "$VERIFY_BUILD_REF")"
     REFERENCE_WORKTREE="$src"
@@ -484,6 +494,7 @@ prebuild_verify_stack() {
     return
   fi
   revision="$(git -C "$src" rev-parse HEAD)"
+  assert_clean_revision "$src" "$revision"
   log "building shared images for ${revision} inside verification controller"
   for service in monolith api-gateway transcoder; do
     case "$service" in
@@ -503,6 +514,7 @@ prebuild_verify_stack() {
       -t "${prefix}-${service}:latest" "$src" || fail "${service} image build failed"
     rm -f "$src/deploy/docker/${service}-linux"
     BUILT_BINARIES=()
+    assert_clean_revision "$src" "$revision"
   done
   archive="${ARTIFACT_DIR}/$(basename "$manifest" .json)-images.tar"
   docker save -o "$archive" "${prefix}-monolith:latest" "${prefix}-api-gateway:latest" "${prefix}-transcoder:latest" \
@@ -933,10 +945,28 @@ PY
 # same fixture, load and resource limits, medians over independent rounds.
 # Candidate mode always runs the frozen safety baseline sequentially on this
 # runner. Explicit PR smoke is partial evidence and cannot satisfy `all`.
+# The matrix parameters are read from the versioned acceptance protocol so the
+# controller, the harness and the validator cannot drift apart.
 # ---------------------------------------------------------------------------
-PERF_COMPARE_VIEWERS="${PERF_COMPARE_VIEWERS:-50}"
-PERF_COMPARE_ROUNDS="${PERF_COMPARE_ROUNDS:-3}"
-PERF_COMPARE_LIMIT="${PERF_COMPARE_LIMIT:-1.20}"
+perf_acceptance_config() {
+  python3 - "$1" <<'PY'
+import sys
+sys.path.insert(0, "scripts/cd")
+from perf_protocol import acceptance_config
+print(acceptance_config()[sys.argv[1]])
+PY
+}
+perf_acceptance_list() {
+  python3 - "$1" <<'PY'
+import sys
+sys.path.insert(0, "scripts/cd")
+from perf_protocol import acceptance_config
+print(" ".join(str(v) for v in acceptance_config()[sys.argv[1]]))
+PY
+}
+PERF_COMPARE_VIEWERS="$(perf_acceptance_config comparisonViewers)"
+PERF_COMPARE_ROUNDS="$(perf_acceptance_config comparisonRounds)"
+PERF_COMPARE_LIMIT="$(perf_acceptance_config p95RegressionLimit)"
 
 # perf_rounds <result-dir> <wallets-keys> <content-id> <fixture-hash> <commit-label>
 #   — the measured rounds of the comparison scenario, each in its own
@@ -1002,6 +1032,23 @@ perf_prepare_fixture() {
   python3 scripts/cd/perf_fixture.py --container "$minio_id" --content-id "$content_id" \
     --generation "$generation" --quality "$PERF_QUALITY" --output "$PERF_MEDIA_HASHES_FILE" \
     || fail "independent fixture hash capture failed"
+  export PERF_TRANSCODE_EVIDENCE_FILE="$dir/transcoding-metadata.json"
+  timeout 15s docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U postgres -d streamgate -tAc \
+    "SELECT jsonb_build_object('task_id', id::text, 'content_id', content_id::text, 'output_generation', output_generation, 'status', status, 'media_duration_seconds', metadata->'media_duration_seconds', 'probe_duration_seconds', metadata->'probe_duration_seconds', 'transcode_duration_seconds', metadata->'transcode_duration_seconds', 'transcoding_rtf', metadata->'transcoding_rtf') FROM transcoding_tasks WHERE content_id = '$content_id' AND output_generation = $generation AND status = 'completed' ORDER BY updated_at DESC LIMIT 1" \
+    > "$PERF_TRANSCODE_EVIDENCE_FILE" || fail "cannot capture published task metadata"
+  local target_revision
+  target_revision="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$PERF_API_CONTAINER")" \
+    || fail "cannot identify the fixture producer revision"
+  python3 - "$PERF_TRANSCODE_EVIDENCE_FILE" "$target_revision" "$content_id" "$generation" <<'PY'
+import json, pathlib, sys
+sys.path.insert(0, "scripts/cd")
+from perf_protocol import validate_transcoding
+path = pathlib.Path(sys.argv[1])
+evidence = {"candidateSHA": sys.argv[2], "task": json.loads(path.read_text())}
+validate_transcoding(evidence, {"commit": sys.argv[2], "content_id": sys.argv[3]}, int(sys.argv[4]))
+path.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
+PY
 }
 
 # perf_seed_and_pool <project> <dir> [tolerant] — seed through the acceptance
@@ -1016,6 +1063,7 @@ perf_prepare_fixture() {
 # enforce. The candidate keeps the full 71-check gate in the media stage.
 perf_seed_and_pool() {
   local project="$1" dir="$2" tolerant="${3:-0}" log_file="${LOG_DIR}/compare-seed.log"
+  local target="${4:-$(git rev-parse HEAD)}"
   mkdir -p "$LOG_DIR"; : > "$log_file"
   log "stage=compare-seed (host) → log ${log_file}"
   if ! run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 2>&1 | tee -a "$log_file"; then
@@ -1037,6 +1085,7 @@ perf_seed_and_pool() {
   # PERF_WALLETS is pinned so the pool covers the measured viewer count even
   # though this setup pass only plays 1 viewer.
   PERF_CONTENT_ID="$COMPARE_CONTENT_ID" \
+  PERF_COMMIT="$target" \
   PERF_FIXTURE_HASH="$COMPARE_FIXTURE_HASH" \
   PERF_SETUP=1 \
   PERF_WALLETS="$PERF_COMPARE_VIEWERS" \
@@ -1058,7 +1107,7 @@ perf_reference_pass() {
   log "reference comparison: building + running the reference stack from ${ref}"
   VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy anvil-fallback-proxy monolith transcoder
   unset VERIFY_BUILD_REF
-  perf_seed_and_pool "$project" "$dir" 1
+  perf_seed_and_pool "$project" "$dir" 1 "$ref"
   perf_rounds "$dir" "$PERF_WALLET_KEYS_FILE" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH" "$(git rev-parse "${ref}^{commit}")"
   PERF_TARGET_SHA="$ref" bash scripts/perf-run-manifest.sh "$dir" "$project" "$VERIFY_COMPOSE_FILE" \
     || fail "could not capture the reference environment"
@@ -1080,7 +1129,8 @@ stage_perf() {
   require_controller_tool cast
   local project="${PROJECT_NAME}-perf" result_dir content_id
   export VERIFY_CHAIN_RPCS="http://anvil-proxy:8545,http://anvil-fallback-proxy:8545"
-  export PERF_WARMUP=10s PERF_DURATION=30s PERF_COMPARE_ROUNDS=3 PERF_COMPARE_VIEWERS=50 PERF_COMPARE_LIMIT=1.20
+  export PERF_WARMUP="$(perf_acceptance_config warmupSeconds)s" PERF_DURATION="$(perf_acceptance_config sampleSeconds)s"
+  export PERF_COMPARE_ROUNDS PERF_COMPARE_VIEWERS PERF_COMPARE_LIMIT
   if [ "$VERIFY_MODE" = candidate ]; then
     local floor ref
     floor="$(python3 -c 'import json; print(json.load(open("config/performance.acceptance.json"))["safetyBaselineRevision"])')"
@@ -1144,10 +1194,15 @@ stage_perf() {
   rm -rf "${result_dir:?the perf result directory must be set}"
   mkdir -p "$result_dir"
   perf_prepare_fixture "$project" "$result_dir" "$content_id"
-  local matrix_repeats=3 matrix_viewers="1 10 50 100" rep scenario matrix_dir setup_flag=1 pool_size=100
-  local scenarios="warm_cache cold_cache rpc_primary_down rpc_all_down"
-  if [ "$VERIFY_MODE" = pr ]; then matrix_repeats=1; matrix_viewers=1; scenarios=warm_cache; pool_size=1; fi
-  export PERF_WARMUP=10s PERF_DURATION=30s PERF_COMPARE_ROUNDS=3 PERF_COMPARE_VIEWERS=50 PERF_COMPARE_LIMIT=1.20
+  local matrix_repeats matrix_viewers rep scenario matrix_dir setup_flag=1 pool_size
+  local scenarios
+  matrix_repeats="$(perf_acceptance_config repeats)"
+  matrix_viewers="$(perf_acceptance_list viewers)"
+  scenarios="$(perf_acceptance_list scenarios)"
+  pool_size="$(printf '%s\n' $matrix_viewers | sort -n | tail -1)"
+  if [ "$VERIFY_MODE" = pr ]; then matrix_repeats=1; matrix_viewers=1; pool_size=1; fi
+  export PERF_WARMUP="$(perf_acceptance_config warmupSeconds)s" PERF_DURATION="$(perf_acceptance_config sampleSeconds)s"
+  export PERF_COMPARE_ROUNDS PERF_COMPARE_VIEWERS PERF_COMPARE_LIMIT
   for rep in $(seq 1 "$matrix_repeats"); do
     for scenario in $scenarios; do
       matrix_dir="${result_dir}/round-${rep}"
@@ -1457,11 +1512,15 @@ fi
 if [ "$VERIFY_STAGE" = "all" ]; then
   log "running full DAG: ${ALL_STAGES[*]}"
   for stage in "${ALL_STAGES[@]}"; do
+    assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
     run_stage "$stage"
+    assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
   done
   assert_final_candidate_evidence
 else
   run_stage "$VERIFY_STAGE"
 fi
+
+if [ "$CANDIDATE_BUILT" = 1 ]; then assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"; fi
 
 log "verification complete (VERIFY_STAGE=${VERIFY_STAGE}); artifacts in ${ARTIFACT_DIR}"

@@ -1,12 +1,30 @@
 from pathlib import Path
+from types import SimpleNamespace
 import sys
+import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from resource_monitor import normalize, summarize, validate_identities
+from resource_monitor import monitor, normalize, summarize, validate_identities
 
 
 class ResourceTests(unittest.TestCase):
+    def test_ready_marker_follows_first_valid_observation_of_every_role(self):
+        inspected = {"Id": "container", "Image": "sha256:" + "a" * 64, "Config": {"Labels": {}},
+                     "HostConfig": {"NanoCpus": 1, "Memory": 1000}, "RestartCount": 0,
+                     "State": {"Running": True, "OOMKilled": False, "StartedAt": "one"}}
+        stats = {"read": "2026-10-19T01:00:00Z", "cpu_stats": {"cpu_usage": {"total_usage": 1}},
+                 "memory_stats": {"usage": 300, "stats": {"total_rss": 100}}}
+        engine = MagicMock(); engine.container.side_effect = lambda identity, suffix: inspected if suffix == "json" else stats
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = SimpleNamespace(target=[role + "=" + role for role in ("api", "worker", "loader")], socket="unused",
+                                   output=root / "stats.jsonl", stop_file=root / "stop", ready_file=root / "ready.json", timeout=5, interval=1)
+            with patch("resource_monitor.Engine", return_value=engine), patch("resource_monitor.signal.signal"), patch("resource_monitor.time.sleep", side_effect=lambda _: args.stop_file.touch()):
+                monitor(args)
+            self.assertTrue(args.ready_file.is_file(), "sampling cannot be released before every role is observed")
+
     def test_cgroup_v1_cpu_and_rss(self):
         record = normalize({"cpu_stats": {"cpu_usage": {"total_usage": 2000000000}}, "memory_stats": {"usage": 300, "stats": {"total_rss": 100}}})
         self.assertEqual(record, {"cpu_nanoseconds": 2000000000, "rss_bytes": 100, "memory_usage_bytes": 300})

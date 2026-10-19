@@ -10,24 +10,53 @@ import subprocess
 import uuid
 
 from assert_required_tests import validate as validate_tests
-from perf_metrics import validate_observations
+from perf_metrics import FAILOVER_METRIC, failover_totals, validate_observations, validate_scenario_metrics
 from resource_monitor import summarize, timestamp, validate_identities
 
-SCENARIOS = ("warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down")
-VIEWERS = (1, 10, 50, 100)
+PROTOCOL_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "performance.acceptance.json"
+PROXY_CONTAINERS = ("anvil-proxy", "anvil-fallback-proxy")
+PRIMARY_RPC_SLOT = "rpc://31337/0"
+FALLBACK_RPC_SLOT = "rpc://31337/1"
+
+
+def acceptance_config():
+    try:
+        data = json.loads(PROTOCOL_PATH.read_text())
+    except (OSError, ValueError) as exc:
+        raise ValueError("performance acceptance configuration is missing or unreadable") from exc
+    required = {"scenarios": ["warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"],
+                "viewers": [1, 10, 50, 100], "repeats": 3, "comparisonViewers": 50,
+                "comparisonRounds": 3, "p95RegressionLimit": 1.20, "warmupSeconds": 10, "sampleSeconds": 30}
+    if type(data) is not dict or any(type(data.get(key)) is not type(value) or data[key] != value for key, value in required.items()):
+        raise ValueError("performance acceptance configuration differs from the required fixed protocol")
+    config = {key: data[key] for key in required}
+    config["scenarios"], config["viewers"] = tuple(config["scenarios"]), tuple(config["viewers"])
+    return config
+
+
+ACCEPTANCE = acceptance_config()
+SCENARIOS = ACCEPTANCE["scenarios"]
+VIEWERS = ACCEPTANCE["viewers"]
+REPEATS = ACCEPTANCE["repeats"]
+COMPARISON_VIEWERS = ACCEPTANCE["comparisonViewers"]
+COMPARISON_ROUNDS = ACCEPTANCE["comparisonRounds"]
+P95_REGRESSION_LIMIT = ACCEPTANCE["p95RegressionLimit"]
+WARMUP_SECONDS = ACCEPTANCE["warmupSeconds"]
+SAMPLE_SECONDS = ACCEPTANCE["sampleSeconds"]
 COUNTS = ("success_count", "error_count", "aborted_count", "verified_media_count")
 
 
 def expected_matrix():
     return {f"round-{i}/" + ("" if scenario == "warm_cache" else scenario + "/") + f"{scenario}-viewers-{viewers}.json": (scenario, viewers)
-            for i in range(1, 4) for scenario in SCENARIOS for viewers in VIEWERS}
+            for i in range(1, REPEATS + 1) for scenario in SCENARIOS for viewers in VIEWERS}
 
 
 def validate_layout(paths, mode):
     if mode not in ("matrix", "comparison", "reference", "smoke"):
         raise ValueError("unknown performance evidence mode")
-    expected = set(expected_matrix()) if mode == "matrix" else {f"round-{i}/warm_cache-viewers-50.json" for i in range(1, 4)}
-    if mode == "smoke": expected = {"round-1/warm_cache-viewers-1.json"}
+    expected = set(expected_matrix()) if mode == "matrix" else {f"round-{i}/warm_cache-viewers-{COMPARISON_VIEWERS}.json" for i in range(1, COMPARISON_ROUNDS + 1)}
+    if mode == "smoke":
+        expected = {"round-1/" + ("" if scenario == "warm_cache" else scenario + "/") + scenario + "-viewers-1.json" for scenario in SCENARIOS}
     if mode == "reference":
         expected.add("warm_cache-viewers-1.json")  # Explicit pool-setup smoke, never a comparison round.
     if set(paths) != expected:
@@ -54,12 +83,12 @@ def validate_result(record, target, harness):
             raise ValueError("missing fixture hash identity")
     if str(uuid.UUID(record["content_id"])) != record["content_id"] or not record["quality"]:
         raise ValueError("invalid content or rendition")
-    if record["pace_by_extinf"] is not True or record["warmup_sec"] != 10 or record["duration_sec"] != 30:
-        raise ValueError("playback protocol differs from 10s warmup / 30s sampling / EXTINF pacing")
+    if record["pace_by_extinf"] is not True or record["warmup_sec"] != WARMUP_SECONDS or record["duration_sec"] != SAMPLE_SECONDS:
+        raise ValueError(f"playback protocol differs from {WARMUP_SECONDS}s warmup / {SAMPLE_SECONDS}s sampling / EXTINF pacing")
     if count(record["media_hash_error_count"]) != 0:
         raise ValueError("a media response failed independent hash verification")
     elapsed = timestamp(record["finished_at"]) - timestamp(record["started_at"])
-    if not 30 <= elapsed <= 32:
+    if not SAMPLE_SECONDS <= elapsed <= SAMPLE_SECONDS + 2:
         raise ValueError("actual sampling interval differs from protocol")
     viewers = count(record["viewers"])
     if viewers not in VIEWERS or record["wallet_pool_size"] != viewers or record["login_paced"] is not True or record["logins_failed"] != 0:
@@ -98,12 +127,12 @@ def validate_result(record, target, harness):
 
 
 def compare_rounds(reference, candidate):
-    if len(reference) != 3 or len(candidate) != 3:
-        raise ValueError("comparison requires exactly three rounds on each side")
+    if len(reference) != COMPARISON_ROUNDS or len(candidate) != COMPARISON_ROUNDS:
+        raise ValueError(f"comparison requires exactly {COMPARISON_ROUNDS} rounds on each side")
     ref, cand = [statistics.median(number(r["ttfb_ms"]["p95"]) for r in rows) for rows in (reference, candidate)]
-    if ref <= 0 or cand <= 0 or cand > ref * 1.20:
-        raise ValueError("candidate median p95 exceeds reference x 1.20 or has no samples")
-    return {"referenceMedianP95MS": ref, "candidateMedianP95MS": cand, "ratio": cand / ref, "limit": 1.20}
+    if ref <= 0 or cand <= 0 or cand > ref * P95_REGRESSION_LIMIT:
+        raise ValueError(f"candidate median p95 exceeds reference x {P95_REGRESSION_LIMIT} or has no samples")
+    return {"referenceMedianP95MS": ref, "candidateMedianP95MS": cand, "ratio": cand / ref, "limit": P95_REGRESSION_LIMIT}
 
 
 def compare_environments(reference, candidate):
@@ -148,6 +177,70 @@ def validate_fixture(root, env):
         expected[key] = obj["sha256"]
     if hashes != expected:
         raise ValueError("fixture paths/digests differ from the stored rendition")
+    validate_transcoding(read_json(Path(root) / "transcoding-metadata.json"), env, provenance["generation"])
+
+
+def validate_transcoding(evidence, env, generation):
+    task = evidence["task"]
+    if (evidence["candidateSHA"] != env["commit"] or task["content_id"] != env["content_id"]
+            or task["output_generation"] != generation or task["status"] != "completed"
+            or str(uuid.UUID(task["task_id"])) != task["task_id"]):
+        raise ValueError("transcoding metadata does not identify this candidate's published fixture")
+    values = [number(task[field]) for field in ("media_duration_seconds", "probe_duration_seconds", "transcode_duration_seconds", "transcoding_rtf")]
+    if any(value <= 0 for value in values) or not math.isclose(values[3], values[2] / values[0], rel_tol=1e-6):
+        raise ValueError("transcoding metadata lacks real positive probe/wall measurements or has an inconsistent RTF")
+
+
+def rpc_slots(snapshot):
+    data = read_json(snapshot)
+    chains = data.get("chains")
+    if not isinstance(chains, list):
+        raise ValueError("rpc-status snapshot has no chains")
+    for chain in chains:
+        if chain.get("chain_id") == 31337:
+            rpcs = chain.get("rpcs")
+            if not isinstance(rpcs, list) or [rpc.get("url") for rpc in rpcs] != [PRIMARY_RPC_SLOT, FALLBACK_RPC_SLOT]:
+                raise ValueError("rpc-status snapshot does not expose the two expected chain-31337 endpoint slots")
+            for rpc in rpcs:
+                if type(rpc.get("is_active")) is not bool or type(rpc.get("failures")) is not int or rpc.get("failures") < 0:
+                    raise ValueError("rpc-status snapshot carries invalid endpoint state")
+            return {rpc["url"]: rpc for rpc in rpcs}
+    raise ValueError("rpc-status snapshot does not report chain 31337")
+
+
+def validate_rpc_failover(phase):
+    for name in ("before.rpc-status.json", "after.rpc-status.json", "after.rpc-failover.json"):
+        if not (phase / name).is_file():
+            raise ValueError(f"missing {name} failover evidence")
+    before = rpc_slots(phase / "before.rpc-status.json")
+    after = rpc_slots(phase / "after.rpc-status.json")
+    if not before[PRIMARY_RPC_SLOT]["is_active"]:
+        raise ValueError("the primary RPC endpoint was not serving before the fault was injected")
+    if after[PRIMARY_RPC_SLOT]["is_active"]:
+        raise ValueError("the primary RPC endpoint is still serving after it was stopped")
+    if not after[FALLBACK_RPC_SLOT]["is_active"]:
+        raise ValueError("the fallback RPC endpoint never took over in the post-run snapshot")
+    recorded = read_json(phase / "after.rpc-failover.json")
+    snapshot_before = (phase / "before.api.prom").read_bytes()
+    snapshot_after = (phase / "after.api.prom").read_bytes()
+    totals_before, totals_after, delta = failover_totals(snapshot_before, snapshot_after)
+    if recorded != {"metric": FAILOVER_METRIC, "before": totals_before, "after": totals_after, "delta": delta}:
+        raise ValueError("recorded failover counter delta differs from the prometheus snapshots")
+    if delta <= 0:
+        raise ValueError("the failover counter did not increment although the primary endpoint went down")
+
+
+def validate_proxy_evidence(phase, scenario):
+    for name in PROXY_CONTAINERS:
+        state_path = phase / f"{name}.state.json"
+        if not state_path.is_file() or not (phase / f"{name}.logs.txt").is_file():
+            raise ValueError(f"{name} state or recent logs are missing from the sampling phase")
+        state = read_json(state_path)
+        if type(state.get("State")) is not dict or not state["State"].get("Status"):
+            raise ValueError(f"{name} state evidence lacks container state")
+        stopped = scenario == "rpc_all_down" or (scenario == "rpc_primary_down" and name == "anvil-proxy")
+        if state["State"]["Status"] != ("exited" if stopped else "running"):
+            raise ValueError(f"{name} observed state contradicts the injected fault")
 
 
 def validate_directory(root, mode, target, harness):
@@ -193,9 +286,24 @@ def validate_directory(root, mode, target, harness):
         phases = list(path.parent.glob(f"phase-{scenario}-{viewers}-*"))
         if len(phases) != 1 or not (phases[0] / "ready.json").is_file() or not (phases[0] / "release").is_file():
             raise ValueError("missing or duplicate sampling phase evidence")
+        snapshots = {}
         for moment in ("before", "after"):
             for role in ("api", "worker"):
-                validate_observations((phases[0] / f"{moment}.{role}.prom").read_bytes())
+                body = (phases[0] / f"{moment}.{role}.prom").read_bytes()
+                validate_observations(body)
+                snapshots[moment, role] = body
+        validate_scenario_metrics(snapshots["before", "api"], snapshots["after", "api"], snapshots["before", "worker"], snapshots["after", "worker"], scenario)
+        validate_proxy_evidence(phases[0], scenario)
+        ready = read_json(phases[0] / "ready.json")
+        resources_ready = read_json(phases[0] / "resources.ready.json")
+        if (ready.get("event") != "sampling.ready" or resources_ready.get("event") != "resources.ready"
+                or resources_ready.get("roles") != ["api", "loader", "worker"]
+                or not timestamp(ready["timestamp"]) <= number(resources_ready["timestamp"]) <= timestamp(record["started_at"])):
+            raise ValueError("sampling was released without all resource probes being ready")
+        if scenario == "cold_cache" and not timestamp(ready["timestamp"]) < timestamp(identities["api"]["runtimeBefore"]["StartedAt"]) < timestamp(record["started_at"]):
+            raise ValueError("cold-cache API was not restarted between warmup and sampling")
+        if scenario == "rpc_primary_down":
+            validate_rpc_failover(phases[0])
         execution = read_json(path.with_suffix(".execution.json"))
         if execution != {"exitCode": 0, "attachExitCode": 0, "testID": "TestLoad_AuthorizedMedia"}:
             raise ValueError("loader command exited unsuccessfully or lacks original process status")
@@ -219,7 +327,7 @@ def main():
         baseline = read_json("config/performance.acceptance.json")["safetyBaselineRevision"]
         ref_env, ref_rows = validate_directory(args.reference_root, "reference", baseline, harness)
         compare_environments(ref_env, env)
-        paths = [f"round-{i}/warm_cache-viewers-50.json" for i in range(1, 4)]
+        paths = [f"round-{i}/warm_cache-viewers-{COMPARISON_VIEWERS}.json" for i in range(1, COMPARISON_ROUNDS + 1)]
         reference, candidate = [ref_rows[p] for p in paths], [rows[p] for p in paths]
         if max(timestamp(r["finished_at"]) for r in reference) > min(timestamp(r["started_at"]) for r in candidate):
             raise ValueError("reference and candidate did not run sequentially on the runner")

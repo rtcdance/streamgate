@@ -127,7 +127,13 @@
 >
 > **D 分支实现整合（2026-10-19，原并行进程改动保留后复核）：** submitted 且无 receipt 的持久交易在配置窗口（默认 30 秒）后也能重新 claim；先查已知 hash 的 receipt，否则复用同一 raw tx／hash／nonce，不再因“持久化后、广播前崩溃”永远停在 submitted。新增 `publisher.after_send` 内部屏障；配置与 composition root 已接入重广播间隔。ERC-1155 TransferBatch 已接入 topic 分类、两种事件注册入口及每个 tokenID 的缓存失效；事件只删除缓存，不写授权 grant。新增 5 个完整测试 ID 登记进 durability 必需清单。独立 tmpfs Postgres 上，registry／service／config／gateway 四包完整 `go test -race -p 1 -count=1 -json` **原退出 0、无 skip**，五个新增必需用例逐项 PASS；同范围 tagged vet 与 lint PASS，lint 0 issues。链对象仍为 scripted fake，虽数据库与事务真实，**本条不是候选镜像＋Anvil kill／未知广播实证**，D 出口仍未关闭。原始 JSON、退出码、五项精确清单与 lint 在 `.verify-artifacts/sg-unify-20261019/`。
 
-> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 与 `96e3322` 的真实单观众、独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。后续修改的 proxy／primary 状态、完整业务指标与持久 probe metadata 校验仍须新候选实测。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
+> **E 统一接管后的门禁修复（2026-10-19，基于 `1ac137c`）：** 保留原并行进程的 proxy／failover／业务指标判定，并用新负例修复其缺口：协议文件损坏不得回退默认值，1/10/50/100、三轮、10／30 秒与 1.20 判据必须与原计划严格一致；缺少业务采样不得 skip；proxy 的实际 inspect 输出改为可核验的 JSON object，并要求状态与注入场景一致。每轮预热前重启 API，使 primary 确实重新成为初始端点；cold 场景在预热屏障后再次重启 API 清空进程内缓存、只删除 NFT Redis cache，继续使用真实 Redis 登录会话。资源采集移至故障／冷缓存准备之后，三类探针都拿到真实首样本才释放测量时钟；原始状态、就绪事件与实际时间窗均为必需证据。cold 开始前不得已有媒体／cache hit 计数，primary 必须有前后 active-slot 转移和实际 failover counter 增量。worker 的正 RTF／转码时长历史必须存在，播放窗口内不得增长。
+>
+> **同批身份与任务计量补齐：** reference seed 的一次真实钱包播放原先误用当前 HEAD，新增失败用例后已改为明确传入 reference SHA。独立 fixture 捕获还必须从真实 Postgres 已完成、已发布 generation 的任务取出 `media_duration_seconds`、`probe_duration_seconds`、`transcode_duration_seconds`、`transcoding_rtf`，只保留白名单字段，核验正数与 ratio，并随两侧环境记录保存。应用构建前／每个镜像构建后／完整阶段前后及退出前核对初始 HEAD 和 clean 状态，防止并发编辑被旧 SHA 标签掩盖。PR smoke 改为单观众的四种真实场景，仍不能代替 48 场景或 reference；candidate 固定完整协议。
+>
+> **本批验证与边界：** Python **57/57 PASS**（fixture 7、cgroup 11、metrics 12、协议 22、环境 5），Shell **19/19 PASS**，原失败日志与最终结果在 `.verify-artifacts/sg-unify-20261019/`。Go 性能回归首次与 vet 编译并行时，`TestMetricsCollection` 104.169ms 超过 100ms、`TestRateLimitingPerformance` 69.576ms 超过 50ms，原退出 1 与日志保留；未修改阈值，待 vet／lint 完成后独占相同 2 vCPU 工具容器，以 `-p 1` 复跑 **30/30 必需 PASS、原退出 0**（metrics 实测 49.958ms，rate limiting 低于 50ms）。CI 自检也按包串行；这仅改善测量条件，完整真实性能 job／CI DAG 仍未补齐。本批新增的重启、proxy、完整指标与持久 probe 证据链尚未从新候选实跑，不因这些单元结果关闭 E。
+
+> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 与 `96e3322` 的真实单观众、独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。新四场景 smoke 及本批新增判据仍待实证。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
 ### 0.1 目标与执行边界
