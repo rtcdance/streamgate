@@ -133,6 +133,8 @@
 >
 > **本批验证与边界：** Python **57/57 PASS**（fixture 7、cgroup 11、metrics 12、协议 22、环境 5），Shell **19/19 PASS**，原失败日志与最终结果在 `.verify-artifacts/sg-unify-20261019/`。Go 性能回归首次与 vet 编译并行时，`TestMetricsCollection` 104.169ms 超过 100ms、`TestRateLimitingPerformance` 69.576ms 超过 50ms，原退出 1 与日志保留；未修改阈值，待 vet／lint 完成后独占相同 2 vCPU 工具容器，以 `-p 1` 复跑 **30/30 必需 PASS、原退出 0**（metrics 实测 49.958ms，rate limiting 低于 50ms）。CI 自检也按包串行；这仅改善测量条件，完整真实性能 job／CI DAG 仍未补齐。本批新增的重启、proxy、完整指标与持久 probe 证据链尚未从新候选实跑，不因这些单元结果关闭 E。
 
+> **新冻结门首次实跑（2026-10-19）：** `2c61b7f` 的 `sg-perf-pr-1019-05` 工具构建通过，但在应用构建前由 clean 门拒绝，原退出 **1**；尚未生成应用候选或业务样本。原因是容器缺少宿主的全局 ignore，看到 `.agents`、本地 AI continuation 状态、`.workbuddy`、Python bytecode 及一个实际必需但未跟踪的 `test_verify_controller_cancel.py`。修复采用仓库级 Git／Docker ignore 明确排除本地工具状态与字节码，并把该取消测试正式纳入版本控制，不删除本地状态、不忽略未跟踪应用源码。取消测试 Docker 内 **1/1 PASS**；冻结／Shell **19/19 PASS**，新增反向证明：忽略工具状态可以保持 clean，新增 `untracked.go`、修改既有源码或变更 HEAD 仍必须失败。失败原始目录保留为 `.verify-artifacts/sg-perf-pr-1019-05/`；新四场景入口需在包含该修复的新干净候选继续运行。
+
 > **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 与 `96e3322` 的真实单观众、独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。新四场景 smoke 及本批新增判据仍待实证。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 

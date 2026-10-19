@@ -25,6 +25,15 @@ go.work
 .codex/
 .sisyphus/
 .vscode/
+.agents/
+.omo/run-continuation/
+.workbuddy/
+.workbuddy-ai/
+skills-lock.json
+
+# Python tool bytecode
+__pycache__/
+*.py[cod]
 
 # Editor swap files
 *.swp
