@@ -62,6 +62,9 @@ def capture(root, project, compose):
         raw = source.read_bytes()
         if not raw: raise ValueError("independent fixture evidence is empty")
         if source.resolve() != destination.resolve(): destination.write_bytes(raw)
+    task_evidence = Path(os.environ["PERF_TRANSCODE_EVIDENCE_FILE"])
+    destination = root / "transcoding-metadata.json"
+    if task_evidence.resolve() != destination.resolve(): destination.write_bytes(task_evidence.read_bytes())
     if any(not r["limits"]["nanoCPUs"] or not r["limits"]["memoryBytes"] for r in services.values()):
         raise ValueError("unbounded infrastructure service")
     versions = {name: command(*args).splitlines()[0] for name, args in {

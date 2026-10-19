@@ -587,7 +587,7 @@ jobs:
         run: |
           set -euo pipefail
           go_test_rc=0
-          go test -race -count=1 -json ./test/load ./test/performance \
+          go test -race -p 1 -count=1 -json ./test/load ./test/performance \
             > perf-tests.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
             --suite perf-tests --exit-code "$go_test_rc" \

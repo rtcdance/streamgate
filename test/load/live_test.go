@@ -163,7 +163,7 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 	require.Len(t, cfg.HarnessRevision, 40, "harness source SHA is required separately from target revision")
 	phaseDir := os.Getenv("PERF_PHASE_DIR")
 	require.NotEmpty(t, phaseDir, "controller sampling barrier is required for live acceptance")
-	cfg.BeforeSampling = func(ctx context.Context) error { return load.WaitForSamplingRelease(ctx, phaseDir, 60*time.Second) }
+	cfg.BeforeSampling = func(ctx context.Context) error { return load.WaitForSamplingRelease(ctx, phaseDir, 180*time.Second) }
 	res, runErr := load.Run(context.Background(), cfg)
 
 	out := envOr("PERF_RESULT_JSON", "/tmp/perf-result.json")

@@ -5,13 +5,49 @@ import sys
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from perf_protocol import expected_matrix, validate_layout, validate_result, compare_rounds, validate_directory, read_json
+from perf_protocol import (COMPARISON_VIEWERS, REPEATS, SCENARIOS, VIEWERS, expected_matrix, validate_layout,
+                           validate_result, compare_rounds, validate_directory, read_json, acceptance_config)
 from resource_monitor import summarize, timestamp
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_fixed_protocol_cannot_silently_shrink_or_default(self):
+        configured = read_json("config/performance.acceptance.json")
+        changes = [("viewers", [1]), ("scenarios", ["warm_cache"]), ("repeats", 1),
+                   ("warmupSeconds", 1), ("sampleSeconds", 1), ("comparisonRounds", 1),
+                   ("comparisonViewers", 1), ("p95RegressionLimit", 10)]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "acceptance.json"
+            for key, value in changes:
+                data = copy.deepcopy(configured); data[key] = value; path.write_text(json.dumps(data))
+                with patch("perf_protocol.PROTOCOL_PATH", path), self.subTest(key=key), self.assertRaises(ValueError): acceptance_config()
+            for raw in ["{}", "{"]:
+                path.write_text(raw)
+                with patch("perf_protocol.PROTOCOL_PATH", path), self.assertRaises(ValueError): acceptance_config()
+            path.unlink()
+            with patch("perf_protocol.PROTOCOL_PATH", path), self.assertRaises(ValueError): acceptance_config()
+
+    def rpc_status(self, primary_active, fallback_active):
+        return {"chains": [{"chain_id": 31337, "name": "anvil", "rpcs": [
+            {"url": "rpc://31337/0", "is_active": primary_active, "failures": 0 if primary_active else 3},
+            {"url": "rpc://31337/1", "is_active": fallback_active, "failures": 0}]}]}
+
+    def prom_body(self, moment, role, scenario):
+        if role == "worker":
+            return ("process_cpu_seconds_total 1\nprocess_resident_memory_bytes 100\nstreamgate_transcoding_queue_depth 0\n"
+                    "streamgate_transcoding_rtf_count 1\nstreamgate_transcoding_rtf_sum 0.1\n"
+                    "streamgate_transcoding_duration_seconds_count 1\nstreamgate_transcoding_duration_seconds_sum 1\n")
+        hits, manifests = (5, 5) if moment == "before" or scenario == "rpc_all_down" else (8, 20)
+        failover = 1 if moment == "after" and scenario == "rpc_primary_down" else 0
+        media = 1000 if moment == "before" or scenario == "rpc_all_down" else 2000
+        if moment == "before" and scenario == "cold_cache": hits, manifests, media = 0, 0, 0
+        return (f"process_cpu_seconds_total 1\nprocess_resident_memory_bytes 100\n"
+                f"streamgate_streaming_cache_hits_total {hits}\nstreamgate_streaming_manifests_total {manifests}\n"
+                f"streamgate_rpc_failover_total {failover}\nstreamgate_media_bytes_total {media}\n"
+                "streamgate_rpc_latency_seconds_count 1\nstreamgate_rpc_latency_seconds_sum 0.01\n")
     def record(self, scenario="warm_cache", viewers=1):
         denied = scenario == "rpc_all_down"
         hashes = {"/api/v1/streaming/11111111-1111-4111-8111-111111111111/segment/segment_000.ts": "e" * 64}
@@ -37,6 +73,13 @@ class ProtocolTests(unittest.TestCase):
         validate_layout(set(expected), "matrix")
         for missing in expected:
             with self.assertRaises(ValueError): validate_layout(set(expected) - {missing}, "matrix")
+
+    def test_smoke_covers_all_four_scenarios_at_one_viewer_only(self):
+        paths = {"round-1/" + ("" if scenario == "warm_cache" else scenario + "/") + scenario + "-viewers-1.json" for scenario in SCENARIOS}
+        validate_layout(paths, "smoke")
+        for missing in paths:
+            with self.assertRaises(ValueError): validate_layout(paths - {missing}, "smoke")
+        with self.assertRaises(ValueError): validate_layout(paths, "matrix")
 
     def test_extra_round_and_stale_root_fail(self):
         for extra in ["warm_cache-viewers-1.json", "round-4/warm_cache-viewers-1.json", "round-1/cold_cache/cold_cache-viewers-2.json"]:
@@ -104,6 +147,10 @@ class ProtocolTests(unittest.TestCase):
                    composeSHA256=hashlib.sha256(Path("deploy/docker/compose.verify.yml").read_bytes()).hexdigest())
         (root / "environment.json").write_text(json.dumps(env))
         (root / "loader-build.json").write_text(json.dumps({"harnessRevision": base["harness_revision"], "imageID": image, "binarySHA256": "f" * 64}))
+        (root / "transcoding-metadata.json").write_text(json.dumps({"candidateSHA": base["commit"], "task": {
+            "task_id": "22222222-2222-4222-8222-222222222222", "content_id": base["content_id"], "output_generation": 1,
+            "status": "completed", "media_duration_seconds": 10, "probe_duration_seconds": .1,
+            "transcode_duration_seconds": 1, "transcoding_rtf": .1}}))
         hashes = {f'/api/v1/streaming/{base["content_id"]}/segment/segment_000.ts': "e" * 64}
         fixture = root / "media-hashes.json"; fixture.write_text(json.dumps(hashes))
         fixture.with_suffix(".provenance.json").write_text(json.dumps({"source": "MinIO published generation", "contentID": base["content_id"], "generation": 1,
@@ -118,7 +165,7 @@ class ProtocolTests(unittest.TestCase):
                    for role in ("api", "worker", "loader") for t in range(31)]
             raw_path = path.with_name(f"cgroup-{scenario}-{viewers}.jsonl")
             raw_path.write_text("".join(json.dumps(row) + "\n" for row in raw))
-            runtime = {"Running": True, "OOMKilled": False, "StartedAt": "one-start", "RestartCount": 0}
+            runtime = {"Running": True, "OOMKilled": False, "StartedAt": "2026-10-19T00:59:59Z", "RestartCount": 0}
             identities = {role: {**limits, "imageID": image, "containerID": role + "-id", "revision": "b" * 40 if role == "loader" else "a" * 40,
                                  "project": "own-project", "run": "own-run", "runtimeBefore": runtime, "runtimeAfter": runtime}
                           for role, limits in protocol["resources"].items()}
@@ -127,10 +174,20 @@ class ProtocolTests(unittest.TestCase):
                          "resources": summarize(raw, started, started + 30, ["api", "worker", "loader"])}
             path.with_name(f"resources-{scenario}-{viewers}.json").write_text(json.dumps(resources))
             phase = path.parent / f"phase-{scenario}-{viewers}-unitfixture"; phase.mkdir()
-            (phase / "ready.json").write_text("{}\n"); (phase / "release").touch()
+            (phase / "ready.json").write_text('{"event":"sampling.ready","timestamp":"2026-10-19T00:59:58Z"}\n'); (phase / "release").touch()
+            (phase / "resources.ready.json").write_text(json.dumps({"event": "resources.ready", "roles": ["api", "loader", "worker"], "timestamp": started - .1}))
             for moment in ("before", "after"):
                 for role in ("api", "worker"):
-                    (phase / f"{moment}.{role}.prom").write_text("process_cpu_seconds_total 1\nprocess_resident_memory_bytes 100\n")
+                    (phase / f"{moment}.{role}.prom").write_text(self.prom_body(moment, role, scenario))
+            for name in ("anvil-proxy", "anvil-fallback-proxy"):
+                stopped = scenario == "rpc_all_down" or (scenario == "rpc_primary_down" and name == "anvil-proxy")
+                (phase / f"{name}.state.json").write_text(json.dumps({"State": {"Status": "exited" if stopped else "running"}}))
+                (phase / f"{name}.logs.txt").write_text("")
+            if scenario == "rpc_primary_down":
+                (phase / "before.rpc-status.json").write_text(json.dumps(self.rpc_status(True, False)))
+                (phase / "after.rpc-status.json").write_text(json.dumps(self.rpc_status(False, True)))
+                (phase / "after.rpc-failover.json").write_text(json.dumps(
+                    {"metric": "streamgate_rpc_failover_total", "before": 0.0, "after": 1.0, "delta": 1.0}, sort_keys=True))
             package = "github.com/rtcdance/streamgate/test/load"; test = "TestLoad_AuthorizedMedia"
             events = [{"Action": "start", "Package": package}, {"Action": "run", "Package": package, "Test": test},
                       {"Action": "pass", "Package": package, "Test": test}, {"Action": "pass", "Package": package}]
@@ -166,6 +223,82 @@ class ProtocolTests(unittest.TestCase):
             root = Path(directory); self.artifacts(root)
             path = root / "media-hashes.json"; path.write_text('{"/wrong.ts":"' + "f" * 64 + '"}')
             with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_real_task_probe_metadata_is_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            (root / "transcoding-metadata.json").unlink()
+            with self.assertRaises((ValueError, OSError)):
+                validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_matrix_shape_is_derived_from_the_acceptance_protocol(self):
+        expected = expected_matrix()
+        self.assertEqual(len(expected), REPEATS * len(SCENARIOS) * len(VIEWERS))
+        self.assertEqual(len(expected), 48)
+        self.assertEqual(SCENARIOS, ("warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"))
+        self.assertEqual(VIEWERS, (1, 10, 50, 100))
+        validate_layout({f"round-{i}/warm_cache-viewers-{COMPARISON_VIEWERS}.json" for i in range(1, 4)}, "comparison")
+
+    def phase(self, root, scenario, viewers=1):
+        phases = [p for p in Path(root).rglob(f"phase-{scenario}-{viewers}-*") if "round-1" in p.parts]
+        self.assertEqual(len(phases), 1)
+        return phases[0]
+
+    def test_failover_evidence_is_mandatory_and_must_be_real(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            phase = self.phase(root, "rpc_primary_down")
+            for missing in ("before.rpc-status.json", "after.rpc-status.json", "after.rpc-failover.json"):
+                saved = (phase / missing).read_bytes(); (phase / missing).unlink()
+                with self.subTest(missing=missing), self.assertRaises(ValueError):
+                    validate_directory(root, "matrix", "a" * 40, "b" * 40)
+                (phase / missing).write_bytes(saved)
+            still_active = self.rpc_status(True, True)
+            (phase / "after.rpc-status.json").write_text(json.dumps(still_active))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+            never_switched = self.rpc_status(False, False)
+            (phase / "after.rpc-status.json").write_text(json.dumps(never_switched))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+            (phase / "after.rpc-status.json").write_text(json.dumps(self.rpc_status(False, True)))
+            zero = {"metric": "streamgate_rpc_failover_total", "before": 0.0, "after": 0.0, "delta": 0.0}
+            (phase / "after.rpc-failover.json").write_text(json.dumps(zero, sort_keys=True))
+            (phase / "after.api.prom").write_text(self.prom_body("before", "api", "rpc_primary_down"))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_recorded_failover_delta_must_match_the_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            phase = self.phase(root, "rpc_primary_down")
+            forged = {"metric": "streamgate_rpc_failover_total", "before": 0.0, "after": 9.0, "delta": 9.0}
+            (phase / "after.rpc-failover.json").write_text(json.dumps(forged, sort_keys=True))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_proxy_state_and_logs_are_mandatory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            phase = self.phase(root, "warm_cache")
+            for name in ("anvil-proxy.state.json", "anvil-proxy.logs.txt", "anvil-fallback-proxy.state.json"):
+                saved = (phase / name).read_bytes(); (phase / name).unlink()
+                with self.subTest(missing=name), self.assertRaises(ValueError):
+                    validate_directory(root, "matrix", "a" * 40, "b" * 40)
+                (phase / name).write_bytes(saved)
+            (phase / "anvil-proxy.state.json").write_text(json.dumps({"Config": {}}))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_domain_metric_regressions_fail_the_scenario(self):
+        mutations = [
+            ("warm_cache", "after.api.prom", "streamgate_streaming_cache_hits_total 8", "streamgate_streaming_cache_hits_total 5"),
+            ("cold_cache", "after.api.prom", "streamgate_streaming_cache_hits_total 8", "streamgate_streaming_cache_hits_total 25"),
+            ("rpc_all_down", "after.api.prom", "streamgate_rpc_failover_total 0", "streamgate_rpc_failover_total 1"),
+            ("warm_cache", "after.worker.prom", "streamgate_transcoding_queue_depth 0", "streamgate_transcoding_queue_depth 1"),
+        ]
+        for scenario, name, old, new in mutations:
+            with tempfile.TemporaryDirectory() as directory, self.subTest(scenario=scenario, mutation=new):
+                root = Path(directory); self.artifacts(root)
+                phase = self.phase(root, scenario)
+                path = phase / name
+                path.write_text(path.read_text().replace(old, new))
+                with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
 
 
 if __name__ == "__main__": unittest.main()

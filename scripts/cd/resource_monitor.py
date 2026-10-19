@@ -145,6 +145,7 @@ def monitor(args):
 
     signal.signal(signal.SIGTERM, stop)
     deadline = time.monotonic() + args.timeout
+    ready_roles = set()
     with args.output.open("w") as output:
         while not stopped and not args.stop_file.exists():
             if time.monotonic() >= deadline:
@@ -158,10 +159,14 @@ def monitor(args):
                     stats = engine.container(identity, "stats?stream=false&one-shot=true")
                     row.update(normalize(stats))
                     row["timestamp"] = timestamp(stats["read"])
+                    if row["rss_bytes"] > 0:
+                        ready_roles.add(role)
                 except (ValueError, OSError, KeyError, http.client.HTTPException) as exc:
                     row["error"] = type(exc).__name__
                 output.write(json.dumps(row, sort_keys=True) + "\n")
                 output.flush()
+            if args.ready_file is not None and ready_roles == set(targets) and not args.ready_file.exists():
+                args.ready_file.write_text(json.dumps({"event": "resources.ready", "roles": sorted(ready_roles), "timestamp": time.time()}) + "\n")
             time.sleep(max(0, args.interval - (time.monotonic() - cycle)))
     for role, identity in targets.items():
         metadata[role]["runtimeAfter"] = runtime(engine.container(identity, "json"))
@@ -176,6 +181,7 @@ def main():
     capture.add_argument("--socket", default="/var/run/docker.sock")
     capture.add_argument("--output", required=True, type=Path)
     capture.add_argument("--stop-file", required=True, type=Path)
+    capture.add_argument("--ready-file", type=Path)
     capture.add_argument("--timeout", type=float, default=3600)
     capture.add_argument("--interval", type=float, default=1)
     summary = commands.add_parser("summarize")

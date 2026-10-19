@@ -64,14 +64,62 @@ key_count="$(python3 -c 'import pathlib,sys; print(len(pathlib.Path(sys.argv[1])
 [ "$key_count" -ge "$max_viewers" ] || die "wallet pool is smaller than the viewer count"
 
 compose() { docker compose -p "$PERF_DOCKER_PROJECT" -f "$PERF_COMPOSE_FILE" "$@"; }
+restart_playback_api() {
+  compose restart --timeout 10 monolith >/dev/null || die "cannot restart the API to reset its playback/RPC state"
+  python3 - "$BASE_URL/ready" <<'PY'
+import sys, time, urllib.error, urllib.request
+deadline = time.monotonic() + 60
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(sys.argv[1], timeout=2) as response:
+            if response.status == 200:
+                break
+    except (OSError, urllib.error.URLError):
+        pass
+    time.sleep(.2)
+else:
+    raise SystemExit('restarted API did not become ready')
+PY
+}
+capture_rpc_status() {
+  python3 - "$BASE_URL/api/v1/web3/rpc-status" "$1" <<'PY'
+import json, pathlib, sys, urllib.request
+url, output = sys.argv[1], pathlib.Path(sys.argv[2])
+with urllib.request.urlopen(url, timeout=10) as response:
+    body = response.read(1024 * 1024 + 1)
+data = json.loads(body)
+chains = data.get("chains")
+if not isinstance(chains, list) or not any(chain.get("chain_id") == 31337 and len(chain.get("rpcs", [])) == 2 for chain in chains):
+    raise SystemExit("rpc-status does not expose the two chain-31337 endpoints")
+output.write_bytes(body if body.endswith(b"\n") else body + b"\n")
+PY
+}
+capture_proxy_evidence() {
+  local phase="$1" name identity
+  for name in anvil-proxy anvil-fallback-proxy; do
+    identity="$(compose ps -aq "$name")" || die "cannot identify the $name container"
+    [ -n "$identity" ] || die "no $name container in the perf project"
+    docker inspect --format '{"containerID":"{{.Id}}","imageID":"{{.Image}}","State":{{json .State}}}' \
+      "$identity" >"$phase/${name}.state.json" || die "cannot capture $name container state"
+    docker logs --tail 500 "$identity" >"$phase/${name}.logs.txt" 2>&1 || die "cannot capture $name container logs"
+  done
+}
 prepare_sampling() {
   local phase="$1" active keys
   active="$(compose exec -T postgres psql -U postgres -d streamgate -tAc "SELECT count(*) FROM transcoding_tasks WHERE status NOT IN ('completed','failed','cancelled')" | tr -d '[:space:]')" || die "cannot verify the worker is idle"
   [ "$active" = 0 ] || die "playback samples must not overlap transcoding"
+  if [ "$SCENARIO" = rpc_primary_down ]; then
+    capture_rpc_status "$phase/before.rpc-status.json" || die "pre-fault RPC status snapshot failed"
+  fi
   case "$SCENARIO" in
     rpc_primary_down) compose stop anvil-proxy >/dev/null || die "primary RPC fault failed" ;;
     rpc_all_down) compose stop anvil-proxy anvil-fallback-proxy >/dev/null || die "total RPC fault failed" ;;
   esac
+  if [ "$SCENARIO" = cold_cache ]; then
+    # Warmup sessions are Redis-backed. Restarting while the loader is at its
+    # barrier clears every in-process cache without replaying any media read.
+    restart_playback_api
+  fi
   if [ "$SCENARIO" = cold_cache ] || [ "$SCENARIO" = rpc_all_down ]; then
     keys="$(compose exec -T redis redis-cli --scan --pattern 'nft_cache:*')" || die "NFT cache enumeration failed"
     while IFS= read -r key; do
@@ -88,7 +136,6 @@ while time.time() < ready + 6:
 PY
   fi
   python3 scripts/cd/perf_metrics.py --output-prefix "$phase/before" || die "required before-metrics unavailable"
-  : > "$phase/release"
 }
 
 run_scenario() (
@@ -112,6 +159,7 @@ run_scenario() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   compose start anvil-proxy anvil-fallback-proxy >/dev/null || die "cannot restore RPC endpoints before warmup"
+  restart_playback_api
   loader="$(docker create --init --platform "${VERIFY_PLATFORM:-linux/amd64}" \
     --cpus 1 --memory 512m --network "$PERF_DOCKER_NETWORK" \
     --label "com.docker.compose.project=$PERF_DOCKER_PROJECT" --label "com.streamgate.verify.run=$PERF_RUN_LABEL" \
@@ -128,10 +176,6 @@ run_scenario() (
     -e PERF_HARNESS_SHA="${PERF_HARNESS_SHA:-$(git rev-parse HEAD)}" \
     -e PERF_COMMIT="${PERF_COMMIT:-$(git rev-parse HEAD)}" -e PERF_PHASE_DIR="$phase" \
     "$PERF_LOADER_IMAGE" /loader.test -test.run '^TestLoad_AuthorizedMedia$' -test.v=test2json -test.timeout "$PERF_GO_TIMEOUT")" || die "loader creation failed"
-  python3 scripts/cd/resource_monitor.py monitor --target "api=$PERF_API_CONTAINER" \
-    --target "worker=$PERF_WORKER_CONTAINER" --target "loader=$loader" \
-    --output "$stats" --stop-file "$phase/monitor.stop" --timeout "${PERF_GO_TIMEOUT%s}" &
-  monitor_pid=$!
   docker start -a "$loader" >"$raw" 2>&1 &
   attach_pid=$!
   local deadline=$((SECONDS + ${PERF_GO_TIMEOUT%s}))
@@ -140,7 +184,21 @@ run_scenario() (
     if ! kill -0 "$attach_pid" 2>/dev/null; then break; fi
     sleep .2
   done
-  if [ -f "$phase/ready.json" ]; then prepare_sampling "$phase"; fi
+  if [ -f "$phase/ready.json" ]; then
+    prepare_sampling "$phase"
+    python3 scripts/cd/resource_monitor.py monitor --target "api=$PERF_API_CONTAINER" \
+      --target "worker=$PERF_WORKER_CONTAINER" --target "loader=$loader" \
+      --output "$stats" --stop-file "$phase/monitor.stop" --ready-file "$phase/resources.ready.json" \
+      --timeout "${PERF_GO_TIMEOUT%s}" &
+    monitor_pid=$!
+    local monitor_deadline=$((SECONDS + 15))
+    while [ ! -f "$phase/resources.ready.json" ]; do
+      kill -0 "$monitor_pid" 2>/dev/null || die "resource collector stopped before becoming ready"
+      [ "$SECONDS" -lt "$monitor_deadline" ] || die "resource collector did not observe every role before its deadline"
+      sleep .1
+    done
+    : > "$phase/release"
+  fi
   wait "$attach_pid" || start_rc=$?
   attach_pid=""
   rc="$(docker inspect --format '{{.State.ExitCode}}' "$loader")" || die "loader exit status is unavailable"
@@ -151,9 +209,14 @@ pathlib.Path(sys.argv[1]).with_suffix('.execution.json').write_text(json.dumps({
 PY
   local metrics_rc=0
   python3 scripts/cd/perf_metrics.py --output-prefix "$phase/after" || metrics_rc=$?
+  if [ "$SCENARIO" = rpc_primary_down ]; then
+    capture_rpc_status "$phase/after.rpc-status.json" || die "post-run RPC status snapshot failed"
+    python3 scripts/cd/perf_metrics.py --failover-delta "$phase" || die "failover counter evidence capture failed"
+  fi
+  capture_proxy_evidence "$phase"
   : > "$phase/monitor.stop"
   local monitor_rc=0
-  wait "$monitor_pid" || monitor_rc=$?
+  if [ -n "$monitor_pid" ]; then wait "$monitor_pid" || monitor_rc=$?; else monitor_rc=1; fi
   monitor_pid=""
   go tool test2json -p github.com/rtcdance/streamgate/test/load -t <"$raw" >"$RESULT_DIR/${SCENARIO}-viewers-${viewers}.jsonl" || die "loader log conversion failed"
   python3 scripts/cd/assert_required_tests.py "$RESULT_DIR/${SCENARIO}-viewers-${viewers}.jsonl" --suite perf-live --exit-code "$rc" || die "live media scenario failed"

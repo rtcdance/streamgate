@@ -35,6 +35,8 @@ class EnvironmentTests(unittest.TestCase):
         fixture = self.root / "media-hashes.json"; fixture.write_text('{"/segment.ts": "test"}\n')
         fixture.with_suffix(".provenance.json").write_text('{"source":"unit storage fixture"}\n')
         self.environment["PERF_MEDIA_HASHES_FILE"] = str(fixture)
+        task = self.root / "transcoding-metadata.json"; task.write_text('{"source":"unit task metadata"}\n')
+        self.environment["PERF_TRANSCODE_EVIDENCE_FILE"] = str(task)
 
     def save_resources(self):
         (self.root / "resources-warm_cache-50.json").write_text(json.dumps(self.resources))
