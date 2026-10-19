@@ -122,9 +122,13 @@ type Web3Service struct {
 	eventChainID       int64
 	eventListener      *web3.EventListener
 	cancelEventIndexer context.CancelFunc
-	reorgDetector      *web3.ReorgDetector
-	reorgChainID       int64
-	reorgHandlerMu     sync.RWMutex
+	// eventIndexerMu serializes a lazy start (first gating rule) with a filter
+	// update (later rule writes) so two concurrent rule writes cannot both build
+	// an indexer for the same chain.
+	eventIndexerMu sync.Mutex
+	reorgDetector  *web3.ReorgDetector
+	reorgChainID   int64
+	reorgHandlerMu sync.RWMutex
 	// reorgHandler is notified when a reorg is detected on the indexed chain, so
 	// cached authorization evidence for that chain can be dropped. Registering
 	// it is optional; the gate also invalidates on a block-hash mismatch.
@@ -258,110 +262,131 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger, opts 
 	if indexerChainID == 0 {
 		indexerChainID = 11155111
 	}
+	service.eventChainID = indexerChainID
 	if client, err := service.multiChainManager.GetClient(indexerChainID); err == nil {
-		ethClient := client.GetEthClient()
-
 		// ReorgDetector tracks block headers for reorg detection
-		reorgDetector := web3.NewReorgDetector(ethClient, logger)
+		reorgDetector := web3.NewReorgDetector(client.GetEthClient(), logger)
 		// Without a callback the detector would detect a reorg and discard it.
 		// The handler drops cached authorization evidence for this chain.
 		reorgDetector.SetReorgCallback(service.notifyReorg)
 		service.reorgDetector = reorgDetector
 		service.reorgChainID = indexerChainID
-		service.eventChainID = indexerChainID
 
 		// The whitelist is the set of contracts some active gating rule actually
 		// gates. An empty set must not become a full-chain scan: the indexer is
-		// simply not started (SG-13 B.1 — log and skip, not process exit).
+		// simply not started here (SG-13 B.1 — log and defer, not process exit).
+		// A stack that boots with no rules starts it on demand the first time a
+		// rule gates a contract (see RefreshEventFilter), so event-driven
+		// invalidation is reached without a restart.
 		whitelist, wlErr := service.contractAddressesFromRules(indexerChainID)
 		if wlErr != nil {
 			logger.Warn("Event indexer not started: could not read the gating-rule contract whitelist",
 				zap.Error(wlErr))
 		} else if len(whitelist) == 0 {
-			logger.Info("Event indexer not started: no active gating-rule contracts to scan")
-		} else {
-			// ERC-20/721 Transfer, ERC-1155 TransferSingle, ERC-1155 TransferBatch.
-			indexer, err := web3.NewEventIndexerWithConfig(
-				ethClient,
-				web3.EventIndexerConfig{
-					ContractAddresses:  whitelist,
-					EventSignatures:    []string{transferTopic, transferSingleTopic, transferBatchTopic},
-					ChainID:            indexerChainID,
-					FilterVersion:      eventFilterVersion,
-					ConfirmationBlocks: 12,
-					UpdateInterval:     4 * time.Second,
-				},
-				logger,
-			)
-			if err != nil {
-				logger.Warn("Failed to create EventIndexer", zap.Error(err))
-			} else {
-				var wsSub *web3.LogSubscriber
-				if cfg.Web3.EthereumWSURL != "" {
-					wsSub = web3.NewLogSubscriber(cfg.Web3.EthereumWSURL, logger)
-					indexer.SetSubscriber(wsSub)
-				}
-				indexer.SetReorgDetector(reorgDetector)
-				// The decoder is what gives an indexed event its Decoded map. Without
-				// it every stored event keeps an EMPTY Decoded, and the ERC-1155
-				// handlers — whose ids live in the log DATA, not in the indexed
-				// topics — can never name a single token id: a real TransferBatch or
-				// TransferSingle would reach the handler and invalidate nothing. The
-				// ERC-721 path hides this because it can fall back to topic 3.
-				indexer.SetEventParser(web3.NewEventParser(logger))
-				// A database-backed store keeps events, checkpoints and the block
-				// journal durable across restarts (SG-13 B); without one the
-				// in-memory store is a degraded mode whose checkpoints die with
-				// the process.
-				store := service.eventStore
-				if store == nil {
-					logger.Warn("Event indexer uses an in-memory event store: checkpoints do not survive a restart")
-					store = web3.NewMemoryEventStore()
-				}
-				indexer.SetEventStore(store)
-				// The durable acceptance stack rendezvous on the checkpoint
-				// commit; Load returns nil for every profile but durable, so
-				// production traffic never has a fault point.
-				faultBarrier, berr := barrier.Load(cfg, logger)
-				if berr != nil {
-					logger.Warn("Event indexer fault barrier refused", zap.Error(berr))
-				}
-				indexer.SetFaultBarrier(faultBarrier)
-				indexerCtx, indexerCancel := context.WithCancel(context.Background())
-				if err := indexer.Start(indexerCtx); err != nil {
-					indexerCancel()
-					if wsSub != nil {
-						wsSub.Unsubscribe()
-					}
-					logger.Warn("EventIndexer failed to start", zap.Error(err))
-				} else {
-					service.eventIndexer = indexer
-					service.cancelEventIndexer = indexerCancel
-
-					nftSvc, nftErr := NewNFTServiceWithCaller(ethClient, "", nil)
-					if nftErr != nil {
-						logger.Warn("Failed to create NFTService for event handling", zap.Error(nftErr))
-					} else {
-						nftSvc.SetLogger(logger)
-						service.nftService = nftSvc
-
-						listener := web3.NewEventListener(indexer, logger)
-						nftSvc.RegisterEventHandlerWithCache(listener, service.nftAccessCache, indexerChainID)
-						service.eventListener = listener
-
-						indexer.SetOnEvent(func(ctx context.Context, event *web3.IndexedEvent) error {
-							return listener.Emit(ctx, classifyTransferEvent(event))
-						})
-
-						logger.Info("EventIndexer + NFTEventHandler started")
-					}
-				}
-			}
+			logger.Info("Event indexer deferred: no active gating-rule contracts to scan yet")
+		} else if err := service.startEventIndexer(client, whitelist); err != nil {
+			logger.Warn("Event indexer not started", zap.Error(err))
 		}
 	}
 
 	logger.Info("Web3 service initialized")
 	return service, nil
+}
+
+// startEventIndexer builds, starts and wires the event indexer for a non-empty
+// contract whitelist. It is the single construction path shared by startup
+// (rules already exist) and the lazy start triggered by the first gating rule
+// (the indexer was legitimately deferred because no contract was gated yet).
+// An empty whitelist is refused: it would be a forbidden full-chain scan.
+func (ws *Web3Service) startEventIndexer(client *web3.ChainClient, addresses []string) error {
+	if len(addresses) == 0 {
+		return fmt.Errorf("gating-rule contract whitelist is empty")
+	}
+	if ws.reorgDetector == nil {
+		reorgDetector := web3.NewReorgDetector(client.GetEthClient(), ws.logger)
+		reorgDetector.SetReorgCallback(ws.notifyReorg)
+		ws.reorgDetector = reorgDetector
+		ws.reorgChainID = ws.eventChainID
+	}
+
+	// ERC-20/721 Transfer, ERC-1155 TransferSingle, ERC-1155 TransferBatch.
+	indexer, err := web3.NewEventIndexerWithConfig(
+		client.GetEthClient(),
+		web3.EventIndexerConfig{
+			ContractAddresses:  addresses,
+			EventSignatures:    []string{transferTopic, transferSingleTopic, transferBatchTopic},
+			ChainID:            ws.eventChainID,
+			FilterVersion:      eventFilterVersion,
+			ConfirmationBlocks: 12,
+			UpdateInterval:     4 * time.Second,
+		},
+		ws.logger,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create event indexer: %w", err)
+	}
+	var wsSub *web3.LogSubscriber
+	if ws.config.Web3.EthereumWSURL != "" {
+		wsSub = web3.NewLogSubscriber(ws.config.Web3.EthereumWSURL, ws.logger)
+		indexer.SetSubscriber(wsSub)
+	}
+	indexer.SetReorgDetector(ws.reorgDetector)
+	// The decoder is what gives an indexed event its Decoded map. Without it
+	// every stored event keeps an EMPTY Decoded, and the ERC-1155 handlers —
+	// whose ids live in the log DATA, not in the indexed topics — can never name
+	// a single token id: a real TransferBatch or TransferSingle would reach the
+	// handler and invalidate nothing. The ERC-721 path hides this because it can
+	// fall back to topic 3.
+	indexer.SetEventParser(web3.NewEventParser(ws.logger))
+	// A database-backed store keeps events, checkpoints and the block journal
+	// durable across restarts (SG-13 B); without one the in-memory store is a
+	// degraded mode whose checkpoints die with the process.
+	store := ws.eventStore
+	if store == nil {
+		ws.logger.Warn("Event indexer uses an in-memory event store: checkpoints do not survive a restart")
+		store = web3.NewMemoryEventStore()
+	}
+	indexer.SetEventStore(store)
+	// The durable acceptance stack rendezvous on the checkpoint commit; Load
+	// returns nil for every profile but durable, so production traffic never has
+	// a fault point.
+	faultBarrier, berr := barrier.Load(ws.config, ws.logger)
+	if berr != nil {
+		ws.logger.Warn("Event indexer fault barrier refused", zap.Error(berr))
+	}
+	indexer.SetFaultBarrier(faultBarrier)
+
+	// The indexer outlives the request that triggered the lazy start, so it runs
+	// on a process context, cancelled only by Close.
+	indexerCtx, indexerCancel := context.WithCancel(context.Background())
+	if err := indexer.Start(indexerCtx); err != nil {
+		indexerCancel()
+		if wsSub != nil {
+			wsSub.Unsubscribe()
+		}
+		return fmt.Errorf("event indexer failed to start: %w", err)
+	}
+	ws.eventIndexer = indexer
+	ws.cancelEventIndexer = indexerCancel
+
+	nftSvc, nftErr := NewNFTServiceWithCaller(client.GetEthClient(), "", nil)
+	if nftErr != nil {
+		ws.logger.Warn("Failed to create NFTService for event handling", zap.Error(nftErr))
+		return nil
+	}
+	nftSvc.SetLogger(ws.logger)
+	ws.nftService = nftSvc
+
+	listener := web3.NewEventListener(indexer, ws.logger)
+	nftSvc.RegisterEventHandlerWithCache(listener, ws.nftAccessCache, ws.eventChainID)
+	ws.eventListener = listener
+
+	indexer.SetOnEvent(func(ctx context.Context, event *web3.IndexedEvent) error {
+		return listener.Emit(ctx, classifyTransferEvent(event))
+	})
+
+	ws.logger.Info("EventIndexer + NFTEventHandler started")
+	return nil
 }
 
 // GetMultiChainManager returns the multi-chain manager
@@ -393,13 +418,12 @@ func (ws *Web3Service) contractAddressesFromRules(chainID int64) ([]string, erro
 // re-subscribes the indexer to it (bounded catch-up from the old checkpoint).
 // It is the SG-13 B hook for rule create/update/delete: a rule that starts
 // gating a contract must make that contract's Transfer events visible to the
-// invalidation pipeline. It returns an error when no whitelist source or no
-// running indexer exists, or when the new whitelist is empty (which would be a
-// full-chain scan).
+// invalidation pipeline. When the indexer was deferred at boot (no rule gated a
+// contract then), this starts it on demand rather than failing — the first rule
+// write reaches event-driven invalidation without a process restart. It returns
+// an error when no whitelist source exists or when the new whitelist is empty
+// (which would be a full-chain scan).
 func (ws *Web3Service) RefreshEventFilter(ctx context.Context) error {
-	if ws.eventIndexer == nil {
-		return fmt.Errorf("event indexer is not running")
-	}
 	addresses, err := ws.contractAddressesFromRules(ws.eventChainID)
 	if err != nil {
 		return err
@@ -407,7 +431,17 @@ func (ws *Web3Service) RefreshEventFilter(ctx context.Context) error {
 	if len(addresses) == 0 {
 		return fmt.Errorf("gating-rule contract whitelist is empty")
 	}
-	return ws.eventIndexer.UpdateFilter(ctx, addresses)
+
+	ws.eventIndexerMu.Lock()
+	defer ws.eventIndexerMu.Unlock()
+	if ws.eventIndexer != nil {
+		return ws.eventIndexer.UpdateFilter(ctx, addresses)
+	}
+	client, err := ws.multiChainManager.GetClient(ws.eventChainID)
+	if err != nil {
+		return fmt.Errorf("event indexer cannot start for chain %d: %w", ws.eventChainID, err)
+	}
+	return ws.startEventIndexer(client, addresses)
 }
 
 // classifyTransferEvent gives a raw indexed event its canonical Transfer

@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/web3"
 	"github.com/stretchr/testify/assert"
@@ -469,3 +471,98 @@ func (m *mockNFTAccessCacheForWeb3) Get(_ context.Context, _ string) (middleware
 func (m *mockNFTAccessCacheForWeb3) Set(_ context.Context, _ string, _ middleware.NFTAccessEntry) {}
 func (m *mockNFTAccessCacheForWeb3) Delete(_ context.Context, _ string)                           {}
 func (m *mockNFTAccessCacheForWeb3) DeleteByPrefix(_ context.Context, _ string)                   {}
+
+// --- RefreshEventFilter: lazy indexer start (SG-13 B.1) ---
+
+// scriptedGatingRules is a GatingRuleFilterRefresher returning a fixed
+// whitelist, so a test can drive the indexer's start/update decision without a
+// database.
+type scriptedGatingRules struct {
+	addresses []string
+	err       error
+}
+
+func (s scriptedGatingRules) ListActiveContractAddresses(context.Context, int64) ([]string, error) {
+	return s.addresses, s.err
+}
+
+// newStubRPCServer answers just enough JSON-RPC for the indexer to start
+// (eth_chainId for the connect probe, eth_blockNumber for the start cursor,
+// eth_getLogs for the polling loop). It is not a chain.
+func newStubRPCServer(t *testing.T) (*httptest.Server, int64) {
+	t.Helper()
+	const chainID = 31337
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		var result any
+		switch req.Method {
+		case "eth_chainId":
+			result = fmt.Sprintf("0x%x", chainID)
+		case "eth_blockNumber":
+			result = "0x1"
+		case "eth_getLogs":
+			result = []any{}
+		default:
+			result = "0x0"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+	}))
+	t.Cleanup(server.Close)
+	return server, chainID
+}
+
+func TestWeb3Service_RefreshEventFilter_StartsDeferredIndexer(t *testing.T) {
+	server, chainID := newStubRPCServer(t)
+	client, err := web3.NewChainClientWithFallback([]string{server.URL}, chainID, zap.NewNop())
+	require.NoError(t, err)
+	mgr := web3.NewMultiChainManager(zap.NewNop())
+	mgr.AddChainWithClient(chainID, client)
+
+	contractA := "0x0000000000000000000000000000000000000abc"
+	contractB := "0x0000000000000000000000000000000000000def"
+	ws := &Web3Service{
+		config:            &config.Config{},
+		logger:            zap.NewNop(),
+		multiChainManager: mgr,
+		eventChainID:      chainID,
+		gatingRules:       scriptedGatingRules{addresses: []string{contractA}},
+	}
+	t.Cleanup(ws.Close)
+
+	require.Nil(t, ws.GetEventIndexer(), "boot with no rules must defer the indexer")
+	require.NoError(t, ws.RefreshEventFilter(context.Background()), "the first rule must start the deferred indexer")
+	require.NotNil(t, ws.GetEventIndexer())
+
+	// A later rule write updates the running indexer instead of building a second.
+	ws.gatingRules = scriptedGatingRules{addresses: []string{contractB}}
+	require.NoError(t, ws.RefreshEventFilter(context.Background()))
+	assert.NotNil(t, ws.GetEventIndexer())
+
+	// An empty whitelist is still refused rather than becoming a full-chain scan.
+	ws.gatingRules = scriptedGatingRules{addresses: nil}
+	assert.Error(t, ws.RefreshEventFilter(context.Background()))
+
+	// Without a whitelist authority there is nothing to start.
+	ws.gatingRules = nil
+	assert.Error(t, ws.RefreshEventFilter(context.Background()))
+}
+
+func TestWeb3Service_RefreshEventFilter_NoChainRefusesLazyStart(t *testing.T) {
+	ws := &Web3Service{
+		config:            &config.Config{},
+		logger:            zap.NewNop(),
+		multiChainManager: web3.NewMultiChainManager(zap.NewNop()),
+		eventChainID:      31337,
+		gatingRules:       scriptedGatingRules{addresses: []string{"0x0000000000000000000000000000000000000abc"}},
+	}
+	err := ws.RefreshEventFilter(context.Background())
+	require.Error(t, err)
+	assert.Nil(t, ws.GetEventIndexer())
+	// The refusal names the missing chain, not a generic "indexer not running".
+	assert.Contains(t, err.Error(), "cannot start")
+}
