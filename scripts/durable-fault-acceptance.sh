@@ -25,6 +25,10 @@ MONO_CONTAINER=""
 TC_CONTAINER=""
 TC_CONTAINER_2=""
 MINIO_CONTAINER=""
+# The chain the registry publisher writes to, reached by SERVICE NAME: the
+# controller is attached to the project network, so anvil is addressable without
+# a published port.
+ANVIL_URL="http://anvil:8545"
 # One real wallet login is reused for every seed. The auth limiter is 10/min;
 # re-logging in for each of the eight scenarios walks into a 429 late in the
 # run, which used to surface as "the outbox point never fired".
@@ -58,6 +62,7 @@ while [ "$#" -gt 0 ]; do
     --minio-container) MINIO_CONTAINER="$2"; shift 2 ;;
     --transcoder-container) TC_CONTAINER="$2"; shift 2 ;;
     --transcoder-container-2) TC_CONTAINER_2="$2"; shift 2 ;;
+    --anvil-url) ANVIL_URL="$2"; shift 2 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -202,6 +207,63 @@ stable_for() {
     sleep 1
   done
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# Chain observation, through the REAL Anvil the candidate writes to. The
+# controller is attached to the project network, so the service name resolves;
+# every value below is read from the node, never inferred from the candidate.
+# ---------------------------------------------------------------------------
+hexq() { printf '0x%x' "$1"; }
+# eth_blockNumber returns a hex quantity; bash's printf handles the 0x prefix.
+head_number() {
+  local h
+  h="$(cast rpc --rpc-url "$ANVIL_URL" eth_blockNumber 2>/dev/null)" || return 1
+  [ -n "$h" ] || return 1
+  printf '%d' "$h"
+}
+chain_nonce() {
+  local n
+  n="$(cast rpc --rpc-url "$ANVIL_URL" eth_getTransactionCount "$WALLET_A" latest 2>/dev/null)" || return 1
+  [ -n "$n" ] || return 1
+  printf '%d' "$n"
+}
+block_hash() {
+  cast rpc --rpc-url "$ANVIL_URL" eth_getBlockByNumber "$(hexq "$1")" false 2>/dev/null \
+    | python3 -c "import sys,json;print(json.load(sys.stdin).get('hash',''))" 2>/dev/null
+}
+receipt_field() {
+  cast receipt --rpc-url "$ANVIL_URL" "$1" --json 2>/dev/null \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('$2','') or '')" 2>/dev/null
+}
+tx_mined() { [ -n "$(receipt_field "$1" blockHash)" ]; }
+# anvil_rollback un-mines the newest N blocks: the honest way to produce a real
+# reorg on a chain that keeps producing blocks. Bounded by anvil itself; a
+# refusal is a FAILURE, never a skip.
+anvil_rollback() {
+  cast rpc --rpc-url "$ANVIL_URL" anvil_rollback "$1" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Registry intent / signed-attempt state (SG-13 A). Every assertion below reads
+# the candidate's OWN durable row, so "the tx was persisted before the send" is
+# a fact about the database, not about a log line.
+# ---------------------------------------------------------------------------
+reg_field() { sql_scalar "SELECT ${2} FROM content_registry_intents WHERE content_id='${1}'"; }
+reg_raw() { sql_scalar "SELECT raw_tx FROM tx_signed_attempts WHERE tx_hash='${1}'"; }
+reg_attempts() {
+  sql_scalar "SELECT count(*) FROM tx_signed_attempts WHERE lower(signer)=lower('${WALLET_A}') AND nonce=${2}"
+}
+reg_inflight() {
+  sql_scalar "SELECT count(*) FROM content_registry_intents WHERE status IN ('pending','submitted','broadcast_unknown')"
+}
+diag_registry() {
+  printf -- '   -- registry intents (newest first)\n'
+  sql_scalar "SELECT substr(content_id,1,8)||' | '||status||' | tx='||substr(tx_hash,1,12)||' | nonce='||COALESCE(nonce::text,'-')||' | block='||COALESCE(block_number::text,'-')||' | attempt='||attempt FROM content_registry_intents ORDER BY updated_at DESC LIMIT 5" | sed 's/^/      /'
+  printf -- '   -- signed attempts\n'
+  sql_scalar "SELECT substr(tx_hash,1,12)||' | nonce='||nonce||' | signer='||substr(signer,1,10) FROM tx_signed_attempts ORDER BY created_at DESC LIMIT 5" | sed 's/^/      /'
+  printf -- '   -- monolith log (registry/barrier/broadcast)\n'
+  docker logs --tail 400 "$MONO_CONTAINER" 2>&1 | grep -iE "registry|barrier|broadcast|reorg" | tail -10 | sed 's/^/      /'
 }
 
 # ---------------------------------------------------------------------------
@@ -851,10 +913,392 @@ else
   record FO02 outbox.after_publish FAIL "not reached within 60s (seed exit=${SEED_RC})"
 fi
 
+# ---------------------------------------------------------------------------
+# Registry / transaction faults (section 0.2 D). The chain write is NEVER atomic
+# with the DB write: the signed raw tx is persisted, then handed to a node, and
+# only afterwards is the outcome recorded. Every window in that sequence is
+# faulted here against the real Anvil, and the recovery is asserted on the
+# candidate's persisted row PLUS the node's own state — never on a log line.
+# ---------------------------------------------------------------------------
+log 'FR00 registry preconditions'
+if docker logs "$MONO_CONTAINER" 2>&1 | grep -q "On-chain content registry enabled"; then
+  p "the candidate really started with the durable on-chain registry enabled"
+  record FR00 preconditions PASS "registry publisher enabled in the monolith"
+else
+  f "the monolith never logged the registry being enabled (no intent row can exist)"
+  record FR00 preconditions FAIL "registry not enabled"
+fi
+HEAD0="$(head_number)"
+if [ -n "$HEAD0" ] && [ "$HEAD0" -gt 0 ]; then
+  p "the controller reads the real chain over the project network (head=${HEAD0})"
+  record FR00-chain preconditions PASS "anvil head=${HEAD0}"
+else
+  f "the chain is not reachable at ${ANVIL_URL} from the controller"
+  record FR00-chain preconditions FAIL "head unreadable"
+fi
+# The response-dropping proxy is driven by a file in the shared barrier volume,
+# so prove this side can switch it on and off before any scenario relies on it.
+if docker exec "$HELPER" sh -c ': > /b/registry.broadcast.drop' 2>/dev/null \
+  && docker exec "$HELPER" sh -c 'rm -f /b/registry.broadcast.drop' 2>/dev/null; then
+  p "the harness can drive the response-dropping proxy through the barrier volume"
+  record FR00-proxy preconditions PASS "registry.broadcast.drop writable and removable"
+else
+  f "the barrier volume does not accept the proxy switch (the drop fault cannot fire)"
+  record FR00-proxy preconditions FAIL "registry.broadcast.drop not writable"
+fi
+# A receipt reorg has to be produced by the CHAIN, not simulated. Probe that the
+# node really un-mines blocks; without it the scenario below could not exist.
+if anvil_rollback 5 && [ "$(head_number)" -lt "$HEAD0" ]; then
+  p "anvil_rollback really reorgs the chain (head ${HEAD0} -> $(head_number))"
+  record FR00-reorg preconditions PASS "a 5-block rollback reduced the head below ${HEAD0}"
+else
+  f "anvil_rollback is unavailable, so a real receipt reorg cannot be produced"
+  record FR00-reorg preconditions FAIL "the head did not fall after a rollback"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FR01 — kill between "signed raw tx persisted" and "handed to a node".
+# The persisted row is the whole point of SG-13 A.4: recovery must reuse those
+# exact bytes, never sign a new nonce.
+# ---------------------------------------------------------------------------
+log 'FR01 kill at publisher.before_broadcast'
+barrier_reset
+arm publisher.before_broadcast
+if seed_content fr01 && wait_reached publisher.before_broadcast 120; then
+  FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+  FR_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+  FR_STATUS="$(reg_field "$CONTENT_ID" status)"
+  FR_RAW="$(reg_raw "$FR_TX")"
+  FR_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$FR_NONCE")"
+  FR_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
+  FR_CHAINNONCE="$(chain_nonce)"
+  if [ "$FR_STATUS" = "submitted" ] && [ -n "$FR_TX" ] && [ -n "$FR_NONCE" ] \
+    && [ -n "$FR_RAW" ] && [ -z "$FR_BLOCK" ]; then
+    p "FR01: the signed raw tx was persisted as 'submitted' before any node saw it"
+    record FR01-park publisher.before_broadcast PASS "tx=${FR_TX:0:12} nonce=${FR_NONCE} signed_attempts=${FR_ATTEMPTS}"
+  else
+    f "FR01: parked state status=${FR_STATUS:-none} tx=${FR_TX:-none} nonce=${FR_NONCE:-none} block=${FR_BLOCK:-empty} raw=${FR_RAW:+present}"
+    record FR01-park publisher.before_broadcast FAIL "status=${FR_STATUS:-none} raw=${FR_RAW:+present}"
+  fi
+  if [ -n "$FR_NONCE" ] && [ "$FR_CHAINNONCE" = "$FR_NONCE" ] && ! tx_mined "$FR_TX"; then
+    p "FR01: the node never saw the tx (chain nonce ${FR_CHAINNONCE} == the reserved nonce, no receipt)"
+    record FR01-unsent publisher.before_broadcast PASS "chain nonce=${FR_CHAINNONCE} unused, no receipt"
+  else
+    f "FR01: chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent)"
+    record FR01-unsent publisher.before_broadcast FAIL "chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?}"
+  fi
+  container_kill "$MONO_CONTAINER"
+  unarm publisher.before_broadcast
+  barrier_reset
+  container_start "$MONO_CONTAINER"
+  # A token minted before the restart may belong to a session the new process no
+  # longer knows; the next seed must perform a real login.
+  TOKEN_A=""
+  if wait_worker_up "$MONO_CONTAINER" 120; then
+    if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 150; then
+      R_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+      R_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+      R_RAW2="$(reg_raw "$R_TX")"
+      R_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$R_NONCE")"
+      if [ "$R_TX" = "$FR_TX" ] && [ "$R_NONCE" = "$FR_NONCE" ] && [ "$R_RAW2" = "$FR_RAW" ] \
+        && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] && tx_mined "$FR_TX"; then
+        p "FR01: the restart re-sent the SAME raw tx/hash/nonce and it confirmed"
+        record FR01 publisher.before_broadcast PASS "same tx=${FR_TX:0:12}, nonce=${FR_NONCE}, ${R_ATTEMPTS} signed attempt(s), receipt present"
+      else
+        f "FR01: recovery changed the transaction (tx ${FR_TX:0:12}->${R_TX:0:12}, nonce ${FR_NONCE}->${R_NONCE}, attempts ${FR_ATTEMPTS}->${R_ATTEMPTS}, raw same=$([ "$R_RAW2" = "$FR_RAW" ] && printf yes || printf no))"
+        record FR01 publisher.before_broadcast FAIL "transaction identity drifted"
+      fi
+    else
+      f "FR01: the intent never confirmed after the restart (status=${SQLLAST:-none})"
+      record FR01 publisher.before_broadcast FAIL "status=${SQLLAST:-none} after 150s"
+      diag_registry
+    fi
+  else
+    f "FR01: the monolith did not come back healthy"
+    record FR01 publisher.before_broadcast FAIL "monolith unhealthy after restart"
+  fi
+else
+  f "FR01: the before-broadcast point never fired"
+  record FR01 publisher.before_broadcast FAIL "not reached within 120s"
+  diag_registry
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FR02 — the NODE ACCEPTED the transaction and the response was
+# discarded by the proxy. This is the window the publisher can never learn
+# about: the chain has the tx, the candidate's last recorded outcome is
+# "submitted", and a crash right here must re-read the receipt, not re-sign.
+# ---------------------------------------------------------------------------
+log 'FR02 dropped response after the node accepted the tx'
+# The drop belongs to whoever broadcasts next, so no other intent may be in
+# flight: a quiet registry is a precondition, not a hope.
+if wait_sql "SELECT count(*) FROM content_registry_intents WHERE status IN ('pending','submitted','broadcast_unknown')" 0 150; then
+  p "FR02: no other registry write is in flight, so the drop can only belong to this scenario"
+else
+  f "FR02: ${SQLLAST:-?} registry intents were still in flight (the drop would be unattributable)"
+  diag_registry
+fi
+barrier_reset
+arm publisher.before_broadcast
+docker exec "$HELPER" sh -c ': > /b/registry.broadcast.drop' 2>/dev/null || f "FR02: could not switch the proxy drop on"
+if seed_content fr02 && wait_reached publisher.before_broadcast 120; then
+  FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+  FR_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+  FR_RAW="$(reg_raw "$FR_TX")"
+  FR_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$FR_NONCE")"
+  # Hand the publisher over to the proxy: dismount the pre-send rendezvous, then
+  # stop the process at the drop point instead.
+  unarm publisher.before_broadcast
+  arm registry.broadcast
+  release_point publisher.before_broadcast
+  if wait_reached registry.broadcast 60; then
+    FR_DROP_HEAD="$(head_number)"
+    if docker exec "$HELPER" test -f /b/registry.broadcast.dropped 2>/dev/null && tx_mined "$FR_TX" \
+      && [ "$(chain_nonce)" = "$((FR_NONCE + 1))" ] && [ "$(reg_field "$CONTENT_ID" status)" = "submitted" ]; then
+      p "FR02: the node accepted tx ${FR_TX:0:12} while the candidate still only knew 'submitted'"
+      record FR02-onchain registry.broadcast PASS "receipt present, chain nonce=$((FR_NONCE + 1)), row still submitted"
+    else
+      f "FR02: receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent) chain nonce=$(chain_nonce) row=$(reg_field "$CONTENT_ID" status) dropped_marker=$([ "$(docker exec "$HELPER" test -f /b/registry.broadcast.dropped 2>/dev/null; echo $?)" = 0 ] && printf yes || printf no)"
+      record FR02-onchain registry.broadcast FAIL "the node never accepted the tx the proxy was told to drop"
+    fi
+    container_kill "$MONO_CONTAINER"
+    unarm registry.broadcast
+    docker exec "$HELPER" sh -c 'rm -f /b/registry.broadcast.drop /b/registry.broadcast.dropped' 2>/dev/null || :
+    barrier_reset
+    container_start "$MONO_CONTAINER"
+    TOKEN_A=""
+    if wait_worker_up "$MONO_CONTAINER" 120; then
+      if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 150; then
+        R_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+        R_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+        R_RAW2="$(reg_raw "$R_TX")"
+        R_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$R_NONCE")"
+        R_BH="$(reg_field "$CONTENT_ID" block_hash)"
+        if [ "$R_TX" = "$FR_TX" ] && [ "$R_NONCE" = "$FR_NONCE" ] && [ "$R_RAW2" = "$FR_RAW" ] \
+          && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] && [ "$R_BH" = "$(receipt_field "$FR_TX" blockHash)" ]; then
+          p "FR02: the restart recovered by the RECEIPT of the same raw tx/hash/nonce (no re-sign)"
+          record FR02 registry.broadcast PASS "same tx=${FR_TX:0:12}, nonce=${FR_NONCE}, block=$(receipt_field "$FR_TX" blockNumber), ${R_ATTEMPTS} signed attempt(s)"
+        else
+          f "FR02: recovery drifted (tx ${FR_TX:0:12}->${R_TX:0:12}, nonce ${FR_NONCE}->${R_NONCE}, attempts ${FR_ATTEMPTS}->${R_ATTEMPTS}, recorded block hash matches receipt=$([ "$R_BH" = "$(receipt_field "$FR_TX" blockHash)" ] && printf yes || printf no))"
+          record FR02 registry.broadcast FAIL "transaction identity drifted (head at drop=${FR_DROP_HEAD})"
+        fi
+      else
+        f "FR02: the intent never confirmed after the restart (status=${SQLLAST:-none})"
+        record FR02 registry.broadcast FAIL "status=${SQLLAST:-none} after 150s"
+        diag_registry
+      fi
+    else
+      f "FR02: the monolith did not come back healthy"
+      record FR02 registry.broadcast FAIL "monolith unhealthy after restart"
+    fi
+  else
+    f "FR02: the proxy drop point never fired (the response was not discarded)"
+    record FR02 registry.broadcast FAIL "not reached within 60s"
+    diag_registry
+  fi
+else
+  f "FR02: the before-broadcast point never fired"
+  record FR02-parked publisher.before_broadcast FAIL "not reached within 120s"
+  docker exec "$HELPER" sh -c 'rm -f /b/registry.broadcast.drop' 2>/dev/null || :
+  diag_registry
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FR03 — a real RECEIPT REORG: the confirmed block is un-mined by the
+# chain, so the recorded block hash stops being canonical. 'confirmed' must not
+# be a one-way door, and the same raw tx must come back through the new history.
+# ---------------------------------------------------------------------------
+log 'FR03 confirmed receipt reorg + historical recovery'
+barrier_reset
+if seed_content fr03; then
+  if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 150; then
+    FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+    FR_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+    FR_RAW="$(reg_raw "$FR_TX")"
+    FR_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$FR_NONCE")"
+    FR_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
+    FR_BH="$(reg_field "$CONTENT_ID" block_hash)"
+    HEAD="$(head_number)"
+    # Orphan the confirmed block: un-mine it and one block below, but never the
+    # blocks that hold the contract deployments.
+    DEPTH=$((HEAD - FR_BLOCK + 2))
+    [ "$DEPTH" -lt 3 ] && DEPTH=3
+    if [ "$DEPTH" -le 64 ] && [ "$((HEAD - DEPTH))" -gt 4 ] && anvil_rollback "$DEPTH"; then
+      p "FR03: reorged the chain by ${DEPTH} blocks, orphaning the confirmed block ${FR_BLOCK}"
+    else
+      f "FR03: could not reorg ${DEPTH} blocks from head ${HEAD} (confirmed block ${FR_BLOCK})"
+      record FR03-reorg receipt-reorg FAIL "rollback depth=${DEPTH} head=${HEAD} block=${FR_BLOCK}"
+    fi
+    # The chain re-mines; the recorded hash must stop matching the canonical one.
+    REORG_SEEN=0
+    for _ in $(seq 1 60); do
+      if [ "$(block_hash "$FR_BLOCK")" != "$FR_BH" ]; then REORG_SEEN=1; break; fi
+      sleep 1
+    done
+    if [ "$REORG_SEEN" = 1 ]; then
+      p "FR03: the canonical block at height ${FR_BLOCK} is now a different block"
+      record FR03-reorg receipt-reorg PASS "stored ${FR_BH:0:12} -> canonical $(block_hash "$FR_BLOCK" | cut -c1-12)"
+    else
+      f "FR03: block ${FR_BLOCK} still has the recorded hash after the rollback"
+      record FR03-reorg receipt-reorg FAIL "block hash unchanged"
+    fi
+    # The publisher must notice and re-verify: the intent goes back through
+    # 'submitted' and ends confirmed under the NEW history, with the same raw
+    # transaction and no extra signature.
+    if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 180; then
+      R_BH="$(reg_field "$CONTENT_ID" block_hash)"
+      R_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
+      R_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+      R_RAW2="$(reg_raw "$R_TX")"
+      R_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$FR_NONCE")"
+      if [ "$R_TX" = "$FR_TX" ] && [ "$R_RAW2" = "$FR_RAW" ] && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] \
+        && [ "$R_BH" != "$FR_BH" ] && [ "$R_BH" = "$(block_hash "$R_BLOCK")" ] && tx_mined "$FR_TX"; then
+        p "FR03: the same transaction confirmed again under the new chain history"
+        record FR03 receipt-reorg PASS "tx=${FR_TX:0:12} unchanged, block ${FR_BLOCK}->${R_BLOCK}, hash ${R_BH:0:12} is canonical, ${R_ATTEMPTS} signed attempt(s)"
+      else
+        f "FR03: after the reorg tx=${R_TX:0:12} block=${R_BLOCK:-?} hash=${R_BH:0:12} canonical=$(block_hash "${R_BLOCK:-0}" | cut -c1-12) attempts=${R_ATTEMPTS} raw same=$([ "$R_RAW2" = "$FR_RAW" ] && printf yes || printf no)"
+        record FR03 receipt-reorg FAIL "recovery did not re-verify under the new history"
+        diag_registry
+      fi
+    else
+      f "FR03: the intent did not return to confirmed after the reorg (status=${SQLLAST:-none})"
+      record FR03 receipt-reorg FAIL "status=${SQLLAST:-none} after 180s"
+      diag_registry
+    fi
+  else
+    f "FR03: the intent never confirmed before the reorg (status=${SQLLAST:-none})"
+    record FR03 receipt-reorg FAIL "status=${SQLLAST:-none}"
+    diag_registry
+  fi
+else
+  f "FR03: could not seed a content for the reorg scenario"
+  record FR03 receipt-reorg FAIL "seed failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FR04 — kill AFTER the node accepted the tx and BEFORE the outcome was
+# written. The `publisher.after_send` point is exactly that instant: a crash here
+# leaves 'submitted' with a live receipt, which only a receipt lookup recovers.
+# ---------------------------------------------------------------------------
+log 'FR04 kill at publisher.after_send'
+barrier_reset
+arm publisher.after_send
+if seed_content fr04 && wait_reached publisher.after_send 120; then
+  FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+  FR_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+  FR_RAW="$(reg_raw "$FR_TX")"
+  FR_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$FR_NONCE")"
+  FR_STATUS="$(reg_field "$CONTENT_ID" status)"
+  FR_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
+  if tx_mined "$FR_TX" && [ "$FR_STATUS" = "submitted" ]; then
+    p "FR04: the tx is on chain while the candidate has recorded no receipt yet"
+    record FR04-park publisher.after_send PASS "receipt present, row submitted, nonce=${FR_NONCE}"
+  else
+    f "FR04: receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent) row=${FR_STATUS:-none}"
+    record FR04-park publisher.after_send FAIL "row=${FR_STATUS:-none}"
+  fi
+  container_kill "$MONO_CONTAINER"
+  unarm publisher.after_send
+  barrier_reset
+  container_start "$MONO_CONTAINER"
+  TOKEN_A=""
+  if wait_worker_up "$MONO_CONTAINER" 120; then
+    if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 150; then
+      R_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+      R_NONCE="$(reg_field "$CONTENT_ID" nonce)"
+      R_RAW2="$(reg_raw "$R_TX")"
+      R_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$R_NONCE")"
+      R_BH="$(reg_field "$CONTENT_ID" block_hash)"
+      if [ "$R_TX" = "$FR_TX" ] && [ "$R_NONCE" = "$FR_NONCE" ] && [ "$R_RAW2" = "$FR_RAW" ] \
+        && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] && [ "$R_BH" = "$(receipt_field "$FR_TX" blockHash)" ] && [ -n "$FR_BLOCK" ]; then
+        p "FR04: the restart found the existing receipt and did not sign anything new"
+        record FR04 publisher.after_send PASS "same tx=${FR_TX:0:12}, nonce=${FR_NONCE}, ${R_ATTEMPTS} signed attempt(s)"
+      else
+        f "FR04: recovery drifted (tx ${FR_TX:0:12}->${R_TX:0:12}, nonce ${FR_NONCE}->${R_NONCE}, attempts ${FR_ATTEMPTS}->${R_ATTEMPTS})"
+        record FR04 publisher.after_send FAIL "transaction identity drifted"
+      fi
+    else
+      f "FR04: the intent never confirmed after the restart (status=${SQLLAST:-none})"
+      record FR04 publisher.after_send FAIL "status=${SQLLAST:-none} after 150s"
+      diag_registry
+    fi
+  else
+    f "FR04: the monolith did not come back healthy"
+    record FR04 publisher.after_send FAIL "monolith unhealthy after restart"
+  fi
+else
+  f "FR04: the after-send point never fired"
+  record FR04 publisher.after_send FAIL "not reached within 120s"
+  diag_registry
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FR05 — the receipt is durable BEFORE the confirmation decision. The
+# two steps must be separately observable: a crash here must not lose the
+# receipt, and the confirmation must still be evaluated afterwards.
+# ---------------------------------------------------------------------------
+log 'FR05 park at publisher.after_receipt'
+barrier_reset
+arm publisher.after_receipt
+if seed_content fr05 && wait_reached publisher.after_receipt 150; then
+  FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
+  FR_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
+  FR_BH="$(reg_field "$CONTENT_ID" block_hash)"
+  FR_STATUS="$(reg_field "$CONTENT_ID" status)"
+  if [ "$FR_STATUS" = "submitted" ] && [ -n "$FR_BLOCK" ] && [ "$FR_BH" = "$(receipt_field "$FR_TX" blockHash)" ]; then
+    p "FR05: the receipt is durable while the confirmation has not been evaluated yet"
+    record FR05-park publisher.after_receipt PASS "row submitted with block ${FR_BLOCK}, hash matches the receipt"
+  else
+    f "FR05: row=${FR_STATUS:-none} block=${FR_BLOCK:-empty} stored_hash=${FR_BH:0:12} receipt_hash=$(receipt_field "$FR_TX" blockHash | cut -c1-12)"
+    record FR05-park publisher.after_receipt FAIL "row=${FR_STATUS:-none} block=${FR_BLOCK:-empty}"
+  fi
+  release_point publisher.after_receipt
+  unarm publisher.after_receipt
+  if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 60; then
+    if [ "$(reg_field "$CONTENT_ID" block_number)" = "$FR_BLOCK" ] && [ "$(reg_field "$CONTENT_ID" tx_hash)" = "$FR_TX" ]; then
+      p "FR05: the confirmation was evaluated after the release, for the same receipt"
+      record FR05 publisher.after_receipt PASS "confirmed at block ${FR_BLOCK}, same tx=${FR_TX:0:12}"
+    else
+      f "FR05: confirmed with block=$(reg_field "$CONTENT_ID" block_number) tx=$(reg_field "$CONTENT_ID" tx_hash)"
+      record FR05 publisher.after_receipt FAIL "confirmation moved the receipt"
+    fi
+  else
+    f "FR05: no confirmation after the release (status=${SQLLAST:-none})"
+    record FR05 publisher.after_receipt FAIL "status=${SQLLAST:-none}"
+  fi
+else
+  f "FR05: the after-receipt point never fired"
+  record FR05 publisher.after_receipt FAIL "not reached within 150s"
+  diag_registry
+fi
+
 barrier_reset
 docker rm -f "$HELPER" >/dev/null 2>&1 || :
 
 printf '\n===== durable fault acceptance =====\n'
 printf 'scenarios: %d PASS, %d FAIL\n' "$PASS" "$FAIL"
 printf 'checks: %s\n' "$CHECKS"
+
+# Fail-closed scenario contract (section 0.2 D exit): a scenario that silently
+# recorded nothing would otherwise "pass" by omission. Every id the fault matrix
+# requires must appear in checks.tsv as PASS.
+EXPECTED_IDS="F00-helper F00-barrierwrite F00 F00-minio F00-pre F00-barrier \
+FW01 FW01-publish FW02-nopublish FW02 FW03 FW04 FW05-dlq FW05 FW06 \
+FO01-parked FO01 FO02-parked FO02 \
+FR00 FR00-chain FR00-proxy FR00-reorg FR01-park FR01-unsent FR01 FR02-onchain FR02 \
+FR03-reorg FR03 FR04-park FR04 FR05-park FR05"
+MISSING=0
+for id in $EXPECTED_IDS; do
+  if ! awk -F'\t' -v id="$id" '$1==id && $3=="PASS"{found=1} END{exit !found}' "$CHECKS"; then
+    printf 'FAIL: required scenario %s has no PASS record\n' "$id"
+    MISSING=$((MISSING + 1))
+  fi
+done
+if [ "$MISSING" = 0 ]; then
+  printf 'scenario contract: every required scenario id has a PASS record (%s ids)\n' "$(printf '%s\n' $EXPECTED_IDS | wc -l | tr -d ' ')"
+else
+  printf 'scenario contract: %d required scenario id(s) recorded nothing or failed\n' "$MISSING"
+  FAIL=$((FAIL + MISSING))
+fi
+
 [ "$FAIL" = 0 ] || exit 1
