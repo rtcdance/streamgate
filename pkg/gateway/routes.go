@@ -110,9 +110,10 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 				return nil, err
 			}
 			return &middleware.PlaybackIdentity{
-				Wallet:    claims.WalletAddress,
-				SessionID: claims.SessionID,
-				AuthEpoch: claims.AuthEpoch,
+				Wallet:       claims.WalletAddress,
+				SessionID:    claims.SessionID,
+				AuthEpoch:    claims.AuthEpoch,
+				RestoreEpoch: claims.RestoreEpoch,
 			}, nil
 		},
 	}, log)

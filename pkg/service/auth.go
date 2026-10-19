@@ -786,6 +786,16 @@ func parseWithKey(tokenString, key string) (*Claims, error) {
 	return claims, nil
 }
 
+// VerifyAccessTokenClaims restricts verification to access keys, including the
+// bounded verify-only rotation list. Generic ParseToken also accepts capability
+// keys and therefore must never verify a transport's access credential.
+func (s *AuthService) VerifyAccessTokenClaims(tokenString string) (jwt.MapClaims, error) {
+	current, previous := s.accessKeySet()
+	return middleware.VerifyAccessTokenClaims(tokenString, middleware.JWTAuthConfig{
+		Secret: current, PreviousSecrets: previous,
+	})
+}
+
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	if s.signingType == JWTRS256 {
 		return s.parseTokenRS256(tokenString)

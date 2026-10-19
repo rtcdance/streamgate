@@ -112,11 +112,9 @@ type TokenBlacklistChecker interface {
 	IsTokenRevoked(ctx context.Context, jti string) bool
 }
 
-// parseBearerClaims extracts and verifies the bearer token from the request,
-// applying the fixed clock leeway (exp/nbf/iat) and the signature check with
-// key rotation. It aborts the request with 401 and returns ok=false when the
-// credential does not parse, so callers never have to repeat the rejection.
-func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger, secret []byte, tokenStr string) (jwt.MapClaims, bool) {
+// VerifyAccessTokenClaims verifies only the configured access keys. It is
+// shared by HTTP and gRPC; capability and master keys cannot enter by fallback.
+func VerifyAccessTokenClaims(tokenStr string, config JWTAuthConfig) (jwt.MapClaims, error) {
 	// Parse without claims validation — signature IS verified, but exp/nbf/iat
 	// are checked separately. This is necessary for key rotation: tokens
 	// signed with old (previous) secrets may appear "expired" from the current
@@ -142,7 +140,7 @@ func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger,
 	}
 
 	claims := jwt.MapClaims{}
-	_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc(secret))
+	_, err := parser.ParseWithClaims(tokenStr, claims, buildKeyFunc([]byte(config.Secret)))
 
 	// Try previous secrets if current key fails and no public key is
 	// configured. The candidate order prefers the key whose kid matches the
@@ -159,27 +157,34 @@ func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger,
 	}
 
 	if err != nil {
-		logger.Debug("JWT parse failed", zap.Error(err))
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token", "code": "UNAUTHORIZED"})
-		return nil, false
+		return nil, fmt.Errorf("invalid token: %w", err)
 	}
-
-	// Manual claims validation with 30s leeway for clock skew.
-	// Covers exp, nbf, and iat — the last is not validated by the library
-	// when WithoutClaimsValidation is used and prevents tokens from being
-	// accepted before their stated issuance time.
 	now := time.Now()
 	if exp, ok := claims["exp"].(float64); ok && now.After(time.Unix(int64(exp), 0).Add(30*time.Second)) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token expired", "code": "UNAUTHORIZED"})
-		return nil, false
+		return nil, fmt.Errorf("token expired")
 	}
 	if nbf, ok := claims["nbf"].(float64); ok && now.Before(time.Unix(int64(nbf), 0).Add(-30*time.Second)) {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token not yet valid", "code": "UNAUTHORIZED"})
-		return nil, false
+		return nil, fmt.Errorf("token not yet valid")
 	}
 	if iat, ok := claims["iat"].(float64); ok && now.Add(30*time.Second).Before(time.Unix(int64(iat), 0)) {
-		// iat must not be in the future beyond leeway window.
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token issued in the future", "code": "UNAUTHORIZED"})
+		return nil, fmt.Errorf("token issued in the future")
+	}
+	return claims, nil
+}
+
+// parseBearerClaims extracts and verifies the bearer token from the request,
+// applying the fixed clock leeway (exp/nbf/iat) and the signature check with
+// key rotation. It aborts the request with 401 and returns ok=false when the
+// credential does not parse, so callers never have to repeat the rejection.
+func parseBearerClaims(c *gin.Context, config JWTAuthConfig, logger *zap.Logger, tokenStr string) (jwt.MapClaims, bool) {
+	claims, err := VerifyAccessTokenClaims(tokenStr, config)
+	if err != nil {
+		logger.Debug("JWT parse failed", zap.Error(err))
+		message := err.Error()
+		if strings.HasPrefix(message, "invalid token:") {
+			message = "invalid token"
+		}
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": message, "code": "UNAUTHORIZED"})
 		return nil, false
 	}
 	return claims, true
@@ -210,7 +215,6 @@ func authorizeAccessClaims(c *gin.Context, config JWTAuthConfig, claims jwt.MapC
 // JWTAuthMiddleware returns a gin middleware that validates JWT tokens
 // and injects wallet_address and jwt_claims into the context.
 func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc {
-	secret := []byte(config.Secret)
 	skipPaths := make(map[string]bool, len(config.SkipPaths))
 	for _, p := range config.SkipPaths {
 		skipPaths[p] = true
@@ -229,12 +233,18 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 		// send Authorization headers on media requests, so a validated playback
 		// token is accepted in lieu of a JWT — but only on routes where that
 		// middleware actually ran.
-		if c.GetBool("playback_auth") {
+		if len(c.Request.Header.Values("Authorization")) > 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "ambiguous authorization", "code": "UNAUTHORIZED"})
+			return
+		}
+		authHeader := c.GetHeader("Authorization")
+		// A lone capability (or the same capability repeated in the header) is
+		// sufficient. Any separate access token must pass the complete policy.
+		if c.GetBool("playback_auth") && (authHeader == "" || authHeader == "Bearer "+c.Query("playback_token")) {
 			c.Next()
 			return
 		}
 
-		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header", "code": "UNAUTHORIZED"})
 			return
@@ -251,7 +261,7 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
-		claims, ok := parseBearerClaims(c, config, logger, secret, tokenStr)
+		claims, ok := parseBearerClaims(c, config, logger, tokenStr)
 		if !ok {
 			return
 		}
@@ -261,9 +271,17 @@ func JWTAuthMiddleware(config JWTAuthConfig, logger *zap.Logger) gin.HandlerFunc
 			return
 		}
 
+		if c.GetBool("playback_auth") {
+			capSession, capEpoch := GetSessionBinding(c)
+			if !strings.EqualFold(GetWalletAddress(c), claims["wallet_address"].(string)) || capSession != sessionID || capEpoch != epoch || c.GetString("restore_epoch") != claims["restore_epoch"] {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "conflicting playback credentials", "code": "UNAUTHORIZED"})
+				return
+			}
+		}
 		c.Set("wallet_address", claims["wallet_address"].(string))
 		c.Set("jwt_claims", claims)
 		SetSessionBinding(c, sessionID, epoch)
+		c.Set("restore_epoch", claims["restore_epoch"])
 		c.Next()
 	}
 }

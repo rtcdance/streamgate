@@ -162,6 +162,13 @@
         "test": "TestAnvil_RegistryDurableIntentLifecycle"
       }
     ],
+    "credential-consistency": [
+      {"package": "github.com/rtcdance/streamgate/pkg/middleware", "test": "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_RejectsDuplicateCredentials"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_AccessKeyRotation"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcGetManifest_RequiresMatchingRestoreEpoch"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_GetSegment_RefusesAnotherSessionCapability"}
+    ],
     "ops-gateway-core": [
       {
         "package": "github.com/rtcdance/streamgate/pkg/core",
