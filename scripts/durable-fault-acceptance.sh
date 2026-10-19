@@ -72,6 +72,28 @@ record() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$CANDIDATE_SHA" "$4" >>
 
 json_get() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || true; }
 
+# seed_note — one diagnostic line per seed step. A scenario that could not be set
+# up must say WHICH call failed and how, otherwise a failing harness reports only
+# "the point never fired" and hides whether the candidate or the seed is at fault.
+seed_note() { printf '  seed[%s]: %s\n' "${SEED_TAG:-?}" "$*" >&2; }
+
+# api_post <path> <token-or-empty> <json-body-or-empty> — prints the response body
+# on 2xx, and on any other outcome prints the status plus a body excerpt to stderr
+# and returns non-zero. `curl -sf` alone swallows exactly that information.
+api_post() {
+  local path="$1" token="$2" body="$3"
+  local out="${WORKDIR}/resp.json" args=(-s -o "$out" -w '%{http_code}' -X POST "$BASE_URL$path")
+  [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+  [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+  local code
+  code="$(curl "${args[@]}")" || { seed_note "POST $path: transport failure"; return 1; }
+  case "$code" in
+    2*) cat "$out"; return 0 ;;
+  esac
+  seed_note "POST $path -> HTTP $code: $(head -c 400 "$out" | tr '\n' ' ')"
+  return 1
+}
+
 require_tool() {
   command -v "$1" >/dev/null 2>&1 || { printf 'FAIL: required tool %s not found in PATH (no skip by design)\n' "$1"; exit 1; }
 }
@@ -206,16 +228,15 @@ CHAIN_ID=31337
 
 login() {
   local key="$1" wallet="$2" challenge cid msg sig resp token
-  challenge="$(curl -sf -X POST "$BASE_URL/api/v1/auth/challenge" -H 'Content-Type: application/json' \
-    -d "{\"wallet\":\"$wallet\",\"chain_id\":$CHAIN_ID}")" || return 1
+  challenge="$(api_post /api/v1/auth/challenge "" "{\"wallet\":\"$wallet\",\"chain_id\":$CHAIN_ID}")" || return 1
   cid="$(json_get "$challenge" challenge_id)"
   msg="$(json_get "$challenge" message)"
-  [ -n "$cid" ] && [ -n "$msg" ] || return 1
-  sig="$(cast wallet sign --private-key "$key" "$msg")" || return 1
-  resp="$(curl -sf -X POST "$BASE_URL/api/v1/auth/login" -H 'Content-Type: application/json' \
-    -d "{\"wallet\":\"$wallet\",\"chain_id\":$CHAIN_ID,\"challenge_id\":\"$cid\",\"signature\":\"$sig\"}")" || return 1
+  [ -n "$cid" ] && [ -n "$msg" ] || { seed_note "challenge response lacks challenge_id/message"; return 1; }
+  sig="$(cast wallet sign --private-key "$key" "$msg")" || { seed_note "cast wallet sign failed"; return 1; }
+  resp="$(api_post /api/v1/auth/login "" \
+    "{\"wallet\":\"$wallet\",\"chain_id\":$CHAIN_ID,\"challenge_id\":\"$cid\",\"signature\":\"$sig\"}")" || return 1
   token="$(json_get "$resp" token)"
-  [ -n "$token" ] || return 1
+  [ -n "$token" ] || { seed_note "login response lacks a token: $resp"; return 1; }
   printf '%s' "$token"
 }
 
@@ -223,7 +244,8 @@ login() {
 # completion transaction is what creates the task row and its enqueue intent, so
 # everything downstream of it is the production path.
 seed_content() {
-  local tag="$1" token upload_resp upload_id complete_resp
+  local tag="$1" token upload_resp upload_id complete_resp code out
+  SEED_TAG="$tag"
   if [ -z "$TOKEN_A" ]; then
     local attempt
     for attempt in 1 2 3; do
@@ -234,17 +256,23 @@ seed_content() {
       # missing barrier point.
       sleep 7
     done
-    [ -n "$TOKEN_A" ] || return 1
+    [ -n "$TOKEN_A" ] || { seed_note "could not log in the harness wallet after 3 attempts"; return 1; }
   fi
   token="$TOKEN_A"
-  upload_resp="$(curl -sf -X POST "$BASE_URL/api/v1/upload" -H "Authorization: Bearer $token" \
-    -F "file=@${MEDIA};filename=fault-${tag}.mp4")" || return 1
-  upload_id="$(json_get "$upload_resp" upload_id)"
-  [ -n "$upload_id" ] || return 1
-  complete_resp="$(curl -sf -X POST "$BASE_URL/api/v1/upload/${upload_id}/complete-upload" \
-    -H "Authorization: Bearer $token")" || return 1
+  out="${WORKDIR}/upload-${tag}.json"
+  code="$(curl -s -o "$out" -w '%{http_code}' -X POST "$BASE_URL/api/v1/upload" \
+    -H "Authorization: Bearer $token" -F "file=@${MEDIA};filename=fault-${tag}.mp4")" \
+    || { seed_note "POST /api/v1/upload: transport failure"; return 1; }
+  case "$code" in
+    2*) ;;
+    *) seed_note "POST /api/v1/upload -> HTTP $code: $(head -c 400 "$out" | tr '\n' ' ')"; return 1 ;;
+  esac
+  upload_id="$(json_get "$(cat "$out")" upload_id)"
+  [ -n "$upload_id" ] || { seed_note "upload response lacks upload_id: $(cat "$out")"; return 1; }
+  complete_resp="$(api_post "/api/v1/upload/${upload_id}/complete-upload" "$token" "")" || return 1
   CONTENT_ID="$(json_get "$complete_resp" content_id)"
-  [ -n "$CONTENT_ID" ] || return 1
+  [ -n "$CONTENT_ID" ] || { seed_note "complete-upload response lacks content_id: $complete_resp"; return 1; }
+  SEED_TAG=""
   return 0
 }
 
@@ -264,6 +292,37 @@ path = urllib.parse.urlparse(sys.argv[1]).path.lstrip('/')
 parts = path.split('/', 1)
 print(f"{parts[0]}/{parts[1]}" if len(parts) > 1 and parts[1] else '')
 PY
+}
+
+# mc with an alias that actually carries credentials. The server image ships
+# `mc` with only its BUILT-IN aliases, and the built-in `local` alias points at
+# http://localhost:9000 with EMPTY credentials — anonymous against a private
+# bucket, so every operation fails with AccessDenied and a scenario that meant to
+# delete an object quietly does nothing. The alias is configured from the
+# container's own root credentials so it cannot drift from the stack.
+MC_DIR=/tmp/mc-acceptance
+minio_alias_ready() {
+  local u p
+  u="$(docker exec "$MINIO_CONTAINER" printenv MINIO_ROOT_USER 2>/dev/null)"
+  p="$(docker exec "$MINIO_CONTAINER" printenv MINIO_ROOT_PASSWORD 2>/dev/null)"
+  [ -n "$u" ] && [ -n "$p" ] || return 1
+  docker exec "$MINIO_CONTAINER" mc "--config-dir=${MC_DIR}" alias set acceptance \
+    "http://127.0.0.1:9000" "$u" "$p" >/dev/null 2>&1
+}
+mc_at() { docker exec "$MINIO_CONTAINER" mc "--config-dir=${MC_DIR}" "$@"; }
+
+# diag_outbox — the candidate's own view when a fault point did not fire: which
+# outbox rows exist and what each process logged about them. Without this a
+# missing point is indistinguishable from a failed seed or a silent publish.
+diag_outbox() {
+  printf -- '   -- outbox rows (newest first)\n'
+  sql_scalar "SELECT kind||' | '||status||' | '||id FROM outbox ORDER BY created_at DESC LIMIT 6" | sed 's/^/      /'
+  printf -- '   -- newest task rows\n'
+  sql_scalar "SELECT id||' | '||status||' | attempt='||attempt FROM transcoding_tasks ORDER BY created_at DESC LIMIT 3" | sed 's/^/      /'
+  printf -- '   -- monolith log (outbox/barrier/publish/transcode)\n'
+  docker logs --tail 400 "$MONO_CONTAINER" 2>&1 | grep -iE "outbox|barrier|publish|transcod|hook" | tail -8 | sed 's/^/      /'
+  printf -- '   -- transcoder log (outbox/barrier/publish)\n'
+  docker logs --tail 400 "$TC_CONTAINER" 2>&1 | grep -iE "outbox|barrier|publish|transcod" | tail -8 | sed 's/^/      /'
 }
 
 # ---------------------------------------------------------------------------
@@ -308,6 +367,17 @@ if curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
 else
   f "monolith does not answer /health at ${BASE_URL}"
   record F00 preconditions FAIL "monolith unreachable"
+fi
+
+# The object-store client the scenarios use must carry credentials; the shipped
+# built-in alias is anonymous and would turn every delete into a silent no-op.
+if minio_alias_ready && mc_at ls "acceptance/streamgate" >/dev/null 2>&1; then
+  p "object-store client authenticates against the candidate's bucket"
+  record F00-minio preconditions PASS "mc alias configured from the container credentials"
+else
+  f "the object-store client cannot authenticate (object faults would be silent no-ops)"
+  mc_at ls "acceptance/streamgate" | sed 's/^/   /'
+  record F00-minio preconditions FAIL "mc alias unusable"
 fi
 
 # The barrier is armed through a file, so a stack that never installed the
@@ -515,17 +585,13 @@ arm worker.claimed
 if seed_content fw05 && wait_reached worker.claimed 60; then
   TASK="$(task_row)"
   OBJ="$(object_path_from_url "$(field "$TASK" input_url)")"
-  # The server image carries mc but its default "local" alias has empty
-  # credentials; set them before the fault, otherwise the delete silently fails
-  # and the task completes instead of walking the retry budget.
-  docker exec "$MINIO_CONTAINER" mc alias set local http://127.0.0.1:9000 \
-    "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" >/dev/null 2>&1 || :
   if [ -n "$OBJ" ] \
-    && docker exec "$MINIO_CONTAINER" mc rm --force "local/${OBJ}" >/dev/null 2>&1 \
-    && ! docker exec "$MINIO_CONTAINER" mc stat "local/${OBJ}" >/dev/null 2>&1; then
+    && mc_at rm --force "acceptance/${OBJ}" >/dev/null 2>&1 \
+    && ! mc_at stat "acceptance/${OBJ}" >/dev/null 2>&1; then
     p "FW05: deleted the source object ${OBJ} while the task was parked before its first fetch"
   else
     f "FW05: could not delete the source object (${OBJ:-cannot derive a key from the task input URL})"
+    mc_at stat "acceptance/${OBJ}" | sed 's/^/   /'
   fi
   # Let the parked claim go and arm the terminal window now. Attempts 2 and 3
   # follow on the worker's own retry delays (2s then 4s); the third exhausts the
@@ -643,8 +709,16 @@ fi
 log 'FO01 kill at outbox.before_publish'
 barrier_reset
 arm outbox.before_publish
-if seed_content fo01 && wait_reached outbox.before_publish 60; then
-  TASK="$(task_row)"
+# The publish happens INSIDE the upload-completion request: the completion
+# transaction commits the task row with its intent, and the post-upload hook
+# publishes immediately. So the seed runs in the background and the marker is
+# polled WHILE it runs — polling only after it returned would race a marker the
+# barrier withdraws the moment it times out.
+( seed_content fo01 ) >"$WORKDIR/seed-fo01.log" 2>&1 &
+SEED_PID=$!
+if wait_reached outbox.before_publish 60; then
+  TASK="$(sql_scalar "SELECT id FROM outbox WHERE kind='task' ORDER BY created_at DESC LIMIT 1")"
+  CONTENT_ID="$(sql_scalar "SELECT content_id FROM transcoding_tasks WHERE id='${TASK}'")"
   INTENT_STATUS="$(sql_scalar "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'")"
   CLAIMED="$(field "$TASK" lease_owner)"
   # Two pumps really run in this stack: the monolith submits with no embedded
@@ -659,15 +733,18 @@ if seed_content fo01 && wait_reached outbox.before_publish 60; then
   barrier_reset
   container_start "$MONO_CONTAINER"
   container_start "$TC_CONTAINER"
+  # The in-flight completion request died with the process; that IS the crash.
+  wait "$SEED_PID" >/dev/null 2>&1 || :
+  SEED_PID=""
   # A token minted before this restart may belong to a session the new process
   # no longer knows; FO02's seed must perform a real login.
   TOKEN_A=""
-  if [ "$INTENT_STATUS" = "pending" ] && [ -z "$CLAIMED" ]; then
+  if [ -n "$TASK" ] && [ "$INTENT_STATUS" = "pending" ] && [ -z "$CLAIMED" ]; then
     p "FO01: while the submitter was parked the intent was still pending and no worker had claimed the task"
     record FO01-parked outbox.before_publish PASS "outbox=pending, lease_owner empty"
   else
-    f "FO01: outbox=${INTENT_STATUS:-none}, lease_owner=${CLAIMED:-empty}"
-    record FO01-parked outbox.before_publish FAIL "outbox=${INTENT_STATUS:-none} lease=${CLAIMED:-empty}"
+    f "FO01: task=${TASK:-none}, outbox=${INTENT_STATUS:-none}, lease_owner=${CLAIMED:-empty}"
+    record FO01-parked outbox.before_publish FAIL "task=${TASK:-none} outbox=${INTENT_STATUS:-none} lease=${CLAIMED:-empty}"
   fi
   if wait_sql "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'" delivered 90; then
     p "FO01: the restarted pump published the intent and marked it delivered"
@@ -686,8 +763,12 @@ if seed_content fo01 && wait_reached outbox.before_publish 60; then
     record FO01-exec outbox.before_publish FAIL "status=${SQLLAST:-?}"
   fi
 else
-  f "FO01: the outbox point never fired"
-  record FO01 outbox.before_publish FAIL "not reached within 60s"
+  SEED_RC=0
+  if [ -n "$SEED_PID" ]; then wait "$SEED_PID" >/dev/null 2>&1 || SEED_RC=$?; SEED_PID=""; fi
+  f "FO01: the outbox point never fired (seed exit=${SEED_RC})"
+  sed 's/^/   /' "$WORKDIR/seed-fo01.log" 2>/dev/null | tail -8
+  diag_outbox
+  record FO01 outbox.before_publish FAIL "not reached within 60s (seed exit=${SEED_RC})"
 fi
 
 # ---------------------------------------------------------------------------
@@ -699,11 +780,11 @@ fi
 log 'FO02 kill at outbox.after_publish'
 barrier_reset
 arm outbox.after_publish
-if ! seed_content fo02; then
-  f "FO02: seed_content failed (login/upload/complete-upload) before the barrier could fire"
-  record FO02 outbox.after_publish FAIL "seed failed"
-elif wait_reached outbox.after_publish 60; then
-  TASK="$(task_row)"
+( seed_content fo02 ) >"$WORKDIR/seed-fo02.log" 2>&1 &
+SEED_PID=$!
+if wait_reached outbox.after_publish 60; then
+  TASK="$(sql_scalar "SELECT id FROM outbox WHERE kind='task' ORDER BY created_at DESC LIMIT 1")"
+  CONTENT_ID="$(sql_scalar "SELECT content_id FROM transcoding_tasks WHERE id='${TASK}'")"
   INTENT_STATUS="$(sql_scalar "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'")"
   # Paired with FO01: the whole stack dies with the broker already holding the
   # message and the intent still pending, so the only way the row converges is a
@@ -714,15 +795,17 @@ elif wait_reached outbox.after_publish 60; then
   barrier_reset
   container_start "$MONO_CONTAINER"
   container_start "$TC_CONTAINER"
+  wait "$SEED_PID" >/dev/null 2>&1 || :
+  SEED_PID=""
   # Do not present a token minted before the restart: session storage may not
   # survive it, and FO02's seed must exercise a real login against the new process.
   TOKEN_A=""
-  if [ "$INTENT_STATUS" = "pending" ]; then
+  if [ -n "$TASK" ] && [ "$INTENT_STATUS" = "pending" ]; then
     p "FO02: the broker had already accepted the publish while the intent was still pending"
     record FO02-parked outbox.after_publish PASS "outbox=pending immediately after PubAck"
   else
-    f "FO02: outbox=${INTENT_STATUS:-none} where a pending intent was required"
-    record FO02-parked outbox.after_publish FAIL "outbox=${INTENT_STATUS:-none}"
+    f "FO02: task=${TASK:-none}, outbox=${INTENT_STATUS:-none} where a pending intent was required"
+    record FO02-parked outbox.after_publish FAIL "task=${TASK:-none} outbox=${INTENT_STATUS:-none}"
   fi
   if wait_sql "SELECT status FROM outbox WHERE kind='task' AND id='${TASK}'" delivered 90; then
     p "FO02: the restarted pump republished the same id and the intent converged to delivered"
@@ -745,8 +828,12 @@ elif wait_reached outbox.after_publish 60; then
     record FO02-exec outbox.after_publish FAIL "status=${SQLLAST:-?}"
   fi
 else
-  f "FO02: the outbox point never fired"
-  record FO02 outbox.after_publish FAIL "not reached within 60s"
+  SEED_RC=0
+  if [ -n "$SEED_PID" ]; then wait "$SEED_PID" >/dev/null 2>&1 || SEED_RC=$?; SEED_PID=""; fi
+  f "FO02: the outbox point never fired (seed exit=${SEED_RC})"
+  sed 's/^/   /' "$WORKDIR/seed-fo02.log" 2>/dev/null | tail -8
+  diag_outbox
+  record FO02 outbox.after_publish FAIL "not reached within 60s (seed exit=${SEED_RC})"
 fi
 
 barrier_reset
