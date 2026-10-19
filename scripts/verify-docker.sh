@@ -1466,6 +1466,7 @@ stage_faults() {
       --anvil-url "http://anvil:8545" \
       --pg-container "${project}-postgres-1" \
       --minio-container "${project}-minio-1" \
+      --redis-container "${project}-redis-1" \
       --mono-container "${project}-monolith-1" \
       --transcoder-container "${project}-transcoder-1" \
       --transcoder-container-2 "${project}-transcoder-2" )
