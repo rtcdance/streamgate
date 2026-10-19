@@ -252,6 +252,8 @@ stage_unit() {
     python3 scripts/cd/test_perf_metrics.py
     python3 scripts/cd/test_perf_protocol.py
     python3 scripts/cd/test_perf_environment.py
+    python3 scripts/cd/test_recovery_objects.py
+    python3 scripts/cd/test_recovery_drill.py
     node scripts/cd/test_h5_api_base.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
     ( cd contracts && forge build )
