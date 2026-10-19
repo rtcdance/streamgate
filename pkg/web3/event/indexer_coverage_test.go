@@ -369,6 +369,36 @@ func TestIndexEvents_WithStoreAndReorg(t *testing.T) {
 	assert.Equal(t, uint64(18), indexer.GetCurrentBlock())
 }
 
+// TestIndexEvents_ReorgMarksStoredEventsByBlockHash pins the composition between
+// the detector and the store: MarkReorgedEvents answers with EVENT IDs while
+// Store.MarkEventsReorged matches events by BLOCK HASH. Feeding the ids straight
+// through made that write a silent no-op — the reorg was detected, reported and
+// then nothing was flagged.
+func TestIndexEvents_ReorgMarksStoredEventsByBlockHash(t *testing.T) {
+	reader := &mockEventReader{blockNum: 20}
+	reader.setLogs([]types.Log{
+		makeTransferLog(16, common.HexToHash("0x01"), 0),
+		makeTransferLog(17, common.HexToHash("0x02"), 1),
+	})
+
+	indexer, err := newTestEventIndexer(reader)
+	require.NoError(t, err)
+
+	store := NewMemoryEventStore()
+	indexer.SetEventStore(store)
+	indexer.SetReorgDetector(&stubReorgChecker{reorged: true, reorgAllEvents: true})
+
+	require.NoError(t, indexer.indexEvents(context.Background()))
+
+	events, err := store.GetEventsByBlockRange(16, 17)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	for _, ev := range events {
+		assert.Equal(t, true, ev.Decoded["reorged"],
+			"event %s must be flagged reorged through its block hash %s", ev.ID, ev.BlockHash)
+	}
+}
+
 func TestIndexEvents_StoreSaveCheckpoint(t *testing.T) {
 	reader := &mockEventReader{blockNum: 20}
 	logs := []types.Log{
@@ -819,6 +849,9 @@ type stubReorgChecker struct {
 	reorged       bool
 	checkErr      error
 	reorgedHashes []string
+	// reorgAllEvents reproduces what the real detector answers: the EVENT IDs of
+	// every event it considers reorged (not block hashes).
+	reorgAllEvents bool
 }
 
 func (s *stubReorgChecker) CheckReorg(_ context.Context, _ uint64, _ common.Hash) (bool, error) {
@@ -826,6 +859,13 @@ func (s *stubReorgChecker) CheckReorg(_ context.Context, _ uint64, _ common.Hash
 }
 
 func (s *stubReorgChecker) MarkReorgedEvents(_ context.Context, events []*IndexedEvent) []string {
+	if s.reorgAllEvents {
+		ids := make([]string, 0, len(events))
+		for _, e := range events {
+			ids = append(ids, e.ID)
+		}
+		return ids
+	}
 	if len(s.reorgedHashes) > 0 {
 		return s.reorgedHashes
 	}

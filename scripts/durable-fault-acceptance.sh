@@ -1040,12 +1040,20 @@ if seed_content fr01 && wait_reached publisher.before_broadcast 120; then
     f "FR01: parked state status=${FR_STATUS:-none} tx=${FR_TX:-none} nonce=${FR_NONCE:-none} block=${FR_BLOCK:-empty} raw=${FR_RAW:+present}"
     record FR01-park publisher.before_broadcast FAIL "status=${FR_STATUS:-none} raw=${FR_RAW:+present}"
   fi
-  if [ -n "$FR_NONCE" ] && [ "$FR_CHAINNONCE" = "$FR_NONCE" ] && ! tx_known "$FR_TX"; then
-    p "FR01: the node never saw the tx (chain nonce ${FR_CHAINNONCE} == the reserved nonce, no transaction entry)"
-    record FR01-unsent publisher.before_broadcast PASS "chain nonce=${FR_CHAINNONCE} unused, eth_getTransactionByHash=null"
+  # The claim is "the node never saw it", so the node's own transaction lookup is
+  # the evidence: eth_getTransactionByHash returns null for a hash it has never
+  # received. The chain nonce is deliberately NOT part of the verdict — an
+  # earlier scenario un-mined blocks (FR00's rollback), so the chain's nonce can
+  # legitimately sit BELOW the reserved nonce and comparing the two would decide
+  # the check on a stale artefact instead of on the persisted tx.
+  if [ -n "$FR_TX" ] && ! tx_known "$FR_TX"; then
+    p "FR01: the node has no transaction for the persisted raw tx (chain nonce ${FR_CHAINNONCE}, reserved ${FR_NONCE})"
+    record FR01-unsent publisher.before_broadcast PASS "eth_getTransactionByHash=null for tx=${FR_TX:0:12}; chain nonce=${FR_CHAINNONCE}"
   else
-    f "FR01: chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} known_to_node=$(tx_known "$FR_TX" && printf yes || printf no) receipt=$([ -n "$(receipt_field "$FR_TX" blockHash)" ] && printf present || printf absent)"
-    record FR01-unsent publisher.before_broadcast FAIL "chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?} node_knows_tx=$(tx_known "$FR_TX" && printf yes || printf no)"
+    f "FR01: the node already knows tx ${FR_TX:0:12} while the candidate has only persisted it (chain nonce=${FR_CHAINNONCE:-?}, reserved=${FR_NONCE:-?})"
+    printf '   raw eth_getTransactionByHash: %s\n' \
+      "$(cast rpc --rpc-url "$ANVIL_URL" eth_getTransactionByHash "$FR_TX" 2>/dev/null | head -c 240)"
+    record FR01-unsent publisher.before_broadcast FAIL "the node already has the tx; chain nonce=${FR_CHAINNONCE:-?} reserved=${FR_NONCE:-?}"
   fi
   container_kill "$MONO_CONTAINER"
   unarm publisher.before_broadcast
@@ -1583,13 +1591,36 @@ fi
 log 'FI02 ERC-1155 TransferBatch'
 barrier_reset
 if [ -n "$ERC1155_ADDR" ]; then
-  erc1155_mint "$WALLET_A" 1 5 >/dev/null
-  erc1155_mint "$WALLET_A" 2 7 >/dev/null
+  # The two mints emit TransferSingle events, and those events invalidate the
+  # same contract prefix. Before the keys under test are planted, a PROBE key for
+  # the same prefix is planted and the two mints are run: the probe can only
+  # disappear because the mint events really reached the invalidation path, which
+  # is what proves the plant below cannot be credited to a late mint flush.
+  PROBE_KEY="$(gate_cache_key "$ERC1155_ADDR" '__probe__' erc1155 "$WALLET_A")"
+  plant_gate_cache "$PROBE_KEY"
+  FI02_MINT1="$(erc1155_mint "$WALLET_A" 1 5)"
+  FI02_MINT2="$(erc1155_mint "$WALLET_A" 2 7)"
+  FI02_MINTS_OK=1
+  for tx in "$FI02_MINT1" "$FI02_MINT2"; do
+    if [ -z "$tx" ] || ! wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${tx}'" 1 60; then
+      FI02_MINTS_OK=0
+    fi
+  done
+  PLANTED_KEYS=("$PROBE_KEY")
+  FI02_PROBE_GONE=1
+  wait_cache_gone 60 || FI02_PROBE_GONE=0
   PLANTED_KEYS=(
     "$(gate_cache_key "$ERC1155_ADDR" 1 erc1155 "$WALLET_A")"
     "$(gate_cache_key "$ERC1155_ADDR" 2 erc1155 "$WALLET_A")"
   )
   for key in "${PLANTED_KEYS[@]}"; do plant_gate_cache "$key"; done
+  if [ "$FI02_MINTS_OK" = 1 ] && [ "$FI02_PROBE_GONE" = 1 ] && [ "$(gate_cache_alive "${PLANTED_KEYS[0]}")" = "1" ]; then
+    p "FI02: the mint events already flushed their invalidation, so only the batch can drop the keys planted now"
+    record FI02-plant preconditions PASS "both mints indexed and their invalidation observed via the probe key; both per-id keys alive when the batch was sent"
+  else
+    f "FI02: mints_ok=${FI02_MINTS_OK} probe_deleted=${FI02_PROBE_GONE}, so the batch could not be credited with the invalidation"
+    record FI02-plant preconditions FAIL "mints_ok=${FI02_MINTS_OK} probe_deleted=${FI02_PROBE_GONE} planted_key_alive=$(gate_cache_alive "${PLANTED_KEYS[0]}")"
+  fi
   TXH="$(erc1155_batch)"
   if [ -n "$TXH" ]; then
     if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND reorged=FALSE AND payload->'topics'->>0='${TRANSFER_BATCH_TOPIC}'" 1 40; then
@@ -1651,7 +1682,11 @@ C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
 container_kill "$MONO_CONTAINER"
 TOKEN_A=""
 GAP_TX_1="$(erc721_mint)"
-sleep 2
+# The two missed logs have to land in DIFFERENT blocks, which is an observable
+# state: wait for the chain to produce the next block instead of sleeping a guess.
+GAP_SEP="$(head_number)"
+wait_chain_after "$GAP_SEP" 30 \
+  || f "FI03: the chain did not produce a second block to separate the two missed logs"
 GAP_TX_2="$(erc721_mint)"
 GAP_MAX="$(head_number)"
 wait_chain_after "$((GAP_MAX + 13))" 120 \
@@ -1767,9 +1802,16 @@ C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
 # an orphanable event and the journal can still reach the common ancestor.
 container_kill "$MONO_CONTAINER"
 TOKEN_A=""
+FI05_SEP=0
 for _ in 1 2 3 4; do
+  # Every mint needs its own block, hence its own journal entry — an observable
+  # state, so the chain is waited on rather than slept on.
+  if [ "$FI05_SEP" != 0 ]; then
+    wait_chain_after "$FI05_SEP" 30 \
+      || f "FI05: the chain did not produce a block between the four mints"
+  fi
   erc721_mint >/dev/null
-  sleep 4
+  FI05_SEP="$(head_number)"
 done
 FI05_MAX="$(head_number)"
 wait_chain_after "$((FI05_MAX + 14))" 120 \
@@ -1869,7 +1911,7 @@ FO01-parked FO01 FO02-parked FO02 \
 FR00 FR00-chain FR00-proxy FR00-reorg FR01-park FR01-unsent FR01 FR02-onchain FR02 \
 FR03-reorg FR03-detected FR03 FR04-park FR04 FR05-park FR05 \
 FI00-ws FI00-erc1155 FI00-whitelist FI00 FI01-plant FI01-indexed FI01-cache \
-FI02-batch FI02-cache FI03 FI03-exact FI04 FI05-reorg FI05"
+FI02-plant FI02-batch FI02-cache FI03 FI03-exact FI04 FI05-reorg FI05"
 MISSING=0
 for id in $EXPECTED_IDS; do
   if ! awk -F'\t' -v id="$id" '$1==id && $3=="PASS"{found=1} END{exit !found}' "$CHECKS"; then

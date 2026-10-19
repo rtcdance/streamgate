@@ -559,11 +559,31 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 	if store != nil && reorgDetector != nil {
 		recentEvents, err := store.GetEventsByBlockRange(currentBlock+1, safeBlock)
 		if err == nil && len(recentEvents) > 0 {
-			reorgedHashes := reorgDetector.MarkReorgedEvents(ctx, recentEvents)
-			if len(reorgedHashes) > 0 {
+			reorgedIDs := reorgDetector.MarkReorgedEvents(ctx, recentEvents)
+			if len(reorgedIDs) > 0 {
+				// MarkReorgedEvents answers with EVENT IDs, while the store matches
+				// rows by BLOCK HASH: passing the ids straight through made this
+				// write a silent no-op, so a detected reorg was reported and then
+				// nothing was actually marked. The hashes are recovered from the
+				// events the detector just answered for.
+				reorged := make(map[string]struct{}, len(reorgedIDs))
+				for _, id := range reorgedIDs {
+					reorged[id] = struct{}{}
+				}
+				var orphanHashes []string
+				minBlock := uint64(0)
+				for _, ev := range recentEvents {
+					if _, ok := reorged[ev.ID]; !ok || ev.BlockHash == "" {
+						continue
+					}
+					orphanHashes = append(orphanHashes, ev.BlockHash)
+					if minBlock == 0 || ev.BlockNumber < minBlock {
+						minBlock = ev.BlockNumber
+					}
+				}
 				ei.logger.Warn("Reorg detected: marking events as reorged",
-					zap.Int("reorged_count", len(reorgedHashes)))
-				if count, err := store.MarkEventsReorged(reorgedHashes); err == nil {
+					zap.Int("reorged_count", len(orphanHashes)))
+				if count, err := store.MarkEventsReorged(orphanHashes); err == nil {
 					ei.logger.Info("Events marked as reorged", zap.Int("count", count))
 				}
 				monitoring.EventIndexerReorgsTotal.Inc()
@@ -577,14 +597,6 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 					}
 					ei.paused.Store(false)
 					return nil
-				}
-				minBlock := uint64(0)
-				for _, ev := range recentEvents {
-					for _, h := range reorgedHashes {
-						if ev.TransactionHash == h && (minBlock == 0 || ev.BlockNumber < minBlock) {
-							minBlock = ev.BlockNumber
-						}
-					}
 				}
 				if minBlock > 0 {
 					ei.mu.Lock()

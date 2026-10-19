@@ -132,10 +132,70 @@ func TestEventParser_EmptyLogs(t *testing.T) {
 	}
 }
 
-func TestEventParser_ERC1155TransferSingle(t *testing.T) {
+// TestEventParser_ERC1155TransferBatch pins the decode the ERC-1155 batch
+// invalidation depends on: ids and values are NOT indexed, so they only ever
+// reach the handler through the ABI-decoded data blob. The parser formats them
+// with %v, which is the exact "[1 2]" shape the handler parses.
+func TestEventParser_ERC1155TransferBatch(t *testing.T) {
 	logger := zap.NewNop()
 	parser := NewEventParser(logger)
 
+	batchSig := common.HexToHash("0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb")
+	log := &types.Log{
+		Address: common.HexToAddress("0x0000000000000000000000000000000000000004"),
+		Topics: []common.Hash{
+			batchSig,
+			common.BytesToHash(common.HexToAddress("0x0000000000000000000000000000000000000001").Bytes()),
+			common.BytesToHash(common.HexToAddress("0x0000000000000000000000000000000000000002").Bytes()),
+			common.BytesToHash(common.HexToAddress("0x0000000000000000000000000000000000000003").Bytes()),
+		},
+		Data: erc1155BatchData(
+			[]int64{1, 2},
+			[]int64{1, 3},
+		),
+	}
+
+	events := parser.ParseLogs([]*types.Log{log})
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Name != "TransferBatch" {
+		t.Fatalf("expected TransferBatch, got %s", events[0].Name)
+	}
+	ids, ok := events[0].Args["ids"].(string)
+	if !ok || ids != "[1 2]" {
+		t.Fatalf("expected the parser to expose ids as \"[1 2]\", got %#v", events[0].Args["ids"])
+	}
+	values, ok := events[0].Args["values"].(string)
+	if !ok || values != "[1 3]" {
+		t.Fatalf("expected the parser to expose values as \"[1 3]\", got %#v", events[0].Args["values"])
+	}
+}
+
+// erc1155BatchData ABI-encodes the two non-indexed uint256[] arguments of a
+// TransferBatch log (head: the two array offsets, then length + elements each).
+func erc1155BatchData(ids, values []int64) []byte {
+	word := func(n int64) []byte {
+		b := make([]byte, 32)
+		big.NewInt(n).FillBytes(b)
+		return b
+	}
+	out := word(64)
+	out = append(out, word(64+32*int64(1+len(ids)))...)
+	out = append(out, word(int64(len(ids)))...)
+	for _, id := range ids {
+		out = append(out, word(id)...)
+	}
+	out = append(out, word(int64(len(values)))...)
+	for _, v := range values {
+		out = append(out, word(v)...)
+	}
+	return out
+}
+
+func TestEventParser_ERC1155TransferSingle(t *testing.T) {
+	logger := zap.NewNop()
+	parser := NewEventParser(logger)
 	//nolint:gocritic
 	transferSig := common.HexToHash("0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62")
 	operator := common.HexToAddress("0x0000000000000000000000000000000000000001")
