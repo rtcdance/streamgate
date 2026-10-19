@@ -568,6 +568,9 @@ func ProvideRegistryHub(cfg *config.Config, log *zap.Logger, db storage.DB) (*Re
 		// The confirmation point comes from the DECLARED finality policy, not from
 		// a fixed depth over the latest height.
 		BlockTag: cfg.Web3.BlockTag,
+		// A submitted tx without a receipt past this window is re-sent with the
+		// SAME persisted raw tx (never re-signed).
+		ReBroadcastAfter: cfg.Web3.ContentRegistryReBroadcastAfter,
 	}, log)
 	// The durable acceptance stack rendezvous between the persisted signed tx
 	// and the broadcast; Load returns nil for every profile but durable.

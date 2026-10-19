@@ -109,6 +109,61 @@ func TestAcceptance_NFTEventNeverGrants(t *testing.T) {
 		"a Transfer event must never write a grant entry to the middleware cache")
 }
 
+// TestAcceptance_NFTTransferBatchNeverGrants extends the SG-13 B invariant to
+// ERC-1155 TransferBatch: the event must invalidate ownership and middleware
+// cache entries for EVERY token id in the batch, and must never grant access.
+func TestAcceptance_NFTTransferBatchNeverGrants(t *testing.T) {
+	ownershipCache := &recordingCacheBackend{}
+	nftSvc, err := NewNFTServiceWithCaller(nil, "", ownershipCache)
+	require.NoError(t, err)
+
+	middlewareCache := &countingNFTAccessCache{}
+	const chainID int64 = 31337
+	handler := NewNFTEventHandlerWithCache(nftSvc, middlewareCache, chainID, zap.NewNop())
+
+	listener := web3.NewEventListener(nil, zap.NewNop())
+	listener.On("Transfer", handler.HandleTransfer)
+	listener.On("TransferSingle", handler.HandleTransferSingle)
+	listener.On("TransferBatch", handler.HandleTransferBatch)
+
+	batch := &event.IndexedEvent{
+		ID:              "31337-0xblockhash-0xtxbatch-0",
+		ChainID:         chainID,
+		EventType:       "ContractEvent",
+		ContractAddress: "0xcontract",
+		Topics: []string{
+			transferBatchTopic,
+			"0x000000000000000000000000000000000000000000000000000000000000000a",
+			"0x000000000000000000000000000000000000000000000000000000000000000b",
+		},
+		Decoded: map[string]interface{}{
+			"from":   "0xfrom",
+			"to":     "0xto",
+			"ids":    []interface{}{"1", "2", "3"},
+			"values": []interface{}{"10", "20", "30"},
+		},
+	}
+	batch = classifyTransferEvent(batch)
+	require.Equal(t, "TransferBatch", batch.EventType,
+		"the transfer-batch topic must be retyped so the listener routes it")
+	require.NoError(t, listener.Emit(context.Background(), batch))
+	handler.FlushNow()
+
+	assert.GreaterOrEqual(t, ownershipCache.deleteCount, 3,
+		"TransferBatch must invalidate the ownership cache once per id")
+	for _, id := range []string{"1", "2", "3"} {
+		assert.Contains(t, middlewareCache.deletedKeys, "31337:0xfrom:0xcontract:"+id,
+			"TransferBatch must invalidate the sender's middleware cache entry for id "+id)
+		assert.Contains(t, middlewareCache.deletedKeys, "31337:0xto:0xcontract:"+id,
+			"TransferBatch must invalidate the receiver's middleware cache entry for id "+id)
+	}
+
+	assert.Zero(t, ownershipCache.setCount,
+		"a TransferBatch event must never write to the ownership cache")
+	assert.Zero(t, middlewareCache.setCount,
+		"a TransferBatch event must never write a grant entry to the middleware cache")
+}
+
 // TestClassifyTransferEvent pins the topic→event-type routing the production
 // dispatch path relies on: indexed events arrive as "ContractEvent" and are
 // retyped to the canonical Transfer names before the listener routes them.
@@ -129,9 +184,9 @@ func TestClassifyTransferEvent(t *testing.T) {
 			wantTyp: "TransferSingle",
 		},
 		{
-			name:    "transfer batch topic is not retyped",
+			name:    "transfer batch topic",
 			event:   &web3.IndexedEvent{EventType: "ContractEvent", Topics: []string{transferBatchTopic}},
-			wantTyp: "ContractEvent",
+			wantTyp: "TransferBatch",
 		},
 		{
 			name:    "unknown topic untouched",

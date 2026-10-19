@@ -367,6 +367,10 @@ type Web3Config struct {
 	// hash, compiler, artifact). Empty uses the default
 	// deployments/content-registry.<chain_id>.json the image ships.
 	ContentRegistryManifest string
+	// ContentRegistryReBroadcastAfter is how long a submitted register tx may
+	// go without a recorded receipt before the publisher re-sends the SAME
+	// persisted raw tx (never a new signature). Zero uses the 30s default.
+	ContentRegistryReBroadcastAfter time.Duration
 }
 
 // RPCRateLimitConfig holds RPC rate limiting configuration
@@ -628,15 +632,16 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Web3: Web3Config{
-			EthereumRPC:             viper.GetString("web3.ethereum_rpc"),
-			EthereumWSURL:           viper.GetString("web3.ethereum_ws_url"),
-			SolanaRPC:               viper.GetString("web3.solana_rpc"),
-			ChainID:                 viper.GetInt64("web3.chain_id"),
-			BlockTag:                viper.GetString("web3.block_tag"),
-			AnvilDemoContract:       viper.GetString("web3.anvil_demo_contract"),
-			AnvilDeployerKey:        viper.GetString("web3.anvil_deployer_key"),
-			ContentRegistryAddress:  viper.GetString("web3.content_registry_address"),
-			ContentRegistryManifest: viper.GetString("web3.content_registry_manifest"),
+			EthereumRPC:                     viper.GetString("web3.ethereum_rpc"),
+			EthereumWSURL:                   viper.GetString("web3.ethereum_ws_url"),
+			SolanaRPC:                       viper.GetString("web3.solana_rpc"),
+			ChainID:                         viper.GetInt64("web3.chain_id"),
+			BlockTag:                        viper.GetString("web3.block_tag"),
+			AnvilDemoContract:               viper.GetString("web3.anvil_demo_contract"),
+			AnvilDeployerKey:                viper.GetString("web3.anvil_deployer_key"),
+			ContentRegistryAddress:          viper.GetString("web3.content_registry_address"),
+			ContentRegistryManifest:         viper.GetString("web3.content_registry_manifest"),
+			ContentRegistryReBroadcastAfter: viper.GetDuration("web3.content_registry_re_broadcast_after"),
 			Transaction: TransactionConfig{
 				PrivateKeyHex:            viper.GetString("web3.transaction.private_key_hex"),
 				GasLimit:                 viper.GetUint64("web3.transaction.gas_limit"),
@@ -1500,10 +1505,11 @@ func DefaultConfig() *Config {
 		},
 
 		Web3: Web3Config{
-			EthereumRPC: envOr("STREAMGATE_ETH_RPC", "https://sepolia.infura.io/v3/YOUR_KEY"),
-			SolanaRPC:   "https://api.devnet.solana.com",
-			ChainID:     11155111,
-			BlockTag:    "safe",
+			EthereumRPC:                     envOr("STREAMGATE_ETH_RPC", "https://sepolia.infura.io/v3/YOUR_KEY"),
+			SolanaRPC:                       "https://api.devnet.solana.com",
+			ChainID:                         11155111,
+			BlockTag:                        "safe",
+			ContentRegistryReBroadcastAfter: 30 * time.Second,
 			Transaction: TransactionConfig{
 				GasMultiplier:            1.2,
 				Confirmations:            2,

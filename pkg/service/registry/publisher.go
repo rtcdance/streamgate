@@ -51,8 +51,12 @@ type PublisherConfig struct {
 	BlockTag     string
 	PollInterval time.Duration // loop cadence, default 2s
 	LeaseTTL     time.Duration // claim lease, default 30s
-	BatchSize    int           // default 25
-	MaxAttempts  int           // signing attempts before permanent failure, default 5
+	// ReBroadcastAfter bounds how long a submitted tx may go without a recorded
+	// receipt before the SAME persisted raw tx is re-sent (never re-signed).
+	// It keeps a healthy in-flight tx from being re-broadcast immediately.
+	ReBroadcastAfter time.Duration // default 30s
+	BatchSize        int           // default 25
+	MaxAttempts      int           // signing attempts before permanent failure, default 5
 }
 
 func (c PublisherConfig) withDefaults() PublisherConfig {
@@ -61,6 +65,9 @@ func (c PublisherConfig) withDefaults() PublisherConfig {
 	}
 	if c.LeaseTTL <= 0 {
 		c.LeaseTTL = 30 * time.Second
+	}
+	if c.ReBroadcastAfter <= 0 {
+		c.ReBroadcastAfter = 30 * time.Second
 	}
 	if c.BlockTag == "" {
 		c.BlockTag = "safe"
@@ -191,7 +198,7 @@ func (p *Publisher) RunOnce(ctx context.Context) error {
 }
 
 func (p *Publisher) processClaimed(ctx context.Context) error {
-	claimed, err := p.store.ClaimProcessable(ctx, p.owner, p.cfg.LeaseTTL, p.cfg.BatchSize)
+	claimed, err := p.store.ClaimProcessable(ctx, p.owner, p.cfg.LeaseTTL, p.cfg.ReBroadcastAfter, p.cfg.BatchSize)
 	if err != nil {
 		return err
 	}
@@ -200,6 +207,8 @@ func (p *Publisher) processClaimed(ctx context.Context) error {
 		switch in.Status {
 		case StatusPending:
 			errs = append(errs, p.drivePending(ctx, in))
+		case StatusSubmitted:
+			errs = append(errs, p.recoverSubmitted(ctx, in))
 		case StatusBroadcastUnknown:
 			errs = append(errs, p.recoverUnknown(ctx, in))
 		}
@@ -293,6 +302,10 @@ func (p *Publisher) persistBroadcastFacts(ctx context.Context, in *Intent, signe
 func (p *Publisher) broadcast(ctx context.Context, in *Intent, signed *tx.SignedTx, fromStatus string) error {
 	err := p.pipeline.Broadcast(ctx, signed)
 	if err == nil || isAlreadyKnown(err) {
+		// The node has (or is known to have) the tx, but the caller's status
+		// transition has not been written yet: a crash here must re-send these
+		// exact persisted bytes, never re-sign (A.4).
+		p.arriveAt(ctx, "publisher.after_send")
 		if fromStatus == StatusBroadcastUnknown {
 			// A recovery re-send of the SAME raw tx succeeded (or the node
 			// already had it): back to submitted.
@@ -335,6 +348,40 @@ func (p *Publisher) recoverUnknown(ctx context.Context, in *Intent) error {
 	}
 	signed := &tx.SignedTx{Raw: raw, Hash: attempt.TxHash, Nonce: uint64(attempt.Nonce)}
 	return p.broadcast(ctx, in, signed, StatusBroadcastUnknown)
+}
+
+// recoverSubmitted: submitted with a persisted attempt but no receipt is the
+// crash window between persistBroadcastFacts and the post-broadcast write —
+// the process died before, during or right after handing the tx to a node.
+// Receipt lookup by the KNOWN hash first, then re-send the SAME raw tx (A.4).
+// It never signs a new nonce.
+func (p *Publisher) recoverSubmitted(ctx context.Context, in *Intent) error {
+	if in.TxHash == "" {
+		return nil
+	}
+
+	receipt, err := p.client.TransactionReceipt(ctx, common.HexToHash(in.TxHash))
+	if err == nil && receipt != nil {
+		return p.handleReceipt(ctx, in, receipt)
+	}
+
+	attempt, aerr := p.store.GetAttempt(ctx, in.TxHash)
+	if aerr != nil {
+		return aerr
+	}
+	if attempt == nil {
+		// Defensive: the claim only leases submitted intents whose attempt row
+		// exists, so this only happens if history was deleted concurrently.
+		p.log.Warn("registry: no persisted raw tx for submitted intent",
+			zap.String("content_id", in.ContentID), zap.String("tx_hash", in.TxHash))
+		return nil
+	}
+	raw, derr := hex.DecodeString(attempt.RawTx)
+	if derr != nil {
+		return p.store.MarkFailed(ctx, in.ContentID, StatusSubmitted, "persisted raw tx is not hex: "+derr.Error())
+	}
+	signed := &tx.SignedTx{Raw: raw, Hash: attempt.TxHash, Nonce: uint64(attempt.Nonce)}
+	return p.broadcast(ctx, in, signed, StatusSubmitted)
 }
 
 // adjudicateRejection handles a DEFINITIVE node rejection: the node answered

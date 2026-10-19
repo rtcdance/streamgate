@@ -89,6 +89,32 @@ func (h *NFTEventHandler) HandleTransferSingle(ctx context.Context, evt *event.I
 	return nil
 }
 
+// HandleTransferBatch invalidates cached access evidence for EVERY token id
+// carried by an ERC-1155 TransferBatch event (parallel ids[]/values[] arrays).
+// Like the other transfer handlers it may only accelerate invalidation — it
+// never grants access.
+func (h *NFTEventHandler) HandleTransferBatch(ctx context.Context, evt *event.IndexedEvent) error {
+	contractAddress := evt.ContractAddress
+
+	tokenIDs := h.extractERC1155TokenIDs(evt)
+	if len(tokenIDs) == 0 {
+		h.logger.Warn("Failed to extract token IDs from TransferBatch event",
+			zap.String("tx_hash", evt.TransactionHash))
+		return nil
+	}
+
+	h.logger.Debug("TransferBatch event detected, queued for batched invalidation",
+		zap.String("contract", contractAddress),
+		zap.Int("token_count", len(tokenIDs)),
+		zap.String("tx_hash", evt.TransactionHash))
+
+	for _, tokenID := range tokenIDs {
+		h.enqueueInvalidation(contractAddress, tokenID, evt)
+	}
+
+	return nil
+}
+
 func (h *NFTEventHandler) enqueueInvalidation(contractAddress, tokenID string, evt *event.IndexedEvent) {
 	key := contractAddress + ":" + tokenID
 	h.pendingInvalidations.Store(key, evt)
@@ -224,4 +250,40 @@ func (h *NFTEventHandler) extractERC1155TokenID(evt *event.IndexedEvent) string 
 		}
 	}
 	return ""
+}
+
+// extractERC1155TokenIDs returns every token id from a decoded TransferBatch
+// event. The parser formats uint256[] args via fmt %v, so ids arrive as a
+// "[1 2 3]" string; decoded maps reloaded from the event store (or built by
+// tests) may instead carry a slice.
+func (h *NFTEventHandler) extractERC1155TokenIDs(evt *event.IndexedEvent) []string {
+	if evt == nil || evt.Decoded == nil {
+		return nil
+	}
+	raw, ok := evt.Decoded["ids"]
+	if !ok {
+		return nil
+	}
+	var parts []string
+	switch ids := raw.(type) {
+	case string:
+		parts = strings.FieldsFunc(ids, func(r rune) bool {
+			return r == '[' || r == ']' || r == ',' || r == ' ' || r == '\t'
+		})
+	case []string:
+		parts = ids
+	case []interface{}:
+		for _, id := range ids {
+			parts = append(parts, fmt.Sprintf("%v", id))
+		}
+	default:
+		return nil
+	}
+	tokenIDs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			tokenIDs = append(tokenIDs, p)
+		}
+	}
+	return tokenIDs
 }

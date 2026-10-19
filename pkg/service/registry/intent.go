@@ -197,23 +197,47 @@ func (s *Store) Get(ctx context.Context, contentID string) (*Intent, error) {
 
 // ClaimProcessable leases pending/broadcast_unknown intents with
 // FOR UPDATE SKIP LOCKED, so two app instances never work the same intent.
-func (s *Store) ClaimProcessable(ctx context.Context, owner string, leaseTTL time.Duration, limit int) ([]*Intent, error) {
+// It also leases submitted intents that carry a persisted signed attempt, have
+// no recorded receipt, and have not been touched for reBroadcastAfter: the
+// crash window between persist-before-broadcast and the post-broadcast status
+// write. The window keeps a healthy in-flight tx from being re-sent
+// immediately; recovery re-broadcasts the SAME raw bytes, never a new nonce
+// (A.4).
+func (s *Store) ClaimProcessable(ctx context.Context, owner string, leaseTTL, reBroadcastAfter time.Duration, limit int) ([]*Intent, error) {
 	rows, err := s.db.Query(ctx, `
 		UPDATE content_registry_intents i
 		SET lease_owner = $1, lease_expires_at = NOW() + ($2 * INTERVAL '1 second'), updated_at = NOW()
 		WHERE i.chain_id = $3 AND i.registry_address = $4
-		  AND i.status IN ('pending', 'broadcast_unknown')
 		  AND (i.lease_expires_at IS NULL OR i.lease_expires_at < NOW())
+		  AND (
+			i.status IN ('pending', 'broadcast_unknown')
+			OR (
+			  i.status = 'submitted'
+			  AND i.tx_hash <> ''
+			  AND i.block_number IS NULL
+			  AND i.updated_at < NOW() - ($6 * INTERVAL '1 second')
+			  AND EXISTS (SELECT 1 FROM tx_signed_attempts a WHERE a.tx_hash = i.tx_hash)
+			)
+		  )
 		  AND i.content_id IN (
-			SELECT content_id FROM content_registry_intents
-			WHERE chain_id = $3 AND registry_address = $4
-			  AND status IN ('pending', 'broadcast_unknown')
-			  AND (lease_expires_at IS NULL OR lease_expires_at < NOW())
-			ORDER BY created_at
+			SELECT i2.content_id FROM content_registry_intents i2
+			WHERE i2.chain_id = $3 AND i2.registry_address = $4
+			  AND (i2.lease_expires_at IS NULL OR i2.lease_expires_at < NOW())
+			  AND (
+				i2.status IN ('pending', 'broadcast_unknown')
+				OR (
+				  i2.status = 'submitted'
+				  AND i2.tx_hash <> ''
+				  AND i2.block_number IS NULL
+				  AND i2.updated_at < NOW() - ($6 * INTERVAL '1 second')
+				  AND EXISTS (SELECT 1 FROM tx_signed_attempts a WHERE a.tx_hash = i2.tx_hash)
+				)
+			  )
+			ORDER BY i2.created_at
 			LIMIT $5
 			FOR UPDATE SKIP LOCKED)
 		RETURNING `+intentColumns,
-		owner, leaseTTL.Seconds(), s.chainID, s.registryAddress, limit)
+		owner, leaseTTL.Seconds(), s.chainID, s.registryAddress, limit, reBroadcastAfter.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("registry: claim processable: %w", err)
 	}

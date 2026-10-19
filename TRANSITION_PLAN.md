@@ -123,7 +123,11 @@
 >
 > **本轮工具证据与限制：** 性能 Python 自检 **40/40 PASS**（fixture 7、cgroup 10、metrics 4、完整协议 14、环境 5），Shell **17/17 PASS**，语法与 diff check 通过。48 场景 schema 正例为明确的合成单元 fixture，仅验证校验器；不得记作真实性能矩阵。原始 RED／race JSON／原始退出码／lint 已归档 `.verify-artifacts/sg-perf-integrity-20261019/`；验证在挂载修复源码后执行，尚非干净候选完整门。RPC 修复提交为 `acef690`。接下来冻结含本次改动的新候选，先用真实 Docker smoke 验证新环境／证据链，再继续完整矩阵与剩余 D／F 门。
 
-> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 的真实单观众、三类独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。仍需补齐故障屏障／proxy 状态的逐场景证据、确认每次 primary 故障确实从主端切换、RPC／cache／queue／media／RTF 原始数值与转码 metadata 的强制核验。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
+> **首字节与环境链 smoke 实证（2026-10-19）：** `sg-perf-pr-1019-04` 启动时源码 clean，记录 revision `96e3322b4bc46fa161006b6bc38411c40b2e5eae`，原退出 **0**。真实业务前置 **71/71 PASS**、浏览器推进 3.75 秒；独立登录与实时必需测试各 1/1 PASS，10 秒预热＋30 秒采样得到 12 成功／0 错误／0 边界取消，6 分片 hash 全对、hash-error=0，含 manifest 共 1134660 字节。`GotFirstResponseByte` 测得单观众 p95 **32.973ms**，仅属该 smoke 条件；API／worker／loader 各 30 个 cgroup 样本，实际观测约 29.06 秒，CPU 增量 0.158220／0.098886／0.026485 秒，peak RSS 70373376／55808000／52310016 字节。环境与 loader 二进制清单、独立 MinIO hash、原始事件／退出码及资源重算门实际通过；monolith imageID `sha256:6716befa6334c903bc5a43dc2affe6bb8c4a13c1ccef4026b2c1ed444c032268`，worker `sha256:38f263aedb99a4403183cb0f9f446c46b4af7b30cefa8a53a034ceea149ecc73`。证据 `.verify-artifacts/sg-perf-pr-1019-04/`；本轮标签容器／卷／网络后查均为空。之后共享工作区出现其他 AI 的未提交改动；用户已明确退出其他 AI，现统一保留、审查和复验。上述记录不覆盖后续改动，不作最终冻结 C 的全链结论。
+>
+> **D 分支实现整合（2026-10-19，原并行进程改动保留后复核）：** submitted 且无 receipt 的持久交易在配置窗口（默认 30 秒）后也能重新 claim；先查已知 hash 的 receipt，否则复用同一 raw tx／hash／nonce，不再因“持久化后、广播前崩溃”永远停在 submitted。新增 `publisher.after_send` 内部屏障；配置与 composition root 已接入重广播间隔。ERC-1155 TransferBatch 已接入 topic 分类、两种事件注册入口及每个 tokenID 的缓存失效；事件只删除缓存，不写授权 grant。新增 5 个完整测试 ID 登记进 durability 必需清单。独立 tmpfs Postgres 上，registry／service／config／gateway 四包完整 `go test -race -p 1 -count=1 -json` **原退出 0、无 skip**，五个新增必需用例逐项 PASS；同范围 tagged vet 与 lint PASS，lint 0 issues。链对象仍为 scripted fake，虽数据库与事务真实，**本条不是候选镜像＋Anvil kill／未知广播实证**，D 出口仍未关闭。原始 JSON、退出码、五项精确清单与 lint 在 `.verify-artifacts/sg-unify-20261019/`。
+
+> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 与 `96e3322` 的真实单观众、独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。后续修改的 proxy／primary 状态、完整业务指标与持久 probe metadata 校验仍须新候选实测。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
 ### 0.1 目标与执行边界
