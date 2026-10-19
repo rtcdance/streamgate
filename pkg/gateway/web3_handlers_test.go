@@ -57,6 +57,35 @@ func TestWeb3Handlers_RPCStatus_Empty(t *testing.T) {
 	assert.Empty(t, chains)
 }
 
+func TestWeb3Handlers_RPCStatus_DoesNotExposeEndpointCredentials(t *testing.T) {
+	provider := &mockWeb3StatusProvider{
+		statuses: map[int64][]web3.RPCStatus{1: {
+			{URL: "https://private-user:private-password@secret-host.example/v2/private-path?key=private-query#private-fragment", IsActive: true},
+			{URL: "https://another-secret-host.example", IsActive: false},
+		}},
+		chains: []*web3.ChainConfig{{ID: 1, Name: "Ethereum"}},
+	}
+	r := setupWeb3Router(provider)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/web3/rpc-status", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+	for _, secret := range []string{"private-user", "private-password", "secret-host", "private-path", "private-query", "private-fragment"} {
+		require.NotContains(t, w.Body.String(), secret)
+	}
+	var response struct {
+		Chains []struct {
+			RPCs []struct {
+				URL string `json:"url"`
+			} `json:"rpcs"`
+		} `json:"chains"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.Chains, 1)
+	require.Len(t, response.Chains[0].RPCs, 2)
+	require.NotEmpty(t, response.Chains[0].RPCs[0].URL)
+	require.NotEqual(t, response.Chains[0].RPCs[0].URL, response.Chains[0].RPCs[1].URL)
+}
+
 func TestWeb3Handlers_RPCStatus_WithData(t *testing.T) {
 	provider := &mockWeb3StatusProvider{
 		statuses: map[int64][]web3.RPCStatus{
@@ -93,7 +122,7 @@ func TestWeb3Handlers_RPCStatus_WithData(t *testing.T) {
 	assert.Len(t, rpcs, 2)
 
 	rpc0 := rpcs[0].(map[string]interface{})
-	assert.Equal(t, "https://rpc1.example.com", rpc0["url"])
+	assert.Equal(t, "rpc://1/0", rpc0["url"])
 	assert.Equal(t, true, rpc0["is_active"])
 }
 
