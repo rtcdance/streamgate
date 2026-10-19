@@ -556,11 +556,11 @@ func evaluateGatingRules(ctx context.Context, config *NFTGateConfig, logger *zap
 // fresh anchor instead of serving evidence from a chain state that no longer
 // exists.
 //
-// The whole chain is flushed rather than the affected addresses alone: cache
-// keys are "<chainID>:<wallet>:<contract>:<tokenID>:<standard>", so a wallet
-// sits between the chain and the contract and a prefix cannot select by
-// contract. A reorg is a chain-level event anyway, so dropping all of that
-// chain's evidence is both simpler and safer.
+// The whole chain is flushed rather than the affected addresses alone: a reorg
+// is a chain-level event that invalidates every subject on that chain, so
+// dropping the chain prefix is both simpler and safer than enumerating
+// contracts. (The transfer-event path, which DOES know the contract, now scopes
+// its own delete by contract — see nftCacheKey.)
 func InvalidateNFTEvidence(config *NFTGateConfig, chainID int64) {
 	if config == nil {
 		return
@@ -889,10 +889,17 @@ func GetNFTContract(c *gin.Context) string {
 }
 
 // nftCacheKey isolates every axis that changes what a cached balance means:
-// chain, subject wallet, contract, token and standard. min_balance is
-// deliberately absent — the cached value is the balance itself, so a different
-// threshold is a different comparison over the same evidence, not a different
-// cache entry.
+// chain, contract, token, standard and subject wallet. The contract sits SECOND
+// on purpose: the transfer-event path may only delete a literal prefix, and it
+// knows the contract but not the subject wallet — with the wallet between the
+// chain and the contract that path could only name keys nothing ever wrote, so
+// the event-driven invalidation was inert. min_balance is deliberately absent —
+// the cached value is the balance itself, so a different threshold is a
+// different comparison over the same evidence, not a different cache entry.
+//
+// Addresses are lowercased: one subject must map to ONE key whichever case a
+// caller used, or an event (whose contract address comes from the chain) could
+// never match the key a rule wrote.
 func nftCacheKey(chainID int64, wallet, contract, tokenID, standard string) string {
 	if tokenID == "" {
 		tokenID = "__collection__"
@@ -900,7 +907,8 @@ func nftCacheKey(chainID int64, wallet, contract, tokenID, standard string) stri
 	if standard == "" {
 		standard = "__auto__"
 	}
-	return fmt.Sprintf("%d:%s:%s:%s:%s", chainID, wallet, contract, tokenID, strings.ToLower(standard))
+	return fmt.Sprintf("%d:%s:%s:%s:%s", chainID, strings.ToLower(contract), tokenID,
+		strings.ToLower(standard), strings.ToLower(wallet))
 }
 
 func parseInt64(s string) (int64, error) {

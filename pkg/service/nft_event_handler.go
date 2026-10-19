@@ -171,7 +171,7 @@ func (h *NFTEventHandler) flushAll() {
 	for _, e := range entries {
 		h.nftService.InvalidateOwnershipCache(ctx, e.contractAddress, e.tokenID)
 		if h.middlewareCache != nil {
-			h.invalidateMiddlewareCache(ctx, e.contractAddress, e.tokenID, e.evt)
+			h.invalidateMiddlewareCache(ctx, e.contractAddress)
 		}
 	}
 
@@ -188,41 +188,20 @@ func (h *NFTEventHandler) FlushNow() {
 	h.flushAll()
 }
 
-func (h *NFTEventHandler) invalidateMiddlewareCache(ctx context.Context, contractAddress, tokenID string, evt *event.IndexedEvent) {
-	from, to := h.extractAddresses(evt)
-
-	if from != "" {
-		key := fmt.Sprintf("%d:%s:%s:%s", h.defaultChainID, from, contractAddress, tokenID)
-		h.middlewareCache.Delete(ctx, key)
-	}
-	if to != "" {
-		key := fmt.Sprintf("%d:%s:%s:%s", h.defaultChainID, to, contractAddress, tokenID)
-		h.middlewareCache.Delete(ctx, key)
-	}
-
-	prefix := fmt.Sprintf("%d:", h.defaultChainID)
-	h.middlewareCache.DeleteByPrefix(ctx, prefix+":"+contractAddress+":"+tokenID)
-}
-
-func (h *NFTEventHandler) extractAddresses(evt *event.IndexedEvent) (from, to string) {
-	if evt == nil {
-		return "", ""
-	}
-	if evt.Decoded != nil {
-		if f, ok := evt.Decoded["from"]; ok {
-			from = fmt.Sprintf("%v", f)
-		}
-		if t, ok := evt.Decoded["to"]; ok {
-			to = fmt.Sprintf("%v", t)
-		}
-	}
-	if from == "" && len(evt.Topics) >= 2 {
-		from = evt.Topics[1]
-	}
-	if to == "" && len(evt.Topics) >= 3 {
-		to = evt.Topics[2]
-	}
-	return
+// invalidateMiddlewareCache drops the gate's cached EVIDENCE for every subject
+// of the event's contract. The cache key is
+// "<chain>:<contract>:<tokenID>:<standard>:<wallet>" (middleware.nftCacheKey),
+// so a delete scoped to the contract is a real literal prefix and covers every
+// wallet, token and standard for it — including the collection-scoped entry,
+// whose balance a transfer of one token in that collection also changes.
+//
+// The previous implementation built "<chain>:<wallet>:<contract>:<tokenID>"
+// (missing the standard suffix) and prefixed with "<chain>::<contract>:<tokenID>",
+// neither of which any writer ever produced: the event path therefore deleted
+// nothing and could not accelerate invalidation at all.
+func (h *NFTEventHandler) invalidateMiddlewareCache(ctx context.Context, contractAddress string) {
+	prefix := fmt.Sprintf("%d:%s:", h.defaultChainID, strings.ToLower(contractAddress))
+	h.middlewareCache.DeleteByPrefix(ctx, prefix)
 }
 
 func (h *NFTEventHandler) extractTokenID(evt *event.IndexedEvent) (string, error) {
