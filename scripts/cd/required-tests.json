@@ -57,6 +57,14 @@
       },
       {
         "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventInitialCursorSurvivesImmediateRestart"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestAcceptance_EventInitialCursorWriteFailureStopsStart"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
         "test": "TestAcceptance_EventBatchSizeBounded"
       },
       {

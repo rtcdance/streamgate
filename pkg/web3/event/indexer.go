@@ -191,6 +191,7 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 
 	blockNumber, err := ei.client.BlockNumber(ctx)
 	if err != nil {
+		ei.started.Store(false)
 		ei.logger.Error("Failed to get current block number", zap.Error(err))
 		return fmt.Errorf("failed to get current block number: %w", err)
 	}
@@ -198,20 +199,21 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 	ei.mu.Lock()
 	if ei.store != nil {
 		if ds, ok := ei.store.(DurableEventStore); ok {
-			if checkpoint, err := ds.LoadScopedCheckpoint(ctx, ei.chainID, ei.filterKey()); err == nil && checkpoint > 0 {
-				ei.startBlock = checkpoint
-				ei.currentBlock = checkpoint
-				ei.logger.Info("Resuming from scoped checkpoint",
-					zap.Uint64("checkpoint_block", checkpoint),
-					zap.String("filter_key", ei.filterKey()))
-			} else if ei.startBlock > 0 {
-				ei.currentBlock = ei.startBlock
-				ei.logger.Info("Starting from configured startBlock",
-					zap.Uint64("start_block", ei.startBlock))
-			} else {
-				ei.startBlock = blockNumber
-				ei.currentBlock = blockNumber
+			initial := blockNumber
+			if ei.startBlock > 0 {
+				initial = ei.startBlock
 			}
+			checkpoint, err := ds.InitializeScopedCheckpoint(ctx, ei.chainID, ei.filterKey(), initial)
+			if err != nil {
+				ei.mu.Unlock()
+				ei.started.Store(false)
+				return fmt.Errorf("cannot start without a durable cursor: %w", err)
+			}
+			ei.startBlock = checkpoint
+			ei.currentBlock = checkpoint
+			ei.logger.Info("Durable start cursor ready",
+				zap.Uint64("checkpoint_block", checkpoint),
+				zap.String("filter_key", ei.filterKey()))
 		} else if checkpoint, err := ei.store.LoadCheckpoint(ei.contractAddress.Hex()); err == nil && checkpoint > 0 {
 			ei.startBlock = checkpoint
 			ei.currentBlock = checkpoint

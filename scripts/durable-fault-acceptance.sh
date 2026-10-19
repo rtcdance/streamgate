@@ -237,6 +237,15 @@ block_hash() {
   cast rpc --rpc-url "$ANVIL_URL" eth_getBlockByNumber "$(hexq "$1")" false 2>/dev/null \
     | python3 -c "import sys,json;print(json.load(sys.stdin).get('hash',''))" 2>/dev/null
 }
+
+changed_block_hash() {
+  local actual previous="$2"
+  actual="$(block_hash "$1")" || return 1
+  # An absent height or an RPC failure cannot prove a replacement block exists.
+  [[ "$previous" =~ ^0x[0-9a-fA-F]{64}$ && "$actual" =~ ^0x[0-9a-fA-F]{64}$ ]] || return 1
+  [ "${actual,,}" != "${previous,,}" ] || return 1
+  printf '%s' "$actual"
+}
 # receipt_field <tx> <field> — reads one field of a receipt, and prints NOTHING
 # unless the node really returned a receipt. Foundry v1.8.5 answers a failing
 # `cast receipt --json` with a structured ENVELOPE
@@ -1200,12 +1209,12 @@ if seed_content fr03; then
     # The chain re-mines; the recorded hash must stop matching the canonical one.
     REORG_SEEN=0
     for _ in $(seq 1 60); do
-      if [ "$(block_hash "$FR_BLOCK")" != "$FR_BH" ]; then REORG_SEEN=1; break; fi
+      if FR_CANONICAL="$(changed_block_hash "$FR_BLOCK" "$FR_BH")"; then REORG_SEEN=1; break; fi
       sleep 1
     done
     if [ "$REORG_SEEN" = 1 ]; then
       p "FR03: the canonical block at height ${FR_BLOCK} is now a different block"
-      record FR03-reorg receipt-reorg PASS "stored ${FR_BH:0:12} -> canonical $(block_hash "$FR_BLOCK" | cut -c1-12)"
+      record FR03-reorg receipt-reorg PASS "stored ${FR_BH} -> canonical ${FR_CANONICAL}"
     else
       f "FR03: block ${FR_BLOCK} still has the recorded hash after the rollback"
       record FR03-reorg receipt-reorg FAIL "block hash unchanged"

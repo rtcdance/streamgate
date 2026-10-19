@@ -169,6 +169,12 @@
 >
 > **根因修复与新判据：** 固定 Foundry v1.8.5 的 `cast tx/block --json` 返回 `{schema_version:1, success:true, data:{...}}`，receipt 仍平铺；原解析器只读根字段，导致真实 receipt 一致仍错误报红。隔离 Anvil 实际交易确认两种输出形状，新增 RED 后兼容这两种格式；失败、未知版本、带 errors、非对象 data 的 envelope 保持失败。增加公开 hash／nonce／signerMatch／ledgerMatches 分项观测，不输出 raw tx 或凭据。全部验收工具 Python **159/159 PASS**，其中恢复 **18/18 PASS**，真实诊断链输出解析通过、该诊断容器已删除。恢复 seed 改用 `run_logged` 严格完整业务门，不再跳过浏览器依赖或容忍单项失败；需新候选重新执行，07 的原失败保持失败。
 
+> **严格恢复与四场景 smoke 的历史结果（2026-10-19）：** 干净候选 `ffdd898ffac0a7d91adb55ec2834359710ba25d4` 的 `sg-recovery-1019-08` 完整源栈 **71/71**、恢复 **43/43**，原退出 0；独立空卷恢复 6 个逻辑对象逐项 hash 一致，旧 access／refresh／capability 被拒、新登录实际解码，live epoch 轮换 **1.60988187789917s** 撤销有效能力，本次静止排空快照 RPO=0、演练 RTO=90s。随后 `sg-perf-pr-1019-09` 直接读取 08 的候选清单与同一应用镜像，完整业务前置 71/71，四种单观众 smoke 与完整性门通过，原记录为 verification complete；暖／冷／primary-down 各 12 成功、0 错误、6 分片 hash 全对，TTFB p95 分别 **42.532／41.314／59.498ms**，all-down 15 次拒绝、0 成功／0 媒体字节，所有窗口实际 ≥30 秒。此为历史候选的局部验收，**不是完整 48 场景、reference、当前 HEAD 或远端 CI 通过**。
+>
+> **D 最新故障矩阵与 FI03 修复（2026-10-19）：** `streamgate-verify-faults15`，干净候选 `e87ba76ab6aaf30f76ed3bffc630e2c00cfbaeab`，原退出 1，**59 PASS／3 FAIL**；必需场景 FI03／FI03-exact 失败：链上 2 个停机期间日志均未持久化。首次启动可仅凭 WS 消费事件、尚未写 checkpoint 即被 kill；重启见不到游标便从新链头开始，跳过停机日志。新增真实 Postgres 回归先 RED（初始游标行 0、要求 1），现将初始游标在订阅前原子创建，冲突时保留已有值（包括有效 0），写失败拒绝启动并可重试，不向新链头跳跃。新两个完整测试 ID 加入 durability 必需清单，整个事件包 race 原退出 0，10 个事件必需 ID 精确 PASS，vet／lint PASS（0 issues）。FR03 另发现“读不到 canonical hash”被当作重组成功，已改为必须观察两个有效非空且不同的 32 字节 hash，空值／相同值负例拒绝，全部 Python 工具 **160/160 PASS**。开发回归不是新候选故障实证，须继续复跑；15 的失败保持失败，且其中旧 FR03-reorg 空 hash 记录不能当作完整证明。
+>
+> **当前仍需完成：** 上述实现尚待新干净候选的真实故障复跑；初始空规则时动态启动 indexer、取消时私有备份清理覆盖、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
+
 ### 0.1 目标与执行边界
 
 以当前 `73a052c` 为修复起点。历史候选 `ab172c2` 的 CI run `39005594931` 已确认 55/55 jobs 成功，保留其真实记录；本轮需要补齐实现与验收覆盖，使 **SG-00～SG-15、M0～M5、M7、M8，以及 M6 的 AI 交付部分全部满足原定标准**。
