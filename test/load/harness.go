@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -120,17 +121,20 @@ type Config struct {
 	// When nil, the default validation applies (2xx + non-truncated body +
 	// "#EXTM3U" for manifests). An Expect failure is an error, not success.
 	Expect func(url string, body []byte) error
+	// MediaSHA256 maps segment URL paths to independently captured fixture digests.
+	MediaSHA256 map[string]string
 }
 
 // Sample is one executed request.
 type Sample struct {
-	ViewerID   int // zero-based index; contains no credential or wallet address
-	URL        string
-	StatusCode int
-	TTFB       time.Duration
-	Duration   time.Duration
-	Bytes      int64
-	Err        string // empty on success
+	HashVerified bool
+	ViewerID     int // zero-based index; contains no credential or wallet address
+	URL          string
+	StatusCode   int
+	TTFB         time.Duration
+	Duration     time.Duration
+	Bytes        int64
+	Err          string // empty on success
 	// Aborted marks a request cut short by the sampling window closing (context
 	// cancellation/deadline). Aborted samples are neither successes nor errors:
 	// they are a harness boundary artifact, not a server failure.
@@ -153,7 +157,9 @@ type Result struct {
 	WarmupSec    float64 `json:"warmup_sec"`
 	DurationSec  float64 `json:"duration_sec"`
 
-	ViewerSamples []ViewerSamples `json:"viewer_samples"`
+	MediaHashesSHA256  string          `json:"media_hashes_sha256,omitempty"`
+	VerifiedMediaCount int64           `json:"verified_media_count"`
+	ViewerSamples      []ViewerSamples `json:"viewer_samples"`
 
 	SuccessCount  int64            `json:"success_count"`
 	ErrorCount    int64            `json:"error_count"`
@@ -180,10 +186,11 @@ type Result struct {
 
 // ViewerSamples counts completed requests and boundary cancellations per viewer.
 type ViewerSamples struct {
-	ViewerID     int   `json:"viewer_id"`
-	SuccessCount int64 `json:"success_count"`
-	ErrorCount   int64 `json:"error_count"`
-	AbortedCount int64 `json:"aborted_count"`
+	VerifiedMediaCount int64 `json:"verified_media_count"`
+	ViewerID           int   `json:"viewer_id"`
+	SuccessCount       int64 `json:"success_count"`
+	ErrorCount         int64 `json:"error_count"`
+	AbortedCount       int64 `json:"aborted_count"`
 }
 
 // SamplingViolation rejects empty or incomplete sampling even when totals look healthy.
@@ -191,16 +198,17 @@ func (r *Result) SamplingViolation() error {
 	if r.Viewers <= 0 || len(r.ViewerSamples) != r.Viewers {
 		return fmt.Errorf("missing viewer sample records")
 	}
-	var successes, failures, aborted int64
+	var successes, failures, aborted, verified int64
 	for i, v := range r.ViewerSamples {
-		if v.ViewerID != i || v.SuccessCount < 0 || v.ErrorCount < 0 || v.AbortedCount < 0 || v.SuccessCount+v.ErrorCount == 0 {
+		if v.ViewerID != i || v.SuccessCount < 0 || v.VerifiedMediaCount < 0 || v.VerifiedMediaCount > v.SuccessCount || v.ErrorCount < 0 || v.AbortedCount < 0 || v.SuccessCount+v.ErrorCount == 0 {
 			return fmt.Errorf("viewer %d has no valid completed sample record", i)
 		}
 		successes += v.SuccessCount
 		failures += v.ErrorCount
 		aborted += v.AbortedCount
+		verified += v.VerifiedMediaCount
 	}
-	if successes != r.SuccessCount || failures != r.ErrorCount || aborted != r.AbortedCount {
+	if successes != r.SuccessCount || failures != r.ErrorCount || aborted != r.AbortedCount || verified != r.VerifiedMediaCount {
 		return fmt.Errorf("viewer counts disagree with aggregate samples")
 	}
 	return nil
@@ -222,7 +230,7 @@ func Percentile(samples []float64, p float64) *float64 {
 	cp := make([]float64, len(samples))
 	copy(cp, samples)
 	sort.Float64s(cp)
-	rank := int(p/100*float64(len(cp))+0.5) - 1
+	rank := int(math.Ceil(p/100*float64(len(cp)))) - 1
 	if rank < 0 {
 		rank = 0
 	}
@@ -337,6 +345,12 @@ func (c Config) validate() error {
 	}
 	if c.Warmup < 0 {
 		return fmt.Errorf("Config.Warmup must be >= 0")
+	}
+	if _, err := mediaHashesDigest(c.MediaSHA256); err != nil {
+		return err
+	}
+	if c.PaceByEXTINF && len(c.MediaSHA256) == 0 {
+		return fmt.Errorf("EXTINF playback requires independent fixture media hashes")
 	}
 	if c.PaceByEXTINF && c.Quality == "" {
 		return fmt.Errorf("EXTINF playback requires a fixed rendition quality")
@@ -606,6 +620,13 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 		s.Err = fmt.Sprintf("truncated body: got %d bytes, Content-Length %d", len(body), resp.ContentLength)
 		return s, nil
 	}
+	if len(cfg.MediaSHA256) > 0 && !isManifestURL(urlStr) {
+		if err := verifyMediaHash(urlStr, body, cfg.MediaSHA256); err != nil {
+			s.Err = err.Error()
+			return s, nil
+		}
+		s.HashVerified = true
+	}
 	if cfg.Expect != nil {
 		if err := cfg.Expect(urlStr, body); err != nil {
 			s.Err = "expectation failed: " + err.Error()
@@ -620,7 +641,8 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 }
 
 func isManifestURL(u string) bool {
-	return strings.Contains(u, "manifest.m3u8")
+	parsed, err := url.Parse(u)
+	return err == nil && strings.HasSuffix(parsed.Path, "/manifest.m3u8")
 }
 
 // ParseManifestURIs extracts the media/variant URIs of an HLS playlist,
@@ -759,8 +781,12 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	finished := time.Now()
 
 	samples := rec.snapshot()
+	revision := cfg.CommitSHA
+	if revision == "" {
+		revision = CommitSHA()
+	}
 	res := &Result{
-		Commit:         CommitSHA(),
+		Commit:         revision,
 		Scenario:       cfg.Scenario,
 		FixtureHash:    cfg.FixtureHash,
 		BaseURL:        cfg.BaseURL,
@@ -778,6 +804,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		WalletPoolSize: len(tokens),
 		LoginsFailed:   loginsFailed,
 	}
+	res.MediaHashesSHA256, _ = mediaHashesDigest(cfg.MediaSHA256)
 	res.ViewerSamples = make([]ViewerSamples, cfg.Viewers)
 	for i := range res.ViewerSamples {
 		res.ViewerSamples[i].ViewerID = i
@@ -799,6 +826,10 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			continue
 		}
 		if s.ok() {
+			if s.HashVerified {
+				res.VerifiedMediaCount++
+				viewer.VerifiedMediaCount++
+			}
 			viewer.SuccessCount++
 			res.SuccessCount++
 			res.TotalBytes += s.Bytes

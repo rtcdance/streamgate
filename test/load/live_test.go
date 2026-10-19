@@ -25,7 +25,8 @@
 //	PERF_LOGIN_PACE    gap between real logins       (default 7s; auth limiter is 10/min)
 //	PERF_FIXTURE_HASH  sha256 of the media fixture   (optional; recorded)
 //	PERF_RESULT_JSON   output path for the JSON result (default /tmp/perf-result.json)
-//	PERF_SEGMENT_SHA256  optional hex digest — when set, every segment body is
+//	PERF_MEDIA_HASHES_FILE JSON map of media URL paths to independent fixture SHA256 hashes.
+//	PERF_SEGMENT_SHA256  single-segment alternative: hex digest — when set, every segment body is
 //	                    sha256-checked against it (mismatch = error, not success)
 //
 // Exit: healthy and fallback scenarios enforce the declared success threshold;
@@ -35,9 +36,9 @@ package load_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -149,16 +150,14 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 		Duration:     duration,
 		FixtureHash:  os.Getenv("PERF_FIXTURE_HASH"),
 	}
-	if sha := os.Getenv("PERF_SEGMENT_SHA256"); sha != "" {
-		expect := load.ExpectedSHA256(sha)
-		cfg.Expect = func(u string, body []byte) error {
-			// The digest describes media segments, not the playlist text.
-			if isManifest(u) {
-				return nil
-			}
-			return expect(u, body)
-		}
+	if path := os.Getenv("PERF_MEDIA_HASHES_FILE"); path != "" {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(raw, &cfg.MediaSHA256), "fixture media hashes must be a path-to-SHA256 JSON object")
+	} else if digest := os.Getenv("PERF_SEGMENT_SHA256"); digest != "" {
+		cfg.MediaSHA256 = map[string]string{"*": digest}
 	}
+	require.NotEmpty(t, cfg.MediaSHA256, "set PERF_MEDIA_HASHES_FILE from independent fixture artifacts, or PERF_SEGMENT_SHA256 for a single repeated segment")
 
 	res, runErr := load.Run(context.Background(), cfg)
 
@@ -268,8 +267,4 @@ func TestPerfSetup_MintViewerWallets(t *testing.T) {
 	require.Zero(t, failed)
 	require.True(t, paced, "logins must be paced")
 	t.Logf("setup complete: %d wallets logged in (paced=%v) and hold a DemoNFT", count, paced)
-}
-
-func isManifest(u string) bool {
-	return strings.Contains(u, "manifest.m3u8")
 }

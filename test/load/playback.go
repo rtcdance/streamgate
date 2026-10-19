@@ -79,7 +79,17 @@ func playbackLoop(ctx context.Context, client *http.Client, cfg Config, jwt stri
 		}
 		next := segments[segmentIndex%len(segments)]
 		segmentIndex++
-		sample, _ := fetchURL(ctx, client, resolveURI(cfg.BaseURL, next.uri), jwt, cfg)
+		mediaURL := resolveURI(cfg.BaseURL, next.uri)
+		sample, mediaBody := fetchURL(ctx, client, mediaURL, jwt, cfg)
+		// Segment identity comes from EXTINF, so a manifest-looking URI cannot
+		// turn a media request into an unchecked playlist request.
+		if sample.ok() && !sample.HashVerified {
+			if err := verifyMediaHash(mediaURL, mediaBody, cfg.MediaSHA256); err != nil {
+				sample.Err = err.Error()
+			} else {
+				sample.HashVerified = true
+			}
+		}
 		sample.ViewerID = viewerID
 		rec.record(sample)
 		if !waitPlayback(ctx, next.duration-time.Since(started)) {
