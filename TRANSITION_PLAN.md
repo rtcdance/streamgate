@@ -111,6 +111,10 @@
 
 > **新入口首次运行与修复（2026-10-19）：** 干净提交 `2a3b185` 的 `sg-perf-pr-1019-01` 在工具构建的 `go mod download` 因 `gopkg.in` DNS 失败，原退出 1，尚未启动应用；Docker Buildx 原始日志已导出到该运行的 `tools-build.log`。同 SHA 的 `sg-perf-pr-1019-02` 使用已验证的 `VERIFY_GOPROXY=https://goproxy.cn,direct`，依赖层命中缓存；三份应用镜像各构建一次、候选身份核对通过、PG／MinIO／JetStream／双 RPC 代理／应用／独立 worker 健康后，在独立 perf 入口打开未创建的 `logs/perf.log` 时失败（原退出 1）。退出后按本轮标签查询容器／卷／网络均为空；业务 seed／loader 尚未运行。新增 `test_standalone_perf_creates_log_directory` 先确定性复现，再补 `mkdir -p "$LOG_DIR"`；Shell 套件现 **17/17 PASS**，仍保留 seed 故障必须使入口失败的断言。两次失败均保留原始目录，不计为媒体／性能通过；修复后的真实入口继续待验收。
 
+> **真实单观众入口通过（2026-10-19，仍非完整 M4）：** 干净 SHA `27b6be634dd8eb998d2be26c0ba90c4b2cd75e3c`，命令 `VERIFY_MODE=pr VERIFY_STAGE=perf VERIFY_PROJECT=sg-perf-pr-1019-03 VERIFY_GOPROXY=https://goproxy.cn,direct VERIFY_PLAYWRIGHT_BROWSERS_PATH=<共享 Docker 浏览器缓存> bash scripts/verify-docker.sh`，原退出 **0**。真实业务前置 **71/71 PASS**，包括 gRPC 合法持有者实际媒体、1／2 数量拒绝、HTTP／gRPC 钱包冲突拒绝、浏览器播放推进 3.68 秒、规则／logout ≤5 秒及能力在 65 秒过期。独立钱包 setup 与 live 精确必需测试各 1/1 PASS；预热 10 秒、采样 30 秒，12 成功／0 错误／0 边界取消，6 个真实分片响应全部匹配 MinIO 独立 hash，共 1134660 字节（含 manifest）。worker 的真实 ABR 转码 `streamgate_transcoding_rtf_count=1`、sum=0.1170429501，播放采样没有并行转码。
+>
+> **同次资源证据：** API／worker／loader 各 30 个真实 cgroup 样本，覆盖采样窗口约 96.8%；实际观测窗口分别约 29.05 秒，其间 CPU 增量分别 0.209829／0.101649／0.035603 秒，peak RSS 分别 68743168／55746560／52269056 字节。资源 JSON 已核对固定限额、实际 imageID、目标／harness SHA、同 project 与 run，以及核心进程未重启。原始结果位于 `.verify-artifacts/sg-perf-pr-1019-03/{candidate.json,controller.log,perf/round-1/}`；私钥目录、临时 loader 二进制已不存在，本轮标签的容器／卷／网络查询均为空。此为 **1 观众 PR smoke**，不得代表 50／100 观众、完整四场景、三轮或 reference 通过。现有 `ttfb_ms` 字段仍按收到完整响应头计时，最终延迟证据须先接入 transport first-byte trace 后重测，不能将本次值引用为最终 TTFB 成绩。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
