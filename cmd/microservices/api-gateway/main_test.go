@@ -740,8 +740,12 @@ func TestRegisterWeb3Routes_RPCStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"chain_id":11155111`)
 	assert.Contains(t, rec.Body.String(), `"name":"Ethereum Sepolia"`)
-	assert.Contains(t, rec.Body.String(), `"url":"https://rpc-b.example"`)
+	// Provider URLs can carry credentials, so an endpoint is exposed only as a
+	// stable slot rpc://<chainID>/<index>. The active endpoint is rpc-b, index 1.
+	assert.Contains(t, rec.Body.String(), `"url":"rpc://11155111/1"`)
 	assert.Contains(t, rec.Body.String(), `"is_active":true`)
+	assert.NotContains(t, rec.Body.String(), "rpc-a.example")
+	assert.NotContains(t, rec.Body.String(), "rpc-b.example")
 }
 
 func TestMetricsRoute_ExposesPrometheusOutput(t *testing.T) {
