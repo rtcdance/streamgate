@@ -532,14 +532,18 @@ func (s *AuthService) IssueCapability(ctx context.Context, authz *PlaybackAuthor
 		ttl = s.PlaybackTokenTTL()
 	}
 
-	// The restore epoch comes from the authority at issuance — never from the
-	// request — and minting FAILS if it cannot be read: a capability with no
-	// restore epoch would survive a restore.
-	restoreEpoch, err := s.stampRestoreEpoch()
-	if err != nil {
+	// Revalidate the caller's credential binding after NFT authorization. Never
+	// relabel old authorization with a newer recovery epoch: if restoration or
+	// logout crossed this boundary, no capability may be issued from that result.
+	if err := s.requireCurrentRestoreEpoch(authz.session.RestoreEpoch); err != nil {
 		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
 		return "", err
 	}
+	if !s.SessionValid(authz.session.SessionID, authz.session.AuthEpoch) {
+		monitoring.AuthOperationsTotal.WithLabelValues("generate_playback_token", "failure").Inc()
+		return "", ErrAuthorizationSessionRequired
+	}
+	restoreEpoch := authz.session.RestoreEpoch
 
 	claims := &Claims{
 		Username:          authz.wallet,

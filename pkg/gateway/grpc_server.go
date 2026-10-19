@@ -749,7 +749,8 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 	}
 
 	sessionID, epoch := grpcSessionFromContext(ctx)
-	session := service.SessionBinding{SessionID: sessionID, AuthEpoch: epoch}
+	restoreEpoch, _ := ctx.Value(grpcRestoreEpochKey).(string)
+	session := service.SessionBinding{SessionID: sessionID, AuthEpoch: epoch, RestoreEpoch: restoreEpoch}
 
 	// If the caller ALSO carries a playback capability, it must agree with the
 	// access token's wallet, session and epoch. Disagreement is refused.

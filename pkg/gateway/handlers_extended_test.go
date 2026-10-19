@@ -21,14 +21,12 @@ import (
 )
 
 func newGatewayTestAuthService() *service.AuthService {
-	return service.NewAuthServiceWithDeps(
-		"test-secret-that-is-at-least-32-chars",
-		nil,
-		nil,
-		storage.NewMemoryChallengeStore(),
-		0,
-		nil,
-	)
+	sessions := storage.NewMemorySessionStore()
+	if err := sessions.Create(context.Background(), "test-session"); err != nil {
+		panic(err)
+	}
+	return service.NewAuthService("test-secret-that-is-at-least-32-chars", nil,
+		service.WithChallengeStore(storage.NewMemoryChallengeStore()), service.WithSessionStore(sessions))
 }
 
 func TestTranscodeExt_SubmitValidation(t *testing.T) {

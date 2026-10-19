@@ -163,6 +163,7 @@
       }
     ],
     "credential-consistency": [
+      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestIssueCapability_RejectsChangedCredentialAfterAuthorization"},
       {"package": "github.com/rtcdance/streamgate/pkg/middleware", "test": "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials"},
       {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_RejectsDuplicateCredentials"},
       {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_AccessKeyRotation"},

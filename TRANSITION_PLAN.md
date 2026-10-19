@@ -181,6 +181,8 @@
 >
 > **B/M2 发布媒体边界修复（2026-10-19，开发回归）：** 先 RED 证明 generation 查询失败／非法负值时 HTTP 与 gRPC 会回退旧平铺媒体；现传播权威错误并拒绝交付，缺失内容行同样不选择旧对象，显式合法 generation 0 仍通过既有兼容正例。gRPC 分片 ID 原仅 basename、GetSegment 禁止所有斜线，无法读取真实 `gN/rendition/segment.ts`；现 manifest 返回裸文件名或单层 rendition/文件名，GetSegment 只允许此受限形状且拒绝客户端 generation、嵌套和路径穿越，读取始终绑定服务端已发布 generation。另先 RED 证明 gRPC 曾合成固定 EXTINF，现 generation 媒体必须读取实际存储 playlist，重写受保护 URL 并保留精确 HLS timing；整数 SegmentInfo.duration 按秒向上取整（legacy 无 playlist 为 0），未改变 protobuf wire 字段。真实 gRPC holder 探针新增 GetSegment RPC 与受保护 HTTP 分片 bytes／size 比较，不能再仅以 HTTP URL 成功证明 RPC 媒体读取。完整 middleware／gateway race 原退出 **0**，credential-consistency 扩展为 **9/9** 精确必需父 ID，包含发布切换、故障拒绝、round-trip、非法 playlist；Docker vet／lint **0 issues**、探针编译通过，Python **161/161 PASS**。归档 `.verify-artifacts/sg-published-media-20261019/`，失败日志中的合成测试 JWT 已脱敏。这是工具容器内回归，新增实际 GetSegment 探针仍须新干净候选媒体实跑。
 >
+> **B/C 授权与签发间的会话／恢复竞态（2026-10-19，开发回归）：** 确定性负例先完成 NFT 授权，再分别 rotate restore_epoch、logout、缺失绑定 epoch 或使用未知 session；原实现四项均错误签发（RED）。SessionBinding 现携带已验证调用凭据的 restore_epoch，HTTP/gRPC 从认证上下文传入，授权结果原样封存。IssueCapability 必须核对该 epoch 仍为权威当前值且 session/version 仍有效；不读取新 epoch 为旧授权换标签，也不创建 session。有效绑定正例仍可播放，发生改变的四项均无 token 返回。既有正例测试改用真实存在的内存会话与对应恢复 authority，不放宽拒绝断言。完整 middleware／gateway／service race 原退出 **0**，扩展 suite **10/10** 精确必需 ID PASS，Docker vet／lint **0 issues**；新增用例已纳入 ops 门。证据 `.verify-artifacts/sg-issuance-binding-20261019/`，新干净候选仍需业务验收。
+>
 > **当前仍需完成：** 初始空规则时动态启动 indexer、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
 
 ### 0.1 目标与执行边界

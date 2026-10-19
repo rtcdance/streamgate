@@ -512,7 +512,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		sessionID, authEpoch := middleware.GetSessionBinding(c)
 		authz, authzErr := authorizer.AuthorizePlayback(c.Request.Context(), contentID, wallet,
-			service.SessionBinding{SessionID: sessionID, AuthEpoch: authEpoch})
+			service.SessionBinding{SessionID: sessionID, AuthEpoch: authEpoch, RestoreEpoch: c.GetString("restore_epoch")})
 		if authzErr != nil {
 			// The gate let this request through, so a failure here is either the
 			// same denial over slightly newer evidence (403), a broken credential

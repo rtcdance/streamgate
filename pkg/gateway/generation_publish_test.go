@@ -939,13 +939,16 @@ func newGenPublishFixture(t *testing.T) *genPublishFixture {
 	svc.StartWorker(zap.NewNop())
 
 	router := gin.New()
+	authSvc := newGatewayTestAuthService()
 	router.Use(func(c *gin.Context) {
 		c.Set("wallet_address", genTestWallet)
 		c.Set("session_id", "test-session")
 		c.Set("auth_epoch", int64(1))
+		epoch, ok := authSvc.RestoreEpoch()
+		require.True(t, ok)
+		c.Set("restore_epoch", epoch)
 		c.Next()
 	})
-	authSvc := newGatewayTestAuthService()
 	streamingSvc := service.NewStreamingService(nil, nil, nil, "http://localhost")
 	limiter := newStreamLimiter(100)
 	resolver := newPublishedGenerationResolver(db)

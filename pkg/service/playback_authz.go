@@ -29,8 +29,9 @@ type PolicySnapshotResolver interface {
 
 // SessionBinding is the login session a capability must inherit.
 type SessionBinding struct {
-	SessionID string
-	AuthEpoch int64
+	SessionID    string
+	AuthEpoch    int64
+	RestoreEpoch string
 }
 
 // Authorization errors. Transports map them to their own status codes; the
