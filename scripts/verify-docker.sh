@@ -1246,7 +1246,14 @@ stage_perf() {
       PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" PERF_FIXTURE_HASH="$fixture_hash" \
       SCENARIO="$scenario" VIEWERS_LIST="$matrix_viewers" RESULT_DIR="$matrix_dir" \
       BASE_URL="http://localhost:${VERIFY_MONO_PORT}" bash scripts/perf-acceptance.sh \
-        || fail "performance scenario failed: round=${rep} scenario=${scenario}"
+        || {
+          # Keep the application logs next to the failed result so the cause of
+          # a failed scenario (e.g. a gate 503 while an RPC endpoint is down) is
+          # visible instead of only the aggregate status counts.
+          docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" logs --no-color --tail 4000 monolith \
+            > "${matrix_dir}/monolith-${scenario}-round${rep}.log" 2>&1 || :
+          fail "performance scenario failed: round=${rep} scenario=${scenario}"
+        }
       setup_flag=0
     done
   done
