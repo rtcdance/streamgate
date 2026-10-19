@@ -792,9 +792,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 
 	// Sampling: record everything.
-	sampleCtx, cancelSample := context.WithTimeout(ctx, cfg.Duration)
 	rec.setRecording(true)
 	started := time.Now()
+	sampleCtx, cancelSample := context.WithDeadline(ctx, started.Add(cfg.Duration))
 	runViewers(sampleCtx, client, cfg, tokens, rec)
 	cancelSample()
 	finished := time.Now()

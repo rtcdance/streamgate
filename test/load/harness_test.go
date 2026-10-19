@@ -533,7 +533,7 @@ func TestPerfHarness_RejectsSharedViewerIdentities(t *testing.T) {
 
 func TestPerfHarness_RejectsEmptySamplingWindow(t *testing.T) {
 	srv, _ := newTokenEchoServer(t)
-	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: time.Millisecond}
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: time.Millisecond, CommitSHA: "test"}
 	res, err := Run(context.Background(), cfg)
 	require.Error(t, err, "zero completed samples must fail the run")
 	require.NotNil(t, res, "retain failed result for artifact upload")
@@ -766,4 +766,17 @@ func TestPerfHarness_SamplingPreparationIsRequired(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.True(t, called)
+}
+
+func TestPerfHarness_SamplingWindowIsNotShortened(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "RPC unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: time.Millisecond, CommitSHA: "test"}
+	for i := 0; i < 2000; i++ {
+		result, _ := Run(context.Background(), cfg)
+		require.NotNil(t, result)
+		require.GreaterOrEqual(t, result.FinishedAt.Sub(result.StartedAt), cfg.Duration, "iteration %d", i)
+	}
 }

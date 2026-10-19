@@ -119,6 +119,12 @@ class ProtocolTests(unittest.TestCase):
         record = self.record("rpc_all_down"); record["total_bytes"] = 1
         with self.assertRaises(ValueError): validate_result(record, "a" * 40, "b" * 40)
 
+    def test_sampling_window_cannot_be_even_fractionally_short(self):
+        record = self.record("rpc_all_down")
+        record["finished_at"] = "2026-10-19T01:00:29.999720Z"
+        with self.assertRaisesRegex(ValueError, "sampling interval"):
+            validate_result(record, "a" * 40, "b" * 40)
+
     def test_capacity_requires_observable_overload(self):
         record = self.record(viewers=100)
         record["error_count"] = 20; record["viewer_samples"][0]["error_count"] = 20; record["http_statuses"]["429"] = 20
