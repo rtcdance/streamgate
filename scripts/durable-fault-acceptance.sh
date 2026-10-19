@@ -1400,14 +1400,17 @@ print(m.group(0).lower() if m else '')
 # its RPC error instead of being swallowed, so "no receipt" has a visible cause.
 chain_send() {
   local to="$1" sig="$2"; shift 2
-  local err out
+  local err out rc=0 hash
   err="$(mktemp)"
-  out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>"$err")"
-  if [ -z "$out" ]; then
-    echo "chain_send ${sig} to ${to} produced no receipt: $(tr '\n' ' ' < "$err")" >&2
+  out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>"$err")" || rc=$?
+  hash="$(printf '%s' "$out" | tx_hash_of)"
+  if [ -z "$hash" ]; then
+    printf 'DIAG chain_send %s -> %s rc=%s nonce=%s head=%s stdout=[%s] stderr=[%s]\n' \
+      "$sig" "$to" "$rc" "$(chain_nonce)" "$(head_number)" \
+      "$(printf '%s' "$out" | tr '\n' ' ')" "$(tr '\n' ' ' < "$err")"
   fi
   rm -f "$err"
-  printf '%s' "$out" | tx_hash_of
+  printf '%s' "$hash"
 }
 erc721_mint() { chain_send "$DEMO_NFT" 'mint(address)' "$WALLET_A"; }
 erc1155_mint() { chain_send "${ERC1155_ADDR}" 'mint(address,uint256,uint256)' "$1" "$2" "$3"; }
