@@ -122,9 +122,11 @@ func TestNFTEventHandler_HandleTransfer(t *testing.T) {
 		err := h.HandleTransfer(context.Background(), evt)
 		require.NoError(t, err)
 		h.FlushNow()
-		assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:42")
-		assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:42")
-		assert.Contains(t, cache.deletedPrefixes, "1::0xcontract:42")
+		// "<chain>:<contract>:<tokenID>:<standard>:<wallet>": one contract-scoped
+		// prefix delete covers the sender, the receiver and every token of that
+		// contract — including the collection-scoped entry.
+		assert.Contains(t, cache.deletedPrefixes, "1:0xcontract:")
+		assert.Empty(t, cache.deletedKeys)
 	})
 }
 
@@ -143,8 +145,7 @@ func TestNFTEventHandler_HandleTransferSingle(t *testing.T) {
 		err := h.HandleTransferSingle(context.Background(), evt)
 		require.NoError(t, err)
 		h.FlushNow()
-		assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:100")
-		assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:100")
+		assert.Contains(t, cache.deletedPrefixes, "1:0xcontract:")
 	})
 
 	t.Run("no token ID in decoded", func(t *testing.T) {
@@ -173,11 +174,11 @@ func TestNFTEventHandler_HandleTransferBatch(t *testing.T) {
 		err := h.HandleTransferBatch(context.Background(), evt)
 		require.NoError(t, err)
 		h.FlushNow()
-		for _, id := range []string{"1", "2", "3"} {
-			assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:"+id)
-			assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:"+id)
-			assert.Contains(t, cache.deletedPrefixes, "1::0xcontract:"+id)
-		}
+		// Every queued id deletes the same contract-scoped prefix, so one delete
+		// covers the whole batch; the ownership cache is what carries the per-id
+		// granularity.
+		assert.Contains(t, cache.deletedPrefixes, "1:0xcontract:")
+		assert.Empty(t, cache.deletedKeys)
 	})
 
 	t.Run("invalidates every id from the parser string form", func(t *testing.T) {
@@ -194,10 +195,7 @@ func TestNFTEventHandler_HandleTransferBatch(t *testing.T) {
 		err := h.HandleTransferBatch(context.Background(), evt)
 		require.NoError(t, err)
 		h.FlushNow()
-		for _, id := range []string{"100", "200"} {
-			assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:"+id)
-			assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:"+id)
-		}
+		assert.Contains(t, cache.deletedPrefixes, "1:0xcontract:")
 	})
 
 	t.Run("no ids in decoded", func(t *testing.T) {
@@ -210,58 +208,27 @@ func TestNFTEventHandler_HandleTransferBatch(t *testing.T) {
 	})
 }
 
-func TestNFTEventHandler_ExtractAddresses(t *testing.T) {
-	tests := []struct {
-		name     string
-		evt      *event.IndexedEvent
-		wantFrom string
-		wantTo   string
-	}{
-		{
-			name: "from decoded map",
-			evt: &event.IndexedEvent{
-				Decoded: map[string]interface{}{
-					"from": "0xdecoded_from",
-					"to":   "0xdecoded_to",
-				},
-			},
-			wantFrom: "0xdecoded_from",
-			wantTo:   "0xdecoded_to",
-		},
-		{
-			name: "from topics fallback",
-			evt: &event.IndexedEvent{
-				Topics: []string{"topic0", "0xtopic_from", "0xtopic_to"},
-			},
-			wantFrom: "0xtopic_from",
-			wantTo:   "0xtopic_to",
-		},
-		{
-			name: "decoded overrides topics",
-			evt: &event.IndexedEvent{
-				Decoded: map[string]interface{}{
-					"from": "0xdecoded_from",
-				},
-				Topics: []string{"topic0", "0xtopic_from", "0xtopic_to"},
-			},
-			wantFrom: "0xdecoded_from",
-			wantTo:   "0xtopic_to",
-		},
-		{
-			name:     "no data",
-			evt:      &event.IndexedEvent{},
-			wantFrom: "",
-			wantTo:   "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := NewNFTEventHandler(&NFTService{}, zap.NewNop())
-			from, to := h.extractAddresses(tt.evt)
-			assert.Equal(t, tt.wantFrom, from)
-			assert.Equal(t, tt.wantTo, to)
-		})
-	}
+func TestNFTEventHandler_InvalidateMiddlewareCache(t *testing.T) {
+	// The cache key is "<chain>:<contract>:<tokenID>:<standard>:<wallet>"
+	// (middleware.nftCacheKey), so the event path deletes a prefix scoped to the
+	// CONTRACT. The old implementation deleted
+	// "<chain>:<wallet>:<contract>:<tokenID>" and "<chain>::<contract>:<tokenID>",
+	// which no writer ever produced — the invalidation was inert. This test pins
+	// the prefix that really matches what the gate stores.
+	t.Run("contract-scoped prefix", func(t *testing.T) {
+		cache := &mockNFTAccessCache{}
+		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 137, zap.NewNop())
+		h.invalidateMiddlewareCache(context.Background(), "0xContract")
+		assert.Contains(t, cache.deletedPrefixes, "137:0xcontract:")
+		assert.Empty(t, cache.deletedKeys)
+	})
+
+	t.Run("lowercased contract matches the stored key", func(t *testing.T) {
+		cache := &mockNFTAccessCache{}
+		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 1, zap.NewNop())
+		h.invalidateMiddlewareCache(context.Background(), "0xCONTRACT")
+		assert.Contains(t, cache.deletedPrefixes, "1:0xcontract:")
+	})
 }
 
 func TestNFTEventHandler_ExtractTokenID(t *testing.T) {
@@ -331,31 +298,5 @@ func TestNFTEventHandler_ExtractERC1155TokenID(t *testing.T) {
 		evt := &event.IndexedEvent{}
 		got := h.extractERC1155TokenID(evt)
 		assert.Equal(t, "", got)
-	})
-}
-
-func TestNFTEventHandler_InvalidateMiddlewareCache(t *testing.T) {
-	t.Run("from and to addresses", func(t *testing.T) {
-		cache := &mockNFTAccessCache{}
-		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 137, zap.NewNop())
-		evt := &event.IndexedEvent{
-			Decoded: map[string]interface{}{
-				"from": "0xfrom_addr",
-				"to":   "0xto_addr",
-			},
-		}
-		h.invalidateMiddlewareCache(context.Background(), "0xcontract", "42", evt)
-		assert.Contains(t, cache.deletedKeys, "137:0xfrom_addr:0xcontract:42")
-		assert.Contains(t, cache.deletedKeys, "137:0xto_addr:0xcontract:42")
-		assert.Contains(t, cache.deletedPrefixes, "137::0xcontract:42")
-	})
-
-	t.Run("empty addresses", func(t *testing.T) {
-		cache := &mockNFTAccessCache{}
-		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 1, zap.NewNop())
-		evt := &event.IndexedEvent{}
-		h.invalidateMiddlewareCache(context.Background(), "0xcontract", "42", evt)
-		assert.Empty(t, cache.deletedKeys)
-		assert.Contains(t, cache.deletedPrefixes, "1::0xcontract:42")
 	})
 }

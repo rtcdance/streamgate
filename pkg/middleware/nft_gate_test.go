@@ -362,7 +362,9 @@ func TestNFTGateMiddleware_CacheHit(t *testing.T) {
 		},
 		Cache: &mockNFTAccessCacheOld{
 			entries: map[string]NFTAccessEntry{
-				"1:0xOwner:" + testContractAddr + ":__collection__:erc721": {
+				// "<chain>:<contract>:<tokenID>:<standard>:<wallet>", all lowercased
+				// addresses (see nftCacheKey).
+				"1:" + testContractAddr + ":__collection__:erc721:0xowner": {
 					HasNFT:     true,
 					Balance:    big.NewInt(5),
 					Expires:    time.Now().Add(time.Minute),
@@ -550,12 +552,12 @@ func TestGetNFTContract_Missing(t *testing.T) {
 
 func TestNftCacheKey(t *testing.T) {
 	key := nftCacheKey(1, "0xWallet", "0xContract", "42", "erc721")
-	assert.Equal(t, "1:0xWallet:0xContract:42:erc721", key)
+	assert.Equal(t, "1:0xcontract:42:erc721:0xwallet", key)
 }
 
 func TestNftCacheKey_Collection(t *testing.T) {
 	key := nftCacheKey(1, "0xWallet", "0xContract", "", "")
-	assert.Equal(t, "1:0xWallet:0xContract:__collection__:__auto__", key)
+	assert.Equal(t, "1:0xcontract:__collection__:__auto__:0xwallet", key)
 }
 
 // The standard is part of the key: the same subject read as ERC-721 vs

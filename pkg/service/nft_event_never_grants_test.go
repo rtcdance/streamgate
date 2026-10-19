@@ -98,10 +98,14 @@ func TestAcceptance_NFTEventNeverGrants(t *testing.T) {
 
 	assert.GreaterOrEqual(t, ownershipCache.deleteCount, 1,
 		"Transfer must invalidate the ownership cache")
-	assert.Contains(t, middlewareCache.deletedKeys, "31337:0xfrom:0xcontract:42",
-		"Transfer must invalidate the sender's middleware cache entry")
-	assert.Contains(t, middlewareCache.deletedKeys, "31337:0xto:0xcontract:42",
-		"Transfer must invalidate the receiver's middleware cache entry")
+	// The middleware key is "<chain>:<contract>:<tokenID>:<standard>:<wallet>", so
+	// the invalidation that can actually match what the gate wrote is scoped to
+	// the contract. The old exact-key deletes named
+	// "<chain>:<wallet>:<contract>:<tokenID>", which no writer ever produced.
+	assert.Contains(t, middlewareCache.deletedPrefix, "31337:0xcontract:",
+		"Transfer must invalidate the middleware cache for that contract")
+	assert.Empty(t, middlewareCache.deletedKeys,
+		"a contract-scoped prefix delete replaces the inert exact-key deletes")
 
 	assert.Zero(t, ownershipCache.setCount,
 		"a Transfer event must never write to the ownership cache")
@@ -151,12 +155,10 @@ func TestAcceptance_NFTTransferBatchNeverGrants(t *testing.T) {
 
 	assert.GreaterOrEqual(t, ownershipCache.deleteCount, 3,
 		"TransferBatch must invalidate the ownership cache once per id")
-	for _, id := range []string{"1", "2", "3"} {
-		assert.Contains(t, middlewareCache.deletedKeys, "31337:0xfrom:0xcontract:"+id,
-			"TransferBatch must invalidate the sender's middleware cache entry for id "+id)
-		assert.Contains(t, middlewareCache.deletedKeys, "31337:0xto:0xcontract:"+id,
-			"TransferBatch must invalidate the receiver's middleware cache entry for id "+id)
-	}
+	assert.Contains(t, middlewareCache.deletedPrefix, "31337:0xcontract:",
+		"TransferBatch must invalidate the middleware cache for that contract")
+	assert.Empty(t, middlewareCache.deletedKeys,
+		"a contract-scoped prefix delete replaces the inert exact-key deletes")
 
 	assert.Zero(t, ownershipCache.setCount,
 		"a TransferBatch event must never write to the ownership cache")
