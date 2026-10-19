@@ -34,7 +34,19 @@ mkdir -p "$RESULT_DIR"
 [ -n "${PERF_WALLET_KEYS_FILE:-}" ] || die "independent viewer wallet keys file is required"
 if [ ! -x "$PERF_LOADER_BINARY" ]; then
   CGO_ENABLED=0 go test -tags load -c -o "$PERF_LOADER_BINARY" ./test/load || die "loader compilation failed"
+  python3 - "$PERF_LOADER_BINARY" "$PERF_LOADER_IMAGE" "$(git rev-parse HEAD)" <<'PY'
+import hashlib, json, pathlib, sys
+binary = pathlib.Path(sys.argv[1])
+binary.with_suffix('.build.json').write_text(json.dumps({'harnessRevision': sys.argv[3], 'imageID': sys.argv[2], 'binarySHA256': hashlib.sha256(binary.read_bytes()).hexdigest()}, sort_keys=True) + '\n')
+PY
 fi
+python3 - "$PERF_LOADER_BINARY" "$PERF_LOADER_IMAGE" "$(git rev-parse HEAD)" <<'PY'
+import hashlib, json, pathlib, sys
+binary = pathlib.Path(sys.argv[1])
+expected = {'harnessRevision': sys.argv[3], 'imageID': sys.argv[2], 'binarySHA256': hashlib.sha256(binary.read_bytes()).hexdigest()}
+if json.loads(binary.with_suffix('.build.json').read_text()) != expected:
+    raise SystemExit('cached loader binary differs from source or tool identity')
+PY
 
 if [ "${PERF_SETUP:-0}" = 1 ]; then
   mkdir -p "$(dirname "$PERF_WALLET_KEYS_FILE")"
@@ -133,6 +145,10 @@ run_scenario() (
   attach_pid=""
   rc="$(docker inspect --format '{{.State.ExitCode}}' "$loader")" || die "loader exit status is unavailable"
   if [ "$rc" = 0 ] && [ "$start_rc" != 0 ]; then rc="$start_rc"; fi
+  python3 - "$out" "$rc" "$start_rc" <<'PY'
+import json, pathlib, sys
+pathlib.Path(sys.argv[1]).with_suffix('.execution.json').write_text(json.dumps({'exitCode': int(sys.argv[2]), 'attachExitCode': int(sys.argv[3]), 'testID': 'TestLoad_AuthorizedMedia'}, sort_keys=True) + '\n')
+PY
   local metrics_rc=0
   python3 scripts/cd/perf_metrics.py --output-prefix "$phase/after" || metrics_rc=$?
   : > "$phase/monitor.stop"

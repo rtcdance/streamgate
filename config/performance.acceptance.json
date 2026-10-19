@@ -1,17 +1,67 @@
 {
   "version": 1,
-  "safetyBaselineRevision": "f96fa41eb0b8d6967afcd26a6548eef6b2d77867",
-  "viewers": [1, 10, 50, 100],
-  "scenarios": ["warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"],
+  "safetyBaselineRevision": "acef69009fe5050726f4fabc345410104867148a",
+  "viewers": [
+    1,
+    10,
+    50,
+    100
+  ],
+  "scenarios": [
+    "warm_cache",
+    "cold_cache",
+    "rpc_primary_down",
+    "rpc_all_down"
+  ],
   "repeats": 3,
   "warmupSeconds": 10,
   "sampleSeconds": 30,
   "comparisonViewers": 50,
   "comparisonRounds": 3,
-  "p95RegressionLimit": 1.20,
+  "p95RegressionLimit": 1.2,
   "resources": {
-    "api": {"nanoCPUs": 2000000000, "memoryBytes": 2147483648},
-    "worker": {"nanoCPUs": 2000000000, "memoryBytes": 1073741824},
-    "loader": {"nanoCPUs": 1000000000, "memoryBytes": 536870912}
+    "api": {
+      "nanoCPUs": 2000000000,
+      "memoryBytes": 2147483648
+    },
+    "worker": {
+      "nanoCPUs": 2000000000,
+      "memoryBytes": 1073741824
+    },
+    "loader": {
+      "nanoCPUs": 1000000000,
+      "memoryBytes": 536870912
+    }
+  },
+  "infrastructureResources": {
+    "h5": {"nanoCPUs": 250000000, "memoryBytes": 134217728},
+    "postgres": {
+      "nanoCPUs": 1000000000,
+      "memoryBytes": 1073741824
+    },
+    "redis": {
+      "nanoCPUs": 500000000,
+      "memoryBytes": 536870912
+    },
+    "minio": {
+      "nanoCPUs": 1000000000,
+      "memoryBytes": 1073741824
+    },
+    "nats": {
+      "nanoCPUs": 500000000,
+      "memoryBytes": 268435456
+    },
+    "anvil": {
+      "nanoCPUs": 1000000000,
+      "memoryBytes": 536870912
+    },
+    "anvil-proxy": {
+      "nanoCPUs": 250000000,
+      "memoryBytes": 134217728
+    },
+    "anvil-fallback-proxy": {
+      "nanoCPUs": 250000000,
+      "memoryBytes": 134217728
+    }
   }
 }

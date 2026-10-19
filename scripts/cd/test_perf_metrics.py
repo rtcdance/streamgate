@@ -30,5 +30,21 @@ class MetricsTests(unittest.TestCase):
             self.assertEqual(request.call_args.args[0].get_header("Authorization"), "Bearer private-test-token")
             self.assertNotIn(b"private-test-token", output.read_bytes())
 
+    def test_definitions_and_invalid_samples_are_not_observations(self):
+        bodies = [
+            b"# HELP process_cpu_seconds_total CPU\n# HELP process_resident_memory_bytes RSS\n",
+            b"process_cpu_seconds_total NaN\nprocess_resident_memory_bytes 300\n",
+            b"process_cpu_seconds_total -1\nprocess_resident_memory_bytes 300\n",
+            b"process_cpu_seconds_total 1\nprocess_resident_memory_bytes +Inf\n",
+            b"process_cpu_seconds_total 1\nprocess_resident_memory_bytes 0\n",
+            b"process_cpu_seconds_total invalid\nprocess_resident_memory_bytes 300\n",
+            b"process_cpu_seconds_total 1\nprocess_cpu_seconds_total 2\nprocess_resident_memory_bytes 300\n",
+        ]
+        for body in bodies:
+            with self.subTest(body=body):
+                response = MagicMock(); response.__enter__.return_value.read.return_value = body
+                with tempfile.TemporaryDirectory() as root, patch("perf_metrics.urllib.request.urlopen", return_value=response):
+                    with self.assertRaises(ValueError): snapshot("http://monolith:8080/metrics", Path(root) / "metrics.prom")
+
 
 if __name__ == "__main__": unittest.main()

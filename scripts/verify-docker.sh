@@ -241,6 +241,8 @@ stage_unit() {
     python3 scripts/cd/test_perf_fixture.py
     python3 scripts/cd/test_resource_monitor.py
     python3 scripts/cd/test_perf_metrics.py
+    python3 scripts/cd/test_perf_protocol.py
+    python3 scripts/cd/test_perf_environment.py
     node scripts/cd/test_h5_api_base.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
     ( cd contracts && forge build )
@@ -389,8 +391,8 @@ stage_ops() {
     echo "== SG-14 ops acceptance suites (protected endpoints, rate limit, drain/health, metrics) =="
     go_test_rc=0
     go test -race -count=1 -json \
-      -run "TestAcceptance_ProtectedOpsEndpoints|TestAcceptance_MediaRateLimitAndNAT|TestAcceptance_StreamingDrain503Health200" \
-      ./pkg/gateway \
+      -run "TestAcceptance_ProtectedOpsEndpoints|TestAcceptance_MediaRateLimitAndNAT|TestAcceptance_StreamingDrain503Health200|TestWeb3Handlers_RPCStatus_DoesNotExposeEndpointCredentials|TestChainClient_LogsDoNotExposeEndpointCredentials" \
+      ./pkg/gateway ./pkg/web3 \
       > /artifacts/ops-gateway-sg14.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
       --suite ops-gateway-sg14 --exit-code "$go_test_rc" \
@@ -665,7 +667,8 @@ NGINX
   docker cp "${extract_id}:/app/h5-demo/." "$static_dir/" || fail "H5 candidate extraction failed"
   docker rm "$extract_id" >/dev/null || fail "H5 extraction container cleanup failed"
   docker rm -f "${project}-h5" >/dev/null 2>&1 || :
-  docker run -d --pull never --platform "$VERIFY_PLATFORM" --name "${project}-h5" --network "${project}_default" --network-alias verify-h5 \
+  docker run -d --pull never --platform "$VERIFY_PLATFORM" --cpus .25 --memory 128m \
+    --name "${project}-h5" --network "${project}_default" --network-alias verify-h5 \
     --label "com.docker.compose.project=${project}" \
     --label "com.docker.compose.service=h5" \
     --label "com.streamgate.verify.run=${PROJECT_NAME}" \
@@ -924,72 +927,11 @@ sys.exit("chain 31337 is not reported at all")
 PY
 }
 
-# perf_scenario <scenario> <viewers> <result-dir> <content-id> <fixture-hash>
-#   [skip-warmup] — one labelled load pass against the per-run stack. The
-# wallet pool already exists (the warm pass ran PERF_SETUP), so later passes
-# REUSE it: regenerating the pool and re-minting 50 NFTs would cost ~6 minutes
-# per scenario and cover nothing new.
-perf_scenario() {
-  local scenario="$1" viewers="$2" result_dir="$3" content_id="$4" fixture_hash="$5" skip_warmup="${6:-0}"
-  PERF_CONTENT_ID="$content_id" \
-  PERF_FIXTURE_HASH="$fixture_hash" \
-  PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
-  PERF_SKIP_WARMUP="$skip_warmup" \
-  SCENARIO="$scenario" \
-  VIEWERS_LIST="$viewers" \
-  RESULT_DIR="$result_dir" \
-  BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
-    bash scripts/perf-acceptance.sh \
-    || fail "perf-acceptance.sh failed (scenario=${scenario})"
-}
-
-# perf_fault_matrix <project> <result-dir> <content-id> <fixture-hash> — SG-07
-# step 3's fault scenarios, each with a real injection and the bar the harness
-# applies to that label (test/load/live_test.go):
-#   cold_cache       restart the monolith (its L1 is in-process) and drop the
-#                    L2 keys — sessions live in the same Redis, so ONLY
-#                    nft_cache:* is deleted; ≥99% still required.
-#   rpc_primary_down stop the proxy, keep the direct anvil: the fallback must
-#                    carry 50 concurrent viewers at ≥99%.
-#   rpc_all_down     stop both endpoints: the only acceptable result is a total
-#                    denial — 0 served, 0 media bytes.
-perf_fault_matrix() {
-  local project="$1" result_dir="$2" content_id="$3" fixture_hash="$4"
-
-  log "fault matrix: cold_cache (restart monolith, drop L2 gate keys)"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" restart monolith >/dev/null \
-    || fail "could not restart the monolith for the cold_cache scenario"
-  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
-    || fail "monolith did not come back for the cold_cache scenario"
-  # Targeted, not FLUSHALL: sessions, blacklist and rate-limit buckets share
-  # this Redis and must survive, or the run would measure a logged-out stack.
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T redis \
-    sh -c "redis-cli --scan --pattern 'nft_cache:*' | while read -r k; do [ -n \"\$k\" ] && redis-cli DEL \"\$k\"; done" >/dev/null 2>&1 || true
-  # skip-warmup=1: the built-in sanity run would populate the very cache this
-  # scenario exists to measure cold (and leave a stray cold_cache-viewers-1.json
-  # that looks like a real 1-viewer result).
-  perf_scenario cold_cache 10 "$result_dir" "$content_id" "$fixture_hash" 1
-
-  log "fault matrix: rpc_primary_down (stop the primary proxy; fallback must serve)"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil-proxy >/dev/null \
-    || fail "could not stop the anvil-proxy for the rpc_primary_down scenario"
-  perf_scenario rpc_primary_down 50 "$result_dir" "$content_id" "$fixture_hash" 1
-
-  log "fault matrix: rpc_all_down (stop both endpoints)"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil-proxy anvil-fallback-proxy >/dev/null \
-    || fail "could not stop the anvil for the rpc_all_down scenario"
-  perf_scenario rpc_all_down 10 "$result_dir" "$content_id" "$fixture_hash" 1
-
-  log "fault matrix: restoring the chain endpoints"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil-proxy >/dev/null 2>&1 || true
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil-fallback-proxy >/dev/null 2>&1 || true
-}
-
 # ---------------------------------------------------------------------------
 # Reference comparison (SG-07 step 5): the candidate's p95 must not exceed
 # 1.20x the FIXED reference's, measured on THIS runner, sequentially, with the
-# same fixture, load and resource limits, medians over independent rounds. Off
-# candidate mode always runs the frozen safety baseline sequentially on this
+# same fixture, load and resource limits, medians over independent rounds.
+# Candidate mode always runs the frozen safety baseline sequentially on this
 # runner. Explicit PR smoke is partial evidence and cannot satisfy `all`.
 # ---------------------------------------------------------------------------
 PERF_COMPARE_VIEWERS="${PERF_COMPARE_VIEWERS:-50}"
@@ -1011,7 +953,6 @@ perf_rounds() {
     PERF_CONTENT_ID="$content_id" \
     PERF_FIXTURE_HASH="$fixture_hash" \
     PERF_WALLET_KEYS_FILE="$keys" \
-    PERF_SKIP_WARMUP=1 \
     PERF_COMMIT="$commit_label" \
     SCENARIO=warm_cache \
     VIEWERS_LIST="$PERF_COMPARE_VIEWERS" \
@@ -1096,6 +1037,7 @@ perf_seed_and_pool() {
   # PERF_WALLETS is pinned so the pool covers the measured viewer count even
   # though this setup pass only plays 1 viewer.
   PERF_CONTENT_ID="$COMPARE_CONTENT_ID" \
+  PERF_FIXTURE_HASH="$COMPARE_FIXTURE_HASH" \
   PERF_SETUP=1 \
   PERF_WALLETS="$PERF_COMPARE_VIEWERS" \
   PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
@@ -1105,21 +1047,6 @@ perf_seed_and_pool() {
   BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
     bash scripts/perf-acceptance.sh \
     || fail "wallet pool setup failed for ${project}"
-}
-
-# reconfigure_monolith_rpcs <project> <rpc-urls> — recreate the monolith with a
-# given STREAMGATE_CHAIN_RPC_URLS value and wait for health. The chain client
-# reads its endpoint list at boot, so changing the wiring means recreating the
-# container, not editing it in place. The reference pass cannot use this (its
-# binary predates the env), which is exactly why the CANDIDATE's measured
-# rounds are reconfigured to match the reference's single-endpoint wiring.
-reconfigure_monolith_rpcs() {
-  local project="$1" rpcs="$2"
-  VERIFY_CHAIN_RPCS="$rpcs" \
-    docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never monolith >/dev/null \
-    || fail "could not recreate the monolith with STREAMGATE_CHAIN_RPC_URLS='${rpcs}'"
-  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
-    || fail "monolith did not come back after the RPC reconfiguration"
 }
 
 # perf_reference_pass <ref> — build the reference image from the ref, bring up
@@ -1133,49 +1060,18 @@ perf_reference_pass() {
   unset VERIFY_BUILD_REF
   perf_seed_and_pool "$project" "$dir" 1
   perf_rounds "$dir" "$PERF_WALLET_KEYS_FILE" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH" "$(git rev-parse "${ref}^{commit}")"
+  PERF_TARGET_SHA="$ref" bash scripts/perf-run-manifest.sh "$dir" "$project" "$VERIFY_COMPOSE_FILE" \
+    || fail "could not capture the reference environment"
+  python3 scripts/cd/perf_protocol.py "$dir" --mode reference --target "$ref" \
+    || fail "reference evidence is incomplete"
   teardown_fullstack "$project"
 }
 
 # perf_compare_p95 <ref-dir> <cand-dir> — median ttfb p95 per side, then the
 # 1.20x limit. Both sides must carry real rounds and a real commit.
 perf_compare_p95() {
-  python3 - "$1" "$2" "$PERF_COMPARE_VIEWERS" "$PERF_COMPARE_LIMIT" <<'PY' || fail "the candidate's p95 regressed past the reference limit"
-import glob, json, os, statistics, sys
-
-ref_dir, cand_dir, viewers, limit = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4])
-
-def rounds(d):
-    out = []
-    for f in sorted(glob.glob(os.path.join(d, "round-*", f"warm_cache-viewers-{viewers}.json"))):
-        r = json.load(open(f))
-        p95 = (r.get("ttfb_ms") or {}).get("p95")
-        if not p95:
-            sys.exit(f"{f}: no ttfb p95 recorded — not a comparable round")
-        out.append((float(p95), r.get("commit", "")))
-    return out
-
-ref, cand = rounds(ref_dir), rounds(cand_dir)
-if not ref:
-    sys.exit(f"no reference rounds under {ref_dir}")
-if not cand:
-    sys.exit(f"no candidate rounds under {cand_dir}")
-
-ref_p95 = statistics.median([p for p, _ in ref])
-cand_p95 = statistics.median([p for p, _ in cand])
-ratio = cand_p95 / ref_p95 if ref_p95 else float("inf")
-
-def show(label, rows):
-    print(f"  {label:10s} rounds(ms)={[round(p, 1) for p, _ in rows]} "
-          f"median={statistics.median([p for p, _ in rows]):.2f} "
-          f"commit(s)={sorted({c[:12] for _, c in rows})}")
-
-print(f"reference comparison at {viewers} viewers ({len(ref)} vs {len(cand)} rounds):")
-show("reference", ref)
-show("candidate", cand)
-print(f"  ratio={ratio:.3f} limit={limit} → {'PASS' if ratio <= limit else 'REGRESSION'}")
-if ratio > limit:
-    sys.exit(f"candidate p95 {cand_p95:.2f}ms exceeds {limit}x the reference {ref_p95:.2f}ms")
-PY
+  python3 scripts/cd/perf_protocol.py "$2" --mode comparison --reference-root "$1" \
+    || fail "reference comparison failed its identity, sample or p95 requirements"
 }
 
 stage_perf() {
@@ -1266,19 +1162,26 @@ stage_perf() {
     done
   done
   if [ "$VERIFY_MODE" = pr ]; then
+    bash scripts/perf-run-manifest.sh "$result_dir" "$project" "$VERIFY_COMPOSE_FILE" \
+      || fail "could not capture the smoke environment"
+    python3 scripts/cd/perf_protocol.py "$result_dir" --mode smoke \
+      || fail "smoke evidence is incomplete"
     printf '%s\n' 'PR smoke only: full matrix and comparison remain required for candidate mode' > "$result_dir/pr-smoke.txt"
     teardown_fullstack "$project"
     unset VERIFY_CHAIN_RPCS
     return
   fi
-  # SG-07 step 5: the candidate's side of the reference comparison, measured
-  # BEFORE the fault matrix so it never shares the stack with a stopped
-  # endpoint. The reference side already ran and is torn down.
+  # Each comparison round restores both front doors before warmup.
+  # The reference stack already finished and was removed on this runner.
   if [ -n "${PERF_REFERENCE_REF:-}" ]; then
     local compare_dir="${ARTIFACT_DIR}/perf-compare"
     rm -rf "$compare_dir"; mkdir -p "$compare_dir"
     # Both sides use the same two same-chain RPC front doors.
     perf_rounds "$compare_dir" "$PERF_WALLET_KEYS_FILE" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}" ""
+    bash scripts/perf-run-manifest.sh "$compare_dir" "$project" "$VERIFY_COMPOSE_FILE" \
+      || fail "could not capture the comparison environment"
+    python3 scripts/cd/perf_protocol.py "$compare_dir" --mode comparison \
+      || fail "candidate comparison evidence is incomplete"
   fi
   # SG-07 step 3: the fault matrix, injected for real against this same stack.
   # Every fault scenario was measured at all four viewer counts in every round.

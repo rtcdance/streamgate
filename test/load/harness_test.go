@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -631,6 +633,8 @@ func TestPerfHarness_RejectsInvalidPlaybackDurations(t *testing.T) {
 		"#EXTM3U\n/variant.m3u8\n", "#EXTM3U\n#EXTINF:NaN,\n/seg.ts\n", "#EXTM3U\n#EXTINF:0,\n/seg.ts\n",
 		"#EXTM3U\n#EXTINF:-1,\n/seg.ts\n", "#EXTM3U\n#EXTINF:9999999999999999999,\n/seg.ts\n",
 		"#EXTM3U\n#EXTINF:2,\n", "#EXTM3U\n#EXTINF:2,\n#EXTINF:2,\n/seg.ts\n",
+		"#EXTM3U\n#EXTINF:1m,\n/seg.ts\n", "#EXTM3U\n#EXTINF:1u,\n/seg.ts\n",
+		"#EXTM3U\n#EXTINF:1h2m3,\n/seg.ts\n", "#EXTM3U\n#EXTINF:+1,\n/seg.ts\n",
 	} {
 		_, err := parsePlaybackSegments([]byte(body))
 		require.Error(t, err)
@@ -639,6 +643,24 @@ func TestPerfHarness_RejectsInvalidPlaybackDurations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, segments, 1)
 	require.Equal(t, 1250*time.Millisecond, segments[0].duration)
+}
+
+type firstByteTransport struct{}
+
+func (firstByteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if trace := httptrace.ContextClientTrace(req.Context()); trace != nil && trace.GotFirstResponseByte != nil {
+		trace.GotFirstResponseByte()
+	}
+	time.Sleep(30 * time.Millisecond)
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("media")), ContentLength: 5, Header: make(http.Header)}, nil
+}
+
+func TestPerfHarness_MeasuresFirstByteBeforeHeadersComplete(t *testing.T) {
+	client := &http.Client{Transport: firstByteTransport{}}
+	sample, _ := fetchURL(context.Background(), client, "http://localhost/segment.ts", "test-token", Config{})
+	require.Empty(t, sample.Err)
+	require.Greater(t, sample.TTFB, time.Duration(0))
+	require.GreaterOrEqual(t, sample.Duration-sample.TTFB, 25*time.Millisecond)
 }
 
 func TestPerfHarness_NearestRankSmallSamples(t *testing.T) {
@@ -677,6 +699,24 @@ func TestPerfHarness_MediaHashesRejectCorruptOrUnknownSegments(t *testing.T) {
 	require.NotEmpty(t, bad.Err)
 }
 
+func TestPerfHarness_CorruptSegmentIsFatal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/manifest.m3u8") {
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2,\n/segment.ts\n"))
+			return
+		}
+		_, _ = w.Write([]byte("corrupt media"))
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1,
+		Interval: time.Second, Duration: 500 * time.Millisecond, PaceByEXTINF: true,
+		MediaSHA256: map[string]string{"/segment.ts": strings.Repeat("0", 64)}}
+	result, err := Run(context.Background(), cfg)
+	require.NotNil(t, result)
+	require.Positive(t, result.ErrorCount)
+	require.Error(t, err, "corruption must fail independently of the aggregate success-rate threshold")
+}
+
 func TestPerfHarness_ResultUsesExplicitRevision(t *testing.T) {
 	srv, _ := newTokenEchoServer(t)
 	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 30 * time.Millisecond, CommitSHA: "explicit-reference-revision"}
@@ -712,7 +752,8 @@ func TestPerfHarness_PlaylistNamedSegmentCannotBypassHash(t *testing.T) {
 	defer srv.Close()
 	cfg := Config{BaseURL: srv.URL, ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: 50 * time.Millisecond, PaceByEXTINF: true, MediaSHA256: map[string]string{"/segment.ts": strings.Repeat("a", 64)}}
 	result, err := Run(context.Background(), cfg)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Positive(t, result.MediaHashErrorCount)
 	require.Positive(t, result.ErrorCount)
 	require.Zero(t, result.VerifiedMediaCount)
 }
