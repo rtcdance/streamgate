@@ -29,6 +29,15 @@ MINIO_CONTAINER=""
 # re-logging in for each of the eight scenarios walks into a 429 late in the
 # run, which used to surface as "the outbox point never fired".
 TOKEN_A=""
+# Scenario state, declared up front: `set -u` turns an unset variable in a
+# diagnostic path into a dead harness, which is exactly when the diagnostics are
+# needed most.
+CONTENT_ID=""
+TASK=""
+SEED_TAG=""
+SEED_PID=""
+SQLLAST=""
+STABLELAST=""
 WORKER_RECLAIM_BOUND="${WORKER_RECLAIM_BOUND:-60}"
 # Bounded observation window that covers the broker's own redelivery timer
 # (jsAckWait 30s in the candidate) plus a margin. A predicate is polled for the
@@ -82,7 +91,11 @@ seed_note() { printf '  seed[%s]: %s\n' "${SEED_TAG:-?}" "$*" >&2; }
 # and returns non-zero. `curl -sf` alone swallows exactly that information.
 api_post() {
   local path="$1" token="$2" body="$3"
-  local out="${WORKDIR}/resp.json" args=(-s -o "$out" -w '%{http_code}' -X POST "$BASE_URL$path")
+  local out
+  out="${WORKDIR}/resp.json"
+  # `args` on its own statement: a local referenced by a sibling assignment in the
+  # same `local` command is still unbound under `set -u` (same trap as `window`).
+  local args=(-s -o "$out" -w '%{http_code}' -X POST "$BASE_URL$path")
   [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
   [ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
   local code
@@ -404,9 +417,11 @@ else
   f "the barrier never fired: the worker did not park at worker.claimed"
   record F00-barrier worker.claimed FAIL "not reached within 60s"
 fi
-wait_sql "SELECT status FROM transcoding_tasks WHERE content_id='${CONTENT_ID}'" completed 120 \
-  && p "the seeded task completed on the real worker" \
-  || { f "the seeded task did not complete (${SQLLAST:-no row})"; }
+if [ "$SEEDED" = 1 ]; then
+  wait_sql "SELECT status FROM transcoding_tasks WHERE content_id='${CONTENT_ID}'" completed 120 \
+    && p "the seeded task completed on the real worker" \
+    || { f "the seeded task did not complete (${SQLLAST:-no row})"; }
+fi
 barrier_reset
 
 # ---------------------------------------------------------------------------
