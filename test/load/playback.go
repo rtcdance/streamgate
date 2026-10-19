@@ -23,6 +23,11 @@ func parsePlaybackSegments(body []byte) ([]playbackSegment, error) {
 				return nil, fmt.Errorf("EXTINF without segment")
 			}
 			value := strings.SplitN(strings.TrimPrefix(line, "#EXTINF:"), ",", 2)[0]
+			if value == "" || strings.Count(value, ".") > 1 || strings.IndexFunc(value, func(r rune) bool {
+				return (r < '0' || r > '9') && r != '.'
+			}) >= 0 {
+				return nil, fmt.Errorf("invalid EXTINF duration")
+			}
 			parsed, err := time.ParseDuration(value + "s")
 			if err != nil || parsed <= 0 {
 				return nil, fmt.Errorf("invalid EXTINF duration")
@@ -85,6 +90,7 @@ func playbackLoop(ctx context.Context, client *http.Client, cfg Config, jwt stri
 		// turn a media request into an unchecked playlist request.
 		if sample.ok() && !sample.HashVerified {
 			if err := verifyMediaHash(mediaURL, mediaBody, cfg.MediaSHA256); err != nil {
+				sample.MediaHashError = true
 				sample.Err = err.Error()
 			} else {
 				sample.HashVerified = true

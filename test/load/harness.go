@@ -32,12 +32,14 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -129,14 +131,15 @@ type Config struct {
 
 // Sample is one executed request.
 type Sample struct {
-	HashVerified bool
-	ViewerID     int // zero-based index; contains no credential or wallet address
-	URL          string
-	StatusCode   int
-	TTFB         time.Duration
-	Duration     time.Duration
-	Bytes        int64
-	Err          string // empty on success
+	MediaHashError bool
+	HashVerified   bool
+	ViewerID       int // zero-based index; contains no credential or wallet address
+	URL            string
+	StatusCode     int
+	TTFB           time.Duration
+	Duration       time.Duration
+	Bytes          int64
+	Err            string // empty on success
 	// Aborted marks a request cut short by the sampling window closing (context
 	// cancellation/deadline). Aborted samples are neither successes nor errors:
 	// they are a harness boundary artifact, not a server failure.
@@ -160,9 +163,10 @@ type Result struct {
 	WarmupSec       float64 `json:"warmup_sec"`
 	DurationSec     float64 `json:"duration_sec"`
 
-	MediaHashesSHA256  string          `json:"media_hashes_sha256,omitempty"`
-	VerifiedMediaCount int64           `json:"verified_media_count"`
-	ViewerSamples      []ViewerSamples `json:"viewer_samples"`
+	MediaHashesSHA256   string          `json:"media_hashes_sha256,omitempty"`
+	MediaHashErrorCount int64           `json:"media_hash_error_count"`
+	VerifiedMediaCount  int64           `json:"verified_media_count"`
+	ViewerSamples       []ViewerSamples `json:"viewer_samples"`
 
 	SuccessCount  int64            `json:"success_count"`
 	ErrorCount    int64            `json:"error_count"`
@@ -592,6 +596,11 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	start := time.Now()
+	var firstByte atomic.Int64
+	trace := &httptrace.ClientTrace{GotFirstResponseByte: func() {
+		firstByte.CompareAndSwap(0, int64(time.Since(start)))
+	}}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	resp, err := client.Do(req)
 	if err != nil {
 		s := Sample{URL: urlStr, Duration: time.Since(start), Err: "do request: " + err.Error()}
@@ -602,7 +611,7 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 	}
 	defer resp.Body.Close()
 
-	ttfb := time.Since(start)
+	ttfb := time.Duration(firstByte.Load())
 	body, err = io.ReadAll(resp.Body)
 	end := time.Since(start)
 	s := Sample{URL: urlStr, StatusCode: resp.StatusCode, TTFB: ttfb, Duration: end, Bytes: int64(len(body))}
@@ -625,6 +634,7 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 	}
 	if len(cfg.MediaSHA256) > 0 && !isManifestURL(urlStr) {
 		if err := verifyMediaHash(urlStr, body, cfg.MediaSHA256); err != nil {
+			s.MediaHashError = true
 			s.Err = err.Error()
 			return s, nil
 		}
@@ -821,6 +831,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	var ttfbs, latencies []float64
 	for _, s := range samples {
+		if s.MediaHashError {
+			res.MediaHashErrorCount++
+		}
 		// Aborted samples straddle the sampling-window boundary and are
 		// neither success nor error; they are still visible in the status
 		// distribution for transparency.
@@ -856,6 +869,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		return res, fmt.Errorf("sampling interrupted: %w", err)
 	}
 	err = res.SamplingViolation()
+	if err == nil && res.MediaHashErrorCount != 0 {
+		err = fmt.Errorf("%d media responses failed independent fixture hash verification", res.MediaHashErrorCount)
+	}
 	return res, err
 }
 

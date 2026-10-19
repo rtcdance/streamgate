@@ -240,6 +240,14 @@
     "ops-gateway-sg14": [
       {
         "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestWeb3Handlers_RPCStatus_DoesNotExposeEndpointCredentials"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3",
+        "test": "TestChainClient_LogsDoNotExposeEndpointCredentials"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
         "test": "TestAcceptance_MediaRateLimitAndNAT"
       },
       {
@@ -276,6 +284,14 @@
       {"package": "github.com/rtcdance/streamgate/test/load", "test": "TestPerfSetup_MintViewerWallets"}
     ],
     "perf-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_CorruptSegmentIsFatal"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_MeasuresFirstByteBeforeHeadersComplete"
+      },
       {
         "package": "github.com/rtcdance/streamgate/test/load",
         "test": "TestPerfHarness_SamplingPreparationIsRequired"

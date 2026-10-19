@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keep the real application and worker Prometheus snapshots; missing probes fail."""
 import argparse
+import math
 import os
 from pathlib import Path
 import urllib.request
@@ -13,11 +14,27 @@ def snapshot(url, output):
     request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=5) as response:
         body = response.read(4 * 1024 * 1024 + 1)
+    validate_observations(body)
+    output.write_bytes(body)
+
+
+def validate_observations(body):
     if len(body) > 4 * 1024 * 1024 or not body.endswith(b"\n"):
         raise ValueError("metrics response is truncated or oversized")
-    if b"process_cpu_seconds_total " not in body or b"process_resident_memory_bytes " not in body:
+    observations = {}
+    for line in body.splitlines():
+        fields = line.split()
+        if not fields or fields[0] not in (b"process_cpu_seconds_total", b"process_resident_memory_bytes"):
+            continue
+        if len(fields) != 2 or fields[0] in observations:
+            raise ValueError("invalid or duplicate process observation")
+        value = float(fields[1])
+        if not math.isfinite(value) or value < 0 or (fields[0] == b"process_resident_memory_bytes" and value == 0):
+            raise ValueError("invalid process observation value")
+        observations[fields[0]] = value
+    if len(observations) != 2:
         raise ValueError("metrics response is missing live process observations")
-    output.write_bytes(body)
+    return observations
 
 
 def main():

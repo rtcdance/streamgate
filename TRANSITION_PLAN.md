@@ -117,7 +117,13 @@
 
 > **SG-14 端点凭据保护补充（2026-10-19）：** canary 负例真实复现公开 `/api/v1/web3/rpc-status` 返回含用户名、密码、host、path、query、fragment 的完整 provider URL；RPC 连接／故障日志也输出原始端点及可能包含凭据的 transport error。接口保留原 URL 字段的 string wire shape，以 `rpc://<chainID>/<endpoint index>` 标识实例；ChainClient 日志改为 endpoint index 与 error type，内部实际连接／failover 和返回错误语义保持原契约。新增两个 canary 回归在 Docker 内先 RED 后 GREEN，`pkg/web3`／`pkg/gateway` 两包完整 `-race -count=1 -json` 原退出 0；SG-14 五个精确必需测试均 PASS，两个范围 lint 均 0 issues、vet 通过。证据暂存工具容器 `/tmp/e-{status-red,rpc-logs-red,rpc-green,rpc-lint}.*`，后续复制至本轮 artifact。此证据仅覆盖上述接口与 ChainClient 日志路径；不宣称全仓库秘密审计或新候选整体验收通过。
 
-> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 的真实单观众、三类独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
+> **E 计量与证据门补修（2026-10-19，基于 `acef690`）：** 确定性负例先证明旧 TTFB 记录响应头完成时间、EXTINF 把 `1m` 当成毫秒、Prometheus HELP 定义／NaN／重复进程样本仍可过门。已改用 `httptrace.GotFirstResponseByte`，EXTINF 只接受十进制数值，进程采样要求真实、有限、非负的唯一数值及正 RSS。另一个真实负例证明任一损坏分片只进入普通错误计数，可能被成功率阈值容忍；现新增 `media_hash_error_count`，任一 hash 不符／未知路径使 Run 失败，所有场景均不得以容量探索或 99% 阈值容忍损坏媒体。Go 必需清单 **30/30 PASS**，两个性能包 tagged race 原退出 0；tagged vet 与 lint 均通过，lint 0 issues。
+>
+> **矩阵与比较门：** 旧 provenance 脚本对仅 **15/48** 场景的合成反例返回 0，已保留原始输出；现要求 3 轮 × 4 场景 × 1/10/50/100 精确文件集合，缺失／重复轮次／陈旧额外结果均拒绝。每个结果核对实际 30 秒窗口、独立观众完成记录、错误分母、零 hash 错误、MinIO generation 对象 hash 清单、原始 Go 事件与退出码、实际镜像／资源限额，并从原始 cgroup JSONL 重算摘要。reference 与 candidate 各要求精确 3 轮 50 观众，同 Docker runner、工具镜像、harness 源码／二进制、配置／fixture／rendition、基础设施镜像及预算，前后串行，p95 中位数不得超过 1.20。环境摘要改为实际 Docker loader 与二进制身份，删除“宿主无限额 loader”的陈旧说明和废弃弱矩阵入口；H5 前门也加入版本化预算。reference seed 补传真实 fixture hash，双方环境在各自拆栈前保存。拟验证安全基线前移至含端点凭据修复的 `acef69009fe5050726f4fabc345410104867148a`；仍须通过完整安全／回退门，不能仅凭被选作 reference 宣称安全。
+>
+> **本轮工具证据与限制：** 性能 Python 自检 **40/40 PASS**（fixture 7、cgroup 10、metrics 4、完整协议 14、环境 5），Shell **17/17 PASS**，语法与 diff check 通过。48 场景 schema 正例为明确的合成单元 fixture，仅验证校验器；不得记作真实性能矩阵。原始 RED／race JSON／原始退出码／lint 已归档 `.verify-artifacts/sg-perf-integrity-20261019/`；验证在挂载修复源码后执行，尚非干净候选完整门。RPC 修复提交为 `acef690`。接下来冻结含本次改动的新候选，先用真实 Docker smoke 验证新环境／证据链，再继续完整矩阵与剩余 D／F 门。
+
+> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 的真实单观众、三类独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。仍需补齐故障屏障／proxy 状态的逐场景证据、确认每次 primary 故障确实从主端切换、RPC／cache／queue／media／RTF 原始数值与转码 metadata 的强制核验。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
 ### 0.1 目标与执行边界
