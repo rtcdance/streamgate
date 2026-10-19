@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -276,30 +277,11 @@ func TestPerfHarness_MultiWalletViewerMapping(t *testing.T) {
 	assert.Zero(t, res.LoginsFailed)
 }
 
-// TestPerfHarness_SingleWalletStillWorks guards backwards compatibility: a
-// pre-resolved JWT (or single Wallet+PrivateKey) still drives every viewer,
-// with WalletPoolSize reported as the 1-wallet pool it effectively is.
-func TestPerfHarness_SingleWalletStillWorks(t *testing.T) {
-	srv, seen := newTokenEchoServer(t)
-
-	cfg := Config{
-		BaseURL:   srv.URL,
-		Scenario:  "unit",
-		JWTToken:  "single-token",
-		ContentID: "c1",
-		Viewers:   2,
-		Interval:  20 * time.Millisecond,
-		Warmup:    0,
-		Duration:  300 * time.Millisecond,
-	}
-	res, err := Run(context.Background(), cfg)
-	require.NoError(t, err)
-	require.Greater(t, res.SuccessCount, int64(0))
-	assert.Zero(t, res.ErrorCount)
-	assert.Equal(t, 1, res.WalletPoolSize)
-	for _, a := range seen() {
-		assert.Equal(t, "Bearer single-token", a)
-	}
+func TestPerfHarness_SingleWalletCannotDriveMultipleViewers(t *testing.T) {
+	srv, _ := newTokenEchoServer(t)
+	cfg := Config{BaseURL: srv.URL, JWTToken: "single-token", ContentID: "c1", Viewers: 2, Interval: 20 * time.Millisecond, Duration: 300 * time.Millisecond}
+	_, err := Run(context.Background(), cfg)
+	require.Error(t, err)
 }
 
 // TestPerfHarness_LoginPacing drives the real challenge->login flow against a
@@ -380,7 +362,9 @@ func TestPerfHarness_LoginPacing(t *testing.T) {
 	})
 
 	t.Run("FailedLoginFailsRun", func(t *testing.T) {
-		badWallet = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+		key, err := crypto.HexToECDSA(strings.TrimPrefix(keys[1], "0x"))
+		require.NoError(t, err)
+		badWallet = crypto.PubkeyToAddress(key.PublicKey).Hex()
 		t.Cleanup(func() { badWallet = "" })
 		cfg := base
 		// Wallet claims an address the stub rejects at login time — a real
@@ -390,7 +374,7 @@ func TestPerfHarness_LoginPacing(t *testing.T) {
 			{Wallet: badWallet, PrivateKey: keys[1], ChainID: 31337},
 		}
 		cfg.Viewers = 2
-		_, err := Run(context.Background(), cfg)
+		_, err = Run(context.Background(), cfg)
 		require.Error(t, err, "a failed wallet login must fail the run loudly")
 		assert.Contains(t, err.Error(), "login")
 	})
@@ -526,4 +510,128 @@ func TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload(t *testing.T) {
 	above.Viewers = CapacityTierViewers + 1
 	require.NoError(t, CapacityTierViolation(above, CapacityTierViewers),
 		"the first viewer count above the M4 count is the exploration")
+}
+
+func TestPerfHarness_RejectsSharedViewerIdentities(t *testing.T) {
+	key := strings.Repeat("0", 63) + "1"
+	base := Config{BaseURL: "http://localhost", ContentID: "c1", Viewers: 2, Interval: time.Second, Duration: time.Second}
+	for _, tc := range []struct {
+		name    string
+		wallets []WalletIdentity
+	}{
+		{"short pool", []WalletIdentity{{JWTToken: "one"}}},
+		{"same token", []WalletIdentity{{JWTToken: "one"}, {JWTToken: "one"}}},
+		{"same wallet different sessions", []WalletIdentity{{JWTToken: "one", Wallet: "0xabc"}, {JWTToken: "two", Wallet: "0xABC"}}},
+		{"same private key", []WalletIdentity{{PrivateKey: key}, {PrivateKey: "0x" + key}}},
+		{"key address mismatch", []WalletIdentity{{PrivateKey: key, Wallet: "0xwrong"}, {JWTToken: "two"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) { cfg := base; cfg.Wallets = tc.wallets; require.Error(t, cfg.validate()) })
+	}
+}
+
+func TestPerfHarness_RejectsEmptySamplingWindow(t *testing.T) {
+	srv, _ := newTokenEchoServer(t)
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: time.Millisecond}
+	res, err := Run(context.Background(), cfg)
+	require.Error(t, err, "zero completed samples must fail the run")
+	require.NotNil(t, res, "retain failed result for artifact upload")
+}
+
+func TestPerfHarness_SamplingCompleteness(t *testing.T) {
+	good := func() *Result {
+		return &Result{Viewers: 2, SuccessCount: 1, ErrorCount: 1, AbortedCount: 1, ViewerSamples: []ViewerSamples{{ViewerID: 0, SuccessCount: 1}, {ViewerID: 1, ErrorCount: 1, AbortedCount: 1}}}
+	}
+	require.NoError(t, good().SamplingViolation())
+	for _, tc := range []struct {
+		name   string
+		change func(*Result)
+	}{
+		{"missing viewer", func(r *Result) { r.ViewerSamples = r.ViewerSamples[:1] }},
+		{"duplicate viewer", func(r *Result) { r.ViewerSamples[1].ViewerID = 0 }},
+		{"boundary only viewer", func(r *Result) { r.ViewerSamples[1].ErrorCount = 0; r.ErrorCount = 0 }},
+		{"wrong totals", func(r *Result) { r.SuccessCount++ }},
+		{"negative counts", func(r *Result) { r.ViewerSamples[0].ErrorCount = -1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) { r := good(); tc.change(r); require.Error(t, r.SamplingViolation()) })
+	}
+}
+
+func TestPerfHarness_ServerFailuresRemainErrors(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusGatewayTimeout} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+			defer srv.Close()
+			cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 50 * time.Millisecond}
+			res, err := Run(context.Background(), cfg)
+			require.NoError(t, err)
+			require.Zero(t, res.SuccessCount)
+			require.Positive(t, res.ErrorCount)
+			require.Equal(t, res.ErrorCount, res.HTTPStatuses[fmt.Sprint(status)])
+			require.Equal(t, res.ErrorCount, res.ViewerSamples[0].ErrorCount)
+		})
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer srv.Close()
+	s, _ := fetchURL(context.Background(), &http.Client{Timeout: 10 * time.Millisecond}, srv.URL, "one", Config{})
+	require.NotEmpty(t, s.Err)
+	require.False(t, s.Aborted, "client timeout inside the window is a server error")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s, _ = fetchURL(ctx, http.DefaultClient, srv.URL, "one", Config{})
+	require.NotEmpty(t, s.Err)
+	require.True(t, s.Aborted, "sampling cancellation is reported separately")
+}
+
+func TestPerfHarness_HTTPFailureAtBoundaryIsNotExcluded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	s, _ := fetchURL(ctx, http.DefaultClient, srv.URL, "one", Config{})
+	require.Equal(t, http.StatusTooManyRequests, s.StatusCode)
+	require.NotEmpty(t, s.Err)
+	require.False(t, s.Aborted, "an observed HTTP error must remain in the success-rate denominator")
+}
+
+func TestPerfHarness_PlaysAtEXTINFPace(t *testing.T) {
+	var mu sync.Mutex
+	segments := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "manifest") {
+			_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2.0,\n/segment.ts\n#EXTINF:2.0,\n/segment.ts\n"))
+			return
+		}
+		mu.Lock()
+		segments++
+		mu.Unlock()
+		_, _ = w.Write([]byte("media"))
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 200 * time.Millisecond, PaceByEXTINF: true}
+	res, err := Run(context.Background(), cfg)
+	require.NoError(t, err)
+	mu.Lock()
+	n := segments
+	mu.Unlock()
+	require.Equal(t, 1, n, "playback must not burst every segment on each interval")
+	require.True(t, res.PaceByEXTINF)
+}
+
+func TestPerfHarness_RejectsInvalidPlaybackDurations(t *testing.T) {
+	for _, body := range []string{
+		"#EXTM3U\n/variant.m3u8\n", "#EXTM3U\n#EXTINF:NaN,\n/seg.ts\n", "#EXTM3U\n#EXTINF:0,\n/seg.ts\n",
+		"#EXTM3U\n#EXTINF:-1,\n/seg.ts\n", "#EXTM3U\n#EXTINF:9999999999999999999,\n/seg.ts\n",
+		"#EXTM3U\n#EXTINF:2,\n", "#EXTM3U\n#EXTINF:2,\n#EXTINF:2,\n/seg.ts\n",
+	} {
+		_, err := parsePlaybackSegments([]byte(body))
+		require.Error(t, err)
+	}
+	segments, err := parsePlaybackSegments([]byte("#EXTM3U\r\n#EXTINF:1.25,title\r\n/seg.ts\r\n"))
+	require.NoError(t, err)
+	require.Len(t, segments, 1)
+	require.Equal(t, 1250*time.Millisecond, segments[0].duration)
 }

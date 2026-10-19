@@ -3,6 +3,10 @@
   "suites": {
     "durability-tests": [
       {
+        "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
+        "test": "TestOutbox_MissingDLQIntentRetainsOriginalDelivery"
+      },
+      {
         "package": "github.com/rtcdance/streamgate/pkg/service",
         "test": "TestAcceptance_ChainNonceFloor"
       },
@@ -268,6 +272,34 @@
     "perf-tests": [
       {
         "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_RejectsSharedViewerIdentities"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_RejectsEmptySamplingWindow"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_SamplingCompleteness"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ServerFailuresRemainErrors"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_HTTPFailureAtBoundaryIsNotExcluded"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_PlaysAtEXTINFPace"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_RejectsInvalidPlaybackDurations"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
         "test": "TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload"
       },
       {
@@ -288,7 +320,7 @@
       },
       {
         "package": "github.com/rtcdance/streamgate/test/load",
-        "test": "TestPerfHarness_SingleWalletStillWorks"
+        "test": "TestPerfHarness_SingleWalletCannotDriveMultipleViewers"
       },
       {
         "package": "github.com/rtcdance/streamgate/test/load",

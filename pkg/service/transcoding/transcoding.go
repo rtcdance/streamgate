@@ -722,8 +722,12 @@ func (s *TranscodingService) settleAlreadyFailed(ctx context.Context, task *Tran
 		return
 	}
 	if !ok {
-		// Legacy failed row without an intent: nothing to publish.
-		s.ack(handle, log)
+		// Without the durable intent, successful DLQ publication cannot be proven.
+		// Retain the original delivery until the authoritative record is repaired.
+		if log != nil {
+			log.Error("failed task is missing its durable DLQ intent", zap.String("task_id", task.ID))
+		}
+		s.nak(handle, nakBusyDelay, log)
 		return
 	}
 	if status != "delivered" {

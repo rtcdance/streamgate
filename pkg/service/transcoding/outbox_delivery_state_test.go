@@ -73,3 +73,40 @@ func TestOutbox_DLQDeliveryMarkFailureRetainsOriginalDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestOutbox_MissingDLQIntentRetainsOriginalDelivery(t *testing.T) {
+	queue := newRecordingQueue()
+	svc, db := newDurabilityFixture(t, queue, &mockVideoTranscoder{transcodeErr: errors.New("transcode failure")})
+	id, err := svc.Transcode(context.Background(), "content-missing-dlq", "720p", "/tmp/input.mp4", 5, "0xOwner")
+	require.NoError(t, err)
+	task := &models.TranscodingTask{ID: id, ContentID: "content-missing-dlq", Profile: "720p", InputURL: "/tmp/input.mp4"}
+	deliverTo(svc, queue, task)
+	db.advance(2 * time.Second)
+	deliverTo(svc, queue, task)
+	db.advance(4 * time.Second)
+	queue.mu.Lock()
+	queue.publishErr[models.OutboxKindDLQ] = errors.New("broker unavailable")
+	queue.mu.Unlock()
+	deliverTo(svc, queue, task)
+	require.Equal(t, "failed", db.task(id).status)
+	key := models.OutboxKindDLQ + ":" + id
+	db.mu.Lock()
+	intent := db.outbox[key]
+	delete(db.outbox, key)
+	db.mu.Unlock()
+	require.NotNil(t, intent)
+	naks := len(queue.nakDelays(id))
+	deliverTo(svc, queue, task)
+	require.Zero(t, queue.ackCount(id), "missing durable intent must never silently settle the original delivery")
+	require.Len(t, queue.nakDelays(id), naks+1)
+	db.mu.Lock()
+	db.outbox[key] = intent
+	db.mu.Unlock()
+	queue.mu.Lock()
+	delete(queue.publishErr, models.OutboxKindDLQ)
+	queue.mu.Unlock()
+	deliverTo(svc, queue, task)
+	require.Equal(t, "delivered", db.outboxRow(models.OutboxKindDLQ, id).status)
+	require.Equal(t, 1, queue.ackCount(id))
+	require.Equal(t, 1, queue.publishCount(models.OutboxKindDLQ, id))
+}
