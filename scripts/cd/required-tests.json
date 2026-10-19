@@ -272,6 +272,34 @@
     "perf-tests": [
       {
         "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_MediaHashManifestValidation"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_PlaylistNamedSegmentCannotBypassHash"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_NearestRankSmallSamples"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_PacedPlaybackRequiresMediaHashes"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_MediaHashesRejectCorruptOrUnknownSegments"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ResultUsesExplicitRevision"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_ManifestDetectionUsesURLPath"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
         "test": "TestPerfHarness_RejectsSharedViewerIdentities"
       },
       {

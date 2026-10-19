@@ -612,12 +612,17 @@ func TestPerfHarness_PlaysAtEXTINFPace(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := Config{BaseURL: srv.URL, ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 200 * time.Millisecond, PaceByEXTINF: true}
+	sum := sha256.Sum256([]byte("media"))
+	cfg.MediaSHA256 = map[string]string{"/segment.ts": hex.EncodeToString(sum[:])}
 	res, err := Run(context.Background(), cfg)
 	require.NoError(t, err)
 	mu.Lock()
 	n := segments
 	mu.Unlock()
 	require.Equal(t, 1, n, "playback must not burst every segment on each interval")
+	require.Equal(t, int64(1), res.VerifiedMediaCount)
+	require.Equal(t, int64(1), res.ViewerSamples[0].VerifiedMediaCount)
+	require.NotEmpty(t, res.MediaHashesSHA256)
 	require.True(t, res.PaceByEXTINF)
 }
 
@@ -634,4 +639,80 @@ func TestPerfHarness_RejectsInvalidPlaybackDurations(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, segments, 1)
 	require.Equal(t, 1250*time.Millisecond, segments[0].duration)
+}
+
+func TestPerfHarness_NearestRankSmallSamples(t *testing.T) {
+	samples := []float64{11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+	for _, tc := range []struct {
+		p    float64
+		want float64
+	}{{50, 6}, {95, 11}, {99, 11}} {
+		got := Percentile(samples, tc.p)
+		require.NotNil(t, got)
+		require.Equal(t, tc.want, *got)
+	}
+}
+
+func TestPerfHarness_PacedPlaybackRequiresMediaHashes(t *testing.T) {
+	cfg := Config{BaseURL: "http://localhost", ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: time.Second, PaceByEXTINF: true}
+	require.Error(t, cfg.validate(), "a paced acceptance run must not silently omit media verification")
+	cfg.MediaSHA256 = map[string]string{"/segment.ts": "bad"}
+	require.Error(t, cfg.validate())
+}
+
+func TestPerfHarness_MediaHashesRejectCorruptOrUnknownSegments(t *testing.T) {
+	body := []byte("fixture media")
+	sum := sha256.Sum256(body)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(body) }))
+	defer srv.Close()
+	cfg := Config{MediaSHA256: map[string]string{"/segment.ts": hex.EncodeToString(sum[:])}}
+	good, _ := fetchURL(context.Background(), http.DefaultClient, srv.URL+"/segment.ts?playback_token=private", "one", cfg)
+	require.Empty(t, good.Err)
+	for _, path := range []string{"/unknown.ts", "/different.ts"} {
+		bad, _ := fetchURL(context.Background(), http.DefaultClient, srv.URL+path, "one", cfg)
+		require.NotEmpty(t, bad.Err)
+	}
+	cfg.MediaSHA256["/segment.ts"] = strings.Repeat("0", 64)
+	bad, _ := fetchURL(context.Background(), http.DefaultClient, srv.URL+"/segment.ts", "one", cfg)
+	require.NotEmpty(t, bad.Err)
+}
+
+func TestPerfHarness_ResultUsesExplicitRevision(t *testing.T) {
+	srv, _ := newTokenEchoServer(t)
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 30 * time.Millisecond, CommitSHA: "explicit-reference-revision"}
+	result, err := Run(context.Background(), cfg)
+	require.NoError(t, err)
+	require.Equal(t, cfg.CommitSHA, result.Commit)
+}
+
+func TestPerfHarness_ManifestDetectionUsesURLPath(t *testing.T) {
+	require.False(t, isManifestURL("https://example.invalid/segment.ts?name=manifest.m3u8"))
+	require.True(t, isManifestURL("https://example.invalid/content/manifest.m3u8?quality=360p"))
+}
+
+func TestPerfHarness_MediaHashManifestValidation(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	for _, hashes := range []map[string]string{{"": digest}, {"/segment.ts?playback_token=private": digest}, {"https://example.invalid/segment.ts": digest}, {"/segment.ts": "bad"}} {
+		_, err := mediaHashesDigest(hashes)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "private")
+	}
+	a, err := mediaHashesDigest(map[string]string{"/b.ts": digest, "/a.ts": digest})
+	require.NoError(t, err)
+	b, err := mediaHashesDigest(map[string]string{"/a.ts": digest, "/b.ts": digest})
+	require.NoError(t, err)
+	require.Equal(t, a, b)
+	require.Len(t, a, 64)
+}
+
+func TestPerfHarness_PlaylistNamedSegmentCannotBypassHash(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2,\n/other/manifest.m3u8\n"))
+	}))
+	defer srv.Close()
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", Quality: "360p", JWTToken: "one", Viewers: 1, Interval: time.Second, Duration: 50 * time.Millisecond, PaceByEXTINF: true, MediaSHA256: map[string]string{"/segment.ts": strings.Repeat("a", 64)}}
+	result, err := Run(context.Background(), cfg)
+	require.NoError(t, err)
+	require.Positive(t, result.ErrorCount)
+	require.Zero(t, result.VerifiedMediaCount)
 }

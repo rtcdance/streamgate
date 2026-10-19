@@ -97,6 +97,12 @@
 >
 > **D 批 outbox 补遗（2026-10-19）：** 新增 `TestOutbox_MissingDLQIntentRetainsOriginalDelivery`，先证实 failed 任务丢失 DLQ intent 时旧实现仍 Ack（期望 0、实际 1）。现改为受控错误日志并 Nak，保留原投递；恢复权威 intent 后复用同一消息身份，成功发布并标记 delivered 才 Ack。用例已登记为 `durability-tests` 必需项。本次对整个 `pkg/service/transcoding` 执行 Docker 内 race 测试，配置独立 PostgreSQL `e_go_review`，原退出码 0；真实 PostgreSQL delivery-mark 故障用例实际通过；两个既有非必需用例 `TestTranscodingService_downloadInputFile_ValidContentType`／`TestTranscodingService_ListTasks` 仍为 skip，未作通过证明。该缺失记录负例使用可控 DB fixture，不标为真实容器 kill／Anvil 故障实证，也不补齐 D 批剩余链故障矩阵。
 
+> **E 批 Go 结果可信度补修（2026-10-19，基于 `3dfcd68`）：** 新失败用例证明：11 个样本的 p95 被旧四舍五入算法记为 10 而非 11；未提供预期 hash、未知媒体路径仍可通过；`Config.CommitSHA` 被忽略而误标 reference；仅 query 带 `manifest.m3u8` 会误分类，且 EXTINF 指向 manifest 样式路径可绕过媒体 hash。现改为 nearest-rank 上取整；实时 EXTINF 验收必须提供独立 fixture hash 清单（`PERF_MEDIA_HASHES_FILE`，JSON path→SHA256；单一重复分片可用既有 `PERF_SEGMENT_SHA256`）；未知路径、非法 digest、带 query／凭据的清单 key 和 hash 不符均拒绝。分片身份按 EXTINF 确定，结果记录清单 SHA256、总量及逐观众 verified-media 计数；reference 显式 revision 优先。Docker 内 race 回归及严格必需清单 **26/26 PASS、原命令退出 0**；`go vet -tags load` 与 lint 通过，lint **0 issues**。原始负例和回归保留在本轮工具容器并归档至 `.verify-artifacts/sg-go-e-hashes-20261019/`。
+>
+> **后续接线（已于 2026-10-19 获准由本进程继续处理脚本）：** 从受信 fixture／MinIO 已发布 generation 独立生成逐对象 hash 清单，传给受限 loader；不能用播放 HTTP 返回值自行建立期望 hash。补齐 1/10/50/100 × 3 × 四场景、逐容器 cgroup CPU／RSS、同 runner 安全基线及严格结果身份校验，最终候选不能用开关跳过。当前旧脚本缺 hash 时应失败，不能通过撤销 Go 校验恢复旧绿灯。
+>
+> **补录既有媒体阶段实证（非当前 HEAD）：** `.verify-artifacts/sg-repair-m-1018-0210/candidate.json` 的 revision 为 `2659d0a7232a29f34fbda946524fe0520385e8b5`，archiveSHA256 为 `33213d1ef04d9bd3433b7a9ca654dfa3eacd5e5a9ce783d449bc4ac591c61221`；controller 原始日志记录 `stage=media PASS`，`logs/media.log` 两条腿各 `ALL 71 PASSED`，浏览器时间分别推进到 3.57 秒与 3.65 秒。该记录保留适用旧 SHA，不能补当前候选缺失的验收。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
