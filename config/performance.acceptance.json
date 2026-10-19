@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "safetyBaselineRevision": "f96fa41eb0b8d6967afcd26a6548eef6b2d77867",
+  "viewers": [1, 10, 50, 100],
+  "scenarios": ["warm_cache", "cold_cache", "rpc_primary_down", "rpc_all_down"],
+  "repeats": 3,
+  "warmupSeconds": 10,
+  "sampleSeconds": 30,
+  "comparisonViewers": 50,
+  "comparisonRounds": 3,
+  "p95RegressionLimit": 1.20,
+  "resources": {
+    "api": {"nanoCPUs": 2000000000, "memoryBytes": 2147483648},
+    "worker": {"nanoCPUs": 2000000000, "memoryBytes": 1073741824},
+    "loader": {"nanoCPUs": 1000000000, "memoryBytes": 536870912}
+  }
+}

@@ -75,7 +75,8 @@ type Config struct {
 	// fault injection is orchestrated outside (scripts/perf-acceptance.sh).
 	Scenario string
 	// CommitSHA is stamped into the result; CommitSHA() resolves it when empty.
-	CommitSHA string
+	HarnessRevision string
+	CommitSHA       string
 	// FixtureHash is the sha256 of the media fixture used to prepare this
 	// content; recorded so runs are comparable.
 	FixtureHash string
@@ -112,7 +113,8 @@ type Config struct {
 	Viewers  int
 	Interval time.Duration
 	// PaceByEXTINF plays one segment at a time using the rendition playlist duration.
-	PaceByEXTINF bool
+	BeforeSampling func(context.Context) error
+	PaceByEXTINF   bool
 	// Warmup runs before sampling; Duration is the timed sampling window.
 	Warmup   time.Duration
 	Duration time.Duration
@@ -145,17 +147,18 @@ func (s Sample) ok() bool { return s.Err == "" }
 
 // Result is the structured JSON output (one file per scenario).
 type Result struct {
-	Commit       string  `json:"commit"`
-	Scenario     string  `json:"scenario"`
-	FixtureHash  string  `json:"fixture_hash,omitempty"`
-	BaseURL      string  `json:"base_url"`
-	ContentID    string  `json:"content_id"`
-	Quality      string  `json:"quality,omitempty"`
-	Viewers      int     `json:"viewers"`
-	PaceByEXTINF bool    `json:"pace_by_extinf"`
-	IntervalMS   int64   `json:"interval_ms"`
-	WarmupSec    float64 `json:"warmup_sec"`
-	DurationSec  float64 `json:"duration_sec"`
+	HarnessRevision string  `json:"harness_revision,omitempty"`
+	Commit          string  `json:"commit"`
+	Scenario        string  `json:"scenario"`
+	FixtureHash     string  `json:"fixture_hash,omitempty"`
+	BaseURL         string  `json:"base_url"`
+	ContentID       string  `json:"content_id"`
+	Quality         string  `json:"quality,omitempty"`
+	Viewers         int     `json:"viewers"`
+	PaceByEXTINF    bool    `json:"pace_by_extinf"`
+	IntervalMS      int64   `json:"interval_ms"`
+	WarmupSec       float64 `json:"warmup_sec"`
+	DurationSec     float64 `json:"duration_sec"`
 
 	MediaHashesSHA256  string          `json:"media_hashes_sha256,omitempty"`
 	VerifiedMediaCount int64           `json:"verified_media_count"`
@@ -772,6 +775,12 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	runViewers(warmupCtx, client, cfg, tokens, rec)
 	cancelWarmup()
 
+	if cfg.BeforeSampling != nil {
+		if err := cfg.BeforeSampling(ctx); err != nil {
+			return nil, fmt.Errorf("sampling preparation: %w", err)
+		}
+	}
+
 	// Sampling: record everything.
 	sampleCtx, cancelSample := context.WithTimeout(ctx, cfg.Duration)
 	rec.setRecording(true)
@@ -786,23 +795,24 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		revision = CommitSHA()
 	}
 	res := &Result{
-		Commit:         revision,
-		Scenario:       cfg.Scenario,
-		FixtureHash:    cfg.FixtureHash,
-		BaseURL:        cfg.BaseURL,
-		ContentID:      cfg.ContentID,
-		Quality:        cfg.Quality,
-		Viewers:        cfg.Viewers,
-		IntervalMS:     cfg.Interval.Milliseconds(),
-		PaceByEXTINF:   cfg.PaceByEXTINF,
-		WarmupSec:      cfg.Warmup.Seconds(),
-		DurationSec:    cfg.Duration.Seconds(),
-		HTTPStatuses:   map[string]int64{},
-		StartedAt:      started,
-		FinishedAt:     finished,
-		LoginPaced:     loginPaced,
-		WalletPoolSize: len(tokens),
-		LoginsFailed:   loginsFailed,
+		Commit:          revision,
+		HarnessRevision: cfg.HarnessRevision,
+		Scenario:        cfg.Scenario,
+		FixtureHash:     cfg.FixtureHash,
+		BaseURL:         cfg.BaseURL,
+		ContentID:       cfg.ContentID,
+		Quality:         cfg.Quality,
+		Viewers:         cfg.Viewers,
+		IntervalMS:      cfg.Interval.Milliseconds(),
+		PaceByEXTINF:    cfg.PaceByEXTINF,
+		WarmupSec:       cfg.Warmup.Seconds(),
+		DurationSec:     cfg.Duration.Seconds(),
+		HTTPStatuses:    map[string]int64{},
+		StartedAt:       started,
+		FinishedAt:      finished,
+		LoginPaced:      loginPaced,
+		WalletPoolSize:  len(tokens),
+		LoginsFailed:    loginsFailed,
 	}
 	res.MediaHashesSHA256, _ = mediaHashesDigest(cfg.MediaSHA256)
 	res.ViewerSamples = make([]ViewerSamples, cfg.Viewers)

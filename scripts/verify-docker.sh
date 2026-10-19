@@ -11,6 +11,9 @@ fi
 git config --global --add safe.directory "$ROOT_DIR"
 
 VERIFY_STAGE="${VERIFY_STAGE:-${1:-all}}"
+VERIFY_MODE="${VERIFY_MODE:-candidate}"
+case "$VERIFY_MODE" in candidate|pr) ;; *) echo "unknown verification mode" >&2; exit 1 ;; esac
+if [ "$VERIFY_STAGE" = all ] && [ "$VERIFY_MODE" != candidate ]; then echo "all requires candidate mode" >&2; exit 1; fi
 if [ "$VERIFY_STAGE" = all ]; then
   source_status="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=normal)" || exit 1
   if [ -n "$source_status" ]; then
@@ -92,6 +95,12 @@ cleanup() {
   for binary in ${BUILT_BINARIES[@]+"${BUILT_BINARIES[@]}"}; do rm -f "$binary" || cleanup_rc=1; done
   if [ -n "${REFERENCE_WORKTREE:-}" ]; then
     git worktree remove --force "$REFERENCE_WORKTREE" >/dev/null 2>&1 || cleanup_rc=1
+  fi
+  if [ -n "${ARTIFACT_DIR:-}" ]; then
+    rm -f "${ARTIFACT_DIR}/perf-loader.test" || cleanup_rc=1
+    rm -rf "${ARTIFACT_DIR}/.private" || cleanup_rc=1
+  else
+    cleanup_rc=1
   fi
   docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 || cleanup_rc=1
   for p in $CREATED_PROJECTS; do
@@ -229,6 +238,9 @@ stage_unit() {
     python3 scripts/cd/test_verify_shell.py
     python3 scripts/cd/test_verify_controller_cancel.py
     python3 scripts/cd/test_assert_candidate_evidence.py
+    python3 scripts/cd/test_perf_fixture.py
+    python3 scripts/cd/test_resource_monitor.py
+    python3 scripts/cd/test_perf_metrics.py
     node scripts/cd/test_h5_api_base.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
     ( cd contracts && forge build )
@@ -921,7 +933,7 @@ perf_scenario() {
   local scenario="$1" viewers="$2" result_dir="$3" content_id="$4" fixture_hash="$5" skip_warmup="${6:-0}"
   PERF_CONTENT_ID="$content_id" \
   PERF_FIXTURE_HASH="$fixture_hash" \
-  PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
+  PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
   PERF_SKIP_WARMUP="$skip_warmup" \
   SCENARIO="$scenario" \
   VIEWERS_LIST="$viewers" \
@@ -964,22 +976,21 @@ perf_fault_matrix() {
   perf_scenario rpc_primary_down 50 "$result_dir" "$content_id" "$fixture_hash" 1
 
   log "fault matrix: rpc_all_down (stop both endpoints)"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil >/dev/null \
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop anvil-proxy anvil-fallback-proxy >/dev/null \
     || fail "could not stop the anvil for the rpc_all_down scenario"
   perf_scenario rpc_all_down 10 "$result_dir" "$content_id" "$fixture_hash" 1
 
   log "fault matrix: restoring the chain endpoints"
   docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil-proxy >/dev/null 2>&1 || true
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil >/dev/null 2>&1 || true
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" start anvil-fallback-proxy >/dev/null 2>&1 || true
 }
 
 # ---------------------------------------------------------------------------
 # Reference comparison (SG-07 step 5): the candidate's p95 must not exceed
 # 1.20x the FIXED reference's, measured on THIS runner, sequentially, with the
 # same fixture, load and resource limits, medians over independent rounds. Off
-# unless PERF_REFERENCE_REF names a git ref: it builds and runs a second full
-# stack, so it is a calibration step (run when the reference changes), not a
-# cost every `all` pass pays.
+# candidate mode always runs the frozen safety baseline sequentially on this
+# runner. Explicit PR smoke is partial evidence and cannot satisfy `all`.
 # ---------------------------------------------------------------------------
 PERF_COMPARE_VIEWERS="${PERF_COMPARE_VIEWERS:-50}"
 PERF_COMPARE_ROUNDS="${PERF_COMPARE_ROUNDS:-3}"
@@ -1025,6 +1036,33 @@ acceptance_failed_only_in_browser() {
   grep -aq '^FAIL: Browser playback failed' "$log_file"
 }
 
+# Capture expected media through storage before any playback measurement.
+perf_prepare_fixture() {
+  local project="$1" dir="$2" content_id="$3" generation minio_id
+  python3 -c 'import sys, uuid; assert str(uuid.UUID(sys.argv[1])) == sys.argv[1]' "$content_id" \
+    || fail "perf content ID must be a canonical UUID"
+  generation="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
+    psql -U postgres -d streamgate -tAc "SELECT published_generation FROM contents WHERE id = '$content_id'" | tr -d '[:space:]')" \
+    || fail "could not read the published fixture generation"
+  minio_id="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" ps -q minio)" \
+    || fail "could not identify fixture storage"
+  export PERF_QUALITY="${PERF_QUALITY:-640x360}"
+  export PERF_MEDIA_HASHES_FILE="$dir/media-hashes.json"
+  export PERF_WALLET_KEYS_FILE="${ARTIFACT_DIR}/.private/${project}/wallets.keys"
+  mkdir -p "$(dirname "$PERF_WALLET_KEYS_FILE")"
+  export PERF_DOCKER_PROJECT="$project" PERF_COMPOSE_FILE="$VERIFY_COMPOSE_FILE"
+  export PERF_DOCKER_NETWORK="${project}_default" PERF_RUN_LABEL="$PROJECT_NAME"
+  export PERF_LOADER_IMAGE="$IMAGE_TAG" PERF_LOADER_BINARY="${ARTIFACT_DIR}/perf-loader.test"
+  export PERF_LOADER_BASE_URL="http://monolith:8080" PERF_LOGIN_PACE=1s
+  PERF_API_CONTAINER="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" ps -q monolith)" || fail "cannot identify API container"
+  export PERF_API_CONTAINER
+  PERF_WORKER_CONTAINER="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" ps -q transcoder)" || fail "cannot identify worker container"
+  export PERF_WORKER_CONTAINER
+  python3 scripts/cd/perf_fixture.py --container "$minio_id" --content-id "$content_id" \
+    --generation "$generation" --quality "$PERF_QUALITY" --output "$PERF_MEDIA_HASHES_FILE" \
+    || fail "independent fixture hash capture failed"
+}
+
 # perf_seed_and_pool <project> <dir> [tolerant] — seed through the acceptance
 # (its side effects ARE the seed) and build the wallet pool the measured rounds
 # reuse. Sets COMPARE_CONTENT_ID / COMPARE_FIXTURE_HASH for the caller.
@@ -1047,19 +1085,20 @@ perf_seed_and_pool() {
     fi
   fi
   COMPARE_CONTENT_ID="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
-    psql -U postgres -d streamgate -tAc "SELECT id FROM contents ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
+    psql -U postgres -d streamgate -tAc "SELECT id FROM contents WHERE published_generation > 0 AND length(file_hash) = 64 ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
     | tr -d '[:space:]' || true)"
   [ -n "$COMPARE_CONTENT_ID" ] || fail "no seeded content in ${project}"
   COMPARE_FIXTURE_HASH="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
     psql -U postgres -d streamgate -tAc "SELECT file_hash FROM contents WHERE id = '$COMPARE_CONTENT_ID'" 2>/dev/null \
     | tr -d '[:space:]' || true)"
   log "comparison seed: content=${COMPARE_CONTENT_ID} fixture_hash=${COMPARE_FIXTURE_HASH:-<none>}"
+  perf_prepare_fixture "$project" "$dir" "$COMPARE_CONTENT_ID"
   # PERF_WALLETS is pinned so the pool covers the measured viewer count even
   # though this setup pass only plays 1 viewer.
   PERF_CONTENT_ID="$COMPARE_CONTENT_ID" \
   PERF_SETUP=1 \
   PERF_WALLETS="$PERF_COMPARE_VIEWERS" \
-  PERF_WALLET_KEYS_FILE="${dir}/wallets.keys" \
+  PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
   SCENARIO=warm_cache \
   VIEWERS_LIST=1 \
   RESULT_DIR="$dir" \
@@ -1090,16 +1129,10 @@ perf_reference_pass() {
   local ref="$1" project="${PROJECT_NAME}-ref" dir="${ARTIFACT_DIR}/perf-reference"
   rm -rf "$dir"; mkdir -p "$dir"
   log "reference comparison: building + running the reference stack from ${ref}"
-  # The reference predates the chain-rpc override and the fault matrix, so it
-  # runs with its own single endpoint: drop the perf-stage override for its
-  # build/up, then restore it for the candidate stack.
-  local saved_rpcs="${VERIFY_CHAIN_RPCS-}"
-  unset VERIFY_CHAIN_RPCS
-  VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil monolith transcoder
+  VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy anvil-fallback-proxy monolith transcoder
   unset VERIFY_BUILD_REF
-  if [ -n "$saved_rpcs" ]; then export VERIFY_CHAIN_RPCS="$saved_rpcs"; fi
   perf_seed_and_pool "$project" "$dir" 1
-  perf_rounds "$dir" "${dir}/wallets.keys" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH" "reference:${ref}"
+  perf_rounds "$dir" "$PERF_WALLET_KEYS_FILE" "$COMPARE_CONTENT_ID" "$COMPARE_FIXTURE_HASH" "$(git rev-parse "${ref}^{commit}")"
   teardown_fullstack "$project"
 }
 
@@ -1150,11 +1183,17 @@ stage_perf() {
   require_controller_tool go
   require_controller_tool cast
   local project="${PROJECT_NAME}-perf" result_dir content_id
-  # Reference comparison first, while NO other fullstack stack is up: it needs
-  # the same fixed h5 port and the same resources, sequentially — not alongside
-  # the candidate stack.
-  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
-    perf_reference_pass "$PERF_REFERENCE_REF"
+  export VERIFY_CHAIN_RPCS="http://anvil-proxy:8545,http://anvil-fallback-proxy:8545"
+  export PERF_WARMUP=10s PERF_DURATION=30s PERF_COMPARE_ROUNDS=3 PERF_COMPARE_VIEWERS=50 PERF_COMPARE_LIMIT=1.20
+  if [ "$VERIFY_MODE" = candidate ]; then
+    local floor ref
+    floor="$(python3 -c 'import json; print(json.load(open("config/performance.acceptance.json"))["safetyBaselineRevision"])')"
+    ref="$(git rev-parse "${PERF_REFERENCE_REF:-$floor}^{commit}")" || fail "reference revision is unavailable"
+    [ "$ref" = "$floor" ] || fail "reference must equal the frozen safety baseline"
+    export PERF_REFERENCE_REF="$ref"
+    perf_reference_pass "$ref"
+  else
+    unset PERF_REFERENCE_REF
   fi
   # Two SAME-CHAIN endpoints for this stage only, the stoppable proxy FIRST:
   # perf is where the fallback and all-down scenarios are injected, so the
@@ -1162,9 +1201,9 @@ stage_perf() {
   # other fullstack stages leave this unset and keep their single endpoint.
   # It stays exported for the whole stage because `compose restart`/`start`
   # re-interpolate the file; it is cleared before the stage returns.
-  export VERIFY_CHAIN_RPCS="http://anvil-proxy:8545,http://anvil:8545"
+  export VERIFY_CHAIN_RPCS="http://anvil-proxy:8545,http://anvil-fallback-proxy:8545"
   # perf targets the monolith only; the gateway is not needed for load.
-  bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy monolith transcoder
+  bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy anvil-fallback-proxy monolith transcoder
   wait_for_anvil_proxy "$project"
   assert_two_chain_endpoints "$VERIFY_MONO_PORT"
   # The seed's acceptance is tolerated ONLY for the browser check — the perf
@@ -1185,7 +1224,7 @@ stage_perf() {
     log "using caller-provided PERF_CONTENT_ID=${content_id}"
   else
     content_id="$(docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" exec -T postgres \
-      psql -U postgres -d streamgate -tAc "SELECT id FROM contents ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
+      psql -U postgres -d streamgate -tAc "SELECT id FROM contents WHERE published_generation > 0 AND length(file_hash) = 64 ORDER BY created_at DESC LIMIT 1" 2>/dev/null \
       | tr -d '[:space:]' || true)"
     [ -n "$content_id" ] || fail "could not extract the seeded content id from the verify stack's Postgres"
     log "seeded content id from Postgres: ${content_id}"
@@ -1207,92 +1246,41 @@ stage_perf() {
   # (PERF_SETUP defaults to 1), so nothing this run needs lives here yet.
   rm -rf "${result_dir:?the perf result directory must be set}"
   mkdir -p "$result_dir"
-  # When a reference comparison is requested, EVERY healthy measurement (this
-  # matrix and the comparison rounds) runs on the reference's wiring: one direct
-  # endpoint. The reference binary predates STREAMGATE_CHAIN_RPC_URLS, so it can
-  # only run single-endpoint; charging the candidate a socat hop the reference
-  # never pays would report an acceptance artifact as a product regression. The
-  # two-endpoint fault-matrix wiring is restored before the fault matrix below.
-  if [ -n "${PERF_REFERENCE_REF:-}" ]; then
-    log "comparison: wiring the candidate like the reference (single direct endpoint) for all healthy measurements"
-    reconfigure_monolith_rpcs "$project" ""
-  fi
-  # SG-07 step 2 asks for the matrix at each count "repeated 3 times", and for a
-  # 100-viewer capacity exploration. PERF_MATRIX_REPEATS and PERF_CAPACITY turn
-  # those on; each repeat gets its own directory so the runs are independent
-  # samples rather than one run counted repeatedly. The wallet pool is sized to
-  # cover the largest count once, and reused across repeats.
-  local matrix_repeats="${PERF_MATRIX_REPEATS:-1}" capacity="${PERF_CAPACITY:-0}" rep matrix_dir
-  # SG-07 step 2 measures the matrix at 1/10/50/100 viewers and repeats it; the
-  # single-pass run that every `all` pays for covers the M4 levels 1/10/50 and
-  # leaves the 100 tier to the explicit calibration switch. The provenance gate
-  # enforces exactly this split, so the stage's levels and the gate's
-  # expectations cannot drift apart.
-  local matrix_viewers="${VIEWERS_LIST:-}"
-  [ -n "$matrix_viewers" ] || { if [ "$matrix_repeats" -gt 1 ]; then matrix_viewers="1 10 50 100"; else matrix_viewers="1 10 50"; fi; }
+  perf_prepare_fixture "$project" "$result_dir" "$content_id"
+  local matrix_repeats=3 matrix_viewers="1 10 50 100" rep scenario matrix_dir setup_flag=1 pool_size=100
+  local scenarios="warm_cache cold_cache rpc_primary_down rpc_all_down"
+  if [ "$VERIFY_MODE" = pr ]; then matrix_repeats=1; matrix_viewers=1; scenarios=warm_cache; pool_size=1; fi
+  export PERF_WARMUP=10s PERF_DURATION=30s PERF_COMPARE_ROUNDS=3 PERF_COMPARE_VIEWERS=50 PERF_COMPARE_LIMIT=1.20
   for rep in $(seq 1 "$matrix_repeats"); do
-    matrix_dir="$result_dir"
-    [ "$matrix_repeats" -gt 1 ] && matrix_dir="${result_dir}/round-${rep}"
-    mkdir -p "$matrix_dir"
-    # PERF_SETUP=1 makes perf-acceptance.sh generate its own per-viewer wallet
-    # pool, log each wallet in for real and dev-mint the gating DemoNFT to each
-    # — no single caller key required. A caller-provided PERF_PRIVATE_KEY /
-    # PERF_WALLET_KEYS_FILE still wins (both envs are passed through untouched).
-    # SETUP runs on the FIRST repeat only: regenerating the pool and re-minting
-    # every round would cost minutes per round and cover nothing new.
-    local setup_flag=0
-    [ "$rep" = "1" ] && setup_flag="${PERF_SETUP:-1}"
-    log "perf matrix repeat ${rep}/${matrix_repeats} → ${matrix_dir} (capacity=${capacity})"
-    # PERF_WALLET_KEYS_FILE is pinned so the pool lands in ONE known path even
-    # when the repeat writes into a round sub-directory; every later repeat and
-    # the comparison rounds reuse exactly this file.
-    if [ "$rep" = "1" ]; then
-      PERF_CONTENT_ID="$content_id" \
-      PERF_SETUP="$setup_flag" \
-      PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
-      PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
-      CAPACITY="$capacity" \
-      SCENARIO="${SCENARIO:-warm_cache}" \
-      VIEWERS_LIST="$matrix_viewers" \
-      RESULT_DIR="$matrix_dir" \
-      BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
-        bash scripts/perf-acceptance.sh \
-        || fail "perf-acceptance.sh failed (repeat ${rep})"
-    else
-      # Later repeats reuse the pool SETUP built and measure the SAME levels as
-      # the first (matrix_viewers), including 100 when the matrix is repeated:
-      # step 2 repeats each of 1/10/50/100, and the wallet pool always covers the
-      # largest count because SETUP sizes it from this same list.
-      PERF_CONTENT_ID="$content_id" \
-      PERF_WALLET_KEYS_FILE="$result_dir/wallets.keys" \
-      PERF_SKIP_WARMUP=1 \
-      PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-$fixture_hash}" \
-      CAPACITY=0 \
-      SCENARIO="${SCENARIO:-warm_cache}" \
-      VIEWERS_LIST="$matrix_viewers" \
-      RESULT_DIR="$matrix_dir" \
-      BASE_URL="http://localhost:${VERIFY_MONO_PORT}" \
-        bash scripts/perf-acceptance.sh \
-        || fail "perf-acceptance.sh failed (repeat ${rep})"
-    fi
+    for scenario in $scenarios; do
+      matrix_dir="${result_dir}/round-${rep}"
+      [ "$scenario" = warm_cache ] || matrix_dir="${matrix_dir}/${scenario}"
+      mkdir -p "$matrix_dir"
+      PERF_CONTENT_ID="$content_id" PERF_SETUP="$setup_flag" PERF_WALLETS="$pool_size" \
+      PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" PERF_FIXTURE_HASH="$fixture_hash" \
+      SCENARIO="$scenario" VIEWERS_LIST="$matrix_viewers" RESULT_DIR="$matrix_dir" \
+      BASE_URL="http://localhost:${VERIFY_MONO_PORT}" bash scripts/perf-acceptance.sh \
+        || fail "performance scenario failed: round=${rep} scenario=${scenario}"
+      setup_flag=0
+    done
   done
+  if [ "$VERIFY_MODE" = pr ]; then
+    printf '%s\n' 'PR smoke only: full matrix and comparison remain required for candidate mode' > "$result_dir/pr-smoke.txt"
+    teardown_fullstack "$project"
+    unset VERIFY_CHAIN_RPCS
+    return
+  fi
   # SG-07 step 5: the candidate's side of the reference comparison, measured
   # BEFORE the fault matrix so it never shares the stack with a stopped
   # endpoint. The reference side already ran and is torn down.
   if [ -n "${PERF_REFERENCE_REF:-}" ]; then
     local compare_dir="${ARTIFACT_DIR}/perf-compare"
     rm -rf "$compare_dir"; mkdir -p "$compare_dir"
-    # The candidate is already on the reference's single-endpoint wiring: it was
-    # reconfigured before the warm matrix, above.
-    perf_rounds "$compare_dir" "$result_dir/wallets.keys" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}" ""
-    # Restore the two-endpoint wiring the fault matrix below needs, and prove it
-    # is actually back (the fault scenarios are meaningless otherwise).
-    log "comparison: restoring the two-endpoint fault-matrix wiring"
-    reconfigure_monolith_rpcs "$project" "$VERIFY_CHAIN_RPCS"
-    assert_two_chain_endpoints "$VERIFY_MONO_PORT"
+    # Both sides use the same two same-chain RPC front doors.
+    perf_rounds "$compare_dir" "$PERF_WALLET_KEYS_FILE" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}" ""
   fi
   # SG-07 step 3: the fault matrix, injected for real against this same stack.
-  perf_fault_matrix "$project" "$result_dir" "$content_id" "${PERF_FIXTURE_HASH:-$fixture_hash}"
+  # Every fault scenario was measured at all four viewer counts in every round.
   log "perf results in ${result_dir}"
   ls -la "$result_dir"
   # SG-07 step 2 records the environment with the numbers (platform/arch, every

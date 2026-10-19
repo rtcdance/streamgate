@@ -4,6 +4,8 @@
 services:
   # Migrations reach Postgres over the project network before app startup.
   postgres:
+    cpus: 1
+    mem_limit: 1g
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -21,6 +23,8 @@ services:
       retries: 10
 
   redis:
+    cpus: 0.5
+    mem_limit: 512m
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -39,6 +43,8 @@ services:
   # a freshly created named volume (FATAL "file access denied"); the running
   # sg-fc stack resolves this the same way.
   minio:
+    cpus: 1
+    mem_limit: 1g
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -57,6 +63,8 @@ services:
       retries: 10
 
   nats:
+    cpus: 0.5
+    mem_limit: 256m
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -71,6 +79,8 @@ services:
       retries: 10
 
   consul:
+    cpus: 0.25
+    mem_limit: 256m
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -95,6 +105,8 @@ services:
   # DemoNFT/ContentRegistry at their deterministic addresses before the app
   # needs them.
   anvil:
+    cpus: 1
+    mem_limit: 512m
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}
@@ -116,6 +128,25 @@ services:
   # too, which is the different `rpc_all_down` scenario. Not published: only
   # the app containers reach it, by service name.
   anvil-proxy:
+    cpus: 0.25
+    mem_limit: 128m
+    labels:
+      com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
+    platform: ${VERIFY_PLATFORM:-linux/amd64}
+    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:8545,fork,reuseaddr", "TCP:anvil:8545"]
+    depends_on:
+      anvil:
+        condition: service_healthy
+    # No healthcheck on purpose: the socat image carries no probe utility, and
+    # a service with none is simply "running" for `--wait`. Readiness is
+    # asserted by the perf stage itself (cast through the proxy) — and if the
+    # proxy is briefly not listening, the chain client's fallback to the direct
+    # anvil covers it, which is the very path this scenario measures.
+
+  anvil-fallback-proxy:
+    cpus: 0.25
+    mem_limit: 128m
     labels:
       com.streamgate.verify.run: ${VERIFY_PROJECT:-streamgate-verify}
     platform: ${VERIFY_PLATFORM:-linux/amd64}

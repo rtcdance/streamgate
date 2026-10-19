@@ -269,7 +269,21 @@
         "test": "TestAcceptance_KeyRotationAndAudience"
       }
     ],
+    "perf-live": [
+      {"package": "github.com/rtcdance/streamgate/test/load", "test": "TestLoad_AuthorizedMedia"}
+    ],
+    "perf-setup": [
+      {"package": "github.com/rtcdance/streamgate/test/load", "test": "TestPerfSetup_MintViewerWallets"}
+    ],
     "perf-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_SamplingPreparationIsRequired"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_SamplingBarrier"
+      },
       {
         "package": "github.com/rtcdance/streamgate/test/load",
         "test": "TestPerfHarness_MediaHashManifestValidation"

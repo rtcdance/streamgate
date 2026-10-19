@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -124,6 +125,24 @@ class VerifyShellTests(unittest.TestCase):
             function("cleanup"), 'trap cleanup EXIT', "trap 'exit 143' TERM", 'kill -TERM $$',
         ])
         self.assertEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 143)
+
+    def test_cleanup_removes_only_own_private_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); own = root / "own"; foreign = root / "foreign"
+            for path in [own, foreign]:
+                (path / ".private").mkdir(parents=True)
+                (path / ".private" / "wallets.keys").write_text("test-only")
+            (own / "perf-loader.test").write_text("test binary")
+            script = "\n".join([
+                "set -euo pipefail", "docker() { return 0; }", 'PROXY_PIDS=""',
+                'PROJECT_NAME=own-run', 'COMPOSE_FILE=own-file', 'CREATED_PROJECTS=""',
+                "ARTIFACT_DIR=" + shlex.quote(str(own)), function("cleanup"), "trap cleanup EXIT", "exit 0",
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((own / ".private").exists())
+            self.assertFalse((own / "perf-loader.test").exists())
+            self.assertTrue((foreign / ".private" / "wallets.keys").exists())
 
     def test_outer_cleanup_keeps_original_failure(self):
         script = '\n'.join([
