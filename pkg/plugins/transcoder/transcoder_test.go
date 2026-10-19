@@ -344,3 +344,19 @@ func TestFFmpegTranscoder_CleanupTempFiles_NonExistent(t *testing.T) {
 	err := ft.CleanupTempFiles()
 	assert.NoError(t, err)
 }
+
+func TestTranscoderPlugin_StopBeforeInitAndRepeatedStop(t *testing.T) {
+	for _, name := range []string{"before-init", "initialized-pool"} {
+		t.Run(name, func(t *testing.T) {
+			plugin := NewTranscoderPlugin(&TranscoderConfig{})
+			if name == "initialized-pool" {
+				poolCtx, cancel := context.WithCancel(t.Context())
+				plugin.workerPool = &WorkerPool{ctx: poolCtx, cancel: cancel}
+				plugin.logger = zap.NewNop()
+			}
+			for i := 0; i < 2; i++ {
+				require.NotPanics(t, func() { require.NoError(t, plugin.Stop(t.Context())) })
+			}
+		})
+	}
+}
