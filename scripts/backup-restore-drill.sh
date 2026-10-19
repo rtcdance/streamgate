@@ -129,7 +129,26 @@ dst_psql() {
     timeout 15s docker exec "$DST_PG" psql -v ON_ERROR_STOP=1 -U postgres -d streamgate -tAc "$1"
 }
 
-json_get() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || true; }
+json_get() {
+    # Foundry 1.8.5 wraps tx/block in a v1 envelope; receipts and API responses
+    # remain flat. A failed or unknown envelope is never a successful read.
+    printf '%s' "$1" | python3 -c '
+import json, sys
+document = json.load(sys.stdin)
+if not isinstance(document, dict):
+    sys.exit(1)
+if "schema_version" in document:
+    if (type(document["schema_version"]) is not int or document["schema_version"] != 1
+            or document.get("success") is not True or document.get("errors") != []
+            or not isinstance(document.get("data"), dict)):
+        sys.exit(1)
+    document = document["data"]
+value = document.get(sys.argv[1])
+if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+    sys.exit(1)
+print(value)
+' "$2"
+}
 
 # normalize_number <value> — a chain JSON field may be a hex string ("0x2a") or
 # a bare number depending on the cast build, so comparisons go through this
@@ -569,6 +588,9 @@ while IFS=$'\t' read -r cid txh blk bhash status nonce; do
     chain_tx_from="$(printf '%s' "$(json_get "$chain_tx" from)" | tr '[:upper:]' '[:lower:]')"
     signer_lower="$(printf '%s' "$SIGNER_ADDR" | tr '[:upper:]' '[:lower:]')"
     ledger_matches="$(dst_psql "SELECT COUNT(*) FROM tx_signed_attempts a JOIN tx_nonce_reservations r ON r.chain_id = a.chain_id AND r.signer = a.signer AND r.nonce = a.nonce WHERE a.chain_id = ${CHAIN_ID} AND a.tx_hash = '${txh}' AND a.nonce = ${nonce} AND LOWER(a.signer) = '${signer_lower}' AND a.raw_tx <> ''")"
+    printf '  reconciliation: tx=%s canonical=%s receipt=%s chainNonce=%s recordedNonce=%s signerMatch=%s ledgerMatches=%s\n' \
+        "$txh" "${canonical_hash:-missing}" "${r_hash:-missing}" "${chain_tx_nonce:-missing}" "$nonce" \
+        "$([ "$chain_tx_from" = "$signer_lower" ] && echo yes || echo no)" "$ledger_matches"
     if [ "${r_status:-x}" = "1" ] && [ "${r_blk:-x}" = "$blk" ] && [ "$r_hash" = "$b_hash" ] \
         && [ "$canonical_hash" = "$b_hash" ] && [ "$chain_tx_nonce" = "$nonce" ] \
         && [ "$chain_tx_from" = "$signer_lower" ] && [ "$ledger_matches" = 1 ]; then

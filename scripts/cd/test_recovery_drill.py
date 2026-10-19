@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 import shlex
 import signal
+import json
 import subprocess
 import tempfile
 import unittest
@@ -17,6 +18,24 @@ def function(name):
 
 
 class RecoveryDrillTests(unittest.TestCase):
+    def test_cast_json_fields_support_the_pinned_tools_envelope(self):
+        for document in ({"hash": "0x123"}, {"schema_version": 1, "success": True, "data": {"hash": "0x123"}, "errors": [], "warnings": []}):
+            body = '\n'.join(["set -euo pipefail", function("json_get"),
+                               "json_get " + shlex.quote(json.dumps(document)) + " hash"])
+            with self.subTest(document=document):
+                result = subprocess.run(["bash", "-c", body], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout.strip(), "0x123")
+
+    def test_failed_or_unknown_cast_envelopes_do_not_become_empty_success(self):
+        for changes in ({"success": False}, {"schema_version": 2}, {"errors": ["failure"]}, {"data": []}):
+            document = {"schema_version": 1, "success": True, "data": {"hash": "0x123"}, "errors": []}
+            document.update(changes)
+            body = '\n'.join(["set -euo pipefail", function("json_get"),
+                               "json_get " + shlex.quote(json.dumps(document)) + " hash"])
+            with self.subTest(changes=changes):
+                self.assertNotEqual(subprocess.run(["bash", "-c", body], capture_output=True).returncode, 0)
+
     def test_real_term_cleans_private_backups_and_keeps_143(self):
         with tempfile.TemporaryDirectory() as directory:
             private = Path(directory) / "private"; private.mkdir()

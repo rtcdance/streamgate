@@ -1374,26 +1374,14 @@ stage_recovery() {
   local src="${PROJECT_NAME}-recovery-src"
   local dst="${PROJECT_NAME}-recovery-dst"
   local override="${ARTIFACT_DIR}/recovery-dst-chain.yml"
-  local seed_log="${LOG_DIR}/recovery-seed.log"
 
   # 1. The dedicated source stack, seeded through the full acceptance: its side
   #    effects ARE the seed (a gated content with real media and a real on-chain
-  #    registration). The browser check is NOT part of this stage's criteria — the
-  #    drill decodes real media from the restored state itself — so the ~290MB
-  #    browser download is skipped and the one resulting browser failure is
-  #    tolerated by name. The media stage keeps the strict gate.
+  #    registration). Every source check must pass before taking its snapshot.
   bring_up_fullstack "$src"
   local src_mono="$VERIFY_MONO_PORT" src_anvil="$VERIFY_ANVIL_PORT" src_minio="$VERIFY_MINIO_PORT"
   local src_front="$PROJECT_PROXY_PID"
-  mkdir -p "$LOG_DIR"; : > "$seed_log"
-  log "stage=recovery-seed (controller) → log ${seed_log}"
-  if ! VERIFY_SKIP_BROWSER_INSTALL=1 run_fullchain "$src" "$src_mono" "$src_mono" "$src_anvil" "$src_minio" 2>&1 | tee -a "$seed_log"; then
-    if acceptance_failed_only_in_browser "$seed_log"; then
-      log "WARNING: the recovery seed failed ONLY the browser check (log: ${seed_log}) — tolerated here"
-    else
-      fail "recovery seed acceptance failed for ${src} (log: ${seed_log})"
-    fi
-  fi
+  run_logged recovery-seed run_fullchain "$src" "$src_mono" "$src_mono" "$src_anvil" "$src_minio"
 
   # 2. The target project's front (loopback in the controller), the images it
   #    needs and the chain-forwarding override. The drill creates the project
