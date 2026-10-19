@@ -581,6 +581,15 @@ prepare_reference_worktree() {
       [ -d "$lib" ] || continue
       rm -rf "${wt:?}/${lib}"
       cp -R "$lib" "${wt:?}/${lib}"
+      # A copied submodule's .git file holds a gitdir RELATIVE to the main
+      # checkout. Inside a linked worktree the root .git is a FILE, so that
+      # relative path resolves nowhere and even `git status` dies with
+      # "not a git repository: .../.git/modules/...". Repoint it at the main
+      # checkout's absolute modules path; the source files are still reused,
+      # never re-cloned.
+      if [ -f "${lib}.git" ]; then
+        printf 'gitdir: %s\n' "${ROOT_DIR}/.git/modules/${lib%/}" > "${wt:?}/${lib}.git"
+      fi
     done
   fi
   printf '%s\n' "$wt"
