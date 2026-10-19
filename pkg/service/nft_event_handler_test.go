@@ -157,6 +157,59 @@ func TestNFTEventHandler_HandleTransferSingle(t *testing.T) {
 	})
 }
 
+func TestNFTEventHandler_HandleTransferBatch(t *testing.T) {
+	t.Run("invalidates every id in the decoded ids slice", func(t *testing.T) {
+		cache := &mockNFTAccessCache{}
+		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 1, zap.NewNop())
+		evt := &event.IndexedEvent{
+			ContractAddress: "0xcontract",
+			Decoded: map[string]interface{}{
+				"ids":    []interface{}{"1", "2", "3"},
+				"values": []interface{}{"10", "20", "30"},
+				"from":   "0xfrom",
+				"to":     "0xto",
+			},
+		}
+		err := h.HandleTransferBatch(context.Background(), evt)
+		require.NoError(t, err)
+		h.FlushNow()
+		for _, id := range []string{"1", "2", "3"} {
+			assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:"+id)
+			assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:"+id)
+			assert.Contains(t, cache.deletedPrefixes, "1::0xcontract:"+id)
+		}
+	})
+
+	t.Run("invalidates every id from the parser string form", func(t *testing.T) {
+		cache := &mockNFTAccessCache{}
+		h := NewNFTEventHandlerWithCache(&NFTService{}, cache, 1, zap.NewNop())
+		evt := &event.IndexedEvent{
+			ContractAddress: "0xcontract",
+			Decoded: map[string]interface{}{
+				"ids":  "[100 200]",
+				"from": "0xfrom",
+				"to":   "0xto",
+			},
+		}
+		err := h.HandleTransferBatch(context.Background(), evt)
+		require.NoError(t, err)
+		h.FlushNow()
+		for _, id := range []string{"100", "200"} {
+			assert.Contains(t, cache.deletedKeys, "1:0xfrom:0xcontract:"+id)
+			assert.Contains(t, cache.deletedKeys, "1:0xto:0xcontract:"+id)
+		}
+	})
+
+	t.Run("no ids in decoded", func(t *testing.T) {
+		h := NewNFTEventHandler(&NFTService{}, zap.NewNop())
+		evt := &event.IndexedEvent{
+			ContractAddress: "0xcontract",
+		}
+		err := h.HandleTransferBatch(context.Background(), evt)
+		assert.NoError(t, err)
+	})
+}
+
 func TestNFTEventHandler_ExtractAddresses(t *testing.T) {
 	tests := []struct {
 		name     string

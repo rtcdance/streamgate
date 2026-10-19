@@ -2,6 +2,11 @@
   "version": 1,
   "suites": {
     "durability-tests": [
+      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_SubmittedRebroadcastSameRawTx"},
+      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_SubmittedRecoveryUsesReceipt"},
+      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_AfterSendBarrierPoint"},
+      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestAcceptance_NFTTransferBatchNeverGrants"},
+      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestNFTEventHandler_HandleTransferBatch"},
       {
         "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
         "test": "TestOutbox_MissingDLQIntentRetainsOriginalDelivery"

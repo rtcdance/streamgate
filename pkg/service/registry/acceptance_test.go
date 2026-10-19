@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -25,6 +26,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/rtcdance/streamgate/pkg/acceptance/barrier"
+	"github.com/rtcdance/streamgate/pkg/core/config"
 	"github.com/rtcdance/streamgate/pkg/gateway"
 	"github.com/rtcdance/streamgate/pkg/service/content"
 	"github.com/rtcdance/streamgate/pkg/service/registry"
@@ -621,6 +624,161 @@ func TestAcceptance_TxReceiptReorg(t *testing.T) {
 	assert.Equal(t, int64(6), final.BlockNumber.Int64, "re-verification must record the canonical block")
 	assert.Equal(t, header6.Hash().Hex(), final.BlockHash)
 	assert.Equal(t, in.TxHash, final.TxHash, "re-verification must not re-sign or change the tx")
+}
+
+// ---- A.4b: kill before/after broadcast recovers the SAME raw tx --------------
+
+func TestAcceptance_SubmittedRebroadcastSameRawTx(t *testing.T) {
+	db := openRegistryTestDB(t)
+	ctx := context.Background()
+	store := registry.NewStore(db, testChainID, testRegistry)
+
+	contentID := uuid.NewString()
+	require.NoError(t, store.EnsureIntent(ctx, contentID, testWallet, strings.Repeat("22", 32), "ipfs://rebroadcast"))
+
+	client := newFakeChain()
+	pipeline := newFakePipeline(t, client)
+	pub := registry.NewPublisher(store, client, pipeline, registry.PublisherConfig{
+		Signer: testSigner, ChainID: testChainID, ReBroadcastAfter: 100 * time.Millisecond,
+	}, zap.NewNop())
+
+	// First pass: pending → signed+persisted → broadcast → submitted.
+	require.NoError(t, pub.RunOnce(ctx))
+	in, err := store.Get(ctx, contentID)
+	require.NoError(t, err)
+	require.Equal(t, registry.StatusSubmitted, in.Status)
+	require.NotEmpty(t, in.TxHash)
+	origAttempt, err := store.GetAttempt(ctx, in.TxHash)
+	require.NoError(t, err)
+	require.NotNil(t, origAttempt)
+
+	// A healthy in-flight tx inside the re-broadcast window is NOT re-sent.
+	require.NoError(t, pub.RunOnce(ctx))
+	assert.Len(t, client.sentHashes, 1, "a submitted tx inside the window must not be re-sent")
+
+	// The process died around the broadcast and the tx never got a receipt:
+	// age the intent beyond the re-broadcast window.
+	_, err = db.Exec(ctx, `UPDATE content_registry_intents SET updated_at = NOW() - INTERVAL '2 seconds' WHERE chain_id = $1 AND content_id = $2`, testChainID, contentID)
+	require.NoError(t, err)
+
+	require.NoError(t, pub.RunOnce(ctx))
+	in2, err := store.Get(ctx, contentID)
+	require.NoError(t, err)
+	assert.Equal(t, registry.StatusSubmitted, in2.Status)
+	assert.Equal(t, in.TxHash, in2.TxHash, "recovery must keep the persisted hash")
+	require.True(t, in2.Nonce.Valid)
+	assert.Equal(t, in.Nonce.Int64, in2.Nonce.Int64, "recovery must keep the persisted nonce")
+	assert.Equal(t, 1, pipeline.prepares(), "recovery must never re-sign")
+	require.Len(t, client.sentHashes, 2, "the aged submitted intent must be re-sent")
+	assert.Equal(t, client.sentHashes[0], client.sentHashes[1], "the IDENTICAL raw tx must be re-broadcast")
+	count, err := store.CountReservations(ctx, testSigner)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count, "recovery must not reserve a new nonce")
+	newAttempt, err := store.GetAttempt(ctx, in2.TxHash)
+	require.NoError(t, err)
+	require.NotNil(t, newAttempt)
+	assert.Equal(t, origAttempt.RawTx, newAttempt.RawTx, "the persisted raw bytes must be reused")
+}
+
+// ---- A.4c: a receipt for the stuck submitted tx suppresses the re-send -------
+
+func TestAcceptance_SubmittedRecoveryUsesReceipt(t *testing.T) {
+	db := openRegistryTestDB(t)
+	ctx := context.Background()
+	store := registry.NewStore(db, testChainID, testRegistry)
+
+	contentID := uuid.NewString()
+	require.NoError(t, store.EnsureIntent(ctx, contentID, testWallet, strings.Repeat("33", 32), "ipfs://receipt-not-resend"))
+
+	client := newFakeChain()
+	pipeline := newFakePipeline(t, client)
+	pub := registry.NewPublisher(store, client, pipeline, registry.PublisherConfig{
+		Signer: testSigner, ChainID: testChainID, ReBroadcastAfter: 100 * time.Millisecond, BlockTag: "safe",
+	}, zap.NewNop())
+
+	require.NoError(t, pub.RunOnce(ctx))
+	in, err := store.Get(ctx, contentID)
+	require.NoError(t, err)
+	require.Equal(t, registry.StatusSubmitted, in.Status)
+
+	// The receipt for the known hash lands while the intent sits aged in
+	// submitted: recovery must handle it, never re-broadcast.
+	header := &types.Header{Number: big.NewInt(5), Extra: []byte("stuck-submitted")}
+	client.mu.Lock()
+	client.receipts[common.HexToHash(in.TxHash)] = &types.Receipt{
+		Status: types.ReceiptStatusSuccessful, BlockNumber: big.NewInt(5), BlockHash: header.Hash(),
+	}
+	client.headers[5] = header
+	client.head = 7
+	client.mu.Unlock()
+	_, err = db.Exec(ctx, `UPDATE content_registry_intents SET updated_at = NOW() - INTERVAL '2 seconds' WHERE chain_id = $1 AND content_id = $2`, testChainID, contentID)
+	require.NoError(t, err)
+
+	require.NoError(t, pub.RunOnce(ctx))
+	in2, err := store.Get(ctx, contentID)
+	require.NoError(t, err)
+	assert.Equal(t, registry.StatusConfirmed, in2.Status, "the receipt must be handled, not re-broadcast")
+	assert.Equal(t, in.TxHash, in2.TxHash)
+	assert.Len(t, client.sentHashes, 1, "a receipt must suppress the re-send")
+	assert.Equal(t, 1, pipeline.prepares())
+}
+
+// ---- A.4d: publisher.after_send is wired between broadcast and transition ----
+
+func durableBarrier(t *testing.T) *barrier.Barrier {
+	t.Helper()
+	b, err := barrier.Load(&config.Config{
+		Profile: config.ProfileDurable,
+		Acceptance: config.AcceptanceConfig{
+			FaultBarrier:        true,
+			FaultBarrierDir:     t.TempDir(),
+			FaultBarrierTimeout: 5 * time.Second,
+		},
+	}, zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, b)
+	return b
+}
+
+func TestAcceptance_AfterSendBarrierPoint(t *testing.T) {
+	db := openRegistryTestDB(t)
+	ctx := context.Background()
+	store := registry.NewStore(db, testChainID, testRegistry)
+
+	contentID := uuid.NewString()
+	require.NoError(t, store.EnsureIntent(ctx, contentID, testWallet, strings.Repeat("44", 32), "ipfs://after-send"))
+
+	client := newFakeChain()
+	pipeline := newFakePipeline(t, client)
+	pub := registry.NewPublisher(store, client, pipeline, registry.PublisherConfig{
+		Signer: testSigner, ChainID: testChainID,
+	}, zap.NewNop())
+	b := durableBarrier(t)
+	pub.SetFaultBarrier(b)
+	require.NoError(t, b.Arm("publisher.after_send"))
+
+	done := make(chan error, 1)
+	go func() { done <- pub.RunOnce(ctx) }()
+
+	require.Eventually(t, func() bool { return b.Point("publisher.after_send").Reached() },
+		2*time.Second, 5*time.Millisecond,
+		"publisher.after_send must be announced between a successful broadcast and the status transition")
+	client.mu.Lock()
+	sentAtBarrier := len(client.sentHashes)
+	client.mu.Unlock()
+	assert.Equal(t, 1, sentAtBarrier, "the broadcast must have happened before the barrier")
+
+	require.NoError(t, b.Point("publisher.after_send").Release())
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunOnce did not finish after the barrier release")
+	}
+	in, err := store.Get(ctx, contentID)
+	require.NoError(t, err)
+	assert.Equal(t, registry.StatusSubmitted, in.Status)
+	require.NoError(t, b.Disarm("publisher.after_send"))
 }
 
 // ---- helpers ---------------------------------------------------------------

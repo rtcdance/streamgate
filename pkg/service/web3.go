@@ -417,6 +417,8 @@ func classifyTransferEvent(event *web3.IndexedEvent) *web3.IndexedEvent {
 		event.EventType = "Transfer"
 	case transferSingleTopic:
 		event.EventType = "TransferSingle"
+	case transferBatchTopic:
+		event.EventType = "TransferBatch"
 	}
 	return event
 }

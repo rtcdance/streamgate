@@ -318,6 +318,7 @@ func (s *NFTService) RegisterEventHandler(listener *web3.EventListener) {
 	s.eventHandler = handler
 	listener.On("Transfer", handler.HandleTransfer)
 	listener.On("TransferSingle", handler.HandleTransferSingle)
+	listener.On("TransferBatch", handler.HandleTransferBatch)
 }
 
 func (s *NFTService) RegisterEventHandlerWithCache(listener *web3.EventListener, cache middleware.NFTAccessCache, chainID int64) {
@@ -325,6 +326,7 @@ func (s *NFTService) RegisterEventHandlerWithCache(listener *web3.EventListener,
 	s.eventHandler = handler
 	listener.On("Transfer", handler.HandleTransfer)
 	listener.On("TransferSingle", handler.HandleTransferSingle)
+	listener.On("TransferBatch", handler.HandleTransferBatch)
 }
 
 // SetLogger sets the logger for the NFT service.
