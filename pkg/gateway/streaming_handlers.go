@@ -3,7 +3,6 @@ package gateway
 import (
 	"container/list"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -65,10 +64,8 @@ const (
 )
 
 // PublishedGenerationResolver reports the currently published artifact
-// generation for a content (plus the profile that produced it, for callers
-// that care). Generation 0 means the legacy flat layout. A nil resolver, a
-// resolver error, or a missing content row all resolve to 0, which can only
-// ever reach the legacy flat keys — never a generation-private prefix.
+// generation for a content and its profile. Only an explicit generation 0
+// selects legacy objects. Authority failures must never select an older layout.
 type PublishedGenerationResolver func(ctx context.Context, contentID string) (generation int64, profile string, err error)
 
 // generationResolver caches resolver answers for a short TTL so segment
@@ -93,26 +90,27 @@ func newGenerationResolver(fn PublishedGenerationResolver) *generationResolver {
 	}
 }
 
-func (r *generationResolver) resolve(ctx context.Context, contentID string) (generation int64, profile string) {
+func (r *generationResolver) resolve(ctx context.Context, contentID string) (generation int64, profile string, err error) {
 	if r == nil || r.fn == nil {
-		return 0, ""
+		return 0, "", nil
 	}
 	if entry, ok := r.entries.Get(contentID); ok && time.Now().Before(entry.expiresAt) {
-		return entry.generation, entry.profile
+		return entry.generation, entry.profile, nil
 	}
-	generation, profile, err := r.fn(ctx, contentID)
-	if err != nil || generation < 0 {
-		// Not cached: a transient failure must not pin generation 0 for the
-		// whole TTL. Generation 0 for this request can only serve legacy flat
-		// keys, so a lookup failure never exposes a staging path.
-		return 0, ""
+	generation, profile, err = r.fn(ctx, contentID)
+	if err != nil {
+		return 0, "", err
 	}
+	if generation < 0 {
+		return 0, "", errors.New("invalid published generation")
+	}
+
 	r.entries.Set(contentID, generationCacheEntry{
 		generation: generation,
 		profile:    profile,
 		expiresAt:  time.Now().Add(generationCacheTTL),
 	})
-	return generation, profile
+	return generation, profile, nil
 }
 
 func (r *generationResolver) invalidate(contentID string) {
@@ -215,12 +213,12 @@ func (sc *StreamingCache) SetGenerationResolver(fn PublishedGenerationResolver) 
 
 // resolveGeneration returns the published generation for a content, through
 // the short-TTL cache. Nil-safe: no resolver means generation 0.
-func (sc *StreamingCache) resolveGeneration(ctx context.Context, contentID string) int64 {
+func (sc *StreamingCache) resolveGeneration(ctx context.Context, contentID string) (int64, error) {
 	if sc == nil || sc.gens == nil {
-		return 0
+		return 0, nil
 	}
-	gen, _ := sc.gens.resolve(ctx, contentID)
-	return gen
+	gen, _, err := sc.gens.resolve(ctx, contentID)
+	return gen, err
 }
 
 func (sc *StreamingCache) GetManifest(contentID, wallet string, generation int64) (string, bool) {
@@ -387,6 +385,25 @@ func (l *streamLimiter) release() {
 // RegisterStreamingRoutes registers the manifest routes. genResolver is the
 // published-generation lookup; nil keeps every content at generation 0 (legacy
 // flat layout), which is also what existing callers get.
+func validateManifestCapability(c *gin.Context, log *zap.Logger, authService *service.AuthService, token, contentID string) bool {
+	wallet := middleware.GetWalletAddress(c)
+	if wallet == "" {
+		abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
+		return false
+	}
+	if authService == nil {
+		abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "authentication unavailable")
+		return false
+	}
+	_, err := authService.ValidatePlaybackToken(c.Request.Context(), token, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
+	if err != nil {
+		middleware.GetLogger(c, log).Warn("playback token validation failed for manifest", zap.String("content_id", contentID), zap.Error(err))
+		abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
+		return false
+	}
+	return true
+}
+
 func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *service.AuthService, streamingSvc *service.StreamingService, objStorage service.SegmentStorage, limiter *streamLimiter, cache *StreamingCache, genResolver PublishedGenerationResolver, authorizer *service.PlaybackAuthorizer, bucket ...string) {
 	if cache == nil {
 		cache = NewStreamingCache()
@@ -412,26 +429,17 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		queryToken := c.Query("playback_token")
 		quality := c.Query("quality")
 
-		if queryToken != "" {
-			wallet := middleware.GetWalletAddress(c)
-			if wallet == "" {
-				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "authentication required")
-				return
-			}
-			claims, validateErr := authService.ValidatePlaybackToken(c.Request.Context(), queryToken, contentID, c.GetHeader("X-Client-Fingerprint"), wallet)
-			if validateErr != nil {
-				middleware.GetLogger(c, log).Warn("playback token validation failed for manifest",
-					zap.String("content_id", contentID),
-					zap.Error(validateErr))
-				abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid playback token")
-				return
-			}
-			_ = claims
+		if queryToken != "" && !validateManifestCapability(c, log, authService, queryToken, contentID) {
+			return
 		}
 
 		// Everything below resolves ONLY the published generation: a staging
 		// or failed generation is unreachable no matter what the caller knows.
-		generation := cache.resolveGeneration(c.Request.Context(), contentID)
+		generation, resolveErr := cache.resolveGeneration(c.Request.Context(), contentID)
+		if resolveErr != nil {
+			abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "published media unavailable")
+			return
+		}
 
 		if queryToken != "" && quality != "" {
 			playbackToken := queryToken
@@ -604,11 +612,7 @@ func newPublishedGenerationResolver(db storage.DB) PublishedGenerationResolver {
 		err := db.QueryRow(ctx,
 			"SELECT published_generation, published_profile FROM contents WHERE id = $1",
 			contentID).Scan(&generation, &profile)
-		if errors.Is(err, sql.ErrNoRows) {
-			// Deleted (or never existing) content resolves to generation 0,
-			// which can only ever reach legacy flat keys — never staging.
-			return 0, "", nil
-		}
+
 		if err != nil {
 			return 0, "", err
 		}
@@ -892,7 +896,11 @@ func RegisterStreamingSegmentRoute(router gin.IRouter, log *zap.Logger, authServ
 		if objStorage != nil {
 			// Candidates are scoped to the published generation, so a guessed
 			// staging or failed name can never construct a readable key.
-			generation := cache.resolveGeneration(c.Request.Context(), contentID)
+			generation, resolveErr := cache.resolveGeneration(c.Request.Context(), contentID)
+			if resolveErr != nil {
+				abortWithError(c, http.StatusServiceUnavailable, ErrInternalError, "published media unavailable")
+				return
+			}
 			candidates := buildSegmentCandidates(contentID, segName, quality, cache, generation)
 
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)

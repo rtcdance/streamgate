@@ -793,41 +793,29 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 
 	// Resolve ONLY the published generation; a mid-flight staging prefix is
 	// never listed, so a valid token cannot read it through this path either.
-	generation, _ := s.genResolver.resolve(ctx, req.ContentId)
+	generation, _, resolveErr := s.genResolver.resolve(ctx, req.ContentId)
+	if resolveErr != nil {
+		return nil, status.Error(codes.Unavailable, "published media unavailable")
+	}
 	segmentPrefix := fmt.Sprintf("streams/%s/", req.ContentId)
 	if generation >= 1 {
 		segmentPrefix = fmt.Sprintf("streams/%s/g%d/", req.ContentId, generation)
 	}
-	qualitySegments := make(map[string][]string)
-	if s.segStore != nil {
-		objs, err := s.segStore.ListObjects(ctx, "streamgate", segmentPrefix)
-		if err != nil {
-			s.log.Warn("Failed to list segments",
-				zap.String("content_id", req.ContentId),
-				zap.Error(err))
-		}
-		for _, key := range objs {
-			if !strings.HasSuffix(key, ".ts") {
-				continue
-			}
-			rel := strings.TrimPrefix(key, segmentPrefix)
-			parts := strings.SplitN(rel, "/", 2)
-			quality := "default"
-			segName := rel
-			if len(parts) == 2 {
-				quality = parts[0]
-				segName = parts[1]
-				// A legacy listing must never index objects that live inside
-				// a generation-private directory.
-				if generation == 0 && isGenerationDirName(quality) {
-					continue
-				}
-			}
-			qualitySegments[quality] = append(qualitySegments[quality], segName)
-		}
+	qualitySegments, playlists, master, indexErr := grpcPublishedMediaIndex(ctx, s.segStore, segmentPrefix, generation)
+	if indexErr != nil {
+		return nil, status.Error(codes.Unavailable, "published media listing unavailable")
 	}
+
 	if len(qualitySegments) == 0 {
 		return nil, status.Error(codes.NotFound, "content not ready; transcode may still be processing")
+	}
+
+	if len(playlists) > 0 || generation > 0 {
+		manifest, segments, err := grpcStoredManifest(ctx, s.segStore, req.ContentId, playbackToken, qualitySegments, playlists, master)
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, "published playlist unavailable")
+		}
+		return &streamingv1.GetManifestResponse{Manifest: manifest, ContentType: "application/vnd.apple.mpegurl", Segments: segments}, nil
 	}
 
 	var manifest string
@@ -846,11 +834,15 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 			if idx := strings.LastIndex(seg, "/"); idx >= 0 {
 				name = seg[idx+1:]
 			}
+			segmentID := name
+			if q != "default" {
+				segmentID = q + "/" + name
+			}
 			segments = append(segments, &streamingv1.SegmentInfo{
-				SegmentId: name,
+				SegmentId: segmentID,
 				Quality:   q,
-				Duration:  4,
-				Url:       fmt.Sprintf("/api/v1/streaming/%s/segment/%s?playback_token=%s", req.ContentId, name, playbackToken),
+				Duration:  0,
+				Url:       fmt.Sprintf("/api/v1/streaming/%s/segment/%s?quality=%s&playback_token=%s", req.ContentId, name, q, playbackToken),
 			})
 		}
 	}
@@ -860,6 +852,21 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		ContentType: "application/vnd.apple.mpegurl",
 		Segments:    segments,
 	}, nil
+}
+
+// validGRPCSegmentID permits the opaque IDs returned by GetManifest: a legacy
+// basename or one rendition plus basename. Never accept client-chosen generation
+// prefixes, nested paths, traversal, or an absolute object key.
+func validGRPCSegmentID(id string) bool {
+	parts := strings.Split(id, "/")
+	if len(parts) == 2 {
+		if !isValidRenditionName(parts[0]) || isGenerationDirName(parts[0]) {
+			return false
+		}
+	} else if len(parts) != 1 {
+		return false
+	}
+	return validateSegmentName(parts[len(parts)-1])
 }
 
 func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.GetSegmentRequest) (*streamingv1.GetSegmentResponse, error) {
@@ -892,7 +899,7 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 		return nil, status.Error(codes.PermissionDenied, "conflicting playback credentials")
 	}
 
-	if strings.Contains(req.SegmentId, "..") || strings.Contains(req.SegmentId, "/") || strings.Contains(req.SegmentId, "\\") {
+	if !validGRPCSegmentID(req.SegmentId) {
 		return nil, status.Error(codes.InvalidArgument, "invalid segment id")
 	}
 	if err := validateID(req.ContentId); err != nil {
@@ -901,9 +908,13 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 
 	// Scoped to the published generation: generation 0 addresses the legacy
 	// flat key, generation >= 1 the generation-private prefix. A guessed
-	// staging name cannot be constructed here because the segment id may not
-	// contain "/" (validated above) and the generation comes from the server.
-	generation, _ := s.genResolver.resolve(ctx, req.ContentId)
+	// staging name cannot be constructed here: an optional rendition is one
+	// validated component, never a generation directory. The generation comes
+	// only from the authoritative server-side resolver.
+	generation, _, resolveErr := s.genResolver.resolve(ctx, req.ContentId)
+	if resolveErr != nil {
+		return nil, status.Error(codes.Unavailable, "published media unavailable")
+	}
 	objKey := fmt.Sprintf("streams/%s/%s", req.ContentId, req.SegmentId)
 	if generation >= 1 {
 		objKey = fmt.Sprintf("streams/%s/g%d/%s", req.ContentId, generation, req.SegmentId)

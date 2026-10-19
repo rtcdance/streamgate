@@ -1237,8 +1237,8 @@ func TestAcceptance_TaskGenerationPublish(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond, "a cancelled task must never complete")
 		assert.False(t, f.fake.contentExists("gen-f"), "completion must not resurrect a deleted content")
 
-		// Nothing is servable for the deleted content: the resolver finds no
-		// row (generation 0) and the flat listing skips generation dirs.
+		// Nothing is servable for deleted content: a missing authority row
+		// refuses delivery instead of selecting any old flat objects.
 		token := f.token(t, "gen-f")
 		w := f.get(t, genVariantManifestPath("gen-f", "640x360", token))
 		assert.NotEqual(t, http.StatusOK, w.Code, "deleted content must not serve media")

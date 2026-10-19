@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -124,7 +125,8 @@ func callContext(token string, extra ...string) (context.Context, context.Cancel
 
 // holderOK: the legitimate holder must receive a manifest whose segments carry
 // a capability on the shared 60s policy, and must actually fetch one of those
-// segment URLs over HTTP with NO Authorization header.
+// segment URLs over HTTP with NO Authorization header, then fetch the same
+// published bytes through the authenticated GetSegment RPC.
 func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 	ctx, cancel := callContext(o.token)
 	defer cancel()
@@ -144,7 +146,7 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 			return fmt.Errorf("a segment carries no URL")
 		}
 		if !strings.Contains(seg.GetUrl(), "playback_token=") {
-			return fmt.Errorf("segment URL %q carries no playback_token query parameter", seg.GetUrl())
+			return fmt.Errorf("segment URL carries no playback_token query parameter")
 		}
 		if firstURL == "" {
 			firstURL = seg.GetUrl()
@@ -153,7 +155,7 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 
 	capability := playbackTokenFromURL(firstURL)
 	if capability == "" {
-		return fmt.Errorf("segment URL %q carries an empty playback_token", firstURL)
+		return fmt.Errorf("segment URL carries an empty playback_token")
 	}
 
 	exp, err := jwtExpiry(capability)
@@ -179,6 +181,17 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 	}
 	if len(body) == 0 {
 		return fmt.Errorf("segment fetch returned an empty body")
+	}
+	rpcCtx, rpcCancel := callContext(o.token, "playback-token", capability)
+	defer rpcCancel()
+	segment, err := client.GetSegment(rpcCtx, &streamingv1.GetSegmentRequest{
+		ContentId: o.content, SegmentId: segments[0].GetSegmentId(),
+	})
+	if err != nil {
+		return fmt.Errorf("GetSegment (holder) failed: %w", err)
+	}
+	if !bytes.Equal(segment.GetData(), body) || segment.GetSize() != int64(len(body)) {
+		return fmt.Errorf("gRPC segment bytes/size differ from the protected HTTP media")
 	}
 	return nil
 }
