@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/url"
 	"testing"
@@ -260,4 +261,89 @@ func TestGrpcGetManifest_RefusesConflictingDualCredentials(t *testing.T) {
 	_, err = srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestGrpcVerifyJWT_RejectsDuplicateCredentials(t *testing.T) {
+	claims := jwt.MapClaims{"wallet_address": "0xabc", "session_id": "session", "auth_epoch": 1, "restore_epoch": "restore", "token_type": "access", "iss": service.AccessTokenIssuer, "aud": service.AccessTokenAudience, "exp": time.Now().Add(time.Hour).Unix()}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(paritySecret))
+	require.NoError(t, err)
+	for _, key := range []string{"authorization", "playback-token"} {
+		t.Run(key, func(t *testing.T) {
+			md := metadata.Pairs("authorization", "Bearer "+token)
+			if key == "authorization" {
+				md.Append(key, "Bearer "+token)
+			} else {
+				md.Append(key, "cap", "cap")
+			}
+			ctx := metadata.NewIncomingContext(context.Background(), md)
+			_, err := verifyGRPCJWT(ctx, "/streaming.StreamingService/GetSegment", paritySecret, nil, nil)
+			require.Equal(t, codes.Unauthenticated, status.Code(err), "duplicate %s must be refused", key)
+		})
+	}
+}
+
+func TestGrpcGetManifest_RequiresMatchingRestoreEpoch(t *testing.T) {
+	authSvc := service.NewAuthService(paritySecret, nil)
+	authSvc.SetRuleVersionReader(func(context.Context, string) (int64, error) { return 1, nil })
+	session := startTestSession(t, authSvc)
+	capability, err := authSvc.GeneratePlaybackToken(context.Background(), "0xWallet", "c1", "", "", 1, time.Minute, "", service.WithSessionBinding(session, 1), service.WithRuleVersion(1))
+	require.NoError(t, err)
+	for _, matching := range []bool{true, false} {
+		t.Run(fmt.Sprint(matching), func(t *testing.T) {
+			restore, ok := authSvc.RestoreEpoch()
+			require.True(t, ok)
+			if !matching {
+				restore = "older-restore-epoch"
+			}
+			ctx := context.WithValue(parityCtx(session, 1, "0xWallet"), grpcRestoreEpochKey, restore)
+			ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("playback-token", capability))
+			srv, _ := newParityServer(t, big.NewInt(5), 1, authSvc)
+			_, err := srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})
+			if matching {
+				require.NoError(t, err)
+			} else {
+				require.Equal(t, codes.PermissionDenied, status.Code(err))
+			}
+		})
+	}
+}
+
+func TestGrpcVerifyJWT_AccessKeyRotation(t *testing.T) {
+	const master = "master-signing-secret-at-least-32-characters"
+	const current = "current-access-key-at-least-32-characters"
+	const previous = "previous-access-key-at-least-32-characters"
+	const capability = "capability-key-at-least-32-characters"
+	for _, tc := range []struct {
+		name, key string
+		retired   bool
+		want      codes.Code
+	}{
+		{"current", current, false, codes.OK},
+		{"previous", previous, false, codes.OK},
+		{"retired", previous, true, codes.Unauthenticated},
+		{"master-is-not-access", master, false, codes.Unauthenticated},
+		{"capability-is-not-access", capability, false, codes.Unauthenticated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := []string{previous}
+			if tc.retired {
+				old = nil
+			}
+			svc := service.NewAuthService(master, nil, service.WithTokenKeySeparation(current, old, capability, nil))
+			session := startTestSession(t, svc)
+			restore, ok := svc.RestoreEpoch()
+			require.True(t, ok)
+			claims := jwt.MapClaims{
+				"wallet_address": "0xWallet", "session_id": session, "auth_epoch": 1,
+				"restore_epoch": restore, "token_type": "access", "jti": "rotation-" + tc.name,
+				"iss": service.AccessTokenIssuer, "aud": service.AccessTokenAudience,
+				"exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(),
+			}
+			signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(tc.key))
+			require.NoError(t, err)
+			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+signed))
+			_, err = verifyGRPCJWT(ctx, "/streaming.StreamingService/GetManifest", master, svc, nil)
+			require.Equal(t, tc.want, status.Code(err), "%v", err)
+		})
+	}
 }

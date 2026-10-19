@@ -24,6 +24,52 @@ import (
 
 const grpcAuthzSecret = "test-secret-that-is-at-least-32-chars"
 
+func bindTestGRPCCapabilitySession(t *testing.T, ctx context.Context, svc *service.AuthService, capability string) context.Context {
+	t.Helper()
+	claims, err := svc.ParseToken(capability)
+	require.NoError(t, err)
+	ctx = context.WithValue(ctx, grpcSessionKey, claims.SessionID)
+	ctx = context.WithValue(ctx, grpcEpochKey, claims.AuthEpoch)
+	return context.WithValue(ctx, grpcRestoreEpochKey, claims.RestoreEpoch)
+}
+
+func TestGRPC_GetSegment_RefusesAnotherSessionCapability(t *testing.T) {
+	authSvc := service.NewAuthService(grpcAuthzSecret, nil)
+	session := startTestSession(t, authSvc)
+	other := startTestSession(t, authSvc)
+	token, err := authSvc.GeneratePlaybackToken(context.Background(), "0xabc", "content-1", "", "", 1, time.Minute, "", service.WithSessionBinding(session, 1))
+	require.NoError(t, err)
+	currentRestore, ok := authSvc.RestoreEpoch()
+	require.True(t, ok)
+	for _, kind := range []string{"session", "version", "restore", "matching"} {
+		t.Run(kind, func(t *testing.T) {
+			accessSession, epoch, restore := session, int64(1), currentRestore
+			if kind == "session" {
+				accessSession = other
+			}
+			if kind == "version" {
+				epoch = 2
+			}
+			if kind == "restore" {
+				restore = "older-restore"
+			}
+			ctx := context.WithValue(parityCtx(accessSession, epoch, "0xabc"), grpcRestoreEpochKey, restore)
+			ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("playback-token", token))
+			store := newGrpcMockSegmentStorage()
+			require.NoError(t, store.Upload(context.Background(), "streamgate", "streams/content-1/seg0.ts", []byte("media")))
+			srv := &streamingGrpcServer{authSvc: authSvc, segStore: store, log: zap.NewNop()}
+			response, err := srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{ContentId: "content-1", SegmentId: "seg0.ts"})
+			if kind == "matching" {
+				require.NoError(t, err)
+				require.Equal(t, []byte("media"), response.Data)
+			} else {
+				require.Equal(t, codes.PermissionDenied, status.Code(err))
+				require.Nil(t, response)
+			}
+		})
+	}
+}
+
 // No wallet in the request context (i.e. no authenticated caller) + a valid
 // playback token => Unauthenticated. Before A7 this returned Unavailable /
 // NotFound because the token was accepted without any wallet binding.
@@ -58,12 +104,13 @@ func TestGRPC_GetSegment_TokenWithMatchingWallet_PassesAuth(t *testing.T) {
 	md := metadata.Pairs("playback-token", token)
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 	ctx = context.WithValue(ctx, grpcWalletKey, "0xabc")
+	ctx = bindTestGRPCCapabilitySession(t, ctx, authSvc, token)
 
 	_, err = srv.GetSegment(ctx, &streamingv1.GetSegmentRequest{ContentId: "content-1", SegmentId: "seg0.ts"})
 	// segStore is nil in this harness, so the request must get PAST the auth
 	// stage and fail later with Unavailable — anything else means the wallet
 	// binding is wrong.
-	assert.NotEqual(t, codes.Unauthenticated, status.Code(err),
+	assert.Equal(t, codes.Unavailable, status.Code(err),
 		"a matching wallet must pass the auth stage (got %v)", err)
 }
 

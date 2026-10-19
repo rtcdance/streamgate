@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -13,9 +14,10 @@ import (
 // identity so a capability minted from a request can inherit the caller's
 // session and be revoked with it.
 type PlaybackIdentity struct {
-	Wallet    string
-	SessionID string
-	AuthEpoch int64
+	Wallet       string
+	SessionID    string
+	AuthEpoch    int64
+	RestoreEpoch string
 }
 
 // PlaybackTokenValidator validates a playback token and returns the identity it
@@ -39,7 +41,17 @@ type PlaybackTokenAuthConfig struct {
 // from the token's claims.
 func PlaybackTokenAuth(config PlaybackTokenAuthConfig, logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		query, parseErr := url.ParseQuery(c.Request.URL.RawQuery)
+		values := query["playback_token"]
+		if parseErr != nil || len(values) > 1 || len(c.Request.Header.Values("Authorization")) > 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "ambiguous credentials", "code": "UNAUTHORIZED"})
+			return
+		}
 		token := c.Query("playback_token")
+		if len(values) == 1 && token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "empty playback token", "code": "UNAUTHORIZED"})
+			return
+		}
 		if token == "" {
 			// No playback token: leave the decision to JWTAuthMiddleware.
 			c.Next()
@@ -65,6 +77,7 @@ func PlaybackTokenAuth(config PlaybackTokenAuthConfig, logger *zap.Logger) gin.H
 		c.Set("playback_auth", true)
 		c.Set("wallet_address", identity.Wallet)
 		SetSessionBinding(c, identity.SessionID, identity.AuthEpoch)
+		c.Set("restore_epoch", identity.RestoreEpoch)
 		c.Next()
 	}
 }

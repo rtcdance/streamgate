@@ -763,7 +763,8 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 			if capErr != nil {
 				return nil, status.Error(codes.Unauthenticated, "invalid playback token")
 			}
-			if capClaims.WalletAddress != wallet || capClaims.SessionID != sessionID || capClaims.AuthEpoch != epoch {
+			restoreEpoch, _ := ctx.Value(grpcRestoreEpochKey).(string)
+			if capClaims.WalletAddress != wallet || capClaims.SessionID != sessionID || capClaims.AuthEpoch != epoch || capClaims.RestoreEpoch != restoreEpoch {
 				return nil, status.Error(codes.PermissionDenied, "conflicting playback credentials")
 			}
 		}
@@ -881,8 +882,14 @@ func (s *streamingGrpcServer) GetSegment(ctx context.Context, req *streamingv1.G
 	if v := md.Get("x-client-fingerprint"); len(v) > 0 {
 		fingerprint = v[0]
 	}
-	if _, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId, fingerprint, wallet); err != nil {
+	capClaims, err := s.authSvc.ValidatePlaybackToken(ctx, tokens[0], req.ContentId, fingerprint, wallet)
+	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid playback token")
+	}
+	sessionID, epoch := grpcSessionFromContext(ctx)
+	restoreEpoch, _ := ctx.Value(grpcRestoreEpochKey).(string)
+	if capClaims.SessionID != sessionID || capClaims.AuthEpoch != epoch || capClaims.RestoreEpoch != restoreEpoch {
+		return nil, status.Error(codes.PermissionDenied, "conflicting playback credentials")
 	}
 
 	if strings.Contains(req.SegmentId, "..") || strings.Contains(req.SegmentId, "/") || strings.Contains(req.SegmentId, "\\") {
@@ -1120,9 +1127,10 @@ var grpcNoAuthMethods = map[string]bool{
 type grpcContextKey string
 
 const (
-	grpcWalletKey  grpcContextKey = "grpc_wallet_address"
-	grpcSessionKey grpcContextKey = "grpc_session_id"
-	grpcEpochKey   grpcContextKey = "grpc_auth_epoch"
+	grpcWalletKey       grpcContextKey = "grpc_wallet_address"
+	grpcSessionKey      grpcContextKey = "grpc_session_id"
+	grpcEpochKey        grpcContextKey = "grpc_auth_epoch"
+	grpcRestoreEpochKey grpcContextKey = "grpc_restore_epoch"
 )
 
 func grpcWalletFromContext(ctx context.Context) string {
@@ -1211,6 +1219,12 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 	}
 
 	values := md.Get("authorization")
+	for _, key := range []string{"authorization", "playback-token"} {
+		credentials := md.Get(key)
+		if len(credentials) > 1 || (len(credentials) == 1 && strings.TrimSpace(credentials[0]) == "") {
+			return nil, status.Error(codes.Unauthenticated, "ambiguous or empty credentials")
+		}
+	}
 	if len(values) == 0 {
 		return nil, status.Error(codes.Unauthenticated, "missing authorization token")
 	}
@@ -1221,16 +1235,14 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 		return nil, status.Error(codes.Unauthenticated, "empty authorization token")
 	}
 
-	claims := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
-		// Pin HS256 EXACTLY: HS384/HS512 are valid HMAC tokens but are not what
-		// this service issues, so they must not be accepted here.
-		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(jwtSecret), nil
-	})
-	if err != nil || !token.Valid {
+	var claims jwt.MapClaims
+	var err error
+	if authSvc != nil {
+		claims, err = authSvc.VerifyAccessTokenClaims(tokenStr)
+	} else {
+		claims, err = middleware.VerifyAccessTokenClaims(tokenStr, middleware.JWTAuthConfig{Secret: jwtSecret})
+	}
+	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid token")
 	}
 
@@ -1255,6 +1267,7 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 	ctx = context.WithValue(ctx, grpcWalletKey, decision.Wallet)
 	ctx = context.WithValue(ctx, grpcSessionKey, decision.SessionID)
 	ctx = context.WithValue(ctx, grpcEpochKey, decision.AuthEpoch)
+	ctx = context.WithValue(ctx, grpcRestoreEpochKey, claims["restore_epoch"])
 	return ctx, nil
 }
 
