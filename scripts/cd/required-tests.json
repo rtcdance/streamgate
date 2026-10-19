@@ -167,7 +167,11 @@
       {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_RejectsDuplicateCredentials"},
       {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_AccessKeyRotation"},
       {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcGetManifest_RequiresMatchingRestoreEpoch"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_GetSegment_RefusesAnotherSessionCapability"}
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_GetSegment_RefusesAnotherSessionCapability"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestPublishedGeneration_AuthorityFailureNeverServesLegacy"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestAcceptance_TaskGenerationPublish"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_PublishedRenditionSegmentRoundTrip"},
+      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_PlaylistMetadataRejectsInvalidInput"}
     ],
     "ops-gateway-core": [
       {

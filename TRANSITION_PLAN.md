@@ -179,6 +179,8 @@
 >
 > **A/C 取消清理修复（2026-10-19）：** 先以外层 TERM 负例复现子 trap 无法运行时 `.private` 仍残留。恢复备份现使用本次控制器根 `.private`（独立调用回退自身目录，权限 0700），reference worktree 同样归入本轮私有根；构建前登记本轮拥有的应用二进制，外层强制移除控制器后仍清理私有快照、loader、登记二进制与本轮 worktree。未登记已有文件保留，不扫描或 prune 其他项目。全部 Python 工具 **161/161 PASS**；实际 Docker 控制器取消演练也 PASS：子 trap 禁用，外层 TERM 原退出 **143**，本轮私有备份／loader／应用二进制／Git worktree／带标签网络和卷均清除，预存未登记文件仍在。该控制器演练只验证清理，不冒充恢复业务验收。命令／退出／日志在 `.verify-artifacts/sg-cancel-private-20261019/{real-cancel.sh,real-exit.txt,real-result.txt,real-controller.log}`。
 >
+> **B/M2 发布媒体边界修复（2026-10-19，开发回归）：** 先 RED 证明 generation 查询失败／非法负值时 HTTP 与 gRPC 会回退旧平铺媒体；现传播权威错误并拒绝交付，缺失内容行同样不选择旧对象，显式合法 generation 0 仍通过既有兼容正例。gRPC 分片 ID 原仅 basename、GetSegment 禁止所有斜线，无法读取真实 `gN/rendition/segment.ts`；现 manifest 返回裸文件名或单层 rendition/文件名，GetSegment 只允许此受限形状且拒绝客户端 generation、嵌套和路径穿越，读取始终绑定服务端已发布 generation。另先 RED 证明 gRPC 曾合成固定 EXTINF，现 generation 媒体必须读取实际存储 playlist，重写受保护 URL 并保留精确 HLS timing；整数 SegmentInfo.duration 按秒向上取整（legacy 无 playlist 为 0），未改变 protobuf wire 字段。真实 gRPC holder 探针新增 GetSegment RPC 与受保护 HTTP 分片 bytes／size 比较，不能再仅以 HTTP URL 成功证明 RPC 媒体读取。完整 middleware／gateway race 原退出 **0**，credential-consistency 扩展为 **9/9** 精确必需父 ID，包含发布切换、故障拒绝、round-trip、非法 playlist；Docker vet／lint **0 issues**、探针编译通过，Python **161/161 PASS**。归档 `.verify-artifacts/sg-published-media-20261019/`，失败日志中的合成测试 JWT 已脱敏。这是工具容器内回归，新增实际 GetSegment 探针仍须新干净候选媒体实跑。
+>
 > **当前仍需完成：** 初始空规则时动态启动 indexer、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
 
 ### 0.1 目标与执行边界
