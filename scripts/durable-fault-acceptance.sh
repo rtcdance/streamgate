@@ -1400,14 +1400,23 @@ print(m.group(0).lower() if m else '')
 # its RPC error instead of being swallowed, so "no receipt" has a visible cause.
 chain_send() {
   local to="$1" sig="$2"; shift 2
-  local err out rc=0 hash
+  local err out rc=0 hash msg
   err="$(mktemp)"
   out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>"$err")" || rc=$?
   hash="$(printf '%s' "$out" | tx_hash_of)"
   if [ -z "$hash" ]; then
-    printf 'DIAG chain_send %s -> %s rc=%s nonce=%s head=%s stdout=[%s] stderr=[%s]\n' \
+    # cast 1.8.5 prints failures on STDOUT as {"success":false,"errors":[...]};
+    # this diagnostic goes to stderr so it is logged, never captured as a hash.
+    msg="$(printf '%s' "$out" | python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin)
+    e=d.get("errors") or []
+    print("; ".join(str(x.get("message","")) for x in e) if isinstance(d,dict) else "")
+except Exception:
+    pass' 2>/dev/null)"
+    printf 'DIAG chain_send %s -> %s rc=%s nonce=%s head=%s err=[%s%s]\n' \
       "$sig" "$to" "$rc" "$(chain_nonce)" "$(head_number)" \
-      "$(printf '%s' "$out" | tr '\n' ' ')" "$(tr '\n' ' ' < "$err")"
+      "$msg" "$(tr '\n' ' ' < "$err")" >&2
   fi
   rm -f "$err"
   printf '%s' "$hash"
