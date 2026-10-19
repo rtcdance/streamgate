@@ -1249,9 +1249,15 @@ stage_perf() {
         || {
           # Keep the application logs next to the failed result so the cause of
           # a failed scenario (e.g. a gate 503 while an RPC endpoint is down) is
-          # visible instead of only the aggregate status counts.
-          docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" logs --no-color --tail 4000 monolith \
-            > "${matrix_dir}/monolith-${scenario}-round${rep}.log" 2>&1 || :
+          # visible instead of only the aggregate status counts. The FULL log is
+          # kept: a tail window can land entirely on the teardown flush and hide
+          # the moment the fault started. The endpoints' own logs are kept too,
+          # so a proxy that was not forwarding is distinguishable from one that
+          # was.
+          for svc in monolith anvil-proxy anvil-fallback-proxy; do
+            docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" logs --no-color "$svc" \
+              > "${matrix_dir}/${svc}-${scenario}-round${rep}.log" 2>&1 || :
+          done
           fail "performance scenario failed: round=${rep} scenario=${scenario}"
         }
       setup_flag=0
