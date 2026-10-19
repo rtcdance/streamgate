@@ -515,6 +515,10 @@ prebuild_verify_stack() {
       *) binary="./cmd/microservices/${service}" ;;
     esac
     [ ! -e "$src/deploy/docker/${service}-linux" ] || fail "generated binary already exists: ${service}-linux"
+    mkdir -p -m 700 "$ARTIFACT_DIR/.private"
+    if [ "$src" = "$ROOT_DIR" ]; then
+      printf '%s\n' "$src/deploy/docker/${service}-linux" >> "$ARTIFACT_DIR/.private/owned-binaries"
+    fi
     BUILT_BINARIES=("$src/deploy/docker/${service}-linux")
     ( cd "$src" && CGO_ENABLED=0 GOOS=linux \
       go build -tags nats_integration -trimpath -o "deploy/docker/${service}-linux" "$binary" ) \
@@ -556,7 +560,8 @@ prepare_reference_worktree() {
   local ref="$1" wt lib
   git rev-parse --verify "${ref}^{commit}" >/dev/null 2>&1 \
     || fail "PERF_REFERENCE_REF '${ref}' is not a commit in this repository"
-  wt="$(mktemp -d "${TMPDIR:-/tmp}/sg-ref-build.XXXXXX")"
+  mkdir -p -m 700 "$ARTIFACT_DIR/.private"
+  wt="$(mktemp -d "$ARTIFACT_DIR/.private/reference-build.XXXXXX")"
   rmdir "$wt"
   git worktree add --detach "$wt" "$ref" >/dev/null 2>&1 \
     || fail "could not create a worktree at ${ref}"

@@ -18,6 +18,26 @@ def function(name):
 
 
 class RecoveryDrillTests(unittest.TestCase):
+    def test_private_backup_uses_controller_root_and_standalone_fallback(self):
+        for controller in (True, False):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(controller=controller):
+                root = Path(directory)
+                artifacts = root / "recovery"
+                commands = ["set -euo pipefail", "ARTIFACTS=" + shlex.quote(str(artifacts)),
+                            "unset VERIFY_ARTIFACTS"]
+                if controller:
+                    commands.append("VERIFY_ARTIFACTS=" + shlex.quote(str(root)))
+                commands += [function("prepare_private_backup_directory"),
+                             "prepare_private_backup_directory", 'printf "%s" "$PRIVATE_DIR"']
+                result = subprocess.run(["bash", "-c", "\n".join(commands)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                private = Path(result.stdout)
+                self.assertEqual(private.parent, (root if controller else artifacts) / ".private")
+                self.assertEqual(private.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(private.parent.stat().st_mode & 0o777, 0o700)
+                if controller:
+                    self.assertFalse((artifacts / ".private").exists())
+
     def test_cast_json_fields_support_the_pinned_tools_envelope(self):
         for document in ({"hash": "0x123"}, {"schema_version": 1, "success": True, "data": {"hash": "0x123"}, "errors": [], "warnings": []}):
             body = '\n'.join(["set -euo pipefail", function("json_get"),

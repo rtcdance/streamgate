@@ -28,6 +28,18 @@ with open(os.environ["FAKE_TRACE"], "a") as log:
     log.write(json.dumps(args) + "\\n")
 ready = Path(os.environ["FAKE_READY"])
 if args[0] == "run":
+    artifacts = Path(os.environ["VERIFY_ARTIFACTS"])
+    private = artifacts / ".private" / "recovery-backup"
+    private.mkdir(parents=True)
+    (private / "redis.rdb").write_text("private session snapshot")
+    (artifacts / "perf-loader.test").write_text("generated loader")
+    (artifacts / "public-result.json").write_text("{}")
+    outputs = Path(os.environ["VERIFY_SOURCE_ROOT"]) / "deploy/docker"
+    outputs.mkdir(parents=True)
+    owned = outputs / "monolith-linux"
+    owned.write_text("owned generated application")
+    (outputs / "transcoder-linux").write_text("preexisting unowned application")
+    (artifacts / ".private/owned-binaries").write_text(str(owned) + "\\n")
     temporary = ready.with_suffix(".tmp")
     temporary.write_text(str(os.getpid()))
     temporary.replace(ready)
@@ -60,6 +72,11 @@ elif args[:2] == ["context", "inspect"]:
                 self.assertTrue(ready.exists(), "fake controller did not reach its observable running state")
                 process.send_signal(signal.SIGTERM)
                 self.assertEqual(process.wait(timeout=2), 143)
+                self.assertFalse((root / "artifacts/.private").exists(), "outer cancellation must remove private snapshots even when the child cannot run its trap")
+                self.assertFalse((root / "artifacts/perf-loader.test").exists())
+                self.assertFalse((root / "deploy/docker/monolith-linux").exists())
+                self.assertEqual((root / "deploy/docker/transcoder-linux").read_text(), "preexisting unowned application")
+                self.assertTrue((root / "artifacts/public-result.json").exists())
                 calls = [json.loads(line) for line in trace.read_text().splitlines()]
                 self.assertTrue(any(call[:2] == ["rm", "-f"] for call in calls))
                 self.assertTrue(any(call[:2] == ["volume", "ls"] for call in calls))
