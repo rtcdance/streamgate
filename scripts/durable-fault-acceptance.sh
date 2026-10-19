@@ -25,6 +25,7 @@ MONO_CONTAINER=""
 TC_CONTAINER=""
 TC_CONTAINER_2=""
 MINIO_CONTAINER=""
+REDIS_CONTAINER=""
 # The chain the registry publisher writes to, reached by SERVICE NAME: the
 # controller is attached to the project network, so anvil is addressable without
 # a published port.
@@ -42,6 +43,7 @@ SEED_TAG=""
 SEED_PID=""
 SQLLAST=""
 STABLELAST=""
+REG_LAST=""
 WORKER_RECLAIM_BOUND="${WORKER_RECLAIM_BOUND:-60}"
 # Bounded observation window that covers the broker's own redelivery timer
 # (jsAckWait 30s in the candidate) plus a margin. A predicate is polled for the
@@ -60,13 +62,14 @@ while [ "$#" -gt 0 ]; do
     --pg-container) PG_CONTAINER="$2"; shift 2 ;;
     --mono-container) MONO_CONTAINER="$2"; shift 2 ;;
     --minio-container) MINIO_CONTAINER="$2"; shift 2 ;;
+    --redis-container) REDIS_CONTAINER="$2"; shift 2 ;;
     --transcoder-container) TC_CONTAINER="$2"; shift 2 ;;
     --transcoder-container-2) TC_CONTAINER_2="$2"; shift 2 ;;
     --anvil-url) ANVIL_URL="$2"; shift 2 ;;
     *) printf 'unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
-for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA RUN_LABEL PG_CONTAINER MINIO_CONTAINER MONO_CONTAINER TC_CONTAINER; do
+for required in PROJECT COMPOSE BASE_URL ARTIFACT_DIR HELPER_IMAGE CANDIDATE_SHA RUN_LABEL PG_CONTAINER MINIO_CONTAINER REDIS_CONTAINER MONO_CONTAINER TC_CONTAINER; do
   [ -n "${!required}" ] || { printf 'missing --%s\n' "$(printf '%s' "$required" | tr 'A-Z_' 'a-z-')" >&2; exit 2; }
 done
 
@@ -215,18 +218,20 @@ stable_for() {
 # every value below is read from the node, never inferred from the candidate.
 # ---------------------------------------------------------------------------
 hexq() { printf '0x%x' "$1"; }
-# eth_blockNumber returns a hex quantity; bash's printf handles the 0x prefix.
-head_number() {
-  local h
-  h="$(cast rpc --rpc-url "$ANVIL_URL" eth_blockNumber 2>/dev/null)" || return 1
-  [ -n "$h" ] || return 1
-  printf '%d' "$h"
+# hexdec feeds a JSON-RPC hex quantity to printf. `cast rpc` prints its result as
+# a QUOTED JSON string ("0x30"), and bash's `printf '%d' '"0x30"'` does not fail —
+# it silently yields the character code 48, so every chain read looked like the
+# number 48 and every "value equal to the recorded one" assertion was decided by
+# a constant. Strip the quotes before converting.
+hexdec() {
+  local v="${1//\"/}"
+  v="${v//[$'\r\n']/}"
+  [ -n "$v" ] || return 1
+  printf '%d' "$v"
 }
+head_number() { hexdec "$(cast rpc --rpc-url "$ANVIL_URL" eth_blockNumber 2>/dev/null)"; }
 chain_nonce() {
-  local n
-  n="$(cast rpc --rpc-url "$ANVIL_URL" eth_getTransactionCount "$WALLET_A" latest 2>/dev/null)" || return 1
-  [ -n "$n" ] || return 1
-  printf '%d' "$n"
+  hexdec "$(cast rpc --rpc-url "$ANVIL_URL" eth_getTransactionCount "$WALLET_A" latest 2>/dev/null)"
 }
 block_hash() {
   cast rpc --rpc-url "$ANVIL_URL" eth_getBlockByNumber "$(hexq "$1")" false 2>/dev/null \
@@ -256,6 +261,24 @@ reg_attempts() {
 }
 reg_inflight() {
   sql_scalar "SELECT count(*) FROM content_registry_intents WHERE status IN ('pending','submitted','broadcast_unknown')"
+}
+# wait_reg_reorged <content> <old-block-hash> <seconds> — a stale 'confirmed' row
+# would satisfy a plain status poll without the chain ever being re-checked, so
+# the reorg has to be OBSERVED first: the row must leave 'confirmed' or stop
+# naming the orphaned block before "confirmed again" means anything.
+wait_reg_reorged() {
+  local content="$1" oldhash="$2" deadline=$((SECONDS + $3)) st bh
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    st="$(reg_field "$content" status)"
+    bh="$(reg_field "$content" block_hash)"
+    if [ "$st" != "confirmed" ] || [ "$bh" != "$oldhash" ]; then
+      REG_LAST="$st/${bh:-empty}"
+      return 0
+    fi
+    sleep 1
+  done
+  REG_LAST="$st/${bh:-empty}"
+  return 1
 }
 diag_registry() {
   printf -- '   -- registry intents (newest first)\n'
@@ -921,13 +944,18 @@ fi
 # candidate's persisted row PLUS the node's own state — never on a log line.
 # ---------------------------------------------------------------------------
 log 'FR00 registry preconditions'
-if docker logs "$MONO_CONTAINER" 2>&1 | grep -q "On-chain content registry enabled"; then
-  p "the candidate really started with the durable on-chain registry enabled"
-  record FR00 preconditions PASS "registry publisher enabled in the monolith"
-else
-  f "the monolith never logged the registry being enabled (no intent row can exist)"
-  record FR00 preconditions FAIL "registry not enabled"
-fi
+# `grep -q` closes the pipe as soon as it matches, and with `pipefail` a long
+# `docker logs` producer then reports a broken pipe — so the check would read
+# "no such line" whenever the line WAS there. Capture the log first.
+MONO_LOG="$(docker logs "$MONO_CONTAINER" 2>&1)"
+case "$MONO_LOG" in
+  *"On-chain content registry enabled"*)
+    p "the candidate really started with the durable on-chain registry enabled"
+    record FR00 preconditions PASS "registry publisher enabled in the monolith" ;;
+  *)
+    f "the monolith never logged the registry being enabled (no intent row can exist)"
+    record FR00 preconditions FAIL "registry not enabled" ;;
+esac
 HEAD0="$(head_number)"
 if [ -n "$HEAD0" ] && [ "$HEAD0" -gt 0 ]; then
   p "the controller reads the real chain over the project network (head=${HEAD0})"
@@ -948,9 +976,9 @@ else
 fi
 # A receipt reorg has to be produced by the CHAIN, not simulated. Probe that the
 # node really un-mines blocks; without it the scenario below could not exist.
-if anvil_rollback 5 && [ "$(head_number)" -lt "$HEAD0" ]; then
+if [ -n "$HEAD0" ] && [ "$HEAD0" -gt 6 ] && anvil_rollback 3 && [ "$(head_number)" -lt "$HEAD0" ]; then
   p "anvil_rollback really reorgs the chain (head ${HEAD0} -> $(head_number))"
-  record FR00-reorg preconditions PASS "a 5-block rollback reduced the head below ${HEAD0}"
+  record FR00-reorg preconditions PASS "a 3-block rollback reduced the head below ${HEAD0}"
 else
   f "anvil_rollback is unavailable, so a real receipt reorg cannot be produced"
   record FR00-reorg preconditions FAIL "the head did not fall after a rollback"
@@ -1142,9 +1170,17 @@ if seed_content fr03; then
       f "FR03: block ${FR_BLOCK} still has the recorded hash after the rollback"
       record FR03-reorg receipt-reorg FAIL "block hash unchanged"
     fi
-    # The publisher must notice and re-verify: the intent goes back through
-    # 'submitted' and ends confirmed under the NEW history, with the same raw
-    # transaction and no extra signature.
+    # The publisher must notice and re-verify BEFORE any "confirmed again" claim
+    # means anything: until the row stops naming the orphaned block, a status poll
+    # would be satisfied by the stale confirmation the reorg just invalidated.
+    if wait_reg_reorged "$CONTENT_ID" "$FR_BH" 120; then
+      p "FR03: the candidate detected the reorg and took the intent out of 'confirmed'"
+      record FR03-detected receipt-reorg PASS "row moved to ${REG_LAST} once its block stopped being canonical"
+    else
+      f "FR03: the intent stayed at ${REG_LAST} while its block was no longer canonical"
+      record FR03-detected receipt-reorg FAIL "the reorg was never re-verified (row ${REG_LAST})"
+      diag_registry
+    fi
     if wait_sql "SELECT status FROM content_registry_intents WHERE content_id='${CONTENT_ID}'" confirmed 180; then
       R_BH="$(reg_field "$CONTENT_ID" block_hash)"
       R_BLOCK="$(reg_field "$CONTENT_ID" block_number)"
@@ -1210,9 +1246,9 @@ if seed_content fr04 && wait_reached publisher.after_send 120; then
       R_ATTEMPTS="$(reg_attempts "$CONTENT_ID" "$R_NONCE")"
       R_BH="$(reg_field "$CONTENT_ID" block_hash)"
       if [ "$R_TX" = "$FR_TX" ] && [ "$R_NONCE" = "$FR_NONCE" ] && [ "$R_RAW2" = "$FR_RAW" ] \
-        && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] && [ "$R_BH" = "$(receipt_field "$FR_TX" blockHash)" ] && [ -n "$FR_BLOCK" ]; then
+        && [ "$R_ATTEMPTS" = "$FR_ATTEMPTS" ] && [ "$R_BH" = "$(receipt_field "$FR_TX" blockHash)" ]; then
         p "FR04: the restart found the existing receipt and did not sign anything new"
-        record FR04 publisher.after_send PASS "same tx=${FR_TX:0:12}, nonce=${FR_NONCE}, ${R_ATTEMPTS} signed attempt(s)"
+        record FR04 publisher.after_send PASS "same tx=${FR_TX:0:12}, nonce=${FR_NONCE}, ${R_ATTEMPTS} signed attempt(s), recorded block hash matches the receipt"
       else
         f "FR04: recovery drifted (tx ${FR_TX:0:12}->${R_TX:0:12}, nonce ${FR_NONCE}->${R_NONCE}, attempts ${FR_ATTEMPTS}->${R_ATTEMPTS})"
         record FR04 publisher.after_send FAIL "transaction identity drifted"
@@ -1272,6 +1308,420 @@ else
   diag_registry
 fi
 
+
+# ---------------------------------------------------------------------------
+# Event-indexer faults (section 0.2 D). The log subscription may only ACCELERATE
+# invalidation — it must never grant access — and it must lose nothing across a
+# restart, a checkpoint crash or a chain reorg. Everything below reads the
+# candidate's durable event store and the chain's own logs, so "the subscription
+# really consumed the log" is a fact about stored rows and block heights.
+# ---------------------------------------------------------------------------
+DEMO_NFT="0x5FbDB2315678afecb367f032d93F642f64180aa3"
+# Anvil account 1: a second subject, so a transfer is not the same actor.
+WALLET_B="0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+
+event_cursor() { sql_scalar "SELECT block_number FROM event_checkpoints ORDER BY updated_at DESC LIMIT 1"; }
+# tx_hash_of parses a transaction hash out of cast's output, whichever shape the
+# installed version prints (receipt JSON or a plain receipt).
+tx_hash_of() {
+  python3 -c "
+import sys,json,re
+data=sys.stdin.read()
+try:
+    d=json.loads(data)
+    if isinstance(d,dict):
+        for k in ('transactionHash','transaction_hash','txHash'):
+            if d.get(k): print(str(d[k]).lower()); raise SystemExit
+        r=d.get('receipt')
+        if isinstance(r,dict):
+            for k in ('transactionHash','transaction_hash'):
+                if r.get(k): print(str(r[k]).lower()); raise SystemExit
+except Exception:
+    pass
+m=re.search(r'0x[0-9a-fA-F]{64}', data)
+print(m.group(0).lower() if m else '')
+"
+}
+# chain_send <to> <signature> [args...] — one real signed transaction from the
+# controller, returning the hash the NODE computed for it.
+chain_send() {
+  local to="$1" sig="$2"; shift 2
+  cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>/dev/null | tx_hash_of
+}
+erc721_mint() { chain_send "$DEMO_NFT" 'mint(address)' "$WALLET_A"; }
+erc1155_mint() { chain_send "${ERC1155_ADDR}" 'mint(address,uint256,uint256)' "$1" "$2" "$3"; }
+erc1155_batch() {
+  chain_send "${ERC1155_ADDR}" 'safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)' \
+    "$WALLET_A" "$WALLET_B" "[1,2]" "[1,3]" '0x'
+}
+
+# The NFT gate caches EVIDENCE per subject; the event path must be able to delete
+# exactly those keys. Planting them with the gate's own key shape is what makes
+# the invalidation observable from outside the candidate process.
+gate_cache_key() { printf 'nft_cache:31337:%s:%s:%s:%s' "$1" "$2" "$3" "$4"; }
+plant_gate_cache() {
+  docker exec "$REDIS_CONTAINER" redis-cli -n 0 SET "$1" \
+    '{"expires":"2030-01-01T00:00:00Z","balance":"1"}' EX 600 >/dev/null 2>&1
+}
+gate_cache_alive() { docker exec "$REDIS_CONTAINER" redis-cli -n 0 EXISTS "$1" 2>/dev/null | tr -d '\r'; }
+# wait_cache_gone <seconds> — every planted key must be gone within the window.
+wait_cache_gone() {
+  local deadline=$((SECONDS + $1)) alive key
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    alive=0
+    for key in "${PLANTED_KEYS[@]}"; do
+      [ "$(gate_cache_alive "$key")" = "1" ] && alive=$((alive + 1))
+    done
+    [ "$alive" = 0 ] && return 0
+    sleep 1
+  done
+  CACHE_ALIVE="$alive"
+  return 1
+}
+# wait_chain_after <height> <seconds> — the chain must produce blocks above
+# <height>, because a log only becomes indexable once the confirmation lag has
+# caught up to it.
+wait_chain_after() {
+  local deadline=$((SECONDS + $2)) head
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    head="$(head_number)"
+    [ -n "$head" ] && [ "$head" -gt "$1" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+log 'FI00 event indexer preconditions'
+PLANTED_KEYS=()
+CACHE_ALIVE=""
+if [ -n "$(docker exec "$MONO_CONTAINER" printenv STREAMGATE_ETH_WS_URL 2>/dev/null)" ]; then
+  p "the stack configures a real WebSocket subscription for the log indexer"
+  record FI00-ws preconditions PASS "STREAMGATE_ETH_WS_URL is set on the monolith"
+else
+  f "no WS endpoint is configured, so no real log subscription can exist"
+  record FI00-ws preconditions FAIL "STREAMGATE_ETH_WS_URL empty"
+fi
+# The stack ships an ERC-721 demo contract only; an ERC-1155 Batch event needs a
+# real ERC-1155 contract, deployed here with the same key the app's minter uses.
+ERC1155_ADDR=""
+if [ -d contracts ] \
+  && ( cd contracts && forge create --rpc-url "$ANVIL_URL" --private-key "$KEY_A" \
+        src/DemoERC1155.sol:DemoERC1155 --legacy --broadcast ) >"$WORKDIR/erc1155.log" 2>&1; then
+  ERC1155_ADDR="$(python3 -c "
+import re
+m=re.findall(r'0x[0-9a-fA-F]{40}', open('$WORKDIR/erc1155.log').read())
+print(m[-1].lower() if m else '')
+" 2>/dev/null)"
+fi
+if [ -n "$ERC1155_ADDR" ] && [ "$(cast code --rpc-url "$ANVIL_URL" "$ERC1155_ADDR" 2>/dev/null)" != "0x" ]; then
+  p "deployed a real ERC-1155 contract for the batch event (${ERC1155_ADDR})"
+  record FI00-erc1155 preconditions PASS "DemoERC1155 has runtime code at ${ERC1155_ADDR}"
+else
+  f "could not deploy an ERC-1155 contract, so a TransferBatch log cannot be produced"
+  tail -5 "$WORKDIR/erc1155.log" 2>/dev/null | sed 's/^/   /'
+  record FI00-erc1155 preconditions FAIL "DemoERC1155 deployment failed"
+fi
+# The indexer only scans contracts some ACTIVE rule gates, and it reads that
+# whitelist at startup: both rules must exist before the restart below.
+FI_CONTENT_OK=0
+if seed_content fi00; then
+  FI_CONTENT_OK=1
+  api_post "/api/v1/content/${CONTENT_ID}/gating-rules" "$TOKEN_A" \
+    "{\"contract_address\":\"${DEMO_NFT}\",\"chain_id\":31337,\"standard\":\"erc721\",\"min_balance\":1}" >/dev/null \
+    || f "FI00: could not create the ERC-721 gating rule"
+  if [ -n "$ERC1155_ADDR" ]; then
+    api_post "/api/v1/content/${CONTENT_ID}/gating-rules" "$TOKEN_A" \
+      "{\"contract_address\":\"${ERC1155_ADDR}\",\"chain_id\":31337,\"standard\":\"erc1155\",\"min_balance\":1}" >/dev/null \
+      || f "FI00: could not create the ERC-1155 gating rule"
+  fi
+fi
+RULES="$(sql_scalar "SELECT count(*) FROM content_gating_rules WHERE is_active AND chain_id=31337")"
+if [ "$FI_CONTENT_OK" = 1 ] && [ "$RULES" = 2 ]; then
+  p "two active gating rules on chain 31337 give the indexer a real contract whitelist"
+  record FI00-whitelist preconditions PASS "active_rules=${RULES} (${DEMO_NFT}, ${ERC1155_ADDR})"
+else
+  f "the whitelist is ${RULES:-?} rule(s) where 2 were required (the indexer would not start)"
+  record FI00-whitelist preconditions FAIL "active_rules=${RULES:-none}"
+fi
+# The whitelist is read once, at service start, so the indexer only exists after
+# a restart. That restart IS the precondition this scenario needs.
+container_kill "$MONO_CONTAINER"
+container_start "$MONO_CONTAINER"
+TOKEN_A=""
+if wait_worker_up "$MONO_CONTAINER" 120; then
+  INDEXER_LOG="$(docker logs --tail 300 "$MONO_CONTAINER" 2>&1 | grep -E "EventIndexer|WebSocket log subscriber|whitelist" | tail -3)"
+  if printf '%s' "$INDEXER_LOG" | grep -q "EventIndexer + NFTEventHandler started" \
+    && printf '%s' "$INDEXER_LOG" | grep -q "WebSocket log subscriber started"; then
+    p "the restarted candidate really runs the event indexer on a live log subscription"
+    record FI00 preconditions PASS "indexer + WS subscriber started after the whitelist appeared"
+  else
+    f "the indexer did not start on the real subscription after the restart"
+    printf '%s\n' "$INDEXER_LOG" | sed 's/^/   /'
+    record FI00 preconditions FAIL "no indexer/WS start line in the log"
+  fi
+else
+  f "FI00: the monolith did not come back healthy after the whitelist restart"
+  record FI00 preconditions FAIL "monolith unhealthy"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FI01 — a real ERC-721 Transfer reaches the handler and invalidates the
+# gate's cached evidence. The event may only remove evidence, never add it.
+# ---------------------------------------------------------------------------
+log 'FI01 ERC-721 transfer through the real subscription'
+barrier_reset
+PLANTED_KEYS=(
+  "$(gate_cache_key "$DEMO_NFT" 1 erc721 "$WALLET_A")"
+  "$(gate_cache_key "$DEMO_NFT" 2 erc721 "$WALLET_A")"
+  "$(gate_cache_key "$DEMO_NFT" '__collection__' erc721 "$WALLET_A")"
+)
+for key in "${PLANTED_KEYS[@]}"; do plant_gate_cache "$key"; done
+if [ "$(gate_cache_alive "${PLANTED_KEYS[0]}")" = "1" ]; then
+  p "FI01: the gate's own cache keys are planted in Redis, so invalidation is observable"
+  record FI01-plant preconditions PASS "${#PLANTED_KEYS[@]} keys planted with the gate's key shape"
+  TXH="$(erc721_mint)"
+else
+  TXH=""
+  f "FI01: the planted gate-cache entry is not in Redis, so invalidation is unobservable"
+  record FI01-plant preconditions FAIL "planted key missing from Redis"
+fi
+if [ -n "$TXH" ]; then
+  if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='Transfer' AND reorged=FALSE" 1 40; then
+    p "FI01: the real subscription stored the ERC-721 Transfer with its canonical type"
+    record FI01-indexed Transfer PASS "tx=${TXH:0:12} stored as event_type=Transfer"
+  else
+    f "FI01: the ERC-721 Transfer was never indexed (tx=${TXH:0:12})"
+    record FI01-indexed Transfer FAIL "no stored event for the tx"
+    docker logs --tail 80 "$MONO_CONTAINER" 2>&1 | grep -iE "indexer|event|transfer|subscription" | tail -8 | sed 's/^/   /'
+  fi
+  if wait_cache_gone 45; then
+    p "FI01: the transfer event invalidated every cached evidence key for that contract"
+    record FI01-cache Transfer PASS "all ${#PLANTED_KEYS[@]} planted gate keys deleted by the event path"
+  else
+    f "FI01: ${CACHE_ALIVE:-?} planted gate-cache key(s) survived the transfer event"
+    record FI01-cache Transfer FAIL "${CACHE_ALIVE:-?} of ${#PLANTED_KEYS[@]} keys still present after 45s"
+  fi
+else
+  f "FI01: no ERC-721 transfer could be produced"
+  record FI01-indexed Transfer FAIL "mint produced no receipt"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FI02 — a real ERC-1155 TransferBatch: one event, several token ids.
+# The batch must be parsed and every id's evidence dropped.
+# ---------------------------------------------------------------------------
+log 'FI02 ERC-1155 TransferBatch'
+barrier_reset
+if [ -n "$ERC1155_ADDR" ]; then
+  erc1155_mint "$WALLET_A" 1 5 >/dev/null
+  erc1155_mint "$WALLET_A" 2 7 >/dev/null
+  PLANTED_KEYS=(
+    "$(gate_cache_key "$ERC1155_ADDR" 1 erc1155 "$WALLET_A")"
+    "$(gate_cache_key "$ERC1155_ADDR" 2 erc1155 "$WALLET_A")"
+  )
+  for key in "${PLANTED_KEYS[@]}"; do plant_gate_cache "$key"; done
+  TXH="$(erc1155_batch)"
+  if [ -n "$TXH" ]; then
+    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='TransferBatch' AND reorged=FALSE" 1 40; then
+      IDS="$(sql_scalar "SELECT payload->'decoded'->>'ids' FROM event_store_events WHERE tx_hash='${TXH}' AND event_type='TransferBatch' LIMIT 1" \
+        | python3 -c "import sys,re;print(re.sub(r'\D','',sys.stdin.read()))" 2>/dev/null)"
+      if [ "$IDS" = "12" ]; then
+        p "FI02: the batch event was stored and both token ids were parsed out of it"
+        record FI02-batch TransferBatch PASS "tx=${TXH:0:12} ids=1,2 decoded from the batch payload"
+      else
+        f "FI02: the batch event landed but its ids decoded as '${IDS}' where '12' was required"
+        record FI02-batch TransferBatch FAIL "decoded ids='${IDS}'"
+      fi
+    else
+      f "FI02: the TransferBatch was never indexed (tx=${TXH:0:12})"
+      record FI02-batch TransferBatch FAIL "no stored batch event"
+    fi
+    if wait_cache_gone 45; then
+      p "FI02: the batch invalidated the cached evidence of every id it carried"
+      record FI02-cache TransferBatch PASS "both per-id keys deleted"
+    else
+      f "FI02: ${CACHE_ALIVE:-?} per-id key(s) survived the batch event"
+      record FI02-cache TransferBatch FAIL "${CACHE_ALIVE:-?} of ${#PLANTED_KEYS[@]} keys still present"
+    fi
+  else
+    f "FI02: the batch transaction was not accepted by the node"
+    record FI02-batch TransferBatch FAIL "safeBatchTransferFrom produced no receipt"
+  fi
+else
+  f "FI02: no ERC-1155 contract is available"
+  record FI02-batch TransferBatch FAIL "DemoERC1155 unavailable"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FI03 — GAP FILL: the subscription is dead while the chain keeps
+# producing logs. Nothing may be lost, and the durable checkpoint is what the
+# restarted indexer catches up from.
+# ---------------------------------------------------------------------------
+log 'FI03 gap fill after the subscription was down'
+barrier_reset
+C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
+container_kill "$MONO_CONTAINER"
+TOKEN_A=""
+GAP_TX_1="$(erc721_mint)"
+sleep 2
+GAP_TX_2="$(erc721_mint)"
+GAP_MAX="$(head_number)"
+wait_chain_after "$((GAP_MAX + 13))" 120 \
+  || f "FI03: the chain did not advance enough for the missed logs to become indexable"
+container_start "$MONO_CONTAINER"
+if wait_worker_up "$MONO_CONTAINER" 120; then
+  LOST=0
+  for tx in "$GAP_TX_1" "$GAP_TX_2"; do
+    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${tx}' AND reorged=FALSE" 1 90; then
+      p "FI03: the missed log ${tx:0:12} was recovered from the durable checkpoint"
+    else
+      f "FI03: the log ${tx:0:12} emitted while the subscription was down was lost"
+      LOST=$((LOST + 1))
+    fi
+  done
+  C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
+  if [ "$LOST" = 0 ]; then
+    record FI03 gap-fill PASS "2 logs emitted with the subscriber dead were all indexed after the restart (cursor ${C_BEFORE} -> ${C_AFTER})"
+  else
+    record FI03 gap-fill FAIL "${LOST} of 2 missed logs were never indexed"
+  fi
+  # The catch-up must be exhaustive and duplicate-free: the stored rows over the
+  # gap have to equal what the chain itself says happened.
+  CHAIN_LOGS="$(cast logs --json --rpc-url "$ANVIL_URL" --address "$DEMO_NFT" --from-block "$((C_BEFORE + 1))" --to-block "$C_AFTER" 2>/dev/null \
+    | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null)"
+  STORED_ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE contract_address ILIKE '${DEMO_NFT}' AND block_number > ${C_BEFORE} AND block_number <= ${C_AFTER} AND reorged=FALSE")"
+  if [ -n "$CHAIN_LOGS" ] && [ "$CHAIN_LOGS" = "$STORED_ROWS" ]; then
+    p "FI03: the gap produced exactly the chain's own number of logs (${CHAIN_LOGS})"
+    record FI03-exact gap-fill PASS "chain logs=${CHAIN_LOGS} stored=${STORED_ROWS} over blocks $((C_BEFORE + 1))..${C_AFTER}"
+  else
+    f "FI03: chain logs=${CHAIN_LOGS:-?} stored=${STORED_ROWS:-?} over the gap"
+    record FI03-exact gap-fill FAIL "stored rows do not match the chain's own logs"
+  fi
+else
+  f "FI03: the monolith did not come back healthy"
+  record FI03 gap-fill FAIL "monolith unhealthy after restart"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FI04 — the batch is decoded and about to become the durable cursor
+# when the process dies. The cursor must NOT advance, so the same blocks are
+# replayed on the next start instead of being skipped.
+# ---------------------------------------------------------------------------
+log 'FI04 kill before the checkpoint commit'
+barrier_reset
+arm indexer.checkpoint_before_commit
+FI04_TX="$(erc721_mint)"
+FI04_MAX="$(head_number)"
+wait_chain_after "$((FI04_MAX + 13))" 120 \
+  || f "FI04: the chain did not advance enough for the new log to become indexable"
+if wait_reached indexer.checkpoint_before_commit 90; then
+  C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
+  ROWS_BEFORE="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}'")"
+  container_kill "$MONO_CONTAINER"
+  unarm indexer.checkpoint_before_commit
+  barrier_reset
+  container_start "$MONO_CONTAINER"
+  TOKEN_A=""
+  if wait_worker_up "$MONO_CONTAINER" 120; then
+    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}' AND reorged=FALSE" 1 120; then
+      C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
+      ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE tx_hash='${FI04_TX}'")"
+      if [ "$ROWS" = "1" ] && [ "$C_AFTER" -gt "$C_BEFORE" ]; then
+        p "FI04: the crashed batch was replayed without duplicating and the cursor advanced past it"
+        record FI04 checkpoint-before-commit PASS "row count=1 (was ${ROWS_BEFORE:-0} before the kill), cursor ${C_BEFORE} -> ${C_AFTER}"
+      else
+        f "FI04: rows=${ROWS} cursor ${C_BEFORE} -> ${C_AFTER} where exactly one row and a forward cursor were required"
+        record FI04 checkpoint-before-commit FAIL "rows=${ROWS} cursor=${C_AFTER}"
+      fi
+    else
+      f "FI04: the log from the crashed batch was never indexed after the restart"
+      record FI04 checkpoint-before-commit FAIL "no row for ${FI04_TX:0:12}"
+      docker logs --tail 80 "$MONO_CONTAINER" 2>&1 | grep -iE "indexer|checkpoint|batch" | tail -8 | sed 's/^/   /'
+    fi
+  else
+    f "FI04: the monolith did not come back healthy"
+    record FI04 checkpoint-before-commit FAIL "monolith unhealthy after restart"
+  fi
+else
+  f "FI04: the pre-commit checkpoint point never fired"
+  record FI04 checkpoint-before-commit FAIL "not reached within 90s"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario FI05 — a REORG inside the journal range. Only the range indexed in the
+# SAME pass is ever re-verified, so the chain is un-mined while the pass is
+# parked between the cursor commit and the canonical check: the orphaned event
+# must be flagged reorged, the journal marked orphaned, and the cursor rolled
+# back to the common ancestor — never left pointing at a block off the chain.
+# ---------------------------------------------------------------------------
+log 'FI05 reorg inside the freshly indexed range'
+barrier_reset
+C_BEFORE="$(event_cursor)"; C_BEFORE="${C_BEFORE:-0}"
+# Take the subscription down and keep writing: the restart below re-indexes a
+# multi-block range in ONE pass, so the range under test is wide enough to hold
+# an orphanable event and the journal can still reach the common ancestor.
+container_kill "$MONO_CONTAINER"
+TOKEN_A=""
+for _ in 1 2 3 4; do
+  erc721_mint >/dev/null
+  sleep 4
+done
+FI05_MAX="$(head_number)"
+wait_chain_after "$((FI05_MAX + 14))" 120 \
+  || f "FI05: the chain did not advance enough for the orphaned block to become indexable"
+arm indexer.after_index_before_reorg_check
+container_start "$MONO_CONTAINER"
+if wait_worker_up "$MONO_CONTAINER" 120; then
+  if wait_reached indexer.after_index_before_reorg_check 120; then
+    C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
+    BOOKED="$(sql_scalar "SELECT max(block_number) FROM event_store_events WHERE reorged=FALSE AND block_number > ${C_BEFORE} AND block_number <= ${C_AFTER}")"
+    if [ -n "$BOOKED" ]; then
+      BH_BEFORE="$(block_hash "$BOOKED")"
+      HEAD="$(head_number)"
+      DEPTH=$((HEAD - BOOKED + 2))
+      [ "$DEPTH" -lt 3 ] && DEPTH=3
+      if [ "$DEPTH" -le 64 ] && [ "$((HEAD - DEPTH))" -gt 4 ] && anvil_rollback "$DEPTH"; then
+        p "FI05: reorged ${DEPTH} blocks, orphaning block ${BOOKED} inside the range the pass just indexed"
+        record FI05-reorg indexer.after_index_before_reorg_check PASS "rolled back ${DEPTH} blocks from head ${HEAD}, orphaned block ${BOOKED}"
+      else
+        f "FI05: could not orphan block ${BOOKED} (depth=${DEPTH} head=${HEAD})"
+        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rollback depth=${DEPTH} unusable"
+      fi
+    else
+      f "FI05: the freshly indexed range ${C_BEFORE}..${C_AFTER} carried no event to orphan"
+      record FI05-reorg indexer.after_index_before_reorg_check FAIL "no event block inside the indexed range"
+    fi
+    # The check runs after this release, over the SAME range: the orphaned event
+    # is what has to trigger the journal rollback.
+    release_point indexer.after_index_before_reorg_check
+    unarm indexer.after_index_before_reorg_check
+    REORG_ROWS=0
+    for _ in $(seq 1 60); do
+      REORG_ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE block_hash='${BH_BEFORE:-}' AND reorged=TRUE")"
+      REORG_ROWS="${REORG_ROWS:-0}"
+      [ "$REORG_ROWS" -gt 0 ] && break
+      sleep 1
+    done
+    ORPHANS="$(sql_scalar "SELECT count(*) FROM event_block_journal WHERE orphaned=TRUE")"; ORPHANS="${ORPHANS:-0}"
+    C_FINAL="$(event_cursor)"; C_FINAL="${C_FINAL:-0}"
+    if [ "$REORG_ROWS" -gt 0 ] && [ "$ORPHANS" -gt 0 ] && [ "$C_FINAL" -lt "${BOOKED:-0}" ]; then
+      p "FI05: the orphaned event was flagged, the journal marked orphaned, and the cursor rolled back to the common ancestor"
+      record FI05 indexer.after_index_before_reorg_check PASS "reorged rows=${REORG_ROWS}, journal orphaned=${ORPHANS}, cursor ${C_AFTER} -> ${C_FINAL} (orphaned block ${BOOKED})"
+    else
+      f "FI05: reorged=${REORG_ROWS} journal_orphaned=${ORPHANS} cursor ${C_AFTER} -> ${C_FINAL} (expected reorged>0, cursor < ${BOOKED:-?})"
+      record FI05 indexer.after_index_before_reorg_check FAIL "reorged=${REORG_ROWS} orphaned=${ORPHANS} cursor=${C_FINAL}"
+      docker logs --tail 150 "$MONO_CONTAINER" 2>&1 | grep -iE "reorg|journal|ancestor|indexer" | tail -10 | sed 's/^/   /'
+    fi
+  else
+    f "FI05: the post-index/pre-check point never fired after the restart"
+    record FI05 indexer.after_index_before_reorg_check FAIL "not reached within 120s"
+  fi
+else
+  f "FI05: the monolith did not come back healthy"
+  record FI05 indexer.after_index_before_reorg_check FAIL "monolith unhealthy after restart"
+fi
+barrier_reset
+
 barrier_reset
 docker rm -f "$HELPER" >/dev/null 2>&1 || :
 
@@ -1286,7 +1736,9 @@ EXPECTED_IDS="F00-helper F00-barrierwrite F00 F00-minio F00-pre F00-barrier \
 FW01 FW01-publish FW02-nopublish FW02 FW03 FW04 FW05-dlq FW05 FW06 \
 FO01-parked FO01 FO02-parked FO02 \
 FR00 FR00-chain FR00-proxy FR00-reorg FR01-park FR01-unsent FR01 FR02-onchain FR02 \
-FR03-reorg FR03 FR04-park FR04 FR05-park FR05"
+FR03-reorg FR03-detected FR03 FR04-park FR04 FR05-park FR05 \
+FI00-ws FI00-erc1155 FI00-whitelist FI00 FI01-plant FI01-indexed FI01-cache \
+FI02-batch FI02-cache FI03 FI03-exact FI04 FI05-reorg FI05"
 MISSING=0
 for id in $EXPECTED_IDS; do
   if ! awk -F'\t' -v id="$id" '$1==id && $3=="PASS"{found=1} END{exit !found}' "$CHECKS"; then
