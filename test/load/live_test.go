@@ -9,7 +9,7 @@
 //	PERF_BASE_URL      running stack root            (default http://localhost:18080)
 //	PERF_SCENARIO      scenario label                (default warm_cache; the script drives
 //	                     cold_cache / rpc_primary_down / rpc_all_down via fault injection)
-//	PERF_JWT           pre-minted JWT (optional; omit to use real login)
+//	PERF_JWT           unsupported for live acceptance; use real wallet login
 //	PERF_WALLET        wallet address for real login (optional; derived from key)
 //	PERF_PRIVATE_KEY   hex secp256key of a REAL logged-in, NFT-holding wallet
 //	PERF_WALLET_KEYS_FILE  file of hex private keys (one per line or space-separated);
@@ -17,7 +17,7 @@
 //	                     (viewer i = wallet i) instead of sharing one wallet
 //	PERF_CHAIN_ID      chain id for the login challenge (default 31337)
 //	PERF_CONTENT_ID    gated content to play         (required)
-//	PERF_QUALITY       variant quality               (optional; empty = master manifest)
+//	PERF_QUALITY       variant quality               (fixed rendition; default 360p)
 //	PERF_VIEWERS       virtual viewers               (default 1)
 //	PERF_INTERVAL      per-viewer request pace       (default 2s)
 //	PERF_WARMUP        warmup window                 (default 10s)
@@ -28,10 +28,9 @@
 //	PERF_SEGMENT_SHA256  optional hex digest — when set, every segment body is
 //	                    sha256-checked against it (mismatch = error, not success)
 //
-// Exit: TestLoad fails the run on a nonzero error count for scenarios that must
-// stay healthy; fault scenarios (rpc_primary_down / rpc_all_down) record but
-// do not fail on elevated errors — the safety assertion (no unauthorized 2xx
-// when the gate must deny) belongs to the fault-injection scripts, not here.
+// Exit: healthy and fallback scenarios enforce the declared success threshold;
+// total RPC failure must deny every request. Missing viewer samples fail even
+// when aggregate totals appear healthy. Failed sampling results are still saved.
 package load_test
 
 import (
@@ -99,15 +98,17 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 
 	walletPool := viewerPoolFromEnv(t)
 	if len(walletPool) == 0 && os.Getenv("PERF_JWT") == "" && os.Getenv("PERF_PRIVATE_KEY") == "" {
-		t.Skip("no wallet credentials: set PERF_WALLET_KEYS_FILE (per-viewer pool), PERF_PRIVATE_KEY (single wallet) or PERF_JWT")
+		t.Skip("no wallet credentials: set PERF_WALLET_KEYS_FILE or PERF_PRIVATE_KEY for one viewer")
 	}
 
 	viewers := envInt(t, "PERF_VIEWERS", 1)
-	if n := len(walletPool); n > 0 && n < viewers {
-		// Reuse is allowed but must be visible: a pool smaller than the viewer
-		// count means wallets are shared round-robin, which re-introduces
-		// per-wallet media-limiter contention.
-		t.Logf("WARNING: wallet pool (%d) < viewers (%d) — wallets reused round-robin", n, viewers)
+	require.Positive(t, viewers)
+	if len(walletPool) == 0 && os.Getenv("PERF_PRIVATE_KEY") != "" {
+		walletPool = []load.WalletIdentity{{PrivateKey: os.Getenv("PERF_PRIVATE_KEY"), Wallet: os.Getenv("PERF_WALLET")}}
+	}
+	require.GreaterOrEqual(t, len(walletPool), viewers, "live acceptance requires one private-key wallet per viewer")
+	for i, w := range walletPool[:viewers] {
+		require.NotEmpty(t, w.PrivateKey, "viewer %d must use real wallet login", i)
 	}
 
 	interval := 2 * time.Second
@@ -131,21 +132,22 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 	chainID := int64(envInt(t, "PERF_CHAIN_ID", 31337))
 
 	cfg := load.Config{
-		BaseURL:     baseURL,
-		Scenario:    scenario,
-		JWTToken:    os.Getenv("PERF_JWT"),
-		Wallet:      os.Getenv("PERF_WALLET"),
-		PrivateKey:  os.Getenv("PERF_PRIVATE_KEY"),
-		ChainID:     chainID,
-		Wallets:     walletPool,
-		LoginPace:   loginPaceFromEnv(t),
-		ContentID:   contentID,
-		Quality:     os.Getenv("PERF_QUALITY"),
-		Viewers:     viewers,
-		Interval:    interval,
-		Warmup:      warmup,
-		Duration:    duration,
-		FixtureHash: os.Getenv("PERF_FIXTURE_HASH"),
+		BaseURL:      baseURL,
+		Scenario:     scenario,
+		JWTToken:     os.Getenv("PERF_JWT"),
+		Wallet:       os.Getenv("PERF_WALLET"),
+		PrivateKey:   os.Getenv("PERF_PRIVATE_KEY"),
+		ChainID:      chainID,
+		Wallets:      walletPool,
+		LoginPace:    loginPaceFromEnv(t),
+		ContentID:    contentID,
+		Quality:      envOr("PERF_QUALITY", "360p"),
+		PaceByEXTINF: true,
+		Viewers:      viewers,
+		Interval:     interval,
+		Warmup:       warmup,
+		Duration:     duration,
+		FixtureHash:  os.Getenv("PERF_FIXTURE_HASH"),
 	}
 	if sha := os.Getenv("PERF_SEGMENT_SHA256"); sha != "" {
 		expect := load.ExpectedSHA256(sha)
@@ -158,11 +160,13 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 		}
 	}
 
-	res, err := load.Run(context.Background(), cfg)
-	require.NoError(t, err)
+	res, runErr := load.Run(context.Background(), cfg)
 
 	out := envOr("PERF_RESULT_JSON", "/tmp/perf-result.json")
-	require.NoError(t, res.WriteJSON(out))
+	if res != nil {
+		require.NoError(t, res.WriteJSON(out))
+	}
+	require.NoError(t, runErr)
 	t.Logf("scenario=%s commit=%s viewers=%d pool=%d login_paced=%v success=%d errors=%d bytes=%d ttfb_p95=%.2fms latency_p95=%.2fms result=%s",
 		res.Scenario, res.Commit, res.Viewers, res.WalletPoolSize, res.LoginPaced,
 		res.SuccessCount, res.ErrorCount, res.TotalBytes,

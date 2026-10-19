@@ -91,6 +91,12 @@
 
 > **chain 门复跑（2026-10-18）：** `VERIFY_STAGE=chain VERIFY_PROJECT=sg-repair-c-1018-0155`（revision `66ad5e6`）**`stage=chain PASS`、exit 0**：Forge **4 个套件 46 项全过**（0 failed / 0 skipped）；`-tags=anvil` 的 `test/integration`（14.3s）、`test/integration/web3`（24.1s）与 `pkg/service`（58.9s）全部通过。证据：`.verify-artifacts/sg-repair-c-1018-0155/logs/chain.log`。
 
+> **E 批 Go 负载器修复（2026-10-19，基于 `2659d0a`）：** 新失败用例实证：① 钱包池不足、相同 token、同钱包不同 session、相同私钥及 key/address 不符原先均被接受；② 零完成样本的采样窗口原先返回成功；③ 已收到 429、响应体在窗口关闭时取消的请求原先被排除成功率分母；④ 2 秒 EXTINF 的播放列表在 200 毫秒内原先拉取了 210 次分片。现已拒绝复用身份，实时验收入口要求每位观众持独立私钥并执行真实登录；逐观众保存 success/error/aborted，缺记录、只有边界取消、计数与总数不一致及外部取消均失败；已观察到的 HTTP 错误继续计入分母。实时验收固定 rendition（默认 `360p`），强制按有效正数 EXTINF 逐片播放，获取每片前重新取得 manifest；非法、缺失、溢出 EXTINF 或 master playlist 拒绝。失败采样结果在报错前写入 JSON。`perf-tests` 必需清单由 12 项增至 **19 项**，原允许共享单钱包的用例改为必须拒绝该行为。
+>
+> **本次验证边界：** 同一 Docker 工具镜像 `sha256:157ab5301d11b736a6889ce1762777e30c11e13c6c4e212d9104dbaf3dd24d14` 中执行 `go test -race -json -count=1 ./test/load ./test/performance`，严格检查原退出码及完整测试 ID，**19/19 必需测试 PASS、原退出码 0**；`go vet -tags load ./test/load` 通过，受影响 Go 包 lint **0 issues**。这些证明负载器判定与播放节奏，不证明真实候选性能、容量或 reference 比较。新旧性能数据因请求节奏不同不能直接比较，reference 与 candidate 必须使用相同修正后的负载器、固定 rendition 和资源配置重新测量。Docker／故障／资源采样脚本保持另一进程负责，不能用本段替代该侧真实验收。
+>
+> **D 批 outbox 补遗（2026-10-19）：** 新增 `TestOutbox_MissingDLQIntentRetainsOriginalDelivery`，先证实 failed 任务丢失 DLQ intent 时旧实现仍 Ack（期望 0、实际 1）。现改为受控错误日志并 Nak，保留原投递；恢复权威 intent 后复用同一消息身份，成功发布并标记 delivered 才 Ack。用例已登记为 `durability-tests` 必需项。本次对整个 `pkg/service/transcoding` 执行 Docker 内 race 测试，配置独立 PostgreSQL `e_go_review`，原退出码 0；真实 PostgreSQL delivery-mark 故障用例实际通过；两个既有非必需用例 `TestTranscodingService_downloadInputFile_ValidContentType`／`TestTranscodingService_ListTasks` 仍为 skip，未作通过证明。该缺失记录负例使用可控 DB fixture，不标为真实容器 kill／Anvil 故障实证，也不补齐 D 批剩余链故障矩阵。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 

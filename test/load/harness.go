@@ -14,7 +14,7 @@
 //   - No fabricated tokens: the JWT comes from the environment or from the
 //     service's real challenge -> sign -> login flow with a real private key.
 //   - Every virtual viewer uses its OWN real-logged-in wallet (a wallet pool,
-//     one identity per viewer where the pool allows) so the per-wallet media
+//     one identity per viewer) so the per-wallet media
 //     limiter (SG-14) measures playback, not limiter starvation from a single
 //     shared wallet.
 //   - Results are structured JSON (commit SHA, fixture hash, per-scenario
@@ -87,10 +87,8 @@ type Config struct {
 	PrivateKey string // hex-encoded secp256k1 key; enables challenge->login
 	ChainID    int64
 
-	// Wallets is the pre-resolved viewer wallet pool: viewer i runs with
-	// Wallets[i % len(Wallets)]. Pool size should equal Viewers — reuse
-	// (round-robin) is allowed when it is smaller and is recorded in the
-	// result as wallet_pool_size.
+	// Wallets supplies at least one distinct identity per viewer. Only the
+	// first Viewers entries are used; shared wallets or tokens are rejected.
 	Wallets []WalletIdentity
 	// LoginPace is the minimum gap between consecutive real logins. The auth
 	// limiter is 10 req/min/IP and each login is 2 requests (challenge +
@@ -112,6 +110,8 @@ type Config struct {
 	// request pace (one manifest + all its segments per tick).
 	Viewers  int
 	Interval time.Duration
+	// PaceByEXTINF plays one segment at a time using the rendition playlist duration.
+	PaceByEXTINF bool
 	// Warmup runs before sampling; Duration is the timed sampling window.
 	Warmup   time.Duration
 	Duration time.Duration
@@ -124,6 +124,7 @@ type Config struct {
 
 // Sample is one executed request.
 type Sample struct {
+	ViewerID   int // zero-based index; contains no credential or wallet address
 	URL        string
 	StatusCode int
 	TTFB       time.Duration
@@ -140,16 +141,19 @@ func (s Sample) ok() bool { return s.Err == "" }
 
 // Result is the structured JSON output (one file per scenario).
 type Result struct {
-	Commit      string  `json:"commit"`
-	Scenario    string  `json:"scenario"`
-	FixtureHash string  `json:"fixture_hash,omitempty"`
-	BaseURL     string  `json:"base_url"`
-	ContentID   string  `json:"content_id"`
-	Quality     string  `json:"quality,omitempty"`
-	Viewers     int     `json:"viewers"`
-	IntervalMS  int64   `json:"interval_ms"`
-	WarmupSec   float64 `json:"warmup_sec"`
-	DurationSec float64 `json:"duration_sec"`
+	Commit       string  `json:"commit"`
+	Scenario     string  `json:"scenario"`
+	FixtureHash  string  `json:"fixture_hash,omitempty"`
+	BaseURL      string  `json:"base_url"`
+	ContentID    string  `json:"content_id"`
+	Quality      string  `json:"quality,omitempty"`
+	Viewers      int     `json:"viewers"`
+	PaceByEXTINF bool    `json:"pace_by_extinf"`
+	IntervalMS   int64   `json:"interval_ms"`
+	WarmupSec    float64 `json:"warmup_sec"`
+	DurationSec  float64 `json:"duration_sec"`
+
+	ViewerSamples []ViewerSamples `json:"viewer_samples"`
 
 	SuccessCount  int64            `json:"success_count"`
 	ErrorCount    int64            `json:"error_count"`
@@ -166,13 +170,40 @@ type Result struct {
 	// hit); a run that failed a login never produces a Result at all.
 	LoginPaced bool `json:"login_paced"`
 	// WalletPoolSize is the number of distinct wallets the viewer pool
-	// resolved to. Pool size should equal Viewers; a smaller pool means
-	// viewers reused wallets round-robin.
+	// resolved to. A successful run requires one independent identity per viewer.
 	WalletPoolSize int `json:"wallet_pool_size"`
 	// LoginsFailed is the number of wallet logins that failed during setup.
 	// Any failure aborts the run, so a successful Result always reports 0 —
 	// the field exists to make the invariant visible in the JSON.
 	LoginsFailed int `json:"logins_failed"`
+}
+
+// ViewerSamples counts completed requests and boundary cancellations per viewer.
+type ViewerSamples struct {
+	ViewerID     int   `json:"viewer_id"`
+	SuccessCount int64 `json:"success_count"`
+	ErrorCount   int64 `json:"error_count"`
+	AbortedCount int64 `json:"aborted_count"`
+}
+
+// SamplingViolation rejects empty or incomplete sampling even when totals look healthy.
+func (r *Result) SamplingViolation() error {
+	if r.Viewers <= 0 || len(r.ViewerSamples) != r.Viewers {
+		return fmt.Errorf("missing viewer sample records")
+	}
+	var successes, failures, aborted int64
+	for i, v := range r.ViewerSamples {
+		if v.ViewerID != i || v.SuccessCount < 0 || v.ErrorCount < 0 || v.AbortedCount < 0 || v.SuccessCount+v.ErrorCount == 0 {
+			return fmt.Errorf("viewer %d has no valid completed sample record", i)
+		}
+		successes += v.SuccessCount
+		failures += v.ErrorCount
+		aborted += v.AbortedCount
+	}
+	if successes != r.SuccessCount || failures != r.ErrorCount || aborted != r.AbortedCount {
+		return fmt.Errorf("viewer counts disagree with aggregate samples")
+	}
+	return nil
 }
 
 // Percentiles holds p50/p95/p99 over a sample set.
@@ -301,11 +332,56 @@ func (c Config) validate() error {
 	if c.Viewers <= 0 {
 		return fmt.Errorf("Config.Viewers must be > 0, got %d", c.Viewers)
 	}
+	if err := c.validateViewerIdentities(); err != nil {
+		return err
+	}
+	if c.Warmup < 0 {
+		return fmt.Errorf("Config.Warmup must be >= 0")
+	}
+	if c.PaceByEXTINF && c.Quality == "" {
+		return fmt.Errorf("EXTINF playback requires a fixed rendition quality")
+	}
 	if c.Interval <= 0 {
 		return fmt.Errorf("Config.Interval must be > 0, got %v", c.Interval)
 	}
 	if c.Duration <= 0 {
 		return fmt.Errorf("Config.Duration must be > 0, got %v", c.Duration)
+	}
+	return nil
+}
+
+func (c Config) validateViewerIdentities() error {
+	pool := c.resolveWalletPool()
+	if len(pool) < c.Viewers {
+		return fmt.Errorf("need %d independent viewer identities, got %d", c.Viewers, len(pool))
+	}
+	identities := map[string]bool{}
+	tokens := map[string]bool{}
+	for i, w := range pool[:c.Viewers] {
+		identity := strings.ToLower(w.Wallet)
+		if w.PrivateKey != "" {
+			key, err := crypto.HexToECDSA(strings.TrimPrefix(w.PrivateKey, "0x"))
+			if err != nil {
+				return fmt.Errorf("viewer %d invalid key", i)
+			}
+			derived := strings.ToLower(crypto.PubkeyToAddress(key.PublicKey).Hex())
+			if identity != "" && identity != derived {
+				return fmt.Errorf("viewer %d wallet does not match key", i)
+			}
+			identity = derived
+		}
+		// Tokens without addresses are supported by deterministic harness tests. The
+		// live acceptance entry requires private keys and derives each real wallet.
+		if identity == "" {
+			identity = "token:" + w.JWTToken
+		}
+		if identities[identity] || (w.JWTToken != "" && tokens[w.JWTToken]) {
+			return fmt.Errorf("viewer %d reuses an identity or token", i)
+		}
+		identities[identity] = true
+		if w.JWTToken != "" {
+			tokens[w.JWTToken] = true
+		}
 	}
 	return nil
 }
@@ -515,7 +591,7 @@ func fetchURL(ctx context.Context, client *http.Client, urlStr, token string, cf
 	s := Sample{URL: urlStr, StatusCode: resp.StatusCode, TTFB: ttfb, Duration: end, Bytes: int64(len(body))}
 	if err != nil {
 		s.Err = "read body: " + err.Error()
-		if ctx.Err() != nil {
+		if ctx.Err() != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			s.Aborted = true
 		}
 		return s, nil
@@ -586,7 +662,11 @@ func resolveURI(baseURL, uri string) string {
 // viewerLoop runs one virtual viewer: paced ticks of manifest fetch + every
 // referenced segment, for as long as ctx allows. Recording is gated by the
 // shared recorder so warmup samples can be discarded.
-func viewerLoop(ctx context.Context, client *http.Client, cfg Config, jwt string, rec *recorder) {
+func viewerLoop(ctx context.Context, client *http.Client, cfg Config, jwt string, viewerID int, rec *recorder) {
+	if cfg.PaceByEXTINF {
+		playbackLoop(ctx, client, cfg, jwt, viewerID, rec)
+		return
+	}
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 	for {
@@ -595,12 +675,14 @@ func viewerLoop(ctx context.Context, client *http.Client, cfg Config, jwt string
 			return
 		case <-ticker.C:
 			m, body := fetchURL(ctx, client, cfg.manifestURL(), jwt, cfg)
+			m.ViewerID = viewerID
 			rec.record(m)
 			if !m.ok() {
 				continue
 			}
 			for _, uri := range ParseManifestURIs(body) {
 				s, _ := fetchURL(ctx, client, resolveURI(cfg.BaseURL, uri), jwt, cfg)
+				s.ViewerID = viewerID
 				rec.record(s)
 			}
 		}
@@ -686,6 +768,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		Quality:        cfg.Quality,
 		Viewers:        cfg.Viewers,
 		IntervalMS:     cfg.Interval.Milliseconds(),
+		PaceByEXTINF:   cfg.PaceByEXTINF,
 		WarmupSec:      cfg.Warmup.Seconds(),
 		DurationSec:    cfg.Duration.Seconds(),
 		HTTPStatuses:   map[string]int64{},
@@ -694,6 +777,10 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		LoginPaced:     loginPaced,
 		WalletPoolSize: len(tokens),
 		LoginsFailed:   loginsFailed,
+	}
+	res.ViewerSamples = make([]ViewerSamples, cfg.Viewers)
+	for i := range res.ViewerSamples {
+		res.ViewerSamples[i].ViewerID = i
 	}
 	var ttfbs, latencies []float64
 	for _, s := range samples {
@@ -705,22 +792,30 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			key = "transport_error"
 		}
 		res.HTTPStatuses[key]++
+		viewer := &res.ViewerSamples[s.ViewerID]
 		if s.Aborted {
+			viewer.AbortedCount++
 			res.AbortedCount++
 			continue
 		}
 		if s.ok() {
+			viewer.SuccessCount++
 			res.SuccessCount++
 			res.TotalBytes += s.Bytes
 			ttfbs = append(ttfbs, float64(s.TTFB.Microseconds())/1000.0)
 			latencies = append(latencies, float64(s.Duration.Microseconds())/1000.0)
 		} else {
+			viewer.ErrorCount++
 			res.ErrorCount++
 		}
 	}
 	res.TTFBMillis = ComputePercentiles(ttfbs)
 	res.LatencyMillis = ComputePercentiles(latencies)
-	return res, nil
+	if err := ctx.Err(); err != nil {
+		return res, fmt.Errorf("sampling interrupted: %w", err)
+	}
+	err = res.SamplingViolation()
+	return res, err
 }
 
 // RunPhase resolves the viewer wallet pool into per-viewer JWTs. Every wallet
@@ -813,10 +908,7 @@ func runViewers(ctx context.Context, client *http.Client, cfg Config, tokens []s
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Viewer i drives wallet i's token. The pool size should equal
-			// Viewers; when it is smaller, wallets are reused round-robin
-			// (recorded as wallet_pool_size in the result JSON).
-			viewerLoop(ctx, client, cfg, tokens[i%len(tokens)], rec)
+			viewerLoop(ctx, client, cfg, tokens[i], i, rec)
 		}()
 	}
 	wg.Wait()
