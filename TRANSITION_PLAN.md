@@ -109,6 +109,8 @@
 >
 > **当前入口与剩余项：** candidate 模式调用固定 1/10/50/100 × 3 × 四场景，默认要求冻结基线、同 runner 串行比较；显式 PR smoke 仅 1 观众，`all` 拒绝 PR 模式。实时测试必须实际执行且通过，setup／live 原退出码经严格清单校验；资源按真实容器 CPU counter／RSS 在 Go sampling 时间窗归属，缺角色、间隙、覆盖不足、重启、错误镜像身份／限额均失败；API 和 worker Prometheus 抓取由警告改为必需。临时私钥移入 `.private` 并在成功／失败／取消退出时删除。尚未执行新入口的真实 loader smoke／完整矩阵；结果环境摘要、全矩阵身份判定、严格 reference 比较及 CI DAG 仍须收口，E 出口保持未通过，不得仅凭上述实现或单元用例勾选完成。
 
+> **新入口首次运行与修复（2026-10-19）：** 干净提交 `2a3b185` 的 `sg-perf-pr-1019-01` 在工具构建的 `go mod download` 因 `gopkg.in` DNS 失败，原退出 1，尚未启动应用；Docker Buildx 原始日志已导出到该运行的 `tools-build.log`。同 SHA 的 `sg-perf-pr-1019-02` 使用已验证的 `VERIFY_GOPROXY=https://goproxy.cn,direct`，依赖层命中缓存；三份应用镜像各构建一次、候选身份核对通过、PG／MinIO／JetStream／双 RPC 代理／应用／独立 worker 健康后，在独立 perf 入口打开未创建的 `logs/perf.log` 时失败（原退出 1）。退出后按本轮标签查询容器／卷／网络均为空；业务 seed／loader 尚未运行。新增 `test_standalone_perf_creates_log_directory` 先确定性复现，再补 `mkdir -p "$LOG_DIR"`；Shell 套件现 **17/17 PASS**，仍保留 seed 故障必须使入口失败的断言。两次失败均保留原始目录，不计为媒体／性能通过；修复后的真实入口继续待验收。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 

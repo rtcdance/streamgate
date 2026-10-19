@@ -1210,6 +1210,7 @@ stage_perf() {
   # stage needs a seeded content and its transcode, and a Chromium page-load
   # timeout is orthogonal to that. Any other check failing still fails here, and
   # the media stage keeps the strict 71-check gate.
+  mkdir -p "$LOG_DIR"
   : > "${LOG_DIR}/perf.log"
   log "stage=perf (host) → log ${LOG_DIR}/perf.log"
   if ! run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 2>&1 | tee -a "${LOG_DIR}/perf.log"; then
