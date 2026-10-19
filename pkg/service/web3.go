@@ -302,6 +302,13 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger, opts 
 					indexer.SetSubscriber(wsSub)
 				}
 				indexer.SetReorgDetector(reorgDetector)
+				// The decoder is what gives an indexed event its Decoded map. Without
+				// it every stored event keeps an EMPTY Decoded, and the ERC-1155
+				// handlers — whose ids live in the log DATA, not in the indexed
+				// topics — can never name a single token id: a real TransferBatch or
+				// TransferSingle would reach the handler and invalidate nothing. The
+				// ERC-721 path hides this because it can fall back to topic 3.
+				indexer.SetEventParser(web3.NewEventParser(logger))
 				// A database-backed store keeps events, checkpoints and the block
 				// journal durable across restarts (SG-13 B); without one the
 				// in-memory store is a degraded mode whose checkpoints die with
