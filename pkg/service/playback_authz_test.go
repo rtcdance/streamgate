@@ -181,7 +181,7 @@ func TestIssueCapability_UsesTheAuthorizationsRuleVersion(t *testing.T) {
 	}}
 	h := newPlaybackTestAuthorizer(t, &quantityVerifier{quantity: big.NewInt(1)}, resolver)
 
-	authz, err := h.AuthorizePlayback(t.Context(), "c1", capSessionWallet, SessionBinding{SessionID: sessionID, AuthEpoch: 1})
+	authz, err := h.AuthorizePlayback(t.Context(), "c1", capSessionWallet, SessionBinding{SessionID: sessionID, AuthEpoch: 1, RestoreEpoch: currentRestoreEpoch(t, svc)})
 	require.NoError(t, err)
 	assert.EqualValues(t, 7, authz.RuleVersion())
 
@@ -228,13 +228,14 @@ func TestAuthorizePlayback_NoRulesFailsClosed(t *testing.T) {
 // version, so writing a rule later invalidates media already in flight.
 func TestAuthorizePlayback_OpenModeIssuesWithoutARule(t *testing.T) {
 	h := noRulesAuthorizer(t, "open", 3)
+	svc := NewAuthService(signTypeTestSecret, nil)
+	sessionID := newSessionID(t, svc)
 
-	authz, err := h.AuthorizePlayback(t.Context(), "c1", capSessionWallet, SessionBinding{SessionID: "s1", AuthEpoch: 1})
+	authz, err := h.AuthorizePlayback(t.Context(), "c1", capSessionWallet, SessionBinding{SessionID: sessionID, AuthEpoch: 1, RestoreEpoch: currentRestoreEpoch(t, svc)})
 	require.NoError(t, err)
 	require.NotNil(t, authz)
 	assert.EqualValues(t, 3, authz.RuleVersion())
 
-	svc := NewAuthService(signTypeTestSecret, nil)
 	token, err := svc.IssueCapability(t.Context(), authz, svc.PlaybackTokenTTL(), "")
 	require.NoError(t, err)
 

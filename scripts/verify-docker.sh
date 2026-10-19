@@ -387,8 +387,8 @@ stage_ops() {
     echo "== ops/profile/drain gates (same filters as the CI ops job) =="
     go_test_rc=0
     go test -race -count=1 -p 1 -json \
-      -run "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials|TestGrpcVerifyJWT_RejectsDuplicateCredentials|TestGrpcVerifyJWT_AccessKeyRotation|TestGrpcGetManifest_RequiresMatchingRestoreEpoch|TestGRPC_GetSegment_RefusesAnotherSessionCapability|TestAcceptance_TaskGenerationPublish|TestPublishedGeneration_AuthorityFailureNeverServesLegacy|TestGRPC_PublishedRenditionSegmentRoundTrip|TestGRPC_PlaylistMetadataRejectsInvalidInput" \
-      ./pkg/middleware ./pkg/gateway > /artifacts/credential-consistency.json || go_test_rc=$?
+      -run "TestIssueCapability_RejectsChangedCredentialAfterAuthorization|TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials|TestGrpcVerifyJWT_RejectsDuplicateCredentials|TestGrpcVerifyJWT_AccessKeyRotation|TestGrpcGetManifest_RequiresMatchingRestoreEpoch|TestGRPC_GetSegment_RefusesAnotherSessionCapability|TestAcceptance_TaskGenerationPublish|TestPublishedGeneration_AuthorityFailureNeverServesLegacy|TestGRPC_PublishedRenditionSegmentRoundTrip|TestGRPC_PlaylistMetadataRejectsInvalidInput" \
+      ./pkg/middleware ./pkg/gateway ./pkg/service > /artifacts/credential-consistency.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py --suite credential-consistency \
       --exit-code "$go_test_rc" /artifacts/credential-consistency.json
 

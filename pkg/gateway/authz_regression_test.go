@@ -38,6 +38,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
@@ -145,13 +146,17 @@ func (authzBlockProver) HeaderByTag(_ context.Context, _ int64, _ string) (*midd
 	return &middleware.BlockHeaderInfo{Number: 100, Hash: "0xauthz"}, nil
 }
 
+var authzTestRestoreAuthority = storage.NewMemoryRestoreEpochStore()
+
 func mustValidJWT(t *testing.T, wallet string) string {
 	t.Helper()
+	epoch, epochErr := authzTestRestoreAuthority.Current(context.Background())
+	assert.NoError(t, epochErr)
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"wallet_address": wallet,
 		"session_id":     "test-session",
 		"auth_epoch":     1,
-		"restore_epoch":  "test-restore-epoch",
+		"restore_epoch":  epoch.Epoch,
 		"token_type":     "access",
 		"exp":            time.Now().Add(time.Hour).Unix(),
 		"iat":            time.Now().Add(-time.Minute).Unix(),
@@ -171,7 +176,9 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 	gin.SetMode(gin.TestMode)
 	log := zap.NewNop()
 
-	authSvc := service.NewAuthService(authzTestSecret, nil)
+	sessions := storage.NewMemorySessionStore()
+	assert.NoError(t, sessions.Create(context.Background(), "test-session"))
+	authSvc := service.NewAuthService(authzTestSecret, nil, service.WithSessionStore(sessions), service.WithRestoreEpochStore(authzTestRestoreAuthority))
 	cache := NewStreamingCache()
 	lim := newStreamLimiter(100)
 	store := fakeSegmentStorage{}
@@ -185,9 +192,10 @@ func newAuthzTestRouter(t *testing.T, rules []middleware.GatingRule, owned map[s
 				return nil, err
 			}
 			return &middleware.PlaybackIdentity{
-				Wallet:    claims.WalletAddress,
-				SessionID: claims.SessionID,
-				AuthEpoch: claims.AuthEpoch,
+				Wallet:       claims.WalletAddress,
+				SessionID:    claims.SessionID,
+				AuthEpoch:    claims.AuthEpoch,
+				RestoreEpoch: claims.RestoreEpoch,
 			}, nil
 		},
 	}, log))

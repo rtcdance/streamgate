@@ -101,6 +101,13 @@ func newParityServer(t *testing.T, quantity *big.Int, minBalance int, authSvc *s
 	return srv, resolver
 }
 
+func parityAuthenticatedCtx(t *testing.T, svc *service.AuthService, sessionID, wallet string) context.Context {
+	t.Helper()
+	epoch, ok := svc.RestoreEpoch()
+	require.True(t, ok)
+	return context.WithValue(parityCtx(sessionID, 1, wallet), grpcRestoreEpochKey, epoch)
+}
+
 func parityCtx(sessionID string, epoch int64, wallet string) context.Context {
 	ctx := context.WithValue(context.Background(), grpcWalletKey, wallet)
 	ctx = context.WithValue(ctx, grpcSessionKey, sessionID)
@@ -165,7 +172,7 @@ func TestGrpcGetManifest_EnforcesRealQuantity(t *testing.T) {
 
 	t.Run("holding one against a minimum of two is denied", func(t *testing.T) {
 		srv, _ := newParityServer(t, big.NewInt(1), 2, authSvc)
-		resp, err := srv.GetManifest(parityCtx(sessionID, 1, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
+		resp, err := srv.GetManifest(parityAuthenticatedCtx(t, authSvc, sessionID, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
@@ -173,7 +180,7 @@ func TestGrpcGetManifest_EnforcesRealQuantity(t *testing.T) {
 
 	t.Run("holding two against a minimum of two is allowed", func(t *testing.T) {
 		srv, _ := newParityServer(t, big.NewInt(2), 2, authSvc)
-		resp, err := srv.GetManifest(parityCtx(sessionID, 1, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
+		resp, err := srv.GetManifest(parityAuthenticatedCtx(t, authSvc, sessionID, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotEmpty(t, resp.Segments)
@@ -189,7 +196,7 @@ func TestGrpcGetManifest_CapabilityTTLIsTheSixtySecondPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	srv, _ := newParityServer(t, big.NewInt(5), 1, authSvc)
-	resp, err := srv.GetManifest(parityCtx(sessionID, 1, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
+	resp, err := srv.GetManifest(parityAuthenticatedCtx(t, authSvc, sessionID, "0xWallet"), &streamingv1.GetManifestRequest{ContentId: "c1"})
 	require.NoError(t, err)
 	require.NotEmpty(t, resp.Segments)
 
@@ -255,7 +262,7 @@ func TestGrpcGetManifest_RefusesConflictingDualCredentials(t *testing.T) {
 	require.NoError(t, err)
 
 	srv, _ := newParityServer(t, big.NewInt(5), 1, authSvc)
-	ctx := parityCtx(sessionID, 1, "0xWallet")
+	ctx := parityAuthenticatedCtx(t, authSvc, sessionID, "0xWallet")
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("playback-token", capability))
 
 	_, err = srv.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: "c1"})

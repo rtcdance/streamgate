@@ -104,7 +104,7 @@ func TestAuthService_ParsePlaybackTokenRefusesACapabilityFromBeforeTheRestore(t 
 	}}
 	h := newPlaybackTestAuthorizer(t, &quantityVerifier{quantity: big.NewInt(1)}, resolver)
 
-	authz, err := h.AuthorizePlayback(context.Background(), "c1", capSessionWallet, SessionBinding{SessionID: newSessionID(t, svc), AuthEpoch: 1})
+	authz, err := h.AuthorizePlayback(context.Background(), "c1", capSessionWallet, SessionBinding{SessionID: newSessionID(t, svc), AuthEpoch: 1, RestoreEpoch: currentRestoreEpoch(t, svc)})
 	require.NoError(t, err)
 
 	token, err := svc.IssueCapability(context.Background(), authz, time.Minute, "")
@@ -134,7 +134,7 @@ func TestAuthService_MintingFailsWhenTheRestoreEpochIsUnreadable(t *testing.T) {
 		{ContentID: "c1", Rules: []middleware.GatingRule{authzRule(1)}, Version: 0, VerifiedAt: time.Now()},
 	}}
 	h := newPlaybackTestAuthorizer(t, &quantityVerifier{quantity: big.NewInt(1)}, resolver)
-	authz, err := h.AuthorizePlayback(context.Background(), "c1", capSessionWallet, SessionBinding{SessionID: newSessionID(t, svc), AuthEpoch: 1})
+	authz, err := h.AuthorizePlayback(context.Background(), "c1", capSessionWallet, SessionBinding{SessionID: newSessionID(t, svc), AuthEpoch: 1, RestoreEpoch: "bound-before-authority-failure"})
 	require.NoError(t, err)
 
 	_, err = svc.IssueCapability(context.Background(), authz, time.Minute, "")
@@ -159,3 +159,44 @@ func TestAuthService_RequireCurrentRestoreEpoch(t *testing.T) {
 }
 
 var _ = errors.New
+
+func TestIssueCapability_RejectsChangedCredentialAfterAuthorization(t *testing.T) {
+	for _, change := range []string{"unchanged", "restore", "logout", "missing-epoch", "unknown-session"} {
+		t.Run(change, func(t *testing.T) {
+			svc, store := newRestoreEpochTestService(t, stg.NewMemoryRestoreEpochStore())
+			epoch, ok := svc.RestoreEpoch()
+			require.True(t, ok)
+			session := SessionBinding{SessionID: newSessionID(t, svc), AuthEpoch: 1, RestoreEpoch: epoch}
+			if change == "missing-epoch" {
+				session.RestoreEpoch = ""
+			}
+			if change == "unknown-session" {
+				session.SessionID = "unregistered-session"
+			}
+			resolver := &countingSnapshotResolver{script: []PolicySnapshot{
+				{ContentID: "c1", Rules: []middleware.GatingRule{authzRule(1)}, Version: 0, VerifiedAt: time.Now()},
+			}}
+			authorizer := newPlaybackTestAuthorizer(t, &quantityVerifier{quantity: big.NewInt(1)}, resolver)
+			authorization, err := authorizer.AuthorizePlayback(t.Context(), "c1", capSessionWallet, session)
+			require.NoError(t, err)
+			// Deterministic boundary: the NFT authorization has completed, issuance has not begun.
+			if change == "restore" {
+				_, err = store.Rotate(t.Context())
+				require.NoError(t, err)
+			}
+			if change == "logout" {
+				svc.RevokeSession(session.SessionID)
+			}
+			token, err := svc.IssueCapability(t.Context(), authorization, time.Minute, "")
+			if change == "unchanged" {
+				require.NoError(t, err)
+				claims, err := svc.ParsePlaybackToken(t.Context(), token, "c1", "")
+				require.NoError(t, err)
+				require.Equal(t, epoch, claims.RestoreEpoch)
+			} else {
+				require.Error(t, err)
+				require.Empty(t, token)
+			}
+		})
+	}
+}
