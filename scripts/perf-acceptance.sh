@@ -1,297 +1,150 @@
 #!/usr/bin/env bash
-# StreamGate SG-07 perf acceptance runner (thin orchestration for test/load).
-#
-# Prerequisites: the fullchain stack is already running (make fullchain-deploy)
-# and is reachable at BASE_URL. This script does NOT start, stop or mutate the
-# stack — it only drives the `load`-tagged HTTP harness against it and writes
-# JSON results OUTSIDE the repo (/tmp by default).
-#
-# Required environment:
-#   PERF_CONTENT_ID   gated content id prepared with real media (from the stack)
-#   PERF_PRIVATE_KEY  hex secp256 private key of a REAL logged-in NFT-holding
-#                     wallet — the single-wallet fallback when no keys file is
-#                     supplied. No self-signed JWTs: the harness performs the
-#                     real challenge -> sign -> login flow every run.
-#                     Not required when PERF_SETUP=1 (it generates a wallet
-#                     pool) or when PERF_WALLET_KEYS_FILE is set.
-#
-# Optional environment:
-#   BASE_URL          stack root                      (default http://localhost:18080)
-#   PERF_WALLET       wallet address                  (derived from the key if unset)
-#   PERF_CHAIN_ID     login challenge chain id        (default 31337)
-#   PERF_QUALITY      variant quality                 (unset = master manifest)
-#   PERF_INTERVAL     per-viewer request pace         (default 2s, matches 6s EXTINF ×3)
-#   PERF_WARMUP       warmup window per scenario      (default 10s)
-#   PERF_DURATION     timed sampling window           (default 30s)
-#   PERF_LOGIN_PACE   gap between real logins         (default 7s; auth limiter is 10/min)
-#   PERF_WALLET_KEYS_FILE  file of hex private keys (one per line or
-#                     space-separated); when set, viewer i uses wallet i —
-#                     each virtual viewer has its OWN real-login wallet
-#   PERF_WALLETS      number of wallets to generate   (default max of VIEWERS_LIST)
-#   PERF_SETUP        set to 1 to (re)generate the wallet pool, log in as each
-#                     and dev-mint a DemoNFT to each — runs ONCE before scenarios
-#   PERF_FIXTURE_HASH sha256 of the media fixture     (recorded in results)
-#   PERF_SEGMENT_SHA256 hex digest of a segment; if set, every segment body is
-#                     sha256-verified (mismatch = error, never success)
-#   VIEWERS_LIST      viewer counts to run            (default "1 10 50")
-#   CAPACITY          set to 1 to append 100 viewers as a capacity exploration
-#                     (no-op when VIEWERS_LIST already lists 100)
-#   RESULT_DIR        where JSON results go           (default /tmp/streamgate-perf-<ts>)
-#   SCENARIO          scenario label                  (default warm_cache)
-#   PERF_SKIP_WARMUP  set to 1 to skip the built-in fail-fast warmup — the
-#                     fault scenarios EXPECT failures, so the warmup gate must
-#                     not abort them before they measure
-#   PERF_GO_TIMEOUT   go test -timeout for one scenario (default 1800s). The
-#                     paced login phase needs ~10 minutes at 100 viewers, which
-#                     is longer than Go's 10m default — a real hang still fails,
-#                     just after the full budget.
-#   PERF_COMMIT       overrides the commit stamped into the result JSON. The
-#                     harness defaults to `git rev-parse HEAD` of THIS checkout,
-#                     which mislabels a measurement aimed at some other build —
-#                     the reference pass in verify-docker.sh passes
-#                     `reference:<ref>` for exactly that reason.
-#
-# Scenario matrix (TRANSITION_PLAN.md SG-07): cold_cache / warm_cache /
-# rpc_primary_down / rpc_all_down. This script RUNS the labeled scenario; it
-# does not inject faults itself. To run a fault scenario, inject the fault on
-# the running stack first (e.g. stop the primary RPC container), then invoke
-# this script with SCENARIO=rpc_primary_down — the harness records the label.
-# `verify-docker.sh` performs exactly that injection for the perf stage: it
-# gives the monolith two same-chain endpoints, stops the proxy, then stops the
-# anvil, and drops only the nft_cache:* keys for the cold pass. The per-label
-# bars (≥99% for cold/warm/primary_down; 0 served and 0 bytes for all_down)
-# live in test/load/live_test.go. Never clean a user's whole cache in place.
-#
-# Usage:
-#   PERF_CONTENT_ID=... PERF_PRIVATE_KEY=... ./scripts/perf-acceptance.sh
-#   PERF_CONTENT_ID=... PERF_SETUP=1 ./scripts/perf-acceptance.sh   # per-viewer wallets
+# Candidate media load runs in a separate 1 vCPU / 512 MiB tool container.
+# The controller builds the harness once, prepares scenario faults at the
+# post-warmup barrier, and retains failed runs and original process statuses.
 set -euo pipefail
-
-BASE_URL="${BASE_URL:-http://localhost:18080}"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+die() { printf 'perf-acceptance: FATAL: %s\n' "$*" >&2; exit 1; }
+[ "${VERIFY_IN_CONTROLLER:-}" = 1 ] || die "run through the Docker verification controller"
+for required in PERF_CONTENT_ID PERF_FIXTURE_HASH PERF_MEDIA_HASHES_FILE PERF_DOCKER_PROJECT PERF_DOCKER_NETWORK PERF_COMPOSE_FILE PERF_API_CONTAINER PERF_WORKER_CONTAINER PERF_LOADER_IMAGE PERF_LOADER_BINARY PERF_RUN_LABEL RESULT_DIR; do
+  [ -n "${!required:-}" ] || die "$required is required"
+done
+[[ "$PERF_LOADER_IMAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || die "loader image must be an immutable image ID"
+[[ "$PERF_FIXTURE_HASH" =~ ^[0-9a-f]{64}$ ]] || die "fixture SHA256 is required"
+[ -s "$PERF_MEDIA_HASHES_FILE" ] || die "independent fixture media hashes are missing"
+BASE_URL="${BASE_URL:-http://monolith:8080}"
 SCENARIO="${SCENARIO:-warm_cache}"
-VIEWERS_LIST="${VIEWERS_LIST:-1 10 50}"
-# CAPACITY appends the 100-viewer tier to a single-pass matrix. It is a no-op
-# when 100 is already listed: the repeated protocol (SG-07 step 2) puts 100 in
-# VIEWERS_LIST itself, and appending it again would measure that tier twice
-# under one label.
-if [ "${CAPACITY:-0}" = "1" ]; then
-  case " $VIEWERS_LIST " in
-    *" 100 "*) echo "perf-acceptance: CAPACITY=1 ignored — 100 viewers are already in VIEWERS_LIST" >&2 ;;
-    *) VIEWERS_LIST="$VIEWERS_LIST 100" ;;
-  esac
-fi
+VIEWERS_LIST="${VIEWERS_LIST:-1 10 50 100}"
 PERF_INTERVAL="${PERF_INTERVAL:-2s}"
 PERF_WARMUP="${PERF_WARMUP:-10s}"
 PERF_DURATION="${PERF_DURATION:-30s}"
-PERF_CHAIN_ID="${PERF_CHAIN_ID:-31337}"
-RESULT_DIR="${RESULT_DIR:-/tmp/streamgate-perf-$(date +%Y%m%d-%H%M%S)}"
-# Go's default test timeout is 10m. The login phase is PACED (~6s per wallet, so
-# the auth limiter is never tripped), which means a 100-viewer capacity run
-# spends ~10 minutes logging in before it measures anything — strictly longer
-# than the default. Without an explicit budget the documented 100-viewer
-# exploration can never complete: it dies as "panic: test timed out after 10m0s".
+PERF_LOGIN_PACE="${PERF_LOGIN_PACE:-1s}"
 PERF_GO_TIMEOUT="${PERF_GO_TIMEOUT:-1800s}"
-
-die() { echo "perf-acceptance: FATAL: $*" >&2; exit 1; }
-
-[ -n "${PERF_CONTENT_ID:-}" ] || die "PERF_CONTENT_ID is required"
-command -v go >/dev/null 2>&1 || die "go toolchain not found"
-
-# max_viewers: the largest count in VIEWERS_LIST — the wallet pool must cover
-# it (PERF_WALLETS overrides when the operator wants a smaller/larger pool).
+PERF_CHAIN_ID="${PERF_CHAIN_ID:-31337}"
+PERF_QUALITY="${PERF_QUALITY:-640x360}"
+[[ "$PERF_GO_TIMEOUT" =~ ^[1-9][0-9]*s$ ]] || die "timeout must be a positive number of seconds"
+case "$SCENARIO" in warm_cache|cold_cache|rpc_primary_down|rpc_all_down) ;; *) die "unknown scenario" ;; esac
 max_viewers=0
-for v in $VIEWERS_LIST; do
-  [ "$v" -gt "$max_viewers" ] && max_viewers="$v"
+for viewers in $VIEWERS_LIST; do
+  [[ "$viewers" =~ ^[1-9][0-9]*$ ]] || die "viewer counts must be positive integers"
+  [ "$viewers" -le "$max_viewers" ] || max_viewers="$viewers"
 done
-
-# SETUP phase: generate a deterministic N-wallet pool, log in as each (paced)
-# and dev-mint a DemoNFT to each, so every virtual viewer has its OWN
-# real-logged-in, NFT-holding wallet. Runs once, before the scenarios.
-if [ "${PERF_SETUP:-0}" = "1" ]; then
-  mkdir -p "$RESULT_DIR"
-  export PERF_WALLET_KEYS_FILE="${PERF_WALLET_KEYS_FILE:-$RESULT_DIR/wallets.keys}"
-  export PERF_WALLETS="${PERF_WALLETS:-$max_viewers}"
-  echo "perf-acceptance: SETUP — generating $PERF_WALLETS wallets, pacing logins, minting DemoNFT to each"
-  # SETUP needs PERF_GO_TIMEOUT too, and for the strongest reason: the paced
-  # logins (~6s per wallet, so the auth limiter is never tripped) put the
-  # 100-viewer pool at ~10 minutes BEFORE any minting happens — strictly longer
-  # than Go's 10m default. Passing the budget only to the scenario run left the
-  # documented capacity exploration dying here as "panic: test timed out after
-  # 10m0s" with the pool half built.
-  PERF_BASE_URL="$BASE_URL" \
-  PERF_CHAIN_ID="$PERF_CHAIN_ID" \
-  PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
-  PERF_WALLETS="$PERF_WALLETS" \
-  PERF_SETUP=1 \
-    go test -tags load -count=1 -timeout "$PERF_GO_TIMEOUT" -run TestPerfSetup_MintViewerWallets ./test/load/ -v
-  echo "perf-acceptance: SETUP complete — wallet pool in $PERF_WALLET_KEYS_FILE"
-fi
-
-# Wallet pool or single-wallet fallback: one of the two must be resolvable.
-if [ -z "${PERF_WALLET_KEYS_FILE:-}" ]; then
-  [ -n "${PERF_PRIVATE_KEY:-}" ] || die "either PERF_WALLET_KEYS_FILE, PERF_SETUP=1 or PERF_PRIVATE_KEY is required (real wallet login; no self-signed tokens)"
-  # The harness needs the wallet address as well as the key; derive it with
-  # cast rather than silently logging in as the wrong address.
-  if [ -z "${PERF_WALLET:-}" ]; then
-    command -v cast >/dev/null 2>&1 || die "PERF_WALLET is unset and cast (Foundry) is not available to derive it"
-    PERF_WALLET=$(cast wallet address --private-key "$PERF_PRIVATE_KEY") || die "could not derive the wallet address from PERF_PRIVATE_KEY"
-    export PERF_WALLET
-    echo "perf-acceptance: derived wallet $PERF_WALLET from PERF_PRIVATE_KEY"
-  fi
-else
-  [ -f "$PERF_WALLET_KEYS_FILE" ] || die "PERF_WALLET_KEYS_FILE=$PERF_WALLET_KEYS_FILE does not exist — run with PERF_SETUP=1 first"
-  key_count=$(wc -l < "$PERF_WALLET_KEYS_FILE" | tr -d ' ')
-  if [ "$key_count" -lt "$max_viewers" ]; then
-    echo "perf-acceptance: WARNING: wallet pool ($key_count) < max viewers ($max_viewers) — wallets will be reused round-robin" >&2
-  fi
-fi
-
-# Fail loudly if the stack is unreachable: a green perf run needs a live target.
-HEALTH_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$BASE_URL/health" || echo 000)
-[ "$HEALTH_CODE" = "200" ] || die "$BASE_URL/health returned $HEALTH_CODE — stack not reachable (start it with 'make fullchain-deploy')"
-
 mkdir -p "$RESULT_DIR"
-cd "$(dirname "$0")/.."
+[ -n "${PERF_WALLET_KEYS_FILE:-}" ] || die "independent viewer wallet keys file is required"
+if [ ! -x "$PERF_LOADER_BINARY" ]; then
+  CGO_ENABLED=0 go test -tags load -c -o "$PERF_LOADER_BINARY" ./test/load || die "loader compilation failed"
+fi
 
-# Resource metrics are scraped from the app's own /metrics before and after
-# each measured scenario. process_cpu_seconds_total gives the CPU actually
-# consumed during the window; process_resident_memory_bytes is the RSS at the
-# end. Scraping is best-effort for stacks that gate /metrics, but a successful
-# scrape is recorded verbatim so no number is inferred after the fact.
-snapshot_metrics() {
-  local path="$1"
-  if curl -fsS --max-time 5 "$BASE_URL/metrics" > "$path.tmp" 2>/dev/null; then
-    mv "$path.tmp" "$path"
-  else
-    rm -f "$path.tmp"
-    echo "perf-acceptance: WARNING: $BASE_URL/metrics unavailable — resource sample skipped" >&2
-  fi
-}
+if [ "${PERF_SETUP:-0}" = 1 ]; then
+  mkdir -p "$(dirname "$PERF_WALLET_KEYS_FILE")"
+  setup_log="$RESULT_DIR/setup.raw.log"
+  setup_rc=0
+  PERF_BASE_URL="$BASE_URL" PERF_CHAIN_ID="$PERF_CHAIN_ID" PERF_SETUP=1 \
+  PERF_LOGIN_PACE="$PERF_LOGIN_PACE" PERF_WALLETS="${PERF_WALLETS:-$max_viewers}" \
+  PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" \
+    "$PERF_LOADER_BINARY" -test.run '^TestPerfSetup_MintViewerWallets$' -test.v=test2json -test.timeout "$PERF_GO_TIMEOUT" >"$setup_log" 2>&1 || setup_rc=$?
+  go tool test2json -p github.com/rtcdance/streamgate/test/load -t <"$setup_log" >"$RESULT_DIR/setup.jsonl" || die "setup log conversion failed"
+  python3 scripts/cd/assert_required_tests.py "$RESULT_DIR/setup.jsonl" --suite perf-setup --exit-code "$setup_rc" || die "wallet setup failed"
+fi
+[ -s "$PERF_WALLET_KEYS_FILE" ] || die "viewer wallet pool is missing"
+key_count="$(python3 -c 'import pathlib,sys; print(len(pathlib.Path(sys.argv[1]).read_text().split()))' "$PERF_WALLET_KEYS_FILE")"
+[ "$key_count" -ge "$max_viewers" ] || die "wallet pool is smaller than the viewer count"
 
-summarize_resources() {
-  local before="$1" after="$2" out="$3" scenario="$4" viewers="$5"
-  [ -s "$before" ] && [ -s "$after" ] || return 0
-  command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$before" "$after" "$out" "$scenario" "$viewers" <<'PY'
-import json, sys
-
-def sample(path):
-    values = {}
-    with open(path) as fh:
-        for line in fh:
-            if not line or line.startswith("#"):
-                continue
-            name = line.split(" ", 1)[0].split("{", 1)[0]
-            if name not in ("process_cpu_seconds_total", "process_resident_memory_bytes"):
-                continue
-            try:
-                values[name] = float(line.rsplit(" ", 1)[1])
-            except ValueError:
-                continue
-    return values
-
-before, after = sample(sys.argv[1]), sample(sys.argv[2])
-cpu_before, cpu_after = before.get("process_cpu_seconds_total"), after.get("process_cpu_seconds_total")
-record = {
-    "scenario": sys.argv[4],
-    "viewers": int(sys.argv[5]),
-    "cpu_seconds_before": cpu_before,
-    "cpu_seconds_after": cpu_after,
-    "cpu_seconds_delta": (cpu_after - cpu_before) if cpu_before is not None and cpu_after is not None else None,
-    "rss_bytes": after.get("process_resident_memory_bytes"),
-}
-with open(sys.argv[3], "w") as fh:
-    json.dump(record, fh, indent=2, sort_keys=True)
-    fh.write("\n")
+compose() { docker compose -p "$PERF_DOCKER_PROJECT" -f "$PERF_COMPOSE_FILE" "$@"; }
+prepare_sampling() {
+  local phase="$1" active keys
+  active="$(compose exec -T postgres psql -U postgres -d streamgate -tAc "SELECT count(*) FROM transcoding_tasks WHERE status NOT IN ('completed','failed','cancelled')" | tr -d '[:space:]')" || die "cannot verify the worker is idle"
+  [ "$active" = 0 ] || die "playback samples must not overlap transcoding"
+  case "$SCENARIO" in
+    rpc_primary_down) compose stop anvil-proxy >/dev/null || die "primary RPC fault failed" ;;
+    rpc_all_down) compose stop anvil-proxy anvil-fallback-proxy >/dev/null || die "total RPC fault failed" ;;
+  esac
+  if [ "$SCENARIO" = cold_cache ] || [ "$SCENARIO" = rpc_all_down ]; then
+    keys="$(compose exec -T redis redis-cli --scan --pattern 'nft_cache:*')" || die "NFT cache enumeration failed"
+    while IFS= read -r key; do
+      [ -z "$key" ] || compose exec -T redis redis-cli DEL "$key" >/dev/null || die "NFT cache invalidation failed"
+    done <<< "$keys"
+    # No viewer traffic is in flight at ready.json. A six-second fence exceeds
+    # the verified five-second total cache age, including every in-process L1.
+    python3 - "$phase/ready.json" <<'PY'
+from datetime import datetime
+import json, sys, time
+ready = datetime.fromisoformat(json.load(open(sys.argv[1]))['timestamp'].replace('Z', '+00:00')).timestamp()
+while time.time() < ready + 6:
+    time.sleep(min(.1, max(0, ready + 6 - time.time())))
 PY
+  fi
+  python3 scripts/cd/perf_metrics.py --output-prefix "$phase/before" || die "required before-metrics unavailable"
+  : > "$phase/release"
 }
 
-run_scenario() {
-  local viewers="$1"
+run_scenario() (
+  local viewers="$1" loader="" monitor_pid="" attach_pid="" rc=0 start_rc=0
   local out="$RESULT_DIR/${SCENARIO}-viewers-${viewers}.json"
-  local capture=1
-  [ "${PERF_WARMUP:-10s}" = "0s" ] && capture=0
-  local before_metrics="$RESULT_DIR/metrics-${SCENARIO}-${viewers}-before.prom"
-  local after_metrics="$RESULT_DIR/metrics-${SCENARIO}-${viewers}-after.prom"
-  local resources="$RESULT_DIR/resources-${SCENARIO}-${viewers}.json"
-  echo "perf-acceptance: scenario=$SCENARIO viewers=$viewers pace=$PERF_INTERVAL warmup=$PERF_WARMUP duration=$PERF_DURATION -> $out"
-  [ "$capture" = 1 ] && snapshot_metrics "$before_metrics"
-  local rc=0
-  PERF_BASE_URL="$BASE_URL" \
-  PERF_SCENARIO="$SCENARIO" \
-  PERF_PRIVATE_KEY="${PERF_PRIVATE_KEY:-}" \
-  PERF_WALLET="${PERF_WALLET:-}" \
-  PERF_WALLET_KEYS_FILE="${PERF_WALLET_KEYS_FILE:-}" \
-  PERF_CHAIN_ID="$PERF_CHAIN_ID" \
-  PERF_CONTENT_ID="$PERF_CONTENT_ID" \
-  PERF_QUALITY="${PERF_QUALITY:-}" \
-  PERF_VIEWERS="$viewers" \
-  PERF_INTERVAL="$PERF_INTERVAL" \
-  PERF_WARMUP="$PERF_WARMUP" \
-  PERF_DURATION="$PERF_DURATION" \
-  PERF_LOGIN_PACE="${PERF_LOGIN_PACE:-}" \
-  PERF_FIXTURE_HASH="${PERF_FIXTURE_HASH:-}" \
-  PERF_SEGMENT_SHA256="${PERF_SEGMENT_SHA256:-}" \
-  PERF_COMMIT="${PERF_COMMIT:-}" \
-  PERF_RESULT_JSON="$out" \
-    go test -tags load -count=1 -timeout "$PERF_GO_TIMEOUT" \
-      -run TestLoad_AuthorizedMedia ./test/load/ -v || rc=$?
-  if [ "$capture" = 1 ]; then
-    snapshot_metrics "$after_metrics"
-    summarize_resources "$before_metrics" "$after_metrics" "$resources" "$SCENARIO" "$viewers" \
-      || echo "perf-acceptance: WARNING: resource summary failed" >&2
-  fi
-  return "$rc"
-}
+  local raw="$RESULT_DIR/${SCENARIO}-viewers-${viewers}.raw.log"
+  local stats="$RESULT_DIR/cgroup-${SCENARIO}-${viewers}.jsonl"
+  local phase
+  phase="$(mktemp -d "$RESULT_DIR/phase-${SCENARIO}-${viewers}-XXXXXX")"
+  cleanup_run() {
+    local original=$? cleanup_rc=0
+    trap - EXIT INT TERM
+    : > "$phase/monitor.stop"
+    if [ -n "$monitor_pid" ]; then wait "$monitor_pid" || cleanup_rc=1; fi
+    if [ -n "$loader" ]; then docker rm -f "$loader" >/dev/null 2>&1 || cleanup_rc=1; fi
+    if [ -n "$attach_pid" ]; then wait "$attach_pid" >/dev/null 2>&1 || :; fi
+    if [ "$original" = 0 ] && [ "$cleanup_rc" != 0 ]; then original=1; fi
+    exit "$original"
+  }
+  trap cleanup_run EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  compose start anvil-proxy anvil-fallback-proxy >/dev/null || die "cannot restore RPC endpoints before warmup"
+  loader="$(docker create --init --platform "${VERIFY_PLATFORM:-linux/amd64}" \
+    --cpus 1 --memory 512m --network "$PERF_DOCKER_NETWORK" \
+    --label "com.docker.compose.project=$PERF_DOCKER_PROJECT" --label "com.streamgate.verify.run=$PERF_RUN_LABEL" \
+    --label "org.opencontainers.image.revision=${PERF_HARNESS_SHA:-$(git rev-parse HEAD)}" \
+    --label "com.streamgate.perf.target-revision=${PERF_COMMIT:-$(git rev-parse HEAD)}" \
+    -v "$PERF_LOADER_BINARY:/loader.test:ro" -v "$PERF_WALLET_KEYS_FILE:$PERF_WALLET_KEYS_FILE:ro" \
+    -v "$PERF_MEDIA_HASHES_FILE:$PERF_MEDIA_HASHES_FILE:ro" -v "$RESULT_DIR:$RESULT_DIR" \
+    -e GOMAXPROCS=1 -e PERF_BASE_URL="${PERF_LOADER_BASE_URL:-http://monolith:8080}" \
+    -e PERF_CHAIN_ID="$PERF_CHAIN_ID" -e PERF_CONTENT_ID="$PERF_CONTENT_ID" -e PERF_QUALITY="$PERF_QUALITY" \
+    -e PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" -e PERF_VIEWERS="$viewers" \
+    -e PERF_INTERVAL="$PERF_INTERVAL" -e PERF_WARMUP="$PERF_WARMUP" -e PERF_DURATION="$PERF_DURATION" \
+    -e PERF_LOGIN_PACE="$PERF_LOGIN_PACE" -e PERF_SCENARIO="$SCENARIO" -e PERF_RESULT_JSON="$out" \
+    -e PERF_FIXTURE_HASH="$PERF_FIXTURE_HASH" -e PERF_MEDIA_HASHES_FILE="$PERF_MEDIA_HASHES_FILE" \
+    -e PERF_HARNESS_SHA="${PERF_HARNESS_SHA:-$(git rev-parse HEAD)}" \
+    -e PERF_COMMIT="${PERF_COMMIT:-$(git rev-parse HEAD)}" -e PERF_PHASE_DIR="$phase" \
+    "$PERF_LOADER_IMAGE" /loader.test -test.run '^TestLoad_AuthorizedMedia$' -test.v=test2json -test.timeout "$PERF_GO_TIMEOUT")" || die "loader creation failed"
+  python3 scripts/cd/resource_monitor.py monitor --target "api=$PERF_API_CONTAINER" \
+    --target "worker=$PERF_WORKER_CONTAINER" --target "loader=$loader" \
+    --output "$stats" --stop-file "$phase/monitor.stop" --timeout "${PERF_GO_TIMEOUT%s}" &
+  monitor_pid=$!
+  docker start -a "$loader" >"$raw" 2>&1 &
+  attach_pid=$!
+  local deadline=$((SECONDS + ${PERF_GO_TIMEOUT%s}))
+  while [ ! -f "$phase/ready.json" ]; do
+    [ "$SECONDS" -lt "$deadline" ] || die "loader did not reach the sampling barrier before its deadline"
+    if ! kill -0 "$attach_pid" 2>/dev/null; then break; fi
+    sleep .2
+  done
+  if [ -f "$phase/ready.json" ]; then prepare_sampling "$phase"; fi
+  wait "$attach_pid" || start_rc=$?
+  attach_pid=""
+  rc="$(docker inspect --format '{{.State.ExitCode}}' "$loader")" || die "loader exit status is unavailable"
+  if [ "$rc" = 0 ] && [ "$start_rc" != 0 ]; then rc="$start_rc"; fi
+  local metrics_rc=0
+  python3 scripts/cd/perf_metrics.py --output-prefix "$phase/after" || metrics_rc=$?
+  : > "$phase/monitor.stop"
+  local monitor_rc=0
+  wait "$monitor_pid" || monitor_rc=$?
+  monitor_pid=""
+  go tool test2json -p github.com/rtcdance/streamgate/test/load -t <"$raw" >"$RESULT_DIR/${SCENARIO}-viewers-${viewers}.jsonl" || die "loader log conversion failed"
+  python3 scripts/cd/assert_required_tests.py "$RESULT_DIR/${SCENARIO}-viewers-${viewers}.jsonl" --suite perf-live --exit-code "$rc" || die "live media scenario failed"
+  [ "$monitor_rc" = 0 ] || die "resource monitor failed"
+  [ "$metrics_rc" = 0 ] || die "required after-metrics unavailable"
+  python3 scripts/cd/resource_monitor.py summarize --raw "$stats" --result "$out" \
+    --output "$RESULT_DIR/resources-${SCENARIO}-${viewers}.json" || die "resource evidence is incomplete"
+)
 
-# PERF_SKIP_WARMUP=1 for the fault scenarios: the warmup exists to fail fast on
-# a broken stack, but under an injected fault a failed warmup is the EXPECTED
-# outcome (rpc_all_down), not a reason to abort before measuring. The measured
-# run still applies its own scenario bar (see test/load/live_test.go).
-if [ "${PERF_SKIP_WARMUP:-0}" = "1" ]; then
-  echo "perf-acceptance: warmup run SKIPPED (PERF_SKIP_WARMUP=1; fault scenario)"
-else
-  echo "perf-acceptance: warming up the stack (1 viewer, short window)"
-  PERF_WARMUP=0s PERF_DURATION=5s run_scenario 1 >/dev/null 2>&1 \
-    || die "warmup run failed — check stack health and PERF_CONTENT_ID/wallet credentials"
-fi
-
-for v in $VIEWERS_LIST; do
-  run_scenario "$v"
-done
-
-echo
-echo "perf-acceptance: results in $RESULT_DIR"
-echo "perf-acceptance: summary (real HTTP load; NOT the sleep-based scheduler simulation):"
-if command -v python3 >/dev/null 2>&1; then
-  python3 - "$RESULT_DIR" <<'PY'
-import glob, json, os, sys
-d = sys.argv[1]
-rows = []
-for f in sorted(glob.glob(os.path.join(d, "*.json"))):
-    try:
-        r = json.load(open(f))
-    except Exception as e:
-        rows.append((os.path.basename(f), "unreadable", "", "", "", "", "", ""))
-        continue
-    tot = r.get("success_count", 0) + r.get("error_count", 0)
-    rate = 100.0 * r.get("success_count", 0) / tot if tot else 0.0
-    rows.append((
-        r.get("scenario", "?"), r.get("viewers", "?"),
-        r.get("wallet_pool_size", "?"), r.get("login_paced", ""),
-        f"{rate:.2f}%",
-        r.get("success_count", 0), r.get("error_count", 0),
-        r.get("total_bytes", 0),
-        f"{r.get('ttfb_ms', {}).get('p95', 0):.2f}",
-        f"{r.get('latency_ms', {}).get('p95', 0):.2f}",
-    ))
-hdr = ("scenario", "viewers", "pool", "paced", "success%", "ok", "err", "bytes", "ttfb_p95_ms", "lat_p95_ms")
-w = [max(len(str(x)) for x in col) for col in zip(hdr, *rows)] if rows else [len(h) for h in hdr]
-print("  " + "  ".join(h.ljust(w[i]) for i, h in enumerate(hdr)))
-for row in rows:
-    print("  " + "  ".join(str(x).ljust(w[i]) for i, x in enumerate(row)))
-PY
-else
-  ls -1 "$RESULT_DIR"
-  echo "  (python3 not found; inspect the JSON files above manually)"
-fi
+for viewers in $VIEWERS_LIST; do run_scenario "$viewers"; done

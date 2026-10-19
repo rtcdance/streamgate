@@ -133,22 +133,23 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 	chainID := int64(envInt(t, "PERF_CHAIN_ID", 31337))
 
 	cfg := load.Config{
-		BaseURL:      baseURL,
-		Scenario:     scenario,
-		JWTToken:     os.Getenv("PERF_JWT"),
-		Wallet:       os.Getenv("PERF_WALLET"),
-		PrivateKey:   os.Getenv("PERF_PRIVATE_KEY"),
-		ChainID:      chainID,
-		Wallets:      walletPool,
-		LoginPace:    loginPaceFromEnv(t),
-		ContentID:    contentID,
-		Quality:      envOr("PERF_QUALITY", "360p"),
-		PaceByEXTINF: true,
-		Viewers:      viewers,
-		Interval:     interval,
-		Warmup:       warmup,
-		Duration:     duration,
-		FixtureHash:  os.Getenv("PERF_FIXTURE_HASH"),
+		HarnessRevision: os.Getenv("PERF_HARNESS_SHA"),
+		BaseURL:         baseURL,
+		Scenario:        scenario,
+		JWTToken:        os.Getenv("PERF_JWT"),
+		Wallet:          os.Getenv("PERF_WALLET"),
+		PrivateKey:      os.Getenv("PERF_PRIVATE_KEY"),
+		ChainID:         chainID,
+		Wallets:         walletPool,
+		LoginPace:       loginPaceFromEnv(t),
+		ContentID:       contentID,
+		Quality:         envOr("PERF_QUALITY", "360p"),
+		PaceByEXTINF:    true,
+		Viewers:         viewers,
+		Interval:        interval,
+		Warmup:          warmup,
+		Duration:        duration,
+		FixtureHash:     os.Getenv("PERF_FIXTURE_HASH"),
 	}
 	if path := os.Getenv("PERF_MEDIA_HASHES_FILE"); path != "" {
 		raw, err := os.ReadFile(path)
@@ -159,6 +160,10 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 	}
 	require.NotEmpty(t, cfg.MediaSHA256, "set PERF_MEDIA_HASHES_FILE from independent fixture artifacts, or PERF_SEGMENT_SHA256 for a single repeated segment")
 
+	require.Len(t, cfg.HarnessRevision, 40, "harness source SHA is required separately from target revision")
+	phaseDir := os.Getenv("PERF_PHASE_DIR")
+	require.NotEmpty(t, phaseDir, "controller sampling barrier is required for live acceptance")
+	cfg.BeforeSampling = func(ctx context.Context) error { return load.WaitForSamplingRelease(ctx, phaseDir, 60*time.Second) }
 	res, runErr := load.Run(context.Background(), cfg)
 
 	out := envOr("PERF_RESULT_JSON", "/tmp/perf-result.json")
@@ -254,6 +259,7 @@ func TestPerfSetup_MintViewerWallets(t *testing.T) {
 		ChainID:   chainID,
 		Wallets:   pool,
 		SetupMint: true,
+		LoginPace: loginPaceFromEnv(t),
 		// Setup-only knobs: viewers/interval/duration never reach the load
 		// phase because RunPhase errors out or minting fails loudly first, but
 		// validate() demands nonzero placeholders.
@@ -263,7 +269,7 @@ func TestPerfSetup_MintViewerWallets(t *testing.T) {
 	}
 	tokens, paced, failed, err := load.RunPhase(context.Background(), cfg)
 	require.NoError(t, err, "every wallet must log in and mint successfully — a failed setup fails the round")
-	require.Len(t, tokens, count)
+	require.Equal(t, count, len(tokens))
 	require.Zero(t, failed)
 	require.True(t, paced, "logins must be paced")
 	t.Logf("setup complete: %d wallets logged in (paced=%v) and hold a DemoNFT", count, paced)

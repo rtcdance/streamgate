@@ -716,3 +716,13 @@ func TestPerfHarness_PlaylistNamedSegmentCannotBypassHash(t *testing.T) {
 	require.Positive(t, result.ErrorCount)
 	require.Zero(t, result.VerifiedMediaCount)
 }
+
+func TestPerfHarness_SamplingPreparationIsRequired(t *testing.T) {
+	srv, _ := newTokenEchoServer(t)
+	called := false
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: 30 * time.Millisecond, BeforeSampling: func(context.Context) error { called = true; return fmt.Errorf("injected preparation failure") }}
+	result, err := Run(context.Background(), cfg)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.True(t, called)
+}

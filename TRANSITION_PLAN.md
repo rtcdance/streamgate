@@ -103,6 +103,12 @@
 >
 > **补录既有媒体阶段实证（非当前 HEAD）：** `.verify-artifacts/sg-repair-m-1018-0210/candidate.json` 的 revision 为 `2659d0a7232a29f34fbda946524fe0520385e8b5`，archiveSHA256 为 `33213d1ef04d9bd3433b7a9ca654dfa3eacd5e5a9ce783d449bc4ac591c61221`；controller 原始日志记录 `stage=media PASS`，`logs/media.log` 两条腿各 `ALL 71 PASSED`，浏览器时间分别推进到 3.57 秒与 3.65 秒。该记录保留适用旧 SHA，不能补当前候选缺失的验收。
 
+> **E 批 Docker 接线进展（2026-10-19，进行中，尚非完整验收）：** 经用户明确移交，性能／Docker 脚本由本进程继续处理。已实现独立 1 vCPU／512 MiB loader，工具容器预编译同一份 Go 测试二进制；应用目标 SHA 与 harness SHA 分开记录。Go 新增 warmup 后、sampling 时钟前的文件屏障，旧 release／超时均拒绝；父进程在该状态核验无活跃转码、清理 NFT 缓存并等待超过已验证 5 秒 age 的 6 秒 fence，或停止同链 RPC 前门，随后释放测量。两个可停止 RPC 代理指向同一 Anvil，故障不再销毁底层链状态。版本化 Compose 补齐基础设施限额，`config/performance.acceptance.json` 保存固定协议及当前拟验证的安全基线 `f96fa41eb0b8d6967afcd26a6548eef6b2d77867`；该选择尚不构成基线镜像通过安全／回退验收的声明。
+>
+> **已实测的工具证据：** Docker 内 Go race 必需清单 **28/28 PASS**，含 sampling barrier 的等待／超时／拒绝旧 release；tagged vet、lint 通过且 lint 0 issues。新增 Python **20/20 PASS**（fixture 7、cgroup 10、metrics 3）；原 Shell 回归 **16/16**、代理 2/2、控制器取消 1/1 PASS。对独立真实 MinIO 容器实际执行 `mc ls`／`mc cat`，15 字节控制对象捕获 SHA256 为 `1983b07b93a3e7104c9b137310c0a4f66f487e6b33a5d64675ef1d89e213639f`；真实 Docker Engine cgroup 采样观测 CPU 累计约 4.91 秒、RSS 114884608 字节。这些仅验证存储读取与采集器通路，非真实媒体或容量成绩。对应原始证据：`.verify-artifacts/perf-fixture-20261019/`、`.verify-artifacts/perf-resource-20261019/`。
+>
+> **当前入口与剩余项：** candidate 模式调用固定 1/10/50/100 × 3 × 四场景，默认要求冻结基线、同 runner 串行比较；显式 PR smoke 仅 1 观众，`all` 拒绝 PR 模式。实时测试必须实际执行且通过，setup／live 原退出码经严格清单校验；资源按真实容器 CPU counter／RSS 在 Go sampling 时间窗归属，缺角色、间隙、覆盖不足、重启、错误镜像身份／限额均失败；API 和 worker Prometheus 抓取由警告改为必需。临时私钥移入 `.private` 并在成功／失败／取消退出时删除。尚未执行新入口的真实 loader smoke／完整矩阵；结果环境摘要、全矩阵身份判定、严格 reference 比较及 CI DAG 仍须收口，E 出口保持未通过，不得仅凭上述实现或单元用例勾选完成。
+
 > **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
