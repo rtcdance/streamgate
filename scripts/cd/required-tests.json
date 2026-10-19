@@ -291,6 +291,10 @@
     "perf-tests": [
       {
         "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfHarness_SamplingWindowIsNotShortened"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
         "test": "TestPerfHarness_CorruptSegmentIsFatal"
       },
       {
