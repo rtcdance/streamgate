@@ -14,6 +14,14 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_recovery_seed_requires_full_business_acceptance(self):
+        source = function("stage_recovery")
+        self.assertNotIn("VERIFY_SKIP_BROWSER_INSTALL", source)
+        self.assertNotIn("acceptance_failed_only_in_browser", source)
+        self.assertIn('run_logged recovery-seed run_fullchain "$src"', source)
+        result = self.run_shell("run_fullchain() { echo 'FAIL: Browser playback failed'; return 17; }; run_logged recovery-seed run_fullchain")
+        self.assertEqual(result.returncode, 17)
+
     def test_source_freeze_rejects_dirty_tree_or_changed_head(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

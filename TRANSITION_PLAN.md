@@ -146,6 +146,10 @@
 >
 > **本条验证范围：** 新增恢复单元回归 **16/16 PASS**（逻辑对象 11、脚本 5，含真实 SIGTERM 清理）；全部 Python 验收工具 **156/156 PASS**，Shell 语法和 diff check PASS。隔离的两个真实 MinIO 实例完成 2 对象的 S3 备份→独立空桶恢复→逐项重读 hash，一致且私有备份清除；原始清单与限定范围 `result.json` 在 `.verify-artifacts/sg-recovery-objects-20261019/`，临时容器已移除。本条是开发源码验证，**尚非新干净候选完整恢复通过**。live restore epoch 判据恢复为严格 ≤5 秒、不对延迟向下取整；仅明确 401/403 可证明能力被拒绝，000／503 不算成功；同时检查新 access／refresh 也被 live epoch 撤销。需继续真实空卷恢复，不能以本条关闭 C／M8。
 
+> **严格恢复门首次候选结果（2026-10-19）：** `sg-recovery-1019-07`，干净候选 `3e15d5852f92b997a6ef5f5d48db5322bf11491d`，原退出 **1**。源栈 70 通过、1 浏览器启动失败（旧 recovery seed 跳过浏览器依赖安装并明确容忍该失败；**不记 M2 通过**）。专用源栈完成排空、PG 一致快照、6 个真实 S3 对象备份，并将 DB／对象／Redis 快照恢复到独立空卷；旧 Redis 中 4 个登录会话保留，Postgres epoch 已在流量前轮换、两条旧缓存删除。广播恢复前的联合核对因 canonical hash／nonce／from 读取缺失而失败，目标应用未启动；未作旧凭据失效或新登录播放成功声明。source nonce 5→5，无未知消耗。monolith imageID `sha256:630d73fd1df6f658b95993cf7e2ca924392fc86009576db9183287f64e26dc9d`，archiveSHA256 `1e8d3f8ce6baacd6fc00d79010bade19d19dc0b87743f9158a0b994d612ad313`。原始日志／状态在 `.verify-artifacts/sg-recovery-1019-07/`；失败退出后原始备份、该项目容器／卷／网络均已清除。
+>
+> **根因修复与新判据：** 固定 Foundry v1.8.5 的 `cast tx/block --json` 返回 `{schema_version:1, success:true, data:{...}}`，receipt 仍平铺；原解析器只读根字段，导致真实 receipt 一致仍错误报红。隔离 Anvil 实际交易确认两种输出形状，新增 RED 后兼容这两种格式；失败、未知版本、带 errors、非对象 data 的 envelope 保持失败。增加公开 hash／nonce／signerMatch／ledgerMatches 分项观测，不输出 raw tx 或凭据。全部验收工具 Python **159/159 PASS**，其中恢复 **18/18 PASS**，真实诊断链输出解析通过、该诊断容器已删除。恢复 seed 改用 `run_logged` 严格完整业务门，不再跳过浏览器依赖或容忍单项失败；需新候选重新执行，07 的原失败保持失败。
+
 ### 0.1 目标与执行边界
 
 以当前 `73a052c` 为修复起点。历史候选 `ab172c2` 的 CI run `39005594931` 已确认 55/55 jobs 成功，保留其真实记录；本轮需要补齐实现与验收覆盖，使 **SG-00～SG-15、M0～M5、M7、M8，以及 M6 的 AI 交付部分全部满足原定标准**。
