@@ -25,6 +25,12 @@ if [ -n "$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJ
   echo "verification project already has resources: ${VERIFY_PROJECT}; choose a fresh VERIFY_PROJECT" >&2
   exit 1
 fi
+# A foreign container may already occupy the deterministic controller name. Refuse
+# before building or running anything so cleanup never targets an unrelated container.
+if [ -n "$(docker ps -aq --filter "name=^/${VERIFY_CONTROLLER}$")" ]; then
+  echo "controller container name already in use: ${VERIFY_CONTROLLER}; choose a fresh VERIFY_PROJECT" >&2
+  exit 1
+fi
 mkdir -p "$VERIFY_ARTIFACTS"
 VERIFY_ARTIFACTS="$(cd "$VERIFY_ARTIFACTS" && pwd)"
 if [ -f .gitmodules ]; then git submodule update --init --recursive; fi

@@ -10,6 +10,42 @@ import unittest
 
 
 class ControllerCancellationTests(unittest.TestCase):
+    def test_existing_foreign_controller_name_refuses_before_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
+            (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes())
+            (root / "scripts/verify-docker.sh").write_text("exit 0\n")
+            binary = root / "bin"
+            binary.mkdir()
+            fake = binary / "docker"
+            fake.write_text("#!" + sys.executable + "\n" + '''
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_TRACE"], "a") as log:
+    log.write(json.dumps(args) + "\\n")
+if args[:2] == ["ps", "-aq"] and any(arg.startswith("name=") for arg in args):
+    if not any(arg.startswith("label=") for arg in args):
+        print("foreign-controller-id")
+elif args[:2] == ["context", "inspect"]:
+    print("unix:///tmp/fake.sock")
+elif args[:2] == ["image", "inspect"]:
+    print("sha256:" + "1" * 64)
+elif args[0] == "inspect":
+    print("exited")
+''')
+            fake.chmod(0o755)
+            trace = root / "trace.jsonl"
+            env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
+                       FAKE_TRACE=str(trace), VERIFY_STAGE="media", VERIFY_PROJECT="own-cancel-test",
+                       VERIFY_ARTIFACTS=str(root / "artifacts"))
+            result = subprocess.run(["bash", str(root / "scripts/verify-controller.sh")], env=env,
+                                    capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            self.assertFalse(any(call[0] in ("run", "rm", "build") for call in calls), calls)
+
     def test_term_while_client_is_running_preserves_status_and_cleans(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
