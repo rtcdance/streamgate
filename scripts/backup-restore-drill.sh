@@ -81,11 +81,9 @@ SRC_REDIS="${SRC_PROJECT}-redis-1"
 DST_PG="${DST_PROJECT}-postgres-1"
 DST_REDIS="${DST_PROJECT}-redis-1"
 
-PG_DUMP="${ARTIFACTS}/pg-dump.sql"
-OBJECTS_TAR="${ARTIFACTS}/objects.tar"
-OBJECTS_BEFORE="${ARTIFACTS}/objects-before.txt"
-OBJECTS_AFTER="${ARTIFACTS}/objects-after.txt"
-REDIS_RDB="${ARTIFACTS}/redis-dump.rdb"
+PRIVATE_DIR=""
+OBJECTS_BEFORE="${ARTIFACTS}/objects-before.json"
+OBJECTS_AFTER="${ARTIFACTS}/objects-after.json"
 COUNTS_BEFORE="${ARTIFACTS}/counts-before.txt"
 COUNTS_AFTER="${ARTIFACTS}/counts-after.txt"
 REGISTRY_STATE="${ARTIFACTS}/registry-state.tsv"
@@ -97,6 +95,14 @@ p() { printf 'PASS: %s\n' "$*"; printf 'PASS\t%s\n' "$*" >> "$RESULTS_FILE"; }
 f() { printf 'FAIL: %s\n' "$*"; printf 'FAIL\t%s\n' "$*" >> "$RESULTS_FILE"; FAIL=$((FAIL + 1)); }
 die() { printf 'FATAL: %s\n' "$*" >&2; exit 1; }
 
+cleanup_private() {
+    local original=$? cleanup_rc=0
+    trap - EXIT INT TERM
+    if [ -n "$PRIVATE_DIR" ]; then rm -rf -- "$PRIVATE_DIR" || cleanup_rc=1; fi
+    if [ "$original" = 0 ] && [ "$cleanup_rc" != 0 ]; then original=1; fi
+    exit "$original"
+}
+
 require_tool() { command -v "$1" >/dev/null 2>&1 || die "required tool $1 not found"; }
 
 # Everything below talks to the project network directly or through the
@@ -107,7 +113,7 @@ dst_compose() { docker compose -p "$DST_PROJECT" -f "$COMPOSE" -f "$DST_EXTRA" "
 # Registry / chain reads go through the source anvil container: the foundry image
 # ships cast, and the chain is the one both stacks share, so there is nothing to
 # publish and nothing to reach over HTTP.
-anvil_cast() { docker exec "$SRC_ANVIL" cast "$@" --rpc-url "http://localhost:8545"; }
+anvil_cast() { timeout 20s docker exec "$SRC_ANVIL" cast "$@" --rpc-url "http://localhost:8545"; }
 
 # cast_keccak <data> — `cast keccak` takes NO `--rpc-url` (it needs no chain at
 # all, and clap rejects the flag with exit 2), so it cannot go through
@@ -116,11 +122,12 @@ anvil_cast() { docker exec "$SRC_ANVIL" cast "$@" --rpc-url "http://localhost:85
 # this script.
 cast_keccak() { docker exec "$SRC_ANVIL" cast keccak "$1"; }
 
-# `|| true`: a psql error must surface as the failing CHECK (an empty value that
-# does not match), not as a silent abort of the whole drill. psql's own message
-# still reaches the log through stderr.
-src_psql() { docker exec "$SRC_PG" psql -U postgres -d streamgate -tAc "$1" || true; }
-dst_psql() { docker exec "$DST_PG" psql -U postgres -d streamgate -tAc "$1" || true; }
+src_psql() {
+    timeout 15s docker exec "$SRC_PG" psql -v ON_ERROR_STOP=1 -U postgres -d streamgate -tAc "$1"
+}
+dst_psql() {
+    timeout 15s docker exec "$DST_PG" psql -v ON_ERROR_STOP=1 -U postgres -d streamgate -tAc "$1"
+}
 
 json_get() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || true; }
 
@@ -225,7 +232,30 @@ wait_rows() { # wait_rows <psql-fn> <sql> <want> <seconds> <label>
     return 1
 }
 
+quiesce_source() {
+    # This dedicated stack has no published ports. The drill is its only writer
+    # and stops issuing mutations here; keep the worker/publisher alive to drain.
+    src_compose stop api-gateway >/dev/null || die "could not stop the source gateway"
+    wait_rows src_psql "SELECT COUNT(*) FROM transcoding_tasks WHERE status NOT IN ('completed','failed','cancelled')" 0 60 "active transcodes" \
+        || die "source transcodes did not drain within 60s"
+    wait_rows src_psql "SELECT COUNT(*) FROM outbox WHERE status = 'pending'" 0 60 "pending outbox" \
+        || die "source outbox did not drain within 60s"
+    wait_rows src_psql "SELECT COUNT(*) FROM content_registry_intents WHERE chain_id = ${CHAIN_ID} AND status NOT IN ('confirmed','failed')" 0 60 "registry submissions" \
+        || die "source registry submissions did not drain within 60s"
+    src_compose stop monolith transcoder >/dev/null || die "could not pause source writers"
+    p "source tasks/outbox/registry drained before stopping worker and publisher"
+}
+
 mkdir -p "$ARTIFACTS"
+umask 077
+mkdir -p "$ARTIFACTS/.private"
+PRIVATE_DIR="$(mktemp -d "$ARTIFACTS/.private/recovery-XXXXXXXX")"
+trap cleanup_private EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+PG_DUMP="$PRIVATE_DIR/pg-dump.sql"
+OBJECTS_BACKUP="$PRIVATE_DIR/objects"
+REDIS_RDB="$PRIVATE_DIR/redis-dump.rdb"
 : > "$RESULTS_FILE"
 
 DRILL_START=$SECONDS
@@ -244,17 +274,36 @@ require_tool curl
 require_tool python3
 require_tool cast
 require_tool ffmpeg
+python3 - "$SRC_PROJECT" "$DST_PROJECT" <<'PY'
+import re, sys
+for project in sys.argv[1:]:
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,62}', project) or project.startswith('sg-fc'):
+        raise SystemExit('recovery requires dedicated project names; sg-fc is forbidden')
+PY
+[[ "$CHAIN_ID" =~ ^[1-9][0-9]*$ ]] || die "chain ID must be a positive integer"
+TARGET_CONTAINERS="$(docker ps -aq --filter "label=com.docker.compose.project=$DST_PROJECT")" \
+    || die "cannot check target containers"
+TARGET_VOLUMES="$(docker volume ls -q --filter "label=com.docker.compose.project=$DST_PROJECT")" \
+    || die "cannot check target volumes"
+[ -z "$TARGET_CONTAINERS$TARGET_VOLUMES" ] || die "target project is not empty"
 for c in "$SRC_ANVIL" "$SRC_PG" "$SRC_REDIS"; do
     docker inspect "$c" >/dev/null 2>&1 || die "the source stack is not up: $c is missing"
+    OWNER="$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$c")"
+    [ "$OWNER" = "$SRC_PROJECT" ] || die "source container ownership mismatch"
 done
 docker inspect "$HELPER_IMAGE" >/dev/null 2>&1 || die "helper image $HELPER_IMAGE is not present locally"
 WALLET="$(cast wallet address --private-key "$WALLET_KEY")"
 printf 'wallet: %s\n' "$WALLET"
 
 if [ -z "$CONTENT_ID" ]; then
-    CONTENT_ID="$(src_psql "SELECT id FROM contents ORDER BY created_at DESC LIMIT 1" | tr -d '[:space:]')"
+    CONTENT_ID="$(src_psql "SELECT id FROM contents WHERE published_generation > 0 AND length(file_hash) = 64 ORDER BY created_at DESC LIMIT 1" | tr -d '[:space:]')"
 fi
 [ -n "$CONTENT_ID" ] || die "the source database has no content to restore"
+python3 - "$CONTENT_ID" <<'PY'
+import sys, uuid
+if str(uuid.UUID(sys.argv[1])) != sys.argv[1]:
+    raise SystemExit('content ID must be a canonical UUID')
+PY
 printf 'content: %s\n\n' "$CONTENT_ID"
 
 MANIFEST_FILE="${REGISTRY_MANIFEST:-deployments/content-registry.${CHAIN_ID}.json}"
@@ -292,22 +341,8 @@ esac
 # 1. Stop business writes, pause the registry broadcast, drain in-flight work
 # ---------------------------------------------------------------------------
 printf '\n===== 1. source: stop writes, pause broadcast, drain in-flight =====\n'
-src_compose stop monolith api-gateway transcoder >/dev/null \
-    || die "could not stop the source application services"
-p "stopped the source application services — writes stop and the process running the registry publisher is down, so the broadcast is paused"
-
-# A drained state is the precondition for a meaningful snapshot: nothing is
-# being signed, broadcast or confirmed any more. Terminal intents are the only
-# acceptable ones; a non-terminal intent would mean the snapshot captures an
-# unresolved submission.
-NON_TERMINAL_SQL="SELECT COUNT(*) FROM content_registry_intents WHERE chain_id = ${CHAIN_ID} AND status NOT IN ('confirmed','failed')"
-if wait_rows src_psql "$NON_TERMINAL_SQL" 0 60 "registry intents still in flight"; then
-    p "in-flight registry submissions drained (0 non-terminal intents)"
-else
-    f "registry submissions did not drain within 60s"
-fi
-OUTBOX_PENDING="$(src_psql "SELECT COUNT(*) FROM outbox WHERE status = 'pending'" 2>/dev/null || echo '?')"
-printf '  recorded for the report: %s pending outbox row(s) (the pump is stopped with the monolith)\n' "$OUTBOX_PENDING"
+quiesce_source
+OUTBOX_PENDING=0
 
 # ---------------------------------------------------------------------------
 # 2. Consistent snapshot: Postgres, the actual objects, Redis, registry state
@@ -317,30 +352,24 @@ docker exec "$SRC_PG" pg_dump -U postgres streamgate > "$PG_DUMP" || die "pg_dum
 [ -s "$PG_DUMP" ] || die "pg_dump produced an empty file"
 p "Postgres snapshot captured ($(wc -c < "$PG_DUMP" | tr -d ' ') bytes, application stopped)"
 
-# The per-item hash list covers the STORED objects. `/data/.minio.sys/tmp` is
-# PRUNED: it is MinIO's staging area for writes that are still in flight and for
-# the ones it discarded (its own `.trash`), so it is transient by design and
-# legitimately differs between two independently running stores. Everything else
-# — the bucket objects AND the store's own format/config identity — must be
-# identical, so the check stays strict everywhere it carries meaning.
-OBJECT_INVENTORY='find /data -path /data/.minio.sys/tmp -prune -o -type f -print | sort | xargs -r sha256sum'
-
-docker run --rm -v "${SRC_PROJECT}_minio-data:/data:ro" -v "${ARTIFACTS}:/art" "$HELPER_IMAGE" \
-    sh -c "tar -C /data -cf /art/objects.tar . && $OBJECT_INVENTORY > /art/objects-before.txt" \
+timeout 600s python3 scripts/cd/recovery_objects.py backup --container "${SRC_PROJECT}-minio-1" \
+    --directory "$OBJECTS_BACKUP" --output "$OBJECTS_BEFORE" \
     || die "object backup failed"
-OBJECT_COUNT="$(wc -l < "$OBJECTS_BEFORE" | tr -d ' ')"
+OBJECT_COUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$OBJECTS_BEFORE")"
 [ "$OBJECT_COUNT" -gt 0 ] || die "the object store backup captured nothing — the restore would prove nothing"
-p "object backup captured ($OBJECT_COUNT object(s), each hashed in objects-before.txt)"
+p "logical S3 object backup captured ($OBJECT_COUNT object(s), each hashed in objects-before.json)"
 
 docker exec "$SRC_REDIS" redis-cli SAVE >/dev/null 2>&1 || die "the Redis snapshot (SAVE) failed"
 docker cp "${SRC_REDIS}:/data/dump.rdb" "$REDIS_RDB" >/dev/null || die "could not copy the Redis snapshot"
 [ -s "$REDIS_RDB" ] || die "the Redis snapshot is empty"
 p "Redis snapshot captured ($(wc -c < "$REDIS_RDB" | tr -d ' ') bytes)"
 
-TABLES=(contents content_gating_rules content_registry_intents outbox transcoding_tasks auth_control_state)
+TABLES=(contents content_gating_rules content_registry_intents tx_nonce_reservations tx_signed_attempts http_idempotency outbox transcoding_tasks auth_control_state)
 : > "$COUNTS_BEFORE"
 for t in "${TABLES[@]}"; do
-    printf '%s=%s\n' "$t" "$(src_psql "SELECT COUNT(*) FROM $t")" >> "$COUNTS_BEFORE"
+    ROW_COUNT="$(src_psql "SELECT COUNT(*) FROM $t")" || die "source table count failed: $t"
+    [[ "$ROW_COUNT" =~ ^[0-9]+$ ]] || die "source table count is unverifiable: $t"
+    printf '%s=%s\n' "$t" "$ROW_COUNT" >> "$COUNTS_BEFORE"
 done
 EPOCH_BEFORE="$(src_psql "SELECT restore_epoch FROM auth_control_state WHERE id = 1" | tr -d '[:space:]')"
 printf 'restore_epoch before restore: %s\n' "${EPOCH_BEFORE:-<none>}"
@@ -355,10 +384,14 @@ if [ -z "$SIGNER_ADDR" ]; then
     SIGNER_ADDR="$(cast wallet address --private-key "$WALLET_KEY")"
     printf '  note: no nonce reservation in the snapshot; using the deployer signer %s for the chain reads\n' "$SIGNER_ADDR"
 fi
-docker exec "$SRC_PG" psql -U postgres -d streamgate -tAc \
-    "SELECT content_id, tx_hash, COALESCE(block_number, 0), COALESCE(block_hash, ''), status FROM content_registry_intents WHERE chain_id = ${CHAIN_ID} ORDER BY content_id" \
+docker exec "$SRC_PG" psql -v ON_ERROR_STOP=1 -U postgres -d streamgate -tA -F $'\t' -c \
+    "SELECT content_id, COALESCE(NULLIF(tx_hash, ''), '-'), COALESCE(block_number, 0), COALESCE(NULLIF(block_hash, ''), '-'), status, COALESCE(nonce::text, '-') FROM content_registry_intents WHERE chain_id = ${CHAIN_ID} ORDER BY content_id" \
     > "$REGISTRY_STATE" || die "could not read the registry state"
 INTENT_ROWS="$(wc -l < "$REGISTRY_STATE" | tr -d ' ')"
+[ "$INTENT_ROWS" -gt 0 ] || die "no registry history was captured; receipt reconciliation would prove nothing"
+CONFIRMED_ROWS="$(src_psql "SELECT COUNT(*) FROM content_registry_intents WHERE chain_id = ${CHAIN_ID} AND status = 'confirmed' AND tx_hash <> '' AND block_hash <> ''")"
+[[ "$CONFIRMED_ROWS" =~ ^[0-9]+$ ]] && [ "$CONFIRMED_ROWS" -gt 0 ] \
+    || die "no confirmed registration receipt was captured"
 p "registry state recorded ($INTENT_ROWS intent row(s), signer ${SIGNER_ADDR}, registry ${REGISTRY_ADDR})"
 
 # The signer's nonce AS OF THE SNAPSHOT. Step 5 compares against it: with every
@@ -385,14 +418,16 @@ printf '\n===== 3. target project %s with empty volumes =====\n' "$DST_PROJECT"
 dst_compose create --pull never postgres redis minio nats consul anvil >/dev/null \
     || die "could not create the target project's containers and volumes"
 
-docker run --rm -v "${DST_PROJECT}_minio-data:/data" -v "${ARTIFACTS}:/art:ro" "$HELPER_IMAGE" \
-    sh -c 'tar -C /data -xf /art/objects.tar' || die "object restore failed"
-docker run --rm -v "${DST_PROJECT}_redis-data:/data" -v "${ARTIFACTS}:/art:ro" "$HELPER_IMAGE" \
-    sh -c 'cp /art/redis-dump.rdb /data/dump.rdb' || die "Redis restore failed"
-p "objects and the Redis snapshot restored into FRESH target volumes"
+docker run --rm --label "com.docker.compose.project=$DST_PROJECT" \
+    -v "${DST_PROJECT}_redis-data:/data" -v "${PRIVATE_DIR}:/backup:ro" "$HELPER_IMAGE" \
+    sh -c 'cp /backup/redis-dump.rdb /data/dump.rdb' || die "Redis restore failed"
+p "the Redis snapshot restored into a FRESH target volume"
 
 dst_compose up -d --no-build --no-deps --pull never --wait --wait-timeout 240 postgres redis minio nats consul >/dev/null \
     || die "the target infrastructure did not become ready"
+timeout 600s python3 scripts/cd/recovery_objects.py restore --container "${DST_PROJECT}-minio-1" \
+    --directory "$OBJECTS_BACKUP" || die "logical object restore failed"
+p "logical objects restored through S3 into the fresh target bucket"
 # The chain forwarder is started WITHOUT --wait: it carries no healthcheck, and
 # `--wait` refuses a service that has none. Its readiness is asserted through the
 # chain itself, which is the only question that matters for the apps.
@@ -510,8 +545,13 @@ else
 fi
 
 RECEIPT_MISMATCH=0
-while IFS=$'\t' read -r cid txh blk bhash status; do
-    [ -n "$txh" ] || continue
+while IFS=$'\t' read -r cid txh blk bhash status nonce; do
+    [ -n "$txh" ] && [ "$txh" != '-' ] || continue
+    if ! [[ "$txh" =~ ^0x[0-9a-fA-F]{64}$ && "$nonce" =~ ^[0-9]+$ && "$blk" =~ ^[0-9]+$ ]]; then
+        f "invalid recorded transaction identity for content $cid"
+        RECEIPT_MISMATCH=$((RECEIPT_MISMATCH + 1))
+        continue
+    fi
     receipt="$(anvil_cast receipt --json "$txh" 2>/dev/null || true)"
     if [ -z "$receipt" ]; then
         f "recorded transaction $txh (content $cid) is not known to the chain"
@@ -522,7 +562,16 @@ while IFS=$'\t' read -r cid txh blk bhash status; do
     r_status="$(normalize_number "$(json_get "$receipt" status)")"
     r_hash="$(printf '%s' "$(json_get "$receipt" blockHash)" | tr '[:upper:]' '[:lower:]')"
     b_hash="$(printf '%s' "$bhash" | tr '[:upper:]' '[:lower:]')"
-    if [ "${r_status:-x}" = "1" ] && [ "${r_blk:-x}" = "$blk" ] && [ "$r_hash" = "$b_hash" ]; then
+    canonical="$(anvil_cast block --json "$blk" 2>/dev/null || true)"
+    canonical_hash="$(printf '%s' "$(json_get "$canonical" hash)" | tr '[:upper:]' '[:lower:]')"
+    chain_tx="$(anvil_cast tx --json "$txh" 2>/dev/null || true)"
+    chain_tx_nonce="$(normalize_number "$(json_get "$chain_tx" nonce)")"
+    chain_tx_from="$(printf '%s' "$(json_get "$chain_tx" from)" | tr '[:upper:]' '[:lower:]')"
+    signer_lower="$(printf '%s' "$SIGNER_ADDR" | tr '[:upper:]' '[:lower:]')"
+    ledger_matches="$(dst_psql "SELECT COUNT(*) FROM tx_signed_attempts a JOIN tx_nonce_reservations r ON r.chain_id = a.chain_id AND r.signer = a.signer AND r.nonce = a.nonce WHERE a.chain_id = ${CHAIN_ID} AND a.tx_hash = '${txh}' AND a.nonce = ${nonce} AND LOWER(a.signer) = '${signer_lower}' AND a.raw_tx <> ''")"
+    if [ "${r_status:-x}" = "1" ] && [ "${r_blk:-x}" = "$blk" ] && [ "$r_hash" = "$b_hash" ] \
+        && [ "$canonical_hash" = "$b_hash" ] && [ "$chain_tx_nonce" = "$nonce" ] \
+        && [ "$chain_tx_from" = "$signer_lower" ] && [ "$ledger_matches" = 1 ]; then
         printf '  content %s: tx %s confirmed in block %s, receipt block hash still canonical\n' "$cid" "${txh:0:18}…" "$blk"
     else
         f "receipt mismatch for $txh: block ${r_blk:-none} hash ${r_hash:-none} status ${r_status:-none} (recorded block $blk hash $bhash)"
@@ -547,6 +596,7 @@ SELECT GREATEST(
   COALESCE((SELECT MAX(nonce) FROM tx_nonce_reservations WHERE chain_id = ${CHAIN_ID} AND signer = '${SIGNER_ADDR}'), -1),
   COALESCE((SELECT MAX(nonce) FROM tx_signed_attempts  WHERE chain_id = ${CHAIN_ID} AND signer = '${SIGNER_ADDR}'), -1),
   COALESCE((SELECT MAX(nonce) FROM content_registry_intents WHERE chain_id = ${CHAIN_ID}), -1))" | tr -d '[:space:]')"
+[[ "$EXPLAINED_MAX" =~ ^-?[0-9]+$ ]] || die "restored nonce ledger is unverifiable"
 CHAIN_NONCE="$(anvil_cast nonce "$SIGNER_ADDR" 2>/dev/null | tr -d '[:space:]' || true)"
 printf 'nonce ledger: signer %s recorded through nonce %s; chain nonce at the snapshot %s, now %s\n' \
     "$SIGNER_ADDR" "${EXPLAINED_MAX:-?}" "${SNAPSHOT_NONCE:-?}" "${CHAIN_NONCE:-?}"
@@ -635,7 +685,7 @@ NEW_VARIANT_CODE="$(http_code GET "${DST_API}${NEW_VARIANT_REL}")"
     || f "the variant playlist answered HTTP $NEW_VARIANT_CODE with the capability alone"
 
 SEGMENT_REL="$(relative_url "$(http_body GET "${DST_API}${NEW_VARIANT_REL}" | first_uri)")"
-SEG_FILE="${ARTIFACTS}/segment.ts"
+SEG_FILE="${PRIVATE_DIR}/segment.ts"
 SEGMENT_CODE="$(http_download "${DST_API}${SEGMENT_REL}" "$SEG_FILE")"
 if [ "$SEGMENT_CODE" = "200" ]; then
     if ffmpeg -v error -i "$SEG_FILE" -f null - >/dev/null 2>&1; then
@@ -646,7 +696,7 @@ if [ "$SEGMENT_CODE" = "200" ]; then
 else
     f "the segment request answered HTTP $SEGMENT_CODE"
 fi
-rm -f "$SEG_FILE" "$OBJECTS_TAR"
+rm -f "$SEG_FILE"
 
 # TTL-independent capability revocation: rotate the epoch on the LIVE target and
 # the capability minted moments ago must stop working inside the 5s cache bound,
@@ -664,15 +714,17 @@ docker exec "$DST_PG" psql -U postgres -d streamgate -c \
     || die "could not rotate the restore epoch on the live target"
 CAP_REFUSED_AT=""
 for _ in $(seq 1 60); do
-    if [ "$(http_code GET "${DST_API}${NEW_VARIANT_REL}")" != "200" ]; then
+    LIVE_CAP_CODE="$(http_code GET "${DST_API}${NEW_VARIANT_REL}")"
+    if [ "$LIVE_CAP_CODE" = "401" ] || [ "$LIVE_CAP_CODE" = "403" ]; then
         CAP_REFUSED_AT="$(python3 -c 'import time;print(time.time())')"
         break
     fi
-    sleep 0.25
+    [ "$LIVE_CAP_CODE" = "200" ] || die "live capability revocation is unverifiable (HTTP $LIVE_CAP_CODE)"
+    sleep 0.1
 done
-CAP_LATENCY="$(python3 -c "print(f'{${CAP_REFUSED_AT:-0} - $CAP_ROTATE_START:.2f}')" 2>/dev/null || echo none)"
+CAP_LATENCY="$(python3 -c "print(${CAP_REFUSED_AT:-0} - $CAP_ROTATE_START)")"
 if [ -n "$CAP_REFUSED_AT" ]; then
-    if python3 -c "import sys; sys.exit(0 if $CAP_LATENCY <= 5.5 else 1)"; then
+    if python3 -c "import sys; sys.exit(0 if 0 <= $CAP_LATENCY <= 5 else 1)"; then
         p "a live restore-epoch rotation revoked a still-valid capability in ${CAP_LATENCY}s (5s cache bound)"
     else
         f "the capability survived the live rotation for ${CAP_LATENCY}s (5s cache bound exceeded)"
@@ -680,12 +732,23 @@ if [ -n "$CAP_REFUSED_AT" ]; then
 else
     f "a capability minted minutes ago still works after a live restore-epoch rotation"
 fi
+for endpoint in profile refresh; do
+    if [ "$endpoint" = profile ]; then
+        LIVE_TOKEN_CODE="$(http_code GET "$DST_API/api/v1/auth/profile" -H "Authorization: Bearer $NEW_TOKEN")"
+    else
+        LIVE_TOKEN_CODE="$(http_code POST "$DST_API/api/v1/auth/refresh" -H 'Content-Type: application/json' -d "{\"token\":\"$NEW_TOKEN\"}")"
+    fi
+    [ "$LIVE_TOKEN_CODE" = 401 ] && p "live epoch rotation invalidates the $endpoint credential" \
+        || f "live epoch rotation: $endpoint returned HTTP $LIVE_TOKEN_CODE"
+done
 
 # ---------------------------------------------------------------------------
 # 8. RPO / RTO and the machine-readable report
 # ---------------------------------------------------------------------------
 for t in "${TABLES[@]}"; do
-    printf '%s=%s\n' "$t" "$(dst_psql "SELECT COUNT(*) FROM $t")" >> "$COUNTS_AFTER"
+    ROW_COUNT="$(dst_psql "SELECT COUNT(*) FROM $t")" || die "target table count failed: $t"
+    [[ "$ROW_COUNT" =~ ^[0-9]+$ ]] || die "target table count is unverifiable: $t"
+    printf '%s=%s\n' "$t" "$ROW_COUNT" >> "$COUNTS_AFTER"
 done
 if diff -q "$COUNTS_BEFORE" "$COUNTS_AFTER" >/dev/null 2>&1; then
     p "every business table holds the same row count as the snapshot ($(tr '\n' ' ' < "$COUNTS_AFTER"))"
@@ -694,8 +757,7 @@ else
     diff "$COUNTS_BEFORE" "$COUNTS_AFTER" || true
 fi
 
-docker run --rm -v "${DST_PROJECT}_minio-data:/data:ro" -v "${ARTIFACTS}:/art" "$HELPER_IMAGE" \
-    sh -c "$OBJECT_INVENTORY > /art/objects-after.txt" \
+timeout 600s python3 scripts/cd/recovery_objects.py inventory --container "${DST_PROJECT}-minio-1" --output "$OBJECTS_AFTER" \
     || die "could not re-inventory the restored objects"
 OBJECT_HASH_PAIRS="$(diff -u "$OBJECTS_BEFORE" "$OBJECTS_AFTER" > "$ARTIFACTS/objects-diff.txt" 2>&1 && echo equal || echo differ)"
 [ "$OBJECT_HASH_PAIRS" = "equal" ] \

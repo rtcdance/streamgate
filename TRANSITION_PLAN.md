@@ -142,6 +142,10 @@
 >
 > **根因与回归：** 负载器先建立 `WithTimeout`，再记录 StartedAt，两个时间起点不一致。新增 2000 次短窗口回归，旧实现 RED（第 1101 次记录 396.458µs，要求 ≥1ms）；修复为先记录开始时间，再以该时刻＋Duration 建立同一个绝对 deadline。完整 tagged race 必需 **31/31 PASS，原退出 0**；协议校验器 **23/23 PASS**，新增略短窗口必须拒绝的负例。原始失败和新回归分别保留，需包含修复的新干净候选重新跑四场景，不能借单元结果给本次失败改判。
 
+> **恢复门复核修复（2026-10-19，C／M8 继续打开）：** 原脚本先停 publisher 再等 intent 排空、把 MinIO 内部磁盘文件当逻辑对象、将 SQL／Redis 备份放入可公开 artifact、SQL 失败被 `|| true` 吞掉，且 registry 导出分隔符与读取不一致，存在空转证明。现改为专用无宿主端口源栈停止外部写入后，保持 worker／publisher 存活，依次等待 transcode、outbox、registry 排空，再暂停进程取快照；排空失败立即退出。Postgres／Redis／对象原始备份进入 `.private`，成功、失败、真实 TERM 均删除并保留原退出码。S3 逐项下载逻辑对象、验证安全路径／size／SHA，恢复到空桶后独立重读 hash，不复制 `.minio.sys` 内部格式。目标 project 必须无既有容器／卷，禁止 `sg-fc*`；SQL 读取保留非零失败。registry 必须至少有一条真实 confirmed 历史，核对实际 receipt、当前 canonical block、链上 signer／nonce 与恢复的 reservation／signed-attempt ledger，零历史不可过门；未知 nonce 消耗仍保持广播暂停。
+>
+> **本条验证范围：** 新增恢复单元回归 **16/16 PASS**（逻辑对象 11、脚本 5，含真实 SIGTERM 清理）；全部 Python 验收工具 **156/156 PASS**，Shell 语法和 diff check PASS。隔离的两个真实 MinIO 实例完成 2 对象的 S3 备份→独立空桶恢复→逐项重读 hash，一致且私有备份清除；原始清单与限定范围 `result.json` 在 `.verify-artifacts/sg-recovery-objects-20261019/`，临时容器已移除。本条是开发源码验证，**尚非新干净候选完整恢复通过**。live restore epoch 判据恢复为严格 ≤5 秒、不对延迟向下取整；仅明确 401/403 可证明能力被拒绝，000／503 不算成功；同时检查新 access／refresh 也被 live epoch 撤销。需继续真实空卷恢复，不能以本条关闭 C／M8。
+
 ### 0.1 目标与执行边界
 
 以当前 `73a052c` 为修复起点。历史候选 `ab172c2` 的 CI run `39005594931` 已确认 55/55 jobs 成功，保留其真实记录；本轮需要补齐实现与验收覆盖，使 **SG-00～SG-15、M0～M5、M7、M8，以及 M6 的 AI 交付部分全部满足原定标准**。
