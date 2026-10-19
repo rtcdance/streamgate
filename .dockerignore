@@ -19,6 +19,13 @@ Thumbs.db
 # Project internal
 .comate
 .kiro/
+.agents/
+.omo/
+.workbuddy/
+.workbuddy-ai/
+skills-lock.json
+**/__pycache__/
+**/*.pyc
 .deploy
 scripts/
 
