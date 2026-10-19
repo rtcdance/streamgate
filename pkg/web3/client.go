@@ -291,7 +291,7 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 		return client.BlockNumber(healthCtx)
 	})
 	if err != nil {
-		cc.logger.Error("Health check failed: cannot get block number", zap.Error(err))
+		cc.logger.Error("Health check failed: cannot get block number", rpcLogError(err))
 		return fmt.Errorf("health check failed: %w", err)
 	}
 
@@ -299,7 +299,7 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 		return client.ChainID(healthCtx)
 	})
 	if err != nil {
-		cc.logger.Error("Health check failed: cannot get chain ID", zap.Error(err))
+		cc.logger.Error("Health check failed: cannot get chain ID", rpcLogError(err))
 		return fmt.Errorf("health check failed: %w", err)
 	}
 
@@ -313,7 +313,7 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 	cc.logger.Info("Health check passed",
 		zap.Uint64("block_number", blockNumber),
 		zap.Int64("chain_id", chainID.Int64()),
-		zap.String("rpc_url", cc.rpcURL))
+		zap.Int("rpc_endpoint", cc.getActiveRPCIndex()))
 
 	return nil
 }
@@ -334,7 +334,7 @@ func (cc *ChainClient) connectAny() error {
 		cc.logger.Info("Connected to blockchain",
 			zap.Int64("configured_chain_id", cc.chainID),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()),
-			zap.String("rpc_url", cc.rpcURL))
+			zap.Int("rpc_endpoint", cc.getActiveRPCIndex()))
 		return nil
 	}
 	for _, idx := range cc.sortedRPCScores() {
@@ -348,20 +348,20 @@ func (cc *ChainClient) connectAny() error {
 		cc.logger.Info("Connected to blockchain after cooldown bypass",
 			zap.Int64("configured_chain_id", cc.chainID),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()),
-			zap.String("rpc_url", cc.rpcURL))
+			zap.Int("rpc_endpoint", cc.getActiveRPCIndex()))
 		return nil
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no rpc urls available")
 	}
-	cc.logger.Error("Failed to connect to blockchain", zap.Error(lastErr))
+	cc.logger.Error("Failed to connect to blockchain", rpcLogError(lastErr))
 	return fmt.Errorf("failed to connect to blockchain: %w", lastErr)
 }
 
 func (cc *ChainClient) connectAt(ctx context.Context, idx int) (*ethclient.Client, *big.Int, error) {
 	rpcURL := cc.rpcURLs[idx]
 	cc.logger.Info("Connecting to blockchain",
-		zap.String("rpc_url", rpcURL),
+		zap.Int("rpc_endpoint", idx),
 		zap.Int64("chain_id", cc.chainID))
 
 	client, err := ethclient.Dial(rpcURL)
@@ -421,7 +421,7 @@ func (cc *ChainClient) failover() error {
 		}
 		cc.setActiveClient(idx, client, true)
 		cc.logger.Warn("Switched blockchain RPC endpoint (scored)",
-			zap.String("rpc_url", cc.rpcURL),
+			zap.Int("rpc_endpoint", cc.getActiveRPCIndex()),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
 		return nil
 	}
@@ -437,7 +437,7 @@ func (cc *ChainClient) failover() error {
 		}
 		cc.setActiveClient(idx, client, true)
 		cc.logger.Warn("Switched blockchain RPC endpoint after cooldown bypass (scored)",
-			zap.String("rpc_url", cc.rpcURL),
+			zap.Int("rpc_endpoint", cc.getActiveRPCIndex()),
 			zap.Int64("rpc_chain_id", chainIDFromRPC.Int64()))
 		return nil
 	}
@@ -496,8 +496,8 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 
 	cc.logger.Warn("RPC operation failed, attempting failover",
 		zap.String("operation", op),
-		zap.String("rpc_url", cc.rpcURL),
-		zap.Error(err))
+		zap.Int("rpc_endpoint", cc.getActiveRPCIndex()),
+		rpcLogError(err))
 	cc.recordEndpointFailure(cc.getActiveRPCIndex())
 
 	lastErr := err
@@ -525,14 +525,20 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		lastErr = err
 		cc.logger.Warn("RPC operation failed on fallback endpoint",
 			zap.String("operation", op),
-			zap.String("rpc_url", cc.rpcURL),
-			zap.Error(err))
+			zap.Int("rpc_endpoint", cc.getActiveRPCIndex()),
+			rpcLogError(err))
 	}
 
 	if isPermanentRPCError(lastErr) {
 		return zero, NewPermanentError(fmt.Sprintf("%s failed after rpc failover attempts", op), lastErr)
 	}
 	return zero, NewRetryableError(fmt.Sprintf("%s failed after rpc failover attempts", op), lastErr)
+}
+
+// Transport errors can contain the complete provider URL or response body,
+// including credentials. Logs keep the error type and endpoint slot only.
+func rpcLogError(err error) zap.Field {
+	return zap.String("error_type", fmt.Sprintf("%T", err))
 }
 
 // isPermanentRPCError inspects an RPC error to determine if it represents a

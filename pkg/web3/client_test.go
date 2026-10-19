@@ -12,9 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func blockHeaderResult(number, gasUsed, gasLimit int64) map[string]interface{} {
@@ -45,6 +47,27 @@ func TestNewChainClient_NoRPCURLs(t *testing.T) {
 	_, err := NewChainClientWithFallback([]string{}, 1, zap.NewNop())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no rpc urls")
+}
+
+func TestChainClient_LogsDoNotExposeEndpointCredentials(t *testing.T) {
+	server := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{"eth_chainId": chainIDHandler(1)})
+	defer server.Close()
+	core, logs := observer.New(zap.DebugLevel)
+	endpoint := server.URL + "/private-path?key=private-query"
+	client, err := NewChainClientWithFallback([]string{endpoint, endpoint}, 1, zap.New(core))
+	require.NoError(t, err)
+	defer client.Close()
+	_, err = withChainClient(context.Background(), client, "test-operation", func(_ *ethclient.Client) (bool, error) {
+		return false, fmt.Errorf("private-error-text from %s", endpoint)
+	})
+	require.Error(t, err)
+	require.NotEmpty(t, logs.All())
+	for _, entry := range logs.All() {
+		fields := fmt.Sprint(entry.ContextMap())
+		for _, secret := range []string{server.URL, "private-path", "private-query", "private-error-text"} {
+			require.NotContains(t, fields, secret)
+		}
+	}
 }
 
 func TestNewChainClient_BlankRPCURLs(t *testing.T) {

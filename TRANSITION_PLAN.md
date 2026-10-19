@@ -115,7 +115,9 @@
 >
 > **同次资源证据：** API／worker／loader 各 30 个真实 cgroup 样本，覆盖采样窗口约 96.8%；实际观测窗口分别约 29.05 秒，其间 CPU 增量分别 0.209829／0.101649／0.035603 秒，peak RSS 分别 68743168／55746560／52269056 字节。资源 JSON 已核对固定限额、实际 imageID、目标／harness SHA、同 project 与 run，以及核心进程未重启。原始结果位于 `.verify-artifacts/sg-perf-pr-1019-03/{candidate.json,controller.log,perf/round-1/}`；私钥目录、临时 loader 二进制已不存在，本轮标签的容器／卷／网络查询均为空。此为 **1 观众 PR smoke**，不得代表 50／100 观众、完整四场景、三轮或 reference 通过。现有 `ttfb_ms` 字段仍按收到完整响应头计时，最终延迟证据须先接入 transport first-byte trace 后重测，不能将本次值引用为最终 TTFB 成绩。
 
-> **限制 / 尚未证明（E）：** 未在候选栈上运行完整性能矩阵（1/10/50/100 × 3 重复、reference 同 runner 比较、四类缓存／RPC 故障场景），因此 E 批出口未达成；`perf-acceptance.sh` 的资源采样只做了语法与解析器验证，尚未在真实运行中产出样本；CPU／RSS 取自应用自身 `/metrics`，不是 cgroup 级测量，且未与 worker 容器分开归属；远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
+> **SG-14 端点凭据保护补充（2026-10-19）：** canary 负例真实复现公开 `/api/v1/web3/rpc-status` 返回含用户名、密码、host、path、query、fragment 的完整 provider URL；RPC 连接／故障日志也输出原始端点及可能包含凭据的 transport error。接口保留原 URL 字段的 string wire shape，以 `rpc://<chainID>/<endpoint index>` 标识实例；ChainClient 日志改为 endpoint index 与 error type，内部实际连接／failover 和返回错误语义保持原契约。新增两个 canary 回归在 Docker 内先 RED 后 GREEN，`pkg/web3`／`pkg/gateway` 两包完整 `-race -count=1 -json` 原退出 0；SG-14 五个精确必需测试均 PASS，两个范围 lint 均 0 issues、vet 通过。证据暂存工具容器 `/tmp/e-{status-red,rpc-logs-red,rpc-green,rpc-lint}.*`，后续复制至本轮 artifact。此证据仅覆盖上述接口与 ChainClient 日志路径；不宣称全仓库秘密审计或新候选整体验收通过。
+
+> **限制 / 尚未证明（E，按当前证据更新）：** 已有 `27b6be6` 的真实单观众、三类独立 cgroup 样本；尚未在新候选上运行完整性能矩阵（1/10/50/100 × 3 重复、四类场景）与同 runner reference 比较，远端 CI 未运行。E 仍为进行中，不能勾选 SG-07／SG-14 或整体完成。
 
 
 ### 0.1 目标与执行边界

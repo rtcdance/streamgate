@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/web3"
@@ -28,8 +29,10 @@ func RegisterWeb3Routes(router *gin.Engine, log *zap.Logger, web3Svc Web3StatusP
 		response := make([]gin.H, 0, len(statusesByChain))
 		for chainID, statuses := range statusesByChain {
 			rpcs := make([]gin.H, 0, len(statuses))
-			for _, status := range statuses {
-				rpc := gin.H{"url": status.URL, "is_active": status.IsActive, "failures": status.Failures}
+			for index, status := range statuses {
+				// Provider URLs can carry credentials in every URL component,
+				// including the hostname. Expose a stable endpoint slot only.
+				rpc := gin.H{"url": fmt.Sprintf("rpc://%d/%d", chainID, index), "is_active": status.IsActive, "failures": status.Failures}
 				if !status.LastFailureAt.IsZero() {
 					rpc["last_failure_at"] = status.LastFailureAt.Format(time.RFC3339)
 				}
