@@ -249,6 +249,12 @@ func (tp *TranscoderPlugin) Stop(ctx context.Context) error {
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
+	// Startup may fail before Init allocates the pool. Shutdown must preserve
+	// that original startup error instead of panicking during partial cleanup.
+	if tp.workerPool == nil {
+		return nil
+	}
+
 	if err := tp.workerPool.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop worker pool: %w", err)
 	}

@@ -410,6 +410,13 @@ stage_ops() {
       --suite ops-config --exit-code "$go_test_rc" \
       /artifacts/ops-config.json
 
+    go_test_rc=0
+    go test -race -count=1 -json \
+      -run "^TestTranscoderPlugin_StopBeforeInitAndRepeatedStop$" \
+      ./pkg/plugins/transcoder > /artifacts/startup-cleanup.json || go_test_rc=$?
+    python3 scripts/cd/assert_required_tests.py --suite startup-cleanup \
+      --exit-code "$go_test_rc" /artifacts/startup-cleanup.json
+
     echo "== SG-14 ops acceptance suites (protected endpoints, rate limit, drain/health, metrics) =="
     go_test_rc=0
     go test -race -count=1 -json \

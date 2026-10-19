@@ -183,6 +183,8 @@
 >
 > **B/C 授权与签发间的会话／恢复竞态（2026-10-19，开发回归）：** 确定性负例先完成 NFT 授权，再分别 rotate restore_epoch、logout、缺失绑定 epoch 或使用未知 session；原实现四项均错误签发（RED）。SessionBinding 现携带已验证调用凭据的 restore_epoch，HTTP/gRPC 从认证上下文传入，授权结果原样封存。IssueCapability 必须核对该 epoch 仍为权威当前值且 session/version 仍有效；不读取新 epoch 为旧授权换标签，也不创建 session。有效绑定正例仍可播放，发生改变的四项均无 token 返回。既有正例测试改用真实存在的内存会话与对应恢复 authority，不放宽拒绝断言。完整 middleware／gateway／service race 原退出 **0**，扩展 suite **10/10** 精确必需 ID PASS，Docker vet／lint **0 issues**；新增用例已纳入 ops 门。证据 `.verify-artifacts/sg-issuance-binding-20261019/`，新干净候选仍需业务验收。
 >
+> **F 失败启动清理修复（2026-10-19，开发回归）：** 此前错误 registry 部署身份导致启动失败时，transcoder 清理会解引用未初始化的 workerPool，使 panic 覆盖原始启动原因。新增 Stop-before-Init 与重复 Stop 先 RED 复现 nil panic，现无 pool 时安全返回，已有 pool 保留原停止行为。完整 transcoder 包 race 原退出 **0**，新增 startup-cleanup 必需 ID 精确 PASS，vet／lint **0 issues**，Python **161/161 PASS**；已接入 Docker ops 门。原始 RED／JSON／exit 见 `.verify-artifacts/sg-startup-cleanup-20261019/`，三类真实 CD 失败恢复仍待整体补齐，不能以该单元修复代替。
+>
 > **当前仍需完成：** 初始空规则时动态启动 indexer、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
 
 ### 0.1 目标与执行边界

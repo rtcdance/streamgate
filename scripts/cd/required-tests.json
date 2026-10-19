@@ -162,6 +162,9 @@
         "test": "TestAnvil_RegistryDurableIntentLifecycle"
       }
     ],
+    "startup-cleanup": [
+      {"package": "github.com/rtcdance/streamgate/pkg/plugins/transcoder", "test": "TestTranscoderPlugin_StopBeforeInitAndRepeatedStop"}
+    ],
     "credential-consistency": [
       {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestIssueCapability_RejectsChangedCredentialAfterAuthorization"},
       {"package": "github.com/rtcdance/streamgate/pkg/middleware", "test": "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials"},
