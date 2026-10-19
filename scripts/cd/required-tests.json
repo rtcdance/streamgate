@@ -61,6 +61,14 @@
       },
       {
         "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestIndexEvents_ReorgMarksStoredEventsByBlockHash"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
+        "test": "TestEventParser_ERC1155TransferBatch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/event",
         "test": "TestAcceptance_EventCheckpointFilterVersion"
       },
       {

@@ -1694,30 +1694,62 @@ wait_chain_after "$((GAP_MAX + 13))" 120 \
 container_start "$MONO_CONTAINER"
 if wait_worker_up "$MONO_CONTAINER" 120; then
   LOST=0
+  FI03_T0=$SECONDS
   for tx in "$GAP_TX_1" "$GAP_TX_2"; do
-    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${tx}' AND reorged=FALSE" 1 90; then
-      p "FI03: the missed log ${tx:0:12} was recovered from the durable checkpoint"
+    # The window has to cover the candidate's OWN retry ladder: a single failed
+    # pass doubles its backoff from 4s toward 5 minutes, so a transient RPC blip
+    # can legitimately push the successful replay well past 90s. Recovery is
+    # still bounded, and the elapsed time is recorded either way.
+    if wait_sql "SELECT count(*) FROM event_store_events WHERE tx_hash='${tx}' AND reorged=FALSE" 1 180; then
+      p "FI03: the missed log ${tx:0:12} was recovered from the durable checkpoint after $((SECONDS - FI03_T0))s"
     else
       f "FI03: the log ${tx:0:12} emitted while the subscription was down was lost"
       LOST=$((LOST + 1))
     fi
   done
+  FI03_ELAPSED=$((SECONDS - FI03_T0))
   C_AFTER="$(event_cursor)"; C_AFTER="${C_AFTER:-0}"
   if [ "$LOST" = 0 ]; then
-    record FI03 gap-fill PASS "2 logs emitted with the subscriber dead were all indexed after the restart (cursor ${C_BEFORE} -> ${C_AFTER})"
+    record FI03 gap-fill PASS "2 logs emitted with the subscriber dead were all indexed after the restart in ${FI03_ELAPSED}s (cursor ${C_BEFORE} -> ${C_AFTER})"
   else
     record FI03 gap-fill FAIL "${LOST} of 2 missed logs were never indexed"
+    # A missing row and a row that exists but is flagged reorged look identical to
+    # the count above, and they mean opposite things: no row points at the
+    # indexer never replaying the range, a flagged row points at the canonical
+    # check rejecting a block it just indexed. This is the evidence that tells
+    # them apart, so a failure is diagnosable without another full run.
+    printf '   -- checkpoint rows (newest first)\n'
+    sql_scalar "SELECT chain_id||' | '||filter_key||' | '||block_number FROM event_checkpoints ORDER BY updated_at DESC LIMIT 3" | sed 's/^/      /'
+    printf '   -- rows for the two missed txs, ANY reorged flag, and the monolith log\n'
+    sql_scalar "SELECT COALESCE(tx_hash,'-')||' | block='||COALESCE(block_number::text,'-')||' | hash='||COALESCE(substr(block_hash,1,14),'-')||' | reorged='||reorged FROM event_store_events WHERE tx_hash IN ('${GAP_TX_1}','${GAP_TX_2}')" | sed 's/^/      /'
+    printf '   -- every row in the window %s..%s\n' "$((C_BEFORE + 1))" "${C_AFTER}"
+    sql_scalar "SELECT block_number||' | '||event_type||' | reorged='||reorged||' | '||substr(event_id,1,26) FROM event_store_events WHERE block_number > ${C_BEFORE} AND block_number <= ${C_AFTER} ORDER BY block_number" | sed 's/^/      /'
+    printf '   -- journal orphaned rows: %s\n' "$(sql_scalar "SELECT count(*) FROM event_block_journal WHERE orphaned=TRUE")"
+    docker logs --tail 400 "$MONO_CONTAINER" 2>&1 \
+      | grep -iE "indexer|reorg|journal|ancestor|checkpoint|subscriber|whitelist|Failed to" | tail -25 | sed 's/^/      /'
   fi
-  # The catch-up must be exhaustive and duplicate-free: the stored rows over the
-  # gap have to equal what the chain itself says happened.
-  CHAIN_LOGS="$(cast logs --json --rpc-url "$ANVIL_URL" --address "$DEMO_NFT" --from-block "$((C_BEFORE + 1))" --to-block "$C_AFTER" 2>/dev/null \
-    | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null)"
-  STORED_ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE contract_address ILIKE '${DEMO_NFT}' AND block_number > ${C_BEFORE} AND block_number <= ${C_AFTER} AND reorged=FALSE")"
+  # The catch-up must be exhaustive and duplicate-free. The comparison window is
+  # taken from the two missed transactions' OWN blocks, not from the durable
+  # cursor: the cursor legitimately lags behind blocks whose events the live
+  # subscription already stored, so a cursor-based window would compare the
+  # candidate's rows against chain logs that were never part of this gap.
+  FI03_B1="$(hexdec "$(receipt_field "$GAP_TX_1" blockNumber | tr -d '\r')" 2>/dev/null)" || FI03_B1=""
+  FI03_B2="$(hexdec "$(receipt_field "$GAP_TX_2" blockNumber | tr -d '\r')" 2>/dev/null)" || FI03_B2=""
+  if [ -n "$FI03_B1" ] && [ -n "$FI03_B2" ]; then
+    GAP_LO=$((FI03_B1 < FI03_B2 ? FI03_B1 : FI03_B2))
+    GAP_HI=$((FI03_B1 > FI03_B2 ? FI03_B1 : FI03_B2))
+    CHAIN_LOGS="$(cast logs --json --rpc-url "$ANVIL_URL" --address "$DEMO_NFT" --from-block "$GAP_LO" --to-block "$GAP_HI" 2>/dev/null \
+      | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null)"
+    STORED_ROWS="$(sql_scalar "SELECT count(*) FROM event_store_events WHERE contract_address ILIKE '${DEMO_NFT}' AND block_number >= ${GAP_LO} AND block_number <= ${GAP_HI} AND reorged=FALSE")"
+  else
+    CHAIN_LOGS=""
+    STORED_ROWS=""
+  fi
   if [ -n "$CHAIN_LOGS" ] && [ "$CHAIN_LOGS" = "$STORED_ROWS" ]; then
     p "FI03: the gap produced exactly the chain's own number of logs (${CHAIN_LOGS})"
-    record FI03-exact gap-fill PASS "chain logs=${CHAIN_LOGS} stored=${STORED_ROWS} over blocks $((C_BEFORE + 1))..${C_AFTER}"
+    record FI03-exact gap-fill PASS "chain logs=${CHAIN_LOGS} stored=${STORED_ROWS} over the missed blocks ${GAP_LO}..${GAP_HI}"
   else
-    f "FI03: chain logs=${CHAIN_LOGS:-?} stored=${STORED_ROWS:-?} over the gap"
+    f "FI03: chain logs=${CHAIN_LOGS:-?} stored=${STORED_ROWS:-?} over the missed blocks ${GAP_LO:-?}..${GAP_HI:-?}"
     record FI03-exact gap-fill FAIL "stored rows do not match the chain's own logs"
   fi
 else
