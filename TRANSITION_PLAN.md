@@ -177,7 +177,9 @@
 >
 > **B HTTP/gRPC 凭据一致性修复（2026-10-19，开发回归）：** 新增负例先复现重复 Authorization／playback-token、HTTP 有效能力掩盖无效或冲突 access、gRPC 分片跨 session／epoch 及 manifest restore_epoch 不一致。现两个入口拒绝重复和冲突凭据，HTTP 合法 capability-only 与相同能力 header 保留；gRPC manifest／segment 核对 wallet、session、auth_epoch、restore_epoch。另先 RED 证明 gRPC 独立 access key／previous key 被拒而 master key 被错误接受，现 HTTP 与 gRPC 共用 access-only 验签与时间校验，使用业务层当前／轮换 access key，capability key 不参与 access 验签。完整 middleware／gateway／service `go test -race -p 1 -count=1 -json` 原退出 **0**，新 `credential-consistency` 五个精确必需父测试及其子例均 PASS，Docker vet／lint **0 issues**；suite 已接入 Docker ops 门。日志归档 `.verify-artifacts/sg-credentials-20261019/`。这些是 Docker 工具容器内开发回归，未冒充干净候选媒体／CI 或 M3 时间边界实证。
 >
-> **当前仍需完成：** 初始空规则时动态启动 indexer、取消时私有备份清理覆盖、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
+> **A/C 取消清理修复（2026-10-19）：** 先以外层 TERM 负例复现子 trap 无法运行时 `.private` 仍残留。恢复备份现使用本次控制器根 `.private`（独立调用回退自身目录，权限 0700），reference worktree 同样归入本轮私有根；构建前登记本轮拥有的应用二进制，外层强制移除控制器后仍清理私有快照、loader、登记二进制与本轮 worktree。未登记已有文件保留，不扫描或 prune 其他项目。全部 Python 工具 **161/161 PASS**；实际 Docker 控制器取消演练也 PASS：子 trap 禁用，外层 TERM 原退出 **143**，本轮私有备份／loader／应用二进制／Git worktree／带标签网络和卷均清除，预存未登记文件仍在。该控制器演练只验证清理，不冒充恢复业务验收。命令／退出／日志在 `.verify-artifacts/sg-cancel-private-20261019/{real-cancel.sh,real-exit.txt,real-result.txt,real-controller.log}`。
+>
+> **当前仍需完成：** 初始空规则时动态启动 indexer、完整性能／reference、安全基线与 CI/CD DAG 等剩余原要求仍保持打开。生产部署、真人事项、SG-16/17 不代填，未获推送授权，不运行远端 CI。原始目录保留 `.verify-artifacts/sg-recovery-1019-08/`、`.verify-artifacts/sg-perf-pr-1019-09/`、`.verify-artifacts/streamgate-verify-faults15/`；本次回归归档 `.verify-artifacts/sg-initial-cursor-20261019/`。
 
 ### 0.1 目标与执行边界
 

@@ -265,10 +265,16 @@ quiesce_source() {
     p "source tasks/outbox/registry drained before stopping worker and publisher"
 }
 
+prepare_private_backup_directory() {
+    local private_root="${VERIFY_ARTIFACTS:-$ARTIFACTS}/.private"
+    umask 077
+    mkdir -p "$private_root"
+    chmod 700 "$private_root"
+    PRIVATE_DIR="$(mktemp -d "$private_root/recovery-XXXXXXXX")"
+}
+
 mkdir -p "$ARTIFACTS"
-umask 077
-mkdir -p "$ARTIFACTS/.private"
-PRIVATE_DIR="$(mktemp -d "$ARTIFACTS/.private/recovery-XXXXXXXX")"
+prepare_private_backup_directory
 trap cleanup_private EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM

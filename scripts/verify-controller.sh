@@ -68,6 +68,29 @@ cleanup() {
   if [ -n "$ids" ]; then docker volume rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
   ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
   if [ -n "$ids" ]; then docker network rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
+  # A force-removed controller cannot execute its child traps. The private
+  # root is run-scoped and also holds the ledger written BEFORE creating a
+  # build output, so cancellation cannot leave wallet/session backups behind.
+  if [ -n "${VERIFY_ARTIFACTS:-}" ]; then
+    local owned_binary worktree
+    if [ -f "$VERIFY_ARTIFACTS/.private/owned-binaries" ]; then
+      while IFS= read -r owned_binary; do
+        case "$owned_binary" in
+          "$ROOT_DIR/deploy/docker/monolith-linux"|"$ROOT_DIR/deploy/docker/api-gateway-linux"|"$ROOT_DIR/deploy/docker/transcoder-linux")
+            rm -f -- "$owned_binary" || cleanup_rc=1 ;;
+          *) echo 'unexpected owned binary path in cleanup ledger' >&2; cleanup_rc=1 ;;
+        esac
+      done < "$VERIFY_ARTIFACTS/.private/owned-binaries"
+    fi
+    for worktree in "$VERIFY_ARTIFACTS"/.private/reference-build.*; do
+      [ -d "$worktree" ] || continue
+      git worktree remove --force "$worktree" >/dev/null 2>&1 || cleanup_rc=1
+    done
+    rm -f -- "$VERIFY_ARTIFACTS/perf-loader.test" || cleanup_rc=1
+    rm -rf -- "$VERIFY_ARTIFACTS/.private" || cleanup_rc=1
+  else
+    cleanup_rc=1
+  fi
   if [ "$cleanup_rc" != 0 ]; then
     printf '%s\n' "verify-controller cleanup failed; original exit=${rc}" >&2
     if [ "$rc" = 0 ]; then rc=1; fi
