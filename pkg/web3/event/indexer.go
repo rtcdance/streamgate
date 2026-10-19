@@ -544,6 +544,13 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 		return err
 	}
 
+	// The range above is committed and the cursor has advanced, but the
+	// canonical check has not run yet. A scenario that wants to prove the
+	// journal-based rollback has to un-mine a block INSIDE the range that was
+	// just indexed — this is the only instant where that is still observable, so
+	// the durable acceptance stack parks here before the check (section 0.2 D).
+	ei.arriveAt(ctx, "indexer.after_index_before_reorg_check")
+
 	ei.mu.RLock()
 	store := ei.store
 	reorgDetector := ei.reorgDetector
