@@ -126,6 +126,24 @@ class VerifyShellTests(unittest.TestCase):
         ])
         self.assertEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 143)
 
+    def test_standalone_perf_creates_log_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = "\n".join([
+                "set -euo pipefail", "VERIFY_MODE=pr", "PROJECT_NAME=own-perf", "IMAGE_TAG=tool",
+                "ARTIFACT_DIR=" + shlex.quote(directory), "LOG_DIR=" + shlex.quote(str(root / "logs")),
+                "VERIFY_MONO_PORT=1", "VERIFY_ANVIL_PORT=2", "VERIFY_MINIO_PORT=3",
+                "log() { :; }", 'fail() { echo "$*" >&2; exit 1; }',
+                "require_controller_tool() { :; }", "bring_up_fullstack() { :; }",
+                "wait_for_anvil_proxy() { :; }", "assert_two_chain_endpoints() { :; }",
+                "run_fullchain() { echo seed-invoked; return 17; }",
+                "acceptance_failed_only_in_browser() { return 1; }", function("stage_perf"), "stage_perf",
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertIn("seed-invoked", result.stdout, result.stderr)
+            self.assertNotEqual(result.returncode, 0, "the original seed failure must still fail")
+            self.assertIn("seed-invoked", (root / "logs" / "perf.log").read_text())
+
     def test_cleanup_removes_only_own_private_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); own = root / "own"; foreign = root / "foreign"
