@@ -241,6 +241,10 @@ stage_unit() {
   run_in_image unit '
     set -euo pipefail
     python3 scripts/cd/test_assert_required_tests.py
+    # The required-fuzz contract runner is itself a gate: CI calls it, and the
+    # final candidate entrypoint must cover the same contract or a candidate could
+    # be accepted here while the fuzz gate that CI enforces never ran (section 0.2 D).
+    python3 scripts/cd/test_run_required_fuzz.py
     python3 scripts/cd/test_verify_proxy.py
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
