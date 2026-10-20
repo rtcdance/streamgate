@@ -145,10 +145,17 @@ jobs:
           STREAMGATE_REDIS_HOST: localhost
           STREAMGATE_REDIS_PORT: 6379
 
-      - name: Required fuzz contract (seeds + 5s mutation each)
+      # Section 0.2 F: "PR 可执行短性能 smoke；最终候选模式必须执行完整矩阵、
+      # reference 比较、恢复与 fuzz". A PR is not the final candidate, so it keeps
+      # the 5s mutation budget; a push runs the SAME contract at the candidate's
+      # full 30s budget, so the fuzz gate that guards a release can never be the
+      # short one by default.
+      - name: "Required fuzz contract (PR: seeds + 5s; candidate: seeds + 30s)"
         env:
           FUZZ_LOG_DIR: fuzz-logs
-        run: bash scripts/cd/run-required-fuzz.sh 5
+        run: >-
+          bash scripts/cd/run-required-fuzz.sh
+          ${{ github.event_name == 'pull_request' && '5' || '30' }}
 
       - name: Upload required fuzz logs
         if: always()
@@ -858,6 +865,137 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # Plan §0.2 F: the final candidate mode must execute the plan's whole gate set,
+  # not just the matrix — "…完整矩阵、reference 比较、恢复与 fuzz". The
+  # `perf-matrix` job above covers "完整矩阵 + reference 比较"; these two cover
+  # the rest of §7's DAG ("媒体任务 / tx / event / ops 故障恢复 → 临时部署 /
+  # smoke / 恢复演练"):
+  #   * `docker-faults`   — the durable fault matrix (FW/FO/FR/FI scenarios) over
+  #                         candidate images with a real broker/MinIO/Anvil;
+  #   * `docker-recovery` — the empty-volume backup/restore drill, old
+  #                         access/refresh/capability invalidation and RPO/RTO.
+  # Both drive the unified Docker entry (`scripts/verify-docker.sh`) against THE
+  # candidate built once for this SHA, exactly like `perf-matrix`, and both are
+  # plain required jobs (no if:always / continue-on-error) so a red or skipped
+  # one withholds publishable.
+  docker-faults:
+    name: Fault Matrix (candidate images, real broker/MinIO/Anvil)
+    runs-on: ubuntu-latest
+    needs: [candidate]
+    timeout-minutes: 90
+    env:
+      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-faults
+      VERIFY_PLATFORM: linux/amd64
+      VERIFY_GOPROXY: https://proxy.golang.org,direct
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - name: Download the candidate images built for this SHA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: candidate-{monolith,transcoder,api-gateway}
+          merge-multiple: true
+          path: .verify-artifacts/ci-faults-images
+
+      - name: Load, re-tag and record the candidate's identity
+        env:
+          PREFIX: sg-ci-faults-${{ github.run_id }}-candidate
+        run: |
+          set -euo pipefail
+          dir=.verify-artifacts/ci-faults-images
+          for svc in monolith transcoder api-gateway; do
+            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
+            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
+          done
+          docker save -o "$dir/candidate-images.tar" \
+            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
+          # The stage re-verifies this manifest and builds nothing, so the fault
+          # matrix runs against the build bytes.
+          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
+            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
+            --revision "${{ github.sha }}" --platform linux/amd64
+          {
+            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
+            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the durable fault matrix against the candidate
+        env:
+          VERIFY_STAGE: faults
+          VERIFY_PROJECT: sg-faults-ci-${{ github.run_id }}
+        run: bash scripts/verify-docker.sh
+
+      - name: Upload the fault evidence (both a pass and a failure)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docker-faults-${{ github.sha }}
+          path: .verify-artifacts/ci-faults/
+          retention-days: 30
+          if-no-files-found: warn
+
+  docker-recovery:
+    name: Recovery Gate (empty-volume restore + credential invalidation)
+    runs-on: ubuntu-latest
+    needs: [candidate]
+    timeout-minutes: 90
+    env:
+      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-recovery
+      VERIFY_PLATFORM: linux/amd64
+      VERIFY_GOPROXY: https://proxy.golang.org,direct
+      # The recovery seed runs the full 71-check acceptance (it decodes real media
+      # and drives the demo page), so it needs the browser — cached across the
+      # stage's controller, which is removed after every run.
+      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-cache
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - name: Download the candidate images built for this SHA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: candidate-{monolith,transcoder,api-gateway}
+          merge-multiple: true
+          path: .verify-artifacts/ci-recovery-images
+
+      - name: Load, re-tag and record the candidate's identity
+        env:
+          PREFIX: sg-ci-recovery-${{ github.run_id }}-candidate
+        run: |
+          set -euo pipefail
+          dir=.verify-artifacts/ci-recovery-images
+          for svc in monolith transcoder api-gateway; do
+            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
+            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
+          done
+          docker save -o "$dir/candidate-images.tar" \
+            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
+          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
+            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
+            --revision "${{ github.sha }}" --platform linux/amd64
+          {
+            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
+            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the recovery drill against the candidate
+        env:
+          VERIFY_STAGE: recovery
+          VERIFY_PROJECT: sg-recov-ci-${{ github.run_id }}
+        run: bash scripts/verify-docker.sh
+
+      - name: Upload the recovery evidence (both a pass and a failure)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docker-recovery-${{ github.sha }}
+          path: .verify-artifacts/ci-recovery/
+          retention-days: 30
+          if-no-files-found: warn
+
   # Plan §7 DAG: P[真实性能与故障测试] → D[临时部署 / smoke / 恢复演练].
   # The temporary deploy + three-class failure drills (SG-08 step 5) run against
   # THIS run's candidate artifacts — the same docker-archive tars the scans and
@@ -868,7 +1006,7 @@ jobs:
   release-validation:
     name: Release Validation (temporary deploy + 3-class failure drills)
     uses: ./.github/workflows/release-validation.yml
-    needs: [fullchain-acceptance, durability, ops, perf, perf-matrix]
+    needs: [fullchain-acceptance, durability, ops, perf, perf-matrix, docker-faults, docker-recovery]
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
@@ -924,7 +1062,8 @@ jobs:
     # the candidate promotable.
     needs: [lint, test-go, test-contracts, test-anvil, build, security,
             candidate, manifest, test-suite, docker, durability, ops, perf,
-            perf-matrix, fullchain-acceptance, release-validation]
+            perf-matrix, docker-faults, docker-recovery,
+            fullchain-acceptance, release-validation]
     steps:
       - name: Every required gate passed for this SHA
         run: echo "candidate is publishable (see the retain-candidate GHCR digest in the candidate workflow for the promoted artifact)"
