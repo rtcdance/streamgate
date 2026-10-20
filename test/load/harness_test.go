@@ -514,6 +514,66 @@ func TestPerfHarness_CapacityTierAcceptsOnlyObservableOverload(t *testing.T) {
 		"the first viewer count above the M4 count is the exploration")
 }
 
+// TestPerfHarness_ScenarioBarsFollowTheTiersThePlanNames pins which scenario
+// gets which bar. §0.2 E sets the ≥99% rate at 50 viewers for the healthy and
+// the fallback scenarios alike and calls the 100-viewer tier a capacity
+// exploration; before this routing existed the fallback scenario was judged by
+// the 50-viewer bar at 100 viewers, which made a required gate fail on a
+// 2% observable overload (round 3 of the perf matrix: success=1064 errors=23,
+// 503×23 + transport_error×15, no viewer left without a completed sample).
+// rpc_all_down keeps its own rule at every viewer count.
+func TestPerfHarness_ScenarioBarsFollowTheTiersThePlanNames(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		scenario string
+		viewers  int
+		success  int64
+		errors   int64
+		bytes    int64
+		statuses map[string]int64
+		wantErr  bool
+	}{
+		{name: "healthy at 50 must keep 99%", scenario: "warm_cache", viewers: 50,
+			success: 470, errors: 30, statuses: map[string]int64{"200": 470, "503": 30}, wantErr: true},
+		{name: "healthy at 50 at the bar", scenario: "warm_cache", viewers: 50,
+			success: 495, errors: 5, statuses: map[string]int64{"200": 495, "503": 5}, wantErr: false},
+		{name: "fallback at 50 must keep 99%", scenario: "rpc_primary_down", viewers: 50,
+			success: 566, errors: 16, statuses: map[string]int64{"200": 566, "503": 16}, wantErr: true},
+		{name: "fallback at 50 at the bar", scenario: "rpc_primary_down", viewers: 50,
+			success: 570, errors: 0, statuses: map[string]int64{"200": 570}, wantErr: false},
+		{name: "fallback at 100 is the capacity exploration", scenario: "rpc_primary_down", viewers: 100,
+			success: 1064, errors: 23, statuses: map[string]int64{"200": 1064, "503": 23, "transport_error": 15}, wantErr: false},
+		{name: "fallback at 100 still fails a denied holder", scenario: "rpc_primary_down", viewers: 100,
+			success: 1064, errors: 24, statuses: map[string]int64{"200": 1064, "503": 23, "403": 1}, wantErr: true},
+		{name: "all endpoints down serves nothing", scenario: "rpc_all_down", viewers: 100,
+			success: 0, errors: 1495, statuses: map[string]int64{"503": 1495}, wantErr: false},
+		{name: "all endpoints down with one served request", scenario: "rpc_all_down", viewers: 100,
+			success: 1, errors: 1494, statuses: map[string]int64{"200": 1, "503": 1494}, wantErr: true},
+		{name: "all endpoints down with delivered bytes", scenario: "rpc_all_down", viewers: 100,
+			success: 0, errors: 10, bytes: 4096, statuses: map[string]int64{"503": 10}, wantErr: true},
+		{name: "all endpoints down proving nothing", scenario: "rpc_all_down", viewers: 100,
+			statuses: map[string]int64{}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := &Result{Scenario: tc.scenario, Viewers: tc.viewers, SuccessCount: tc.success,
+				ErrorCount: tc.errors, TotalBytes: tc.bytes, HTTPStatuses: tc.statuses}
+			if tc.wantErr {
+				require.Error(t, ScenarioViolation(res))
+			} else {
+				require.NoError(t, ScenarioViolation(res))
+			}
+		})
+	}
+
+	// The routing itself: only the plan's ≥99%-at-50 scenarios take the capacity
+	// tier above the threshold, and rpc_all_down never does.
+	for name, want := range map[string]bool{
+		"warm_cache": true, "cold_cache": true, "rpc_primary_down": true, "rpc_all_down": false, "unknown": false,
+	} {
+		require.Equal(t, want, CapacityTierScenario(name), "scenario %q", name)
+	}
+}
+
 func TestPerfHarness_RejectsSharedViewerIdentities(t *testing.T) {
 	key := strings.Repeat("0", 63) + "1"
 	base := Config{BaseURL: "http://localhost", ContentID: "c1", Viewers: 2, Interval: time.Second, Duration: time.Second}

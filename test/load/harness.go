@@ -200,6 +200,66 @@ type ViewerSamples struct {
 	AbortedCount       int64 `json:"aborted_count"`
 }
 
+// CapacityTierScenario reports whether a scenario's plan bar is the ≥99% success
+// rate defined at CapacityTierViewers, with everything above it judged as the
+// capacity exploration instead. TRANSITION_PLAN.md §0.2 E sets the ≥99% bar at 50
+// viewers for "正常及 fallback" alike ("50 观众正常及 fallback 成功率 ≥99%…；100
+// 观众作为容量探索，超载必须可观察且不能错误放行"), and §5 SG-07 lists "100 容量
+// 探索" as its own acceptance criterion — so the fallback scenario is a capacity
+// exploration above the threshold for exactly the same reason the healthy ones
+// are. rpc_all_down is NOT one of these: its rule is not a rate but "not one
+// request may be served and not one media byte may leave the origin", which
+// holds at every viewer count.
+func CapacityTierScenario(scenario string) bool {
+	switch scenario {
+	case "cold_cache", "warm_cache", "rpc_primary_down":
+		return true
+	}
+	return false
+}
+
+// ScenarioViolation returns why a completed run fails the acceptance its
+// scenario names, or nil when the run satisfies it. It is the single place the
+// per-scenario bars live so they can be exercised without a live stack; Run
+// still enforces the tier-independent rules (media-hash verification and
+// sampling completeness) for every scenario.
+func ScenarioViolation(res *Result) error {
+	if CapacityTierScenario(res.Scenario) {
+		if res.Viewers > CapacityTierViewers {
+			return CapacityTierViolation(res, CapacityTierViewers)
+		}
+		total := res.SuccessCount + res.ErrorCount
+		if total == 0 {
+			return fmt.Errorf("no requests were executed for scenario %s", res.Scenario)
+		}
+		rate := float64(res.SuccessCount) / float64(total)
+		if rate < 0.99 {
+			if res.Scenario == "rpc_primary_down" {
+				return fmt.Errorf("same-chain fallback must keep ≥99%% success (got %.2f%%)", rate*100)
+			}
+			return fmt.Errorf("healthy scenario %s must keep ≥99%% success (got %.2f%%)", res.Scenario, rate*100)
+		}
+		return nil
+	}
+	if res.Scenario != "rpc_all_down" {
+		return nil
+	}
+	// Every endpoint is unreachable, so the only acceptable outcome is a total
+	// denial: not one request may be served media bytes and not one byte of
+	// media may leave the origin. A single success here is an authorization
+	// bypass, so it fails the run outright — at every viewer count.
+	if res.SuccessCount+res.ErrorCount == 0 {
+		return fmt.Errorf("no requests were executed for rpc_all_down — the scenario proves nothing")
+	}
+	if res.SuccessCount != 0 {
+		return fmt.Errorf("a request was SERVED while every RPC endpoint was down (authorization bypass)")
+	}
+	if res.TotalBytes != 0 {
+		return fmt.Errorf("media bytes were delivered while every RPC endpoint was down")
+	}
+	return nil
+}
+
 // SamplingViolation rejects empty or incomplete sampling even when totals look healthy.
 func (r *Result) SamplingViolation() error {
 	if r.Viewers <= 0 || len(r.ViewerSamples) != r.Viewers {
