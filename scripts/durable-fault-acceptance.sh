@@ -1520,9 +1520,15 @@ else
   tail -5 "$WORKDIR/erc1155.log" 2>/dev/null | sed 's/^/   /'
   record FI00-erc1155 preconditions FAIL "DemoERC1155 deployment failed"
 fi
-# The indexer only scans contracts some ACTIVE rule gates, and it reads that
-# whitelist at startup: both rules must exist before the restart below.
+# The indexer only scans contracts some ACTIVE rule gates. A stack that boots
+# with NO gating rule defers it (the whitelist is read at startup), and the first
+# rule write reaches event-driven invalidation through RefreshEventFilter
+# WITHOUT a restart (f405134). Both rules must exist for the checks below.
 FI_CONTENT_OK=0
+# Line-count baseline so the lazy-start assertion can read ONLY the lines the
+# rule write produces, not the boot log (where the deferral is announced).
+LAZY_LOG_BASELINE="$(docker logs "$MONO_CONTAINER" 2>&1 | wc -l | tr -d ' ')"
+LAZY_LOG_BASELINE="${LAZY_LOG_BASELINE:-0}"
 if seed_content fi00; then
   FI_CONTENT_OK=1
   api_post "/api/v1/content/${CONTENT_ID}/gating-rules" "$TOKEN_A" \
@@ -1542,8 +1548,33 @@ else
   f "the whitelist is ${RULES:-?} rule(s) where 2 were required (the indexer would not start)"
   record FI00-whitelist preconditions FAIL "active_rules=${RULES:-none}"
 fi
-# The whitelist is read once, at service start, so the indexer only exists after
-# a restart. That restart IS the precondition this scenario needs.
+# The first rule write must start the deferred indexer on the RUNNING process.
+# The restart below would HIDE this: it only proves that a later boot finds a
+# whitelist, not that a stack which boots empty ever reaches event-driven
+# invalidation. Poll only the lines the rule write produced.
+lazy_deadline=$((SECONDS + 30))
+lazy_log=""
+lazy_ok=0
+while [ "$SECONDS" -lt "$lazy_deadline" ]; do
+  lazy_log="$(docker logs "$MONO_CONTAINER" 2>&1 | tail -n +$((LAZY_LOG_BASELINE + 1)) \
+    | grep -E "EventIndexer|WebSocket log subscriber|deferred" | tail -4)"
+  if printf '%s' "$lazy_log" | grep -q "EventIndexer + NFTEventHandler started" \
+    && printf '%s' "$lazy_log" | grep -q "WebSocket log subscriber started"; then
+    lazy_ok=1
+    break
+  fi
+  sleep 2
+done
+if [ "$lazy_ok" = 1 ]; then
+  p "the first gating-rule write started the deferred indexer on the running process (no restart)"
+  record FI00-lazy preconditions PASS "indexer + WS subscriber started by RefreshEventFilter after the first rule, before any restart"
+else
+  f "the deferred indexer never started from the rule write: a stack that boots with no rules cannot reach event-driven invalidation without a restart"
+  printf '%s\n' "$lazy_log" | sed 's/^/   /'
+  record FI00-lazy preconditions FAIL "no indexer start line before the restart"
+fi
+# The restart below remains the precondition the LATER event scenarios need: they
+# start from a consistent, already-indexing process.
 container_kill "$MONO_CONTAINER"
 container_start "$MONO_CONTAINER"
 TOKEN_A=""
@@ -1971,7 +2002,7 @@ FW01 FW01-publish FW02-nopublish FW02 FW03 FW04 FW05-dlq FW05 FW06 \
 FO01-parked FO01 FO02-parked FO02 \
 FR00 FR00-chain FR00-proxy FR00-reorg FR01-park FR01-unsent FR01 FR02-onchain FR02 \
 FR03-reorg FR03-detected FR03 FR04-park FR04 FR05-park FR05 \
-FI00-ws FI00-erc1155 FI00-whitelist FI00 FI01-plant FI01-indexed FI01-cache \
+FI00-ws FI00-erc1155 FI00-whitelist FI00-lazy FI00 FI01-plant FI01-indexed FI01-cache \
 FI02-plant FI02-batch FI02-cache FI03 FI03-exact FI04 FI05-reorg FI05"
 MISSING=0
 for id in $EXPECTED_IDS; do
