@@ -177,6 +177,15 @@ type Result struct {
 	LatencyMillis Percentiles      `json:"latency_ms"`
 	StartedAt     time.Time        `json:"started_at"`
 	FinishedAt    time.Time        `json:"finished_at"`
+	// SamplingSeconds is the sampled window as the sampler itself measured it:
+	// finished.Sub(started) on the monotonic clock the deadline is taken from.
+	// The JSON timestamps above are wall-clock, and a platform that disciplines
+	// its wall clock (macOS slews it continuously) makes their difference
+	// fractionally smaller than the monotonic window, so an honest 30s window
+	// could be recorded as 29.999s and fail the evidence gate that forbids even
+	// a fractional shortfall. This field is that gate's input; the timestamps
+	// stay authoritative for ORDERING and for the cgroup observation window.
+	SamplingSeconds float64 `json:"sampling_seconds"`
 
 	// LoginPaced records that token resolution ran through the paced login
 	// phase (real logins are spaced by LoginPace so the auth limiter is never
@@ -880,6 +889,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		HTTPStatuses:    map[string]int64{},
 		StartedAt:       started,
 		FinishedAt:      finished,
+		SamplingSeconds: finished.Sub(started).Seconds(),
 		LoginPaced:      loginPaced,
 		WalletPoolSize:  len(tokens),
 		LoginsFailed:    loginsFailed,

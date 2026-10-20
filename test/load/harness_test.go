@@ -618,6 +618,26 @@ func TestPerfHarness_SamplingCompleteness(t *testing.T) {
 	}
 }
 
+func TestPerfHarness_RecordsTheSampledWindowItself(t *testing.T) {
+	// The evidence gate forbids a window short by ANY amount, so what it reads
+	// must be the sampler's own measure. On a platform that slews its wall clock
+	// the wall timestamps can differ from the sampled window by a fraction of a
+	// millisecond, which is exactly how an honest 30s reference run was recorded
+	// as 29.998970s and failed.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	duration := 300 * time.Millisecond
+	cfg := Config{BaseURL: srv.URL, ContentID: "c1", JWTToken: "one", Viewers: 1, Interval: time.Millisecond, Duration: duration}
+	res, err := Run(context.Background(), cfg)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, res.SamplingSeconds, duration.Seconds(),
+		"the recorded window is the sampled window, never fractionally shorter")
+	require.LessOrEqual(t, res.SamplingSeconds, duration.Seconds()+2)
+}
+
 func TestPerfHarness_ServerFailuresRemainErrors(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusGatewayTimeout} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
