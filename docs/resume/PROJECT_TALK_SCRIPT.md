@@ -137,6 +137,7 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 - owner 隔离：gating-rule create/update/delete 在业务层条件写，ruleID→contentID 的定位放进**同一条 UPDATE/DELETE 的 EXISTS**，读写间无窗口；404/403 稳定区分；匿名 401。
 - 代签边界：通用 `/web3/tx/send` 已删除；存活的 `/nft/dev/mint` 固定合约 + 固定 selector + value 恒 0 + 铸给已认证钱包；三重门（debug + 31337 + `features.demo_tx_signer`）任一缺失即不注册（404）。
 - 链写 nonce：`(chainID, signer)` 在 `pg_advisory_xact_lock` 下取 `max(DB+1, 链 pending)`，`UNIQUE(chain,signer,nonce)`；**先持久化 signed raw tx/nonce/hash 再广播**，RPC 超时记 `broadcast_unknown`，恢复时查 receipt 或重播**同一 raw 字节**，绝不重签。
+- **双入口一致（HTTP/gRPC）**：HTTP 与 gRPC **共用同一授权器与规则快照**——一次读取得规则＋规则版本＋权威读取时间，能力只能由该带封印的结果签发，没有第二套授权逻辑。gRPC `GetManifest`/`GetSegment` 按**真实链上数量**执行 ERC-721/1155、token_id、min_balance 与 OR 规则（原先用布尔 `VerifyNFTOwnership`，且把能力 TTL 硬编码成 2 分钟——两者都已删）；同一请求同时带 access 与 capability 时钱包/会话/epoch 必须一致。验收第 9b 节（`test/grpcparity`）在**两条部署腿**各跑一遍：真实持有者经 gRPC 拿到 manifest（能力 `exp` 落 60±5s），再用该段 URL **不带 `Authorization` 头**取到与受保护 HTTP **逐字节一致**的媒体；非持有者、数量不足（1<2／2<3）、双凭据冲突分别 `PermissionDenied`。**真实故事**：独立 `cmd/microservices/api-gateway` 入口漏把授权器传给 gRPC 服务，该模式下 gRPC 一律 `Internal` 而同一进程的 HTTP 正常——新增的第 9b 节以 4 个 FAIL 抓到（`d2f1d81`），此前只跑 monolith 的验收看不出来。
 
 **2. 链状态、缓存与撤销（8min）**
 
@@ -173,6 +174,7 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 |---|---|---|---|
 | challenge 重放 / nonce 128-bit | `pkg/storage/redis_challenge.go:MarkChallengeUsed` | `TestWalletAuth_ChallengeReuse_Rejected`、`TestAuthenticateWithWallet_ChallengeAlreadyUsed`、`TestGenerateWalletChallenge_NonceIs128BitAndUnique`、`_TTLWithinBound` | — |
 | capability ≠ access token | `pkg/middleware`（token_type 白名单）+ `ParsePlaybackToken` audience | `TestJWTAuth_RejectsPlaybackCapabilityAsAccessToken`、`_RejectsNonHS256Algorithm`、`TestJWTAuth_IssuerEnforced`、`TestJWTAuth_AudienceEnforced` | `c9b5bcc` |
+| HTTP/gRPC 同源授权 | `pkg/service/`（`ResolvePolicySnapshot` / `AuthorizePlayback`）、`pkg/gateway/grpc_server.go` | `test/grpcparity` + 验收第 9b 节（两条腿各 5 项）：持有者经 gRPC 取到 manifest、能力 `exp`∈60±5s、无 header 取到与 HTTP 逐字节一致的媒体；非持有者／1<2／2<3／双凭据冲突均 `PermissionDenied`；媒体门两条腿各 71/71 | `d0a9451`、`6178f11`、`d2f1d81` |
 | 规则 owner 隔离 | `pkg/service/gating/rule.go:CreateRuleForOwner` 等 | `test/integration/gating/rule_owner_test.go` 7 例真实 Postgres 0 skip（B 改/删 A 的规则全拒且断言 A 数据未动） | `8fdcc18` |
 | 代签三重门 | `pkg/gateway/routes.go:DemoSignerAllowed` | `TestDemoSignerAllowed`、`…_NotAllowedIsNotFound`；真实二进制双启日志对照 | `0f56ce1` |
 | 共享 nonce 权威 | `pkg/web3/tx/nonce_ledger.go:Reserve` | `TestAcceptance_SharedNonceAuthority`、`TestAcceptance_NonceAcrossInstances`（各 20× 并发零重复）——由验收 `FAIL: Mint receipt status=missing` 倒逼 | `0756ea4` |
@@ -264,6 +266,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 一句话：所有权判定在链上（任何人可自行复核），基础设施有意自托管——不把它说成完全去中心化。
 关键点：这是"链上 NFT 权限 + 平台媒体服务"；RPC provider 是信任前提；规则表、存储、转码、管理是中心化服务（内容运营本来就是中心化行为）；链上 registry 是平台登记不是版权证明。
 边界：不说"无需信任""生产高可用已验证""版权确权"；NFT 持有 ≠ 版权；bearer 与已下载内容的限制照实说。
+
+**Q12 同一份权限为什么 HTTP 和 gRPC 都要验？**
+一句话：授权语义只允许有一份实现，两个入口是同一份授权器的两个传输层。
+关键点：两入口共用授权器与规则快照（规则＋版本＋权威读取时间），能力只由带封印的结果签发；gRPC 按真实链上**数量**判阈值（不是布尔持仓），TTL 用共享 60 秒策略；同一请求带双凭据时钱包/会话/epoch 必须一致。验收第 9b 节在两条部署腿各验一遍——持有者经 gRPC 拿 manifest 并用**不带 Authorization 头**的 URL 取到与 HTTP 逐字节一致的媒体，非持有者／数量不足（1<2、2<3）／双凭据冲突全部 `PermissionDenied`；该节还抓到独立 api-gateway 漏传授权器导致 gRPC 全 `Internal` 的真实缺陷（`d2f1d81`）。
+边界：两个入口共享的是**授权语义**，不是传输；gRPC 仍只在受信网络暴露，不因"内网"接受客户端伪造 actor。
 
 ---
 

@@ -21,7 +21,7 @@
 - **Media**: FFmpeg ABR / HLS, real EXTINF playlists, Range/206, browser hls.js playback assertions; iOS/Android native player internals
 - **Backend**: Go, PostgreSQL (single-statement transactions / advisory locks / outbox), Redis (atomic Lua consumption, bounded evidence caches, session epochs), NATS JetStream (redelivery / leases / explicit DLQ), MinIO / S3
 - **Web3**: EIP-191 / EIP-712 / SIWE, EIP-2 low-s, EIP-1271, ERC-721/1155 quantity semantics with ERC-165 detection, same-block `safe`/`finalized` evidence, reorg invalidation, idempotent chain writes with durable nonces
-- **Security engineering**: fail-closed authorization, derived revocation bound (60+5+5=70s), A/B two-wallet negative acceptance tests, TDD security regressions
+- **Security engineering**: fail-closed authorization, derived revocation bound (60+5+5=70s), **one authorizer and one policy snapshot shared by the HTTP and gRPC entry points** (same `token_type` clause, quantity threshold and block anchor), A/B two-wallet negative acceptance tests, TDD security regressions
 
 ## Project Experience
 
@@ -29,7 +29,7 @@
 
 The main line: real wallet signature → one-time challenge → server-side NFT rules → same-block evidence → 60s capability → real HLS playback → access denied after transfer → RPC / Redis faults and recovery. **AI honesty**: most implementation code is AI-generated; I own the design decisions and acceptance criteria, review every change, and locate/fix failing cases — AI code generation is not "I designed and implemented this independently"【待本人确认 / confirm with candidate】.
 
-Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (architecture / contracts / all nine media steps, chain-write idempotency A+B, operations with a 17/17 backup-restore drill) and SG-07 (1/10/50/100 viewers × 3 repeats at 100% success, 50 viewers = 1400/1400, the 100-viewer capacity tier = 2800/2800; the cold-cache / primary-RPC-down / all-RPC-down fault matrix runs, with 0 served and 0 media bytes when every endpoint is stopped; and a same-runner p95 regression gate against a fixed reference, measured ratio = 1.029 ≤ 1.20 — authoritative set in TRANSITION_PLAN §8.16 H). **Remote CI has run and is green** — the same-SHA run 39005594931 on the frozen candidate `ab172c2` reports 55/55 jobs success, zero skips, including the GitHub-side same-digest CD (temporary empty-volume deploy + real migration + three-class failure drills + rollback leg, plan §8.16 K.2). **Not done**: production rollout (no target / secrets / authorization).
+Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (architecture / contracts / all nine media steps, chain-write idempotency A+B (**including the HTTP/gRPC dual-entry parity**), operations with a 17/17 backup-restore drill) and SG-07 (1/10/50/100 viewers × 3 repeats at 100% success, 50 viewers = 1400/1400, the 100-viewer capacity tier = 2800/2800; the cold-cache / primary-RPC-down / all-RPC-down fault matrix runs, with 0 served and 0 media bytes when every endpoint is stopped; and a same-runner p95 regression gate against a fixed reference, measured ratio = 1.029 ≤ 1.20 — authoritative set in TRANSITION_PLAN §8.16 H). **Remote CI has run and is green** — the same-SHA run 39005594931 on the frozen candidate `ab172c2` reports 55/55 jobs success, zero skips, including the GitHub-side same-digest CD (temporary empty-volume deploy + real migration + three-class failure drills + rollback leg, plan §8.16 K.2). **Not done**: production rollout (no target / secrets / authorization).
 
 **Entry 1 — Signatures & resource authorization**
 
@@ -38,6 +38,14 @@ Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (archit
 - **Code entry**: `pkg/storage/redis_challenge.go`, `pkg/service/gating/rule.go` (`CreateRuleForOwner`, single-statement owner-conditional write), `pkg/gateway/routes.go` (`DemoSignerAllowed`), `pkg/middleware/` (token_type whitelist, iss/aud), `pkg/web3/tx/nonce_ledger.go`.
 - **Measured under**: real-Postgres A/B two-wallet ownership negatives (7 cases, 0 skips); two instances allocating 20×20 concurrently on one database; fullchain acceptance in both deployment modes.
 - **Result**: zero rows written by wallet B on wallet A's rules (stable 404/403 split); signing route 404 when disabled; `TestAcceptance_SharedNonceAuthority` — zero duplicates, a fix driven by a real acceptance FAIL (missing mint receipt), commit `0756ea4`; `TestAcceptance_RegistryIdempotency` — 20 concurrent creates yield 1 row, same key with a different payload returns 409, commit `e859d13`.
+
+**Entry 1 (continued) — the authorizer is not duplicated (HTTP / gRPC)**
+
+- **Problem**: gRPC `GetManifest` decided access with a boolean ownership call instead of the **quantity threshold**, and hardcoded the capability TTL at 2 minutes; HTTP and gRPC each carried their own authorization logic, so the threshold, the TTL and the credential rules could drift independently.
+- **My decision**【待本人确认 / confirm with candidate】: both entry points share **one authorizer and one policy snapshot** (rules + rule version + authoritative read time); a capability can only be minted from that sealed authorization result; gRPC enforces the **real on-chain quantity** (ERC-721/1155, token_id, min_balance, OR rules) and uses the shared 60s capability policy (the hardcoded 2-minute TTL is gone); when a request carries both an access token and a capability, wallet, session and epoch must agree.
+- **Code entry**: `pkg/service/` (`ResolvePolicySnapshot` / `AuthorizePlayback`), `pkg/gateway/grpc_server.go`, `test/grpcparity`, `scripts/fullchain-acceptance.sh` section 9b.
+- **Measured under**: the same candidate image on **both deployment legs** (monolith and the standalone `api-gateway`), each running the gRPC parity section.
+- **Result**: a real holder obtains the manifest over gRPC with a capability `exp` inside 60±5s, then fetches real media with that segment URL and **no `Authorization` header** — byte-for-byte identical to the protected HTTP media; a non-holder, a holder below the real quantity (1 held / 2 required, 2 held / 3 required) and conflicting dual credentials are each rejected with `PermissionDenied`; both legs report 71/71 PASS (`d0a9451`, `6178f11`). That section also caught a real defect: the standalone `api-gateway` entry never handed its authorizer to the gRPC server, so in that mode every gRPC call failed closed with `Internal` while HTTP worked (`d2f1d81` — invisible in monolith-only runs).
 
 **Entry 2 — Chain state, caching & revocation**
 
