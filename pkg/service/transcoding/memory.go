@@ -56,6 +56,19 @@ func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
 	return NewMemoryTranscodingQueueWithLimit(DefaultMemoryQueueMaxDepth)
 }
 
+// wakeWaiters broadcasts to cond from a goroutine that does not hold mu (the
+// ctx watcher, the Nak timer). A bare Broadcast can fire before the waiter
+// reaches cond.Wait — cond semantics make that a lost wakeup, and the waiter
+// then blocks forever, which used to hang StopWorker. Acquiring and releasing
+// mu first serializes against the waiter: it holds mu until cond.Wait
+// releases it, so by the time this gets the lock the waiter is registered and
+// the Broadcast cannot be lost.
+func (q *MemoryTranscodingQueue) wakeWaiters() {
+	q.mu.Lock()
+	q.mu.Unlock()
+	q.cond.Broadcast()
+}
+
 // NewMemoryTranscodingQueueWithLimit creates an in-memory queue that refuses
 // to accept more than maxDepth pending tasks. A non-positive maxDepth means
 // unbounded.
@@ -156,7 +169,7 @@ func (q *MemoryTranscodingQueue) Dequeue(ctx context.Context) (*models.Transcodi
 			if delay > time.Second {
 				delay = time.Second
 			}
-			timer := time.AfterFunc(delay, q.cond.Broadcast)
+			timer := time.AfterFunc(delay, q.wakeWaiters)
 			q.cond.Wait()
 			timer.Stop()
 			continue
@@ -165,7 +178,7 @@ func (q *MemoryTranscodingQueue) Dequeue(ctx context.Context) (*models.Transcodi
 		go func() {
 			select {
 			case <-ctx.Done():
-				q.cond.Broadcast()
+				q.wakeWaiters()
 			case <-done:
 			}
 		}()
