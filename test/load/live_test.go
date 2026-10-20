@@ -178,49 +178,19 @@ func TestLoad_AuthorizedMedia(t *testing.T) {
 
 	// Scenario bars, keyed by the label the caller injected the fault under.
 	// The harness records every scenario but only enforces the ones whose
-	// expected outcome it can name on its own.
-	switch scenario {
-	case "cold_cache", "warm_cache":
-		// Healthy scenarios carry two different claims. M4's bar — ≥99% success
-		// — is defined at 50 viewers; above that the same scenario IS the
-		// capacity exploration, whose acceptance is not "stays at 99%" but
-		// "throttles or overloads observably, and never turns a holder away"
-		// (TRANSITION_PLAN.md §5 SG-07 验收). Judging this tier by the M4 bar
-		// would replace the specified acceptance with a stricter one and make
-		// the ceiling unreportable, so it is judged by its own rule.
-		if res.Viewers > load.CapacityTierViewers {
-			require.NoError(t, load.CapacityTierViolation(res, load.CapacityTierViewers))
-			t.Logf("capacity tier at %d viewers: success=%d errors=%d bytes=%d statuses=%v — judged as an exploration, not by the M4 bar",
-				res.Viewers, res.SuccessCount, res.ErrorCount, res.TotalBytes, res.HTTPStatuses)
-			break
-		}
-		total := res.SuccessCount + res.ErrorCount
-		require.Greater(t, total, int64(0), "no requests were executed")
-		successRate := float64(res.SuccessCount) / float64(total)
-		require.GreaterOrEqual(t, successRate, 0.99,
-			"healthy scenario %s must keep ≥99%% success (got %.2f%%)", scenario, successRate*100)
-	case "rpc_primary_down":
-		// The primary endpoint was stopped behind the caller's back; the
-		// same-chain fallback must carry the identical load. Same ≥99% bar as
-		// the healthy scenarios — a fallback that degrades throughput is not a
-		// working fallback.
-		total := res.SuccessCount + res.ErrorCount
-		require.Greater(t, total, int64(0), "no requests were executed")
-		successRate := float64(res.SuccessCount) / float64(total)
-		require.GreaterOrEqual(t, successRate, 0.99,
-			"same-chain fallback must keep ≥99%% success (got %.2f%%)", successRate*100)
-	case "rpc_all_down":
-		// Every endpoint is unreachable, so the only acceptable outcome is a
-		// total denial: not one request may be served media bytes and not one
-		// byte of media may leave the origin. A single success here is an
-		// authorization bypass, so it fails the run outright.
-		require.Greater(t, res.SuccessCount+res.ErrorCount, int64(0),
-			"no requests were executed — the scenario proves nothing")
-		require.Zero(t, res.SuccessCount,
-			"a request was SERVED while every RPC endpoint was down (authorization bypass)")
-		require.Zero(t, res.TotalBytes,
-			"media bytes were delivered while every RPC endpoint was down")
+	// expected outcome it can name on its own; `load.ScenarioViolation` holds
+	// those bars in one place so they can be exercised without a live stack.
+	if load.CapacityTierScenario(scenario) && res.Viewers > load.CapacityTierViewers {
+		// The two tiers make different claims. The ≥99% bar is defined at 50
+		// viewers; above it the same scenario IS the capacity exploration, whose
+		// acceptance is "throttles or overloads observably, and never turns a
+		// holder away" (TRANSITION_PLAN.md §5 SG-07 验收). Judging that tier by
+		// the 50-viewer bar would replace the specified acceptance with a
+		// stricter one and make the ceiling unreportable.
+		t.Logf("capacity tier at %d viewers: success=%d errors=%d bytes=%d statuses=%v — judged as an exploration, not by the M4 bar",
+			res.Viewers, res.SuccessCount, res.ErrorCount, res.TotalBytes, res.HTTPStatuses)
 	}
+	require.NoError(t, load.ScenarioViolation(res))
 }
 
 // TestPerfSetup_MintViewerWallets is the one-time SETUP phase driven by
