@@ -576,13 +576,13 @@ jobs:
 
       - run: go mod download
 
-      # The load harness's own correctness gates: 5xx / truncated / hash-
+      # This job pins the HARNESS's own correctness: 5xx / truncated / hash-
       # mismatched responses must never count as success throughput, and the
-      # percentile/JSON plumbing must round-trip. The LIVE load matrix
-      # (1/10/50 viewers against a running stack) is SG-07's dispatch runner
-      # (scripts/perf-acceptance.sh), not something a CI job can honestly
-      # claim from an ephemeral container. The required list pins the harness
-      # correctness tests plus the metrics/ratelimit overhead tests.
+      # percentile/JSON plumbing must round-trip. The LIVE matrix (1/10/50/100
+      # viewers against a running stack, with the injected faults and the
+      # same-runner reference comparison) is the `perf-matrix` job below, which
+      # runs the unified Docker entry — §0.2 E requires that matrix as a release
+      # gate, not this harness self-test alone.
       - name: Run perf harness and metrics gates
         run: |
           set -euo pipefail
@@ -772,6 +772,92 @@ jobs:
         if: always()
         run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
 
+  # Plan §0.2 E: "将完整性能矩阵做成候选发布必需 job；远端不能只运行 harness 自测".
+  # The `perf` job above only pins the harness's own correctness; THIS job runs
+  # the live matrix. It drives the unified Docker entry
+  # (`scripts/verify-docker.sh`, stage `perf`) against THE candidate built once
+  # for this SHA — the same tars the scans and the media acceptance consumed —
+  # so the numbers cannot belong to a different build. Inside the stage the
+  # reference (`config/performance.acceptance.json`'s safetyBaselineRevision) and
+  # the candidate run sequentially on THIS runner, which is what §0.2 E asks for.
+  perf-matrix:
+    name: Full Performance Matrix (reference + candidate, one runner)
+    runs-on: ubuntu-latest
+    needs: [candidate]
+    # Reference build + seed + 3 comparison rounds, then the candidate's seed and
+    # its 3 rounds x 4 scenarios x 4 viewer counts, then the provenance and the
+    # p95 gates. Budgeted from the local runs of that stage.
+    timeout-minutes: 150
+    env:
+      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-perf
+      VERIFY_PLATFORM: linux/amd64
+      VERIFY_GOPROXY: https://proxy.golang.org,direct
+      # One browser cache per run: the reference seed and the candidate seed both
+      # need Chromium, and the default location is inside the controller that is
+      # removed after every stage.
+      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-cache
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          # The reference is built from a WORKTREE of that commit, so this job
+          # needs the history rather than the tip alone.
+          fetch-depth: 0
+
+      # The tars and the manifest live under .verify-artifacts/, which the repo
+      # gitignores: `verify-docker.sh` refuses to run against a checkout that is
+      # not clean, so nothing this job downloads or writes may show up in
+      # `git status`.
+      - name: Download the candidate images built for this SHA
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: candidate-{monolith,transcoder,api-gateway}
+          merge-multiple: true
+          path: .verify-artifacts/ci-perf-images
+
+      - name: Load, re-tag and record the candidate's identity
+        env:
+          PREFIX: sg-ci-perf-${{ github.run_id }}-candidate
+        run: |
+          set -euo pipefail
+          dir=.verify-artifacts/ci-perf-images
+          for svc in monolith transcoder api-gateway; do
+            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
+            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
+          done
+          docker save -o "$dir/candidate-images.tar" \
+            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
+          # The stage re-verifies this manifest (archive hash, image IDs, labels)
+          # and builds nothing, so the deployed bytes stay the build bytes.
+          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
+            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
+            --revision "${{ github.sha }}" --platform linux/amd64
+          {
+            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
+            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the performance matrix (full for a candidate push, smoke for a PR)
+        # §0.2 F: "PR 可执行短性能 smoke；最终候选模式必须执行完整矩阵、reference
+        # 比较…不允许通过默认开关跳过". The stage's own `pr` mode is that smoke
+        # (1 viewer, one repeat, no reference comparison); a push to a tracked
+        # branch runs the full matrix, the injected fault scenarios and the
+        # same-runner comparison, and no input can turn either into the other.
+        env:
+          VERIFY_STAGE: perf
+          VERIFY_MODE: ${{ github.event_name == 'pull_request' && 'pr' || 'candidate' }}
+          VERIFY_PROJECT: sg-perf-ci-${{ github.run_id }}
+        run: bash scripts/verify-docker.sh
+
+      - name: Upload the perf evidence (both a pass and a failure)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-matrix-${{ github.sha }}
+          path: .verify-artifacts/ci-perf/
+          retention-days: 30
+          if-no-files-found: warn
+
   # Plan §7 DAG: P[真实性能与故障测试] → D[临时部署 / smoke / 恢复演练].
   # The temporary deploy + three-class failure drills (SG-08 step 5) run against
   # THIS run's candidate artifacts — the same docker-archive tars the scans and
@@ -782,7 +868,7 @@ jobs:
   release-validation:
     name: Release Validation (temporary deploy + 3-class failure drills)
     uses: ./.github/workflows/release-validation.yml
-    needs: [fullchain-acceptance, durability, ops, perf]
+    needs: [fullchain-acceptance, durability, ops, perf, perf-matrix]
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
@@ -838,7 +924,7 @@ jobs:
     # the candidate promotable.
     needs: [lint, test-go, test-contracts, test-anvil, build, security,
             candidate, manifest, test-suite, docker, durability, ops, perf,
-            fullchain-acceptance, release-validation]
+            perf-matrix, fullchain-acceptance, release-validation]
     steps:
       - name: Every required gate passed for this SHA
         run: echo "candidate is publishable (see the retain-candidate GHCR digest in the candidate workflow for the promoted artifact)"
