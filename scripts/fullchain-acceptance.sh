@@ -110,6 +110,22 @@ wait_for_manifest() {
     printf '%s' "$code"
 }
 
+# playback_failure_detail <log> — the one line that names why the browser run
+# died. The browser's own stderr ([pid=..][err] ...) carries the real cause
+# (e.g. "error while loading shared libraries: libnspr4.so"); a blind
+# `tail -c 200` of the launch call log once reported "shed temporary
+# directories cleanup" — the truncated tail of "finished ... cleanup", which
+# the harness ran SUCCESSFULLY — as if cleanup were the failure. `|| true`
+# throughout: under `set -e` with `pipefail` an unmatched grep must not kill
+# the assignment silently.
+playback_failure_detail() {
+    local detail=""
+    detail="$(grep -m1 '\[pid=[0-9]*\]\[err\]' "$1" 2>/dev/null | head -c 200 || true)"
+    [ -n "$detail" ] || detail="$(grep -m1 -E '✗|FAILED' "$1" 2>/dev/null | head -c 200 || true)"
+    [ -n "$detail" ] || detail="$(tail -c 200 "$1" 2>/dev/null | tr '\n' ' ' || true)"
+    printf '%s' "$detail"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Infrastructure
 # ---------------------------------------------------------------------------
@@ -1026,11 +1042,7 @@ JSON
             ADV="$(grep -oE 'currentTime=[0-9.]+s' "$WORKDIR/playback.log" 2>/dev/null | head -1 || true)"
             p "Browser played the stream and time advanced (${ADV:-ok})"
         else
-            # Match the report's failure marker, not the word "Error": a passing
-            # check named playback-no-fatal-error contains it and would be quoted
-            # here as if it were the cause. `|| true`: see the note above.
-            DETAIL="$(grep -m1 -E '✗|FAILED' "$WORKDIR/playback.log" 2>/dev/null | head -c 200 || true)"
-            [ -n "$DETAIL" ] || DETAIL="$(tail -c 200 "$WORKDIR/playback.log" 2>/dev/null | tr '\n' ' ' || true)"
+            DETAIL="$(playback_failure_detail "$WORKDIR/playback.log")"
             f "Browser playback failed: $DETAIL"
         fi
         # The log is the only place the harness explains itself; the tmp dir it

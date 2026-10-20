@@ -171,6 +171,52 @@ class VerifyShellTests(unittest.TestCase):
         ])
         self.assertEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 143)
 
+    # The exact sg-all-1019-f perf-smoke playback.log: the browser died with a
+    # missing shared library, the harness ran its temporary-directories cleanup
+    # SUCCESSFULLY, and the old blind `tail -c 200` reported the truncated tail
+    # of that success ("finished ... cleanup" -> "shed temporary directories
+    # cleanup") as if cleanup were the failure.
+    PLAYBACK_LOG = "\n".join([
+        "browserType.launch: Target page, context or browser has been closed",
+        "Browser logs:",
+        "<launched> pid=9381",
+        "[pid=9381][err] /x/chrome-headless-shell: error while loading shared libraries: "
+        "libnspr4.so: cannot open shared object file: No such file or directory",
+        "Call log:",
+        "  - [pid=9381] starting temporary directories cleanup",
+        "  - [pid=9381] finished temporary directories cleanup",
+        "  - [pid=9381] <gracefully close end>",
+        "    at /src/scripts/h5-demo-acceptance/run.mjs:59:32",
+    ])
+
+    def run_playback_failure_detail(self, log):
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as handle:
+            handle.write(log)
+        try:
+            script = '\n'.join([
+                'set -euo pipefail',
+                function("playback_failure_detail", SOURCE.parent / "fullchain-acceptance.sh"),
+                'playback_failure_detail ' + shlex.quote(handle.name),
+            ])
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        finally:
+            Path(handle.name).unlink()
+
+    def test_playback_detail_names_the_browser_stderr_root_cause(self):
+        result = self.run_playback_failure_detail(self.PLAYBACK_LOG)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("libnspr4.so", result.stdout)
+        self.assertNotIn("shed temporary directories cleanup", result.stdout)
+
+    def test_playback_detail_falls_back_to_the_report_marker(self):
+        result = self.run_playback_failure_detail("runtime error: manifest denied\n✗ spec-throw: playback denied\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("playback denied", result.stdout)
+
+    def test_playback_detail_survives_an_empty_log(self):
+        result = self.run_playback_failure_detail("")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_standalone_perf_creates_log_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

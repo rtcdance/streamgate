@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { checkStack } from './lib/stack.mjs';
 import { newContext, attachProbes, snap, sleep } from './lib/common.mjs';
 import { PW_CHANNEL } from './lib/urls.mjs';
+import { assertLaunchable } from './lib/browser_preflight.mjs';
 import { reportSpec, reportSummary } from './lib/reporter.mjs';
 
 import specIndex from './specs/01-index.mjs';
@@ -39,6 +40,18 @@ let stackResult = null;
 
 console.log(`${'\x1b[36m'}== H5 Demo Acceptance (reports → ${reportRoot}) ==${'\x1b[0m'}`);
 
+// 0. Browser preflight — independent of the stack so it can be run from the
+// harness (node run.mjs --check-browser) before any container comes up.
+if (args['check-browser']) {
+    if (PW_CHANNEL) {
+        console.log(`browser preflight: channel ${PW_CHANNEL} is managed by the host, nothing to probe`);
+    } else {
+        const executablePath = await assertLaunchable(chromium);
+        console.log(`browser preflight: ${executablePath} starts and reports its version`);
+    }
+    process.exit(0);
+}
+
 // 1. Stack pre-check
 console.log('\n--- stack pre-check ---');
 const stackStart = Date.now();
@@ -56,6 +69,12 @@ if (!stackResult.passed) {
 // 2. Browser specs
 // PW_CHANNEL='chrome' uses the host's Google Chrome (no download). Inside the
 // Playwright image set PW_CHANNEL='' to use the bundled Chromium instead.
+// The preflight keeps a browser whose OS dependencies are missing from
+// failing inside chromium.launch, where the call log's cleanup tail
+// ("finished temporary directories cleanup") reads like the cause.
+if (!PW_CHANNEL) {
+    await assertLaunchable(chromium);
+}
 const browser = await chromium.launch(PW_CHANNEL ? { channel: PW_CHANNEL, headless: true } : { headless: true });
 try {
     for (const s of specs) {
@@ -95,6 +114,7 @@ function parseArgs(argv) {
     for (const a of argv) {
         if (a.startsWith('--only=')) o.only = a.slice(7);
         else if (a.startsWith('--report-dir=')) o['report-dir'] = a.slice(13);
+        else if (a === '--check-browser') o['check-browser'] = true;
     }
     return o;
 }
