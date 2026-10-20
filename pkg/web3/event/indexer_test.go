@@ -19,6 +19,7 @@ type mockEventReader struct {
 	logs      []types.Log
 	blockErr  error
 	filterErr error
+	headerErr error
 }
 
 func (m *mockEventReader) BlockNumber(ctx context.Context) (uint64, error) {
@@ -31,6 +32,21 @@ func (m *mockEventReader) FilterLogs(ctx context.Context, q ethereum.FilterQuery
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.logs, m.filterErr
+}
+
+// HeaderByNumber fabricates a deterministic header per height: the journal
+// tests derive expected hashes from the same helper instead of predicting RLP.
+func (m *mockEventReader) HeaderByNumber(_ context.Context, n *big.Int) (*types.Header, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.headerErr != nil {
+		return nil, m.headerErr
+	}
+	return testHeaderFor(n), nil
+}
+
+func testHeaderFor(n *big.Int) *types.Header {
+	return &types.Header{Number: new(big.Int).Set(n), Extra: []byte("sg-event-test")}
 }
 
 func (m *mockEventReader) setLogs(logs []types.Log) {

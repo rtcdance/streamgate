@@ -289,6 +289,11 @@ tx_known() {
 anvil_rollback() {
   cast rpc --rpc-url "$ANVIL_URL" anvil_rollback "$1" >/dev/null 2>&1
 }
+# anvil_mine mines exactly N empty blocks, used to place a rewind precisely on
+# the journal boundary instead of wherever the traffic happened to stop.
+anvil_mine() {
+  cast rpc --rpc-url "$ANVIL_URL" anvil_mine "$(printf '0x%x' "$1")" >/dev/null 2>&1
+}
 
 # ---------------------------------------------------------------------------
 # Registry intent / signed-attempt state (SG-13 A). Every assertion below reads
@@ -1927,10 +1932,21 @@ if wait_worker_up "$MONO_CONTAINER" 120; then
       # previous shape of this scenario) asks for a header that does not exist yet
       # and turns the check into a silent skip.
       REWIND=$((BOOKED - 3))
+      # Place the rewind EXACTLY on the 64-block boundary the journal proves.
+      # The old shape drifted with the traffic (an observed 26-block reorg) and
+      # never exercised the boundary the plan names; a reorg of exactly
+      # journalDepth blocks must still find its common ancestor, and this is
+      # its candidate-level proof. Mine the exact difference, then measure.
+      HEAD="$(head_number)"
+      NEED=$((64 - (HEAD - REWIND)))
+      if [ "$NEED" -gt 0 ]; then
+        anvil_mine "$NEED" || f "FI05: could not mine up to the 64-block journal boundary"
+      fi
+      HEAD="$(head_number)"
       DEPTH=$((HEAD - REWIND))
-      if [ "$DEPTH" -gt 64 ] || [ "$REWIND" -le 4 ]; then
-        f "FI05: a ${DEPTH}-block rewind to ${REWIND} is outside the journal depth (64)"
-        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rewind depth=${DEPTH} unusable"
+      if [ "$DEPTH" -ne 64 ] || [ "$REWIND" -le 4 ]; then
+        f "FI05: a ${DEPTH}-block rewind to ${REWIND} is not the 64-block journal boundary"
+        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rewind depth=${DEPTH} != 64 (boundary unproven)"
       elif anvil_rollback "$DEPTH" && wait_chain_after "$BOOKED" 120; then
         BH_AFTER="$(block_hash "$BOOKED")"
         if [ -n "$BH_AFTER" ] && [ "$BH_AFTER" != "$BH_BEFORE" ]; then

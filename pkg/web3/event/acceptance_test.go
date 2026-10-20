@@ -173,7 +173,7 @@ func TestAcceptance_EventStoreDurability(t *testing.T) {
 	ev2.ID = fmt.Sprintf("%d-%s-%s-%d", testEventChainID, "0xccc", "0xddd", 0)
 	ev2.BlockNumber = 43
 	ev2.BlockHash = "0xccc"
-	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, key, []*IndexedEvent{ev, &ev2}, 43, "0xccc"))
+	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, key, []*IndexedEvent{ev, &ev2}, 43, "0xccc", nil, journalDepth))
 
 	ckpt, err := ds.LoadScopedCheckpoint(ctx, testEventChainID, key)
 	require.NoError(t, err)
@@ -202,6 +202,10 @@ type recordingReader struct {
 }
 
 func (r *recordingReader) BlockNumber(context.Context) (uint64, error) { return r.blockNum, nil }
+
+func (r *recordingReader) HeaderByNumber(_ context.Context, n *big.Int) (*types.Header, error) {
+	return testHeaderFor(n), nil
+}
 
 func (r *recordingReader) FilterLogs(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
 	r.mu.Lock()
@@ -249,6 +253,10 @@ type failOnCallReader struct {
 }
 
 func (r *failOnCallReader) BlockNumber(context.Context) (uint64, error) { return r.blockNum, nil }
+
+func (r *failOnCallReader) HeaderByNumber(_ context.Context, n *big.Int) (*types.Header, error) {
+	return testHeaderFor(n), nil
+}
 
 func (r *failOnCallReader) FilterLogs(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
 	r.mu.Lock()
@@ -383,7 +391,7 @@ func TestAcceptance_EventReorgJournalRollback(t *testing.T) {
 	saveEventAt(1051) // orphan side: must be flagged
 	saveEventAt(1060) // orphan side: must be flagged
 	key := idx.filterKey()
-	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, key, nil, lastBlock, fmt.Sprintf("0x%064x", lastBlock)))
+	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, key, nil, lastBlock, fmt.Sprintf("0x%064x", lastBlock), nil, journalDepth))
 
 	idx.SetReorgDetector(&scriptedReorgChecker{keepBelow: ancestor})
 	idx.currentBlock = lastBlock
@@ -418,7 +426,7 @@ func TestAcceptance_EventReorgJournalRollback(t *testing.T) {
 	idx2.SetEventStore(ds)
 	require.NoError(t, ds.SaveBlockJournal(ctx, chain2, journalTestBlocks(firstBlock, lastBlock), journalDepth))
 	key2 := idx2.filterKey()
-	require.NoError(t, ds.SaveBatch(ctx, chain2, key2, nil, lastBlock, fmt.Sprintf("0x%064x", lastBlock)))
+	require.NoError(t, ds.SaveBatch(ctx, chain2, key2, nil, lastBlock, fmt.Sprintf("0x%064x", lastBlock), nil, journalDepth))
 	idx2.SetReorgDetector(&scriptedReorgChecker{allReorged: true})
 	idx2.currentBlock = lastBlock
 
@@ -494,7 +502,7 @@ func TestAcceptance_EventCheckpointFilterVersion(t *testing.T) {
 		BlockNumber:     500,
 		BlockHash:       "0xaaa",
 	}
-	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, keyV1, []*IndexedEvent{ev}, 500, "0xaaa"))
+	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, keyV1, []*IndexedEvent{ev}, 500, "0xaaa", nil, journalDepth))
 
 	got, err := ds.LoadScopedCheckpoint(ctx, testEventChainID, keyV1)
 	require.NoError(t, err)
@@ -508,7 +516,7 @@ func TestAcceptance_EventCheckpointFilterVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0), gotV2, "a new filter key must never reuse the old checkpoint")
 
-	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, keyV2, nil, 700, ""))
+	require.NoError(t, ds.SaveBatch(ctx, testEventChainID, keyV2, nil, 700, "0xbfb", nil, journalDepth))
 
 	gotV1, err := ds.LoadScopedCheckpoint(ctx, testEventChainID, keyV1)
 	require.NoError(t, err)
