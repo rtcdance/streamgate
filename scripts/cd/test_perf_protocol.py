@@ -322,6 +322,62 @@ class ProtocolTests(unittest.TestCase):
             (phase / "after.rpc-failover.json").write_text(json.dumps(forged, sort_keys=True))
             with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
 
+    def test_pre_moved_slot_and_flat_window_are_rejected_with_the_real_shape(self):
+        # The exact sg-all-1019-f round-1 rpc_primary_down @50 evidence: setup-
+        # phase RPC transients moved the active slot before the injected fault,
+        # the pre-fault snapshot already showed the fallback active, and the
+        # sampling window recorded a flat cumulative counter (6->6). Both facts
+        # must fail the gate.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            phase = self.phase(root, "rpc_primary_down")
+            flat = self.prom_body("before", "api", "rpc_primary_down").replace(
+                "streamgate_rpc_failover_total 0", "streamgate_rpc_failover_total 6")
+            (phase / "before.api.prom").write_text(flat)
+            (phase / "after.api.prom").write_text(flat)
+            (phase / "after.rpc-failover.json").write_text(json.dumps(
+                {"metric": "streamgate_rpc_failover_total", "before": 6.0, "after": 6.0, "delta": 0.0}, sort_keys=True))
+            (phase / "before.rpc-status.json").write_text(json.dumps(self.rpc_status(False, True)))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_failover_baseline_must_come_from_a_process_started_at_the_barrier(self):
+        # "primary down -> real failover observed" is only deterministic when the
+        # RPC state is fresh AT the fault injection: a process that predates the
+        # sampling barrier can have migrated the active slot during the wallet-
+        # setup phase (sg-all-1019-f round-1 @50), leaving the window flat. The
+        # phase therefore must not be accepted when the API was not restarted
+        # between the barrier and sampling.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            stale = {"Running": True, "OOMKilled": False, "StartedAt": "2026-10-19T00:59:00Z", "RestartCount": 0}
+            path = root / "round-1/rpc_primary_down/cgroup-rpc_primary_down-1.containers.json"
+            identities = read_json(path)
+            identities["api"]["runtimeBefore"] = stale
+            identities["api"]["runtimeAfter"] = stale
+            path.write_text(json.dumps(identities))
+            resources_path = root / "round-1/rpc_primary_down/resources-rpc_primary_down-1.json"
+            resources = read_json(resources_path)
+            resources["containers"] = identities
+            resources_path.write_text(json.dumps(resources))
+            with self.assertRaises(ValueError): validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
+    def test_fresh_process_baseline_needs_no_lazy_series(self):
+        # The barrier restart leaves the api without its lazy Vec series at the
+        # pre-fault snapshot (the cold_cache shape). rpc_primary_down now takes
+        # the same fresh baseline, so its before-snapshot must be accepted with
+        # only the eagerly registered counters present.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.artifacts(root)
+            phase = self.phase(root, "rpc_primary_down")
+            fresh = (self.prom_body("before", "api", "rpc_primary_down")
+                     .replace("streamgate_streaming_cache_hits_total 5\n", "")
+                     .replace("streamgate_media_bytes_total 1000\n", "")
+                     .replace("streamgate_rpc_latency_seconds_count 1\nstreamgate_rpc_latency_seconds_sum 0.01\n", ""))
+            (phase / "before.api.prom").write_text(fresh)
+            (phase / "after.rpc-failover.json").write_text(json.dumps(
+                {"metric": "streamgate_rpc_failover_total", "before": 0.0, "after": 1.0, "delta": 1.0}, sort_keys=True))
+            validate_directory(root, "matrix", "a" * 40, "b" * 40)
+
     def test_proxy_state_and_logs_are_mandatory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); self.artifacts(root)

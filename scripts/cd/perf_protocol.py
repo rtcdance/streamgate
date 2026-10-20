@@ -322,8 +322,13 @@ def validate_directory(root, mode, target, harness):
                 or resources_ready.get("roles") != ["api", "loader", "worker"]
                 or not timestamp(ready["timestamp"]) <= number(resources_ready["timestamp"]) <= timestamp(record["started_at"])):
             raise ValueError("sampling was released without all resource probes being ready")
-        if scenario == "cold_cache" and not timestamp(ready["timestamp"]) < timestamp(identities["api"]["runtimeBefore"]["StartedAt"]) < timestamp(record["started_at"]):
-            raise ValueError("cold-cache API was not restarted between warmup and sampling")
+        if scenario in ("cold_cache", "rpc_primary_down") and not timestamp(ready["timestamp"]) < timestamp(identities["api"]["runtimeBefore"]["StartedAt"]) < timestamp(record["started_at"]):
+            # rpc_primary_down takes its failover baseline from a process
+            # restarted at the barrier: only a fresh RPC state at the injected
+            # fault makes "primary down -> failover observed" deterministic
+            # (a process that predates the barrier can have migrated the active
+            # slot during the wallet-setup phase, leaving the window flat).
+            raise ValueError(f"{scenario} API was not restarted between warmup and sampling")
         if scenario == "rpc_primary_down":
             validate_rpc_failover(phases[0])
         execution = read_json(path.with_suffix(".execution.json"))

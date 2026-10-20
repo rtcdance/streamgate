@@ -112,7 +112,10 @@ def validate_scenario_metrics(before_api, after_api, before_worker, after_worker
         for name in names:
             # A freshly restarted cold API has not created lazy Vec series
             # yet. The post-sampling observation is still mandatory.
-            fresh_vector = scenario == "cold_cache" and role == "api" and name != "streamgate_streaming_manifests_total"
+            # rpc_primary_down now restarts the API at the sampling barrier too
+            # (fresh RPC state at the injected fault), so its baseline carries
+            # the same fresh-process shape.
+            fresh_vector = scenario in ("cold_cache", "rpc_primary_down") and role == "api" and name != "streamgate_streaming_manifests_total"
             first = metric_total(before, name, required=not fresh_vector)
             last = metric_total(after, name, required=True)
             if name != "streamgate_transcoding_queue_depth" and last < first:
@@ -144,7 +147,7 @@ def validate_scenario_metrics(before_api, after_api, before_worker, after_worker
         raise ValueError("worker reports a non-empty transcoding queue after a playback-only run")
     if metric_total(before_worker, "streamgate_transcoding_queue_depth", required=True) > 0:
         raise ValueError("worker reports a non-empty transcoding queue before playback")
-    media_delta = metric_total(after_api, "streamgate_media_bytes_total", required=True) - metric_total(before_api, "streamgate_media_bytes_total", required=scenario != "cold_cache")
+    media_delta = metric_total(after_api, "streamgate_media_bytes_total", required=True) - metric_total(before_api, "streamgate_media_bytes_total", required=scenario not in ("cold_cache", "rpc_primary_down"))
     if scenario == "rpc_all_down" and (media_delta != 0 or manifests_delta != 0):
         raise ValueError("application served media while all RPC endpoints were down")
     if scenario != "rpc_all_down" and manifests_delta > 0 and media_delta <= 0:
