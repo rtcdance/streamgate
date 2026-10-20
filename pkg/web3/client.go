@@ -386,8 +386,8 @@ func (cc *ChainClient) connectAt(ctx context.Context, idx int) (*ethclient.Clien
 }
 
 func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetFailures bool) {
-	oldClient := cc.client.Swap(client)
 	cc.mu.Lock()
+	oldClient := cc.client.Swap(client)
 	cc.activeRPC = idx
 	cc.rpcURL = cc.rpcURLs[idx]
 	if resetFailures {
@@ -403,11 +403,13 @@ func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetF
 	}
 }
 
-func (cc *ChainClient) failover() error {
+// failover switches to another ready endpoint, EXCLUDING the endpoint that just
+// failed (passed in, not re-read: a concurrent switch could otherwise make the
+// exclusion name a healthy endpoint and put it in cooldown).
+func (cc *ChainClient) failover(exclude int) error {
 	var lastErr error
-	active := cc.getActiveRPCIndex()
 	for _, idx := range cc.sortedRPCScores() {
-		if idx == active {
+		if idx == exclude {
 			continue
 		}
 		if !cc.endpointReady(idx, false) {
@@ -426,7 +428,7 @@ func (cc *ChainClient) failover() error {
 		return nil
 	}
 	for _, idx := range cc.sortedRPCScores() {
-		if idx == active {
+		if idx == exclude {
 			continue
 		}
 		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
@@ -465,7 +467,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		}
 	}
 
-	client := cc.client.Load()
+	client, activeIdx := cc.activeClientSnapshot()
 	total := len(cc.rpcURLs)
 	cc.mu.RLock()
 	fromProvider := monitoring.RPCProviderFromURL(cc.rpcURL)
@@ -475,7 +477,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		if err := cc.connectAny(); err != nil {
 			return zero, err
 		}
-		client = cc.client.Load()
+		client, activeIdx = cc.activeClientSnapshot()
 		cc.mu.RLock()
 		fromProvider = monitoring.RPCProviderFromURL(cc.rpcURL)
 		cc.mu.RUnlock()
@@ -485,7 +487,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 	result, err := fn(client)
 	latency := time.Since(start)
 	monitoring.RPCLatencySeconds.WithLabelValues(op, fromProvider).Observe(latency.Seconds())
-	cc.updateRPCScores(cc.getActiveRPCIndex(), latency, err == nil)
+	cc.updateRPCScores(activeIdx, latency, err == nil)
 
 	if err == nil || total <= 1 {
 		if err != nil && isPermanentRPCError(err) {
@@ -496,17 +498,17 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 
 	cc.logger.Warn("RPC operation failed, attempting failover",
 		zap.String("operation", op),
-		zap.Int("rpc_endpoint", cc.getActiveRPCIndex()),
+		zap.Int("rpc_endpoint", activeIdx),
 		rpcLogError(err))
-	cc.recordEndpointFailure(cc.getActiveRPCIndex())
+	cc.recordEndpointFailure(activeIdx)
 
 	lastErr := err
 	for attempts := 1; attempts < total; attempts++ {
-		if failoverErr := cc.failover(); failoverErr != nil {
+		if failoverErr := cc.failover(activeIdx); failoverErr != nil {
 			lastErr = failoverErr
 			continue
 		}
-		client = cc.client.Load()
+		client, activeIdx = cc.activeClientSnapshot()
 		cc.mu.RLock()
 		toProvider := monitoring.RPCProviderFromURL(cc.rpcURL)
 		cc.mu.RUnlock()
@@ -517,7 +519,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		result, err = fn(client)
 		latency = time.Since(start)
 		monitoring.RPCLatencySeconds.WithLabelValues(op, toProvider).Observe(latency.Seconds())
-		cc.updateRPCScores(cc.getActiveRPCIndex(), latency, err == nil)
+		cc.updateRPCScores(activeIdx, latency, err == nil)
 
 		if err == nil {
 			return result, nil
@@ -574,6 +576,18 @@ func (cc *ChainClient) getActiveRPCIndex() int {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
 	return cc.activeRPC
+}
+
+// activeClientSnapshot returns the active client and the endpoint index it
+// belongs to, read under ONE lock. Reading them separately lets a concurrent
+// failover move the index between the two reads, so a failure on endpoint A can
+// be charged to endpoint B — and cooling down a HEALTHY endpoint removes it from
+// the failover candidates, turning a recoverable read into a hard failure.
+// All failure accounting must use the index that actually served the request.
+func (cc *ChainClient) activeClientSnapshot() (client *ethclient.Client, index int) {
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	return cc.client.Load(), cc.activeRPC
 }
 
 func (cc *ChainClient) recordEndpointFailure(idx int) {
