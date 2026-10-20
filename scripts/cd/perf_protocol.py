@@ -45,6 +45,16 @@ WARMUP_SECONDS = ACCEPTANCE["warmupSeconds"]
 SAMPLE_SECONDS = ACCEPTANCE["sampleSeconds"]
 COUNTS = ("success_count", "error_count", "aborted_count", "verified_media_count")
 
+# §0.2 E sets the ≥99% rate at 50 viewers for the healthy and the fallback
+# scenarios alike ("50 观众正常及 fallback 成功率 ≥99%…") and calls everything
+# above it the capacity exploration ("100 观众作为容量探索，超载必须可观察且不能
+# 错误放行"); §5 SG-07 lists that tier as its own acceptance criterion. The
+# scenarios below therefore take the rate bar at ≤50 viewers and the exploration
+# rule above it, exactly as test/load/harness.go decides it — the two checkers
+# must not disagree. rpc_all_down is not one of them: its rule is not a rate.
+CAPACITY_TIER_VIEWERS = 50
+CAPACITY_SCENARIOS = ("cold_cache", "warm_cache", "rpc_primary_down")
+
 
 def expected_matrix():
     return {f"round-{i}/" + ("" if scenario == "warm_cache" else scenario + "/") + f"{scenario}-viewers-{viewers}.json": (scenario, viewers)
@@ -126,7 +136,7 @@ def validate_result(record, target, harness):
         if successes or count(record["total_bytes"]) or record["verified_media_count"]:
             raise ValueError("media served while every RPC endpoint is down")
     else:
-        if viewers <= 50 or scenario == "rpc_primary_down":
+        if viewers <= CAPACITY_TIER_VIEWERS or scenario not in CAPACITY_SCENARIOS:
             if successes / (successes + errors) < .99:
                 raise ValueError("success rate below 99%, including every authentication and service error")
         elif any(status not in ("200", "206", "429", "transport_error") and not re.fullmatch(r"5[0-9]{2}", status) for status in statuses):

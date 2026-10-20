@@ -137,6 +137,37 @@ class ProtocolTests(unittest.TestCase):
         record["finished_at"] = "2026-10-19T01:00:29.998970Z"
         validate_result(record, "a" * 40, "b" * 40)
 
+    def distributed(self, scenario, viewers, successes, errors, aborted, statuses):
+        """A record whose per-viewer rows add up to the given totals."""
+        record = self.record(scenario, viewers=viewers)
+        def spread(total):
+            base, extra = divmod(total, viewers)
+            return [base + (1 if i < extra else 0) for i in range(viewers)]
+        rows = []
+        for i, (s, e, a) in enumerate(zip(spread(successes), spread(errors), spread(aborted))):
+            rows.append({"viewer_id": i, "success_count": s, "error_count": e,
+                         "aborted_count": a, "verified_media_count": s})
+        record["viewer_samples"] = rows
+        record["success_count"], record["error_count"] = successes, errors
+        record["aborted_count"], record["verified_media_count"] = aborted, successes
+        record["total_bytes"] = successes * 100
+        record["http_statuses"] = dict(statuses)
+        return record
+
+    def test_fallback_takes_the_same_tiers_as_the_healthy_scenarios(self):
+        # The harness and this checker must not disagree about which scenario
+        # gets which bar: ≥99% at 50 viewers, the capacity exploration above it.
+        # Both measured rows below are real (round failures of the matrix).
+        short = self.distributed("rpc_primary_down", 50, 566, 16, 0, {"200": 566, "503": 16})
+        with self.assertRaisesRegex(ValueError, "success rate below 99%"):
+            validate_result(short, "a" * 40, "b" * 40)
+        exploration = self.distributed("rpc_primary_down", 100, 1064, 23, 15,
+                                      {"200": 1064, "503": 23, "transport_error": 15})
+        validate_result(exploration, "a" * 40, "b" * 40)
+        denied = self.distributed("rpc_primary_down", 100, 1064, 24, 0, {"200": 1064, "503": 23, "403": 1})
+        with self.assertRaisesRegex(ValueError, "correctness failure"):
+            validate_result(denied, "a" * 40, "b" * 40)
+
     def test_capacity_requires_observable_overload(self):
         record = self.record(viewers=100)
         record["error_count"] = 20; record["viewer_samples"][0]["error_count"] = 20; record["http_statuses"]["429"] = 20
