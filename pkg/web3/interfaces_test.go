@@ -2,6 +2,7 @@ package web3
 
 import (
 	"context"
+	"math/big"
 	"testing"
 	"time"
 
@@ -239,4 +240,8 @@ func (s *stubEventReaderForInterfaces) BlockNumber(_ context.Context) (uint64, e
 
 func (s *stubEventReaderForInterfaces) FilterLogs(_ context.Context, _ ethereum.FilterQuery) ([]types.Log, error) {
 	return nil, nil
+}
+
+func (s *stubEventReaderForInterfaces) HeaderByNumber(_ context.Context, n *big.Int) (*types.Header, error) {
+	return &types.Header{Number: new(big.Int).Set(n)}, nil
 }

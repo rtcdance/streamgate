@@ -39,16 +39,25 @@ type JournalBlock struct {
 // a bounded block journal supports common-ancestor rollback on reorg.
 type DurableEventStore interface {
 	EventStore
-	// SaveBatch atomically persists the batch events and advances the
-	// checkpoint for (chainID, filterKey). Any failure leaves both untouched.
-	SaveBatch(ctx context.Context, chainID int64, filterKey string, events []*IndexedEvent, endBlock uint64, endBlockHash string) error
+	// SaveBatch atomically persists the batch events, the block journal and
+	// the new checkpoint for (chainID, filterKey) in ONE transaction: a
+	// journal failure is a batch failure, so the cursor can never advance
+	// past blocks whose hashes are not durably journaled next to it.
+	// endBlockHash is the REAL hash of endBlock and is refused when empty:
+	// it is the anchor later polls verify against the chain.
+	SaveBatch(ctx context.Context, chainID int64, filterKey string, events []*IndexedEvent, endBlock uint64, endBlockHash string, journal []JournalBlock, keepDepth int) error
 	// LoadScopedCheckpoint returns the last committed block for the filter.
 	LoadScopedCheckpoint(ctx context.Context, chainID int64, filterKey string) (uint64, error)
+	// LoadScopedCheckpointAnchor returns the last committed block and the
+	// canonical hash it was committed with, so every poll can verify the
+	// cursor still matches the chain before trusting it.
+	LoadScopedCheckpointAnchor(ctx context.Context, chainID int64, filterKey string) (uint64, string, error)
 	// InitializeScopedCheckpoint persists a fresh start before subscription and
 	// returns any existing cursor unchanged, including a valid genesis cursor.
 	InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64) (uint64, error)
-	// RollbackScopedCheckpoint moves the checkpoint back after a reorg.
-	RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64) error
+	// RollbackScopedCheckpoint moves the checkpoint back after a reorg and
+	// re-anchors it to the common ancestor's hash.
+	RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64, toBlockHash string) error
 	// SaveBlockJournal appends journaled block hashes, keeping only the newest
 	// keepDepth entries for the chain.
 	SaveBlockJournal(ctx context.Context, chainID int64, blocks []JournalBlock, keepDepth int) error
@@ -84,10 +93,15 @@ func (s *PostgresEventStore) SaveEvent(event *IndexedEvent) error {
 	return nil
 }
 
-// SaveBatch commits the whole batch's events and the new checkpoint in ONE
-// transaction (SG-13 B.2): a mid-batch failure rolls everything back and the
-// cursor stays where it was.
-func (s *PostgresEventStore) SaveBatch(ctx context.Context, chainID int64, filterKey string, events []*IndexedEvent, endBlock uint64, endBlockHash string) error {
+// SaveBatch commits the whole batch's events, its block journal and the new
+// checkpoint in ONE transaction (SG-13 B.2): a mid-batch failure rolls
+// everything back, the cursor stays where it was, and a batch can never commit
+// without the journal coverage that proves its ancestry. endBlockHash must be
+// the real chain hash of endBlock — it is the anchor later polls verify.
+func (s *PostgresEventStore) SaveBatch(ctx context.Context, chainID int64, filterKey string, events []*IndexedEvent, endBlock uint64, endBlockHash string, journal []JournalBlock, keepDepth int) error {
+	if endBlockHash == "" {
+		return fmt.Errorf("event store: batch checkpoint for block %d has no canonical anchor hash", endBlock)
+	}
 	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
 		for _, ev := range events {
 			if _, err := tx.ExecContext(ctx, `
@@ -100,6 +114,24 @@ func (s *PostgresEventStore) SaveBatch(ctx context.Context, chainID int64, filte
 				return fmt.Errorf("event store: batch event %s: %w", ev.ID, err)
 			}
 		}
+		// The journal is part of the batch commit, not a follow-up best effort:
+		// a reorg can only be rolled back to a provable ancestor when the
+		// ancestor's hash was durable BEFORE the cursor moved. A re-written
+		// height replaces the recorded hash (the previous block at that number
+		// was reorged away) and revives the entry.
+		for _, b := range journal {
+			if b.Hash == "" {
+				return fmt.Errorf("event store: journal block %d has no hash", b.Number)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO event_block_journal (chain_id, block_number, block_hash)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (chain_id, block_number)
+				DO UPDATE SET block_hash = EXCLUDED.block_hash, orphaned = FALSE`,
+				chainID, int64(b.Number), b.Hash); err != nil {
+				return fmt.Errorf("event store: journal block %d: %w", b.Number, err)
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO event_checkpoints (chain_id, filter_key, block_number, block_hash)
 			VALUES ($1, $2, $3, $4)
@@ -108,8 +140,25 @@ func (s *PostgresEventStore) SaveBatch(ctx context.Context, chainID int64, filte
 			chainID, filterKey, int64(endBlock), endBlockHash); err != nil {
 			return fmt.Errorf("event store: batch checkpoint: %w", err)
 		}
-		return nil
+		return trimJournalTx(ctx, tx, chainID, keepDepth)
 	})
+}
+
+// LoadScopedCheckpointAnchor returns the committed cursor and the canonical
+// hash it was committed with (empty for a cursor that predates anchoring), so
+// every poll can verify the cursor still matches the chain before trusting it.
+func (s *PostgresEventStore) LoadScopedCheckpointAnchor(ctx context.Context, chainID int64, filterKey string) (block uint64, hash string, err error) {
+	var n int64
+	err = s.db.QueryRow(ctx,
+		`SELECT block_number, block_hash FROM event_checkpoints WHERE chain_id = $1 AND filter_key = $2`,
+		chainID, filterKey).Scan(&n, &hash)
+	if err == sql.ErrNoRows {
+		return 0, "", nil
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("event store: load checkpoint anchor: %w", err)
+	}
+	return uint64(n), hash, nil
 }
 
 func (s *PostgresEventStore) LoadScopedCheckpoint(ctx context.Context, chainID int64, filterKey string) (uint64, error) {
@@ -146,11 +195,29 @@ func (s *PostgresEventStore) InitializeScopedCheckpoint(ctx context.Context, cha
 	return uint64(cursor), nil
 }
 
-func (s *PostgresEventStore) RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64) error {
+// RollbackScopedCheckpoint moves the checkpoint back after a reorg and
+// re-anchors it to the common ancestor's real hash, so the next anchor
+// verification compares against the chain at the rewound height.
+func (s *PostgresEventStore) RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64, toBlockHash string) error {
+	if toBlockHash == "" {
+		return fmt.Errorf("event store: rollback to block %d without an anchor hash", toBlock)
+	}
 	_, err := s.db.Exec(ctx,
-		`UPDATE event_checkpoints SET block_number = $3, updated_at = NOW() WHERE chain_id = $1 AND filter_key = $2`,
-		chainID, filterKey, int64(toBlock))
+		`UPDATE event_checkpoints SET block_number = $3, block_hash = $4, updated_at = NOW() WHERE chain_id = $1 AND filter_key = $2`,
+		chainID, filterKey, int64(toBlock), toBlockHash)
 	return err
+}
+
+// trimJournalTx keeps only the newest keepDepth journaled blocks of the chain.
+func trimJournalTx(ctx context.Context, tx *sql.Tx, chainID int64, keepDepth int) error {
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM event_block_journal j
+		WHERE j.chain_id = $1 AND j.block_number < (
+			SELECT MAX(block_number) - $2 FROM event_block_journal WHERE chain_id = $1)`,
+		chainID, keepDepth); err != nil {
+		return fmt.Errorf("event store: trim journal: %w", err)
+	}
+	return nil
 }
 
 func (s *PostgresEventStore) SaveBlockJournal(ctx context.Context, chainID int64, blocks []JournalBlock, keepDepth int) error {
@@ -159,22 +226,19 @@ func (s *PostgresEventStore) SaveBlockJournal(ctx context.Context, chainID int64
 	}
 	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
 		for _, b := range blocks {
+			if b.Hash == "" {
+				return fmt.Errorf("event store: journal block %d has no hash", b.Number)
+			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO event_block_journal (chain_id, block_number, block_hash)
-				VALUES ($1, $2, $3) ON CONFLICT (chain_id, block_number) DO NOTHING`,
+				VALUES ($1, $2, $3)
+				ON CONFLICT (chain_id, block_number)
+				DO UPDATE SET block_hash = EXCLUDED.block_hash, orphaned = FALSE`,
 				chainID, int64(b.Number), b.Hash); err != nil {
 				return fmt.Errorf("event store: journal block %d: %w", b.Number, err)
 			}
 		}
-		// Trim to the newest keepDepth entries so the journal stays bounded.
-		if _, err := tx.ExecContext(ctx, `
-			DELETE FROM event_block_journal j
-			WHERE j.chain_id = $1 AND j.block_number < (
-				SELECT MAX(block_number) - $2 FROM event_block_journal WHERE chain_id = $1)`,
-			chainID, keepDepth); err != nil {
-			return fmt.Errorf("event store: trim journal: %w", err)
-		}
-		return nil
+		return trimJournalTx(ctx, tx, chainID, keepDepth)
 	})
 }
 

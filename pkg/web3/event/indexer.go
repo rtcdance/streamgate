@@ -31,6 +31,7 @@ type ReorgChecker interface {
 type EventReader interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	HeaderByNumber(ctx context.Context, blockNumber *big.Int) (*types.Header, error)
 }
 
 //go:generate mockgen -destination=../mocks/mock_event_reader.go -package=mocks streamgate/pkg/web3/event EventReader
@@ -527,6 +528,32 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 	confirmationBlocks := ei.confirmationBlocks
 	ei.mu.RUnlock()
 
+	// Every poll verifies the committed cursor's canonical anchor BEFORE it
+	// trusts the cursor (SG-13 M7): a same-height reorg replaces the cursor
+	// block without producing new blocks, so the "nothing new to index" path
+	// below used to walk past the reorg forever. A failed verification blocks
+	// this poll — the cursor is never advanced on unverifiable state.
+	reorged, err := ei.cursorAnchorReorged(ctx)
+	if err != nil {
+		ei.logger.Error("Cannot verify the cursor anchor, refusing to index", zap.Error(err))
+		return err
+	}
+	if reorged {
+		ei.logger.Warn("Cursor anchor is no longer canonical: rolling back to the journaled ancestor")
+		ds, ok := ei.durableStore()
+		if !ok {
+			return fmt.Errorf("cursor anchor mismatch without a durable journal")
+		}
+		if err := ei.rollbackToCommonAncestor(ctx, ds); err != nil {
+			ei.paused.Store(true)
+			return err
+		}
+		ei.paused.Store(false)
+		ei.mu.RLock()
+		currentBlock = ei.currentBlock
+		ei.mu.RUnlock()
+	}
+
 	latestBlock, err := ei.client.BlockNumber(ctx)
 	if err != nil {
 		ei.logger.Error("Failed to get latest block number", zap.Error(err))
@@ -621,6 +648,41 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 	return nil
 }
 
+// durableStore reports the durable extension of the configured store.
+func (ei *EventIndexer) durableStore() (DurableEventStore, bool) {
+	ei.mu.RLock()
+	defer ei.mu.RUnlock()
+	ds, ok := ei.store.(DurableEventStore)
+	return ds, ok
+}
+
+// cursorAnchorReorged verifies the committed cursor still points at a
+// canonical block: the checkpoint carries the hash it was committed with and
+// the chain must still agree at that height. An empty anchor (a cursor that
+// predates anchoring) verifies nothing and is reported as intact; an
+// unverifiable anchor is an error, never a pass. Without a reorg detector the
+// deployment has no reorg machinery at all (the legacy optional-detector
+// contract) and there is nothing to verify or roll back with.
+func (ei *EventIndexer) cursorAnchorReorged(ctx context.Context) (bool, error) {
+	ei.mu.RLock()
+	ds, ok := ei.store.(DurableEventStore)
+	chainID := ei.chainID
+	filterKey := ei.filterKey()
+	rd := ei.reorgDetector
+	ei.mu.RUnlock()
+	if !ok || rd == nil {
+		return false, nil
+	}
+	block, hash, err := ds.LoadScopedCheckpointAnchor(ctx, chainID, filterKey)
+	if err != nil {
+		return false, err
+	}
+	if hash == "" {
+		return false, nil
+	}
+	return rd.CheckReorg(ctx, block, common.HexToHash(hash))
+}
+
 const indexBatchSize uint64 = 100
 
 // journalDepth bounds how far back the block-hash journal can prove a common
@@ -666,27 +728,29 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 			events = append(events, ei.logToEvent(&logs[i]))
 		}
 
-		// The batch must be all-or-nothing: persist events AND checkpoint
-		// together, and only advance the cursor / dispatch events after the
-		// commit succeeded — a failed batch can never move the cursor forward.
+		// The batch must be all-or-nothing: persist events, the block journal
+		// and the checkpoint together, and only advance the cursor / dispatch
+		// events after the commit succeeded — a failed batch (including a
+		// journal failure) can never move the cursor forward.
 		if ds, ok := store.(DurableEventStore); ok {
-			endBlockHash := ""
-			if len(logs) > 0 {
-				endBlockHash = logs[len(logs)-1].BlockHash.Hex()
-			}
-			// The batch is decoded and about to become the durable cursor: a
-			// crash here must leave the cursor where it was, so the next start
-			// replays these blocks instead of skipping them.
-			ei.arriveAt(ctx, "indexer.checkpoint_before_commit")
-			if err := ds.SaveBatch(ctx, chainID, ei.filterKey(), events, batchEnd, endBlockHash); err != nil {
-				ei.logger.Error("Failed to commit batch, cursor not advanced",
+			endBlockHash, journal, err := ei.batchJournal(ctx, logs, batchStart, batchEnd)
+			if err != nil {
+				ei.logger.Error("Cannot resolve the batch journal, cursor not advanced",
 					zap.Uint64("from_block", batchStart),
 					zap.Uint64("to_block", batchEnd),
 					zap.Error(err))
 				return err
 			}
-			if err := ds.SaveBlockJournal(ctx, chainID, journalBlocks(logs), journalDepth); err != nil {
-				ei.logger.Warn("Failed to record block journal", zap.Error(err))
+			// The batch is decoded and about to become the durable cursor: a
+			// crash here must leave the cursor where it was, so the next start
+			// replays these blocks instead of skipping them.
+			ei.arriveAt(ctx, "indexer.checkpoint_before_commit")
+			if err := ds.SaveBatch(ctx, chainID, ei.filterKey(), events, batchEnd, endBlockHash, journal, journalDepth); err != nil {
+				ei.logger.Error("Failed to commit batch, cursor not advanced",
+					zap.Uint64("from_block", batchStart),
+					zap.Uint64("to_block", batchEnd),
+					zap.Error(err))
+				return err
 			}
 		} else {
 			for _, event := range events {
@@ -731,21 +795,43 @@ func (ei *EventIndexer) indexRange(ctx context.Context, fromBlock, toBlock uint6
 	return nil
 }
 
-// journalBlocks dedupes the journaled hashes of a batch's logs by block
-// number, ascending.
-func journalBlocks(logs []types.Log) []JournalBlock {
-	byNumber := make(map[uint64]string, len(logs))
-	for _, l := range logs {
-		if _, ok := byNumber[l.BlockNumber]; !ok {
-			byNumber[l.BlockNumber] = l.BlockHash.Hex()
+// batchJournal resolves the batch's journal coverage in one place: the real
+// hash of every block in the newest journalDepth window (a reorg of depth
+// journalDepth must still find its common ancestor), plus every log-bearing
+// block of the batch, and the batch-end hash that anchors the checkpoint.
+// Log blocks carry their hashes for free; empty blocks in the window are
+// fetched by header.
+func (ei *EventIndexer) batchJournal(ctx context.Context, logs []types.Log, batchStart, batchEnd uint64) (string, []JournalBlock, error) {
+	hashByNumber := make(map[uint64]string, len(logs))
+	for i := range logs {
+		if _, ok := hashByNumber[logs[i].BlockNumber]; !ok {
+			hashByNumber[logs[i].BlockNumber] = logs[i].BlockHash.Hex()
 		}
 	}
-	blocks := make([]JournalBlock, 0, len(byNumber))
-	for n, h := range byNumber {
+	from := batchStart
+	if batchEnd >= journalDepth && batchEnd-journalDepth < from {
+		from = batchEnd - journalDepth
+	}
+	for n := from; n <= batchEnd; n++ {
+		if _, ok := hashByNumber[n]; ok {
+			continue
+		}
+		header, err := ei.client.HeaderByNumber(ctx, new(big.Int).SetUint64(n))
+		if err != nil {
+			return "", nil, fmt.Errorf("journal header for block %d: %w", n, err)
+		}
+		hashByNumber[n] = header.Hash().Hex()
+	}
+	blocks := make([]JournalBlock, 0, len(hashByNumber))
+	for n, h := range hashByNumber {
 		blocks = append(blocks, JournalBlock{Number: n, Hash: h})
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].Number < blocks[j].Number })
-	return blocks
+	endHash := hashByNumber[batchEnd]
+	if endHash == "" {
+		return "", nil, fmt.Errorf("batch end block %d has no journal hash", batchEnd)
+	}
+	return endHash, blocks, nil
 }
 
 // rollbackToCommonAncestor walks the journal newest-to-oldest until a block
@@ -800,7 +886,7 @@ func (ei *EventIndexer) rollbackToCommonAncestor(ctx context.Context, ds Durable
 	if err := ds.MarkJournalOrphaned(ctx, chainID, ancestor.Number); err != nil {
 		return fmt.Errorf("mark journal orphaned: %w", err)
 	}
-	if err := ds.RollbackScopedCheckpoint(ctx, chainID, filterKey, ancestor.Number); err != nil {
+	if err := ds.RollbackScopedCheckpoint(ctx, chainID, filterKey, ancestor.Number, ancestor.Hash); err != nil {
 		return fmt.Errorf("rollback scoped checkpoint: %w", err)
 	}
 	if err := ds.SaveCheckpoint(ei.contractAddress.Hex(), ancestor.Number); err != nil {
