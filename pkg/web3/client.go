@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"go.uber.org/zap"
 )
 
@@ -364,10 +366,11 @@ func (cc *ChainClient) connectAt(ctx context.Context, idx int) (*ethclient.Clien
 		zap.Int("rpc_endpoint", idx),
 		zap.Int64("chain_id", cc.chainID))
 
-	client, err := ethclient.Dial(rpcURL)
+	rpcClient, err := rpc.DialOptions(ctx, rpcURL, rpc.WithHTTPClient(newRPCHTTPClient()))
 	if err != nil {
 		return nil, nil, err
 	}
+	client := ethclient.NewClient(rpcClient)
 
 	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -447,6 +450,26 @@ func (cc *ChainClient) failover(exclude int) error {
 		lastErr = fmt.Errorf("no failover rpc available")
 	}
 	return lastErr
+}
+
+// rpcRequestTimeout bounds ONE RPC request end-to-end so a hung endpoint cannot
+// spend the caller's whole budget and leave the failover loop with nothing to
+// fail over to. geth builds its transport from a zero-value http.Client: no
+// overall timeout, and http.DefaultTransport's 30s CONNECT timeout. A dead
+// endpoint whose connect hangs therefore consumed the caller's entire budget —
+// measured in the perf matrix as a 30s manifest request answered 503 for a real
+// NFT holder, with the failover then running on an already cancelled context
+// ("context canceled"). The bound sits above observed RPC latency (50-viewer
+// fallback p95 ≈ 1.8s, 100-viewer request p95 ≈ 4.5s) and below the 30s budget
+// the streaming manifest path allows. It is a variable so the regression test
+// can drive this exact code path in milliseconds instead of seconds.
+var rpcRequestTimeout = 10 * time.Second
+
+// newRPCHTTPClient is the HTTP client geth's JSON-RPC transport uses. Only the
+// timeout is added; the transport is DefaultTransport's, so proxying, connection
+// pooling, HTTP/2 and the TLS handshake timeout are unchanged.
+func newRPCHTTPClient() *http.Client {
+	return &http.Client{Timeout: rpcRequestTimeout, Transport: http.DefaultTransport}
 }
 
 func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn func(*ethclient.Client) (T, error)) (T, error) {
