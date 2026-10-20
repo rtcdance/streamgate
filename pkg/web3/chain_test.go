@@ -106,6 +106,55 @@ func TestChainClient_FailoverOnBlockNumber(t *testing.T) {
 	assert.Equal(t, second.URL, client.rpcURL)
 }
 
+// A dead endpoint that HANGS — it accepts the request and never answers — must
+// not spend the caller's whole budget, because the failover loop then runs on an
+// already cancelled context and the read fails for a legitimate caller. This is
+// the perf matrix's `rpc_primary_down@100` failure: one manifest request took
+// the whole 30s budget against the stopped primary endpoint and answered 503 for
+// a real NFT holder, with the fallback reporting "context canceled" instead of
+// carrying the read.
+func TestChainClient_AHungEndpointCannotStarveTheFailover(t *testing.T) {
+	restore := rpcRequestTimeout
+	rpcRequestTimeout = 200 * time.Millisecond
+	defer func() { rpcRequestTimeout = restore }()
+
+	hung := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req rpcRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.Method == "eth_chainId" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x1"})
+			return
+		}
+		// Accept the connection, answer nothing: the client's own bound must end
+		// the attempt, not the caller's deadline.
+		<-r.Context().Done()
+	}))
+	defer hung.Close()
+
+	healthy := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
+		"eth_chainId":     chainIDHandler(1),
+		"eth_blockNumber": func(req rpcRequest) rpcResponse { return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: "0x64"} },
+	})
+	defer healthy.Close()
+
+	client, err := NewChainClientWithFallback([]string{hung.URL, healthy.URL}, 1, zap.NewNop())
+	require.NoError(t, err)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	blockNumber, err := client.GetBlockNumber(ctx)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err, "the same-chain fallback must carry the read")
+	assert.Equal(t, uint64(100), blockNumber)
+	assert.Equal(t, healthy.URL, client.rpcURL)
+	assert.Less(t, elapsed, time.Second, "the hung endpoint must not consume the caller's budget")
+}
+
 func TestChainClient_FailoverOnEthCall(t *testing.T) {
 	first := newRPCServer(t, map[string]func(req rpcRequest) rpcResponse{
 		"eth_chainId": chainIDHandler(11155111),
