@@ -59,13 +59,13 @@ func NewMemoryTranscodingQueue() *MemoryTranscodingQueue {
 // wakeWaiters broadcasts to cond from a goroutine that does not hold mu (the
 // ctx watcher, the Nak timer). A bare Broadcast can fire before the waiter
 // reaches cond.Wait — cond semantics make that a lost wakeup, and the waiter
-// then blocks forever, which used to hang StopWorker. Acquiring and releasing
-// mu first serializes against the waiter: it holds mu until cond.Wait
-// releases it, so by the time this gets the lock the waiter is registered and
-// the Broadcast cannot be lost.
+// then blocks forever, which used to hang StopWorker. Holding mu ACROSS the
+// Broadcast serializes against the waiter: the waiter holds mu until cond.Wait
+// releases it, so this cannot take the lock until the waiter is registered and
+// the Broadcast cannot be lost. No caller holds mu, so it cannot deadlock.
 func (q *MemoryTranscodingQueue) wakeWaiters() {
 	q.mu.Lock()
-	q.mu.Unlock()
+	defer q.mu.Unlock()
 	q.cond.Broadcast()
 }
 
