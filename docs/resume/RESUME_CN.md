@@ -21,7 +21,7 @@
 - **音视频**:FFmpeg ABR / HLS、真实 EXTINF playlist、Range/206、浏览器 hls.js 实播断言;iOS / Android 原生播放器内核
 - **后端**:Go、PostgreSQL(单语句事务 / advisory lock / outbox)、Redis(Lua 原子消费、有界证据缓存、会话 epoch)、NATS JetStream(重投递 / lease / 显式 DLQ)、MinIO / S3
 - **Web3**:EIP-191 / EIP-712 / SIWE、EIP-2 low-s、EIP-1271、ERC-721/1155 数量语义与 ERC-165 识别、safe/finalized 同区块证据、重组失效、链写幂等与 durable nonce
-- **安全工程**:fail-closed 授权、撤销上界推导(60+5+5=70s)、A/B 双钱包负例验收、TDD 安全回归
+- **安全工程**: fail-closed 授权、撤销上界推导(60+5+5=70s)、**HTTP/gRPC 双入口共用一套授权器与规则快照**(同 token_type 子句 / 同数量阈值 / 同区块锚)、A/B 双钱包负例验收、TDD 安全回归
 
 ## 项目经历
 
@@ -29,7 +29,7 @@
 
 主线:真实钱包签名 → 一次性挑战 → 服务端 NFT 规则 → 同区块持仓证据 → 60 秒播放能力 → 真实 HLS 播放 → 转移后权限失效 → RPC / Redis 故障与恢复。**AI 边界**:实现代码大部分由 AI 生成;本人拍板设计与验收标准、评审改动、定位修复失败用例——AI 的代码生成不等于"我独立设计实现"【待本人确认】。
 
-证据状态:已完成并有实测——SG-01~06、SG-10~12(架构 / 合约 / 媒体九步)、SG-13 A+B、SG-14(运维,备份恢复演练 17/17)、SG-07(性能,1/10/50/100 观众 × 3 重复各 100%、50 观众 1400/1400、100 观众容量档 2800/2800;故障矩阵 cold_cache/rpc_primary_down/rpc_all_down 实跑,全端点停时 0 放行 0 字节;同 runner 固定 reference 的 p95 回归门实测 ratio=1.029≤1.20,权威集合见计划 §8.16 H)。**远端 CI 已运行并全绿**——冻结候选 `ab172c2` 的同 SHA run 39005594931 为 55/55 jobs success、零 skip,含 SG-08 的 GitHub 侧同 digest CD(D 节点临时空卷部署 + 真 migration + 三类失败演练 + 回滚腿,计划 §8.16 K.2)。**未做**:生产 rollout(无 target / secrets / 授权)。
+证据状态:已完成并有实测——SG-01~06、SG-10~12(架构 / 合约 / 媒体九步)、SG-13 A+B(**含 HTTP/gRPC 双入口平价**)、SG-14(运维,备份恢复演练 17/17)、SG-07(性能,1/10/50/100 观众 × 3 重复各 100%、50 观众 1400/1400、100 观众容量档 2800/2800;故障矩阵 cold_cache/rpc_primary_down/rpc_all_down 实跑,全端点停时 0 放行 0 字节;同 runner 固定 reference 的 p95 回归门实测 ratio=1.029≤1.20,权威集合见计划 §8.16 H)。**远端 CI 已运行并全绿**——冻结候选 `ab172c2` 的同 SHA run 39005594931 为 55/55 jobs success、零 skip,含 SG-08 的 GitHub 侧同 digest CD(D 节点临时空卷部署 + 真 migration + 三类失败演练 + 回滚腿,计划 §8.16 K.2)。**未做**:生产 rollout(无 target / secrets / 授权)。
 
 **条目一:签名与资源授权**
 
@@ -38,6 +38,14 @@
 - **改动入口**:`pkg/storage/redis_challenge.go`、`pkg/service/gating/rule.go`(`CreateRuleForOwner` 单语句 owner 条件写)、`pkg/gateway/routes.go`(`DemoSignerAllowed`)、`pkg/middleware/`(token_type 白名单、iss/aud)、`pkg/web3/tx/nonce_ledger.go`。
 - **测量条件**:真实 Postgres 的 A/B 双钱包越权负例(7 例 0 skip);两实例同库 20×20 并发分配;fullchain 双部署模式验收。
 - **结果**:B 对 A 的规则写入 0 行(404/403 稳定区分);未开启时代签路由 404;`TestAcceptance_SharedNonceAuthority` 零重复——修复由真实验收 FAIL(mint receipt 缺失)驱动(`0756ea4`);`TestAcceptance_RegistryIdempotency` 20 并发仅 1 行、同 key 异 payload 409(`e859d13`)。
+
+**条目一续:授权入口不做两套(HTTP / gRPC)**
+
+- **问题**:gRPC `GetManifest` 用布尔持仓接口代替**数量阈值**判断,并把能力 TTL 硬编码成 2 分钟;HTTP 与 gRPC 各有一套授权逻辑,阈值、TTL、凭据规则都可能单边漂移。
+- **个人决策**【待本人确认】:两个入口共用**同一授权器与同一规则快照**——一次读取得规则 + 规则版本 + 权威读取时间,能力只能由该带封印的授权结果签发;gRPC 按**真实链上数量**执行 ERC-721/1155、token_id、min_balance 与 OR 规则,能力 TTL 用共享 60 秒策略(删掉硬编码的 2 分钟);同一请求同时带 access 与 capability 时钱包、会话、epoch 必须一致。
+- **改动入口**:`pkg/service/`(`ResolvePolicySnapshot` / `AuthorizePlayback`)、`pkg/gateway/grpc_server.go`、`test/grpcparity`、`scripts/fullchain-acceptance.sh` 第 9b 节。
+- **测量条件**:同一候选镜像的**两条部署腿**(monolith 与独立 `api-gateway`)各跑一遍 gRPC 平价节。
+- **结果**:真实持有者经 gRPC 取到 manifest,其中能力 `exp` 落在 60±5 秒,并以该段 URL **不带 `Authorization` 头**取到与受保护 HTTP 媒体**逐字节一致**的真实媒体;非持有者、真实数量不足(持有 1 要求 2 / 持有 2 要求 3)与双凭据冲突分别被 `PermissionDenied` 拒绝;两条腿各 71/71 PASS(`d0a9451`、`6178f11`)。该节还抓到一个真实缺陷:独立 `api-gateway` 入口漏把授权器交给 gRPC 服务,该模式下 gRPC 一律 `Internal` 失败关闭而 HTTP 正常(`d2f1d81`,此前只跑 monolith 看不出来)。
 
 **条目二:链状态、缓存与撤销**
 
