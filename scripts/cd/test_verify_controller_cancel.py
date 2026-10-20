@@ -107,7 +107,12 @@ elif args[:2] == ["context", "inspect"]:
                     time.sleep(0.01)
                 self.assertTrue(ready.exists(), "fake controller did not reach its observable running state")
                 process.send_signal(signal.SIGTERM)
-                self.assertEqual(process.wait(timeout=2), 143)
+                # The TERM chain forks several interpreter startups (cleanup's
+                # docker probes plus the fake client kill); on a busy container
+                # filesystem a single fake call alone can take hundreds of ms.
+                # The bound only has to exclude a hang, not measure latency —
+                # the killpg in finally is the real backstop.
+                self.assertEqual(process.wait(timeout=10), 143)
                 self.assertFalse((root / "artifacts/.private").exists(), "outer cancellation must remove private snapshots even when the child cannot run its trap")
                 self.assertFalse((root / "artifacts/perf-loader.test").exists())
                 self.assertFalse((root / "deploy/docker/monolith-linux").exists())
