@@ -1256,7 +1256,18 @@ stage_perf() {
       matrix_dir="${result_dir}/round-${rep}"
       [ "$scenario" = warm_cache ] || matrix_dir="${matrix_dir}/${scenario}"
       mkdir -p "$matrix_dir"
+      # The measured matrix stamps the CANDIDATE revision explicitly (both the
+      # workload identity and the harness identity) instead of letting the
+      # harness fall back to `git rev-parse HEAD`. That fallback is ambient
+      # state: any concurrent checkout in this worktree silently relabels the
+      # evidence, and the resource-identity gate then refuses rows whose api /
+      # worker containers carry the candidate revision while the recorded
+      # workload carries someone else's — observed as "api: runtime revision
+      # differs from the recorded workload" and a failed required scenario.
+      # perf_seed_and_pool pins the reference the same way; this is the
+      # candidate's equivalent.
       PERF_CONTENT_ID="$content_id" PERF_SETUP="$setup_flag" PERF_WALLETS="$pool_size" \
+      PERF_COMMIT="$VERIFY_SOURCE_REVISION" PERF_HARNESS_SHA="$VERIFY_SOURCE_REVISION" \
       PERF_WALLET_KEYS_FILE="$PERF_WALLET_KEYS_FILE" PERF_FIXTURE_HASH="$fixture_hash" \
       SCENARIO="$scenario" VIEWERS_LIST="$matrix_viewers" RESULT_DIR="$matrix_dir" \
       BASE_URL="http://localhost:${VERIFY_MONO_PORT}" bash scripts/perf-acceptance.sh \
