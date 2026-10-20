@@ -109,6 +109,15 @@ prepare_sampling() {
   active="$(compose exec -T postgres psql -U postgres -d streamgate -tAc "SELECT count(*) FROM transcoding_tasks WHERE status NOT IN ('completed','failed','cancelled')" | tr -d '[:space:]')" || die "cannot verify the worker is idle"
   [ "$active" = 0 ] || die "playback samples must not overlap transcoding"
   if [ "$SCENARIO" = rpc_primary_down ]; then
+    # Restart at the barrier BEFORE the pre-fault snapshots and the injection:
+    # setup-phase RPC transients (paced wallet logins saturating the node) can
+    # migrate the active RPC slot to the fallback before the injected fault, so
+    # the sampling window would then observe zero failovers although the primary
+    # is down (observed in sg-all-1019-f round-1 @50: 6->6 flat). A process
+    # started at the barrier holds fresh RPC state — primary active, zero
+    # failover counter — so the injection deterministically produces the
+    # failover the gate must observe inside the sampling window.
+    restart_playback_api
     capture_rpc_status "$phase/before.rpc-status.json" || die "pre-fault RPC status snapshot failed"
   fi
   case "$SCENARIO" in
