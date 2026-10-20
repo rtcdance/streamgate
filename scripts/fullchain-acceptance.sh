@@ -102,7 +102,7 @@ login() {
 wait_for_manifest() {
     local want="$1" deadline=$((SECONDS + $2)) code=""
     while [ "$SECONDS" -lt "$deadline" ]; do
-        code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
+        code="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN_A" \
             "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8")"
         [ "$code" = "$want" ] && break
         sleep 2
@@ -1166,11 +1166,15 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$KEY_A" ]; then
     # holder and quietly turns the "non-holder is refused" check into a pass.
     transfer_ids() {
         local owner="$1" key="$2" to="$3"; shift 3
-        local moved=0
+        local moved=0 id err
         for id in $@; do
-            if cast send --rpc-url "$ANVIL_URL" --private-key "$key" "$DEMO_CONTRACT" \
-                'transferFrom(address,address,uint256)' "$owner" "$to" "$id" >/dev/null 2>&1; then
+            # A swallowed cast failure makes a missing transfer look like a gate
+            # denial downstream; surface the RPC error instead of dropping it.
+            if err="$(cast send --rpc-url "$ANVIL_URL" --private-key "$key" "$DEMO_CONTRACT" \
+                'transferFrom(address,address,uint256)' "$owner" "$to" "$id" 2>&1 >/dev/null)"; then
                 moved=$((moved + 1))
+            else
+                printf 'transfer of token %s failed: %s\n' "$id" "${err:-cast exited nonzero}" >&2
             fi
         done
         printf '%s' "$moved"
@@ -1235,6 +1239,11 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$KEY_A" ]; then
         # ...and transferring them back must restore access, which proves the
         # denial above came from the chain state and not from a broken gate.
         BACK_MOVED="$(transfer_ids "$WALLET_B" "$KEY_B" "$WALLET_A" $HELD_IDS)"
+        # A restore the RPC swallowed must not be reported as a gate denial:
+        # assert the tokens really moved before the manifest poll means anything.
+        if [ "$BACK_MOVED" != "$HELD_COUNT" ]; then
+            f "Transfer back did not land (moved=$BACK_MOVED/$HELD_COUNT) — not a gate result"
+        fi
         BACK_BLOCK="$(cast block-number --rpc-url "$ANVIL_URL" 2>/dev/null || echo 0)"
         advance_safe "$BACK_BLOCK" >/dev/null
         BACK="$(wait_for_manifest 200 15)"
