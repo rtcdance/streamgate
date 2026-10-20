@@ -208,6 +208,37 @@ class VerifyShellTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / "target").read_text(), target)
 
+    def test_candidate_matrix_stamps_the_candidate_revision(self):
+        # The measured matrix must not let the harness fall back to the ambient
+        # `git rev-parse HEAD`: a concurrent checkout in the worktree then
+        # relabels the evidence and the resource-identity gate refuses rows
+        # whose containers carry the candidate revision while the recorded
+        # workload carries another commit.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); revision = "c" * 40
+            seen = root / "stamped"
+            script = "\n".join([
+                "set -euo pipefail", "VERIFY_MODE=pr", "VERIFY_SOURCE_REVISION=" + revision,
+                "PROJECT_NAME=own-perf", "IMAGE_TAG=tool", "VERIFY_COMPOSE_FILE=unused", "PERF_WALLET_KEYS_FILE=unused",
+                "ARTIFACT_DIR=" + shlex.quote(directory), "LOG_DIR=" + shlex.quote(str(root / "logs")),
+                "VERIFY_MONO_PORT=1", "VERIFY_ANVIL_PORT=2", "VERIFY_MINIO_PORT=3",
+                "log() { :; }", 'fail() { echo "$*" >&2; exit 1; }',
+                "require_controller_tool() { :; }", "bring_up_fullstack() { :; }",
+                "wait_for_anvil_proxy() { :; }", "assert_two_chain_endpoints() { :; }",
+                "run_fullchain() { :; }", "perf_prepare_fixture() { :; }", "teardown_fullstack() { :; }",
+                "acceptance_failed_only_in_browser() { return 1; }",
+                'docker() { case "$*" in *"SELECT id FROM"*) echo 11111111-1111-4111-8111-111111111111 ;; *"SELECT file_hash"*) echo ' + ("e" * 64) + ' ;; *) : ;; esac; }',
+                'bash() { case "$*" in *perf-acceptance.sh*) printf "%s|%s" "${PERF_COMMIT:-missing}" "${PERF_HARNESS_SHA:-missing}" > '
+                + shlex.quote(str(seen)) + ' ;; esac; return 0; }',
+                'python3() { if [ "$1" = "-" ]; then command python3 "$@"; else return 0; fi; }',
+                function("perf_acceptance_config"), function("perf_acceptance_list"),
+                function("stage_perf"), "stage_perf",
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(seen.read_text(), revision + "|" + revision,
+                             "the measured matrix must stamp the candidate revision for both identities")
+
     def test_cleanup_removes_only_own_private_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); own = root / "own"; foreign = root / "foreign"
