@@ -57,6 +57,7 @@ class ProtocolTests(unittest.TestCase):
                 "content_id": "11111111-1111-4111-8111-111111111111", "quality": "640x360",
                 "pace_by_extinf": True, "warmup_sec": 10, "duration_sec": 30,
                 "started_at": "2026-10-19T01:00:00Z", "finished_at": "2026-10-19T01:00:30Z",
+                "sampling_seconds": 30.0,
                 "wallet_pool_size": viewers, "login_paced": True, "logins_failed": 0, "viewers": viewers,
                 "success_count": 0 if denied else viewers * 2, "error_count": viewers if denied else 0,
                 "aborted_count": 0, "total_bytes": 0 if denied else viewers * 100,
@@ -105,7 +106,9 @@ class ProtocolTests(unittest.TestCase):
                            ("fixture_hash", ""), ("media_hashes_sha256", ""), ("pace_by_extinf", False),
                            ("warmup_sec", 0), ("duration_sec", 1), ("wallet_pool_size", 0),
                            ("login_paced", False), ("logins_failed", 1), ("success_count", 0),
-                           ("verified_media_count", 0), ("media_hash_error_count", 1), ("http_statuses", {}), ("finished_at", "2026-10-19T01:00:01Z")]:
+                           ("verified_media_count", 0), ("media_hash_error_count", 1), ("http_statuses", {}),
+                           ("sampling_seconds", 1.0), ("sampling_seconds", None),
+                           ("finished_at", "2026-10-19T00:59:59Z")]:
             with self.subTest(key=key):
                 record = self.record(); record[key] = value
                 with self.assertRaises(ValueError): validate_result(record, "a" * 40, "b" * 40)
@@ -121,9 +124,18 @@ class ProtocolTests(unittest.TestCase):
 
     def test_sampling_window_cannot_be_even_fractionally_short(self):
         record = self.record("rpc_all_down")
-        record["finished_at"] = "2026-10-19T01:00:29.999720Z"
+        record["sampling_seconds"] = 29.999720
         with self.assertRaisesRegex(ValueError, "sampling interval"):
             validate_result(record, "a" * 40, "b" * 40)
+
+    def test_wall_clock_skew_does_not_shorten_the_sampled_window(self):
+        # Regression for a real failure: a platform that slews its wall clock
+        # made the recorded timestamps differ by 29.998970s for a 30s sampling
+        # deadline, which failed the reference evidence as if the run had been
+        # shortened. The sampler's own monotonic measure is the window.
+        record = self.record("rpc_all_down")
+        record["finished_at"] = "2026-10-19T01:00:29.998970Z"
+        validate_result(record, "a" * 40, "b" * 40)
 
     def test_capacity_requires_observable_overload(self):
         record = self.record(viewers=100)

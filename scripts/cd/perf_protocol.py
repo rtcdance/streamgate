@@ -87,9 +87,21 @@ def validate_result(record, target, harness):
         raise ValueError(f"playback protocol differs from {WARMUP_SECONDS}s warmup / {SAMPLE_SECONDS}s sampling / EXTINF pacing")
     if count(record["media_hash_error_count"]) != 0:
         raise ValueError("a media response failed independent hash verification")
-    elapsed = timestamp(record["finished_at"]) - timestamp(record["started_at"])
-    if not SAMPLE_SECONDS <= elapsed <= SAMPLE_SECONDS + 2:
+    # The window is the SAMPLER's own measure (monotonic, the clock the deadline
+    # is taken from). The wall-clock pair next to it is not a substitute: a
+    # platform that slews its wall clock makes their difference fractionally
+    # smaller than the window actually sampled, which failed an honest run here
+    # (29.998970s for a 30s deadline). The floor stays exact — a run may not be
+    # short by any amount.
+    sampled = record["sampling_seconds"]
+    if type(sampled) not in (float, int) or not math.isfinite(sampled):
+        raise ValueError("missing actual sampling interval")
+    if not SAMPLE_SECONDS <= sampled <= SAMPLE_SECONDS + 2:
         raise ValueError("actual sampling interval differs from protocol")
+    # The wall pair still has to be ordered, even though clock discipline can
+    # make its difference differ fractionally from the sampled window.
+    if timestamp(record["finished_at"]) < timestamp(record["started_at"]):
+        raise ValueError("the sampling window is recorded backwards")
     viewers = count(record["viewers"])
     if viewers not in VIEWERS or record["wallet_pool_size"] != viewers or record["login_paced"] is not True or record["logins_failed"] != 0:
         raise ValueError("missing independent, successfully logged-in viewer identities")
