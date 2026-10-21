@@ -150,7 +150,11 @@ class VerifyShellTests(unittest.TestCase):
         # Regression from sg-all-1021-final10: mktemp -d left the extracted
         # frontend at 0700 root, the unprivileged nginx worker answered 403 on
         # /demo/, and wait_health (which requires 200) failed the media stage
-        # with "H5 proxy did not become ready".
+        # with "H5 proxy did not become ready". function() stops at the nginx
+        # config heredoc's column-0 brace, so extract past the NGINX delimiter.
+        source = SOURCE.read_text()
+        start = source.index("start_h5_nginx() {")
+        body = source[start:source.index("\n}\n", source.index("\nNGINX\n", start)) + 2]
         with tempfile.TemporaryDirectory() as directory:
             script = '\n'.join([
                 'set -euo pipefail', 'log() { :; }', 'fail() { echo "$*" >&2; exit 1; }',
@@ -158,7 +162,7 @@ class VerifyShellTests(unittest.TestCase):
                 'VERIFY_PLATFORM=linux/amd64', 'VERIFY_IMAGE_PREFIX=pfx', 'PROJECT_NAME=proj',
                 'ensure_runtime_image() { :; }', 'wait_health() { :; }',
                 'docker() { case "$1" in create) echo cid ;; cp|rm|run) : ;; *) return 1 ;; esac; }',
-                function("start_h5_nginx"),
+                body,
                 'start_h5_nginx proj 33967',
             ])
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
