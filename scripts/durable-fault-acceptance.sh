@@ -1400,14 +1400,31 @@ m=re.search(r'0x[0-9a-fA-F]{64}', data)
 print(m.group(0).lower() if m else '')
 "
 }
-# chain_send <to> <signature> [args...] — one real signed transaction from the
-# controller, returning the hash the NODE computed for it. A failed send prints
-# its RPC error instead of being swallowed, so "no receipt" has a visible cause.
+# Mint sends go through a dedicated harness account, NOT KEY_A: KEY_A is also
+# the candidate's on-chain publisher key, and both racing for the same nonce
+# made the mint land-or-drop nondeterministic (observed twice on the dev box:
+# `transaction was not confirmed within the timeout` at nonce=18, while the
+# very next send through the same helper succeeded). Both demo mints are
+# permissionless (DemoNFT.mint / DemoERC1155.mint carry no access control), so
+# the sender is semantically irrelevant — the transfer must land in WALLET_A,
+# and it still does. erc1155_batch must stay on KEY_A (the token owner is the
+# sender) and keeps its single-send exposure to that race.
+KEY_MINT="0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"
+MINT_ADDR="$(cast wallet address --private-key "$KEY_MINT")"
+if [ "$MINT_ADDR" = "$WALLET_A" ] || [ "$MINT_ADDR" = "$WALLET_B" ]; then
+  printf 'FAIL: KEY_MINT must not collide with WALLET_A/WALLET_B\n' >&2
+  exit 1
+fi
+
+# chain_send <key> <to> <signature> [args...] — one real signed transaction
+# from the controller, returning the hash the NODE computed for it. A failed
+# send prints its RPC error instead of being swallowed, so "no receipt" has a
+# visible cause.
 chain_send() {
-  local to="$1" sig="$2"; shift 2
+  local key="$1" to="$2" sig="$3"; shift 3
   local err out rc=0 hash msg
   err="$(mktemp)"
-  out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$KEY_A" "$to" "$sig" "$@" 2>"$err")" || rc=$?
+  out="$(cast send --json --rpc-url "$ANVIL_URL" --private-key "$key" "$to" "$sig" "$@" 2>"$err")" || rc=$?
   hash="$(printf '%s' "$out" | tx_hash_of)"
   if [ -z "$hash" ]; then
     # cast 1.8.5 prints failures on STDOUT as {"success":false,"errors":[...]};
@@ -1426,10 +1443,10 @@ except Exception:
   rm -f "$err"
   printf '%s' "$hash"
 }
-erc721_mint() { chain_send "$DEMO_NFT" 'mint(address)' "$WALLET_A"; }
-erc1155_mint() { chain_send "${ERC1155_ADDR}" 'mint(address,uint256,uint256)' "$1" "$2" "$3"; }
+erc721_mint() { chain_send "$KEY_MINT" "$DEMO_NFT" 'mint(address)' "$WALLET_A"; }
+erc1155_mint() { chain_send "$KEY_MINT" "${ERC1155_ADDR}" 'mint(address,uint256,uint256)' "$1" "$2" "$3"; }
 erc1155_batch() {
-  chain_send "${ERC1155_ADDR}" 'safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)' \
+  chain_send "$KEY_A" "${ERC1155_ADDR}" 'safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)' \
     "$WALLET_A" "$WALLET_B" "[1,2]" "[1,3]" '0x'
 }
 
