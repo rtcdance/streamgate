@@ -293,7 +293,16 @@ stage_unit() {
     echo "== golangci-lint =="
     golangci-lint run ./...
     echo "== race tests + coverage (same gate as make test-ci and CI) =="
-    go test -race -covermode=atomic -coverprofile=/artifacts/coverage.out $(./scripts/ci-packages.sh)
+    # test/performance holds two wall-clock threshold tests (metrics collection
+    # < 100ms, rate limiting < 50ms per 10k checks) that measure single-thread
+    # latency; run in parallel with ~90 race packages they observe the
+    # contention, not the code (observed: 104ms/69ms and 181ms/76ms under host
+    # load, green at the same thresholds with -p 1). The thresholds stay
+    # unchanged — the measurement is serialized per package, the same way the
+    # CI self-checks are.
+    go test -race -covermode=atomic -coverprofile=/artifacts/coverage.out \
+      $(./scripts/ci-packages.sh | grep -v '^github.com/rtcdance/streamgate/test/performance$')
+    go test -race -count=1 -p 1 ./test/performance
     ./scripts/check-coverage.sh /artifacts/coverage.out "${COVERAGE_MIN:-60}"
     echo "== coverage gate self-test (the gate must be able to fail) =="
     bash scripts/check-coverage_test.sh
