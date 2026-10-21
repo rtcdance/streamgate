@@ -239,9 +239,10 @@ make test-ci                        # 60% coverage floor
 
 ## Must Not
 
-- 不把 host `make test` / `go test` 当验收；不把 Mac 当验收环境。
+- 不把 host `make test` / `go test` 当验收；不把 Mac 本机的 Go/Foundry 结果当验收（Docker 客户端流程见 §0.1）。
 - 不在 dirty tree 上跑 `VERIFY_STAGE=all`（脚本会拒绝，别绕过）。
 - 不在 SRS/ffmpeg 负载期跑 perf/release。
+- 不在 8GB Docker VM 上并发构建全部镜像（会 OOM）；按 §0.1 串行构建。
 - 不用 `pkill -f srs` / `pkill -f ffmpeg` 宽匹配；用 §3 的脚本。
 - 不停 nginx、`srs.ingest.obs.conf`、产品 `srsmedia`。
 - 不手改 `.verify-artifacts` 或把 host 结果混进证据。
