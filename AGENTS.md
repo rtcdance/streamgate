@@ -13,14 +13,21 @@
 
 Go-based NFT-gated streaming platform. Combines traditional high-concurrency architecture with blockchain permission control. Core flow: wallet sign-in → NFT verification → protected HLS streaming.
 
-## SKILLS
+## KNOWLEDGE ENTRY POINTS
 
-Canonical: `skills/INDEX.md` (tool-neutral). Read it before a matching task. `.claude/skills` and `.agents/skills` are pointers only. `CLAUDE.md` remains canonical for rules.
+Every AI tool starts from two root directories before a matching task:
+
+- **`memory/`** — long-term recall. Read `memory/README.md`, then `memory/60-collaboration.md` and the task-relevant file (charter, architecture, security invariants, decisions, operations, status, glossary). It is recall, not documentation or a plan; on conflict the code wins, then `CLAUDE.md`, then `TRANSITION_PLAN.md`.
+- **`skills/`** — reusable procedures. Read `skills/INDEX.md` and the matching `skills/<name>/SKILL.md`. This is the only skill catalog.
+
+Both are canonical at the repository root. `.claude/skills` and `.agents/skills` are pointers only. `CLAUDE.md` remains canonical for rules.
 
 ## STRUCTURE
 
 ```
 streamgate/
+├── memory/             # Long-term recall: charter, invariants, decisions, operations, status
+├── skills/             # Tool-neutral procedures; catalog in skills/INDEX.md
 ├── cmd/                # Entry points (1 monolith + 9 microservices)
 │   ├── monolith/       # Single binary (port 8080)
 │   └── microservices/  # api-gateway, auth, transcoder, streaming, upload,
@@ -49,6 +56,7 @@ streamgate/
 
 | Task | Location | Notes |
 |------|----------|-------|
+| Long-term recall | `memory/README.md` | charter, invariants, decisions, status snapshot |
 | Wallet sign-in | `pkg/service/auth_wallet.go` | EIP-191/712/SIWE, Solana ed25519 |
 | NFT verification | `pkg/web3/nft/` | ERC-721/1155, ERC-165 detection |
 | Transcoding | `pkg/service/transcoding/transcoding.go` | FFmpeg worker pipeline, HLS output |
@@ -69,7 +77,7 @@ streamgate/
 - **Comments**: Default is no comments; MUST comment security-sensitive operations (signature verification, replay protection, block-tag safety), complex regex, and third-party workarounds
 - **Testing**: testify for assertions; build tags (`anvil`, `testnet`) for chain-dependent tests; 60% coverage minimum (CI)
 - **Build / run / acceptance in Docker**: host targets are for fast local edits only; acceptance evidence comes from the Docker stack or CI, never a host build
-- **Documentation**: `TRANSITION_PLAN.md` is the **only** plan document. **NEVER** create temporary/process docs (review reports, handovers, status files, dated `*.md` scratch files) — durable conclusions go into `TRANSITION_PLAN.md`. Clean up generated artifacts when done (`bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`). Full rule in `CLAUDE.md` → Documentation.
+- **Documentation**: `TRANSITION_PLAN.md` is the **only** plan document; `memory/` holds long-term recall, not status reports. **NEVER** create temporary/process docs (review reports, handovers, status files, dated `*.md` scratch files) — durable conclusions go into `TRANSITION_PLAN.md`. Clean up generated artifacts when done (`bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`). Full rule in `CLAUDE.md` → Documentation.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
@@ -101,6 +109,7 @@ make k8s-deploy           # Deploy to Kubernetes
 
 ## NOTES
 
+- Every AI tool reads `memory/README.md` and `skills/INDEX.md` before a matching task
 - Docker dev/test stack: `docker-compose.fullchain.yml` (17 containers); ports, prerequisites and pitfalls live in `CLAUDE.md` → Docker dev/test environment / Known Pitfalls
 - Core flow (auth → NFT → streaming) is implemented end-to-end and pinned by regression tests
 - 11 build targets: 1 monolith + 9 microservices + cmd/learn, all compiled and runnable

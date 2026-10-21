@@ -1,6 +1,10 @@
 # StreamGate Skill Index
 
 > Canonical location: `skills/`. All AI tools must read this file before a matching task. Tool-specific directories (`.claude/skills`, `.agents/skills`) are pointers only.
+>
+> **Companion memory:** every task also starts at `memory/README.md`. Skills hold
+> procedures; memory holds the project's durable judgments. Both are canonical at
+> the repository root.
 
 ## Available Skills
 
@@ -24,6 +28,6 @@
 
 ## How To Apply
 
-- Pick the skills that match the task before coding.
+- Read `memory/README.md` and this file before a matching task; then pick the skills that match the task.
 - For acceptance, read `dev-machine-acceptance`; for remote execution, read `remote-dev-machine`.
 - Do not add authoritative skills under `.claude/`, `.agents/` or any other tool directory.

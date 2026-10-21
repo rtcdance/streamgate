@@ -9,12 +9,23 @@ NFT-gated streaming platform in Go. Core flow: **wallet sign-in → NFT ownershi
 
 Go 1.26 · Gin · go-ethereum + solana-go · PostgreSQL 15 · Redis 7 · MinIO/S3 · NATS · Consul · HLS/DASH via FFmpeg · Zap + Prometheus + OpenTelemetry · gRPC · Docker Compose + Kubernetes · testify + uber/mock
 
-## Project skills (tool-neutral)
+## Project knowledge (tool-neutral)
 
-- **Canonical location**: `skills/<name>/SKILL.md`; catalog: `skills/INDEX.md`.
-- Every AI tool must read `skills/INDEX.md` before a matching task. This is the only skill catalog.
-- `.claude/skills` and `.agents/skills` are pointers only; **do not add authoritative skills there**.
-- Acceptance: `dev-machine-acceptance`; remote execution: `remote-dev-machine`.
+**Every AI tool must start from these two root directories before a matching task.**
+
+- **`memory/`** — long-term recall: charter, architecture, security invariants,
+  decisions, operations, status, glossary. Read `memory/README.md`, then
+  `memory/60-collaboration.md` and the file matching the task. Memory is recall, not
+  documentation or a plan: on conflict the code wins, then this file, then
+  `TRANSITION_PLAN.md`.
+- **`skills/`** — reusable procedures. Read `skills/INDEX.md` and the matching
+  `skills/<name>/SKILL.md`. This is the only skill catalog.
+
+Both are canonical at the repository root. `.claude/skills` and `.agents/skills` are
+pointers only; **do not add authoritative content there**. Update `memory/` when a
+durable decision, invariant, operational fact or status changes — protocol in
+`memory/README.md`. Acceptance: `dev-machine-acceptance`; remote execution:
+`remote-dev-machine`.
 
 ## Commands
 
@@ -124,7 +135,7 @@ GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-g
 
 ### Documentation
 - `TRANSITION_PLAN.md` is the **only** plan document. **Never create process documents** — no review reports, handovers, status files or dated scratch `.md`. Durable conclusions go there.
-- Where content belongs: agent knowledge → this file / `AGENTS.md`; reusable procedures → `skills/`; evidence → a CI run id or commit hash; dependency changes → `DEPENDENCY_APPROVAL.md`; job material → `docs/resume/`.
+- Where content belongs: agent knowledge → this file / `AGENTS.md`; long-term recall → `memory/`; reusable procedures → `skills/`; evidence → a CI run id or commit hash; dependency changes → `DEPENDENCY_APPROVAL.md`; job material → `docs/resume/`.
 - Reference docs live under `docs/` — the map is `docs/README.md`. Superseded material goes to `docs/archive/` (frozen, not maintained); never add files at `docs/` root except `README.md` and `ARCHITECTURE.md`.
 - Clean up generated artifacts when done: `bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`. Do **not** delete `.workbuddy/`.
 - Before deleting or renaming a document, `grep -rn "<path>" --include="*.md" .` and repoint inbound links.
@@ -177,6 +188,10 @@ GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-g
 6. **Playback tokens are wallet-bound capabilities**, carrying an explicit `token_type` claim and minted only after the gate passes. HLS.js cannot send `Authorization` on media requests, so the token travels in the query string — middleware validates it cryptographically; its mere presence never grants access.
 
 ## For agents
+
+### Read order
+Start with `memory/README.md` and `skills/INDEX.md` (see **Project knowledge** above),
+then the core execution path below.
 
 ### Read exclusion
 `.claudeignore` is the single source of truth for what not to read. Don't restate that list here — duplicating it is what makes the two files disagree. Also skip `Makefile` and `README.md`: every command you need is above, and `README.md` is written for human visitors.
