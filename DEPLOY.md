@@ -318,11 +318,11 @@ lsof -i :18080              # 找占用 18080 的进程
 
 ## 8. 深入参考
 
-- **架构细节**:`docs/ARCHITECTURE_GUIDE.md`
-- **微服务深入**:`docs/advanced/DEPLOYMENT_STRATEGIES.md`
+- **架构细节**:`docs/ARCHITECTURE.md`
+- **微服务深入**:`docs/architecture/microservices.md`
 - **生产部署 (K8s)**:`deploy/k8s/`
-- **故障排查**:`docs/advanced/OPERATIONAL_EXCELLENCE.md`
-- **Web3 集成**:`docs/web3-faq.md`
+- **故障排查**:`docs/operations/troubleshooting-guide.md`
+- **Web3 集成**:`docs/development/web3-integration-guide.md`
 
 ---
 

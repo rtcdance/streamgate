@@ -19,7 +19,7 @@ Between January 2025 and June 2026, the observability stack was simplified:
 | OpenTelemetry collector | Deployed | **REMOVED** |
 | `/metrics` endpoint (Prometheus text) | Exposed, scraped | Exposed, **NOT scraped** |
 | `/health`, `/ready`, `/health/live` | Exposed | Exposed, still used |
-| h5-demo as manual health check | Existed | Expanded (see [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md)) |
+| h5-demo as manual health check | Existed | Expanded (see [DASHBOARD_GUIDE.md](dashboard-guide.md)) |
 | `verify-deploy.sh` 8-point check | Did not exist | Added 2026-06 |
 | `fullchain-acceptance.sh` 11-step API check | Existed (different impl) | Rewritten 2026-06 |
 
@@ -76,7 +76,7 @@ The current observability workflow is:
    - Streaming manifest with auth
    - Transcode submit/status/tasks/profiles
    - Metrics endpoint
-4. **h5-demo 7-step manual flow** — see [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md)
+4. **h5-demo 7-step manual flow** — see [DASHBOARD_GUIDE.md](dashboard-guide.md)
 
 ---
 
@@ -199,7 +199,7 @@ For interview/demo purposes, the current state is sufficient. For production, it
 
 - [operations/monitoring.md](../operations/monitoring.md) — detailed current monitoring endpoints
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — system overview
-- [advanced/OPERATIONAL_EXCELLENCE.md](../advanced/OPERATIONAL_EXCELLENCE.md) — incident response, runbooks
+- [advanced/OPERATIONAL_EXCELLENCE.md](../operations/operational-excellence.md) — incident response, runbooks
 - [DEPLOY.md](../../DEPLOY.md) — deployment guide
 - [scripts/verify-deploy.sh](../../scripts/verify-deploy.sh) — 8-point automated check
 - [scripts/fullchain-acceptance.sh](../../scripts/fullchain-acceptance.sh) — 11-step API acceptance

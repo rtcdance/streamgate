@@ -19,7 +19,7 @@
 ### 1. Mock RPC Client
 
 ```go
-// internal/blockchain/mock_client.go
+// illustrative mock RPC client for unit tests
 package blockchain
 
 import (

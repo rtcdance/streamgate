@@ -16,13 +16,13 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 
 ### Development
 - **[Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md)** - Microkernel design, plugins, communication patterns
-- **[Testing Guide](TESTING_GUIDE.md)** - Unit, integration, E2E, and performance testing
+- **[Testing Guide](../../development/testing-guide.md)** - Unit, integration, E2E, and performance testing
 - **[Plugin Development](plugin-development.md)** - Creating custom plugins
 - **[Service Development](service-development.md)** - Building new services
 
 ### Deployment & Operations
 - **[Production Operations](PRODUCTION_OPERATIONS.md)** - Pre-deployment checklist, monitoring, incident response
-- **[Web3 Integration](web3-integration.md)** - NFT verification, multi-chain support
+- **[Web3 Integration](web3/integration.md)** - NFT verification, multi-chain support
 
 ## Guides by Role
 
@@ -34,7 +34,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 
 ### For Developers
 1. Read [Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md)
-2. Review [Testing Guide](TESTING_GUIDE.md)
+2. Review [Testing Guide](../../development/testing-guide.md)
 3. Check [Plugin Development](plugin-development.md)
 4. Study the code in `pkg/`
 
@@ -45,7 +45,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 4. Create runbooks for your environment
 
 ### For Web3 Integration
-1. Read [Web3 Integration](web3-integration.md)
+1. Read [Web3 Integration](web3/integration.md)
 2. Review examples in `examples/nft-verify-demo/`
 3. Test with testnet first
 4. Deploy to mainnet
@@ -137,7 +137,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 **Best For**: Developers adding new services
 
 ### Web3 Integration
-**File**: `web3-integration.md` (Coming soon)
+**File**: `web3/integration.md` (Coming soon)
 
 **Content**:
 - Web3 setup
@@ -159,7 +159,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 5. Read [Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md) - 2 hours
 
 ### Intermediate (2-4 weeks)
-1. Review [Testing Guide](TESTING_GUIDE.md) - 2 hours
+1. Review [Testing Guide](../../development/testing-guide.md) - 2 hours
 2. Write tests - 4 hours
 3. Read [Production Operations](PRODUCTION_OPERATIONS.md) - 2 hours
 4. Setup monitoring - 2 hours
@@ -184,7 +184,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 → [Architecture Deep Dive](ARCHITECTURE_DEEP_DIVE.md)
 
 ### Write Tests
-→ [Testing Guide](TESTING_GUIDE.md)
+→ [Testing Guide](../../development/testing-guide.md)
 
 ### Deploy to Production
 → [Production Operations - Deployment](PRODUCTION_OPERATIONS.md#deployment)
@@ -196,7 +196,7 @@ Comprehensive guides for StreamGate development, deployment, and operations.
 → [Production Operations - Incident Response](PRODUCTION_OPERATIONS.md#incident-response)
 
 ### Integrate Web3
-→ [Web3 Integration](web3-integration.md)
+→ [Web3 Integration](web3/integration.md)
 
 ### Create Custom Plugin
 → [Plugin Development](plugin-development.md)
@@ -242,18 +242,18 @@ curl http://localhost:3000  # Grafana
 |------|---------|
 | `README.md` | Project overview |
 | `QUICK_START.md` | Quick start guide |
-| `docs/api/API_DOCUMENTATION.md` | API reference |
-| `docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md` | Deployment guide |
-| `docs/operations/TROUBLESHOOTING_GUIDE.md` | Troubleshooting |
+| `docs/api/openapi.yaml` | API reference |
+| `docs/deployment/deployment-guide.md` | Deployment guide |
+| `docs/operations/troubleshooting-guide.md` | Troubleshooting |
 
 ## Support
 
 ### Getting Help
 
 1. **Check Documentation**
-   - [FAQ](../web3-faq.md)
-   - [Troubleshooting](../operations/TROUBLESHOOTING_GUIDE.md)
-   - [Examples](../../examples/)
+   - [FAQ](../../web3/faq.md)
+   - [Troubleshooting](../../operations/troubleshooting-guide.md)
+   - [Examples](../../../examples/)
 
 2. **Search Issues**
    - GitHub Issues

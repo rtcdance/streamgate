@@ -431,14 +431,11 @@ curl http://localhost:8080/ready
 ### Metrics
 
 ```bash
-# Prometheus
-curl http://localhost:9090/metrics
-
-# Jaeger UI
-open http://localhost:16686
+# Metrics (each service exposes its own)
+curl http://localhost:8080/metrics
 
 # Consul UI
-open http://localhost:8500
+open http://localhost:28500
 ```
 
 ## Troubleshooting

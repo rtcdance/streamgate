@@ -3,7 +3,7 @@
 > **Updated 2026-06-05** to reflect the simplified observability stack. The previous version (2025-01-28) was written when Prometheus + Grafana + Jaeger were deployed. **They have since been removed.** This file documents the current operational reality.
 >
 > **Last verified against**: `master` branch (commit `96beacf`)
-> **Cross-references**: [operations/monitoring.md](../operations/monitoring.md), [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md), [DEPLOY.md](../../DEPLOY.md)
+> **Cross-references**: [operations/monitoring.md](monitoring.md), [MONITORING_INFRASTRUCTURE.md](../development/monitoring-infrastructure.md), [DEPLOY.md](../../DEPLOY.md)
 
 ---
 
@@ -57,7 +57,7 @@ For production, these SLOs should be measured continuously via Prometheus + aler
 
 | Component | Status | Implementation |
 |-----------|--------|----------------|
-| Prometheus | Not deployed | See [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md) for setup |
+| Prometheus | Not deployed | See [MONITORING_INFRASTRUCTURE.md](../development/monitoring-infrastructure.md) for setup |
 | Grafana | Not deployed | Same as above |
 | Alertmanager | Not deployed | Same as above |
 | Jaeger tracing | Not deployed | Same as above |
@@ -303,7 +303,7 @@ Before deploying to production, complete this list:
 - [ ] Set `APP_DEBUG=false` in environment
 - [ ] Configure CORS to only allow your frontend domain
 - [ ] Set up PostgreSQL backups (cron + pg_dump)
-- [ ] Add Prometheus + Grafana (see [MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md))
+- [ ] Add Prometheus + Grafana (see [MONITORING_INFRASTRUCTURE.md](../development/monitoring-infrastructure.md))
 - [ ] Configure alert rules (P95 latency, error rate, disk usage)
 - [ ] Set up log aggregation (Loki or ELK)
 - [ ] Run `make validate-config` to check production config
@@ -316,8 +316,8 @@ Before deploying to production, complete this list:
 ## See also
 
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — system overview
-- [operations/monitoring.md](../operations/monitoring.md) — current monitoring endpoints
-- [development/MONITORING_INFRASTRUCTURE.md](../development/MONITORING_INFRASTRUCTURE.md) — full Prometheus + Grafana setup
+- [operations/monitoring.md](monitoring.md) — current monitoring endpoints
+- [development/MONITORING_INFRASTRUCTURE.md](../development/monitoring-infrastructure.md) — full Prometheus + Grafana setup
 - [DEPLOY.md](../../DEPLOY.md) — deployment guide
 - [scripts/verify-deploy.sh](../../scripts/verify-deploy.sh) — 8-point automated check
 - [scripts/fullchain-acceptance.sh](../../scripts/fullchain-acceptance.sh) — 11-step API acceptance

@@ -2342,11 +2342,11 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
               P1_INTERVIEW_SELF_INTRO.md MOCK_INTERVIEW_QUESTIONS.md \
               JOB_TARGETING_GUIDE.md RESUME_PROJECT_BLOCK.md \
               CHINESE_RESUME_TEMPLATE.md ENGLISH_RESUME_TEMPLATE.md; do
-       git show 0ded20a^:docs/$f > docs/_recovered/$f 2>/dev/null && echo "OK $f"
+       git show 0ded20a^:docs/$f > docs/resume/$f 2>/dev/null && echo "OK $f"
      done
      ```
   3. **评估质量**：逐个判断是"有实质内容"还是"AI 填充物"。**只保留有实质内容的。**
-- **验收判据**：`docs/_recovered/` 中每个文件都有一行质量判断（实质/填充）；填充物已删除
+- **验收判据**：`docs/resume/` 中每个文件都有一行质量判断（实质/填充）；填充物已删除
 
 ---
 
@@ -2628,19 +2628,19 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 ### [x] C0 简历初稿 v0（解锁第 3 周硬规则；2026-10-10 评审新增）
 
 - **依赖**：P0-3。**不依赖 B5**——初稿直接用附录 A.3 已核实的优势与 A1–A10 修复事实；B5 完成后在 C2 润色。
-- **步骤**：以 `docs/_recovered/` 的中英模板为起点，产出 `docs/resume/RESUME_CN.md` 与 `docs/resume/RESUME_EN.md`（**双语都要**——附录 C 的目标公司基本要求英文；个人信息留占位符）。
+- **步骤**：以 `docs/resume/` 的中英模板为起点，产出 `docs/resume/RESUME_CN.md` 与 `docs/resume/RESUME_EN.md`（**双语都要**——附录 C 的目标公司基本要求英文；个人信息留占位符）。
 - **验收判据**：两份简历成稿，内容纪律与 C2 相同（只写能现场证明的；不写 150K 行、覆盖率、微内核、10 微服务、v1.0.0-stable）。
 
 ### [x] C1 评估恢复的面试材料
 
 - **依赖**：P0-3
-- **验收判据**：`docs/_recovered/` 中只留有实质内容的文件
+- **验收判据**：`docs/resume/` 中只留有实质内容的文件
 
 ### [x] C2 产出简历（**这是解锁 J1 的前置**）
 
 - **依赖**：C0、C1、B5
 - **步骤**：
-  1. 以 C0 初稿为起点润色（模板源自 `docs/_recovered/` 中英模板），中英两份同步更新
+  1. 以 C0 初稿为起点润色（模板源自 `docs/resume/` 中英模板），中英两份同步更新
   2. **只写能现场证明的**。要写：6 年音视频 + 原生播放器（放最前）、ABR 转码流水线、EIP-191/712/SIWE 验签 + Redis Lua 原子防重放、`safe` block tag 重组处理
   3. **不要写**：150K 行、74.4% 覆盖率、"微内核架构"、"10 个微服务"、"v1.0.0-stable"
   4. 密钥分发（Track D-1）完成后补进简历
@@ -2650,7 +2650,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 
 - **依赖**：C2
 - **步骤**：
-  1. 基于 `docs/_recovered/P1_MEDIA_WEB3_INTERVIEW_GUIDE.md` 写 30 分钟讲述稿
+  1. 基于 `docs/resume/P1_MEDIA_WEB3_INTERVIEW_GUIDE.md` 写 30 分钟讲述稿
   2. **必须准备的 6 个问题**：
      - "怎么保证未持 NFT 的人拿不到视频？" → 先讲**你发现并修复的绕过**（A1–A10 就是你的证据）
      - "为什么不上链做门控？" → gas/延迟/可组合性权衡
@@ -2703,7 +2703,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
 ### [ ] D2 iOS SDK（服务于媒体 App 客户端方向）
 
 - **依赖**：D1
-- **文件**：以 `docs/superpowers/plans/2026-06-12-player-ios-sdk-optimization.md` 的 Task 10–12 为**模块边界与接口契约的起点**
+- **文件**：以 `docs/archive/superpowers/2026-06-12-player-ios-sdk-optimization.md` 的 Task 10–12 为**模块边界与接口契约的起点**
 - **⚠️ 重要提醒**：该文档 **iOS 部分只有 9 个 Swift 代码片段**；Task 12 是约 **40 行**状态机骨架，**没有** `AVPlayerItem` 状态观察、**没有** `.failed` 传播、**没有** token 刷新、**没有** AES 密钥；**Keychain 只出现在文件结构说明里，不在任务中**。  
   **执行 Task 10–12 只产出「能编译的包」，不是「能用的播放器」。** 剩余部分（Keychain、Demo App、钱包连接、密钥鉴权）需自己写。
 - **实际成本**：**15–25 天**（不是文档暗示的 7–10 天）

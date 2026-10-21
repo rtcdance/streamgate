@@ -1,6 +1,6 @@
 # StreamGate Production Runbook
 
-> For incident severity definitions (SEV-1~4), see `docs/advanced/OPERATIONAL_EXCELLENCE.md`.
+> For incident severity definitions (SEV-1~4), see `docs/operations/operational-excellence.md`.
 
 ## Index
 
@@ -92,10 +92,10 @@ If disk corruption is suspected → restore from WAL archive backup (see `docs/o
 ## 2. RPC Provider Failover
 
 ### Symptoms
-- Prometheus `SLORPCFailoverCritical` alert
+- `/metrics` shows the RPC error rate climbing (nothing scrapes it in the current stack)
 - Error logs: `rpc timeout`, `connection refused` for RPC calls
 - Users report: NFT verification fails, wallet login times out
-- Grafana panel "RPC Failover Rate" shows spikes
+- Logs show repeated provider failover
 
 ### Sev
 SEV-1 if all RPC providers are down (no NFT verification possible). SEV-2 if primary degrades but failover works.
@@ -339,9 +339,9 @@ kubectl patch deploy/<name> -n production -p '{
 ## 6. High Latency Degradation
 
 ### Symptoms
-- `SLOP99LatencyWarning` or `SLOP99LatencyCritical` alerts
+- SLO thresholds breached (see [slo.md](slo.md)) — no automatic alerting is wired
 - User reports slow page loads or video buffering
-- Grafana: P99 latencies above 2000ms
+- `/metrics` histogram shows P99 above 2000ms
 
 ### Sev
 SEV-2 if P95 > 2s. SEV-3 if only P99 affected.
@@ -409,7 +409,7 @@ curl -s http://localhost:8080/metrics | grep streamgate_rpc_latency_seconds
 
 - **Users affected**: [count or percentage]
 - **Requests failed**: [count]
-- **Error budget consumed**: [% — see docs/SLO.md]
+- **Error budget consumed**: [% — see docs/operations/slo.md]
 - **RPC costs incurred**: [estimated cost]
 
 ## Action Items

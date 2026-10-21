@@ -218,4 +218,4 @@ The auto-mint feature is available on steps 2-3. After minting, proceed to NFT v
 - [DEPLOY.md](../../DEPLOY.md) - Deployment instructions for all modes
 - [architecture/data-flow.md](../architecture/data-flow.md) - Auth, NFT, streaming data flow
 - [ARCHITECTURE.md](../ARCHITECTURE.md) - System architecture overview
-- [docs/development/MONITORING_INFRASTRUCTURE.md](MONITORING_INFRASTRUCTURE.md) - Current observability state
+- [docs/development/monitoring-infrastructure.md](monitoring-infrastructure.md) - Current observability state

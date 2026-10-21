@@ -243,9 +243,9 @@ config/prometheus.yml
 
 ## 📚 详细文档
 
-- **[cmd/README.md](../cmd/README.md)** - 部署模式详解
+- **[cmd/README.md](../../cmd/README.md)** - 部署模式详解
 - **[deployment-architecture.md](deployment-architecture.md)** - 架构和设计
-- **[README.md](../../README.md)** - 项目主文档
+- **[README.md](../../../README.md)** - 项目主文档
 
 ## 🆘 常见问题
 

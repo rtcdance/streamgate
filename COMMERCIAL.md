@@ -29,7 +29,7 @@ StreamGate is MIT-licensed open source. Below is the commercial model.
 
 ## Contact
 
-For commercial inquiries: see [README Contact section](../README.md#-contact--community)
+For commercial inquiries: see [README Contact section](README.md#-contact--community)
 
 ## FAQ
 

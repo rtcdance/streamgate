@@ -1,11 +1,9 @@
-# StreamGate API Documentation
+# API Reference
 
 | Document | Status | Description |
 |----------|--------|-------------|
-| [REST API Documentation](API_DOCUMENTATION.md) | ✅ Complete | Full REST API with curl examples |
-| [OpenAPI 3.0 Spec](openapi.yaml) | ✅ Complete | Machine-readable API spec (1105 lines) |
-| gRPC API | 🚧 Coming soon | Proto definitions in `proto/` directory |
-| WebSocket API | 🚧 Coming soon | Streaming event subscription docs |
+| [openapi.yaml](openapi.yaml) | Canonical | OpenAPI 3.0 spec — source of truth for all HTTP endpoints |
+| Swagger UI | `/docs` | Renders the spec; registered only when `app.debug=true` |
+| gRPC | `proto/v1/` | Proto definitions; no generated reference document |
 
-For now, the [OpenAPI spec](openapi.yaml) is the single source of truth for all HTTP endpoints.
-gRPC methods can be referenced directly from the proto files in `proto/v1/`.
+The machine-readable spec is authoritative. It is served at `/docs/openapi.yaml` behind JWT (SG-14).

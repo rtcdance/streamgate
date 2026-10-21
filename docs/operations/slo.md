@@ -70,5 +70,5 @@ The following are intentionally excluded from availability calculations:
 ## Related Documents
 
 - `config/alerts/streamgate_alerts.yml` — existing threshold-based alerts
-- `docs/advanced/OPERATIONAL_EXCELLENCE.md` — incident severity definitions
+- `docs/operations/operational-excellence.md` — incident severity definitions
 - `test/README.md` — performance targets as tested in CI

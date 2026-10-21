@@ -2,7 +2,7 @@
 
 > **Token-gated video delivery.** Users prove NFT ownership to watch — no password, no piracy, no middleware.
 >
-> English: [Overview](#-project-overview) · [Quick Start](#quick-start) · [API Docs](docs/api/API_DOCUMENTATION.md)
+> English: [Overview](#-project-overview) · [Quick Start](#quick-start) · [API Docs](docs/api/openapi.yaml)
 >
 > 中文: [一句话介绍](#-一句话介绍) · [快速开始](#quick-start)
 

@@ -3,7 +3,7 @@
 > **Updated 2026-06-05** to reflect the dual-mode microkernel + plugin architecture. The previous version (2025-01-29) used pre-dual-mode terminology. This file preserves the deep-dive structure but updates content to match the current code.
 >
 > **Last verified against**: `master` branch (commit `96beacf`)
-> **Cross-references**: [ARCHITECTURE.md](../ARCHITECTURE.md), [architecture/microkernel.md](../architecture/microkernel.md), [architecture/microservices.md](../architecture/microservices.md)
+> **Cross-references**: [ARCHITECTURE.md](../../ARCHITECTURE.md), [architecture/microkernel.md](../../architecture/microkernel.md), [architecture/microservices.md](../../architecture/microservices.md)
 
 ---
 
@@ -344,8 +344,8 @@ Each circuit breaker has:
 
 ## See also
 
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — system overview
-- [architecture/microkernel.md](../architecture/microkernel.md) — plugin system deep-dive
-- [architecture/microservices.md](../architecture/microservices.md) — 9 services deep-dive
-- [architecture/data-flow.md](../architecture/data-flow.md) — auth, NFT, streaming, transcoding flows
-- [architecture/communication.md](../architecture/communication.md) — HTTP, gRPC, event bus
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — system overview
+- [architecture/microkernel.md](../../architecture/microkernel.md) — plugin system deep-dive
+- [architecture/microservices.md](../../architecture/microservices.md) — 9 services deep-dive
+- [architecture/data-flow.md](../../architecture/data-flow.md) — auth, NFT, streaming, transcoding flows
+- [architecture/communication.md](../../architecture/communication.md) — HTTP, gRPC, event bus

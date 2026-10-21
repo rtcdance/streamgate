@@ -343,7 +343,7 @@ The same code path through the codebase works in both modes. The only difference
 
 ### Why HLS (not DASH, not WebRTC)?
 
-HLS has the best browser support (Safari native, all others via hls.js), the simplest CDN model, and works with standard video players. DASH has better codec flexibility but worse Safari support. WebRTC is for real-time (low latency, no VOD use case here). See [web3-faq.md](../web3-faq.md) for streaming architecture details.
+HLS has the best browser support (Safari native, all others via hls.js), the simplest CDN model, and works with standard video players. DASH has better codec flexibility but worse Safari support. WebRTC is for real-time (low latency, no VOD use case here). See [web3/faq.md](web3/faq.md) for streaming architecture details.
 
 ---
 
@@ -377,13 +377,13 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 
 ## 10. What This Doc Does Not Cover
 
-- **Smart contracts** (Foundry, DemoNFT, TestNFT) — see [web3-faq.md](../web3-faq.md) and [docs/web3/](../web3/)
-- **Smart contract integration safety** — see [.codex/skills/smart-contract-integration-safety](../.codex/skills/smart-contract-integration-safety/SKILL.md)
-- **Detailed API reference** — see [docs/api/API_DOCUMENTATION.md](../api/API_DOCUMENTATION.md)
-- **Deployment operations** — see [DEPLOY.md](../../DEPLOY.md) and [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOYMENT_GUIDE.md)
-- **H5 demo features** — see [h5-demo/README.md](../../h5-demo/README.md)
-- **CI/CD** — see [.github/](../../.github/) workflows and [docs/development/GITHUB_CI_CD_GUIDE.md](../development/GITHUB_CI_CD_GUIDE.md)
-- **Interview prep** — see [AGENTS.md](../../AGENTS.md) (project knowledge base) and [README.md](../../README.md) (talking points: wallet sign-in → NFT verify → protected HLS)
+- **Smart contracts** (Foundry, DemoNFT, TestNFT) — see [web3/faq.md](web3/faq.md) and [web3/](web3/)
+- **Smart contract integration safety** — see [skills/INDEX.md](../skills/INDEX.md)
+- **API reference** — see [api/openapi.yaml](api/openapi.yaml) (served at `/docs/openapi.yaml`)
+- **Deployment operations** — see [DEPLOY.md](../DEPLOY.md) and [operations/runbook.md](operations/runbook.md)
+- **H5 demo features** — see [h5-demo/README.md](../h5-demo/README.md)
+- **CI/CD** — see [.github/](../.github/) workflows and [development/github-ci-cd-guide.md](development/github-ci-cd-guide.md)
+- **Interview prep** — see [AGENTS.md](../AGENTS.md) (project knowledge base) and [README.md](../README.md) (talking points: wallet sign-in → NFT verify → protected HLS)
 
 ---
 
@@ -396,4 +396,4 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 5. **8 microservice HTTP servers are untested in CI** — the per-service binaries (`cmd/microservices/{auth,cache,metadata,monitor,streaming,transcoder,upload,worker}/main.go`) may not have been run end-to-end.
 6. **ERC-4337 types are defined but not wired** — `pkg/web3/account_abstraction.go` exists but isn't called from any handler. P2 feature.
 
-See [docs/advanced/IMPLEMENTATION_ROADMAP.md](../advanced/IMPLEMENTATION_ROADMAP.md) for the prioritized tech debt list.
+See [archive/advanced/IMPLEMENTATION_ROADMAP.md](archive/advanced/IMPLEMENTATION_ROADMAP.md) for the historical tech-debt list; live status is tracked in `TRANSITION_PLAN.md`.

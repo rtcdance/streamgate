@@ -125,6 +125,7 @@ GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-g
 ### Documentation
 - `TRANSITION_PLAN.md` is the **only** plan document. **Never create process documents** — no review reports, handovers, status files or dated scratch `.md`. Durable conclusions go there.
 - Where content belongs: agent knowledge → this file / `AGENTS.md`; reusable procedures → `skills/`; evidence → a CI run id or commit hash; dependency changes → `DEPENDENCY_APPROVAL.md`; job material → `docs/resume/`.
+- Reference docs live under `docs/` — the map is `docs/README.md`. Superseded material goes to `docs/archive/` (frozen, not maintained); never add files at `docs/` root except `README.md` and `ARCHITECTURE.md`.
 - Clean up generated artifacts when done: `bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`. Do **not** delete `.workbuddy/`.
 - Before deleting or renaming a document, `grep -rn "<path>" --include="*.md" .` and repoint inbound links.
 

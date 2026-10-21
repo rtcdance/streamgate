@@ -303,7 +303,7 @@ kubectl port-forward svc/api-gateway 8080:8080 -n streamgate
 
 ### Cloud Deployment
 
-See [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOYMENT_GUIDE.md) for:
+See [docs/deployment/deployment-guide.md](../../deployment/deployment-guide.md) for:
 - AWS (ECS/EKS)
 - Google Cloud (GKE)
 - Azure (AKS)
@@ -313,9 +313,9 @@ See [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOY
 ### For Developers
 
 1. **Explore the Code**
-   - Review [README.md](../../README.md)
-   - Check [docs/architecture/](../architecture/)
-   - Study [pkg/](../../pkg/) structure
+   - Review [README.md](../../../README.md)
+   - Check [docs/architecture/](../../architecture/)
+   - Study [pkg/](../../../pkg/) structure
 
 2. **Run Tests**
    ```bash
@@ -325,7 +325,7 @@ See [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOY
 3. **Read Documentation**
    - [API Documentation](../api/API_DOCUMENTATION.md)
    - [Development Guide](../development/setup.md)
-   - [Web3 Integration](../web3-setup.md)
+   - [Web3 Integration](../../web3/setup.md)
 
 4. **Start Contributing**
    - Fork repository
@@ -335,7 +335,7 @@ See [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOY
 ### For DevOps
 
 1. **Setup Infrastructure**
-   - Review [Deployment Guide](../deployment/COMPLETE_DEPLOYMENT_GUIDE.md)
+   - Review [Deployment Guide](../../deployment/deployment-guide.md)
    - Choose deployment platform
    - Configure environment
 
@@ -345,19 +345,19 @@ See [docs/deployment/COMPLETE_DEPLOYMENT_GUIDE.md](../deployment/COMPLETE_DEPLOY
    - Configure alerts
 
 3. **Plan Operations**
-   - Review [Operations Guide](../operations/)
+   - Review [Operations Guide](../../operations/)
    - Setup backup strategy
    - Plan disaster recovery
 
 ### For Web3 Integration
 
 1. **Setup Web3 Environment**
-   - Follow [Web3 Setup Guide](../web3-setup.md)
+   - Follow [Web3 Setup Guide](../../web3/setup.md)
    - Configure RPC endpoints
    - Setup wallet
 
 2. **Integrate NFT Verification**
-   - Review [NFT Verification Example](../../examples/nft-verify-demo/)
+   - Review [NFT Verification Example](../../../examples/nft-verify-demo/)
    - Implement in your application
    - Test with testnet
 
@@ -461,16 +461,16 @@ curl -X POST http://localhost:8080/api/v1/auth/nonce \
 ## Resources
 
 ### Documentation
-- [README.md](../../README.md) - Project overview
+- [README.md](../../../README.md) - Project overview
 - [API Documentation](../api/API_DOCUMENTATION.md) - Complete API reference
-- [Deployment Guide](../deployment/COMPLETE_DEPLOYMENT_GUIDE.md) - Deployment options
-- [Troubleshooting Guide](../operations/TROUBLESHOOTING_GUIDE.md) - Common issues
+- [Deployment Guide](../../deployment/deployment-guide.md) - Deployment options
+- [Troubleshooting Guide](../../operations/TROUBLESHOOTING_GUIDE.md) - Common issues
 
 ### Examples
-- [NFT Verification](../../examples/nft-verify-demo/) - NFT verification example
-- [Signature Verification](../../examples/signature-verify-demo/) - Web3 login
-- [Streaming](../../examples/streaming-demo/) - Streaming example
-- [Upload](../../examples/upload-demo/) - Upload example
+- [NFT Verification](../../../examples/nft-verify-demo/) - NFT verification example
+- [Signature Verification](../../../examples/signature-verify-demo/) - Web3 login
+- [Streaming](../../../examples/streaming-demo/) - Streaming example
+- [Upload](../../../examples/upload-demo/) - Upload example
 
 ### Community
 - GitHub Issues: Report bugs and request features
@@ -482,9 +482,9 @@ curl -X POST http://localhost:8080/api/v1/auth/nonce \
 ### Getting Help
 
 1. **Check Documentation**
-   - [FAQ](../web3-faq.md)
-   - [Troubleshooting](../operations/TROUBLESHOOTING_GUIDE.md)
-   - [Examples](../../examples/)
+   - [FAQ](../../web3/faq.md)
+   - [Troubleshooting](../../operations/TROUBLESHOOTING_GUIDE.md)
+   - [Examples](../../../examples/)
 
 2. **Search Issues**
    - GitHub Issues
