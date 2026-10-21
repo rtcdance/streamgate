@@ -90,7 +90,7 @@ for f in Makefile docker-compose.fullchain.yml scripts/verify-docker.sh scripts/
   if [ -f "$f" ]; then pass "asset: $f"; else bad "asset missing: $f"; fi
 done
 for f in deploy/docker/streamgate-linux deploy/docker/api-gateway-linux; do
-  if [ -f "$f" ]; then pass "asset: $f"; else warnf "$f missing (fullchain-deploy COPYs it; build with GOOS=linux GOARCH=$(go env GOARCH 2>/dev/null || echo arm64)) "; fi
+  if [ -f "$f" ]; then pass "asset: $f"; else warnf "$f missing (fullchain-deploy COPYs it; build with GOOS=linux GOARCH=$(go env GOARCH 2>/dev/null || echo arm64))"; fi
 done
 [ -d contracts ] && pass "contracts/ present" || bad "contracts/ missing"
 [ -d migrations ] && pass "migrations: $(find migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ') SQL files" || bad "migrations/ missing"

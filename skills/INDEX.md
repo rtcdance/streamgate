@@ -5,7 +5,7 @@
 ## Available Skills
 
 0. `dev-machine-acceptance`
-   - Set up and verify the local Docker dev/test stack (`docker-compose.fullchain.yml`, 17 services).
+   - Set up and verify the local Docker dev/test stack (`docker-compose.fullchain.yml`, 17 containers).
    - Run StreamGate's Docker-first acceptance (`make verify-docker` stages, `fullchain-test`).
    - Check CPU/RAM/disk/toolchain/ports; stop SRS ABR when sharing the 118 dev box.
 

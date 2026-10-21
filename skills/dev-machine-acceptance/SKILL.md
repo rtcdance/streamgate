@@ -22,7 +22,7 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
 - **禁止**把 host 上的 `make test` / `go test` / `go build` 当作验收证据；它们只是快速预检。
 - **禁止**用 Mac 本机的 Go/Foundry 结果作为验收；Mac 可以作为 Docker 客户端驱动本机栈做功能验证，但性能与最终验收仍以 Linux/CI 为准（本机流程见 §0.1）。
 - `make verify-docker VERIFY_STAGE=all` 要求 **clean candidate**（无未提交/未跟踪改动），并且 `VERIFY_MODE=candidate`。
-- Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是验收前置。
+- `make verify-docker` 的 Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是它的前置。host-run 的 `fullchain-test` 另需 `cast`/`ffmpeg`/`python3`/`curl`（§0.1）。
 - 所有 stage 日志落在 `.verify-artifacts/logs/<stage>.log`。
 
 ## 0.1 本机 Docker 开发/测试环境（Docker Desktop）
@@ -31,7 +31,7 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
 
 前置：
 
-- Docker Desktop VM ≥ 8GB / 6 vCPU；低于 8GB 时镜像构建会 OOM（见 §1）。
+- Docker Desktop VM ≥ 8GB / 6 vCPU；8GB VM 上镜像构建必须串行，否则会 OOM（见 §1）。
 - host 客户端工具：`cast`、`ffmpeg`/`ffprobe`、`python3`、`curl`——`fullchain-test` 缺一即 FAIL。
 - `deploy/docker/{streamgate,api-gateway}-linux` 必须先构建；两个 quick Dockerfile 直接 COPY，部署脚本不会代建。
 
@@ -70,7 +70,7 @@ GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
 
 - 镜像构建时 6 个 `go build -a` 并发会在 8GB VM 上被 OOM killer 反复杀死，表现为长时间无输出；逐个服务 `docker compose -f docker-compose.fullchain.yml build <svc>` 即可（每个约 1 分钟）。
 - `make verify-docker` 构建镜像时默认 `GOPROXY=direct`，受限网络会 `gnutls_handshake() failed`；用 `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker`。
-- 启动报 `runtime code hash mismatch`：solc 把 forge 的绝对路径 remapping 写进 metadata，host 与 `/contracts` 编出的字节码不同。`contracts/foundry.toml` 的 `bytecode_hash = "none"` 保证可复现；改合约后跑 `make contracts-manifest-anvil` 重新生成 `deployments/content-registry.<chain>.json`。
+- 启动报 `runtime code hash mismatch`：solc 把 forge 的绝对路径 remapping 写进 metadata，host 与 `/contracts` 编出的字节码不同。`contracts/foundry.toml` 的 `bytecode_hash = "none"` 保证可复现；改合约后重新生成 `deployments/content-registry.<chain>.json`（`make contracts-manifest-anvil`，或用 `scripts/registry-manifest.sh --rpc/--address` 指向正在运行的栈）。
 - `fullchain-test` 的 gRPC 四条在 host 上失败：默认 `GRPC_TARGET=monolith:9090` 只在 compose 网络内可解析；用 `localhost:19090`。
 
 ## 1. 容量门槛（本项目口径）
@@ -83,7 +83,7 @@ GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
 | `perf` / `release` | 8C / 16G | 8C / 32G | 压测 + 多镜像构建 |
 | `make verify-docker VERIFY_STAGE=all` | 8C / 32G | 16C / 64G | 17 个 compose 服务 + 9 stage 串行 |
 | E14 类性能/soak 参考 | 8C / 16G 参考机 | 独立 Linux | 共享机 ffmpeg 负载会污染数字 |
-| 本机 Docker Desktop（8GB VM） | 单 stage + 串行镜像构建 | 16GB VM / 8 vCPU | 6 个并发 `go build -a` 会 OOM；`all`/perf 另找机器 |
+| 本机 Docker Desktop | 8GB VM / 6 vCPU（单 stage + 串行构建） | 16GB VM / 8 vCPU | 6 个并发 `go build -a` 会 OOM；`all`/perf 另找机器 |
 
 磁盘：
 

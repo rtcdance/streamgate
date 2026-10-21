@@ -56,7 +56,7 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 
 ## Docker dev/test environment
 
-`docker-compose.fullchain.yml` is the local dev/test environment: 17 containers, every one healthchecked. `make fullchain-deploy` starts it; the first run needs the two Linux binaries the "quick" Dockerfiles `COPY` (the deploy script does not build them):
+`docker-compose.fullchain.yml` is the local dev/test environment: 17 containers, every one healthchecked. `make fullchain-deploy` starts it; it needs the two Linux binaries the "quick" Dockerfiles `COPY` (the deploy script does not build them):
 
 ```bash
 GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
@@ -153,7 +153,7 @@ GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-g
 | Host `golangci-lint` refuses the module | host binary built with Go ≤ 1.25 | use a v2.12+ build, or let CI lint |
 | Microservice events error outside Docker | the Dockerfiles pass `-tags nats_integration`; a host `make build-all` does not, so `NATSEventBus` is the stub | run the service from its image |
 | `make fullchain-deploy` fails: `"/deploy/docker/streamgate-linux": not found` | the quick Dockerfiles `COPY` prebuilt Linux binaries; the deploy script does not build them | build `deploy/docker/{streamgate,api-gateway}-linux` for `linux/$(go env GOARCH)` first |
-| Monolith/api-gateway exit at startup: `runtime code hash mismatch` | solc embeds forge's absolute remappings in the metadata hash, so host and `/contracts` builds differ | keep `bytecode_hash = "none"` in `contracts/foundry.toml`; regenerate the record with `make contracts-manifest-anvil` after contract changes |
+| Monolith/api-gateway exit at startup: `runtime code hash mismatch` | solc embeds forge's absolute remappings in the metadata hash, so host and `/contracts` builds differ | keep `bytecode_hash = "none"` in `contracts/foundry.toml`; after contract changes regenerate the record (`make contracts-manifest-anvil`, or point `scripts/registry-manifest.sh --rpc/--address` at the running stack) |
 | `make verify-docker` image build fails: `gnutls_handshake() failed` fetching github.com | Dockerfile defaults `GOPROXY=direct` | `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker` |
 | `make fullchain-test` fails all four gRPC checks (`exit status 1`) | default `GRPC_TARGET=monolith:9090` is compose-internal | `GRPC_TARGET=localhost:19090 make fullchain-test` |
 | Image build stalls or OOMs on an 8GB Docker VM | compose builds 6+ `go build -a` in parallel | build serially: `for s in auth cache metadata monitor streaming transcoder upload worker; do docker compose -f docker-compose.fullchain.yml build $s; done` |
