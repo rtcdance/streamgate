@@ -549,9 +549,12 @@ func (ei *EventIndexer) indexEvents(ctx context.Context) error {
 			return err
 		}
 		ei.paused.Store(false)
-		ei.mu.RLock()
-		currentBlock = ei.currentBlock
-		ei.mu.RUnlock()
+		// The next poll re-indexes from the rewound cursor. Rolling back and
+		// re-indexing in one pass would leave no observable window for the
+		// recovery evidence (the cursor dip and the orphaned journal rows),
+		// and matches the reorg-event path below, which also ends its poll at
+		// the rollback.
+		return nil
 	}
 
 	latestBlock, err := ei.client.BlockNumber(ctx)
