@@ -110,6 +110,29 @@ require_tool() { command -v "$1" >/dev/null 2>&1 || die "required tool $1 not fo
 src_compose() { docker compose -p "$SRC_PROJECT" -f "$COMPOSE" "$@"; }
 dst_compose() { docker compose -p "$DST_PROJECT" -f "$COMPOSE" -f "$DST_EXTRA" "$@"; }
 
+# target_log_reports <container> <substring> — a `docker logs ... | grep -q ...`
+# under `set -o pipefail` reports a FALSE failure once the log outgrows the pipe
+# buffer: grep -q exits on the first match, the still-writing docker logs dies of
+# SIGPIPE (141), and pipefail returns that as the pipeline's status. Capture the
+# log once and match it in-process instead.
+target_log_reports() {
+    local logs
+    logs="$(docker logs "$1" 2>&1)"
+    [[ "$logs" == *"$2"* ]]
+}
+
+# registry_lines_in <captured-log> — diagnosis for a failed hub check: show the
+# registry lines the target DID report (pure bash; no pipe can die under
+# pipefail and mask the evidence).
+registry_lines_in() {
+    local line
+    while IFS= read -r line; do
+        case "$line" in
+            *[Rr]egistry*) printf '    %s\n' "$line" ;;
+        esac
+    done <<<"$1"
+}
+
 # Registry / chain reads go through the source anvil container: the foundry image
 # ships cast, and the chain is the one both stacks share, so there is nothing to
 # publish and nothing to reach over HTTP.
@@ -660,9 +683,13 @@ dst_compose up -d --no-build --no-deps --pull never --wait --wait-timeout 300 mo
 wait_health "${DST_API}/health" 120 || die "the target monolith is not health-ready"
 p "target application up and healthy on the restored state"
 
-docker logs "${DST_PROJECT}-monolith-1" 2>&1 | grep -q "On-chain content registry enabled" \
-    && p "the target monolith constructed the durable registry hub (the broadcast has resumed)" \
-    || f "the target monolith never reported the durable registry hub"
+if target_log_reports "${DST_PROJECT}-monolith-1" "On-chain content registry enabled"; then
+    p "the target monolith constructed the durable registry hub (the broadcast has resumed)"
+else
+    printf '  registry lines the target actually reported:\n'
+    registry_lines_in "$(docker logs "${DST_PROJECT}-monolith-1" 2>&1)"
+    f "the target monolith never reported the durable registry hub"
+fi
 
 # ---------------------------------------------------------------------------
 # 7. The old credentials are dead, a fresh login actually plays
@@ -695,7 +722,7 @@ case "$OLD_CAP_CODE" in
     401|403) p "the pre-restore capability is refused by the target (HTTP $OLD_CAP_CODE)" ;;
     *) f "the pre-restore capability answered HTTP $OLD_CAP_CODE on the target" ;;
 esac
-if docker logs "${DST_PROJECT}-monolith-1" 2>&1 | grep -q "playback token validation failed"; then
+if target_log_reports "${DST_PROJECT}-monolith-1" "playback token validation failed"; then
     printf '  the target logged a capability refusal reason (playback token validation failed)\n'
 fi
 

@@ -170,6 +170,29 @@ class VerifyShellTests(unittest.TestCase):
             static = next(Path(directory).glob("h5-*"))
             self.assertEqual(static.stat().st_mode & 0o777, 0o755)
 
+    def test_target_log_match_survives_a_log_larger_than_the_pipe_buffer(self):
+        # Regression from sg-all-1021-final11: `docker logs ... | grep -q ...`
+        # under `set -o pipefail` reports a FALSE failure once the log outgrows
+        # the pipe buffer — grep -q exits at the early match, the still-writing
+        # docker logs dies of SIGPIPE (141), and pipefail returns that. The
+        # recovery drill's registry-hub check lost exactly this race while the
+        # line was present in the target's log.
+        source = SOURCE.parent / "backup-restore-drill.sh"
+        stub = ('docker() { if [ "$1" = logs ]; then '
+                'i=0; while [ "$i" -lt 20000 ]; do echo "startup line $i"; i=$((i+1)); done; '
+                'echo "On-chain content registry enabled (durable intents)"; '
+                'i=0; while [ "$i" -lt 20000 ]; do echo "later line $i"; i=$((i+1)); done; '
+                'fi; }')
+        old_form = '\n'.join(['set -euo pipefail', stub,
+                              'docker logs target 2>&1 | grep -q "On-chain content registry enabled"'])
+        self.assertNotEqual(subprocess.run(["bash", "-c", old_form], capture_output=True).returncode, 0)
+        fixed = '\n'.join(['set -euo pipefail', stub, function("target_log_reports", source),
+                           'target_log_reports target "On-chain content registry enabled"'])
+        self.assertEqual(subprocess.run(["bash", "-c", fixed], capture_output=True).returncode, 0)
+        missing = '\n'.join(['set -euo pipefail', stub, function("target_log_reports", source),
+                             'target_log_reports target "never logged"'])
+        self.assertNotEqual(subprocess.run(["bash", "-c", missing], capture_output=True).returncode, 0)
+
     def test_cleanup_keeps_original_failure(self):
         script = '\n'.join([
             'set -euo pipefail', 'docker() { return 43; }', 'PROXY_PIDS=""',
