@@ -9,6 +9,12 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 via_ir = false
+# Runtime code must not depend on the build directory: solc embeds forge's
+# auto-detected remappings (absolute paths) in the metadata hash, so a host
+# build and a container build of the same source produced different bytecode
+# and the deployment record (deployments/content-registry.31337.json) failed
+# the startup identity check. Without the hash the bytecode is reproducible.
+bytecode_hash = "none"
 
 [rpc_endpoints]
 mainnet = "${ETH_MAINNET_RPC_URL}"
