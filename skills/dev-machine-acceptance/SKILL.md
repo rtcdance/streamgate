@@ -1,6 +1,6 @@
 ---
 name: "dev-machine-acceptance"
-description: "Verify a machine can run StreamGate's Docker-first acceptance (make verify-docker stages), check CPU/RAM/disk/toolchain/ports, stop SRS ABR when sharing the 118 dev box, and produce raw evidence. Use before acceptance, when onboarding a machine, or when asked 开发机够不够用/机器配置/验收环境."
+description: "Set up and verify StreamGate's local Docker dev/test stack (docker-compose.fullchain.yml) and Docker-first acceptance (make verify-docker stages, fullchain-test), check CPU/RAM/disk/toolchain/ports, stop SRS ABR when sharing the 118 dev box, and produce raw evidence. Use when onboarding a machine, before acceptance, or when asked 开发机够不够用/机器配置/验收环境/搭建 Docker 环境."
 ---
 
 # Skill: dev-machine-acceptance
@@ -13,16 +13,65 @@ Use this skill when:
 - 有人问“这台机器够不够跑本服务”“机器配置够不够”。
 - 准备执行 `make verify-docker`、`make test-anvil`、`make contracts-test`、`make h5-demo-acceptance`、`make fullchain-deploy`。
 - 开发机与 SRS ABR 共用（尤其是 `prod-srs`，SSH alias；IP 见本机 `~/.ssh/config`）。
+- 在本机（macOS/Windows + Docker Desktop）搭 Docker 开发/测试环境：见 §0.1。
 
 ## 0. 硬规则：Docker 是验收环境
 
 StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
 
 - **禁止**把 host 上的 `make test` / `go test` / `go build` 当作验收证据；它们只是快速预检。
-- **禁止**用 Mac 本机作为验收环境。
+- **禁止**用 Mac 本机的 Go/Foundry 结果作为验收；Mac 可以作为 Docker 客户端驱动本机栈做功能验证，但性能与最终验收仍以 Linux/CI 为准（本机流程见 §0.1）。
 - `make verify-docker VERIFY_STAGE=all` 要求 **clean candidate**（无未提交/未跟踪改动），并且 `VERIFY_MODE=candidate`。
 - Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是验收前置。
 - 所有 stage 日志落在 `.verify-artifacts/logs/<stage>.log`。
+
+## 0.1 本机 Docker 开发/测试环境（Docker Desktop）
+
+适用于 macOS/Windows 工作站：host 只做编辑与客户端，服务全部跑在 `docker-compose.fullchain.yml`（17 个容器，全部带 healthcheck）。
+
+前置：
+
+- Docker Desktop VM ≥ 8GB / 6 vCPU；低于 8GB 时镜像构建会 OOM（见 §1）。
+- host 客户端工具：`cast`、`ffmpeg`/`ffprobe`、`python3`、`curl`——`fullchain-test` 缺一即 FAIL。
+- `deploy/docker/{streamgate,api-gateway}-linux` 必须先构建；两个 quick Dockerfile 直接 COPY，部署脚本不会代建。
+
+```bash
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
+make fullchain-deploy        # 或 docker compose -f docker-compose.fullchain.yml up -d
+```
+
+启动后先核对（全部 healthy 再谈验收）：
+
+```bash
+docker ps --filter name=sg-fc --format 'table {{.Names}}\t{{.Status}}'
+curl -fsS localhost:18080/health; curl -fsS localhost:28080/health
+curl -fsS -o /dev/null -w '%{http_code}\n' localhost:18000/demo/
+```
+
+端口：
+
+| host 端口 | 服务 |
+| --- | --- |
+| 18080 / 19090 | monolith HTTP / gRPC |
+| 28080 | api-gateway |
+| 18000 / 18001 | h5-demo（monolith / gateway 视图） |
+| 18545 | Anvil 31337（DemoNFT + ContentRegistry） |
+| 15432 / 16379 / 19000-19001 / 14222 / 28500 | PG / Redis / MinIO / NATS / Consul |
+
+验收命令：
+
+```bash
+VERIFY_STAGE=unit make verify-docker          # L2
+GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
+```
+
+本机踩坑（均为实测）：
+
+- 镜像构建时 6 个 `go build -a` 并发会在 8GB VM 上被 OOM killer 反复杀死，表现为长时间无输出；逐个服务 `docker compose -f docker-compose.fullchain.yml build <svc>` 即可（每个约 1 分钟）。
+- `make verify-docker` 构建镜像时默认 `GOPROXY=direct`，受限网络会 `gnutls_handshake() failed`；用 `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker`。
+- 启动报 `runtime code hash mismatch`：solc 把 forge 的绝对路径 remapping 写进 metadata，host 与 `/contracts` 编出的字节码不同。`contracts/foundry.toml` 的 `bytecode_hash = "none"` 保证可复现；改合约后跑 `make contracts-manifest-anvil` 重新生成 `deployments/content-registry.<chain>.json`。
+- `fullchain-test` 的 gRPC 四条在 host 上失败：默认 `GRPC_TARGET=monolith:9090` 只在 compose 网络内可解析；用 `localhost:19090`。
 
 ## 1. 容量门槛（本项目口径）
 
@@ -34,6 +83,7 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
 | `perf` / `release` | 8C / 16G | 8C / 32G | 压测 + 多镜像构建 |
 | `make verify-docker VERIFY_STAGE=all` | 8C / 32G | 16C / 64G | 17 个 compose 服务 + 9 stage 串行 |
 | E14 类性能/soak 参考 | 8C / 16G 参考机 | 独立 Linux | 共享机 ffmpeg 负载会污染数字 |
+| 本机 Docker Desktop（8GB VM） | 单 stage + 串行镜像构建 | 16GB VM / 8 vCPU | 6 个并发 `go build -a` 会 OOM；`all`/perf 另找机器 |
 
 磁盘：
 
@@ -44,7 +94,7 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
 系统：
 
 - Linux 优先；验收数字只认 Linux。
-- macOS 可开发，但 Docker VM 至少 8GB；性能数字不能与参考机对比。
+- macOS 可开发，但 Docker VM 至少 8GB；性能数字不能与参考机对比。8GB VM 上镜像构建必须串行（§0.1）。
 - 共享 118 上有 SRS/ffmpeg 负载时，先停 ABR，且 **不要** 在负载期跑 perf/release。
 
 ### 实测样例：`prod-srs`（2026-10-20）
@@ -170,6 +220,7 @@ make test-ci                        # 60% coverage floor
 - `.verify-artifacts/logs/<stage>.log`（每个 stage 的原始日志）
 - `.verify-artifacts/candidate.json`（clean candidate 的 SHA/镜像）
 - `.verify-artifacts/coverage.out`
+- `fullchain-test` 日志（建议 `tee .verify-artifacts/logs/fullchain-acceptance.log`）
 - `scripts/h5-demo-acceptance/reports/<timestamp>/`
 - `TRANSITION_PLAN.md` §8（最终 `all` 记录）
 - CI run URL / run id（同 SHA）

@@ -3,11 +3,18 @@
 NFT-gated streaming platform in Go. Core flow: **wallet sign-in → NFT ownership check → protected HLS streaming**.
 
 - Microkernel plugin architecture, dual-mode: monolith (dev) or 9 microservices (prod)
-- 11 build targets (`make build-all`) · 314 test files · ~71% coverage (verify-docker unit gate) · 60% CI floor
+- 11 build targets (`make build-all`) · 338 test files · ~71% coverage (verify-docker unit gate) · 60% CI floor
 
 ## Stack
 
 Go 1.26 · Gin · go-ethereum + solana-go · PostgreSQL 15 · Redis 7 · MinIO/S3 · NATS · Consul · HLS/DASH via FFmpeg · Zap + Prometheus + OpenTelemetry · gRPC · Docker Compose + Kubernetes · testify + uber/mock
+
+## Project skills (tool-neutral)
+
+- **Canonical location**: `skills/<name>/SKILL.md`; catalog: `skills/INDEX.md`.
+- Every AI tool must read `skills/INDEX.md` before a matching task. This is the only skill catalog.
+- `.claude/skills` and `.agents/skills` are pointers only; **do not add authoritative skills there**.
+- Acceptance: `dev-machine-acceptance`; remote execution: `remote-dev-machine`.
 
 ## Commands
 
@@ -32,15 +39,39 @@ make mocks                 # go generate ./...
 make proto-gen             # protobuf stubs
 
 # Docker / deploy
-make fullchain-deploy      # PG+Redis+MinIO+NATS+Anvil(+DemoNFT)+monolith+microservices+h5-demo
-make docker-up             # compose stack (also: docker-down, docker-build, docker-bake)
+make fullchain-deploy      # full stack; needs deploy/docker/*-linux prebuilt (see below)
+docker compose -f docker-compose.fullchain.yml up -d   # start without rebuilding (down to stop)
+make docker-build          # images (also: docker-bake)
 make demo-down             # stop demo infra and clean up
 make migrate-up            # also: migrate-down, migrate-reset
 make k8s-deploy            # also: k8s-status
 
+# Docker acceptance (evidence, not host builds)
+make verify-docker         # all stages (needs a clean tree); single stage: VERIFY_STAGE=unit make verify-docker
+make fullchain-test        # 71-check acceptance against the running stack
+
 # Contracts (Foundry)
 make contracts-test        # also: contracts-build, contracts-deploy-anvil
 ```
+
+## Docker dev/test environment
+
+`docker-compose.fullchain.yml` is the local dev/test environment: 17 containers, every one healthchecked. `make fullchain-deploy` starts it; the first run needs the two Linux binaries the "quick" Dockerfiles `COPY` (the deploy script does not build them):
+
+```bash
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
+```
+
+| Host port | Service |
+|---|---|
+| 18080 / 19090 | monolith HTTP / gRPC |
+| 28080 | api-gateway |
+| 18000 / 18001 | h5-demo (monolith / gateway view) |
+| 18545 | Anvil — chain 31337, DemoNFT + ContentRegistry |
+| 15432 / 16379 / 19000-19001 / 14222 / 28500 | PostgreSQL / Redis / MinIO / NATS / Consul |
+
+`scripts/docker-deploy.sh` seeds the demo gating rule (`content_id='demo'`). A host-run acceptance needs `GRPC_TARGET=localhost:19090` — the script default `monolith:9090` only resolves inside the compose network.
 
 ## Layout
 
@@ -56,7 +87,8 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 | `pkg/web3/` | signature, `nft/` verifier, `contract/`, `solana/`, reorg, gas, events |
 | `pkg/storage/` | PostgreSQL, Redis, MinIO/S3, NATS, cache |
 | `test/` | unit, integration, e2e, benchmark, security |
-| `migrations/` | 35 up / 19 down SQL migrations |
+| `skills/` | tool-neutral AI skills — catalog in `skills/INDEX.md` |
+| `migrations/` | 42 up / 26 down SQL migrations |
 | `h5-demo/`, `examples/` | frontend demo and standalone samples — not part of the Go build |
 
 ## Component Status
@@ -92,7 +124,7 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 
 ### Documentation
 - `TRANSITION_PLAN.md` is the **only** plan document. **Never create process documents** — no review reports, handovers, status files or dated scratch `.md`. Durable conclusions go there.
-- Where content belongs: agent knowledge → this file / `AGENTS.md`; evidence → a CI run id or commit hash; dependency changes → `DEPENDENCY_APPROVAL.md`; job material → `docs/resume/`.
+- Where content belongs: agent knowledge → this file / `AGENTS.md`; reusable procedures → `skills/`; evidence → a CI run id or commit hash; dependency changes → `DEPENDENCY_APPROVAL.md`; job material → `docs/resume/`.
 - Clean up generated artifacts when done: `bin/`, `out/`, `cache/`, `target/`, `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`. Do **not** delete `.workbuddy/`.
 - Before deleting or renaming a document, `grep -rn "<path>" --include="*.md" .` and repoint inbound links.
 
@@ -120,6 +152,11 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 | Docker build fails | BuildKit disabled | `DOCKER_BUILDKIT=1` |
 | Host `golangci-lint` refuses the module | host binary built with Go ≤ 1.25 | use a v2.12+ build, or let CI lint |
 | Microservice events error outside Docker | the Dockerfiles pass `-tags nats_integration`; a host `make build-all` does not, so `NATSEventBus` is the stub | run the service from its image |
+| `make fullchain-deploy` fails: `"/deploy/docker/streamgate-linux": not found` | the quick Dockerfiles `COPY` prebuilt Linux binaries; the deploy script does not build them | build `deploy/docker/{streamgate,api-gateway}-linux` for `linux/$(go env GOARCH)` first |
+| Monolith/api-gateway exit at startup: `runtime code hash mismatch` | solc embeds forge's absolute remappings in the metadata hash, so host and `/contracts` builds differ | keep `bytecode_hash = "none"` in `contracts/foundry.toml`; regenerate the record with `make contracts-manifest-anvil` after contract changes |
+| `make verify-docker` image build fails: `gnutls_handshake() failed` fetching github.com | Dockerfile defaults `GOPROXY=direct` | `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker` |
+| `make fullchain-test` fails all four gRPC checks (`exit status 1`) | default `GRPC_TARGET=monolith:9090` is compose-internal | `GRPC_TARGET=localhost:19090 make fullchain-test` |
+| Image build stalls or OOMs on an 8GB Docker VM | compose builds 6+ `go build -a` in parallel | build serially: `for s in auth cache metadata monitor streaming transcoder upload worker; do docker compose -f docker-compose.fullchain.yml build $s; done` |
 
 ## Anti-Patterns
 

@@ -13,6 +13,10 @@
 
 Go-based NFT-gated streaming platform. Combines traditional high-concurrency architecture with blockchain permission control. Core flow: wallet sign-in → NFT verification → protected HLS streaming.
 
+## SKILLS
+
+Canonical: `skills/INDEX.md` (tool-neutral). Read it before a matching task. `.claude/skills` and `.agents/skills` are pointers only. `CLAUDE.md` remains canonical for rules.
+
 ## STRUCTURE
 
 ```
@@ -84,9 +88,10 @@ make test                 # Run tests with race detection + coverage HTML
 make test-ci              # CI mode with 60% coverage threshold
 make test-anvil           # Foundry Anvil Web3 integration tests
 make test-testnet         # Testnet integration tests (needs SEPOLIA_RPC)
-make docker-up            # Start Docker Compose
-make docker-down          # Stop Docker Compose
-make fullchain-deploy     # PG + Redis + MinIO + NATS + Anvil(+DemoNFT) + monolith + microservices + H5
+make fullchain-deploy     # full stack; needs deploy/docker/*-linux prebuilt (see CLAUDE.md)
+docker compose -f docker-compose.fullchain.yml up -d   # start without rebuilding (down to stop)
+make verify-docker        # Docker acceptance gate (VERIFY_STAGE=unit for one stage)
+make fullchain-test       # 71-check acceptance against the running stack
 make lint                 # Run golangci-lint
 make fmt                  # Format code
 make bench                # Run benchmarks
@@ -96,6 +101,7 @@ make k8s-deploy           # Deploy to Kubernetes
 
 ## NOTES
 
+- Docker dev/test stack: `docker-compose.fullchain.yml` (17 containers); ports, prerequisites and pitfalls live in `CLAUDE.md` → Docker dev/test environment / Known Pitfalls
 - Core flow (auth → NFT → streaming) is implemented end-to-end and pinned by regression tests
 - 11 build targets: 1 monolith + 9 microservices + cmd/learn, all compiled and runnable
 - Dual-mode deployment (monolith first, microservices for scale)

@@ -89,6 +89,9 @@ for f in Makefile docker-compose.fullchain.yml scripts/verify-docker.sh scripts/
          TRANSITION_PLAN.md skills/INDEX.md; do
   if [ -f "$f" ]; then pass "asset: $f"; else bad "asset missing: $f"; fi
 done
+for f in deploy/docker/streamgate-linux deploy/docker/api-gateway-linux; do
+  if [ -f "$f" ]; then pass "asset: $f"; else warnf "$f missing (fullchain-deploy COPYs it; build with GOOS=linux GOARCH=$(go env GOARCH 2>/dev/null || echo arm64)) "; fi
+done
 [ -d contracts ] && pass "contracts/ present" || bad "contracts/ missing"
 [ -d migrations ] && pass "migrations: $(find migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ') SQL files" || bad "migrations/ missing"
 [ -d h5-demo ] && pass "h5-demo/ present" || warnf "h5-demo/ missing (F11)"
@@ -106,9 +109,9 @@ rm -f /tmp/sg-submodules.$$
 echo
 echo "-- listening ports of interest --"
 if command -v ss >/dev/null 2>&1; then
-  ss -tln 2>/dev/null | grep -E ':(8080|18000|5432|6379|9000|4222|8545|1926|1927|1937|8088|8089|9090)\b' || echo "none"
+  ss -tln 2>/dev/null | grep -E ':(8080|18000|18080|28080|18545|19090|5432|6379|9000|4222|8545|1926|1927|1937|8088|8089|9090)\b' || echo "none"
 elif command -v lsof >/dev/null 2>&1; then
-  lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(8080|18000|5432|6379|9000|4222|8545|1926|1927|1937|8088|8089|9090)\b' || echo "none"
+  lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(8080|18000|18080|28080|18545|19090|5432|6379|9000|4222|8545|1926|1927|1937|8088|8089|9090)\b' || echo "none"
 else
   echo "ss/lsof not available; check ports manually"
 fi
