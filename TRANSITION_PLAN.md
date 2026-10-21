@@ -2337,7 +2337,7 @@ cd - >/dev/null && git worktree remove --force /tmp/sg-prefix
   1. 列出可恢复文件：`git log --diff-filter=D --name-only --pretty=format:"%h" -- docs/ | grep -nE "interview|resume|job" | head -30`
   2. 恢复（commit `0ded20a` 的父提交，**共 27 个文件**）：
      ```bash
-     mkdir -p docs/_recovered
+     mkdir -p docs/resume
      for f in P1_MEDIA_WEB3_INTERVIEW_GUIDE.md P1_FINAL_INTERVIEW_SCRIPT.md \
               P1_INTERVIEW_SELF_INTRO.md MOCK_INTERVIEW_QUESTIONS.md \
               JOB_TARGETING_GUIDE.md RESUME_PROJECT_BLOCK.md \
