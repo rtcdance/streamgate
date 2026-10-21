@@ -190,6 +190,13 @@ func (s *JobScheduler) executeJob(job *Job) {
 	defer s.mu.Unlock()
 
 	if j, exists := s.jobs[job.ID]; exists {
+		// A job cancelled while queued must not be resurrected as completed:
+		// the queue consumer can dequeue it after CancelJob has already run.
+		// The real Scheduler's executeJob carries the same terminal-state guard.
+		switch j.Status {
+		case "completed", "failed", "cancelled":
+			return
+		}
 		j.Status = "completed"
 		s.logger.Warn("JobScheduler has no executor configured; job marked completed without execution",
 			zap.String("job_id", job.ID), zap.String("type", job.Type))
