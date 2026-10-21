@@ -729,6 +729,8 @@ NGINX
   # checkout that could change independently while its media is being tested.
   local static_dir extract_id
   static_dir="$(mktemp -d "${ARTIFACT_DIR}/h5-${project}.XXXXXX")" || fail "H5 artifact directory failed"
+  # The nginx worker is unprivileged; mktemp's 0700 would 403 every request.
+  chmod 755 "$static_dir" || fail "H5 artifact directory permissions failed"
   extract_id="$(docker create \
     --platform "$VERIFY_PLATFORM" \
     --label "com.docker.compose.project=${project}" \

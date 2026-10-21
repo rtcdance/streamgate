@@ -146,6 +146,26 @@ class VerifyShellTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("incorrectly-contacted-registry", result.stdout)
 
+    def test_h5_static_dir_is_traversable_by_the_unprivileged_nginx_worker(self):
+        # Regression from sg-all-1021-final10: mktemp -d left the extracted
+        # frontend at 0700 root, the unprivileged nginx worker answered 403 on
+        # /demo/, and wait_health (which requires 200) failed the media stage
+        # with "H5 proxy did not become ready".
+        with tempfile.TemporaryDirectory() as directory:
+            script = '\n'.join([
+                'set -euo pipefail', 'log() { :; }', 'fail() { echo "$*" >&2; exit 1; }',
+                f'ARTIFACT_DIR="{directory}"', 'VERIFY_GW_PORT=1', 'VERIFY_H5_PORT=2',
+                'VERIFY_PLATFORM=linux/amd64', 'VERIFY_IMAGE_PREFIX=pfx', 'PROJECT_NAME=proj',
+                'ensure_runtime_image() { :; }', 'wait_health() { :; }',
+                'docker() { case "$1" in create) echo cid ;; cp|rm|run) : ;; *) return 1 ;; esac; }',
+                function("start_h5_nginx"),
+                'start_h5_nginx proj 33967',
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            static = next(Path(directory).glob("h5-*"))
+            self.assertEqual(static.stat().st_mode & 0o777, 0o755)
+
     def test_cleanup_keeps_original_failure(self):
         script = '\n'.join([
             'set -euo pipefail', 'docker() { return 43; }', 'PROXY_PIDS=""',
