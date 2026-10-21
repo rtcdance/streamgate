@@ -215,6 +215,7 @@ test:
 test-ci:
 	@echo "Running tests with coverage check (min: $(COVERAGE_MIN)%)..."
 	$(GO) test -race -coverprofile=coverage.out $$(./scripts/ci-packages.sh)
+	$(GO) test -race -count=1 -p 1 ./test/performance
 	@./scripts/check-coverage.sh coverage.out $(COVERAGE_MIN)
 
 # Prove the coverage gate itself fails on bad inputs (missing / empty /
