@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,13 +31,18 @@ import (
 )
 
 type options struct {
-	target          string
-	content         string
-	token           string
-	mode            string
-	capability      string
-	httpBase        string
-	expectExpSecond int64
+	target           string
+	content          string
+	token            string
+	mode             string
+	capability       string
+	httpBase         string
+	expectExpSecond  int64
+	evidenceFile     string
+	segmentID        string
+	deadlineSeconds  float64
+	passMarker       string
+	elapsedAtStartMS int64
 }
 
 func main() {
@@ -52,10 +58,15 @@ func parseFlags() options {
 	flag.StringVar(&o.target, "target", "", "host:port of the gRPC server (e.g. monolith:9090)")
 	flag.StringVar(&o.content, "content", "", "content id whose manifest is authorized")
 	flag.StringVar(&o.token, "token", "", "the caller's real Bearer access token")
-	flag.StringVar(&o.mode, "mode", "", "assertion mode: holder-ok | non-holder-denied | threshold-denied | conflict-denied")
+	flag.StringVar(&o.mode, "mode", "", "assertion mode: holder-ok | capability-wait | non-holder-denied | threshold-denied | threshold-denied-bounded | conflict-denied")
 	flag.StringVar(&o.capability, "capability", "", "a capability that does NOT belong to --token's caller (conflict-denied only)")
 	flag.StringVar(&o.httpBase, "http-base", "", "HTTP base of the same deployment mode, used to fetch a real segment (holder-ok only)")
 	flag.Int64Var(&o.expectExpSecond, "expect-exp-seconds", 60, "expected capability lifetime in seconds")
+	flag.StringVar(&o.evidenceFile, "evidence-file", "", "write private holder-ok capability evidence here (never stdout)")
+	flag.StringVar(&o.segmentID, "segment-id", "", "segment to probe with capability-wait")
+	flag.Float64Var(&o.deadlineSeconds, "deadline-seconds", 70, "capability-wait deadline")
+	flag.StringVar(&o.passMarker, "pass-marker", "M3_GRPC_TRANSFER_70S_PASS", "capability-wait success marker")
+	flag.Int64Var(&o.elapsedAtStartMS, "elapsed-at-start-ms", 0, "measured monotonic delay since transfer safe-view confirmation")
 	flag.Parse()
 
 	var missing []string
@@ -83,7 +94,12 @@ func parseFlags() options {
 			fmt.Fprintln(os.Stderr, "FAIL: --mode holder-ok requires --http-base")
 			os.Exit(1)
 		}
-	case "non-holder-denied", "threshold-denied":
+	case "capability-wait":
+		if o.evidenceFile == "" {
+			fmt.Fprintln(os.Stderr, "FAIL: capability-wait requires a private --evidence-file")
+			os.Exit(1)
+		}
+	case "non-holder-denied", "threshold-denied", "threshold-denied-bounded":
 	case "conflict-denied":
 		if o.capability == "" {
 			fmt.Fprintln(os.Stderr, "FAIL: --mode conflict-denied requires --capability")
@@ -107,10 +123,14 @@ func run(o options) error {
 	switch o.mode {
 	case "holder-ok":
 		return holderOK(client, o)
+	case "capability-wait":
+		return capabilityWait(client, o)
 	case "non-holder-denied":
 		return denied(client, o, "non-holder")
 	case "threshold-denied":
 		return denied(client, o, "threshold")
+	case "threshold-denied-bounded":
+		return deniedWithinBound(client, o, "threshold")
 	case "conflict-denied":
 		return conflictDenied(client, o)
 	}
@@ -118,7 +138,11 @@ func run(o options) error {
 }
 
 func callContext(token string, extra ...string) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	return callContextTimeout(token, 30*time.Second, extra...)
+}
+
+func callContextTimeout(token string, timeout time.Duration, extra ...string) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	pairs := append([]string{"authorization", "Bearer " + token}, extra...)
 	return metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...)), cancel
 }
@@ -182,6 +206,13 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 	if len(body) == 0 {
 		return fmt.Errorf("segment fetch returned an empty body")
 	}
+	if o.evidenceFile != "" {
+		if err := writePrivateEvidence(o.evidenceFile, map[string]string{
+			"capability": capability, "segment_id": segments[0].GetSegmentId(),
+		}); err != nil {
+			return fmt.Errorf("write private gRPC capability evidence: %w", err)
+		}
+	}
 	rpcCtx, rpcCancel := callContext(o.token, "playback-token", capability)
 	defer rpcCancel()
 	segment, err := client.GetSegment(rpcCtx, &streamingv1.GetSegmentRequest{
@@ -194,6 +225,70 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 		return fmt.Errorf("gRPC segment bytes/size differ from the protected HTTP media")
 	}
 	return nil
+}
+
+func writePrivateEvidence(path string, value any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// capabilityWait probes an already-issued capability on real gRPC media. It
+// intentionally reports only status and elapsed time; bearer credentials are
+// never included in output or acceptance logs.
+func capabilityWait(client streamingv1.StreamingServiceClient, o options) error {
+	data, err := os.ReadFile(o.evidenceFile)
+	if err != nil {
+		return fmt.Errorf("read private capability evidence: %w", err)
+	}
+	if err := os.Remove(o.evidenceFile); err != nil {
+		return fmt.Errorf("remove private capability evidence: %w", err)
+	}
+	var evidence struct {
+		Capability string `json:"capability"`
+		SegmentID  string `json:"segment_id"`
+	}
+	if err := json.Unmarshal(data, &evidence); err != nil || evidence.Capability == "" || evidence.SegmentID == "" {
+		return fmt.Errorf("private capability evidence is malformed")
+	}
+	o.capability, o.segmentID = evidence.Capability, evidence.SegmentID
+	if o.deadlineSeconds <= 0 || o.deadlineSeconds > 70 || !strings.HasPrefix(o.passMarker, "M3_GRPC_") {
+		return fmt.Errorf("capability-wait bound or success marker is invalid")
+	}
+	if o.elapsedAtStartMS < 0 || time.Duration(o.elapsedAtStartMS)*time.Millisecond >= time.Duration(o.deadlineSeconds*float64(time.Second)) {
+		return fmt.Errorf("capability-wait started after its measured deadline")
+	}
+	start := time.Now().Add(-time.Duration(o.elapsedAtStartMS) * time.Millisecond)
+	deadline := start.Add(time.Duration(o.deadlineSeconds * float64(time.Second)))
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("gRPC capability remained accepted for %.0f seconds after revocation event", o.deadlineSeconds)
+		}
+		ctx, cancel := callContextTimeout(o.token, remaining, "playback-token", o.capability)
+		_, err := client.GetSegment(ctx, &streamingv1.GetSegmentRequest{ContentId: o.content, SegmentId: o.segmentID})
+		cancel()
+		if err != nil {
+			code := status.Code(err)
+			if code == codes.PermissionDenied || code == codes.Unauthenticated {
+				elapsed := time.Since(start)
+				if elapsed > time.Duration(o.deadlineSeconds*float64(time.Second)) {
+					return fmt.Errorf("gRPC capability was revoked after the deadline (%s)", elapsed.Round(time.Millisecond))
+				}
+				fmt.Printf("%s elapsed=%s\n", o.passMarker, elapsed.Round(time.Millisecond))
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("gRPC capability remained accepted for %.0f seconds after revocation event", o.deadlineSeconds)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // denied: the manifest must fail with PermissionDenied. Used for a caller who
@@ -212,6 +307,45 @@ func denied(client streamingv1.StreamingServiceClient, o options, label string) 
 		return fmt.Errorf("GetManifest (%s) failed with %s (%v); expected PermissionDenied", label, code, err)
 	}
 	return nil
+}
+
+// deniedWithinBound proves that a changed policy reaches the independent gRPC
+// authorization entry point within the stated wall-clock budget. The caller's
+// timestamp is captured before submitting the rule update, making the measured
+// interval conservative; an HTTP poll cannot consume this deadline first.
+func deniedWithinBound(client streamingv1.StreamingServiceClient, o options, label string) error {
+	if o.deadlineSeconds <= 0 || o.deadlineSeconds > 5 || !strings.HasPrefix(o.passMarker, "M3_GRPC_") {
+		return fmt.Errorf("threshold denial bound or success marker is invalid")
+	}
+	if o.elapsedAtStartMS < 0 || time.Duration(o.elapsedAtStartMS)*time.Millisecond >= time.Duration(o.deadlineSeconds*float64(time.Second)) {
+		return fmt.Errorf("threshold denial probe started after its measured deadline")
+	}
+	start := time.Now().Add(-time.Duration(o.elapsedAtStartMS) * time.Millisecond)
+	deadline := start.Add(time.Duration(o.deadlineSeconds * float64(time.Second)))
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return fmt.Errorf("gRPC manifest remained authorized %.0f seconds after policy update", o.deadlineSeconds)
+		}
+		ctx, cancel := callContextTimeout(o.token, remaining)
+		_, err := client.GetManifest(ctx, &streamingv1.GetManifestRequest{ContentId: o.content})
+		cancel()
+		if err != nil && status.Code(err) == codes.PermissionDenied {
+			elapsed := time.Since(start)
+			if elapsed > time.Duration(o.deadlineSeconds*float64(time.Second)) {
+				return fmt.Errorf("gRPC threshold denial arrived after the deadline (%s)", elapsed.Round(time.Millisecond))
+			}
+			fmt.Printf("%s elapsed=%s\n", o.passMarker, elapsed.Round(time.Millisecond))
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return fmt.Errorf("gRPC threshold check failed without denial: %s", status.Code(err))
+			}
+			return fmt.Errorf("gRPC manifest remained authorized %.0f seconds after policy update", o.deadlineSeconds)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // conflictDenied: carrying BOTH an access token (wallet B) and a capability

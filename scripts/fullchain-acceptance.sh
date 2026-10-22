@@ -190,6 +190,11 @@ printf '\n=== Media fixture (deterministic) ===\n'
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
+GRPC_PARITY_BIN="$WORKDIR/grpcparity"
+if ! go build -o "$GRPC_PARITY_BIN" ./test/grpcparity; then
+    f "Could not build the real gRPC parity probe"
+    GRPC_PARITY_BIN="/bin/false"
+fi
 MEDIA="$WORKDIR/sg-acceptance-src.mp4"
 
 # Fixed parameters so the fixture is a real, decodable file rather than a
@@ -792,13 +797,20 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
 
     # the capability it already handed out. With the contract unchanged, a denial
     # here can only come from the threshold.
+    M3_RULE_CHANGE_AT="$(python3 -c 'import time; print(time.monotonic_ns())')"
     put_rule '{"min_balance":999999}'
+    M3_GRPC_RULE_ELAPSED_MS="$(python3 -c 'import sys,time; print(max(0, (time.monotonic_ns()-int(sys.argv[1]))//1000000))' "$M3_RULE_CHANGE_AT")"
+    grpc_parity threshold-denied-bounded "gRPC independently denies the holder within 5s of the rule update" \
+        --token "$TOKEN_A" --deadline-seconds 5 --pass-marker M3_GRPC_RULE_REVOCATION_5S_PASS \
+        --elapsed-at-start-ms "$M3_GRPC_RULE_ELAPSED_MS"
+    [ "${GRPC_LAST_RC:-1}" = "0" ] || f "gRPC did not enforce the changed threshold within 5 seconds"
     BAR_CODE="$(wait_for_manifest 403 5)"
     case "$BAR_CODE" in
         403) p "Raising the rule threshold denies the holder on the next request within the 5s bound (403)" ;;
         503) f "Threshold change could not be verified (503) — the denial is not attributable to min_balance" ;;
         *)   f "Holder still served after the threshold was raised (last=$BAR_CODE)" ;;
     esac
+    [ "$BAR_CODE" = "403" ] && echo "M3_HTTP_RULE_REVOCATION_5S_PASS"
 
     # A segment cannot re-read the chain, so the capability carries the rule
     # version it was issued under. That is what makes a rule change reach media
@@ -816,6 +828,7 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
         done
         if [ "$CAP_REVOKED" = "1" ]; then
             p "A capability issued BEFORE the rule change is refused within the 5s bound"
+            echo "M3_HTTP_RULE_CAPABILITY_5S_PASS"
         else
             f "A capability issued before the rule change is still accepted 5s after the change"
         fi
@@ -846,25 +859,9 @@ if [ -n "${RULE_ID:-}" ] && [ -n "$TOKEN_A" ] && [ -n "$CONTENT_ID" ]; then
             *)       f "A freshly minted capability failed ($CODE)" ;;
         esac
 
-        EXPIRED=0
-        EXPIRY_DEADLINE=$((SECONDS + 100))
-        while [ "$SECONDS" -lt "$EXPIRY_DEADLINE" ]; do
-            C="$(curl -s -o /dev/null -w '%{http_code}' "$FRESH_URL")"
-            if [ "$C" = "401" ] || [ "$C" = "403" ]; then EXPIRED=1; break; fi
-            sleep 3
-        done
-        ELAPSED=$((SECONDS - MINT_AT))
-        if [ "$EXPIRED" = "1" ]; then
-            # 70s plus one poll interval: the assertion is about the BOUND, not
-            # about the polling granularity.
-            if [ "$ELAPSED" -le 75 ]; then
-                p "The capability expired inside the 70s revocation bound (${ELAPSED}s)"
-            else
-                f "The capability outlived the 70s bound (${ELAPSED}s)"
-            fi
-        else
-            f "The capability was still accepted 100s after mint"
-        fi
+        # Natural expiry is not a transfer-revocation measurement. The actual
+        # M3 70s proof below mints HTTP and gRPC segment capabilities immediately
+        # before a real transfer and starts from the trusted safe-view block.
 
         # --- Replaying the capability against a management API ------------------
         # A capability is a bearer credential, so it must not be spendable where
@@ -928,14 +925,16 @@ GRPC_TARGET="${GRPC_TARGET:-monolith:9090}"
 grpc_parity() {
     local mode="$1" label="$2"; shift 2
     local out rc=0 detail
-    out="$(go run ./test/grpcparity --target "$GRPC_TARGET" --content "$CONTENT_ID" \
+    out="$("$GRPC_PARITY_BIN" --target "$GRPC_TARGET" --content "$CONTENT_ID" \
         --mode "$mode" "$@" 2>&1)" || rc=$?
     detail="$(printf '%s' "$out" | tail -n 1)"
     if [ "$rc" = "0" ]; then
         p "$label"
+        printf '%s\n' "$out" | grep '^M3_' || true
     else
         f "$label — ${detail:-the gRPC parity client failed with no output}"
     fi
+    GRPC_LAST_RC="$rc"
 }
 
 # The holder (1 owned, 1 required) must be authorized over gRPC; the segment
@@ -1096,7 +1095,29 @@ if [ -n "$KEY_A" ]; then
             f "Could not obtain a capability to test revocation against"
         fi
 
-        curl -s -X POST "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $LOGOUT_TOKEN" >/dev/null 2>&1 || true
+        LOGOUT_GRPC_EVIDENCE="$WORKDIR/logout-grpc-capability.json"
+        if [ -n "$CONTENT_ID" ] && [ -n "$LOGOUT_TOKEN" ]; then
+            grpc_parity holder-ok "gRPC capability minted before logout" --token "$LOGOUT_TOKEN" \
+                --http-base "$BASE_URL" --evidence-file "$LOGOUT_GRPC_EVIDENCE"
+        fi
+
+        LOGOUT_AT="$(python3 -c 'import time; print(time.monotonic_ns())')"
+        LOGOUT_CODE="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST \
+            "$BASE_URL/api/v1/auth/logout" -H "Authorization: Bearer $LOGOUT_TOKEN" || echo 000)"
+        case "$LOGOUT_CODE" in
+            200|204) p "Logout endpoint completed successfully ($LOGOUT_CODE)" ;;
+            *) f "Logout endpoint failed before revocation probes ($LOGOUT_CODE)" ;;
+        esac
+
+        if [ -s "$LOGOUT_GRPC_EVIDENCE" ]; then
+            LOGOUT_GRPC_ELAPSED_MS="$(python3 -c 'import sys,time; print(max(0, (time.monotonic_ns()-int(sys.argv[1]))//1000000))' "$LOGOUT_AT")"
+            grpc_parity capability-wait "gRPC capability revoked after logout within 5s" \
+                --token "$LOGOUT_TOKEN" --evidence-file "$LOGOUT_GRPC_EVIDENCE" \
+                --deadline-seconds 5 --pass-marker M3_GRPC_LOGOUT_5S_PASS \
+                --elapsed-at-start-ms "$LOGOUT_GRPC_ELAPSED_MS"
+        else
+            f "Could not obtain a gRPC capability for the logout revocation bound"
+        fi
 
         if [ -n "$CAP_URL" ]; then
             CAP_DEAD=0
@@ -1110,6 +1131,7 @@ if [ -n "$KEY_A" ]; then
             done
             if [ "$CAP_DEAD" = "1" ]; then
                 p "Logout revokes an ALREADY-ISSUED capability within the 5s bound"
+                echo "M3_HTTP_LOGOUT_CAPABILITY_5S_PASS"
             else
                 f "Capability still accepted 5s after logout — it did not inherit the session"
             fi
@@ -1126,6 +1148,7 @@ if [ -n "$KEY_A" ]; then
         done
         if [ "$REVOKED" = "1" ]; then
             p "Logout revokes the session within the 5s bound"
+            echo "M3_HTTP_LOGOUT_SESSION_5S_PASS"
         else
             f "Token still accepted 5s after logout — the session was not revoked"
         fi
@@ -1219,6 +1242,57 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$KEY_A" ]; then
 
     if [ -n "$HELD_IDS" ]; then
         HELD_COUNT="$(printf '%s' "$HELD_IDS" | wc -w | tr -d ' ')"
+
+        # Mint both entry-point capabilities immediately before the real
+        # transfer, and prove they can serve media first. Private gRPC evidence
+        # is mode 0600 inside WORKDIR; no token or capability is sent to logs.
+        M3_GRPC_EVIDENCE="$WORKDIR/transfer-grpc-capability.json"
+        grpc_parity holder-ok "gRPC media capability works immediately before transfer" \
+            --token "$TOKEN_A" --http-base "$BASE_URL" --evidence-file "$M3_GRPC_EVIDENCE"
+        [ "${GRPC_LAST_RC:-1}" = "0" ] || f "Could not mint gRPC capability before transfer"
+
+        M3_MASTER="$(curl -s --max-time 10 -H "Authorization: Bearer $TOKEN_A" \
+            "$BASE_URL/api/v1/streaming/$CONTENT_ID/manifest.m3u8" 2>/dev/null || true)"
+        M3_URI="$(printf '%s' "$M3_MASTER" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1 || true)"
+        M3_PLAYLIST_URL=""
+        case "$M3_URI" in
+            http://*|https://*) M3_PLAYLIST_URL="$M3_URI" ;;
+            /*) M3_PLAYLIST_URL="${BASE_URL%/}$M3_URI" ;;
+            ?*) M3_PLAYLIST_URL="${BASE_URL%/}/$M3_URI" ;;
+        esac
+        M3_HTTP_MEDIA_URL=""
+        M3_PLAYLIST_FILE="$WORKDIR/transfer-playlist.m3u8"
+        for M3_DEPTH in 1 2 3; do
+            [ -n "$M3_PLAYLIST_URL" ] || break
+            if ! curl -sS --max-time 10 -o "$M3_PLAYLIST_FILE" "$M3_PLAYLIST_URL" 2>/dev/null; then
+                break
+            fi
+            M3_MEDIA_URI="$(grep -v '^#' "$M3_PLAYLIST_FILE" | grep -v '^[[:space:]]*$' | head -1 || true)"
+            [ -n "$M3_MEDIA_URI" ] || break
+            case "$M3_MEDIA_URI" in
+                http://*|https://*) M3_NEXT_URL="$M3_MEDIA_URI" ;;
+                /*) M3_NEXT_URL="${BASE_URL%/}$M3_MEDIA_URI" ;;
+                *) M3_NEXT_URL="${M3_PLAYLIST_URL%/*}/$M3_MEDIA_URI" ;;
+            esac
+            M3_URI_PATH="${M3_MEDIA_URI%%\?*}"
+            if [[ "$M3_URI_PATH" == *.m3u8 ]]; then
+                M3_PLAYLIST_URL="$M3_NEXT_URL"
+            else
+                M3_HTTP_MEDIA_URL="$M3_NEXT_URL"
+                break
+            fi
+        done
+        if [ -n "$M3_HTTP_MEDIA_URL" ] && [[ "$M3_HTTP_MEDIA_URL" == *playback_token=* ]]; then
+            M3_PRE_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$M3_HTTP_MEDIA_URL" || true)"
+            case "$M3_PRE_CODE" in
+                200|206) p "HTTP media capability works immediately before transfer ($M3_PRE_CODE)" ;;
+                *) f "HTTP capability did not serve media before transfer ($M3_PRE_CODE)"; M3_HTTP_MEDIA_URL="" ;;
+            esac
+        else
+            f "Could not resolve a capability-bearing HLS media segment before transfer"
+            M3_HTTP_MEDIA_URL=""
+        fi
+
         MOVED="$(transfer_ids "$WALLET_A" "$KEY_A" "$WALLET_B" $HELD_IDS)"
         TRANSFER_BLOCK="$(cast block-number --rpc-url "$ANVIL_URL" 2>/dev/null || echo 0)"
 
@@ -1232,10 +1306,32 @@ if [ -n "$CONTENT_ID" ] && [ -n "$TOKEN_A" ] && [ -n "$KEY_A" ]; then
         fi
 
         SAFE_NOW="$(advance_safe "$TRANSFER_BLOCK")"
+        M3_SAFE_CONFIRMED=0
         if [ "$SAFE_NOW" != "unknown" ] && [ "$SAFE_NOW" -ge "$TRANSFER_BLOCK" ] 2>/dev/null; then
             p "The safe view now includes the transfer (safe=$SAFE_NOW >= block $TRANSFER_BLOCK)"
+            M3_TRANSFER_SAFE_AT="$(python3 -c 'import time; print(time.monotonic_ns())')"
+            M3_SAFE_CONFIRMED=1
         else
             f "The safe view did not reach the transfer block (safe=$SAFE_NOW, need >= $TRANSFER_BLOCK)"
+        fi
+
+        if [ "$M3_SAFE_CONFIRMED" = "1" ] && [ -n "$M3_HTTP_MEDIA_URL" ]; then
+            M3_HTTP_URL_FILE="$WORKDIR/transfer-http-capability-url"
+            (umask 077; printf '%s' "$M3_HTTP_MEDIA_URL" > "$M3_HTTP_URL_FILE")
+            chmod 600 "$M3_HTTP_URL_FILE"
+            python3 scripts/cd/poll_capability_revocation.py "$M3_HTTP_URL_FILE" --deadline 70 \
+                --start-monotonic-ns "$M3_TRANSFER_SAFE_AT"
+        else
+            f "HTTP transfer capability bound could not run without the confirmed safe transfer view"
+        fi
+        if [ "$M3_SAFE_CONFIRMED" = "1" ] && [ -s "$M3_GRPC_EVIDENCE" ]; then
+            M3_GRPC_ELAPSED_MS="$(python3 -c 'import sys,time; print(max(0, (time.monotonic_ns()-int(sys.argv[1]))//1000000))' "$M3_TRANSFER_SAFE_AT")"
+            grpc_parity capability-wait "gRPC transfer capability refused within 70s of safe-view confirmation" \
+                --token "$TOKEN_A" --evidence-file "$M3_GRPC_EVIDENCE" \
+                --deadline-seconds 70 --pass-marker M3_GRPC_TRANSFER_70S_PASS \
+                --elapsed-at-start-ms "$M3_GRPC_ELAPSED_MS"
+        else
+            f "gRPC transfer capability bound could not run without the confirmed safe transfer view"
         fi
 
         # The holding is gone and the safe view says so, so the next manifest must
