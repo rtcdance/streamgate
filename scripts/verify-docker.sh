@@ -1183,10 +1183,11 @@ perf_reference_key() {
   local ref="$1" tree runner
   tree="$(git ls-tree -r HEAD -- pkg cmd test go.mod go.sum contracts deploy config | sha256sum | awk '{print $1}')" \
     || fail "could not fingerprint the measurement source tree"
-  # The tool image is rebuilt every run, so its ID/tag is NOT part of the key;
-  # the comparison still fails closed if the tool versions or the loader binary
-  # differ (compare_environments).
-  runner="$( (hostname; nproc; awk '/MemTotal/{print $2}' /proc/meminfo; uname -r; docker version --format '{{.Server.Version}}') | sha256sum | awk '{print $1}')" \
+  # The stage runs inside the control container, whose hostname changes every
+  # run — the DAEMON identity is the stable runner identity. The tool image is
+  # rebuilt every run, so its ID/tag is not part of the key either; the
+  # comparison still fails closed if the tool versions or loader binary differ.
+  runner="$( (docker info --format '{{.ID}} {{.NCPU}} {{.MemTotal}} {{.KernelVersion}} {{.ServerVersion}}') | sha256sum | awk '{print $1}')" \
     || fail "could not fingerprint the runner"
   printf '%s\n%s\n%s\n%s\n%s\n' "$ref" "$tree" "$runner" \
     "$(sha256sum config/performance.acceptance.json | awk '{print $1}')" \
