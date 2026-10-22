@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 from perf_protocol import (COMPARISON_VIEWERS, REPEATS, SCENARIOS, VIEWERS, expected_matrix, validate_layout,
-                           validate_result, compare_rounds, validate_directory, read_json, acceptance_config)
+                           validate_result, compare_rounds, validate_directory, read_json, acceptance_config,
+                           compare_environments)
 from resource_monitor import summarize, timestamp
 
 
@@ -183,6 +184,41 @@ class ProtocolTests(unittest.TestCase):
         candidate[0]["ttfb_ms"]["p95"] = 2.5; candidate[1]["ttfb_ms"]["p95"] = 2.5
         with self.assertRaises(ValueError): compare_rounds(reference, candidate)
         with self.assertRaises(ValueError): compare_rounds(reference[:1], candidate[:1])
+
+    def environments(self):
+        protocol = read_json("config/performance.acceptance.json")
+        image = "sha256:" + "f" * 64
+        base = {"runner": {"ID": "runner-1", "Architecture": "x86_64"},
+                "protocolSHA256": hashlib.sha256(Path("config/performance.acceptance.json").read_bytes()).hexdigest(),
+                "composeSHA256": hashlib.sha256(Path("deploy/docker/compose.verify.yml").read_bytes()).hexdigest(),
+                "tools": {"go": "go version go1.26"},
+                "fixture_hash": "9" * 64, "quality": "640x360",
+                "services": {service: {"limits": limits, "imageID": image}
+                             for service, limits in protocol["infrastructureResources"].items()},
+                "loader": {"kind": "docker", "imageID": image, "binarySHA256": "e" * 64,
+                           "limits": protocol["resources"]["loader"]}}
+        reference = dict(base, harness_revision="b" * 40)
+        candidate = dict(base, harness_revision="c" * 40)
+        return reference, candidate
+
+    def test_a_reused_reference_must_be_declared_and_share_the_loader_binary(self):
+        # A cached reference measured by an earlier harness may be reused only
+        # when the caller DECLARES that harness and the loader binary is
+        # byte-identical; otherwise the comparison is between different
+        # measuring instruments and must fail.
+        reference, candidate = self.environments()
+        with self.assertRaises(ValueError):
+            compare_environments(reference, candidate)
+        compare_environments(reference, candidate, accept_harness="b" * 40)
+        # The tool image is rebuilt each run, so a different image ID alone must
+        # not reject a reused reference — the load binary identity is the pin.
+        rebuilt = copy.deepcopy(reference)
+        rebuilt["loader"]["imageID"] = "sha256:" + "a" * 64
+        compare_environments(rebuilt, candidate, accept_harness="b" * 40)
+        reused = copy.deepcopy(reference)
+        reused["loader"]["binarySHA256"] = "d" * 64
+        with self.assertRaises(ValueError):
+            compare_environments(reused, candidate, accept_harness="b" * 40)
 
     def artifacts(self, root):
         protocol = read_json("config/performance.acceptance.json")

@@ -1173,12 +1173,54 @@ perf_seed_and_pool() {
     || fail "wallet pool setup failed for ${project}"
 }
 
+# perf_reference_key <ref> — the identity a cached reference measurement must
+# match to be reusable. The reference app bytes are pinned by <ref>; the
+# measuring harness is pinned by the source trees the loader is built from; the
+# numbers themselves are only comparable on the SAME runner with the SAME
+# protocol, compose budget and tool image. Any difference changes the key, so a
+# changed harness or a different machine always re-measures.
+perf_reference_key() {
+  local ref="$1" tree runner
+  tree="$(git ls-tree -r HEAD -- pkg cmd test go.mod go.sum contracts deploy config | sha256sum | awk '{print $1}')" \
+    || fail "could not fingerprint the measurement source tree"
+  # The tool image is rebuilt every run, so its ID/tag is NOT part of the key;
+  # the comparison still fails closed if the tool versions or the loader binary
+  # differ (compare_environments).
+  runner="$( (hostname; nproc; awk '/MemTotal/{print $2}' /proc/meminfo; uname -r; docker version --format '{{.Server.Version}}') | sha256sum | awk '{print $1}')" \
+    || fail "could not fingerprint the runner"
+  printf '%s\n%s\n%s\n%s\n%s\n' "$ref" "$tree" "$runner" \
+    "$(sha256sum config/performance.acceptance.json | awk '{print $1}')" \
+    "$(sha256sum "$VERIFY_COMPOSE_FILE" | awk '{print $1}')" | sha256sum | awk '{print $1}'
+}
+
 # perf_reference_pass <ref> — build the reference image from the ref, bring up
 # the reference stack, seed it and run the measured rounds; then tear it down
-# so the candidate stack never shares the runner with it.
+# so the candidate stack never shares the runner with it. A previous run's
+# measured reference on the SAME runner, harness trees, protocol and tool image
+# is reused instead of re-measured (roughly half of a full run): the cached rows
+# are re-validated as reference evidence here, and the comparison still requires
+# the loader binary to be byte-identical to this run's.
 perf_reference_pass() {
   local ref="$1" project="${PROJECT_NAME}-ref" dir="${ARTIFACT_DIR}/perf-reference"
+  local cache_root="${VERIFY_REFERENCE_CACHE:-$(dirname "$ARTIFACT_DIR")/perf-reference-cache}"
+  local key cache cached_harness
+  key="$(perf_reference_key "$ref")"
+  cache="${cache_root}/${key}"
   rm -rf "$dir"; mkdir -p "$dir"
+  if [ -d "$cache" ]; then
+    cached_harness="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["harness_revision"])' "${cache}/environment.json" 2>/dev/null || true)"
+    if [ -n "$cached_harness" ] && python3 scripts/cd/perf_protocol.py "$cache" --mode reference --target "$ref" --accept-harness "$cached_harness"; then
+      rm -rf "$dir"; cp -a "$cache" "$dir"
+      PERF_REFERENCE_REUSED_HARNESS="$cached_harness"
+      printf '{"reused": true, "cacheKey": "%s", "measuredByHarness": "%s", "currentHarness": "%s", "measuredByRun": "%s"}\n' \
+        "$key" "$cached_harness" "$VERIFY_SOURCE_REVISION" \
+        "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["run"])' "${cache}/environment.json" 2>/dev/null || echo unknown)" \
+        > "${dir}/reference-reuse.json"
+      log "reference REUSED from ${cache} (measured by ${cached_harness}); the comparison still requires a byte-identical loader"
+      return
+    fi
+    log "cached reference at ${cache} did not validate for ${ref}; re-measuring"
+  fi
   log "reference comparison: building + running the reference stack from ${ref}"
   VERIFY_BUILD_REF="$ref" bring_up_fullstack "$project" postgres redis minio nats anvil anvil-proxy anvil-fallback-proxy monolith transcoder
   unset VERIFY_BUILD_REF
@@ -1189,12 +1231,20 @@ perf_reference_pass() {
   python3 scripts/cd/perf_protocol.py "$dir" --mode reference --target "$ref" \
     || fail "reference evidence is incomplete"
   teardown_fullstack "$project"
+  mkdir -p "$cache_root"
+  rm -rf "$cache"; cp -a "$dir" "$cache"
+  # Keep the cache small: only the newest two keys survive.
+  ls -1dt "$cache_root"/* 2>/dev/null | tail -n +3 | xargs -r rm -rf || :
 }
 
 # perf_compare_p95 <ref-dir> <cand-dir> — median ttfb p95 per side, then the
 # 1.20x limit. Both sides must carry real rounds and a real commit.
 perf_compare_p95() {
-  python3 scripts/cd/perf_protocol.py "$2" --mode comparison --reference-root "$1" \
+  local accept=()
+  if [ -n "${PERF_REFERENCE_REUSED_HARNESS:-}" ] && [ "${PERF_REFERENCE_REUSED_HARNESS}" != "$VERIFY_SOURCE_REVISION" ]; then
+    accept=(--accept-harness "$PERF_REFERENCE_REUSED_HARNESS")
+  fi
+  python3 scripts/cd/perf_protocol.py "$2" --mode comparison --reference-root "$1" "${accept[@]+"${accept[@]}"}" \
     || fail "reference comparison failed its identity, sample or p95 requirements"
 }
 

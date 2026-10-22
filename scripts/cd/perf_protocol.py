@@ -157,8 +157,22 @@ def compare_rounds(reference, candidate):
     return {"referenceMedianP95MS": ref, "candidateMedianP95MS": cand, "ratio": cand / ref, "limit": P95_REGRESSION_LIMIT}
 
 
-def compare_environments(reference, candidate):
+def compare_environments(reference, candidate, accept_harness=None):
     for key in ("runner", "harness_revision", "protocolSHA256", "composeSHA256", "tools", "fixture_hash", "quality", "loader"):
+        if key == "harness_revision" and accept_harness and reference.get(key) == accept_harness:
+            # A reference measured by an earlier, declared harness may be reused.
+            # The measuring instrument is still pinned below through "loader".
+            continue
+        if key == "loader" and accept_harness:
+            # The tool IMAGE ID changes whenever the image is rebuilt, while the
+            # load binary that actually produced the numbers is content-pinned by
+            # binarySHA256. On a reused reference that is the identity that must
+            # match; every other loader property (kind, limits, parallel media
+            # requests) still has to be equal.
+            for field in ("kind", "limits", "binarySHA256", "maxParallelMediaRequestsPerViewer"):
+                if not reference.get(key) or reference[key].get(field) != candidate.get(key, {}).get(field):
+                    raise ValueError("a reused reference was measured by a different loader")
+            continue
         if not reference.get(key) or reference[key] != candidate[key]:
             raise ValueError("reference and candidate differ in runner, tooling, protocol, fixture or loader identity")
     for service in set(reference["services"]) | set(candidate["services"]):
@@ -265,12 +279,13 @@ def validate_proxy_evidence(phase, scenario):
             raise ValueError(f"{name} observed state contradicts the injected fault")
 
 
-def validate_directory(root, mode, target, harness):
+def validate_directory(root, mode, target, harness, accept_harness=None):
     root = Path(root)
     paths = {str(p.relative_to(root)) for p in root.rglob("*-viewers-*.json") if not p.name.endswith(".execution.json")}
     validate_layout(paths, mode)
     env = read_json(root / "environment.json")
-    if env["commit"] != target or env["harness_revision"] != harness or env["loader"]["kind"] != "docker":
+    allowed = {harness} | ({accept_harness} if accept_harness else set())
+    if env["commit"] != target or env["harness_revision"] not in allowed or env["loader"]["kind"] != "docker":
         raise ValueError("environment target, harness or loader differs from protocol")
     validate_fixture(root, env)
     protocol = read_json("config/performance.acceptance.json")
@@ -282,13 +297,21 @@ def validate_directory(root, mode, target, harness):
             raise ValueError("environment configuration hash mismatch")
     if env["loader"]["limits"] != protocol["resources"]["loader"] or not re.fullmatch(r"[0-9a-f]{64}", env["loader"]["binarySHA256"]):
         raise ValueError("loader budget or binary identity missing")
-    if read_json(root / "loader-build.json") != {"harnessRevision": harness, "imageID": env["loader"]["imageID"], "binarySHA256": env["loader"]["binarySHA256"]}:
+    # The build manifest is checked against the environment it belongs to. When a
+    # cached reference is declared (accept_harness), that earlier harness is the
+    # self-consistent identity of these rows; the loader BINARY is still compared
+    # byte for byte against the candidate by compare_environments, so a harness
+    # that behaved differently cannot slip through on the name alone.
+    if read_json(root / "loader-build.json") != {"harnessRevision": env["harness_revision"], "imageID": env["loader"]["imageID"], "binarySHA256": env["loader"]["binarySHA256"]}:
         raise ValueError("loader environment differs from its build manifest")
     results = {}
     for rel in sorted(paths):
         path = root / rel
         record = read_json(path)
-        validate_result(record, target, harness)
+        # Rows are checked against the harness that produced THIS directory —
+        # already verified above to be either the current one or the declared
+        # cached one.
+        validate_result(record, target, env["harness_revision"])
         scenario, viewers = record["scenario"], record["viewers"]
         if path.name != f"{scenario}-viewers-{viewers}.json" or (mode == "matrix" and (scenario, viewers) != expected_matrix()[rel]):
             raise ValueError("result does not match its scenario/round slot")
@@ -346,14 +369,18 @@ def main():
     parser.add_argument("--mode", choices=("matrix", "comparison", "reference", "smoke"), default="matrix")
     parser.add_argument("--target")
     parser.add_argument("--reference-root", type=Path)
+    # A cached reference measurement is declared by the harness revision that
+    # produced it. Its rows stay bound to that harness and to the S commit; the
+    # loader binary identity must still match this run's (compare_environments).
+    parser.add_argument("--accept-harness")
     args = parser.parse_args()
     harness = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     env, rows = validate_directory(args.root, args.mode, args.target or harness, harness)
     if args.reference_root:
         if args.mode != "comparison": raise ValueError("reference comparison requires comparison mode")
         baseline = read_json("config/performance.acceptance.json")["safetyBaselineRevision"]
-        ref_env, ref_rows = validate_directory(args.reference_root, "reference", baseline, harness)
-        compare_environments(ref_env, env)
+        ref_env, ref_rows = validate_directory(args.reference_root, "reference", baseline, harness, accept_harness=args.accept_harness)
+        compare_environments(ref_env, env, accept_harness=args.accept_harness)
         paths = [f"round-{i}/warm_cache-viewers-{COMPARISON_VIEWERS}.json" for i in range(1, COMPARISON_ROUNDS + 1)]
         reference, candidate = [ref_rows[p] for p in paths], [rows[p] for p in paths]
         if max(timestamp(r["finished_at"]) for r in reference) > min(timestamp(r["started_at"]) for r in candidate):
