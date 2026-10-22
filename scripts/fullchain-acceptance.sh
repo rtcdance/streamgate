@@ -195,6 +195,26 @@ if ! go build -o "$GRPC_PARITY_BIN" ./test/grpcparity; then
     f "Could not build the real gRPC parity probe"
     GRPC_PARITY_BIN="/bin/false"
 fi
+GRPC_TARGET="${GRPC_TARGET:-monolith:9090}"
+
+# grpc_parity <mode> <label> [client-args...] — runs the parity client and turns
+# its exit status into ONE acceptance check. It is defined here, before the M3
+# revocation checks that use it; defining it in the gRPC section further down
+# made the earlier call a "command not found" (exit 127) at runtime.
+grpc_parity() {
+    local mode="$1" label="$2"; shift 2
+    local out rc=0 detail
+    out="$("$GRPC_PARITY_BIN" --target "$GRPC_TARGET" --content "$CONTENT_ID" \
+        --mode "$mode" "$@" 2>&1)" || rc=$?
+    detail="$(printf '%s' "$out" | tail -n 1)"
+    if [ "$rc" = "0" ]; then
+        p "$label"
+        printf '%s\n' "$out" | grep '^M3_' || true
+    else
+        f "$label — ${detail:-the gRPC parity client failed with no output}"
+    fi
+    GRPC_LAST_RC="$rc"
+}
 MEDIA="$WORKDIR/sg-acceptance-src.mp4"
 
 # Fixed parameters so the fixture is a real, decodable file rather than a
@@ -915,27 +935,8 @@ fi
 # project network. A gRPC check that cannot run is a FAILURE, never a skip.
 printf '\n=== gRPC authorization parity ===\n'
 
-GRPC_TARGET="${GRPC_TARGET:-monolith:9090}"
-
-# grpc_parity <mode> <label> [client-args...] — runs the parity client and turns
-# its exit status into ONE acceptance check. The client's output is captured so
-# a failure is diagnosable; an unreachable target makes `go run` fail and this
-# check FAIL rather than skip. `go run` uses the repo root as its working
-# directory, exactly like the existing `go run ./cmd/migrate` usage.
-grpc_parity() {
-    local mode="$1" label="$2"; shift 2
-    local out rc=0 detail
-    out="$("$GRPC_PARITY_BIN" --target "$GRPC_TARGET" --content "$CONTENT_ID" \
-        --mode "$mode" "$@" 2>&1)" || rc=$?
-    detail="$(printf '%s' "$out" | tail -n 1)"
-    if [ "$rc" = "0" ]; then
-        p "$label"
-        printf '%s\n' "$out" | grep '^M3_' || true
-    else
-        f "$label — ${detail:-the gRPC parity client failed with no output}"
-    fi
-    GRPC_LAST_RC="$rc"
-}
+# grpc_parity and GRPC_TARGET are defined near the parity-probe build above,
+# because the M3 revocation checks run before this section.
 
 # The holder (1 owned, 1 required) must be authorized over gRPC; the segment
 # URL it hands back must carry a capability on the shared 60s policy and
