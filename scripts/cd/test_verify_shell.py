@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import re
 import shlex
 import subprocess
@@ -10,10 +11,227 @@ SOURCE = Path(__file__).resolve().parent.parent / "verify-docker.sh"
 
 
 def function(name, source=SOURCE):
-    return re.search(r"^" + name + r"\(\) \{\n.*?^\}", source.read_text(), re.M | re.S)[0]
+    return re.search(r"^" + name + r"\(\) \{\n.*?^\}[ \t]*$", source.read_text(), re.M | re.S)[0]
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_release_reads_the_actual_frozen_baseline_from_the_protocol_helper(self):
+        result = subprocess.run(["bash", "-c", function("perf_acceptance_config") + '\nperf_acceptance_config safetyBaselineRevision'],
+                                cwd=SOURCE.parent.parent, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        configured = json.loads((SOURCE.parent.parent / "config/performance.acceptance.json").read_text())
+        self.assertEqual(result.stdout.strip(), configured["safetyBaselineRevision"])
+
+    def test_ci_requires_complete_docker_all_and_bound_evidence_before_promotion(self):
+        source = (SOURCE.parent.parent / ".github/workflows/ci.yml").read_text()
+        def job(name):
+            match = re.search(r"^  " + name + r":\n.*?(?=^  [a-z][\w-]*:|\Z)", source, re.M | re.S)
+            self.assertIsNotNone(match, f"missing required CI job: {name}")
+            return match[0]
+        acceptance = job("acceptance")
+        self.assertIn("VERIFY_STAGE: all", acceptance)
+        self.assertIn("VERIFY_MODE: candidate", acceptance)
+        self.assertIn("VERIFY_BUILD_ARTIFACTS:", acceptance)
+        self.assertIn("bash scripts/verify-docker.sh", acceptance)
+        self.assertIn("command.exit", acceptance)
+        self.assertIn("if: always()", acceptance)
+        self.assertNotIn("continue-on-error", acceptance)
+        self.assertNotIn("if: github.event_name", acceptance)
+        evidence = job("evidence")
+        self.assertIn("summarize_ci_evidence.py", evidence)
+        self.assertIn("toJSON(needs)", evidence)
+        self.assertIn("ci-acceptance-${{ github.sha }}", evidence)
+        self.assertRegex(job("publishable"), r"needs:\s*\[evidence\]")
+
+    def test_standalone_release_uses_the_same_container_entry_and_original_build_inputs(self):
+        source = (SOURCE.parent.parent / ".github/workflows/release-validation.yml").read_text()
+        self.assertIn("VERIFY_STAGE: release", source)
+        self.assertIn("VERIFY_BUILD_ARTIFACTS:", source)
+        self.assertIn("candidate_run_id:", source)
+        self.assertIn("bash scripts/verify-docker.sh", source)
+        for legacy in ("docker-compose.fullchain.yml", "sg-fc-monolith", "actions/setup-go@", "apt-get", "npm ci"):
+            self.assertNotIn(legacy, source)
+
+    def test_durability_entrypoints_schedule_every_required_package(self):
+        root = SOURCE.parent.parent
+        suite = json.loads((SOURCE.parent / "cd/required-tests.json").read_text())["suites"]["durability-tests"]
+        prefix = "github.com/rtcdance/streamgate/"
+        required = {"./" + row["package"].removeprefix(prefix) for row in suite}
+        for entry in (SOURCE, root / ".github/workflows/ci.yml"):
+            unfolded = re.sub(r"\\\n\s*", " ", entry.read_text())
+            command = re.search(r"^\s*go test (?P<args>[^\n]+?)\s*>\s*(?:/artifacts/)?durability-tests\.json", unfolded, re.M)
+            with self.subTest(entry=str(entry)):
+                self.assertIsNotNone(command, "durability command was removed")
+                packages = set(re.findall(r"(?:^|\s)(\./[\w./-]+)", command["args"]))
+                self.assertFalse(required - packages, f"required packages not scheduled: {required - packages}")
+                self.assertRegex(command["args"], r"(?:^|\s)-p\s+1(?:\s|$)", "DB fixtures must run serially across packages")
+
+    def test_required_ci_artifacts_explicitly_retain_at_least_30_days(self):
+        for workflow in ("ci.yml", "test.yml", "build.yml", "release-validation.yml"):
+            lines = (SOURCE.parent.parent / ".github/workflows" / workflow).read_text().splitlines()
+            uploads = 0
+            for offset, line in enumerate(lines):
+                if "uses: actions/upload-artifact@" not in line:
+                    continue
+                uploads += 1
+                indentation = len(line) - len(line.lstrip())
+                block = []
+                for following in lines[offset + 1:]:
+                    if following.strip() and len(following) - len(following.lstrip()) < indentation:
+                        break
+                    block.append(following)
+                retention = re.search(r"retention-days:\s*(\d+)", "\n".join(block))
+                with self.subTest(workflow=workflow, upload=offset + 1):
+                    self.assertIsNotNone(retention, "retention must not depend on an organization default")
+                    self.assertGreaterEqual(int(retention[1]), 30)
+            self.assertGreater(uploads, 0)
+
+    def run_schema_compatibility(self, *, smoke_exit=0, wrong_image=False, changed_schema=False, wrong_baseline=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = "sha256:" + "1" * 64
+            baseline_image = "sha256:" + "2" * 64
+            (root / "candidate.json").write_text(json.dumps({"images": {"monolith": {"imageID": image}}}))
+            (root / "reference.json").write_text(json.dumps({
+                "revision": ("f" if wrong_baseline else "c") * 40,
+                "images": {"monolith": {"imageID": baseline_image, "tag": "sg-reference-monolith:latest"}},
+            }))
+            script = '\n'.join([
+                'set -euo pipefail', f'ARTIFACT_DIR={shlex.quote(directory)}',
+                f'CANDIDATE_MANIFEST={shlex.quote(str(root / "candidate.json"))}',
+                'VERIFY_SOURCE_REVISION=' + "a" * 40, 'VERIFY_PLATFORM=linux/amd64',
+                'VERIFY_COMPOSE_FILE=fixture.yml; VERIFY_MONO_PORT=12345; VERIFY_ANVIL_PORT=12346; VERIFY_MINIO_PORT=12347',
+                'log() { echo "$*"; }; fail() { echo "$*" >&2; exit 1; }',
+                'perf_acceptance_config() { echo ' + "c" * 40 + '; }',
+                'python3() { if [ "$1" = scripts/cd/candidate_manifest.py ]; then return 0; fi; command python3 "$@"; }',
+                'docker() { case "$1" in',
+                f' inspect) echo {image if wrong_image else baseline_image} ;;',
+                ' exec) if [ -f "$ARTIFACT_DIR/business-called" ] && [ ' + str(int(changed_schema)) + ' = 1 ]; then echo changed; else echo current-schema; fi ;;',
+                ' compose) [[ " $* " != *" -p 8080 "* ]] || return 125 ;;',
+                ' *) return 125 ;; esac; }',
+                'release_remove_monolith_a() { :; }',
+                'release_recover_monolith() { echo "$3"; touch "$ARTIFACT_DIR/candidate-recovered"; }',
+                f'run_fullchain() {{ touch "$ARTIFACT_DIR/business-called"; return {smoke_exit}; }}',
+                function("release_schema_compatibility"), 'release_schema_compatibility own-project',
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+            proof = root / "release-compat/compatibility.json"
+            return result, json.loads(proof.read_text()) if proof.exists() else None
+
+    def test_schema_compatibility_runs_business_smoke_and_restores_candidate(self):
+        result, proof = self.run_schema_compatibility()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(proof["status"], "PASS")
+        self.assertEqual(proof["schemaBeforeSHA256"], proof["schemaAfterSHA256"])
+        self.assertEqual(proof["baselineSHA"], "c" * 40)
+        self.assertIn("RELEASE_SCHEMA_BUSINESS_PASS", result.stdout)
+        self.assertIn("RELEASE_SCHEMA_A_RECOVERED", result.stdout)
+        self.assertIn('run_logged release-compat release_schema_compatibility "$project"', function("stage_release"))
+
+    def test_schema_compatibility_does_not_turn_failed_business_smoke_into_health_success(self):
+        result, proof = self.run_schema_compatibility(smoke_exit=17)
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertIsNone(proof)
+        self.assertNotIn("RELEASE_SCHEMA_A_RECOVERED", result.stdout)
+
+    def test_schema_compatibility_rejects_wrong_baseline_image_or_schema_changes(self):
+        for condition, diagnostic in (("wrong_image", "not running the frozen baseline"),
+                                      ("changed_schema", "changed the candidate schema"),
+                                      ("wrong_baseline", "differs from the frozen safety baseline")):
+            result, proof = self.run_schema_compatibility(**{condition: True})
+            with self.subTest(condition=condition):
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIsNone(proof)
+                self.assertIn(diagnostic, result.stderr)
+
+    def run_release_drills(self, smoke_exit=1, smoke_output=None, recovery_image=None, start_exit=1,
+                           start_output="auth.jwt_secret is only 6 bytes — minimum 32 bytes required for HS256"):
+        image = "sha256:" + "1" * 64
+        if smoke_output is None:
+            smoke_output = "PASS: Anvil chainId=31337\nFAIL: dev-mint failed: HTTP 500"
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "candidate.json"
+            manifest.write_text(json.dumps({"images": {"monolith": {"imageID": image}}}))
+            script = '\n'.join([
+                'set -euo pipefail',
+                f'ARTIFACT_DIR={shlex.quote(directory)}',
+                f'CANDIDATE_MANIFEST={shlex.quote(str(manifest))}',
+                'VERIFY_COMPOSE_FILE=fixture.yml; VERIFY_MONO_PORT=12345; VERIFY_ANVIL_PORT=12346; VERIFY_MINIO_PORT=12347',
+                'log() { echo "$*"; }; fail() { echo "$*" >&2; exit 1; }',
+                'sleep() { SECONDS=$((SECONDS+200)); }; wait_health() { return 0; }; curl() { echo 200; }',
+                # This is absent from Dockerfile.verify; a host installation must
+                # not hide a missing controller dependency.
+                'rg() { echo "unsupported controller tool: rg" >&2; return 127; }',
+                'docker() {',
+                '  local args="$*" field="${3:-}" name="${@: -1}" run_args',
+                '  case "$1" in',
+                '    compose)',
+                '      if [[ " $args " == *" run "* ]]; then',
+                '        run_args="${args#* run }"',
+                '        [[ " $run_args " != *" -p "* ]] || { echo "unexpected host port publication" >&2; return 125; }',
+                '        [[ "$args" != *"/nonexistent-streamgate-entrypoint"* ]] || return 125',
+                '      fi; return 0 ;;',
+                f'    logs) printf "%s\\n" {shlex.quote(start_output)} ;;',
+                '    inspect)',
+                '      case "$field" in',
+                f'        "{{{{.Image}}}}") if [[ "$name" == *"-monolith-1" ]]; then echo {shlex.quote(recovery_image or image)}; else echo {image}; fi ;;',
+                '        "{{.State.Status}}") if [[ "$name" == *"-drill-start" ]]; then echo exited; else echo running; fi ;;',
+                f'        "{{{{.State.ExitCode}}}}") echo {start_exit} ;;',
+                '        *) if [[ "$name" == *"-drill-health" ]]; then echo unhealthy; else echo healthy; fi ;;',
+                '      esac ;;',
+                '    rm) return 0 ;;',
+                '    *) return 125 ;;',
+                '  esac',
+                '}',
+                f'run_fullchain() {{ printf "%s\\n" {shlex.quote(smoke_output)}; return {smoke_exit}; }}',
+                function("release_remove_monolith_a"), function("release_recover_monolith"),
+                function("release_failure_drills"), 'release_failure_drills own-project',
+            ])
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+
+    def test_release_drills_require_all_three_failures_and_candidate_recovery(self):
+        result = self.run_release_drills()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        for kind in ("START", "HEALTH", "SMOKE"):
+            self.assertIn(f"RELEASE_DRILL_{kind}_B_FAILED", result.stdout)
+            self.assertIn(f"RELEASE_DRILL_{kind}_A_RECOVERED", result.stdout)
+
+    def test_release_drills_refuse_a_wrong_recovered_image(self):
+        result = self.run_release_drills(recovery_image="sha256:" + "2" * 64)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("RELEASE_DRILL_START_A_RECOVERED", result.stdout)
+
+    def test_release_drills_refuse_unrelated_or_timed_out_smoke_failure(self):
+        for code, output in ((1, "FAIL: missing browser"), (124, "PASS: Anvil chainId=31337\nFAIL: dev-mint failed: HTTP 500")):
+            with self.subTest(code=code):
+                result = self.run_release_drills(smoke_exit=code, smoke_output=output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("RELEASE_DRILL_SMOKE_B_FAILED", result.stdout)
+
+    def test_release_drills_refuse_a_successful_start_of_broken_b(self):
+        result = self.run_release_drills(start_exit=0)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("RELEASE_DRILL_START_B_FAILED", result.stdout)
+
+    def test_release_drills_refuse_an_unrelated_startup_failure(self):
+        result = self.run_release_drills(start_output="Postgres unavailable")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("RELEASE_DRILL_START_B_FAILED", result.stdout)
+
+    def test_fullchain_preserves_raw_failure_exit_for_each_deployment_mode(self):
+        for target in (1, 2):
+            for code in (1, 124, 137):
+                script = '\n'.join([
+                    'set -euo pipefail; calls=0; VERIFY_H5_PORT=12345',
+                    'require_controller_tool() { :; }; ensure_playwright() { :; }; start_h5_nginx() { :; }',
+                    'log() { :; }; diag_stack_logs() { echo diagnostic; }',
+                    f'env() {{ calls=$((calls+1)); if [ "$calls" = {target} ]; then return {code}; fi; }}',
+                    function("run_fullchain"), 'run_fullchain own-project 12346 12347 12348 12349',
+                ])
+                with self.subTest(target=target, code=code):
+                    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, code, result.stderr + result.stdout)
+
     def test_reorg_requires_two_nonempty_distinct_canonical_hashes(self):
         source = SOURCE.parent / "durable-fault-acceptance.sh"
         old = "0x" + "a" * 64
@@ -300,6 +518,28 @@ class VerifyShellTests(unittest.TestCase):
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((root / "target").read_text(), target)
+
+    def test_final_all_remeasures_reference_instead_of_reusing_a_previous_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "cache/fixed-key"
+            cache.mkdir(parents=True)
+            (cache / "environment.json").write_text(json.dumps({"harness_revision": "a" * 40, "run": "earlier-run"}))
+            script = '\n'.join([
+                "set -euo pipefail", "VERIFY_STAGE=all", "PROJECT_NAME=own-run",
+                "VERIFY_SOURCE_REVISION=" + "a" * 40,
+                "ARTIFACT_DIR=" + shlex.quote(directory),
+                "VERIFY_REFERENCE_CACHE=" + shlex.quote(str(root / "cache")),
+                'log() { echo "$*"; }; fail() { exit 1; }',
+                'perf_reference_key() { echo fixed-key; }',
+                'python3() { if [ "$1" = scripts/cd/perf_protocol.py ]; then return 0; fi; command python3 "$@"; }',
+                'bring_up_fullstack() { echo fresh-reference-started; return 17; }',
+                function("perf_reference_pass"), "perf_reference_pass " + "c" * 40,
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 17, result.stderr)
+            self.assertIn("fresh-reference-started", result.stdout)
+            self.assertNotIn("REUSED", result.stdout)
 
     def test_candidate_matrix_stamps_the_candidate_revision(self):
         # The measured matrix must not let the harness fall back to the ambient

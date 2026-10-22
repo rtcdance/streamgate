@@ -353,7 +353,9 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 
 - **JWT secret**: injected via the `STREAMGATE_JWT_SECRET` env var (the compose stack sets one for local acceptance). In production, use 32+ random bytes from a secret manager — never a committed literal.
 - **Replay protection**: `MarkChallengeUsed()` is atomic (Redis `SETNX` or in-memory `sync.Map` with `LoadOrStore`).
-- **TOCTOU prevention**: NFT verify and streaming gate both check the same cache key with the same TTL.
+- **Policy snapshots**: HTTP and gRPC delegate to the business authorizer. Rule rows, rule version and original read time come from one PostgreSQL snapshot. A changed version requires a complete authorization retry; the issuer consumes the sealed authorization result.
+- **Evidence age**: cached NFT evidence retains its original observation time. Cache reads cannot renew its age; issuance rechecks freshness after the final policy read.
+- **Restore boundary**: access/refresh flows and playback capabilities bind to the login session, Redis session version and PostgreSQL `restore_epoch`. Recovery rotates the epoch before admitting traffic; unverifiable dependencies fail closed.
 - **Circuit breaker**: 7 critical paths wrapped (PostgreSQL, Redis, MinIO, NATS, RPC clients). Configurable thresholds.
 - **CORS**: `STREAMGATE_CORS_ORIGINS` env var, defaults to `localhost:18000,localhost:18001,...`
 - **CSP**: nginx serves h5-demo with strict Content-Security-Policy (no inline scripts in prod).
@@ -363,15 +365,31 @@ HLS has the best browser support (Safari native, all others via hls.js), the sim
 
 - **What's deployed**: `/health`, `/ready`, `/health/live`, `/metrics` (Prometheus text format) on every HTTP-exposed service
 - **What's missing**: Full Prometheus + Grafana + Jaeger stack was removed during simplification. The `/metrics` endpoint exists but is not scraped by anything in the fullchain compose. See [operations/monitoring.md](operations/monitoring.md).
-- **Manual monitoring**: `make deploy-status` (container health), `./scripts/verify-deploy.sh` (8-point health check), `./scripts/fullchain-acceptance.sh` (11-step API acceptance)
+- **Manual monitoring**: `make deploy-status` (container health), `./scripts/verify-deploy.sh` (deployment checks), `./scripts/fullchain-acceptance.sh` (wallet, authorization and real media acceptance).
 
 ### Token Types
 
 | Token | Issuer | Lifetime | Used for |
 |-------|--------|----------|----------|
-| JWT (HS256) | auth plugin | 2h | All `/api/v1/*` endpoints except segment route |
-| Playback token | streaming service | per-manifest | HLS segment access (replaces JWT for CDN scenarios) |
+| Access JWT (HS256, `token_type=access`) | auth service | configured access lifetime | Authenticated HTTP/gRPC operations; session and restore epoch are checked |
+| Playback capability (HS256, `token_type=playback`) | business authorization and auth services | default and maximum 60s; verifier tolerance at most 5s | Content and policy scoped protected media, bound to the caller's login session |
 | Challenge nonce | auth service | 5min | One-time wallet signature |
+
+### Candidate acceptance and portfolio evidence
+
+```mermaid
+flowchart LR
+    Q[Source quality, security, Forge and Anvil] --> B[Build candidate once and scan its archives]
+    B --> P[Registry receipts on non PR runs]
+    B --> A[Complete Docker all on isolated runner]
+    A --> E[Verify M0 to M8 and R01 to R12 evidence]
+    P --> E
+    E --> G[Publishable]
+```
+
+The acceptance controller imports the original CI archives and verifies image IDs, archive hashes, build tags, platform and revision before use. Its sequential stages cover real media in both deployment modes, durable faults, fresh-volume recovery, the full fixed-resource performance matrix and a newly measured reference, then temporary deployment with old-application/new-schema business smoke and three failure classes. Registry manifest digests remain distinct from image config IDs and archive hashes.
+
+`publishable` requires this run's raw outer exit, all required jobs, the complete hashed gate index and matching build/publication identities. These are implemented gates, not a claim that the current candidate has passed them. Current completion and historical evidence are recorded only in `TRANSITION_PLAN.md`; personal demonstration and production deployment remain separate.
 
 ---
 

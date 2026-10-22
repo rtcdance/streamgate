@@ -1,5 +1,7 @@
 # Resume (English)
 
+> **Current delivery status (2026-10-22): overall repair and re-acceptance have not passed.** Test, performance, and CI figures below are historical and belong only to their recorded SHAs. Historical candidate `ab172c2` / run `39005594931` is not the current acceptance result. Work remains in repair and targeted-validation stages; current same-SHA `VERIFY_STAGE=all`, performance matrix/reference comparison, and remote CI are still outstanding. Do not describe the project as fully accepted. Production rollout and personal presentation/recording/application work remain separate pending items.
+
 > Output discipline (TRANSITION_PLAN SG-09): only claims that can be demonstrated live; every figure cites its commit SHA / test evidence (§8). No line counts, no coverage numbers, no "microkernel architecture", no service counts, no version tags.
 > 【待本人确认 / confirm with candidate】 marks claims to verify before sending; `待补 / pending` marks work that is NOT done and must not be presented as complete.
 > `[...]` placeholders must be replaced before sending.
@@ -29,7 +31,7 @@
 
 The main line: real wallet signature → one-time challenge → server-side NFT rules → same-block evidence → 60s capability → real HLS playback → access denied after transfer → RPC / Redis faults and recovery. **AI honesty**: most implementation code is AI-generated; I own the design decisions and acceptance criteria, review every change, and locate/fix failing cases — AI code generation is not "I designed and implemented this independently"【待本人确认 / confirm with candidate】.
 
-Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (architecture / contracts / all nine media steps, chain-write idempotency A+B (**including the HTTP/gRPC dual-entry parity**), operations with a 17/17 backup-restore drill) and SG-07 (1/10/50/100 viewers × 3 repeats at 100% success, 50 viewers = 1400/1400, the 100-viewer capacity tier = 2800/2800; the cold-cache / primary-RPC-down / all-RPC-down fault matrix runs, with 0 served and 0 media bytes when every endpoint is stopped; and a same-runner p95 regression gate against a fixed reference, measured ratio = 1.029 ≤ 1.20 — authoritative set in TRANSITION_PLAN §8.16 H). **Remote CI has run and is green** — the same-SHA run 39005594931 on the frozen candidate `ab172c2` reports 55/55 jobs success, zero skips, including the GitHub-side same-digest CD (temporary empty-volume deploy + real migration + three-class failure drills + rollback leg, plan §8.16 K.2). **Not done**: production rollout (no target / secrets / authorization).
+Current status: engineering implementation and acceptance repairs remain in progress; overall acceptance has not passed. The measurements below are historical records and must be read with their recorded SHAs and raw evidence in TRANSITION_PLAN §8. Historical remote CI run `39005594931` belongs to old candidate `ab172c2`; it does not prove completion of current code or plan. Current-candidate same-SHA Docker `all`, performance matrix/reference comparison, and remote CI remain outstanding. **Not done**: production rollout (no target / secrets / authorization); personal presentation, recording, and application tasks also await the candidate.
 
 **Entry 1 — Signatures & resource authorization**
 
@@ -90,5 +92,5 @@ Evidence status: completed with measured evidence — SG-01~06, SG-10~14 (archit
 1. Every `[...]` placeholder replaced; every work bullet must survive 10 minutes of follow-up questions.
 2. Every 【待本人确认】 reviewed; the three "my decision" entries were genuinely yours — otherwise reword as "reviewed and co-signed".
 3. Every figure and test name points at evidence: commits `0756ea4 / e859d13 / f891091 / 313d414 / a8784ad / f7f0dd0 / c67b222 / de4b83c` and the matching §8 tables in TRANSITION_PLAN.md.
-4. The only pending item is **production rollout** (no target / secrets / authorization) — presented as NOT done, no predicted numbers. Remote CI and the GitHub-side same-digest CD have run (frozen candidate `ab172c2`, run 39005594931, all green), and so have the cold/RPC-fault perf scenarios; these may be presented as done, pointing at the §8 evidence.
+4. Follow the current status marker at the top of `TRANSITION_PLAN.md` and its latest §8.17 table. Old candidate `ab172c2` / run `39005594931` and prior performance figures are historical only, not current completion. Current same-SHA full acceptance, performance comparison, and remote CI remain outstanding; production rollout is unperformed, and personal presentation/recording/application tasks await the candidate.
 5. No DRM / full-decentralization / production-HA claims — boundary language is in `PROJECT_TALK_SCRIPT.md`.

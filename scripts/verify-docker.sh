@@ -170,8 +170,8 @@ build_candidate() {
 }
 
 # run_in_image <stage> <shell script>
-# scripts/ and test/ are excluded from the image by the repo-root .dockerignore
-# (it exists for the runtime images), so both are bind-mounted read-only from
+# scripts/, test/ and .github/ are excluded from the image by .dockerignore,
+# so the suites and workflow contracts are bind-mounted read-only from
 # the same checkout the image was built from — same commit, no second copy.
 # When the acceptance compose project's network exists (durability brings it
 # up first), the container joins it so a STREAMGATE_TEST_DB_DSN whose host is
@@ -199,6 +199,7 @@ run_in_image() {
         -v "${ARTIFACT_DIR}:/artifacts" \
         -v "${ROOT_DIR}/scripts:/src/scripts:ro" \
         -v "${ROOT_DIR}/test:/src/test:ro" \
+        -v "${ROOT_DIR}/.github:/src/.github:ro" \
         -w /src \
         "${IMAGE_TAG}" bash -lc "$1" 2>&1 | tee "$log_file"
   local statuses=("${PIPESTATUS[@]}")
@@ -209,6 +210,7 @@ run_in_image() {
     log "stage '${stage}' failed with exit ${rc} (log: ${log_file})"
     exit "$rc"
   fi
+  printf 'stage=%s PASS\n' "$stage" >> "$log_file"
   log "stage=${stage} PASS"
 }
 
@@ -234,6 +236,7 @@ run_logged() {
     log "stage '${stage}' failed with exit ${rc} (log: ${log_file})"
     exit "$rc"
   fi
+  printf 'stage=%s PASS\n' "$stage" >> "$log_file"
   log "stage=${stage} PASS"
 }
 
@@ -248,9 +251,13 @@ stage_unit() {
     python3 scripts/cd/test_verify_proxy.py
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
+    python3 scripts/cd/test_import_ci_candidate.py
+    python3 scripts/cd/test_summarize_ci_evidence.py
     python3 scripts/cd/test_verify_shell.py
     python3 scripts/cd/test_verify_controller_cancel.py
     python3 scripts/cd/test_assert_candidate_evidence.py
+    python3 scripts/cd/test_generate_candidate_gates.py
+    python3 scripts/cd/test_poll_capability_revocation.py
     python3 scripts/cd/test_perf_fixture.py
     python3 scripts/cd/test_resource_monitor.py
     python3 scripts/cd/test_perf_metrics.py
@@ -258,6 +265,7 @@ stage_unit() {
     python3 scripts/cd/test_perf_environment.py
     python3 scripts/cd/test_recovery_objects.py
     python3 scripts/cd/test_recovery_drill.py
+    go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
     node scripts/cd/test_h5_api_base.cjs
     node scripts/cd/test_browser_preflight.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
@@ -368,7 +376,7 @@ stage_durability() {
     # truncations deadlocked and one package could delete another fixture
     # between INSERT and SELECT. Serialize the packages; the suite is small.
     go test -race -count=1 -p 1 -json \
-      ./pkg/service/transcoding ./pkg/service/registry ./pkg/web3/event ./pkg/service ./test/integration/... \
+      ./pkg/service/transcoding ./pkg/service/registry ./pkg/service/gating ./pkg/web3/event ./pkg/service ./test/integration/... \
       > /artifacts/durability-tests.json || go_test_rc=$?
     python3 scripts/cd/assert_required_tests.py \
       --suite durability-tests --exit-code "$go_test_rc" \
@@ -519,6 +527,14 @@ prebuild_verify_stack() {
     manifest="${ARTIFACT_DIR}/reference.json"
   elif [ "$CANDIDATE_BUILT" = 1 ]; then
     python3 scripts/cd/candidate_manifest.py "$manifest" --revision "$(git rev-parse HEAD)" --platform "$VERIFY_PLATFORM" || fail "candidate identity changed"
+    VERIFY_IMAGE_PREFIX="$prefix"
+    export VERIFY_IMAGE_PREFIX
+    return
+  elif [ -n "${VERIFY_BUILD_ARTIFACTS:-}" ]; then
+    python3 scripts/cd/import_ci_candidate.py --inputs "$VERIFY_BUILD_ARTIFACTS" \
+      --prefix "$prefix" --revision "$VERIFY_SOURCE_REVISION" --platform "$VERIFY_PLATFORM" --out "$manifest" \
+      || fail "CI build archives do not identify the scanned candidate"
+    CANDIDATE_BUILT=1
     VERIFY_IMAGE_PREFIX="$prefix"
     export VERIFY_IMAGE_PREFIX
     return
@@ -797,11 +813,12 @@ PYPORTS
 # a gateway). The H5 page comes from the per-run nginx proxy above, whose /api
 # upstream is switched to the mode under test.
 run_fullchain() {
-  local project="$1" mono_port="$2" gw_port="$3" anvil_port="$4" minio_port="$5"
+  local project="$1" mono_port="$2" gw_port="$3" anvil_port="$4" minio_port="$5" rc=0
   require_controller_tool curl
   require_controller_tool python3
   require_controller_tool cast
   require_controller_tool ffmpeg
+  require_controller_tool timeout
   ensure_playwright
   local common_env=(
     PG_CONTAINER="${project}-postgres-1"
@@ -816,26 +833,31 @@ run_fullchain() {
   )
   log "running fullchain acceptance against the monolith mode (localhost:${mono_port})"
   start_h5_nginx "$project" "$mono_port"
-  if ! env "${common_env[@]}" \
+  env "${common_env[@]}" \
     H5_DEMO_URL="http://localhost:${VERIFY_H5_PORT}/demo/" \
     API_BASE="http://localhost:${mono_port}" \
     GRPC_TARGET="monolith:9090" \
-    bash scripts/fullchain-acceptance.sh "http://localhost:${mono_port}"; then
-    diag_stack_logs "$project"
-    return 1
+    timeout --signal=TERM --kill-after=30 "${VERIFY_FULLCHAIN_TIMEOUT_SECONDS:-1800}" \
+    bash scripts/fullchain-acceptance.sh "http://localhost:${mono_port}" || rc=$?
+  if [ "$rc" != 0 ]; then
+    diag_stack_logs "$project" || :
+    return "$rc"
   fi
   if [ "$gw_port" != "$mono_port" ]; then
     log "running fullchain acceptance against the api-gateway mode (localhost:${gw_port})"
     # The same page, same origin — only the /api upstream moves to the
     # gateway, so the two modes cannot drift on anything but the wiring.
     start_h5_nginx "$project" "$gw_port"
-    if ! env "${common_env[@]}" \
+    rc=0
+    env "${common_env[@]}" \
       H5_DEMO_URL="http://localhost:${VERIFY_H5_PORT}/demo/" \
       API_BASE="http://localhost:${gw_port}" \
       GRPC_TARGET="api-gateway:9090" \
-      bash scripts/fullchain-acceptance.sh "http://localhost:${gw_port}"; then
-      diag_stack_logs "$project"
-      return 1
+      timeout --signal=TERM --kill-after=30 "${VERIFY_FULLCHAIN_TIMEOUT_SECONDS:-1800}" \
+      bash scripts/fullchain-acceptance.sh "http://localhost:${gw_port}" || rc=$?
+    if [ "$rc" != 0 ]; then
+      diag_stack_logs "$project" || :
+      return "$rc"
     fi
   fi
 }
@@ -1181,7 +1203,10 @@ perf_seed_and_pool() {
 # changed harness or a different machine always re-measures.
 perf_reference_key() {
   local ref="$1" tree runner
-  tree="$(git ls-tree -r HEAD -- pkg cmd test go.mod go.sum contracts deploy config | sha256sum | awk '{print $1}')" \
+  # Include the measurement harness itself. A reference produced by an older
+  # perf-acceptance.sh / verifier / controller is not comparable merely because
+  # application source and the top-level compose file stayed the same.
+  tree="$(git ls-tree -r HEAD -- pkg cmd test go.mod go.sum contracts deploy config scripts .dockerignore | sha256sum | awk '{print $1}')" \
     || fail "could not fingerprint the measurement source tree"
   # The stage runs inside the control container, whose hostname changes every
   # run — the DAEMON identity is the stable runner identity. The tool image is
@@ -1191,7 +1216,8 @@ perf_reference_key() {
     || fail "could not fingerprint the runner"
   printf '%s\n%s\n%s\n%s\n%s\n' "$ref" "$tree" "$runner" \
     "$(sha256sum config/performance.acceptance.json | awk '{print $1}')" \
-    "$(sha256sum "$VERIFY_COMPOSE_FILE" | awk '{print $1}')" | sha256sum | awk '{print $1}'
+    "$(sha256sum "$VERIFY_COMPOSE_FILE" | awk '{print $1}')" \
+    "$(sha256sum deploy/docker/Dockerfile.verify | awk '{print $1}')" | sha256sum | awk '{print $1}'
 }
 
 # perf_reference_pass <ref> — build the reference image from the ref, bring up
@@ -1208,7 +1234,9 @@ perf_reference_pass() {
   key="$(perf_reference_key "$ref")"
   cache="${cache_root}/${key}"
   rm -rf "$dir"; mkdir -p "$dir"
-  if [ -d "$cache" ]; then
+  # Final acceptance must measure both sides in this run. A cache remains an
+  # iteration aid for a standalone perf stage, never final candidate evidence.
+  if [ "${VERIFY_STAGE:-}" != all ] && [ -d "$cache" ]; then
     cached_harness="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["harness_revision"])' "${cache}/environment.json" 2>/dev/null || true)"
     if [ -n "$cached_harness" ] && python3 scripts/cd/perf_protocol.py "$cache" --mode reference --target "$ref" --accept-harness "$cached_harness"; then
       rm -rf "$dir"; cp -a "$cache" "$dir"
@@ -1419,59 +1447,191 @@ stage_perf() {
 # then a failure drill: a deliberately broken variant must fail its health
 # gate AND the healthy image must recover — before final teardown.
 # ---------------------------------------------------------------------------
+release_recover_monolith() {
+  local project="$1" broken="$2" marker="$3" expected actual
+  docker rm -f "$broken" >/dev/null 2>&1 || :
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never \
+    --wait --wait-timeout 300 monolith || fail "healthy A failed to start after ${marker}"
+  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 60 \
+    || fail "healthy A did not recover after ${marker}"
+  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$CANDIDATE_MANIFEST")" \
+    || fail "could not read candidate monolith identity during recovery"
+  actual="$(docker inspect --format '{{.Image}}' "${project}-monolith-1")" \
+    || fail "could not inspect recovered monolith A"
+  [ "$actual" = "$expected" ] || fail "recovered A image $actual differs from candidate $expected"
+  log "${marker} (imageID=${actual})"
+}
+
+release_remove_monolith_a() {
+  local project="$1"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop monolith \
+    || fail "could not stop healthy A before replacing it with B"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" rm -f monolith \
+    || fail "could not remove healthy A before replacing it with B"
+}
+
+release_failure_drills() {
+  local project="$1" b id state health code exit_code deadline override output rc
+  local expected
+  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$CANDIDATE_MANIFEST")" \
+    || fail "could not read candidate monolith identity for release drills"
+
+  # The runtime must successfully launch B before the application refuses its
+  # bad configuration. A nonexistent entrypoint fails docker run itself (127,
+  # state=created), which cannot prove an application startup failure.
+  log "release drill START: stop A, start same-image B with an invalid production JWT secret"
+  release_remove_monolith_a "$project"
+  b="${project}-drill-start"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" run -d --no-deps --use-aliases \
+    --name "$b" -e STREAMGATE_PROFILE=production -e STREAMGATE_JWT_SECRET=broken monolith >/dev/null \
+    || fail "could not create the broken-start B container"
+  id="$(docker inspect --format '{{.Image}}' "$b")" || fail "broken-start B was not inspectable"
+  [ "$id" = "$expected" ] || fail "broken-start B image does not match candidate image"
+  deadline=$((SECONDS + 30)); state="running"; exit_code=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state="$(docker inspect --format '{{.State.Status}}' "$b" 2>/dev/null || echo missing)"
+    exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$b" 2>/dev/null || echo 127)"
+    [ "$state" = exited ] && [ "$exit_code" != 0 ] && break
+    sleep 1
+  done
+  [ "$state" = exited ] && [ "$exit_code" != 0 ] || fail "broken-start B did not exit non-zero (state=$state exit=$exit_code)"
+  output="${ARTIFACT_DIR}/release-drills/broken-start.log"
+  mkdir -p "$(dirname "$output")"
+  docker logs "$b" >"$output" 2>&1 || fail "could not collect broken-start B's diagnostic"
+  grep -Fq 'auth.jwt_secret is only 6 bytes' "$output" \
+    || fail "broken-start B did not fail for the injected JWT configuration"
+  log "RELEASE_DRILL_START_B_FAILED (state=${state} exit=${exit_code} imageID=${id})"
+  release_recover_monolith "$project" "$b" RELEASE_DRILL_START_A_RECOVERED
+
+  # Health failure: run the real candidate process, while a temporary compose
+  # override models a broken health probe with a short, bounded detector.
+  log "release drill HEALTH: stop A, run candidate B with a failing healthcheck"
+  release_remove_monolith_a "$project"
+  override="${ARTIFACT_DIR}/${project}-broken-health.yml"
+  cat > "$override" <<'YAML'
+services:
+  monolith:
+    healthcheck:
+      test: ["CMD-SHELL", "exit 1"]
+      interval: 1s
+      timeout: 1s
+      retries: 2
+      start_period: 0s
+YAML
+  b="${project}-drill-health"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" -f "$override" run -d --no-deps --use-aliases \
+    --name "$b" monolith >/dev/null || fail "could not create the broken-health B container"
+  id="$(docker inspect --format '{{.Image}}' "$b")" || fail "broken-health B was not inspectable"
+  [ "$id" = "$expected" ] || fail "broken-health B image does not match candidate image"
+  deadline=$((SECONDS + 180)); state="created"; health="starting"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state="$(docker inspect --format '{{.State.Status}}' "$b" 2>/dev/null || echo missing)"
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$b" 2>/dev/null || echo missing)"
+    [ "$state" = running ] && [ "$health" = unhealthy ] && break
+    sleep 1
+  done
+  [ "$state" = running ] && [ "$health" = unhealthy ] || fail "broken-health B did not remain running/unhealthy (state=$state health=$health)"
+  code="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://localhost:${VERIFY_MONO_PORT}/health" || echo 000)"
+  [ "$code" = 200 ] || fail "broken-health B did not own the active service alias (HTTP $code)"
+  log "RELEASE_DRILL_HEALTH_B_FAILED (state=${state} health=${health} imageID=${id})"
+  release_recover_monolith "$project" "$b" RELEASE_DRILL_HEALTH_A_RECOVERED
+
+  # A dead RPC would be rejected by the registry's startup identity validation,
+  # duplicating START. Keep the real chain/registry usable and misconfigure only
+  # B's DemoNFT address: health remains green but the real mint/playback smoke
+  # must fail. The frontend and harness continue to reach B by its service alias.
+  log "release drill SMOKE: stop A, start healthy candidate B with the wrong DemoNFT address"
+  release_remove_monolith_a "$project"
+  b="${project}-drill-smoke"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" run -d --no-deps --use-aliases \
+    --name "$b" -e STREAMGATE_ANVIL_DEMO_CONTRACT=0x000000000000000000000000000000000000dEaD monolith >/dev/null \
+    || fail "could not create the broken-smoke B container"
+  id="$(docker inspect --format '{{.Image}}' "$b")" || fail "broken-smoke B was not inspectable"
+  [ "$id" = "$expected" ] || fail "broken-smoke B image does not match candidate image"
+  deadline=$((SECONDS + 180)); health="starting"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$b" 2>/dev/null || echo missing)"
+    [ "$health" = healthy ] && break
+    sleep 2
+  done
+  [ "$health" = healthy ] || fail "broken-smoke B did not become healthy before its business smoke (health=$health)"
+  code="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://localhost:${VERIFY_MONO_PORT}/health" || echo 000)"
+  [ "$code" = 200 ] || fail "broken-smoke B did not own the active service alias (HTTP $code)"
+  output="${ARTIFACT_DIR}/release-drills/broken-smoke.log"
+  mkdir -p "$(dirname "$output")"
+  rc=0
+  VERIFY_FULLCHAIN_TIMEOUT_SECONDS=900 run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" >"$output" 2>&1 || rc=$?
+  [ "$rc" = 1 ] || fail "the broken business smoke must report assertion failure exit 1, got ${rc}"
+  grep -Fq 'PASS: Anvil chainId=31337' "$output" \
+    || fail "the smoke did not prove that its real chain stayed usable"
+  grep -Fq 'FAIL: dev-mint failed: HTTP 500' "$output" \
+    || fail "the business smoke failed for a reason other than the injected DemoNFT address"
+  log "RELEASE_DRILL_SMOKE_B_FAILED (exit=${rc}; wrong DemoNFT; imageID=${id})"
+  release_recover_monolith "$project" "$b" RELEASE_DRILL_SMOKE_A_RECOVERED
+}
+
+release_schema_compatibility() {
+  local project="$1" floor ref tag expected actual dir override schema_query before after
+  floor="$(perf_acceptance_config safetyBaselineRevision)"
+  ref="${ARTIFACT_DIR}/reference.json"
+  [ -f "$ref" ] || fail "rollback baseline manifest is absent"
+  [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$ref")" = "$floor" ] \
+    || fail "rollback baseline differs from the frozen safety baseline"
+  python3 scripts/cd/candidate_manifest.py "$ref" --revision "$floor" --platform "$VERIFY_PLATFORM" \
+    || fail "rollback baseline image/archive identity changed"
+  tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["tag"])' "$ref")"
+  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$ref")"
+  dir="${ARTIFACT_DIR}/release-compat"
+  mkdir -p "$dir"
+  override="$dir/baseline.yml"
+  printf 'services:\n  monolith:\n    image: %s\n' "$tag" > "$override"
+  schema_query="SELECT table_schema,table_name,column_name,udt_name,is_nullable,COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema='public' ORDER BY table_schema,table_name,ordinal_position"
+  before="$dir/schema-before.txt"; after="$dir/schema-after.txt"
+  docker exec "${project}-postgres-1" psql -XAt -U postgres -d streamgate -v ON_ERROR_STOP=1 -c "$schema_query" > "$before"
+  [ -s "$before" ] || fail "new-schema fingerprint is empty"
+  release_remove_monolith_a "$project"
+  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" -f "$override" up -d --no-build --no-deps --pull never \
+    --wait --wait-timeout 300 monolith || fail "baseline application could not start on the new schema"
+  actual="$(docker inspect --format '{{.Image}}' "${project}-monolith-1")"
+  [ "$actual" = "$expected" ] || fail "schema smoke is not running the frozen baseline image"
+  log "RELEASE_SCHEMA_BASELINE_STARTED (revision=${floor}; imageID=${actual})"
+  # This must execute the same real wallet/upload/worker/media/browser contract
+  # on the candidate's already migrated database. A health-only probe cannot
+  # establish the previous application's business compatibility.
+  run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
+  log "RELEASE_SCHEMA_BUSINESS_PASS"
+  docker exec "${project}-postgres-1" psql -XAt -U postgres -d streamgate -v ON_ERROR_STOP=1 -c "$schema_query" > "$after"
+  cmp -s "$before" "$after" || fail "baseline application changed the candidate schema"
+  release_remove_monolith_a "$project"
+  release_recover_monolith "$project" "${project}-unused-compat-variant" RELEASE_SCHEMA_A_RECOVERED
+  python3 - "$dir" "$VERIFY_SOURCE_REVISION" "$floor" "$expected" "$CANDIDATE_MANIFEST" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+candidate = json.loads(pathlib.Path(sys.argv[5]).read_text())
+digest = hashlib.sha256((root / 'schema-before.txt').read_bytes()).hexdigest()
+(root / 'compatibility.json').write_text(json.dumps({
+    'status': 'PASS', 'candidateSHA': sys.argv[2], 'baselineSHA': sys.argv[3],
+    'baselineImageID': sys.argv[4], 'restoredImageID': candidate['images']['monolith']['imageID'],
+    'schemaBeforeSHA256': digest,
+    'schemaAfterSHA256': hashlib.sha256((root / 'schema-after.txt').read_bytes()).hexdigest(),
+}, indent=2) + '\n')
+PY
+}
+
 stage_release() {
   require_controller_tool docker
-  local project="${PROJECT_NAME}-release"
+  local project="${PROJECT_NAME}-release" floor
+  floor="$(perf_acceptance_config safetyBaselineRevision)"
+  if [ ! -f "${ARTIFACT_DIR}/reference.json" ]; then
+    VERIFY_BUILD_REF="$floor" prebuild_verify_stack "${PROJECT_NAME}-rollback"
+  fi
   # Empty volumes by construction: a fresh project name per run; the cleanup
   # trap's `down -v` removes them again.
   bring_up_fullstack "$project"
   run_logged release-smoke run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_MONO_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
 
-  log "failure drill: broken CMD variant must fail its health gate"
-  local drill="${project}-drill"
-  # The drill reuses the SAME compose project (and image) as the deployment
-  # above — it is that deployment with a broken command, per SG-08's
-  # same-digest drill, not a second stack. Compose's restart policy would
-  # mask a broken image, so the drill runs a plain container that must fail:
-  # either the runtime refuses to create it (missing binary → non-zero
-  # `docker run`) or it starts and exits. Both are the required failure.
-  if docker run -d --name "${drill}-monolith" \
-    --label "com.docker.compose.project=${project}" \
-    --label "com.streamgate.verify.run=${PROJECT_NAME}" \
-    -e STREAMGATE_DB_HOST=postgres -e STREAMGATE_DB_PORT=5432 \
-    -e STREAMGATE_DB_USER=postgres -e STREAMGATE_DB_PASSWORD=postgres \
-    -e STREAMGATE_DB_NAME=streamgate -e STREAMGATE_REDIS_HOST=redis \
-    -e STREAMGATE_REDIS_PORT=6379 \
-    "${VERIFY_IMAGE_PREFIX}-monolith:latest" /nonexistent-broken-cmd; then
-    local dead="" drill_deadline=$((SECONDS + 30))
-    while [ "$SECONDS" -lt "$drill_deadline" ]; do
-      if [ "$(docker inspect -f '{{.State.Running}}' "${drill}-monolith" 2>/dev/null || echo false)" = "false" ]; then
-        dead=1; break
-      fi
-      sleep 2
-    done
-    [ -n "$dead" ] || fail "the broken variant is still running — the drill did not fail as required"
-    local restarts
-    restarts="$(docker inspect -f '{{.RestartCount}}' "${drill}-monolith" 2>/dev/null || echo unknown)"
-    log "broken variant exited (RestartCount=${restarts}) as required"
-    docker rm -f "${drill}-monolith" >/dev/null 2>&1 || true
-  else
-    # The runtime refused the broken variant before it could run — the same
-    # required failure, observed at creation time.
-    log "broken variant refused at creation as required"
-    docker rm -f "${drill}-monolith" >/dev/null 2>&1 || true
-  fi
-
-  log "failure drill: healthy image must recover"
-  # Stop the healthy deployment first, so the restart below is a genuine
-  # recovery drill rather than the container that was never stopped.
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" stop monolith >/dev/null 2>&1 \
-    || fail "could not stop the monolith for the recovery drill"
-  docker compose -p "$project" -f "$VERIFY_COMPOSE_FILE" up -d --no-build --no-deps --pull never monolith \
-    || fail "healthy image did not come back in the recovery drill"
-  wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 300 \
-    || fail "healthy image did not recover within the health budget"
-  log "healthy image recovered (project ${project})"
+  run_logged release-compat release_schema_compatibility "$project"
+  run_logged release-drills release_failure_drills "$project"
   teardown_fullstack "$project"
 }
 
@@ -1639,8 +1799,13 @@ run_stage() {
 }
 
 assert_final_candidate_evidence() {
-  # A partial implementation must never produce an overall green run. These
-  # gates become executable evidence as each approved batch is completed.
+  # Build the index only after the complete DAG returned successfully. Every
+  # row is derived from the candidate manifest and raw stage output; this is a
+  # local acceptance index, not a claim that the external same-SHA CI has run.
+  python3 scripts/cd/generate_candidate_gates.py "$ARTIFACT_DIR" \
+    --project "$PROJECT_NAME" --revision "$VERIFY_SOURCE_REVISION" \
+    --platform "${VERIFY_PLATFORM:-linux/amd64}" \
+    || fail "could not derive candidate evidence index from raw outputs"
   python3 scripts/cd/assert_candidate_evidence.py "$ARTIFACT_DIR"
 }
 

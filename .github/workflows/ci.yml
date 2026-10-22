@@ -97,6 +97,9 @@ jobs:
 
       - run: go mod download
 
+      - name: Validate workflow YAML, action pins and shell syntax
+        run: go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
+
       - name: Verify required-test checker positive and negative cases
         run: |
           python3 scripts/cd/test_assert_required_tests.py
@@ -507,20 +510,20 @@ jobs:
         run: |
           set -euo pipefail
           go_test_rc=0
-          go test -race -count=1 -json \
-            ./pkg/service/transcoding ./pkg/web3/event ./pkg/service/registry ./pkg/service \
+          go test -race -count=1 -p 1 -json \
+            ./pkg/service/transcoding ./pkg/web3/event ./pkg/service/registry ./pkg/service/gating ./pkg/service \
             > durability-tests.json || go_test_rc=$?
           python3 scripts/cd/assert_required_tests.py \
             --suite durability-tests --exit-code "$go_test_rc" \
             durability-tests.json
 
       - name: Upload durability test log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: durability-tests-${{ github.sha }}
           path: durability-tests.json
-          retention-days: 7
+          retention-days: 30
 
   ops:
     name: Ops Gates (production profile, drain, shutdown)
@@ -562,12 +565,12 @@ jobs:
             ops-config.json
 
       - name: Upload ops test logs
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ops-tests-${{ github.sha }}
           path: ops-*.json
-          retention-days: 7
+          retention-days: 30
 
   perf:
     name: Perf Harness Gates (load harness + metrics overhead)
@@ -587,7 +590,7 @@ jobs:
       # mismatched responses must never count as success throughput, and the
       # percentile/JSON plumbing must round-trip. The LIVE matrix (1/10/50/100
       # viewers against a running stack, with the injected faults and the
-      # same-runner reference comparison) is the `perf-matrix` job below, which
+      # same-runner reference comparison) is the `acceptance` job below, which
       # runs the unified Docker entry — §0.2 E requires that matrix as a release
       # gate, not this harness self-test alone.
       - name: Run perf harness and metrics gates
@@ -601,412 +604,80 @@ jobs:
             perf-tests.json
 
       - name: Upload perf test log
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: perf-tests-${{ github.sha }}
           path: perf-tests.json
-          retention-days: 7
+          retention-days: 30
 
-  fullchain-acceptance:
-    name: Full-Chain Acceptance (candidate, real stack)
-    runs-on: ubuntu-latest
-    # The media gate runs against THE candidate built once for this SHA: it
-    # downloads the same artifacts the scans consumed and starts them with
-    # `--no-build`, so acceptance and promotion cannot drift (plan §7:
-    # media/durability/ops/perf/release only start from the candidate list).
-    needs: [candidate]
-    timeout-minutes: 25
+  # One complete entry owns the temporary projects and runs every stage in
+  # order. It imports this run's scanned archives; it never rebuilds candidates.
+  # PRs also run the full protocol here, so no skipped candidate gate can hide
+  # behind the shorter optional PR performance allowance.
+  acceptance:
+    name: Complete Docker Acceptance (M0-M8, one candidate)
+    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
+    needs: [candidate, durability, ops, perf]
+    timeout-minutes: 360
     env:
-      # Scope the project so teardown can only ever touch this run's containers.
-      COMPOSE_PROJECT_NAME: sg-ci-${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Download the candidate images built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-{monolith,transcoder,api-gateway}
-          merge-multiple: true
-
-      - name: Load candidates and verify their identity
-        run: |
-          set -euo pipefail
-          verify() {  # verify <service>
-            local svc="$1" actual expected
-            docker load -i "candidate-${svc}.tar" >/dev/null
-            actual="$(docker inspect --format '{{.Id}}' "streamgate-${svc}:candidate")"
-            expected="$(python3 -c "import json;print(json.load(open('meta/${svc}.json'))['image_id'])")"
-            [ "$actual" = "$expected" ] || { echo "::error::${svc} loaded ID $actual != built candidate $expected"; exit 1; }
-            local rev
-            rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "streamgate-${svc}:candidate")"
-            [ "$rev" = "${{ github.sha }}" ] || { echo "::error::${svc} OCI revision '$rev' != ${{ github.sha }}"; exit 1; }
-            echo "${svc}: ${actual} (revision ${rev})"
-          }
-          verify monolith
-          verify transcoder
-          verify api-gateway
-          # Compose resolves build-only services to <project>-<service>; the
-          # monolith carries an explicit image name in the compose file.
-          docker tag streamgate-monolith:candidate    streamgate-fullchain:latest
-          docker tag streamgate-transcoder:candidate  "${COMPOSE_PROJECT_NAME}-transcoder"
-          docker tag streamgate-api-gateway:candidate "${COMPOSE_PROJECT_NAME}-api-gateway"
-
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-        with:
-          version: v1.8.5
-
-      - name: Build contracts (artifacts the stack deploys)
-        working-directory: contracts
-        run: |
-          forge install || true
-          forge build
-
-      - name: Install ffmpeg (the acceptance generates its own media)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
-      - name: Install Playwright browser
-        working-directory: scripts/h5-demo-acceptance
-        run: |
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-
-      - name: Start the stack with the CANDIDATE images (no rebuild)
-        # Only the services the acceptance needs: the app, the isolated
-        # transcoder worker and the gateway mode, plus their dependencies
-        # (pulled in via depends_on). `--no-build` guarantees compose uses the
-        # tagged candidates — it can never silently rebuild a different image.
-        # The acceptance script addresses services by fixed container name
-        # (sg-fc-postgres / sg-fc-redis / sg-fc-transcoder), so container_name
-        # fields — not the project name — are what it finds; teardown below
-        # removes only this run's containers/networks/volumes.
-        #
-        # h5-demo is the demo page's front door (nginx, one listener per
-        # deployment mode) and is what scripts/verify-docker.sh serves the media
-        # stage from. Without it the browser harness would have to load the same
-        # page from the monolith, where the app's demoCSP blocks the page's font
-        # stylesheet and the JWT middleware answers /favicon.ico with 401 — both
-        # recorded as runtime errors, i.e. a front-door difference reported as a
-        # product failure.
-        run: docker compose -f docker-compose.fullchain.yml up -d --no-build monolith transcoder api-gateway h5-demo
-
-      - name: Assert the running containers are the candidate (digest check)
-        run: |
-          set -euo pipefail
-          check() {  # check <container> <candidate-tag>
-            local container="$1" tag="$2" running expected
-            running="$(docker inspect --format '{{.Image}}' "$container")"
-            expected="$(docker inspect --format '{{.Id}}' "$tag")"
-            [ "$running" = "$expected" ] || { echo "::error::container $container runs $running, expected candidate $expected"; exit 1; }
-            echo "$container runs the candidate image"
-          }
-          check sg-fc-monolith    streamgate-monolith:candidate
-          check sg-fc-transcoder  streamgate-transcoder:candidate
-          check sg-fc-api-gateway streamgate-api-gateway:candidate
-
-      - name: Wait for the stack to be health-ready (120s budget)
-        run: |
-          set -euo pipefail
-          deadline=$((SECONDS + 120))
-          until curl -sf http://localhost:18080/health >/dev/null 2>&1; do
-            if [ "$SECONDS" -ge "$deadline" ]; then
-              echo "::error::base services not health-ready within 120s"
-              docker compose -f docker-compose.fullchain.yml ps
-              exit 1
-            fi
-            sleep 3
-          done
-          echo "base services health-ready after ${SECONDS}s"
-
-      - name: Full-chain acceptance (signature -> gate -> transcode -> HLS -> browser)
-        env:
-          # Empty channel = use the bundled Chromium we just installed, not a
-          # host Chrome that does not exist on the runner.
-          PW_CHANNEL: ""
-          # The demo page and its API calls go through the nginx front door that
-          # proxies to THIS mode (:18000 → monolith). The harness's own stack
-          # pre-check and page load then exercise the same origin the mode under
-          # test serves, exactly as scripts/verify-docker.sh wires it.
-          H5_BASE: http://localhost:18000
-          H5_DEMO_URL: http://localhost:18000/
-        run: |
-          # Stage budgets live in the script: 180s transcode, 90s browser.
-          bash scripts/fullchain-acceptance.sh http://localhost:18080
-
-      - name: Full-chain acceptance against the api-gateway deployment mode
-        # The same script must pass through the gateway wiring so the two
-        # deployment modes cannot drift (SG-05 step 7). The gateway does not
-        # host the H5 static page, so the demo comes from the nginx front door's
-        # second listener, which proxies /api to THIS mode (:18001 → api-gateway).
-        env:
-          PW_CHANNEL: ""
-          H5_BASE: http://localhost:18001
-          H5_DEMO_URL: http://localhost:18001/
-        run: |
-          deadline=$((SECONDS + 60))
-          until curl -sf http://localhost:28080/health >/dev/null 2>&1; do
-            [ "$SECONDS" -ge "$deadline" ] && { echo "::error::api-gateway not healthy"; docker logs sg-fc-api-gateway || true; exit 1; }
-            sleep 3
-          done
-          bash scripts/fullchain-acceptance.sh http://localhost:28080
-
-      - name: Collect redacted diagnostics on failure
-        if: failure()
-        run: |
-          set -uo pipefail
-          mkdir -p ci-artifacts
-          docker compose -f docker-compose.fullchain.yml ps > ci-artifacts/compose-ps.txt 2>&1 || true
-          docker compose -f docker-compose.fullchain.yml logs --no-color --tail 500 > ci-artifacts/compose-logs.txt 2>&1 || true
-          # Redact before anything leaves the runner.
-          sed -i -E 's/0x[0-9a-fA-F]{64}/0xREDACTED/g'          ci-artifacts/compose-logs.txt || true
-          sed -i -E 's/(Bearer )[A-Za-z0-9._-]+/\1REDACTED/g'   ci-artifacts/compose-logs.txt || true
-          sed -i -E 's/(X-Amz-Signature=)[A-Za-z0-9]+/\1REDACTED/g' ci-artifacts/compose-logs.txt || true
-          sed -i -E 's/([A-Za-z_]*(SECRET|TOKEN|PASSWORD)[A-Za-z_]*=)[^ "]+/\1REDACTED/g' ci-artifacts/compose-logs.txt || true
-          # Playwright reports (screenshots + per-spec JSON) help far more than logs.
-          cp -R scripts/h5-demo-acceptance/reports/. ci-artifacts/ 2>/dev/null || true
-
-      - name: Upload diagnostics
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: fullchain-acceptance-diagnostics
-          path: ci-artifacts/
-          retention-days: 7
-
-      - name: Tear down this run's stack
-        if: always()
-        run: docker compose -f docker-compose.fullchain.yml down -v --remove-orphans
-
-  # Plan §0.2 E: "将完整性能矩阵做成候选发布必需 job；远端不能只运行 harness 自测".
-  # The `perf` job above only pins the harness's own correctness; THIS job runs
-  # the live matrix. It drives the unified Docker entry
-  # (`scripts/verify-docker.sh`, stage `perf`) against THE candidate built once
-  # for this SHA — the same tars the scans and the media acceptance consumed —
-  # so the numbers cannot belong to a different build. Inside the stage the
-  # reference (`config/performance.acceptance.json`'s safetyBaselineRevision) and
-  # the candidate run sequentially on THIS runner, which is what §0.2 E asks for.
-  perf-matrix:
-    name: Full Performance Matrix (reference + candidate, one runner)
-    runs-on: ubuntu-latest
-    needs: [candidate]
-    # Reference build + seed + 3 comparison rounds, then the candidate's seed and
-    # its 3 rounds x 4 scenarios x 4 viewer counts, then the provenance and the
-    # p95 gates. Budgeted from the local runs of that stage.
-    timeout-minutes: 150
-    env:
-      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-perf
+      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
+      VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
+      VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
+      VERIFY_PROJECT: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}
       VERIFY_PLATFORM: linux/amd64
       VERIFY_GOPROXY: https://proxy.golang.org,direct
-      # One browser cache per run: the reference seed and the candidate seed both
-      # need Chromium, and the default location is inside the controller that is
-      # removed after every stage.
-      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-cache
+      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
+      VERIFY_STAGE: all
+      VERIFY_MODE: candidate
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
-          # The reference is built from a WORKTREE of that commit, so this job
-          # needs the history rather than the tip alone.
           fetch-depth: 0
 
-      # The tars and the manifest live under .verify-artifacts/, which the repo
-      # gitignores: `verify-docker.sh` refuses to run against a checkout that is
-      # not clean, so nothing this job downloads or writes may show up in
-      # `git status`.
-      - name: Download the candidate images built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-{monolith,transcoder,api-gateway}
-          merge-multiple: true
-          path: .verify-artifacts/ci-perf-images
-
-      - name: Load, re-tag and record the candidate's identity
-        env:
-          PREFIX: sg-ci-perf-${{ github.run_id }}-candidate
+      - name: Require the documented isolated acceptance runner capacity
         run: |
           set -euo pipefail
-          dir=.verify-artifacts/ci-perf-images
-          for svc in monolith transcoder api-gateway; do
-            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
-            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
-          done
-          docker save -o "$dir/candidate-images.tar" \
-            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
-          # The stage re-verifies this manifest (archive hash, image IDs, labels)
-          # and builds nothing, so the deployed bytes stay the build bytes.
-          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
-            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
-            --revision "${{ github.sha }}" --platform linux/amd64
-          {
-            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
-            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
-          } >> "$GITHUB_ENV"
+          cores="$(docker info --format '{{.NCPU}}')"
+          memory="$(docker info --format '{{.MemTotal}}')"
+          root="$(docker info --format '{{.DockerRootDir}}')"
+          disk_kib="$(df -Pk "$root" | awk 'NR==2 {print $4}')"
+          [ "$cores" -ge 8 ] && [ "$memory" -ge 34359738368 ] && [ "$disk_kib" -ge 104857600 ] || {
+            echo '::error::Complete acceptance needs an isolated Linux runner with 8 CPU / 32 GiB / 100 GiB free Docker disk. Configure STREAMGATE_ACCEPTANCE_RUNNER.'
+            exit 1
+          }
 
-      - name: Run the performance matrix (full for a candidate push, smoke for a PR)
-        # §0.2 F: "PR 可执行短性能 smoke；最终候选模式必须执行完整矩阵、reference
-        # 比较…不允许通过默认开关跳过". The stage's own `pr` mode is that smoke
-        # (1 viewer, one repeat, no reference comparison); a push to a tracked
-        # branch runs the full matrix, the injected fault scenarios and the
-        # same-runner comparison, and no input can turn either into the other.
-        env:
-          VERIFY_STAGE: perf
-          VERIFY_MODE: ${{ github.event_name == 'pull_request' && 'pr' || 'candidate' }}
-          VERIFY_PROJECT: sg-perf-ci-${{ github.run_id }}
-        run: bash scripts/verify-docker.sh
+      - name: Download the original scanned build archives and metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: candidate-*
+          merge-multiple: true
+          path: .verify-artifacts/ci-all/build-inputs
 
-      - name: Upload the perf evidence (both a pass and a failure)
+      - name: Run the complete candidate DAG and preserve its outer exit
+        run: |
+          set -euo pipefail
+          set +e
+          bash scripts/verify-docker.sh 2>&1 | tee .verify-artifacts/ci-all/command.log
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '%s\n' "${statuses[0]}" > .verify-artifacts/ci-all/command.exit
+          [ "${statuses[0]}" = 0 ] || exit "${statuses[0]}"
+          [ "${statuses[1]}" = 0 ] || exit "${statuses[1]}"
+
+      - name: Upload full raw evidence on success, failure or cancellation
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: perf-matrix-${{ github.sha }}
-          path: .verify-artifacts/ci-perf/
+          name: ci-acceptance-${{ github.sha }}
+          path: |
+            .verify-artifacts/ci-all/
+            !.verify-artifacts/ci-all/build-inputs/**
+            !.verify-artifacts/ci-all/.private/**
+          include-hidden-files: true
           retention-days: 30
-          if-no-files-found: warn
-
-  # Plan §0.2 F: the final candidate mode must execute the plan's whole gate set,
-  # not just the matrix — "…完整矩阵、reference 比较、恢复与 fuzz". The
-  # `perf-matrix` job above covers "完整矩阵 + reference 比较"; these two cover
-  # the rest of §7's DAG ("媒体任务 / tx / event / ops 故障恢复 → 临时部署 /
-  # smoke / 恢复演练"):
-  #   * `docker-faults`   — the durable fault matrix (FW/FO/FR/FI scenarios) over
-  #                         candidate images with a real broker/MinIO/Anvil;
-  #   * `docker-recovery` — the empty-volume backup/restore drill, old
-  #                         access/refresh/capability invalidation and RPO/RTO.
-  # Both drive the unified Docker entry (`scripts/verify-docker.sh`) against THE
-  # candidate built once for this SHA, exactly like `perf-matrix`, and both are
-  # plain required jobs (no if:always / continue-on-error) so a red or skipped
-  # one withholds publishable.
-  docker-faults:
-    name: Fault Matrix (candidate images, real broker/MinIO/Anvil)
-    runs-on: ubuntu-latest
-    needs: [candidate]
-    timeout-minutes: 90
-    env:
-      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-faults
-      VERIFY_PLATFORM: linux/amd64
-      VERIFY_GOPROXY: https://proxy.golang.org,direct
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
-
-      - name: Download the candidate images built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-{monolith,transcoder,api-gateway}
-          merge-multiple: true
-          path: .verify-artifacts/ci-faults-images
-
-      - name: Load, re-tag and record the candidate's identity
-        env:
-          PREFIX: sg-ci-faults-${{ github.run_id }}-candidate
-        run: |
-          set -euo pipefail
-          dir=.verify-artifacts/ci-faults-images
-          for svc in monolith transcoder api-gateway; do
-            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
-            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
-          done
-          docker save -o "$dir/candidate-images.tar" \
-            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
-          # The stage re-verifies this manifest and builds nothing, so the fault
-          # matrix runs against the build bytes.
-          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
-            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
-            --revision "${{ github.sha }}" --platform linux/amd64
-          {
-            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
-            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
-          } >> "$GITHUB_ENV"
-
-      - name: Run the durable fault matrix against the candidate
-        env:
-          VERIFY_STAGE: faults
-          VERIFY_PROJECT: sg-faults-ci-${{ github.run_id }}
-        run: bash scripts/verify-docker.sh
-
-      - name: Upload the fault evidence (both a pass and a failure)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: docker-faults-${{ github.sha }}
-          path: .verify-artifacts/ci-faults/
-          retention-days: 30
-          if-no-files-found: warn
-
-  docker-recovery:
-    name: Recovery Gate (empty-volume restore + credential invalidation)
-    runs-on: ubuntu-latest
-    needs: [candidate]
-    timeout-minutes: 90
-    env:
-      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-recovery
-      VERIFY_PLATFORM: linux/amd64
-      VERIFY_GOPROXY: https://proxy.golang.org,direct
-      # The recovery seed runs the full 71-check acceptance (it decodes real media
-      # and drives the demo page), so it needs the browser — cached across the
-      # stage's controller, which is removed after every run.
-      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-cache
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
-
-      - name: Download the candidate images built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-{monolith,transcoder,api-gateway}
-          merge-multiple: true
-          path: .verify-artifacts/ci-recovery-images
-
-      - name: Load, re-tag and record the candidate's identity
-        env:
-          PREFIX: sg-ci-recovery-${{ github.run_id }}-candidate
-        run: |
-          set -euo pipefail
-          dir=.verify-artifacts/ci-recovery-images
-          for svc in monolith transcoder api-gateway; do
-            docker load -i "$dir/candidate-${svc}.tar" >/dev/null
-            docker tag "streamgate-${svc}:candidate" "${PREFIX}-${svc}:latest"
-          done
-          docker save -o "$dir/candidate-images.tar" \
-            "${PREFIX}-monolith:latest" "${PREFIX}-api-gateway:latest" "${PREFIX}-transcoder:latest"
-          python3 scripts/cd/candidate_manifest.py "$PWD/$dir/candidate.json" \
-            --prefix "$PREFIX" --archive "$PWD/$dir/candidate-images.tar" \
-            --revision "${{ github.sha }}" --platform linux/amd64
-          {
-            echo "VERIFY_CANDIDATE_PREFIX=$PREFIX"
-            echo "VERIFY_CANDIDATE_MANIFEST=$PWD/$dir/candidate.json"
-          } >> "$GITHUB_ENV"
-
-      - name: Run the recovery drill against the candidate
-        env:
-          VERIFY_STAGE: recovery
-          VERIFY_PROJECT: sg-recov-ci-${{ github.run_id }}
-        run: bash scripts/verify-docker.sh
-
-      - name: Upload the recovery evidence (both a pass and a failure)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: docker-recovery-${{ github.sha }}
-          path: .verify-artifacts/ci-recovery/
-          retention-days: 30
-          if-no-files-found: warn
-
-  # Plan §7 DAG: P[真实性能与故障测试] → D[临时部署 / smoke / 恢复演练].
-  # The temporary deploy + three-class failure drills (SG-08 step 5) run against
-  # THIS run's candidate artifacts — the same docker-archive tars the scans and
-  # the media acceptance consumed — in a brand-new empty-volume compose project.
-  # Sequential after every acceptance gate above it, so a red media/durability/
-  # ops/perf gate skips it (fail-closed) and a green one is deployed, smoked and
-  # drilled before anything is called publishable.
-  release-validation:
-    name: Release Validation (temporary deploy + 3-class failure drills)
-    uses: ./.github/workflows/release-validation.yml
-    needs: [fullchain-acceptance, durability, ops, perf, perf-matrix, docker-faults, docker-recovery]
+          if-no-files-found: error
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
@@ -1028,15 +699,31 @@ jobs:
           merge-multiple: true
           path: artifacts
 
+      - name: Collect this run's registry publication receipts
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: registry-publications-${{ github.sha }}
+          path: artifacts/registry-publications
+
       - name: Write the manifest
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          REGISTRY_REPOSITORY: ghcr.io/${{ github.repository }}
         run: |
           set -euo pipefail
+          publication_args=()
+          if [ "$CI_EVENT_NAME" != pull_request ]; then
+            publication_args=(--registry-dir artifacts/registry-publications \
+              --registry-repository "$REGISTRY_REPOSITORY" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT")
+          fi
           python3 scripts/cd/write_candidate_manifest.py \
             --meta-dir artifacts/meta \
             --sha "${{ github.sha }}" \
             --build-tags "nats_integration" \
             --platform "linux/amd64" \
             --environment "ci" \
+            "${publication_args[@]}" \
             --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --out candidate-manifest.json
 
@@ -1045,25 +732,56 @@ jobs:
         with:
           name: candidate-manifest-${{ github.sha }}
           path: candidate-manifest.json
-          retention-days: 7
+          retention-days: 30
+
+  evidence:
+    name: Candidate Evidence (raw M0-M8 + same-run build identities)
+    runs-on: ubuntu-latest
+    needs: [lint, test-go, test-contracts, test-anvil, build, security,
+            candidate, manifest, test-suite, docker, durability, ops, perf, acceptance]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Collect complete raw acceptance evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ci-acceptance-${{ github.sha }}
+          path: .verify-artifacts/ci-all
+
+      - name: Collect the verified build and registry manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: candidate-manifest-${{ github.sha }}
+          path: .verify-artifacts/ci-manifest
+
+      - name: Verify every required job, gate and candidate identity
+        env:
+          REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$REQUIRED_JOB_RESULTS" > .verify-artifacts/ci-all/ci-job-results.json
+          python3 scripts/cd/summarize_ci_evidence.py .verify-artifacts/ci-all \
+            --manifest .verify-artifacts/ci-manifest/candidate-manifest.json \
+            --needs .verify-artifacts/ci-all/ci-job-results.json \
+            --revision "$GITHUB_SHA" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT" \
+            --event "$CI_EVENT_NAME" --out .verify-artifacts/ci-all/ci-evidence.json
+
+      - name: Upload the candidate evidence summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-evidence-${{ github.sha }}
+          path: |
+            .verify-artifacts/ci-all/ci-job-results.json
+            .verify-artifacts/ci-all/ci-evidence.json
+          retention-days: 30
+          if-no-files-found: error
 
   publishable:
     name: Publishable (promotion gate)
     runs-on: ubuntu-latest
-    # The terminal promotion gate (SG-08 step 1): it depends on EVERY required
-    # gate — source gates, candidate build + same-digest scans, smoke, the
-    # same-SHA test suite, durability, ops, perf, the real media acceptance and
-    # the release validation (temporary deploy + failure drills).
-    # No if:always(), no continue-on-error: any failed OR skipped upstream job
-    # (including a skipped `candidate` when a source gate failed) skips this
-    # job, so "publishable" can only be green when the whole DAG ran green.
-    # A real release remains a separate, explicitly authorized deploy.yml
-    # dispatch against the retained candidate digest — this job only declares
-    # the candidate promotable.
-    needs: [lint, test-go, test-contracts, test-anvil, build, security,
-            candidate, manifest, test-suite, docker, durability, ops, perf,
-            perf-matrix, docker-faults, docker-recovery,
-            fullchain-acceptance, release-validation]
+    needs: [evidence]
     steps:
-      - name: Every required gate passed for this SHA
-        run: echo "candidate is publishable (see the retain-candidate GHCR digest in the candidate workflow for the promoted artifact)"
+      - name: All required evidence passed for this exact candidate
+        run: echo "Candidate is publishable; see this run's ci-evidence artifact. Production deployment requires separate authorization."

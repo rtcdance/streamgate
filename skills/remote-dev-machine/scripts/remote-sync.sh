@@ -56,7 +56,8 @@ case "$MODE" in
   rsync)
     echo "WARNING: rsync writes the remote working tree; the git clone will show modified files." >&2
     echo "         Prefer REMOTE_DIR=/home/streamgate-wip for WIP syncs." >&2
-    EXCLUDES=(--exclude '.git' --exclude 'build' --exclude 'node_modules' \
+    EXCLUDES=(--exclude '.git' --exclude '.claude' --exclude 'skills-lock.json' \
+      --exclude 'streamgate' --exclude 'build' --exclude 'node_modules' \
       --exclude 'frontend/node_modules' --exclude '.env*' --exclude '*.log' --exclude '.verify-artifacts' --exclude 'contracts/lib' --exclude 'h5-demo/node_modules' --exclude 'scripts/h5-demo-acceptance/node_modules' --exclude '.workbuddy' \
       --exclude '.DS_Store' --exclude '.codegraph' --exclude '.omo' --exclude '.codebuddy')
     ARGS=(-az "${EXCLUDES[@]}")

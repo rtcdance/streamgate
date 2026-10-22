@@ -126,6 +126,7 @@ jobs:
         with:
           name: coverage-unit-${{ matrix.test-path }}
           path: coverage.out
+          retention-days: 30
           if-no-files-found: ignore
 
   integration-tests:
@@ -251,6 +252,7 @@ jobs:
         with:
           name: coverage-integration-${{ matrix.test-path }}
           path: coverage.out
+          retention-days: 30
           if-no-files-found: ignore
 
       - name: Cleanup MinIO
@@ -355,7 +357,7 @@ jobs:
           name: coverage-e2e
           path: coverage.out
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 30
 
       - name: Cleanup MinIO
         if: always()
@@ -387,3 +389,4 @@ jobs:
         with:
           name: benchmark-results
           path: benchmark-results.txt
+          retention-days: 30

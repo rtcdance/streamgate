@@ -252,6 +252,7 @@ jobs:
         with:
           name: sbom-monolith
           path: sbom-monolith.spdx
+          retention-days: 30
 
   scan-transcoder:
     name: Scan Transcoder (same digest)
@@ -295,6 +296,7 @@ jobs:
         with:
           name: sbom-transcoder
           path: sbom-transcoder.spdx
+          retention-days: 30
 
   scan-microservices:
     name: Scan ${{ matrix.service }} (same digest)
@@ -344,6 +346,7 @@ jobs:
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.spdx
+          retention-days: 30
 
   retain-candidate:
     name: Retain Candidate in GHCR (same image, per-SHA tag)
@@ -365,6 +368,8 @@ jobs:
       monolith_digest: ${{ steps.push.outputs.monolith_digest }}
       transcoder_digest: ${{ steps.push.outputs.transcoder_digest }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download all candidate artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -389,20 +394,31 @@ jobs:
           set -euo pipefail
           repo="${{ env.REGISTRY }}/${{ github.repository }}"
           sha="${{ github.sha }}"
+          mkdir -p registry-publications
           push_one() {  # push_one <local-image> <repo-suffix> <output-var>
-            local local_image="$1" suffix="$2" out="$3" remote digest push_out
+            local local_image="$1" suffix="$2" out="$3" remote digest push_log
+            local statuses
             docker load -i "candidate-${suffix}.tar"
+            python3 scripts/cd/image_identity.py --verify \
+              --tag "$local_image" --archive "candidate-${suffix}.tar" --revision "$sha" --out "meta/${suffix}.json"
             remote="${repo}/${suffix}:candidate-${sha}"
             docker tag "$local_image" "$remote"
-            # The push output carries the registry digest; RepoDigests can lag
-            # one pull behind, so the printed digest is the authoritative one.
-            push_out="$(docker push "$remote" 2>&1)"
-            printf '%s\n' "$push_out"
-            digest="$(printf '%s\n' "$push_out" | sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' | head -1)"
-            if [ -z "$digest" ]; then
-              echo "::error::could not determine registry digest for ${remote}"
-              exit 1
-            fi
+            push_log="registry-publications/${suffix}.push.log"
+            set +e
+            docker push "$remote" 2>&1 | tee "$push_log"
+            statuses=("${PIPESTATUS[@]}")
+            set -e
+            printf '%s\n' "${statuses[0]}" > "registry-publications/${suffix}.push.exit"
+            [ "${statuses[0]}" = 0 ] || return "${statuses[0]}"
+            [ "${statuses[1]}" = 0 ] || return "${statuses[1]}"
+            # Publication is recorded only after both the loaded image and
+            # original archive match the scanned build record again.
+            python3 scripts/cd/image_identity.py --verify \
+              --tag "$local_image" --archive "candidate-${suffix}.tar" --revision "$sha" --out "meta/${suffix}.json" \
+              --publication-log "$push_log" --publication-out "registry-publications/${suffix}.json" \
+              --service "$suffix" --registry-repository "$repo" \
+              --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT"
+            digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["registryDigest"])' "registry-publications/${suffix}.json")"
             echo "${out}=${digest}" >> "$GITHUB_OUTPUT"
             echo "pushed ${remote}@${digest}"
           }
@@ -411,3 +427,12 @@ jobs:
           for svc in api-gateway auth cache metadata monitor streaming upload worker; do
             push_one "streamgate-${svc}:candidate" "$svc" "digest_${svc}"
           done
+
+      - name: Upload registry publication receipts and raw push outcomes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: registry-publications-${{ github.sha }}
+          path: registry-publications/
+          retention-days: 30
+          if-no-files-found: error

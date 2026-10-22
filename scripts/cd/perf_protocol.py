@@ -30,6 +30,10 @@ def acceptance_config():
     if type(data) is not dict or any(type(data.get(key)) is not type(value) or data[key] != value for key, value in required.items()):
         raise ValueError("performance acceptance configuration differs from the required fixed protocol")
     config = {key: data[key] for key in required}
+    baseline = data.get("safetyBaselineRevision")
+    if not isinstance(baseline, str) or not re.fullmatch(r"[0-9a-f]{40}", baseline):
+        raise ValueError("performance acceptance configuration requires the frozen safety baseline SHA")
+    config["safetyBaselineRevision"] = baseline
     config["scenarios"], config["viewers"] = tuple(config["scenarios"]), tuple(config["viewers"])
     return config
 

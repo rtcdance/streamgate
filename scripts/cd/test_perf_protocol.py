@@ -15,6 +15,16 @@ from resource_monitor import summarize, timestamp
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_protocol_exposes_the_frozen_baseline_to_the_release_entry(self):
+        configured = read_json("config/performance.acceptance.json")
+        self.assertEqual(acceptance_config()["safetyBaselineRevision"], configured["safetyBaselineRevision"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "acceptance.json"
+            for value in (None, "", "main", "a" * 39, 123):
+                path.write_text(json.dumps({**configured, "safetyBaselineRevision": value}))
+                with patch("perf_protocol.PROTOCOL_PATH", path), self.subTest(value=value), self.assertRaises(ValueError):
+                    acceptance_config()
+
     def test_fixed_protocol_cannot_silently_shrink_or_default(self):
         configured = read_json("config/performance.acceptance.json")
         changes = [("viewers", [1]), ("scenarios", ["warm_cache"]), ("repeats", 1),
