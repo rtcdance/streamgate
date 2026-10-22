@@ -199,6 +199,53 @@ func (s *GatingRuleService) GetActiveRulesForContent(ctx context.Context, conten
 	return rules, nil
 }
 
+// GetActiveRulesSnapshot reads the policy rows and their monotonic version from
+// one PostgreSQL MVCC snapshot. A version lookup followed by a separate rules
+// query can otherwise observe version N and policy N+1 (or the reverse) during
+// a concurrent commit, which would let a transport label mixed state as valid.
+func (s *GatingRuleService) GetActiveRulesSnapshot(ctx context.Context, contentID string) ([]*models.GatingRule, int64, time.Time, error) {
+	if s.db == nil {
+		return nil, 0, time.Time{}, fmt.Errorf("database not available")
+	}
+	var rules []*models.GatingRule
+	var version int64
+	var observedAt time.Time
+	err := s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`); err != nil {
+			return fmt.Errorf("set policy snapshot isolation: %w", err)
+		}
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE((SELECT version FROM content_rule_versions WHERE content_id = $1), 0), transaction_timestamp()`, contentID).
+			Scan(&version, &observedAt); err != nil {
+			return fmt.Errorf("read policy version snapshot: %w", err)
+		}
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, content_id, contract_address, token_id, chain_id, standard, min_balance, is_active, created_at, updated_at
+			FROM content_gating_rules WHERE content_id = $1 AND is_active = TRUE ORDER BY created_at ASC`, contentID)
+		if err != nil {
+			return fmt.Errorf("query policy snapshot: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var rule models.GatingRule
+			if err := rows.Scan(&rule.ID, &rule.ContentID, &rule.ContractAddress, &rule.TokenID,
+				&rule.ChainID, &rule.Standard, &rule.MinBalance, &rule.IsActive,
+				&rule.CreatedAt, &rule.UpdatedAt); err != nil {
+				return fmt.Errorf("scan policy snapshot: %w", err)
+			}
+			rules = append(rules, &rule)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("iterate policy snapshot: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, time.Time{}, err
+	}
+	return rules, version, observedAt, nil
+}
+
 // ListActiveContractAddresses returns the deduplicated, sorted, lowercased
 // contract addresses of every active rule on the given chain. It is the
 // authority for the event indexer's contract whitelist: only contracts some

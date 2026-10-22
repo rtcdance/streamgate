@@ -486,9 +486,10 @@ func normalizedMinBalance(minBalance int) (int64, error) {
 // rule granted access, at which anchor. It is exported so the business layer can
 // authorize playback with the SAME tested evaluation the HTTP gate uses.
 type PolicyDecision struct {
-	Allowed      bool
-	GrantingRule *GatingRule
-	Anchor       *BlockHeaderInfo
+	Allowed            bool
+	GrantingRule       *GatingRule
+	Anchor             *BlockHeaderInfo
+	EvidenceObservedAt time.Time
 }
 
 // EvaluatePolicy applies OR semantics over the active rules: any rule that
@@ -508,7 +509,7 @@ func EvaluatePolicy(ctx context.Context, config *NFTGateConfig, logger *zap.Logg
 		minBalance, _ := normalizedMinBalance(rule.MinBalance)
 
 		cacheKey := nftCacheKey(rule.ChainID, walletAddress, rule.ContractAddress, rule.TokenID, rule.Standard)
-		quantity, anchor, err := resolveQuantity(ctx, config, logger, cacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
+		quantity, anchor, observedAt, err := resolveQuantityObserved(ctx, config, logger, cacheKey, rule.ChainID, rule.ContractAddress, rule.TokenID, walletAddress)
 		if err != nil {
 			logger.Warn("gating rule could not be verified",
 				zap.String("contract", rule.ContractAddress),
@@ -522,7 +523,7 @@ func EvaluatePolicy(ctx context.Context, config *NFTGateConfig, logger *zap.Logg
 
 		if quantity.Cmp(big.NewInt(minBalance)) >= 0 {
 			granting := rule
-			return PolicyDecision{Allowed: true, GrantingRule: &granting, Anchor: anchor}, nil
+			return PolicyDecision{Allowed: true, GrantingRule: &granting, Anchor: anchor, EvidenceObservedAt: observedAt}, nil
 		}
 	}
 
@@ -638,11 +639,17 @@ func entryAnchor(entry NFTAccessEntry) *BlockHeaderInfo {
 // quantityEvidence pairs a quantity with the block it was read at, so the caller
 // can report WHICH chain state authorized the request.
 type quantityEvidence struct {
-	quantity *big.Int
-	anchor   *BlockHeaderInfo
+	quantity   *big.Int
+	anchor     *BlockHeaderInfo
+	observedAt time.Time
 }
 
 func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, *BlockHeaderInfo, error) {
+	quantity, anchor, _, err := resolveQuantityObserved(ctx, config, logger, cacheKey, chainID, contract, tokenID, walletAddress)
+	return quantity, anchor, err
+}
+
+func resolveQuantityObserved(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, *BlockHeaderInfo, time.Time, error) {
 	start := time.Now()
 	// The freshness clock for whatever evidence this request ends up using
 	// starts HERE, before any cache is consulted, so a cache write further down
@@ -653,7 +660,10 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
 			if quantity, usable := cachedQuantity(config, logger, cacheKey, chainID, entry); usable {
 				nftCacheHits.WithLabelValues("l1_l2").Inc()
-				return quantity, entryAnchor(entry), nil
+				if time.Since(entry.ObservedAt) > evidenceAgeBound(config) {
+					return nil, nil, time.Time{}, fmt.Errorf("NFT quantity evidence exceeded its freshness bound")
+				}
+				return quantity, entryAnchor(entry), entry.ObservedAt, nil
 			}
 		}
 	}
@@ -712,17 +722,20 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 		if config.Cache != nil {
 			setCachedEntry(ctx, config, logger, cacheKey, observedAt, anchor, quantity)
 		}
-		return &quantityEvidence{quantity: quantity, anchor: anchor}, nil
+		return &quantityEvidence{quantity: quantity, anchor: anchor, observedAt: observedAt}, nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, time.Time{}, err
 	}
 
 	evidence, ok := v.(*quantityEvidence)
 	if !ok || evidence == nil || evidence.quantity == nil {
-		return nil, nil, fmt.Errorf("unexpected quantity result for chain %d", chainID)
+		return nil, nil, time.Time{}, fmt.Errorf("unexpected quantity result for chain %d", chainID)
 	}
-	return evidence.quantity, evidence.anchor, nil
+	if evidence.observedAt.IsZero() || time.Since(evidence.observedAt) > evidenceAgeBound(config) {
+		return nil, nil, time.Time{}, fmt.Errorf("NFT quantity evidence exceeded its freshness bound")
+	}
+	return evidence.quantity, evidence.anchor, evidence.observedAt, nil
 }
 
 // defaultMaxEvidenceAge is the freshness bound applied to on-chain evidence
@@ -738,6 +751,10 @@ func evidenceAgeBound(config *NFTGateConfig) time.Duration {
 	}
 	return config.MaxEvidenceAge
 }
+
+// EvidenceAgeBound exposes the same non-disableable freshness policy to the
+// capability issuer so freshness is rechecked after its final DB snapshot read.
+func EvidenceAgeBound(config *NFTGateConfig) time.Duration { return evidenceAgeBound(config) }
 
 // cachedQuantity decides whether a cached entry can be trusted and, if so,
 // returns a copy of its balance evidence. A nil balance is never usable.

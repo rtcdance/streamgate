@@ -147,34 +147,13 @@ func (a *gatingRuleResolverAdapter) RuleVersion(ctx context.Context, contentID s
 // its read time together is what lets the issuance path pin an authorization to
 // exactly the revision it decided under.
 func (a *gatingRuleResolverAdapter) ResolvePolicySnapshot(ctx context.Context, contentID string) (service.PolicySnapshot, error) {
-	if a.versions == nil {
-		// Without a version authority a snapshot cannot be pinned, so it cannot
-		// exist: a caller must fail closed rather than authorize against a
-		// version it cannot name.
-		return service.PolicySnapshot{}, fmt.Errorf("rule version authority is unavailable")
-	}
 	if a.svc == nil {
 		return service.PolicySnapshot{}, fmt.Errorf("gating rule service is unavailable")
 	}
-
-	version, err := a.versions.Read(ctx, contentID)
-	if err != nil {
-		return service.PolicySnapshot{}, err
-	}
-
-	a.mu.RLock()
-	cached, ok := a.cache[contentID]
-	a.mu.RUnlock()
-	if ok && cached.version == version.Version && time.Now().Before(cached.expiresAt) {
-		return service.PolicySnapshot{
-			ContentID:  contentID,
-			Rules:      cached.rules,
-			Version:    version.Version,
-			VerifiedAt: version.VerifiedAt,
-		}, nil
-	}
-
-	rules, err := a.svc.GetActiveRulesForContent(ctx, contentID)
+	// Authorization snapshots intentionally bypass the transport cache: rules,
+	// version and timestamp must share one PostgreSQL MVCC snapshot. The legacy
+	// list resolver remains cached for non-capability callers only.
+	rules, version, observedAt, err := a.svc.GetActiveRulesSnapshot(ctx, contentID)
 	if err != nil {
 		return service.PolicySnapshot{}, err
 	}
@@ -189,14 +168,10 @@ func (a *gatingRuleResolverAdapter) ResolvePolicySnapshot(ctx context.Context, c
 		}
 	}
 
-	a.mu.Lock()
-	a.cache[contentID] = cachedRules{rules: result, version: version.Version, expiresAt: time.Now().Add(a.cacheTTL)}
-	a.mu.Unlock()
-
 	return service.PolicySnapshot{
 		ContentID:  contentID,
 		Rules:      result,
-		Version:    version.Version,
-		VerifiedAt: version.VerifiedAt,
+		Version:    version,
+		VerifiedAt: observedAt,
 	}, nil
 }

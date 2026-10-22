@@ -212,6 +212,9 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 	if decision.GrantingRule == nil {
 		return nil, ErrPlaybackDenied
 	}
+	if decision.EvidenceObservedAt.IsZero() || time.Since(decision.EvidenceObservedAt) > middleware.EvidenceAgeBound(a.gate) {
+		return nil, fmt.Errorf("NFT authorization evidence exceeded its freshness bound before capability issuance")
+	}
 
 	authz := &PlaybackAuthorization{
 		seal:               authorizationSeal,
@@ -220,7 +223,7 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 		rule:               *decision.GrantingRule,
 		ruleVersion:        granting.Version,
 		session:            session,
-		evidenceObservedAt: granting.VerifiedAt,
+		evidenceObservedAt: decision.EvidenceObservedAt,
 	}
 	if decision.Anchor != nil {
 		authz.blockNumber = decision.Anchor.Number

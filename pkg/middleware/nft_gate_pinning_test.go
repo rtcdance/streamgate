@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,64 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
+
+type delayedQuantityVerifier struct {
+	recordingBlockVerifier
+	delay   time.Duration
+	calls   atomic.Int32
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (v *delayedQuantityVerifier) GetNFTOwnershipQuantity(ctx context.Context, chainID int64, contract, tokenID, owner string, block *big.Int) (*big.Int, error) {
+	v.calls.Add(1)
+	if v.entered != nil {
+		select {
+		case v.entered <- struct{}{}:
+		default:
+		}
+	}
+	if v.release != nil {
+		select {
+		case <-v.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	} else {
+		time.Sleep(v.delay)
+	}
+	return v.recordingBlockVerifier.GetNFTOwnershipQuantity(ctx, chainID, contract, tokenID, owner, block)
+}
+
+func TestResolveQuantity_RejectsEvidenceWhenSlowRPCExceedsFiveSecondPolicy(t *testing.T) {
+	verifier := &delayedQuantityVerifier{recordingBlockVerifier: recordingBlockVerifier{quantity: big.NewInt(1)}, delay: 20 * time.Millisecond}
+	config := NFTGateConfig{Verifier: verifier, BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 7, Hash: "0xslow"}}, DefaultChainID: 1, MaxEvidenceAge: 5 * time.Millisecond}
+	_, _, _, err := resolveQuantityObserved(context.Background(), &config, zap.NewNop(), "slow-rpc-freshness", 1, "0xC", "", "0xW")
+	require.ErrorContains(t, err, "freshness bound")
+}
+
+func TestResolveQuantity_SingleflightWaiterInheritsOriginalEvidenceAge(t *testing.T) {
+	release := make(chan struct{})
+	verifier := &delayedQuantityVerifier{recordingBlockVerifier: recordingBlockVerifier{quantity: big.NewInt(1)}, entered: make(chan struct{}, 1), release: release}
+	config := NFTGateConfig{Verifier: verifier, BlockProver: &mockBlockProver{header: &BlockHeaderInfo{Number: 7, Hash: "0xwaiter"}}, DefaultChainID: 1, MaxEvidenceAge: 50 * time.Millisecond}
+	results := make(chan error, 2)
+	go func() {
+		_, _, _, err := resolveQuantityObserved(context.Background(), &config, zap.NewNop(), "singleflight-freshness", 1, "0xC", "", "0xW")
+		results <- err
+	}()
+	<-verifier.entered
+	time.Sleep(30 * time.Millisecond)
+	go func() {
+		_, _, _, err := resolveQuantityObserved(context.Background(), &config, zap.NewNop(), "singleflight-freshness", 1, "0xC", "", "0xW")
+		results <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	close(release)
+	first, second := <-results, <-results
+	require.ErrorContains(t, first, "freshness bound")
+	require.ErrorContains(t, second, "freshness bound", "singleflight waiter must not get a refreshed observed-at timestamp")
+	require.EqualValues(t, 1, verifier.calls.Load(), "the concurrent requests should have shared one RPC observation")
+}
 
 // recordingBlockVerifier captures the block the gate pins the read to.
 type recordingBlockVerifier struct {
