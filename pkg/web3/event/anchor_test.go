@@ -18,6 +18,52 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestAcceptance_EventRejectsLegacyEmptyCursorAnchor(t *testing.T) {
+	db := openEventTestDB(t)
+	ctx := context.Background()
+	ds := NewPostgresEventStore(db)
+	version := "empty-anchor-reject"
+	idx, err := NewEventIndexerWithConfig(&mockEventReader{blockNum: 20}, EventIndexerConfig{
+		ContractAddresses: []string{testWhitelistA}, EventSignatures: []string{transferSig}, ChainID: testEventChainID,
+		FilterVersion: version, UpdateInterval: time.Hour,
+	}, zap.NewNop())
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO event_checkpoints(chain_id,filter_key,block_number,block_hash) VALUES($1,$2,10,'') ON CONFLICT(chain_id,filter_key) DO UPDATE SET block_number=10, block_hash=''`, testEventChainID, idx.filterKey())
+	require.NoError(t, err)
+	idx.SetEventStore(ds)
+	idx.SetReorgDetector(&scriptedReorgChecker{keepBelow: 20})
+	_, err = idx.cursorAnchorReorged(ctx)
+	require.ErrorContains(t, err, "no canonical anchor hash")
+	fmt.Println("M7_LEGACY_EMPTY_ANCHOR_REJECTED")
+}
+
+func TestAcceptance_EventRollbackMutationIsAtomicAcrossCrashBoundary(t *testing.T) {
+	db := openEventTestDB(t)
+	ctx := context.Background()
+	ds := NewPostgresEventStore(db)
+	const filter = "atomic-crash-boundary"
+	const first, cursor uint64 = 64000, 64002
+	hashes := hashMapFor(first, cursor)
+	anchoredBatch(t, ds, testEventChainID, filter, first, cursor, hashes)
+	t.Cleanup(func() {
+		_, err := db.Exec(ctx, `DROP TRIGGER IF EXISTS reject_atomic_cursor_rewind ON event_checkpoints; DROP FUNCTION IF EXISTS reject_atomic_cursor_rewind()`)
+		require.NoError(t, err)
+	})
+	_, err := db.Exec(ctx, `CREATE OR REPLACE FUNCTION reject_atomic_cursor_rewind() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.chain_id = 991341 AND NEW.filter_key = 'atomic-crash-boundary' AND NEW.block_number = 64000 THEN RAISE EXCEPTION 'injected crash boundary'; END IF; RETURN NEW; END $$;
+CREATE TRIGGER reject_atomic_cursor_rewind BEFORE UPDATE ON event_checkpoints FOR EACH ROW EXECUTE FUNCTION reject_atomic_cursor_rewind()`)
+	require.NoError(t, err)
+	err = ds.RollbackReorgState(ctx, testEventChainID, filter, "0x0000000000000000000000000000000000000abc", first, hashes[first], []string{hashes[cursor]})
+	require.ErrorContains(t, err, "rewind scoped checkpoint")
+	var orphaned bool
+	require.NoError(t, db.QueryRow(ctx, `SELECT orphaned FROM event_block_journal WHERE chain_id=$1 AND block_number=$2`, testEventChainID, int64(cursor)).Scan(&orphaned))
+	require.False(t, orphaned, "a failure after journal mutation must roll the transaction back")
+	got, gotHash, err := ds.LoadScopedCheckpointAnchor(ctx, testEventChainID, filter)
+	require.NoError(t, err)
+	require.Equal(t, cursor, got)
+	require.Equal(t, hashes[cursor], gotHash)
+	fmt.Println("M7_ROLLBACK_CRASH_RECOVERY_PASS")
+}
+
 const (
 	// The indexer's default confirmation depth (EventIndexerConfig zeroes to
 	// 12): polls index up to latest-12, so fixtures aim their fake chain head
@@ -52,15 +98,16 @@ func TestAcceptance_EventSparseLogsJournalCoversTheWindow(t *testing.T) {
 	db := openEventTestDB(t)
 	ctx := context.Background()
 	ds := NewPostgresEventStore(db)
+	const first, end uint64 = 60000, 60020
 	cfg := EventIndexerConfig{
 		ContractAddresses:  []string{testWhitelistA},
 		EventSignatures:    []string{transferSig},
 		ChainID:            testEventChainID,
+		StartBlock:         first - 1,
 		FilterVersion:      "sparse-logs",
 		ConfirmationBlocks: 0,
 		UpdateInterval:     time.Hour,
 	}
-	const first, end uint64 = 60000, 60020
 	logs := []struct {
 		n    uint64
 		hash string
@@ -77,7 +124,6 @@ func TestAcceptance_EventSparseLogsJournalCoversTheWindow(t *testing.T) {
 	idx.SetReorgDetector(&scriptedReorgChecker{keepBelow: end})
 	require.NoError(t, idx.Start(ctx))
 	defer idx.Stop()
-	idx.currentBlock = first - 1
 	require.NoError(t, idx.indexEvents(ctx))
 
 	journal, err := ds.LoadBlockJournal(ctx, testEventChainID, first)

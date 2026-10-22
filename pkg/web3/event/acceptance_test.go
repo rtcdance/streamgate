@@ -70,7 +70,7 @@ func TestAcceptance_EventInitialCursorSurvivesImmediateRestart(t *testing.T) {
 func TestAcceptance_EventInitialCursorWriteFailureStopsStart(t *testing.T) {
 	db := openEventTestDB(t)
 	ctx := context.Background()
-	_, err := NewPostgresEventStore(db).InitializeScopedCheckpoint(ctx, testEventChainID, "overflow", ^uint64(0))
+	_, err := NewPostgresEventStore(db).InitializeScopedCheckpoint(ctx, testEventChainID, "overflow", ^uint64(0), "")
 	require.ErrorContains(t, err, "exceeds database range")
 	t.Cleanup(func() {
 		_, cleanupErr := db.Exec(ctx, `DROP TRIGGER IF EXISTS test_initial_cursor_failure ON event_checkpoints; DROP FUNCTION IF EXISTS test_initial_cursor_failure()`)

@@ -54,7 +54,7 @@ type DurableEventStore interface {
 	LoadScopedCheckpointAnchor(ctx context.Context, chainID int64, filterKey string) (uint64, string, error)
 	// InitializeScopedCheckpoint persists a fresh start before subscription and
 	// returns any existing cursor unchanged, including a valid genesis cursor.
-	InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64) (uint64, error)
+	InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64, initialHash string) (uint64, error)
 	// RollbackScopedCheckpoint moves the checkpoint back after a reorg and
 	// re-anchors it to the common ancestor's hash.
 	RollbackScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, toBlock uint64, toBlockHash string) error
@@ -65,6 +65,10 @@ type DurableEventStore interface {
 	LoadBlockJournal(ctx context.Context, chainID int64, fromBlock uint64) ([]JournalBlock, error)
 	// MarkJournalOrphaned flags journaled blocks above the common ancestor.
 	MarkJournalOrphaned(ctx context.Context, chainID int64, aboveBlock uint64) error
+	// RollbackReorgState commits all externally-visible rollback mutations in a
+	// single transaction. A process crash can therefore expose either the old
+	// canonical state or the fully rewound state, never a half-applied rollback.
+	RollbackReorgState(ctx context.Context, chainID int64, filterKey, legacyAddress string, ancestor uint64, ancestorHash string, orphanHashes []string) error
 }
 
 // PostgresEventStore persists events, chain/filter-scoped checkpoints and the
@@ -175,17 +179,20 @@ func (s *PostgresEventStore) LoadScopedCheckpoint(ctx context.Context, chainID i
 	return uint64(n), nil
 }
 
-func (s *PostgresEventStore) InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64) (uint64, error) {
+func (s *PostgresEventStore) InitializeScopedCheckpoint(ctx context.Context, chainID int64, filterKey string, initial uint64, initialHash string) (uint64, error) {
 	if initial > math.MaxInt64 {
 		return 0, fmt.Errorf("event store: initial checkpoint exceeds database range")
+	}
+	if initial > 0 && initialHash == "" {
+		return 0, fmt.Errorf("event store: nonzero initial checkpoint requires a canonical anchor hash")
 	}
 	var cursor int64
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO event_checkpoints (chain_id, filter_key, block_number, block_hash)
-		VALUES ($1, $2, $3, '')
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (chain_id, filter_key)
-		DO UPDATE SET block_number = event_checkpoints.block_number
-		RETURNING block_number`, chainID, filterKey, int64(initial)).Scan(&cursor)
+		DO UPDATE SET block_number = event_checkpoints.block_number, block_hash = event_checkpoints.block_hash
+		RETURNING block_number`, chainID, filterKey, int64(initial), initialHash).Scan(&cursor)
 	if err != nil {
 		return 0, fmt.Errorf("event store: initialize checkpoint: %w", err)
 	}
@@ -206,6 +213,33 @@ func (s *PostgresEventStore) RollbackScopedCheckpoint(ctx context.Context, chain
 		`UPDATE event_checkpoints SET block_number = $3, block_hash = $4, updated_at = NOW() WHERE chain_id = $1 AND filter_key = $2`,
 		chainID, filterKey, int64(toBlock), toBlockHash)
 	return err
+}
+
+func (s *PostgresEventStore) RollbackReorgState(ctx context.Context, chainID int64, filterKey, legacyAddress string, ancestor uint64, ancestorHash string, orphanHashes []string) error {
+	if ancestor > math.MaxInt64 || ancestorHash == "" || chainID <= 0 || filterKey == "" {
+		return fmt.Errorf("event store: invalid atomic reorg rollback target")
+	}
+	return s.db.InTransaction(ctx, func(tx *sql.Tx) error {
+		if len(orphanHashes) > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE event_store_events SET reorged = TRUE WHERE chain_id = $2 AND block_hash = ANY($1)`, pq.Array(orphanHashes), chainID); err != nil {
+				return fmt.Errorf("event store: mark orphan events: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE event_block_journal SET orphaned = TRUE WHERE chain_id = $1 AND block_number > $2`, chainID, int64(ancestor)); err != nil {
+			return fmt.Errorf("event store: mark orphan journal: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, `UPDATE event_checkpoints SET block_number = $3, block_hash = $4, updated_at = NOW() WHERE chain_id = $1 AND filter_key = $2`, chainID, filterKey, int64(ancestor), ancestorHash)
+		if err != nil {
+			return fmt.Errorf("event store: rewind scoped checkpoint: %w", err)
+		}
+		if affected, err := res.RowsAffected(); err != nil || affected != 1 {
+			return fmt.Errorf("event store: rewind scoped checkpoint affected %d rows (%v)", affected, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE event_checkpoints SET block_number = $2, block_hash = $3, updated_at = NOW() WHERE chain_id = 0 AND filter_key = $1`, "addr:"+legacyAddress, int64(ancestor), ancestorHash); err != nil {
+			return fmt.Errorf("event store: rewind legacy checkpoint: %w", err)
+		}
+		return nil
+	})
 }
 
 // trimJournalTx keeps only the newest keepDepth journaled blocks of the chain.

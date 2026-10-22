@@ -204,7 +204,20 @@ func (ei *EventIndexer) Start(ctx context.Context) error {
 			if ei.startBlock > 0 {
 				initial = ei.startBlock
 			}
-			checkpoint, err := ds.InitializeScopedCheckpoint(ctx, ei.chainID, ei.filterKey(), initial)
+			initialHash := ""
+			if initial > 0 {
+				header, headerErr := ei.client.HeaderByNumber(ctx, new(big.Int).SetUint64(initial))
+				if headerErr != nil || header == nil {
+					ei.mu.Unlock()
+					ei.started.Store(false)
+					if headerErr == nil {
+						headerErr = fmt.Errorf("empty header for initial cursor %d", initial)
+					}
+					return fmt.Errorf("cannot anchor initial durable cursor: %w", headerErr)
+				}
+				initialHash = header.Hash().Hex()
+			}
+			checkpoint, err := ds.InitializeScopedCheckpoint(ctx, ei.chainID, ei.filterKey(), initial, initialHash)
 			if err != nil {
 				ei.mu.Unlock()
 				ei.started.Store(false)
@@ -661,11 +674,10 @@ func (ei *EventIndexer) durableStore() (DurableEventStore, bool) {
 
 // cursorAnchorReorged verifies the committed cursor still points at a
 // canonical block: the checkpoint carries the hash it was committed with and
-// the chain must still agree at that height. An empty anchor (a cursor that
-// predates anchoring) verifies nothing and is reported as intact; an
-// unverifiable anchor is an error, never a pass. Without a reorg detector the
-// deployment has no reorg machinery at all (the legacy optional-detector
-// contract) and there is nothing to verify or roll back with.
+// the chain must still agree at that height. A zero cursor has no anchor to
+// check; a nonzero cursor with an empty anchor is an error, never a pass.
+// Without a reorg detector the deployment has no reorg machinery at all (the
+// legacy optional-detector contract) and there is nothing to verify or roll back.
 func (ei *EventIndexer) cursorAnchorReorged(ctx context.Context) (bool, error) {
 	ei.mu.RLock()
 	ds, ok := ei.store.(DurableEventStore)
@@ -681,7 +693,10 @@ func (ei *EventIndexer) cursorAnchorReorged(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if hash == "" {
-		return false, nil
+		if block == 0 {
+			return false, nil
+		}
+		return false, fmt.Errorf("durable cursor %d has no canonical anchor hash", block)
 	}
 	return rd.CheckReorg(ctx, block, common.HexToHash(hash))
 }
@@ -883,17 +898,8 @@ func (ei *EventIndexer) rollbackToCommonAncestor(ctx context.Context, ds Durable
 		return fmt.Errorf("reorg deeper than journal depth %d", journalDepth)
 	}
 
-	if _, err := ds.MarkEventsReorged(orphanHashes); err != nil {
-		return fmt.Errorf("mark reorged events: %w", err)
-	}
-	if err := ds.MarkJournalOrphaned(ctx, chainID, ancestor.Number); err != nil {
-		return fmt.Errorf("mark journal orphaned: %w", err)
-	}
-	if err := ds.RollbackScopedCheckpoint(ctx, chainID, filterKey, ancestor.Number, ancestor.Hash); err != nil {
-		return fmt.Errorf("rollback scoped checkpoint: %w", err)
-	}
-	if err := ds.SaveCheckpoint(ei.contractAddress.Hex(), ancestor.Number); err != nil {
-		ei.logger.Warn("Failed to roll back legacy checkpoint", zap.Error(err))
+	if err := ds.RollbackReorgState(ctx, chainID, filterKey, ei.contractAddress.Hex(), ancestor.Number, ancestor.Hash, orphanHashes); err != nil {
+		return fmt.Errorf("atomic reorg rollback: %w", err)
 	}
 
 	ei.mu.Lock()
