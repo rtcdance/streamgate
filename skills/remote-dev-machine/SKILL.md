@@ -151,7 +151,31 @@ bash skills/remote-dev-machine/scripts/remote-fetch.sh .verify-artifacts
 - 功能验收（F01–F15、`verify-docker` stage、证据）按 `dev-machine-acceptance` §5 执行。
 - 本 skill 只负责“在开发机上跑”和“把证据拿回来”，不重新定义验收标准。
 
-## 9. Exit Criteria
+## 9. 实测经验（prod-srs，2026-10）
+
+同步与冻结：
+
+- 无推送授权时用 **bundle** 同步：`git bundle create /tmp/sg-sync.bundle HEAD && scp … && ssh prod-srs 'cd /home/streamgate && git fetch /tmp/sg-sync.bundle HEAD && git checkout --detach FETCH_HEAD'`，然后确认 `git status --porcelain` 为空。
+- 候选验收运行期间**冻结 `scripts/` 与 `test/`**：它们以只读 bind-mount 实时挂载，任何编辑都会让候选身份漂移（controller 会报 `source HEAD changed`），整轮作废。
+- 远端工作树被临时 scp 弄脏时，先比 `git hash-object` 与 `git rev-parse <sha>:<path>`，字节相同才 `git checkout --`，不要盲目 reset。
+
+磁盘与镜像（最容易卡住整轮）：
+
+- 根分区（containerd 快照）常见 `/` 70G、`/home` 379G：**每轮之前**删掉上一轮镜像（`docker rmi <old-run>-*`、`image prune -f`），否则会在 `link: no space left on device` 处失败。
+- **不要 `docker builder prune`**：预热过的 Alpine apk 层能避免 `apk add (no such package)` 这类 CDN 超时把阶段卡死。
+- Playwright 与 npm 缓存固定在 `.verify-artifacts/`，并用 `VERIFY_PLAYWRIGHT_DOWNLOAD_HOST` 指向 npmmirror。
+- 大输出日志做判据时注意：`set -o pipefail` 下 `docker logs | grep -q` 会 SIGPIPE(141) 假阴性，判据要进程内匹配。
+
+高效验证（避免每修一处就烧 2–3 小时）：
+
+- 迭代期只跑受影响门：`VERIFY_STAGE=release`，或多门一次跑 `VERIFY_STAGE=media,recovery,release`（comma list 原生支持）。
+- 同一候选上把可疑门连跑 3–5 次做特性化，区分产品缺陷 / harness 缺陷 / 环境 flake，再决定是否动代码。
+- harness 自测（`python3 scripts/cd/test_verify_shell.py`、`test_perf_protocol.py`）分钟级，先跑它们。
+- `VERIFY_MODE=pr` 只跑 perf 短 smoke；完整矩阵 + 同 runner reference 比较留给最终 `all`。
+- 终验仍需在**冻结的最终 HEAD** 上跑一次完整 `VERIFY_STAGE=all`，并回传证据；迭代期的单门结果不能替代它。
+- 远端长任务放 `tmux`（短命令也要 `timeout`）；本地后台轮询任务可能静默死掉，直接 ssh 轮询才是事实源。
+
+## 10. Exit Criteria
 
 - 所有构建/测试/验收命令在 118 上执行，exit code 0（或明确记录失败）。
 - 本地日志在 `build/remote/`；远程 SHA 与本地提交一致。

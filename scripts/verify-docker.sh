@@ -1583,7 +1583,7 @@ run_stage() {
     recovery) stage_recovery ;;
     perf) stage_perf ;;
     release) stage_release ;;
-    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|faults|media|recovery|perf|release|all)" ;;
+    *) fail "unknown VERIFY_STAGE '$1' (expected: unit|chain|durability|ops|faults|media|recovery|perf|release|all, or a comma-separated list of stages)" ;;
   esac
 }
 
@@ -1610,6 +1610,19 @@ if [ "$VERIFY_STAGE" = "all" ]; then
     assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
   done
   assert_final_candidate_evidence
+elif [[ "$VERIFY_STAGE" == *,* ]]; then
+  # Iteration convenience: re-run exactly the stages a change can affect
+  # without paying for the whole DAG. Every stage keeps its own gate, and the
+  # result is still per-stage evidence — this is NOT a substitute for the
+  # single full `all` run that a candidate's acceptance requires.
+  IFS=, read -r -a requested <<< "$VERIFY_STAGE"
+  log "running requested stages: ${requested[*]}"
+  for stage in "${requested[@]}"; do
+    [ -n "$stage" ] || continue
+    assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
+    run_stage "$stage"
+    assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
+  done
 else
   run_stage "$VERIFY_STAGE"
 fi

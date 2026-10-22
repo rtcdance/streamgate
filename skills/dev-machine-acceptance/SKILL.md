@@ -237,6 +237,32 @@ make test-ci                        # 60% coverage floor
 | 8C / 32G | 推荐 | 推荐 | 推荐 | 完整验收 |
 | 12C / 31G 共享 118 | 可以 | 停 ABR 后可以 | 不建议 | 开发/单 stage，性能另找机器 |
 
+## 8. 验收运行经验（Linux/Docker 实测，2026-10）
+
+harness 自身的坑（每条都有真实失败现场，先查这里再怀疑产品）：
+
+- **静态目录权限**：`mktemp -d` 是 `0700 root`；nginx worker 以非 root 运行，穿不过目录会**对每个请求返回 403**。以容器内非 root 服务提供宿主目录时，创建后立即 `chmod 755`。失败形态：`H5 proxy did not become ready`，而眼睛看 `index.html` 明明存在。
+- **`set -o pipefail` + `docker logs … | grep -q …` 会假阴性**：日志超过管道缓冲（约 64KB）且匹配点在前面时，`grep -q` 命中即退出，`docker logs` 收到 SIGPIPE(141)，pipefail 把整条管道判为失败。判据要求"行存在"时改为先 `logs="$(docker logs …)"` 再 `[[ "$logs" == *"…"* ]]`；失败时把真实行打出来。属确定性缺陷，不是 flake。
+- **可复现字节码**：`contracts/foundry.toml` 必须保留 `bytecode_hash = "none"`，否则 solc 把绝对路径 remapping 写进 metadata，不同构建路径产出不同 runtime code，镜像会对链上合约报 `runtime code hash mismatch`。**固定基线/回退目标必须选在可复现修复之后**：老基线的字节码不可重建，会在新栈里启动即 FATAL；基线随修复顺延并重测 reference，不要静默沿用。
+- **Anvil 健康检查**：只探 `eth_chainId` 会在 `forge create` 冷编译窗口内放行，monolith 与合约部署共用 deployer key 时会抢 nonce，DemoNFT 落到非预期地址、mint 返回成功 receipt 但余额 0。健康检查应要求**配置的两个合约地址都已有 code**。
+- **容器网络别名**：多个验证项目都会起 `verify-h5` 别名；若控制器仍挂在旧项目网络，浏览器请求会按 DNS 轮询打到已拆除的 nginx（上游已死 → 502，重试又成功）。失败诊断要同时抓 **h5 nginx 自己的日志**与控制器所联网的别名现场。teardown 必须确认控制器已断网。
+- **共享宿主磁盘**：containerd 快照在根分区（如 `/` 70G），`/home` 可能几百 G 但没用上。每个候选的镜像+构建缓存会持续累积；跑下一轮前删旧 run 镜像（`docker rmi <run>-*` + `image prune -f`），**但不要 prune builder cache**——预热过的 apk 层是资产。
+- **Alpine / Debian 源**：Alpine CDN 超时会表现为 `apk add … (no such package)` 并让阶段在构建期失败；保留预热层或预构建。Debian 包网络慢可用宿主侧流式反代（iptables REDIRECT :80 → 本地代理），代理必须保留 `Content-Length` 或显式 `Connection: close`，否则 HTTP/1.1 客户端会等连接关闭。
+- **Playwright**：浏览器缓存放 `.verify-artifacts/playwright-cache` 并以 `VERIFY_PLAYWRIGHT_DOWNLOAD_HOST` 指向可用镜像站；不要每次都重下。
+- **阶段串行**：所有 stage 共享 Docker/端口/控制器，绝不并行跑两个 `verify-docker`。
+
+## 9. 高效验证（迭代期 vs 终验）
+
+`VERIFY_STAGE=all` 是**终验**，不是每次修复后的默认动作。推荐循环：
+
+1. **改动分级**：先判断这次改动影响哪些门（改 harness → 对应 stage；改 `pkg/web3` → chain/faults；改授权/播放 → media/recovery/release；改性能测量 → unit+perf）。
+2. **只跑受影响门**：`VERIFY_STAGE=release`（约 5–10 分钟）或逗号列表 `VERIFY_STAGE=media,recovery,release`（脚本原生支持），确认修复生效。
+3. **flake 特性化**：单点失败先在同候选上把该门连跑 3–5 次，统计复现率再定性（产品缺陷 / harness 缺陷 / 环境 flake），不要靠整链"再赌一次"。
+4. **快速预检**：harness 自测（`python3 scripts/cd/test_verify_shell.py`、`test_perf_protocol.py`）与 tools 镜像内的 `go vet` 是分钟级，能拦掉大部分 harness 级失败。
+5. **批量修复**：同一轮里把已知问题一起修完，**只在最终冻结候选上跑一次完整 `all`**；每修一处就跑整链会白烧 2–3 小时。
+6. **复用边界**：证据只能来自同一候选 SHA 的同一次运行；跨 SHA 或跨运行复用必须被显式记录，不能拿旧 run 的数字冒充当前候选（provenance 门就是为此存在的）。
+7. **perf 迭代模式**：`VERIFY_MODE=pr` 只跑短 smoke（1 观众、1 轮、不跑 reference）；完整矩阵与同 runner reference 比较留给候选模式的最终 `all`。
+
 ## Must Not
 
 - 不把 host `make test` / `go test` 当验收；不把 Mac 本机的 Go/Foundry 结果当验收（Docker 客户端流程见 §0.1）。
