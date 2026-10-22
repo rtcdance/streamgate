@@ -748,6 +748,17 @@ NGINX
     -v "${conf}:/etc/nginx/conf.d/default.conf:ro" \
     "$nginx_image" >/dev/null \
     || fail "could not start H5 proxy"
+  # Diagnostic: the controller resolves verify-h5 per request, so any OTHER
+  # network still carrying the alias sends some browser requests to a torn-down
+  # project's nginx (its upstream gone => 502). Record the collision state.
+  {
+    echo "== controller networks at h5 start (project ${project}) =="
+    local net
+    for net in $(docker inspect "$VERIFY_CONTROLLER" --format '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' 2>/dev/null); do
+      echo "-- ${net} --"
+      docker network inspect "$net" --format '{{range .Containers}}{{.Name}} dns={{.DNSNames}}{{println}}{{end}}' 2>/dev/null || true
+    done
+  } > "${ARTIFACT_DIR}/h5-dns-${project}.txt" 2>&1 || :
   wait_health "http://localhost:${VERIFY_H5_PORT}/demo/" 60 || fail "H5 proxy did not become ready"
 }
 
@@ -839,6 +850,10 @@ diag_stack_logs() {
     echo "===== ${project}-${svc}-1 (tail 60) ====="
     docker logs --tail 60 "${project}-${svc}-1" 2>&1 || true
   done
+  if docker inspect "${project}-h5" >/dev/null 2>&1; then
+    echo "===== ${project}-h5 (nginx error log) ====="
+    docker logs --tail 80 "${project}-h5" 2>&1 || true
+  fi
 }
 
 # migrate_verify_stack <project> — applies the full migration set (the app
