@@ -375,7 +375,7 @@ def main():
     parser.add_argument("--accept-harness")
     args = parser.parse_args()
     harness = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    env, rows = validate_directory(args.root, args.mode, args.target or harness, harness)
+    env, rows = validate_directory(args.root, args.mode, args.target or harness, harness, accept_harness=args.accept_harness)
     if args.reference_root:
         if args.mode != "comparison": raise ValueError("reference comparison requires comparison mode")
         baseline = read_json("config/performance.acceptance.json")["safetyBaselineRevision"]
