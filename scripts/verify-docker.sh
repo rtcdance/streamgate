@@ -181,6 +181,15 @@ run_in_image() {
   local log_file="${LOG_DIR}/${stage}.log"
   local net_args=()
   local platform_args=()
+  # Resource caps set by the operator must reach the process that runs Go,
+  # not just the controller: `go test -fuzz` sizes its worker pool from
+  # GOMAXPROCS, and eight workers on a contended Docker Desktop VM starve the
+  # fuzz coordinator's shutdown window ('context deadline exceeded' after a
+  # clean 30s mutation run). Passing them only to the controller left the
+  # stage containers at the host default.
+  local tool_env=()
+  [ -n "${GOMAXPROCS:-}" ] && tool_env+=(-e "GOMAXPROCS=${GOMAXPROCS}")
+  [ -n "${GOFLAGS:-}" ] && tool_env+=(-e "GOFLAGS=${GOFLAGS}")
   mkdir -p "$LOG_DIR"
   if docker network inspect "${PROJECT_NAME}_default" >/dev/null 2>&1; then
     net_args=(--network "${PROJECT_NAME}_default")
@@ -201,6 +210,7 @@ run_in_image() {
         -v "${ROOT_DIR}/test:/src/test:ro" \
         -v "${ROOT_DIR}/.github:/src/.github:ro" \
         -w /src \
+        ${tool_env[@]+"${tool_env[@]}"} \
         "${IMAGE_TAG}" bash -lc "$1" 2>&1 | tee "$log_file"
   local statuses=("${PIPESTATUS[@]}")
   set -e
