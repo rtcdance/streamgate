@@ -57,7 +57,9 @@ cp scripts/verify-docker.sh "$VERIFY_ARTIFACTS/execution/verify-driver.sh"
 forward_env=()
 while IFS= read -r name; do
   case "$name" in
-    VERIFY_*|PERF_*|COVERAGE_MIN) forward_env+=(-e "$name") ;;
+    # GOMAXPROCS/GOFLAGS let a memory-constrained Docker VM (e.g. 8 GiB
+    # Docker Desktop) cap compile parallelism instead of being OOM-killed.
+    VERIFY_*|PERF_*|COVERAGE_MIN|GOMAXPROCS|GOFLAGS) forward_env+=(-e "$name") ;;
   esac
 done < <(compgen -e)
 
