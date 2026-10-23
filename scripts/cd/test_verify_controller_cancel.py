@@ -51,6 +51,43 @@ elif args[0] == "inspect":
             calls = [json.loads(line) for line in trace.read_text().splitlines()]
             self.assertFalse(any(call[0] in ("run", "rm", "build") for call in calls), calls)
 
+    def test_environment_gate_failure_releases_the_daemon_lock(self):
+        # EFF-00 + EFF-04: the gate refuses before the build, and the early
+        # refusal must not leave the fixed-name lock behind for the next run.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts/cd").mkdir(parents=True)
+            source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
+            (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes())
+            (root / "scripts/cd/verify_environment.py").write_bytes(
+                (Path(__file__).resolve().parent / "verify_environment.py").read_bytes())
+            (root / "scripts/verify-docker.sh").write_text("exit 0\n")
+            binary = root / "bin"
+            binary.mkdir()
+            fake = binary / "docker"
+            fake.write_text("#!" + sys.executable + "\n" + '''
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_TRACE"], "a") as log:
+    log.write(json.dumps(args) + "\\n")
+''')
+            fake.chmod(0o755)
+            trace = root / "trace.jsonl"
+            env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
+                       FAKE_TRACE=str(trace), VERIFY_STAGE="perf", VERIFY_PROJECT="own-gate-test",
+                       VERIFY_ARTIFACTS=str(root / "artifacts"))
+            result = subprocess.run(["bash", str(root / "scripts/verify-controller.sh")], env=env,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("env:FAIL", result.stderr)
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            creates = [i for i, c in enumerate(calls) if c[:2] == ["network", "create"]]
+            removals = [i for i, c in enumerate(calls) if c[:2] == ["network", "rm"]]
+            self.assertTrue(creates, calls)
+            self.assertTrue(removals, calls)
+            self.assertLess(creates[0], removals[0], "the lock must be released after it was taken")
+            self.assertFalse(any(c[0] == "build" for c in calls), "the gate must refuse before the build")
+
     def test_term_while_client_is_running_preserves_status_and_cleans(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
