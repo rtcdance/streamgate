@@ -122,7 +122,10 @@ if [ "$frozen_requested" = 1 ]; then
       [ -d "$SOURCE_REPO/$sub_path" ] || continue
       git -C "$FROZEN_SOURCE" config "submodule.$sub_path.url" "$SOURCE_REPO/$sub_path" || exit 1
     done < <(git -C "$SOURCE_REPO" config --file .gitmodules --get-regexp '^submodule\..*\.path$')
-    git -C "$FROZEN_SOURCE" submodule update --init --recursive --quiet \
+    # Git refuses the "file" transport for submodules by default (CVE-2022-39253).
+    # The URL was set on the line above to a checkout we control, so allowing it
+    # here keeps the population offline instead of fetching from GitHub.
+    git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --recursive --quiet \
       || { echo "could not populate the frozen source submodules" >&2; exit 1; }
   fi
   ROOT_DIR="$FROZEN_SOURCE"
