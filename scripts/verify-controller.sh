@@ -17,11 +17,14 @@ fi
 export VERIFY_PROJECT="${VERIFY_PROJECT:-streamgate-verify-$$-${RANDOM}}"
 export VERIFY_PLATFORM="${VERIFY_PLATFORM:-linux/amd64}"
 export VERIFY_ARTIFACTS="${VERIFY_ARTIFACTS:-${ROOT_DIR}/.verify-artifacts/${VERIFY_PROJECT}}"
-# EFF-03: resolve the shared Go build cache on the HOST and forward it. Stage
-# containers bind this path through the daemon, so it must be a host path; the
-# driver cannot invent one from inside the controller.
-export VERIFY_GO_CACHE="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
-mkdir -p "$VERIFY_GO_CACHE" || { echo "cannot create Go build cache: $VERIFY_GO_CACHE" >&2; exit 1; }
+# EFF-03 (optional): the shared Go build cache is resolved on the HOST and
+# forwarded, because stage containers bind it through the daemon and the driver
+# cannot invent a host path from inside the controller. Only created when the
+# operator opted in; the default run stays a cold build.
+if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
+  export VERIFY_GO_CACHE="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
+  mkdir -p "$VERIFY_GO_CACHE" || { echo "cannot create Go build cache: $VERIFY_GO_CACHE" >&2; exit 1; }
+fi
 export VERIFY_IMAGE="${VERIFY_IMAGE:-${VERIFY_PROJECT}-tools:local}"
 export VERIFY_CONTROLLER="${VERIFY_PROJECT}-controller"
 if [ -n "$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}")" ] \
@@ -82,8 +85,50 @@ acquire_mutex || exit 1
 # the repair loop and stay available on smaller machines.
 command -v python3 >/dev/null 2>&1 || { echo 'python3 is required for the environment gate' >&2; exit 1; }
 python3 scripts/cd/verify_environment.py --stage "$VERIFY_STAGE" --project "$VERIFY_PROJECT" || exit 1
+# EFF-04 A: run the acceptance from a frozen clone, not from the directory a
+# human or another agent may still be editing. The clone is pinned to the exact
+# HEAD the clean-tree check just approved, its submodules are cloned from the
+# local checkouts (offline, no GitHub round trip), and the container mounts the
+# clone, so a mid-run edit or commit in the source tree cannot change what is
+# being verified. Targeted stages keep running from the working tree: they are
+# the repair loop, and paying for a clone on every fix cycle is not the point.
 mkdir -p "$VERIFY_ARTIFACTS"
 VERIFY_ARTIFACTS="$(cd "$VERIFY_ARTIFACTS" && pwd)"
+export VERIFY_ARTIFACTS
+
+SOURCE_REPO="$ROOT_DIR"
+FROZEN_SOURCE=""
+frozen_requested=0
+case "${VERIFY_FROZEN_SOURCE:-auto}" in
+  1) frozen_requested=1 ;;
+  0) frozen_requested=0 ;;
+  *) [ "$VERIFY_STAGE" = all ] && frozen_requested=1 ;;
+esac
+if [ "$frozen_requested" = 1 ]; then
+  FROZEN_SOURCE="$VERIFY_ARTIFACTS/source"
+  if [ -e "$FROZEN_SOURCE" ]; then
+    echo "frozen source already exists: $FROZEN_SOURCE; choose a fresh VERIFY_ARTIFACTS" >&2
+    exit 1
+  fi
+  frozen_revision="$(git -C "$SOURCE_REPO" rev-parse HEAD)" || exit 1
+  git clone --quiet --no-checkout "$SOURCE_REPO" "$FROZEN_SOURCE" \
+    || { echo "could not clone the frozen source" >&2; exit 1; }
+  git -C "$FROZEN_SOURCE" checkout --quiet --detach "$frozen_revision" \
+    || { echo "could not check out $frozen_revision in the frozen source" >&2; exit 1; }
+  if [ -f "$SOURCE_REPO/.gitmodules" ]; then
+    git -C "$FROZEN_SOURCE" submodule init >/dev/null 2>&1 || true
+    while read -r _ sub_path; do
+      [ -n "$sub_path" ] || continue
+      [ -d "$SOURCE_REPO/$sub_path" ] || continue
+      git -C "$FROZEN_SOURCE" config "submodule.$sub_path.url" "$SOURCE_REPO/$sub_path" || exit 1
+    done < <(git -C "$SOURCE_REPO" config --file .gitmodules --get-regexp '^submodule\..*\.path$')
+    git -C "$FROZEN_SOURCE" submodule update --init --recursive --quiet \
+      || { echo "could not populate the frozen source submodules" >&2; exit 1; }
+  fi
+  ROOT_DIR="$FROZEN_SOURCE"
+  cd "$ROOT_DIR"
+  echo "[env] verifying the frozen clone at $ROOT_DIR (revision $frozen_revision)" >&2
+fi
 if [ -f .gitmodules ]; then git submodule update --init --recursive; fi
 
 proxy_args=()
@@ -132,6 +177,11 @@ cleanup() {
   # above, so a cleanup failure can never turn a cancelled run into a pass.
   if [ "${MUTEX_OWNER:-0}" = 1 ]; then
     docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || cleanup_rc=1
+  fi
+  # The frozen clone is reproducible from the recorded revision; keeping ~900MB
+  # of it per run would only make the artifacts directory unmanageable.
+  if [ -n "${FROZEN_SOURCE:-}" ] && [ -d "$FROZEN_SOURCE" ]; then
+    rm -rf -- "$FROZEN_SOURCE" || cleanup_rc=1
   fi
   # A force-removed controller cannot execute its child traps. The private
   # root is run-scoped and also holds the ledger written BEFORE creating a

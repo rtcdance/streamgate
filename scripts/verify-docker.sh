@@ -49,16 +49,28 @@ if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 # that RUNS the browser must look in the same place the browser was installed to.
 export PLAYWRIGHT_BROWSERS_PATH="${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 
-# EFF-03: one persistent Go build cache for every stage container. Each stage
-# used to start from an empty cache and recompile the whole module with -race,
-# which dominated unit/ops/durability wall time. Go's cache is content-addressed
-# by toolchain, GOOS/GOARCH, build tags, flags and CGO, so sharing it across
-# stages and runs cannot return a stale object; it only skips work that would
-# produce the same bytes. Namespaced by platform so an amd64 and an arm64 run
-# never share files. The path lives outside the checkout (the candidate tree
-# must stay clean) and is overridable for CI cache volumes.
-GO_CACHE_DIR="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
-mkdir -p "$GO_CACHE_DIR" || fail "could not create the Go build cache at $GO_CACHE_DIR"
+# EFF-03 (optional, OFF by default): one persistent Go build cache for every
+# stage container. Each stage used to start from an empty cache and recompile
+# the whole module with -race, which dominated unit/ops/durability wall time.
+# Go content-addresses objects by toolchain, GOOS/GOARCH, tags, flags and CGO,
+# so a shared object cache cannot return a stale binary.
+#
+# It stays off unless VERIFY_SHARED_GOCACHE=1 because GOCACHE also stores test
+# RESULTS: adopting it needs proof that a restored cache cannot replay an old
+# PASS (the -count=1 regression) and a cold/hot measurement on the same machine.
+# Until that evidence exists the final acceptance keeps the cold build, which
+# the plan requires. Enabling it is opt-in, never the default.
+SHARED_GOCACHE=0
+GO_CACHE_DIR=""
+if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
+  SHARED_GOCACHE=1
+  GO_CACHE_DIR="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
+  mkdir -p "$GO_CACHE_DIR" || { echo "could not create the Go build cache at $GO_CACHE_DIR" >&2; exit 1; }
+fi
+GO_CACHE_ARGS=()
+if [ "$SHARED_GOCACHE" = 1 ]; then
+  GO_CACHE_ARGS=(-v "${GO_CACHE_DIR}:/gocache" -e GOCACHE=/gocache)
+fi
 
 ALL_STAGES=(unit chain durability ops faults media recovery perf release)
 
@@ -208,7 +220,7 @@ run_in_image() {
   if [ -n "${VERIFY_PLATFORM:-}" ]; then
     platform_args=(--platform "${VERIFY_PLATFORM}")
   fi
-  log "stage=${stage} → log ${log_file} (GOMAXPROCS=${GOMAXPROCS:-default} GOFLAGS=${GOFLAGS:-default} GOCACHE=${GO_CACHE_DIR})"
+  log "stage=${stage} → log ${log_file} (GOMAXPROCS=${GOMAXPROCS:-default} GOFLAGS=${GOFLAGS:-default} GOCACHE=${GO_CACHE_DIR:-off})"
   set +e
   docker run --rm --pull never \
         --name "${PROJECT_NAME}-${stage}" \
@@ -217,7 +229,7 @@ run_in_image() {
         ${platform_args[@]+"${platform_args[@]}"} \
         ${net_args[@]+"${net_args[@]}"} \
         -v "${ARTIFACT_DIR}:/artifacts" \
-        -v "${GO_CACHE_DIR}:/gocache" -e GOCACHE=/gocache \
+        ${GO_CACHE_ARGS[@]+"${GO_CACHE_ARGS[@]}"} \
         -v "${ROOT_DIR}/scripts:/src/scripts:ro" \
         -v "${ROOT_DIR}/test:/src/test:ro" \
         -v "${ROOT_DIR}/.github:/src/.github:ro" \
@@ -332,7 +344,10 @@ stage_unit() {
     # load, green at the same thresholds with -p 1). The thresholds stay
     # unchanged — the measurement is serialized per package, the same way the
     # CI self-checks are.
-    go test -race -covermode=atomic -coverprofile=/artifacts/coverage.out \
+    # -count=1 is load-bearing: with a shared GOCACHE a cached PASS is a
+    # stored test result, and this stage must re-execute the suites rather
+    # than replay a verdict from an earlier run.
+    go test -race -count=1 -covermode=atomic -coverprofile=/artifacts/coverage.out \
       $(./scripts/ci-packages.sh | grep -v '^github.com/rtcdance/streamgate/test/performance$')
     go test -race -count=1 -p 1 ./test/performance
     ./scripts/check-coverage.sh /artifacts/coverage.out "${COVERAGE_MIN:-60}"

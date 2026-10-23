@@ -138,7 +138,8 @@ jobs:
         run: |
           # Package set is shared with `make test-ci` (scripts/ci-packages.sh)
           # so the local and CI coverage gates cannot drift apart.
-          go test -race -coverprofile=coverage.out $(./scripts/ci-packages.sh)
+          # -count=1 keeps a restored GOCACHE from replaying a cached PASS.
+          go test -race -count=1 -coverprofile=coverage.out $(./scripts/ci-packages.sh)
         env:
           STREAMGATE_DB_HOST: localhost
           STREAMGATE_DB_PORT: 5432
