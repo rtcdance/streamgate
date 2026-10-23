@@ -76,7 +76,18 @@ acquire_mutex() {
   echo "or re-run with VERIFY_MUTEX_TAKEOVER=1 once it has no running containers." >&2
   return 1
 }
+# The full cleanup trap is installed only after the tool image is built, so an
+# early failure (environment gate, frozen clone, build) would otherwise leak the
+# lock. Release it from a minimal trap until the real cleanup replaces it.
+release_mutex() {
+  if [ "${MUTEX_OWNER:-0}" = 1 ]; then
+    docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || true
+  fi
+}
 acquire_mutex || exit 1
+trap release_mutex EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # EFF-00: refuse an environment that cannot carry the formal run BEFORE the
 # tool image is built. A 16 GiB Docker VM OOM-killed the DAG twice and an
