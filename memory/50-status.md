@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-21 · **HEAD:** `df253ef` on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-23 · **HEAD:** `0500850c` on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -14,11 +14,20 @@ Baseline facts at snapshot time: version `1.0.6`, 11 build targets, 338 test
 files, ~71% coverage under the Docker unit gate, 60% CI floor, 42 up / 26 down
 migrations.
 
+## Environment (2026-10-23)
+
+Acceptance runs on the **local Mac + Docker Desktop** (6 vCPU / 8 GiB VM). The
+`prod-srs` Docker resources were purged (0 images/containers/volumes/cache) and
+`remote-dev-machine` is a historical skill. Local functional stages are valid
+evidence; `all`, perf and release remain Linux/CI only.
+
 ## Evidenced (checkbox may lag)
 
 | Item | Evidence |
 |---|---|
 | SG-00 unified Docker acceptance entry | plan heading (2026-10-17 final run) |
+| Local `unit` stage | `.verify-artifacts/sg-local-unit3` (2026-10-23, `6b613ec0`) |
+| Local `media` stage | `.verify-artifacts/sg-local-media4` 77/77 ×2 (2026-10-23, `6823b56d`) |
 | SG-04 same-chain, same-block holding and reorg | plan §8.9, checked |
 | SG-05 real wallet → real HLS loop | plan §8.10, checked |
 | SG-09 job material (AI portion) | plan SG-09 heading, checked (its SHA is a pre-rewrite label) |
