@@ -68,7 +68,7 @@ GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
 
 本机踩坑（均为实测）：
 
-- 镜像构建时 6 个 `go build -a` 并发会在 8GB VM 上被 OOM killer 反复杀死，表现为长时间无输出；逐个服务 `docker compose -f docker-compose.fullchain.yml build <svc>` 即可（每个约 1 分钟）。
+- 镜像构建时 6 个 `go build -a` 并发会在 8GB VM 上被 OOM killer 反复杀死，表现为长时间无输出；逐个服务 `docker compose -f docker-compose.fullchain.yml build <svc>` 即可（每个约 1 分钟）。串行构建完成后用 `./scripts/docker-deploy.sh`（**不带** `--build`）启动，避免 compose 再次并行构建。
 - `make verify-docker` 构建镜像时默认 `GOPROXY=direct`，受限网络会 `gnutls_handshake() failed`；用 `VERIFY_GOPROXY=https://goproxy.cn,direct make verify-docker`。
 - 启动报 `runtime code hash mismatch`：solc 把 forge 的绝对路径 remapping 写进 metadata，host 与 `/contracts` 编出的字节码不同。`contracts/foundry.toml` 的 `bytecode_hash = "none"` 保证可复现；改合约后重新生成 `deployments/content-registry.<chain>.json`（`make contracts-manifest-anvil`，或用 `scripts/registry-manifest.sh --rpc/--address` 指向正在运行的栈）。
 - `fullchain-test` 的 gRPC 四条在 host 上失败：默认 `GRPC_TARGET=monolith:9090` 只在 compose 网络内可解析；用 `localhost:19090`。

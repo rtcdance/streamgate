@@ -2245,6 +2245,9 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 |---|---|---|---|
 | unit | `6b613ec0` | PASS | `.verify-artifacts/sg-local-unit3/logs/unit.log`；harness 自测、forge、gofmt/vet、tag-gated vet、lint、race+coverage 全通过 |
 | media | `6823b56d` | PASS（monolith 与 api-gateway 各 77/77） | `.verify-artifacts/sg-local-media4/`；`candidate.json` revision=`6823b56d`，monolith imageID=`sha256:f3b35ae68b72…`，archiveSHA256=`e66bee9ce088…`；真钱包→上传→独立 worker→HLS/Range→FFmpeg 解码→浏览器真播；M3 5s/70s 界限、gRPC 数量阈值与双凭据拒绝均在原始日志中 |
+| deploy + fullchain | `40851b40` | PASS（77/77） | `docker-deploy.sh` 启动 17 个容器全部 healthy；`GRPC_TARGET=localhost:19090 make fullchain-test` → `RESULT: ALL 77 PASSED`、RC=0；覆盖真钱包登录、上传、独立 worker、HLS/Range、FFmpeg 解码、浏览器真播、M3 界限与 gRPC 平价 |
+
+**本机构建口径：** 8 GiB VM 上 `make fullchain-deploy` 的并行镜像构建会 OOM（`cannot allocate memory`）；先按服务串行 `docker compose -f docker-compose.fullchain.yml build <svc>`，再跑 `./scripts/docker-deploy.sh`（不带 `--build`）即可。该顺序已写入 `dev-machine-acceptance`。
 
 **迁移中发现并修复的真实缺陷（均已提交）：**
 
