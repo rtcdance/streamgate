@@ -21,7 +21,9 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**。**
 - **禁止**把 host 上的 `make test` / `go test` / `go build` 当作验收证据；它们只是快速预检。
 - Mac 本机的 Go/Foundry 结果同样只是预检；但 **Docker Desktop 内的 stage 日志是有效的功能验收证据**（L2/L3）。
 - **性能数字和最终候选的 `all`** 仍以 Linux/CI 为准：macOS 的 Docker VM 与宿主共享 CPU，不能外推为容量或回归基线；本机只跑单 stage / 受影响门（§9）。
-- `make verify-docker VERIFY_STAGE=all` 要求 **clean candidate**（无未提交/未跟踪改动），并且 `VERIFY_MODE=candidate`；8GB VM 上不要跑 `all`。
+- `make verify-docker VERIFY_STAGE=all`（以及 `perf`、`release`）在本机会被 **EFF-00 环境门直接拒绝**：需要原生 linux/amd64、≥8 CPU、≥32 GiB、Docker 文件系统 ≥100 GiB、同 daemon 无其他验收。拒绝发生在工具镜像构建之前，不是失败重试的对象；本机请改用定向 stage。
+- 正式运行（`all`/`perf`/`release`）会先把已批准的 HEAD **冻结克隆**到运行工件再挂载，编辑目录的改动不会进入验收；同一 daemon 由固定名网络锁串行化，第二个验收在构建前被拒绝（`VERIFY_MUTEX_TAKEOVER=1` 只在属主无运行容器时接管）。
+- 共享 Go 编译缓存默认关闭（`VERIFY_SHARED_GOCACHE=1` 才启用）：GOCACHE 也存测试结果，未完成冷/热与 `-count=1` 复跑验证前不得默认开启。
 - `make verify-docker` 的 Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是它的前置。host-run 的 `fullchain-test` 另需 `cast`/`ffmpeg`/`python3`/`curl`（§0.1）。
 - 所有 stage 日志落在 `.verify-artifacts/logs/<stage>.log`。
 

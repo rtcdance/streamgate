@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-23 · **HEAD:** `0500850c` on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-23 (EFF pass) · **HEAD:** `4abcb3c5` on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -16,10 +16,17 @@ migrations.
 
 ## Environment (2026-10-23)
 
-Acceptance runs on the **local Mac + Docker Desktop** (6 vCPU / 8 GiB VM). The
-`prod-srs` Docker resources were purged (0 images/containers/volumes/cache) and
-`remote-dev-machine` is a historical skill. Local functional stages are valid
-evidence; `all`, perf and release remain Linux/CI only.
+Acceptance runs on the **local Mac + Docker Desktop** (8 vCPU / 16 GiB VM).
+The `prod-srs` Docker resources were purged (0 images/containers/volumes/cache)
+and `remote-dev-machine` is a historical skill. Local functional stages are
+valid evidence.
+
+Since the EFF pass, `all` / `perf` / `release` are **refused before the tool
+image is built** unless the daemon is native linux/amd64 with >=8 CPU, >=32 GiB
+and >=100 GiB free (`scripts/cd/verify_environment.py`). This machine is
+aarch64 / 15.6 GiB, so the terminal run is explicitly BLOCKED here — by design,
+not as a flake to retry. Formal runs also use a frozen clone of the approved
+HEAD and a daemon-wide lock; the shared Go cache is opt-in and off by default.
 
 ## Evidenced (checkbox may lag)
 
@@ -27,6 +34,7 @@ evidence; `all`, perf and release remain Linux/CI only.
 |---|---|
 | SG-00 unified Docker acceptance entry | plan heading (2026-10-17 final run) |
 | Local `unit` stage | `.verify-artifacts/sg-local-unit3` (2026-10-23, `6b613ec0`) |
+| Frozen-clone `unit` stage | `.verify-artifacts/sg-unit-frozen5` PASS 20m47s, GOCACHE=off (2026-10-23, `4abcb3c5`) |
 | Local `media` stage | `.verify-artifacts/sg-local-media4` 77/77 ×2 (2026-10-23, `6823b56d`) |
 | SG-04 same-chain, same-block holding and reorg | plan §8.9, checked |
 | SG-05 real wallet → real HLS loop | plan §8.10, checked |

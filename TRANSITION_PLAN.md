@@ -2400,6 +2400,30 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 实施时在此表追加真实证据，每条格式：`SG / M ID | SHA | 命令与 Docker 环境 | PASS / FAIL / SKIP | CI run / artifact | digest（适用时）| 限制`。任务勾选必须与证据一致；CI 失败不能写成“本地大概率通过”。
 
+### 8.19 EFF 实施状态（2026-10-23）
+
+**当前执行表。** “实现状态”只说明代码是否落地；“候选验证状态”说明证据是否绑定当前候选。两者分开记录，避免把已实现功能写成未开发，也避免把单阶段绿灯写成整体通过。
+
+| EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
+|---|---|---|---|
+| EFF-00 环境先行 | 已实现 | `de1ad698`：`scripts/cd/verify_environment.py` 在工具镜像构建前拒绝非原生 amd64、<8 CPU、<32 GiB、Docker 文件系统 <100 GiB、同 daemon 另一验收；`scripts/cd/test_verify_environment.py` 6 个正负例；控制器在任何 `docker build` 之前调用 | 本机 8 vCPU / 15.6 GiB / aarch64 被拒绝，正式 `all`、`perf`、`release` 明确 BLOCKED；定向 stage 不受影响。预检与既有 CI 资源检查的整合未做（计划允许后置） |
+| EFF-01 脚手架缺陷 | helper 已修；trace 已加；浏览器根因待定位 | `7530e45c` 移除 70 PASS 硬编码，回归覆盖 77/71 项、唯一浏览器失败、其他项失败、多项失败、缺摘要；`de1ad698` 失败 spec 写 `trace.zip` | 浏览器 502 的真实来源仍未定位：候选 media 连续 3 次 77/77，reference seed 两次在 `/health` 收到一次 502 后自愈。按计划保留现场，不把 helper 修复当作根因关闭 |
+| EFF-02 基线资格 | 未开始 | 现有钉定仍为 `871eab307a2ddd332301d8187566241dc7a2e151`（缺后续授权修复） | 资格流程第 3 步要求在合格 runner 上跑 `VERIFY_STAGE=release`，当前环境 BLOCKED；不先钉未资格 S |
+| EFF-03 编译复用 | 已实现，默认关闭 | `de1ad698`+`55a0e189`：缓存按平台命名、controller 侧解析宿主路径、stage 容器挂载；`unit` 与 CI 的 `go test` 补 `-count=1`；Makefile 不再覆盖调用方 `GOFLAGS`（实测日志 `GOFLAGS=-p=4 -v`） | 冷/热对比未测，按计划保持 `VERIFY_SHARED_GOCACHE=0`；开启条件见上方“共享缓存采用条件” |
+| EFF-04 A 冻结与独占 | 已实现并验证 | `55a0e189`/`d9962d10`/`df884f7c`：正式运行把已批准的 HEAD 克隆到运行工件、子模块从本地 checkout 离线填充、容器只挂载该克隆；`sg-unit-frozen5` 在 `4abcb3c5` 上 PASS（20m47s，冷构建，GOCACHE=off），结束后克隆与锁均已清理 | 正式 `all` 上的冻结路径尚未在合格 runner 验证；定向 stage 仍用编辑目录（设计如此） |
+| EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
+| EFF-05 正式收口 | BLOCKED | — | 缺合格 runner（EFF-00 门槛）；未冻结 C，未运行最终 `all`，未取得同 SHA CI |
+| EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
+
+**本机可执行面：** 定向 stage 仍可在本机跑（`unit` 已验证 20m47s PASS）。正式 `all`/`perf`/`release` 在本机被环境门直接拒绝，拒绝输出：
+
+```
+[env:FAIL] this environment cannot carry VERIFY_STAGE=all:
+  - daemon architecture is 'aarch64'; native linux/amd64 is required (no emulation)
+  - 15.6 GiB RAM; at least 32 GiB are required
+  terminal acceptance stays BLOCKED here; run targeted stages (unit, media, ops, ...) on this machine instead
+```
+
 ## 9. 可直接交给后续 AI 的执行指令
 
 > 执行本文件当前计划，先读 CLAUDE.md，保留所有用户未提交修改和现有服务。只实施主线 SG-00～SG-15，严格按第四节顺序，逐项先写失败用例再修复，不自动开展 SG-16 / 17。每项完成执行指定 Docker 验证并记录真实证据；缺工具、缺媒体、关键 skip、空覆盖率、错误状态码或未执行的部署不算成功。最终从干净 checkout 执行 make verify-docker，在精确提交 SHA 上完成 CI 与同 digest 临时 CD / 回滚验收；push 必须已有用户授权。仅当 M0～M5、M7、M8 和 M6 的 AI 产物部分都满足，才能报告工程与物料完成。本人讲述、真机、生产部署和求职结果按实际状态单列，不能代填。任何安全语义变更、无法达成的判据或真实阻塞，应记录并明确剩余工作，不能缩减验收来宣称完成。
