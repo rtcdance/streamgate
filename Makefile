@@ -13,7 +13,10 @@ BINARY_WORKER := worker
 BINARY_MONITOR := monitor
 
 GO := go
-GOFLAGS := -v
+# Append, never assign: `GOFLAGS=-p=2 make ...` must reach the compiler.
+# The old `:=` overwrote the caller's value, so an operator capping build
+# parallelism for a small Docker VM silently got the default back.
+GOFLAGS += -v
 VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0-dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(shell date -u '+%Y-%m-%d_%H:%M:%S')"
 

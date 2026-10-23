@@ -17,6 +17,11 @@ fi
 export VERIFY_PROJECT="${VERIFY_PROJECT:-streamgate-verify-$$-${RANDOM}}"
 export VERIFY_PLATFORM="${VERIFY_PLATFORM:-linux/amd64}"
 export VERIFY_ARTIFACTS="${VERIFY_ARTIFACTS:-${ROOT_DIR}/.verify-artifacts/${VERIFY_PROJECT}}"
+# EFF-03: resolve the shared Go build cache on the HOST and forward it. Stage
+# containers bind this path through the daemon, so it must be a host path; the
+# driver cannot invent one from inside the controller.
+export VERIFY_GO_CACHE="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
+mkdir -p "$VERIFY_GO_CACHE" || { echo "cannot create Go build cache: $VERIFY_GO_CACHE" >&2; exit 1; }
 export VERIFY_IMAGE="${VERIFY_IMAGE:-${VERIFY_PROJECT}-tools:local}"
 export VERIFY_CONTROLLER="${VERIFY_PROJECT}-controller"
 if [ -n "$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}")" ] \
@@ -31,6 +36,52 @@ if [ -n "$(docker ps -aq --filter "name=^/${VERIFY_CONTROLLER}$")" ]; then
   echo "controller container name already in use: ${VERIFY_CONTROLLER}; choose a fresh VERIFY_PROJECT" >&2
   exit 1
 fi
+# EFF-04: one acceptance at a time on this daemon. The lock is a Docker
+# network with a fixed name: creating it is atomic (a second create fails),
+# it needs no image, and it lives on the daemon rather than on one host, so a
+# second checkout cannot slip past a host-local lock file. The cleanup trap
+# releases it; a SIGKILLed shell leaves it behind on purpose, and the failure
+# message names the owner and the exact removal command instead of silently
+# taking the lock over.
+MUTEX_NAME="streamgate-verify-mutex"
+MUTEX_OWNER=0
+acquire_mutex() {
+  if docker network create \
+      --label "com.streamgate.verify.mutex.owner=${VERIFY_PROJECT}" \
+      --label "com.streamgate.verify.mutex.at=$(date +%s)" \
+      "$MUTEX_NAME" >/dev/null 2>&1; then
+    MUTEX_OWNER=1
+    return 0
+  fi
+  local owner
+  owner="$(docker network inspect "$MUTEX_NAME" \
+    --format '{{index .Labels "com.streamgate.verify.mutex.owner"}}' 2>/dev/null || true)"
+  if [ "${VERIFY_MUTEX_TAKEOVER:-0}" = 1 ] \
+     && [ -z "$(docker ps -q --filter "label=com.streamgate.verify.run=${owner}" 2>/dev/null)" ]; then
+    echo "taking over the acceptance lock from inactive run '${owner:-unknown}'" >&2
+    docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || true
+    if docker network create \
+        --label "com.streamgate.verify.mutex.owner=${VERIFY_PROJECT}" \
+        --label "com.streamgate.verify.mutex.at=$(date +%s)" \
+        "$MUTEX_NAME" >/dev/null 2>&1; then
+      MUTEX_OWNER=1
+      return 0
+    fi
+  fi
+  echo "another acceptance holds the daemon lock (owner: ${owner:-unknown})." >&2
+  echo "If that run is gone, clear it with: docker network rm ${MUTEX_NAME}" >&2
+  echo "or re-run with VERIFY_MUTEX_TAKEOVER=1 once it has no running containers." >&2
+  return 1
+}
+acquire_mutex || exit 1
+
+# EFF-00: refuse an environment that cannot carry the formal run BEFORE the
+# tool image is built. A 16 GiB Docker VM OOM-killed the DAG twice and an
+# arm64 daemon measures through emulation, so the final all / full perf /
+# release path requires a dedicated native amd64 runner. Targeted stages are
+# the repair loop and stay available on smaller machines.
+command -v python3 >/dev/null 2>&1 || { echo 'python3 is required for the environment gate' >&2; exit 1; }
+python3 scripts/cd/verify_environment.py --stage "$VERIFY_STAGE" --project "$VERIFY_PROJECT" || exit 1
 mkdir -p "$VERIFY_ARTIFACTS"
 VERIFY_ARTIFACTS="$(cd "$VERIFY_ARTIFACTS" && pwd)"
 if [ -f .gitmodules ]; then git submodule update --init --recursive; fi
@@ -76,6 +127,12 @@ cleanup() {
   if [ -n "$ids" ]; then docker volume rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
   ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
   if [ -n "$ids" ]; then docker network rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
+  # Release the daemon lock only if this run created it; a takeover or a failed
+  # acquire must not remove someone else's lock. The exit code is preserved
+  # above, so a cleanup failure can never turn a cancelled run into a pass.
+  if [ "${MUTEX_OWNER:-0}" = 1 ]; then
+    docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || cleanup_rc=1
+  fi
   # A force-removed controller cannot execute its child traps. The private
   # root is run-scoped and also holds the ledger written BEFORE creating a
   # build output, so cancellation cannot leave wallet/session backups behind.

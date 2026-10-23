@@ -49,6 +49,17 @@ if [ -n "${VERIFY_CANDIDATE_MANIFEST:-}" ]; then CANDIDATE_BUILT=1; fi
 # that RUNS the browser must look in the same place the browser was installed to.
 export PLAYWRIGHT_BROWSERS_PATH="${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
 
+# EFF-03: one persistent Go build cache for every stage container. Each stage
+# used to start from an empty cache and recompile the whole module with -race,
+# which dominated unit/ops/durability wall time. Go's cache is content-addressed
+# by toolchain, GOOS/GOARCH, build tags, flags and CGO, so sharing it across
+# stages and runs cannot return a stale object; it only skips work that would
+# produce the same bytes. Namespaced by platform so an amd64 and an arm64 run
+# never share files. The path lives outside the checkout (the candidate tree
+# must stay clean) and is overridable for CI cache volumes.
+GO_CACHE_DIR="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
+mkdir -p "$GO_CACHE_DIR" || fail "could not create the Go build cache at $GO_CACHE_DIR"
+
 ALL_STAGES=(unit chain durability ops faults media recovery perf release)
 
 log()  { printf '\033[1;34m[verify]\033[0m %s\n' "$*"; }
@@ -197,7 +208,7 @@ run_in_image() {
   if [ -n "${VERIFY_PLATFORM:-}" ]; then
     platform_args=(--platform "${VERIFY_PLATFORM}")
   fi
-  log "stage=${stage} → log ${log_file}"
+  log "stage=${stage} → log ${log_file} (GOMAXPROCS=${GOMAXPROCS:-default} GOFLAGS=${GOFLAGS:-default} GOCACHE=${GO_CACHE_DIR})"
   set +e
   docker run --rm --pull never \
         --name "${PROJECT_NAME}-${stage}" \
@@ -206,6 +217,7 @@ run_in_image() {
         ${platform_args[@]+"${platform_args[@]}"} \
         ${net_args[@]+"${net_args[@]}"} \
         -v "${ARTIFACT_DIR}:/artifacts" \
+        -v "${GO_CACHE_DIR}:/gocache" -e GOCACHE=/gocache \
         -v "${ROOT_DIR}/scripts:/src/scripts:ro" \
         -v "${ROOT_DIR}/test:/src/test:ro" \
         -v "${ROOT_DIR}/.github:/src/.github:ro" \
@@ -264,6 +276,7 @@ stage_unit() {
     python3 scripts/cd/test_import_ci_candidate.py
     python3 scripts/cd/test_summarize_ci_evidence.py
     python3 scripts/cd/test_verify_shell.py
+    python3 scripts/cd/test_verify_environment.py
     python3 scripts/cd/test_verify_controller_cancel.py
     python3 scripts/cd/test_assert_candidate_evidence.py
     python3 scripts/cd/test_generate_candidate_gates.py

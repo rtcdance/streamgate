@@ -83,6 +83,10 @@ try {
         const page = await ctx.newPage();
         const reportDir = join(reportRoot, s.name);
         const probes = attachProbes(page, reportDir);
+        // EFF-01: a failing browser step must leave a replayable trace, not
+        // just the last console line. Tracing is stopped without a path when
+        // the spec passes, so a green run pays the recording cost only.
+        await ctx.tracing.start({ screenshots: true, snapshots: true, sources: true });
         const start = Date.now();
         let result;
         try {
@@ -97,6 +101,13 @@ try {
         const hardErrors = result.errors.filter((e) => !e?.transient);
         result.passed = result.passed && hardErrors.length === 0;
         await probes.flush();
+        // The report directory exists after flush(); the trace goes next to
+        // console.json / network.json so one directory explains a failure.
+        if (result.passed) {
+            await ctx.tracing.stop().catch(() => {});
+        } else {
+            await ctx.tracing.stop({ path: join(reportDir, 'trace.zip') }).catch(() => {});
+        }
         await writeFile(join(reportDir, 'result.json'), JSON.stringify(result, null, 2));
         reportSpec(result);
         results.push(result);
