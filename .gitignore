@@ -105,3 +105,6 @@ scripts/h5-demo-acceptance/node_modules/
 # generated measurements, kept in CI artifacts per TRANSITION_PLAN.md §7 — never
 # in the checkout, so the "clean tree" precondition of M0 stays meaningful.
 .verify-artifacts/
+
+# Local/remote build logs and fetched evidence (generated, never committed).
+build/
