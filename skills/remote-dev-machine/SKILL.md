@@ -3,7 +3,11 @@ name: "remote-dev-machine"
 description: "Develop StreamGate on the remote Linux dev machine (prod-srs) while the Mac is only an editor and SSH control plane. Use when the user wants builds, tests or Docker acceptance to run on the dev machine instead of the Mac, or needs code sync, remote execution, port tunnels and .verify-artifacts retrieval. Never use the Mac as the build/test/acceptance environment."
 ---
 
-# Skill: remote-dev-machine
+# Skill: remote-dev-machine（已停用，2026-10-23）
+
+> **不再使用：** 验收环境已改为本机 Docker Desktop（见 `dev-machine-acceptance`）。
+> `prod-srs` 上的 Docker 资源（容器、镜像、卷、网络、构建缓存）已全部清空。
+> 本文件仅保留为历史记录，避免旧流程被再次执行；不要在其中新增操作步骤。
 
 ## Trigger
 

@@ -1,6 +1,6 @@
 ---
 name: "dev-machine-acceptance"
-description: "Set up and verify StreamGate's local Docker dev/test stack (docker-compose.fullchain.yml) and Docker-first acceptance (make verify-docker stages, fullchain-test), check CPU/RAM/disk/toolchain/ports, stop SRS ABR when sharing the 118 dev box, and produce raw evidence. Use when onboarding a machine, before acceptance, or when asked 开发机够不够用/机器配置/验收环境/搭建 Docker 环境."
+description: "Set up and verify StreamGate's Docker dev/test stack (docker-compose.fullchain.yml) and Docker-first acceptance (make verify-docker stages, fullchain-test) on the local macOS Docker Desktop machine, check CPU/RAM/disk/toolchain/ports, and produce raw evidence. Use when onboarding a machine, before acceptance, or when asked 开发机够不够用/机器配置/验收环境/搭建 Docker 环境."
 ---
 
 # Skill: dev-machine-acceptance
@@ -9,19 +9,19 @@ description: "Set up and verify StreamGate's local Docker dev/test stack (docker
 
 Use this skill when:
 
-- 新开发机、换机、远程开发机，准备开发或验收 StreamGate。
+- 在**本机**（macOS + Docker Desktop）搭 Docker 开发/自测/部署验收环境：见 §0.1。这是默认环境。
 - 有人问“这台机器够不够跑本服务”“机器配置够不够”。
 - 准备执行 `make verify-docker`、`make test-anvil`、`make contracts-test`、`make h5-demo-acceptance`、`make fullchain-deploy`。
-- 开发机与 SRS ABR 共用（尤其是 `prod-srs`，SSH alias；IP 见本机 `~/.ssh/config`）。
-- 在本机（macOS/Windows + Docker Desktop）搭 Docker 开发/测试环境：见 §0.1。
+- 远程 `prod-srs` 的 Docker 环境已于 2026-10-23 清空，不再用于验收；历史流程仅保留在 `remote-dev-machine` 供查证。
 
 ## 0. 硬规则：Docker 是验收环境
 
-StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**：
+StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**。**本机 Docker Desktop 是默认的开发和功能验收环境**：
 
 - **禁止**把 host 上的 `make test` / `go test` / `go build` 当作验收证据；它们只是快速预检。
-- **禁止**用 Mac 本机的 Go/Foundry 结果作为验收；Mac 可以作为 Docker 客户端驱动本机栈做功能验证，但性能与最终验收仍以 Linux/CI 为准（本机流程见 §0.1）。
-- `make verify-docker VERIFY_STAGE=all` 要求 **clean candidate**（无未提交/未跟踪改动），并且 `VERIFY_MODE=candidate`。
+- Mac 本机的 Go/Foundry 结果同样只是预检；但 **Docker Desktop 内的 stage 日志是有效的功能验收证据**（L2/L3）。
+- **性能数字和最终候选的 `all`** 仍以 Linux/CI 为准：macOS 的 Docker VM 与宿主共享 CPU，不能外推为容量或回归基线；本机只跑单 stage / 受影响门（§9）。
+- `make verify-docker VERIFY_STAGE=all` 要求 **clean candidate**（无未提交/未跟踪改动），并且 `VERIFY_MODE=candidate`；8GB VM 上不要跑 `all`。
 - `make verify-docker` 的 Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是它的前置。host-run 的 `fullchain-test` 另需 `cast`/`ffmpeg`/`python3`/`curl`（§0.1）。
 - 所有 stage 日志落在 `.verify-artifacts/logs/<stage>.log`。
 
@@ -87,27 +87,25 @@ GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
 
 磁盘：
 
-- 至少 **100GB 空闲 SSD**；Docker data-root、Go cache、`.verify-artifacts` 都放大盘（`/home`）。
+- 至少 **100GB 空闲 SSD**；本机实测 485GB 可用，Docker VM 磁盘镜像按需增长。
 - Playwright 浏览器约 290MB；MinIO/NATS/PG 数据卷、镜像和 9 个服务构建产物另计。
-- 不要用只剩 20–30G 的根盘跑 `all`。
+- 每轮开始前删除上一轮 `sg-*` 镜像（`docker rmi` + `docker image prune -f`），但**不要** prune builder cache（预热层是资产）。
 
 系统：
 
-- Linux 优先；验收数字只认 Linux。
-- macOS 可开发，但 Docker VM 至少 8GB；性能数字不能与参考机对比。8GB VM 上镜像构建必须串行（§0.1）。
-- 共享 118 上有 SRS/ffmpeg 负载时，先停 ABR，且 **不要** 在负载期跑 perf/release。
+- 本机 macOS + Docker Desktop 是默认开发/功能验收环境；**性能数字只认 Linux/CI**，不能拿本机 VM 数字做回归比较。
+- 8GB VM 上镜像构建必须串行（§0.1）；不要在本机跑 `VERIFY_STAGE=all`、`perf`、`release` 的完整矩阵。
+- 远程 `prod-srs` 的 Docker 已于 2026-10-23 清空，不再作为验收环境。
 
-### 实测样例：`prod-srs`（2026-10-20）
+### 本机实测（2026-10-23，Docker Desktop）
 
 ```text
-12 vCPU / 31GiB / AlmaLinux
-/     70G，剩 23G
-/home 379G，剩 371G
-无 Go、无 Docker/Podman
-停 ABR 前 load 4.97（ffmpeg 267% CPU）；停后 load 1.25
+宿主：10 vCPU / 16GiB / macOS，磁盘可用 485GB
+Docker VM：6 vCPU / 8GiB / overlayfs
 ```
 
-结论：CPU/内存够；补 Go/Docker 并把 data-root 放 `/home` 后适合开发与单 stage；`all`/perf 建议独立机器。
+结论：适合 `unit`、`chain`、`durability`、`ops`、`faults`、`media`、`recovery` 单 stage 与
+`fullchain-deploy` + `fullchain-test`；构建按服务串行。`all`/perf 仍走 Linux/CI。
 
 ## 2. 预检（只读）
 
@@ -135,7 +133,10 @@ ss -tlnp | grep -E ':(8080|18000|5432|6379|9000|4222|8545|1926|1927|1937|8088|80
 | 18000 | h5-demo | 冲突时改 compose 端口 |
 | 5432 / 6379 / 9000 / 4222 / 8545 | PG / Redis / MinIO / NATS / Anvil | 确认 Docker 未占用或被别的栈占用 |
 
-## 3. 与 SRS ABR 共用 118 开发机
+## 3. 与 SRS ABR 共用 118 开发机（历史，2026-10-23 起不再使用）
+
+> **已停用：** `prod-srs` 上的 Docker 环境已清空，验收改在本机 Docker Desktop。
+> 本节仅保留为历史操作记录，不要在当前流程中执行。
 
 ### 3.1 识别
 

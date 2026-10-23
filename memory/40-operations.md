@@ -60,8 +60,13 @@ Rungs 0–1 are pre-checks. Evidence is a CI run id or a commit hash, never a ho
   `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`.
   Never delete `.workbuddy/`.
 
-## Remote execution
+## Acceptance environment (2026-10-23)
 
-When the Mac is only an editor, use the `remote-dev-machine` skill: sync, run the
-gates remotely, tunnel ports, fetch `.verify-artifacts`. Local Docker is the
-fallback, not the default, on constrained machines.
+The **local Mac + Docker Desktop** is the default dev/self-test/acceptance
+environment. The remote `prod-srs` Docker resources were purged on 2026-10-23 and
+`skills/remote-dev-machine` is a historical record only.
+
+- Local VM: 6 vCPU / 8 GiB. Run one stage at a time and build services serially.
+- Functional evidence (stage logs, `fullchain-test`) from local Docker is valid.
+- Performance numbers and the full `all` DAG stay on Linux/CI; a macOS VM number
+  is not a capacity or regression baseline.

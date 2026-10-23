@@ -9,13 +9,14 @@
 ## Available Skills
 
 0. `dev-machine-acceptance`
-   - Set up and verify the local Docker dev/test stack (`docker-compose.fullchain.yml`, 17 containers).
+   - **Default environment:** the local Mac + Docker Desktop.
+   - Set up and verify the Docker dev/test stack (`docker-compose.fullchain.yml`, 17 containers).
    - Run StreamGate's Docker-first acceptance (`make verify-docker` stages, `fullchain-test`).
-   - Check CPU/RAM/disk/toolchain/ports; stop SRS ABR when sharing the 118 dev box.
+   - Check CPU/RAM/disk/toolchain/ports; performance and `all` stay on Linux/CI.
 
-1. `remote-dev-machine`
-   - Build, test and accept on the remote dev machine; the Mac is only an editor and SSH control plane.
-   - Sync code, run remote gates, tunnel ports, fetch `.verify-artifacts` evidence.
+1. `remote-dev-machine` — **deprecated 2026-10-23**
+   - The `prod-srs` Docker environment was purged; this is a historical record only.
+   - Do not run builds, tests or acceptance on the remote host.
 
 2. `ethereum`
    - Solidity, OpenZeppelin and Hardhat guidance for the contracts/ tree.
