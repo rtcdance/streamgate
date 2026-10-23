@@ -16,6 +16,11 @@ class ControllerCancellationTests(unittest.TestCase):
             (root / "scripts").mkdir()
             source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
             (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes())
+            # The controller runs the environment gate before it builds anything,
+            # so the fake checkout must carry the gate itself.
+            (root / "scripts/cd").mkdir()
+            environment = Path(__file__).resolve().parent / "verify_environment.py"
+            (root / "scripts/cd/verify_environment.py").write_bytes(environment.read_bytes())
             (root / "scripts/verify-docker.sh").write_text("exit 0\n")
             binary = root / "bin"
             binary.mkdir()
@@ -52,6 +57,11 @@ elif args[0] == "inspect":
             (root / "scripts").mkdir()
             source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
             (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes())
+            # The controller runs the environment gate before it builds anything,
+            # so the fake checkout must carry the gate itself.
+            (root / "scripts/cd").mkdir()
+            environment = Path(__file__).resolve().parent / "verify_environment.py"
+            (root / "scripts/cd/verify_environment.py").write_bytes(environment.read_bytes())
             (root / "scripts/verify-docker.sh").write_text("exit 0\n")
             binary = root / "bin"
             binary.mkdir()
