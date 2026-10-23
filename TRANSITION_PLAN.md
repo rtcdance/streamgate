@@ -2227,6 +2227,38 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 **需要的后续闭环：** 先在授权的专用验收 runner 冻结干净候选并补齐 M0～M8 的真实场景证据；候选任何代码、配置、门禁或交付材料变化都重新绑定身份并重跑受影响门，最终 HEAD 冻结后从空卷跑完整 `all` 并取得同一 SHA 的远端 CI 和发布门证据。当前 `prod-srs` 共用 Docker 主机不允许执行 `all` / perf / release；若无专用 runner 或 CI 授权，状态保持未完成。不得 push、触发 CI、发布或生产部署，除非用户另行明确授权。
 
+### 8.18 验收环境迁移到本机（2026-10-23）
+
+**决定：** 开发自测、部署验收从 `prod-srs` 迁到本机 macOS + Docker Desktop；远端 Docker 环境已清空。远端是共享 SRS 主机，每轮受磁盘与负载约束；本机提供隔离的 Docker VM，功能 stage 可直接复现，不再占用共享机。
+
+| 项 | 值 |
+|---|---|
+| 宿主 | macOS，10 vCPU / 16 GiB，磁盘可用 485 GB |
+| Docker VM | 6 vCPU / 8 GiB，overlayfs，Docker 29.9.1 / Compose v5.6.0 |
+| 工具 | cast 1.8.5、ffmpeg/ffprobe、python3 3.14.6、node 22.22.3、curl、jq |
+| 远端清理 | `docker system prune -a -f --volumes` + `docker builder prune -a -f`；images/containers/volumes/cache 均为 0，回收 24.22 GB；daemon 保留未卸载 |
+| 技能 | `dev-machine-acceptance` 改为本机默认；`remote-dev-machine` 标记停用（仅历史） |
+
+**本机验收证据（stage 日志均由 Docker 内产生）：**
+
+| stage | SHA | 结果 | 证据 |
+|---|---|---|---|
+| unit | `6b613ec0` | PASS | `.verify-artifacts/sg-local-unit3/logs/unit.log`；harness 自测、forge、gofmt/vet、tag-gated vet、lint、race+coverage 全通过 |
+| media | `6823b56d` | PASS（monolith 与 api-gateway 各 77/77） | `.verify-artifacts/sg-local-media4/`；`candidate.json` revision=`6823b56d`，monolith imageID=`sha256:f3b35ae68b72…`，archiveSHA256=`e66bee9ce088…`；真钱包→上传→独立 worker→HLS/Range→FFmpeg 解码→浏览器真播；M3 5s/70s 界限、gRPC 数量阈值与双凭据拒绝均在原始日志中 |
+
+**迁移中发现并修复的真实缺陷（均已提交）：**
+
+- `c9afd285`：`grpc_parity` 在 M3 段落先于函数定义被调用，media stage 以 127 失败；把定义前移到探测二进制构建处。
+- `6190ca9d`：浏览器导航偶发卡死（nginx 已返回全部资源但 DOMContentLoaded 不触发），增加一次有界重试；播放断言不变。
+- `6b613ec0`：harness 自测用 `next(glob("h5-*"))` 取目录，readdir 顺序不同会取到文件（macOS 上 0644），改为只选目录。
+- `6823b56d`：容器内 `git status` 看不到宿主全局忽略的 `build/`，候选 clean-tree 断言误报；把 `build/` 纳入仓库 `.gitignore`。
+
+**边界（如实记录）：**
+
+- 8 GiB Docker VM 不跑 `VERIFY_STAGE=all`、完整 perf 矩阵或 release 全矩阵；这些仍以 Linux/CI 为准，§0.5 的 M4/M5 最终门不因本机运行而通过。
+- 本机性能数字不作为容量或回归基线；perf 的 reference 比较必须在 Linux runner 上完成。
+- 远端 CI 仍未运行（无 push 授权），M5 保持待远端验收；SG-15 不因本机功能 stage 通过而宣告完成。
+
 ### 架构决策与需求闭环登记（由执行 AI 填真实结果）
 
 
