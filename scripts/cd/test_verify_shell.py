@@ -385,7 +385,11 @@ class VerifyShellTests(unittest.TestCase):
             ])
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            static = next(Path(directory).glob("h5-*"))
+            # The artifact directory also holds h5-* files (nginx conf, DNS
+            # snapshots); pick the extracted frontend directory explicitly.
+            # readdir order differs across filesystems, so a bare next() is not
+            # deterministic (observed on macOS: it selected a file, 0644).
+            static = next(p for p in Path(directory).glob("h5-*") if p.is_dir())
             self.assertEqual(static.stat().st_mode & 0o777, 0o755)
 
     def test_target_log_match_survives_a_log_larger_than_the_pipe_buffer(self):
