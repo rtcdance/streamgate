@@ -35,7 +35,27 @@ export default async function spec06Playback({ page, snap }) {
     }
     checks.push(check('playback-descriptor', true, `content=${desc.contentId}`));
 
-    await page.goto(`${H5_BASE}/`, { waitUntil: 'domcontentloaded' });
+    // A local static page can occasionally stall its own navigation: nginx has
+    // served every asset (visible in its access log) yet the document never
+    // reaches DOMContentLoaded, and the next navigation succeeds. Retry the
+    // navigation once so that environment stall does not read as a playback
+    // failure; the playback assertions below are unchanged and still have to
+    // pass on the loaded page.
+    let navigationError;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            await page.goto(`${H5_BASE}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            navigationError = undefined;
+            break;
+        } catch (e) {
+            navigationError = e;
+            if (attempt === 1) {
+                console.log(`  ! navigation attempt 1 failed (${String(e.message).split('\n')[0]}); retrying once`);
+                await page.waitForTimeout(1000);
+            }
+        }
+    }
+    if (navigationError) throw navigationError;
     const secureContext = await page.evaluate(() => window.isSecureContext);
     checks.push(check('playback-secure-context', secureContext, 'H5 must use a trusted localhost or HTTPS origin'));
     if (!secureContext) return { passed: false, checks };
