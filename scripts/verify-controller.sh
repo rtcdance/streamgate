@@ -129,6 +129,10 @@ if [ "$frozen_requested" = 1 ]; then
       || { echo "could not populate the frozen source submodules" >&2; exit 1; }
   fi
   ROOT_DIR="$FROZEN_SOURCE"
+  # The driver resolves its source root from VERIFY_SOURCE_ROOT, which was
+  # exported above from the editing tree; without this the container would
+  # mount the clone and then operate on a path it cannot see.
+  export VERIFY_SOURCE_ROOT="$ROOT_DIR"
   cd "$ROOT_DIR"
   echo "[env] verifying the frozen clone at $ROOT_DIR (revision $frozen_revision)" >&2
 fi
