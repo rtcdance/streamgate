@@ -1107,11 +1107,16 @@ perf_rounds() {
 # from being sunk by a page-load timeout, without blanket-ignoring real
 # failures: any other failure, or more than the one browser check, still fails.
 acceptance_failed_only_in_browser() {
-  local log_file="$1" summary
+  local log_file="$1" summary failed
   summary="$(grep -aE '^RESULT: [0-9]+ PASSED, [0-9]+ FAILED' "$log_file" | tail -1)"
   [ -n "$summary" ] || return 1
-  [ "$(printf '%s' "$summary" | sed -E 's/^RESULT: ([0-9]+) PASSED.*/\1/')" = "70" ] || return 1
-  [ "$(printf '%s' "$summary" | sed -E 's/.* ([0-9]+) FAILED.*/\1/')" = "1" ] || return 1
+  failed="$(printf '%s' "$summary" | sed -E 's/.* ([0-9]+) FAILED.*/\1/')"
+  [ "$failed" = "1" ] || return 1
+  # Exactly one FAIL line, and it must be the browser check. The PASSED count
+  # is deliberately NOT pinned: the suite grows, and the old hardcoded 70
+  # silently disabled this tolerance as soon as the suite reached 77 checks,
+  # so a page-load blip in the perf seed sank the whole perf stage.
+  [ "$(grep -ac '^FAIL: ' "$log_file" || true)" = "1" ] || return 1
   grep -aq '^FAIL: Browser playback failed' "$log_file"
 }
 

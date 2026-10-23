@@ -486,6 +486,35 @@ class VerifyShellTests(unittest.TestCase):
         result = self.run_playback_failure_detail("")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def run_browser_only_tolerance(self, log):
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as handle:
+            handle.write(log)
+        try:
+            script = '\n'.join([
+                'set -euo pipefail',
+                function("acceptance_failed_only_in_browser"),
+                'acceptance_failed_only_in_browser ' + shlex.quote(handle.name),
+            ])
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True).returncode
+        finally:
+            Path(handle.name).unlink()
+
+    def test_browser_only_seed_failure_is_tolerated_whatever_the_suite_size(self):
+        # The perf seed tolerance used to pin PASSED == 70, so it silently
+        # stopped matching when the acceptance grew to 77 checks and a single
+        # browser blip then failed the whole perf stage.
+        browser = "RESULT: {passed} PASSED, 1 FAILED (total {total})\nFAIL: Browser playback failed: 06-playback\n"
+        cases = [
+            (browser.format(passed=76, total=77), 0),
+            (browser.format(passed=70, total=71), 0),
+            ("RESULT: 76 PASSED, 1 FAILED (total 77)\nFAIL: HLS manifest refused (403)\n", 1),
+            ("RESULT: 75 PASSED, 2 FAILED (total 77)\nFAIL: Browser playback failed: 06-playback\nFAIL: another check\n", 1),
+            ("no summary at all\n", 1),
+        ]
+        for log, expected in cases:
+            with self.subTest(expected=expected, log=log):
+                self.assertEqual(self.run_browser_only_tolerance(log), expected)
+
     def test_standalone_perf_creates_log_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
