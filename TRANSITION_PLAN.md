@@ -2,6 +2,107 @@
 
 <!-- streamgate-acceptance-status: incomplete -->
 
+## 执行提效优化方案（2026-10-23；待实施）
+
+**目标：** 保持 SG-00～SG-15、M0～M8 的既定验收要求，通过合格环境、定向反馈、共享编译缓存和候选冻结减少重复执行。本节调整执行方法，不改变 §0.4 的业务修复依赖，不代表优化已经实现，也不新增 push、CI 派发或生产发布授权。当前整体状态仍为未通过。
+
+**当前执行入口：** 后续 AI 先读本节，再按任务 ID 检索原任务书与 §8 证据；历史“最新状态”按产生时间和 SHA 解释，不能覆盖本节的 2026-10-23 诊断。先关闭 EFF-00～EFF-04，再启动下一轮正式 `all`。既有运行按原始结果归档，不删除失败记录。
+
+### 诊断依据与根因
+
+本次诊断核对了代码、提交、运行工件和 Docker 实时状态，没有读取 CodeBuddy / Trae 的完整会话，因此不对两个模型各自的推理耗时作精确归因。
+
+| 已核实事实 | 根因与影响 | 证据位置 |
+|---|---|---|
+| 当日存在 `sg-all-local1`～`sg-all-local6` 六轮完整 DAG；前四阶段累计约 287.6 分钟 | 单点修复后重跑整链，前置成本被重复支付；该数字含必要测试，不等于全部可省 | `.verify-artifacts/sg-all-local*/controller.log`、`logs/{unit,chain,durability,ops}.log`；时间按文件创建至最后写入估算，不是精确 profiler 数据 |
+| 第 4、6 轮 reference seed 均为 76 PASS、1 个浏览器 FAIL | reference 容忍 helper 仍硬编码 70 PASS＋1 FAIL，与当前 77 项套件不匹配；这是确定的脚本缺陷，浏览器失败本身仍待定位 | `.verify-artifacts/sg-all-local{4,6}/logs/compare-seed.log`；`scripts/verify-docker.sh` 的 `acceptance_failed_only_in_browser` |
+| 第 6 轮候选 `c5bbfd048cdc3872e300f072b2763d01dc1b7dfa` 前七阶段 PASS，media 双腿各 77/77、recovery 43/43；整轮最终 FAIL | 功能阶段通过与整体完成必须分列；终验失败不代表所有功能未实现 | `.verify-artifacts/sg-all-local6/{candidate.json,controller.log,logs/}`、同级 `.outer.log` |
+| 诊断时 Docker 为 ARM64、8 vCPU、约 15.6 GiB，并运行 10 个 Kubernetes 节点及 ChainPulse 栈；工具和候选镜像为 `linux/amd64` | 跨架构执行叠加共享负载；不满足既定独占 32 GiB 终验门槛。该快照已不同于 §8.18 的 6 vCPU / 8 GiB，后续必须实时预检 | `docker info`、`docker ps`、`docker stats --no-stream`、tool image inspect；`sg-all-local6/candidate.json` |
+| CLI 主要检查 clean tree 与同 project 残留；CPU / RAM / 磁盘门槛只接在 CI job | 不同启动入口的环境拒绝行为不一致，长跑后才暴露问题 | `scripts/verify-controller.sh`；`.github/workflows/ci.yml` acceptance job |
+| 每阶段新建工具容器，未挂载共享 `GOCACHE`；工具镜像预热了模块下载 | 重复编译放大重跑成本，收益需同环境前后测量 | `scripts/verify-docker.sh` 的 `run_in_image`；`deploy/docker/Dockerfile.verify` |
+| `Makefile` 定义 `GOFLAGS := -v`；第 6 轮 controller 实际 `GOMAXPROCS=4`、`GOFLAGS=-v` | 环境变量中的编译并发参数可能被 make 覆盖，配置意图不等于运行值 | `Makefile`；controller 选定环境字段 inspect |
+| 配置仍钉 `871eab307a2ddd332301d8187566241dc7a2e151`，本文件已记该基线缺后续授权修复 | reference 与回退底线资格尚未闭环，替换 SHA 字符串不能代替验证 | `config/performance.acceptance.json`；§8.17 与原顶部 2026-10-22 收口记录 |
+| 既往运行期间发生并发提交，且曾两次整体历史重写 | 实时挂载的脚本、候选身份和证据引用变化，产生 identity FAIL 与重验 | 原主线 `sg-all-1019-g` 与两次 `git filter-repo` 记录 |
+
+### 依赖有序的实施任务
+
+以下任务均为待实施。普通修复只跑针对性工具回归和受影响 Docker stage；它们不各自触发完整 `all`。只有满足出口标准才可标记完成。
+
+| 顺序 / ID | 实施内容 | 出口标准与失败停止条件 |
+|---|---|---|
+| EFF-00 / P0 环境先行 | 为正式 all、完整 perf / release 落实独占、原生 amd64 Linux runner，满足 ≥8 CPU、≥32 GiB、Docker 所在文件系统空闲 ≥100 GiB；CLI / CI 共用预检，在工具镜像构建前执行。除容量外核对同 daemon 无其他验收和竞争业务负载 | 无需构建即可拒绝不合格环境；正负例覆盖资源不足、架构不符、同 daemon 另一验收。无合格 runner 时只继续本机定向修复，终验明确 BLOCKED，不循环重试 |
+| EFF-01 / P0 脚手架缺陷 | reference helper 按完整检查清单及结果判定，移除成功数量硬编码；仅在原本允许的 perf seed 路径应用既定策略。保留浏览器失败日志、trace、代理与应用现场，定向定位真实失败 | 回归覆盖当前 77 项及扩展数量、唯一浏览器失败、另一项失败、多项失败、缺项/缺摘要/进程异常；缺项与异常不可容忍。候选 media / release 浏览器仍须 PASS；修 helper 不等于浏览器根因关闭 |
+| EFF-02 / P0 基线资格 | 从包含本轮授权、事件回滚及已知产品修复的提交选新 S；先验证身份、授权负例、真实媒体与回退兼容资格，再统一钉到版本化协议。reference / rollback 同源 | S 可解析、可重建、含所需修复；资格证据绑定其 SHA / 镜像。兼容腿不能只看 health。S 未合格时不启动最终性能比较与 release 全矩阵；最终资格仍受正式 all 约束 |
+| EFF-03 / P1 编译复用 | controller 与各 stage 共享 Go 编译缓存，按工具链、OS/ARCH、CGO 等隔离，利用 Go 自身源码/参数校验，不因每个新 SHA 清空。保留模块、npm / Playwright 缓存；业务 fixture 仍隔离。修正 GOFLAGS 的 make 覆盖并记录实际值 | 同环境记录冷/热耗时、缓存身份、工具版本及实际 GOMAXPROCS / GOFLAGS；源码变化触发受影响编译，行为测试实际执行；清空缓存仍能正确运行。缓存不能保存业务 PASS |
+| EFF-04 / P1 候选隔离 | 一个写入者负责集成；验收使用独立冻结 clone/checkout，与编辑目录分开；脚本读取固定快照，构建输出迁出冻结源码目录。增加 daemon 级验收互斥，运行期间禁止提交、切换及历史重写 | 修改编辑目录不改变验收源码；第二个验收在构建前拒绝；取消释放锁并保留退出码；候选、工具、应用身份全程一致。现阶段不启动多个 AI 并发写同一 checkout |
+| EFF-05 / P1 正式收口 | EFF-00～04 及已知功能失败的定向验证通过后冻结 C；合格 runner 上执行完整 all；最终 CI 使用同 SHA 与已扫描原始构建归档，取得本轮新鲜 reference、schema 兼容、三类失败与恢复、M0～M8 索引 | 必需门 PASS、无关键 skip，原始退出与 SHA/image/archive/digest/run 对应；历史或单阶段绿灯、合成 fixture 不替代。失败后回到定位循环，不自动从头再赌一次 |
+| EFF-06 / P1 状态收口 | 本文件保留唯一当前执行表，分列“实现状态”和“当前候选验证状态”；历史按 SHA 保留、按需检索。交付材料在冻结前准备好；最终 run / digest 存 CI artifact 与最终答复 | 新候选使证据待更新时，不把已实现功能重新写成未开发；整体状态只由最终门决定。遵守 §0.5，避免回填成功 run 不断产生新候选；不新增计划/交接/状态文档 |
+
+最短依赖路径：**EFF-00 与本机定向修复可独立推进 → EFF-01 → EFF-02 → EFF-03 / EFF-04 → EFF-05 → EFF-06 最终结论**。这是工作依赖，不授权并发操作同一 Docker daemon；同 daemon 的验收继续串行。EFF-06 的当前状态维护从开始即执行，最终结论等待 EFF-05。
+
+最快交付路径使用现有 amd64 工具链与合格 Linux runner。暂不把全面 ARM64 移植加入收口范围：当前 Dockerfile 的 ARM64 solc 校验和为空，直接改 `VERIFY_PLATFORM=linux/arm64` 会引出新构建任务。
+
+### 修复循环与可执行命令
+
+每次失败记录：`candidateSHA / tool imageID / platform / stage / 首个失败场景 / 原始退出 / artifact / 失败分类 / 下一条最小复现命令`。分类为产品、脚手架、环境或身份问题；无证据时写“待定位”，不直接归类 flake。
+
+1. **首次失败：** 保存完整现场，选择最小复现，不立即再跑 all。
+2. **修复：** 批量关闭已知同类问题，先跑针对性工具或包回归，再跑受影响 Docker stage。
+3. **同签名第二次失败：** 暂停完整 DAG 重试，先给出稳定复现或有边界的特性化数据。
+4. **确认瞬态：** 同候选、同环境对相关门复跑 3～5 次，保留全部结果；不得只保留成功的一次。产品断言失败继续按缺陷处理。
+5. **冻结：** 已知阻塞与必要定向回归关闭后进入 EFF-05；代码、配置或测量语义变化必须重新绑定候选。
+
+现有入口支持以下定向命令。`GOFLAGS` 放在 make 命令行，避免现有赋值覆盖；参数是迭代起点，性能测量仍使用版本化预算。每轮使用唯一 project 名，保存原始退出与日志。
+
+```bash
+# fuzz / ops 问题：只验证对应门
+GOMAXPROCS=4 make verify-docker VERIFY_STAGE=ops GOFLAGS='-p=2'
+
+# 授权、浏览器与恢复变更：验证受影响组合
+GOMAXPROCS=4 make verify-docker VERIFY_STAGE=media,recovery GOFLAGS='-p=2'
+
+# 完整 unit 门；更小的 helper 回归应先在固定工具容器内执行
+GOMAXPROCS=4 make verify-docker VERIFY_STAGE=unit GOFLAGS='-p=2'
+
+# 最终入口：仅在 EFF-00～04、已知阻塞及冻结前预检通过后执行
+# 既有 CI acceptance job 负责保存 command.log、command.exit 和失败工件
+VERIFY_MODE=candidate make verify-docker VERIFY_STAGE=all
+```
+
+| 改动范围 | 先验证 | 随后验证 |
+|---|---|---|
+| reference 日志判定 | 对应 helper 正负例 | 合格 runner 的 perf 定向阶段；严格 media / release 按影响复验 |
+| 参数透传、缓存、controller 锁 | 参数、隔离、源码变化、取消清理回归 | unit；受影响的 ops / 运行阶段 |
+| 钱包、NFT、RPC、区块一致性 | 相关包与 required tests | chain / durability / faults；授权影响再加 media |
+| 授权、撤销、媒体或浏览器 | 针对性回归与浏览器诊断 | media / recovery / release，按实际影响选择 |
+| 性能协议、采样、基线 | 协议和 provenance 回归 | perf 与 release 相关门；完整矩阵放合格 runner |
+| 纯材料或计划 | 链接、Markdown、M6 材料规则检查 | 冻结前纳入候选；不因单次文案修改启动本机 all |
+
+**复用边界：** 可复用经身份校验的工具、模块、编译产物、锁定浏览器和同候选原始归档；不得缓存业务 PASS、复用旧业务卷冒充空卷恢复、跨 SHA 拼接完成或将迭代 reference 缓存纳入最终 all。本轮最终 reference 仍须同 runner、本次运行重新测量。
+
+### 时间预算与提效验收
+
+**以下为待测目标，不是已取得结果：** 缓存预热后 helper 反馈争取 ≤2 分钟，普通受影响包反馈争取 2～10 分钟；真实媒体、故障和恢复保留既有时限与断言。分别记录构建、测试、启动等待、fixture、浏览器安装、性能采样和清理的开始、结束与退出，优先解决占比最大的确定性重复工作。
+
+当前协议为 `4 viewers × 4 scenarios × 3 repeats = 48` 次，每次预热 10 秒、采样 30 秒；两侧比较各 3 轮。仅预热/采样下界约 **36 分钟**，尚未包含登录、部署、seed、故障、恢复和其他门，不承诺几分钟完成终验。
+
+提效验收必须同时满足：
+
+- 不合格 runner、并发验收、未冻结源码与旧基线资格缺口，在昂贵阶段前被拒绝。
+- 普通修复不默认启动 all；反馈范围、实际参数和耗时可追溯。
+- 在同工具版本、同架构、同资源下对比冷/热耗时，记录收益与失败；换机器后的差异不能单独证明缓存收益。
+- 缓存复用后业务测试仍执行、安全负例仍能变红；最终候选取得完整 all 与同 SHA CI，无关键 skip、无放宽鉴权/媒体字节/恢复判据。
+
+环境、网络、磁盘或身份阻塞出现后，采诊断并结束该轮，保留原始退出；超预算报告具体等待对象，不自动扩大超时或重跑整链。没有合格 runner 或既定 CI 授权时记录外部阻塞，继续独立定向修复，不能靠长时间轮询等待完成。
+
+### 回滚与交付边界
+
+- 优化采用独立逻辑变更，记录前后命令、退出与工件；回滚用可审查的 revert，不 reset / filter-repo，不覆盖其他会话改动。
+- 缓存有疑问时停用本优化新增的挂载，回退冷构建；清理只限明确归属本轮的命名资源，不全局 prune。
+- 新 S 资格失败时停止 perf / release，修复或重选后验证；不得恢复到已知有授权缺陷的旧 S 换绿灯。
+- 锁、取消或清理异常先修到退出可追溯、资源归属明确，不能绕过锁或吞退出继续。
+- 本节落盘只交付分析与实施方案，不代填任一 EFF 已完成，不改变 incomplete 标记，不替代验收，也不代为停止任务、提交、推送、派发 CI 或发布。
+
 
 > **接管后最新收口（2026-10-22；整体状态仍未通过）：** 本轮以 `e429f9c` 为基座，授权原子快照/证据年龄、M7 原子回滚、HTTP/gRPC 时限实测分别已本地提交为 `8c7c7403`、`d167fa29`、`06567e8b`。随后补齐以下门禁实现：① CI 原始 10 服务 build metadata / archive 分别核验，运行阶段只导入已扫描归档；重打包摘要另记，保留原 build archive hash，禁止重新构建应用后冒充同产物。② 非 PR 的 GHCR 发布保留各服务原始 push log、原始退出和 receipt；receipt 绑定 SHA / imageID / archiveSHA256 / tags / platform / CI run，允许同一 run 较早 attempt 的完全相同构建，拒绝跨 run 或未来 attempt；总清单分别记录三类摘要。PR 明确 `NOT_RECORDED`，不宣称发布。③ CI 改为必需的完整 `VERIFY_STAGE=all`（candidate 模式）→ `evidence` → `publishable`；汇总器必须核对全部必需 job、9 个 M 门原始 hash、外层 command.exit、实际测试产物与 CI build/publication 身份，缺失/skip/cancel/失败/身份不符均拒绝。`ci-evidence.json` 同时生成 R01～R12 的当前候选代码 hash、场景和 artifact 映射。④ release 在新 schema 上替换为冻结 S 的旧应用，执行完整真钱包/上传/worker/媒体/浏览器 smoke，核对前后 schema 指纹一致及恢复 A 的 imageID；M5 索引必须包含这条原始业务证据。独立 `release-validation.yml` 也改用统一 Docker release 入口，指定来源 CI run 的 build archives，移除旧固定容器名、固定宿主端口和宿主 Go/FFmpeg/Playwright 安装。⑤ 最终 `all` 禁止复用旧轮次 reference 测量，必须本轮同 runner 重新测 S；单独 perf 的缓存仅作迭代辅助，不能进入最终 M4 索引。⑥ release 使用的协议读取器补出并严格验证 `safetyBaselineRevision`；仅 mock 该读取器会漏掉真实 KeyError，现有直接调用真实协议 helper 的回归。⑦ 架构图、token/session/restore 边界和简历材料同步；主线重新打开的任务标题移除旧“当前完成/不依赖当前候选验收”等错误解释，原始历史结果仍保留在 §8。
 >
