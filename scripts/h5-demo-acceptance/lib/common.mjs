@@ -18,6 +18,13 @@ export function attachProbes(page, reportDir) {
     const consoleEvents = [];
     const networkEvents = [];
     const errors = [];
+    // Last status seen per absolute URL. A 5xx that the page's own retry then
+    // recovered from (the demo's healthCheck retries 502/503 twice, two seconds
+    // apart) is a cold-start blip, not a runtime failure: the browser reported
+    // one 502 on /health and two later 200s in the same page lifetime. It stays
+    // a hard error when the URL's LAST status is still 5xx — that is the
+    // mid-run outage the strict /health rule exists to catch.
+    const lastStatus = new Map();
     const ignorable = (url) => url.includes('favicon.ico') || (url.includes('/health') && HEALTH_HOSTS.some((h) => url.includes(h)));
 
     page.on('console', (msg) => {
@@ -42,7 +49,25 @@ export function attachProbes(page, reportDir) {
                 errors.push({ kind: 'console', text, transient: true, note: 'expected fail-closed denial (asserted explicitly by the spec)' });
                 return;
             }
-            errors.push({ kind: 'console', text });
+            // Resolve the endpoint a 5xx console error is about, so a later
+            // success for that same URL can reclassify it. The demo's own
+            // "API Error [/health]: Error: HTTP 502" names the endpoint in
+            // brackets while its location is api.js, so the bracketed path
+            // wins; a bare resource-load message has no bracket and its
+            // location IS the failed URL.
+            let probeUrl = '';
+            if (/\b5\d\d\b/.test(text)) {
+                const bracket = text.match(/\[(\/[^\]]*)\]/);
+                if (bracket) {
+                    try {
+                        probeUrl = new URL(bracket[1], page.url()).href;
+                    } catch {
+                        probeUrl = '';
+                    }
+                }
+                if (!probeUrl && /^https?:\/\//.test(url)) probeUrl = url;
+            }
+            errors.push({ kind: 'console', text, probeUrl });
         }
     });
     page.on('pageerror', (err) => {
@@ -56,6 +81,7 @@ export function attachProbes(page, reportDir) {
         }
     });
     page.on('response', (res) => {
+        lastStatus.set(res.url(), res.status());
         if (res.status() >= 500) {
             networkEvents.push({ kind: '5xx', url: res.url(), status: res.status() });
             if (!ignorable(res.url())) {
@@ -74,7 +100,18 @@ export function attachProbes(page, reportDir) {
             await writeFile(join(reportDir, 'console.json'), JSON.stringify(consoleEvents, null, 2));
             await writeFile(join(reportDir, 'network.json'), JSON.stringify(networkEvents, null, 2));
         },
-        errors,
+        // A getter, not the raw array: run.mjs reads this AFTER the spec has
+        // finished, which is the only point where "did the page recover?" can
+        // be answered. The entry stays in the report either way, with the
+        // recovery recorded in `note`.
+        get errors() {
+            return errors.map((e) => {
+                if (e.transient || !e.probeUrl) return e;
+                const last = lastStatus.get(e.probeUrl);
+                if (last === undefined || last >= 500) return e;
+                return { ...e, transient: true, note: 'recovered: ' + e.probeUrl + ' answered ' + last + ' after this failure' };
+            });
+        },
     };
 }
 

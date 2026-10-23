@@ -268,6 +268,7 @@ stage_unit() {
     go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
     node scripts/cd/test_h5_api_base.cjs
     node scripts/cd/test_browser_preflight.cjs
+    node scripts/cd/test_h5_probe_errors.cjs
     echo "== forge build (ABI-sync guard needs the artifacts) =="
     ( cd contracts && forge build )
     echo "== gofmt =="
