@@ -62,6 +62,9 @@ def sha256(path):
 
 
 def checked_artifact(root, relative):
+    # Both sides are resolved so a symlinked temp root (macOS /var) is not
+    # mistaken for an escape while a real symlink out of the root still is.
+    root = Path(root).resolve()
     path = (root / relative).resolve()
     if not path.is_relative_to(root):
         raise ValueError(f"artifact escapes candidate directory: {relative}")

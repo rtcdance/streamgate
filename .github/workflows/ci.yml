@@ -105,6 +105,9 @@ jobs:
           python3 scripts/cd/test_assert_required_tests.py
           python3 scripts/cd/test_verify_proxy.py
           python3 scripts/cd/test_candidate_manifest.py
+          python3 scripts/cd/test_import_ci_candidate.py
+          python3 scripts/cd/test_generate_candidate_gates.py
+          python3 scripts/cd/test_summarize_ci_evidence.py
           python3 scripts/cd/test_image_identity.py
           python3 scripts/cd/test_verify_shell.py
           python3 scripts/cd/test_assert_candidate_evidence.py

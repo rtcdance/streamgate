@@ -26,7 +26,11 @@ def validate(root, repository=None):
         raise ValueError("acceptance index does not identify this candidate")
     if index.get("schemaVersion") != 2:
         raise ValueError("acceptance index lacks required provenance schema")
-    archive = Path(candidate["archive"]).resolve()
+    # The manifest may be produced on one runner and validated on another, so
+    # a relative archive is resolved against THIS run's root. An absolute path
+    # is still accepted only when it already lives inside the root.
+    stored = Path(candidate["archive"])
+    archive = (root / stored if not stored.is_absolute() else stored).resolve()
     try:
         archive.relative_to(root)
     except ValueError as exc:

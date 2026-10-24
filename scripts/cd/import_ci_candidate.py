@@ -49,12 +49,15 @@ def import_candidate(inputs, prefix, revision, platform, manifest):
             "buildArchiveSHA256": observed["archiveSHA256"],
         }
     subprocess.run(["docker", "save", "-o", str(archive), *tags], check=True)
+    # Paths are stored relative to the manifest so the artifact root can be
+    # downloaded onto a different runner and validated in place. An absolute
+    # path from the building host would escape that root after relocation.
     document = {
-        "version": 1, "revision": revision, "archive": str(archive.resolve()),
+        "version": 1, "revision": revision, "archive": archive.name,
         "archiveSHA256": file_hash(archive), "images": entries,
-        "ciBuildInputs": {"path": str(inputs.resolve()), "images": images},
+        "ciBuildInputs": {"path": inputs.name, "images": images},
     }
-    verify(document, platform=platform)
+    verify(document, platform=platform, archive_path=archive)
     manifest.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
     return document
 

@@ -3,7 +3,9 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -49,6 +51,8 @@ class OverallEvidenceTests(unittest.TestCase):
             path = self.root / relative
             path.write_text("Evidence is traced to TRANSITION_PLAN.md; 人工讲述由本人完成。\n")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        # A developer's global excludes file must not decide which fixture paths exist.
+        subprocess.run(["git", "-C", str(self.root), "config", "core.excludesFile", os.devnull], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "evidence test"], check=True)
         subprocess.run(["git", "-C", str(self.root), "add", "TRANSITION_PLAN.md", "docs/resume"], check=True)
@@ -114,6 +118,42 @@ class OverallEvidenceTests(unittest.TestCase):
     def test_complete_identity_index_passes(self):
         self.write()
         self.validate()
+
+    def regenerate_with_relative_archive(self):
+        candidate = json.loads((self.root / "candidate.json").read_text())
+        candidate["archive"] = "candidate-images.tar"
+        (self.root / "candidate.json").write_text(json.dumps(candidate))
+        with patch("pathlib.Path.cwd", return_value=self.root):
+            generator.generate(self.root, "test-project", self.revision, "linux/amd64")
+        self.index = json.loads((self.root / "candidate-gates.json").read_text())
+
+    def test_relative_archive_survives_a_relocated_artifact_root(self):
+        self.regenerate_with_relative_archive()
+        self.write()
+        moved = self.root.parent / (self.root.name + "-relocated")
+        shutil.copytree(self.root, moved)
+        self.addCleanup(shutil.rmtree, moved, True)
+        # The building host is gone; only the moved copy may satisfy validation.
+        shutil.rmtree(self.root)
+        evidence.validate(moved, moved)
+
+    def test_relocated_artifact_root_still_rejects_changed_archive_bytes(self):
+        self.regenerate_with_relative_archive()
+        self.write()
+        moved = self.root.parent / (self.root.name + "-relocated")
+        shutil.copytree(self.root, moved)
+        self.addCleanup(shutil.rmtree, moved, True)
+        shutil.rmtree(self.root)
+        (moved / "candidate-images.tar").write_bytes(b"tampered after relocation")
+        with self.assertRaisesRegex(ValueError, "archive identity"):
+            evidence.validate(moved, moved)
+
+    def test_relative_archive_may_not_escape_the_run(self):
+        candidate = json.loads((self.root / "candidate.json").read_text())
+        candidate["archive"] = "../candidate-images.tar"
+        (self.root / "candidate.json").write_text(json.dumps(candidate))
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            self.validate()
 
     def test_missing_index_fails(self):
         (self.root / "candidate-gates.json").unlink()

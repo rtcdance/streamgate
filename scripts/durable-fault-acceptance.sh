@@ -243,7 +243,8 @@ changed_block_hash() {
   actual="$(block_hash "$1")" || return 1
   # An absent height or an RPC failure cannot prove a replacement block exists.
   [[ "$previous" =~ ^0x[0-9a-fA-F]{64}$ && "$actual" =~ ^0x[0-9a-fA-F]{64}$ ]] || return 1
-  [ "${actual,,}" != "${previous,,}" ] || return 1
+  # Bash 3.2 (macOS /bin/bash) has no ${var,,}; hex case-folding must stay portable.
+  [ "$(printf '%s' "$actual" | tr 'A-F' 'a-f')" != "$(printf '%s' "$previous" | tr 'A-F' 'a-f')" ] || return 1
   printf '%s' "$actual"
 }
 # receipt_field <tx> <field> — reads one field of a receipt, and prints NOTHING

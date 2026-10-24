@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -341,6 +342,8 @@ class VerifyShellTests(unittest.TestCase):
             def git(*args):
                 return subprocess.check_output(["git", "-C", directory, *args], text=True).strip()
             git("init", "-q"); git("config", "user.name", "Acceptance Test"); git("config", "user.email", "test@example.invalid")
+            # A developer's global excludes file must not decide which fixture paths exist.
+            git("config", "core.excludesFile", os.devnull)
             source = root / "source.go"; source.write_text("original\n")
             (root / ".gitignore").write_text(".agents/\n__pycache__/\n")
             git("add", "source.go", ".gitignore"); git("commit", "-qm", "initial")

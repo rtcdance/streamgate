@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -48,6 +49,8 @@ class CandidateGateGenerationTests(unittest.TestCase):
         self.protocol = self.root / "config/performance.acceptance.json"
         self.protocol.write_text(json.dumps({"baseline": "test", "safetyBaselineRevision": "c" * 40}) + "\n")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        # A developer's global excludes file must not decide which fixture paths exist.
+        subprocess.run(["git", "-C", str(self.root), "config", "core.excludesFile", os.devnull], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(self.root), "config", "user.name", "candidate gate test"], check=True)
         (self.root / "TRANSITION_PLAN.md").write_text(

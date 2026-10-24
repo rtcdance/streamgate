@@ -1,6 +1,7 @@
 import copy
 import json
 from pathlib import Path
+import shutil
 import unittest
 
 import test_generate_candidate_gates as fixtures
@@ -40,6 +41,46 @@ class CISummaryTests(unittest.TestCase):
     def invoke(self, event="push"):
         self.manifest_path.write_text(json.dumps(self.manifest))
         return summarize(self.root, self.manifest_path, self.needs, self.revision, "123", "1", event, self.root)
+
+    def relocate(self):
+        """Build at A, move the artifact root to B, then delete A."""
+        candidate = json.loads((self.root / "candidate.json").read_text())
+        candidate["archive"] = "candidate-images.tar"
+        (self.root / "candidate.json").write_text(json.dumps(candidate))
+        self.fixture.generate()
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        moved = self.root.parent / (self.root.name + "-relocated")
+        shutil.copytree(self.root, moved)
+        self.addCleanup(shutil.rmtree, moved, True)
+        shutil.rmtree(self.root)
+        return moved
+
+    def test_relocated_candidate_binds_through_the_real_summarize(self):
+        moved = self.relocate()
+        result = summarize(moved, moved / "ci-manifest.json", self.needs, self.revision,
+                           "123", "1", "push", moved)
+        self.assertEqual(result["status"], "REQUIRED_GATES_PASS")
+        index = json.loads((moved / "candidate-gates.json").read_text())
+        paths = {item["path"] for gate in index["gates"] for item in gate["artifacts"]}
+        self.assertTrue(paths)
+        self.assertTrue(all(not Path(path).is_absolute() for path in paths), sorted(paths))
+        self.assertTrue(all((moved / path).is_file() for path in paths))
+
+    def test_relocated_candidate_rejects_an_artifact_changed_after_the_move(self):
+        moved = self.relocate()
+        (moved / "logs/media.log").write_text("changed after relocation\n")
+        with self.assertRaisesRegex(ValueError, "hash mismatch"):
+            summarize(moved, moved / "ci-manifest.json", self.needs, self.revision,
+                      "123", "1", "push", moved)
+
+    def test_relocated_run_may_not_repair_paths_by_rewriting_candidate_json(self):
+        moved = self.relocate()
+        candidate = json.loads((moved / "candidate.json").read_text())
+        candidate["archive"] = str(self.root / "candidate-images.tar")
+        (moved / "candidate.json").write_text(json.dumps(candidate))
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            summarize(moved, moved / "ci-manifest.json", self.needs, self.revision,
+                      "123", "1", "push", moved)
 
     def test_full_candidate_and_nine_raw_gates_bind_to_this_ci_run(self):
         result = self.invoke()

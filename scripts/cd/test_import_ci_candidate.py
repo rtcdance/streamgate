@@ -61,6 +61,14 @@ class ImportCandidateTests(unittest.TestCase):
         self.assertFalse(any("build" in command for command in self.commands))
         self.assertEqual(len([command for command in self.commands if command[1] == "load"]), 3)
 
+    def test_manifest_paths_are_relative_to_the_artifact_root(self):
+        value = self.invoke()
+        self.assertEqual(value["archive"], "candidate-images.tar")
+        self.assertEqual(value["ciBuildInputs"]["path"], "build-inputs")
+        stored = json.loads(self.output.read_text())
+        self.assertEqual(stored["archive"], "candidate-images.tar")
+        self.assertFalse(Path(stored["archive"]).is_absolute())
+
     def test_substituted_archive_is_rejected_before_any_docker_operation(self):
         (self.inputs / "candidate-monolith.tar").write_bytes(b"substituted")
         with self.assertRaisesRegex(ValueError, "archive"):

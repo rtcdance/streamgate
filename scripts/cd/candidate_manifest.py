@@ -19,8 +19,10 @@ def file_hash(path):
     return digest.hexdigest()
 
 
-def verify(document, project=None, platform=None):
-    archive = Path(document["archive"])
+def verify(document, project=None, platform=None, archive_path=None):
+    # A relocated manifest stores the archive relative to its own directory;
+    # the caller passes the resolved file so verification never guesses a cwd.
+    archive = Path(archive_path) if archive_path is not None else Path(document["archive"])
     if not archive.stat().st_size:
         raise ValueError("candidate archive is empty")
     if file_hash(archive) != document["archiveSHA256"]:
