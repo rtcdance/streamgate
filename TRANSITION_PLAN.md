@@ -2408,7 +2408,7 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 |---|---|---|---|
 | EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 本机仍不满足原生 Linux / amd64 / 32 GiB，正式 all / perf / release 继续阻塞；工具回归不代替合格 runner 上的实际终验 |
 | EFF-01 脚手架缺陷 | helper 已修；trace 已加；浏览器根因待定位 | `7530e45c` 移除 70 PASS 硬编码，回归覆盖 77/71 项、唯一浏览器失败、其他项失败、多项失败、缺摘要；`de1ad698` 失败 spec 写 `trace.zip` | 浏览器 502 的真实来源仍未定位：候选 media 连续 3 次 77/77，reference seed 两次在 `/health` 收到一次 502 后自愈。按计划保留现场，不把 helper 修复当作根因关闭 |
-| EFF-02 基线资格 | 拟定 S 已确认，未钉定 | 三个必需修复 `8c7c7403`（授权快照）、`d167fa29`（事件回滚）、`06567e8b`（5s/70s 实测）均为 `ceb7f991` 的祖先；现有钉定 `871eab30` 早于这三项，故缺修复的结论成立。拟定 S=`ceb7f991`（当前 HEAD，含上述修复与 EFF 脚手架变更） | 未改 `config/performance.acceptance.json`：资格流程第 1 步要在 S 的 clean checkout 上跑受影响门，第 3 步要在合格 runner 上跑 `release`；两者未完成前钉定会让 perf/release 构建一个未验证基线，且本机无法运行这两个 stage 来发现回归。保留现状并在有 runner 后按流程执行 |
+| EFF-02 基线资格 | 拟定 S 已版本化钉定，资格未通过 | 2026-10-24 选择已有同 SHA unit 及六个功能门记录的 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，代替先前未测拟定 `ceb7f991` 与缺修复的旧 S `871eab30`；`config/performance.acceptance.json` 已钉定。Q 为包含此次配置与资格说明的干净提交，精确身份另存资格工件，不在提交内自引用 | 配置钉定不等于合格；既有功能日志缺历史外层 command.exit，不能补写。仍缺 Q 上 S 对新 schema 的实际业务兼容 / 恢复、合格 runner 上完整 all / 新鲜 reference / 同 SHA CI；不得发布晋级 |
 | EFF-03 编译复用 | 已实现，默认关闭 | `de1ad698`+`55a0e189`：缓存按平台命名、controller 侧解析宿主路径、stage 容器挂载；`unit` 与 CI 的 `go test` 补 `-count=1`；Makefile 不再覆盖调用方 `GOFLAGS`（实测日志 `GOFLAGS=-p=4 -v`） | 冷/热对比未测，按计划保持 `VERIFY_SHARED_GOCACHE=0`；开启条件见上方“共享缓存采用条件” |
 | EFF-04 A 冻结与独占 | 已实现，冻结路径有定向证据 | 既有 `sg-unit-frozen5` 在 `4abcb3c5` 上 PASS；后续 `sg-unit-frozen6` 与 `sg-gates-local1` 都明确冻结到 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`，分别记录 unit 及 chain / durability / ops / faults / media / recovery PASS；后者 candidate.json 与应用身份一致 | 两个运行不能拼成单次 all；其外层原始 command.exit 未留存，不补写历史退出。正式 all 冻结路径与本轮入口修复仍须合格 runner 复验 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
@@ -2435,6 +2435,12 @@ M0 修复：原环境门在宿主执行 Python，并在 DockerRootDir 不存在�
 真实本机预检另存 `.verify-artifacts/sg-eff-m0-20261024/{local-gate.log,local-gate.exit}`，原始退出 **1**：在构建前拒绝 aarch64 / 16746086400 bytes RAM / Docker Desktop 及同 daemon 的竞争容器。该退出是预期拒绝的证据，不计作 all PASS；没有启动应用、终止其他项目或清理共享资源。
 
 外部环境核查：本机 Docker Desktop 为 aarch64、8 CPU、16746086400 bytes RAM，当前无运行中的 StreamGate 验收；只读 GitHub API 返回仓库注册 runner 数量 0，`STREAMGATE_ACCEPTANCE_RUNNER` 变量查询 HTTP 404。尚无已确认合格终验 runner，也未获得本轮明确 push / CI 派发指令；保持最终门待验。已请求可用 runner 信息，期间继续准备独立资格候选，不反复尝试本机 all。
+
+基线资格准备：M0 修复提交 `a7791c1d` 后，选择不可变 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，并在版本化协议中钉定；它包含授权快照、事件原子回滚及撤销时限修复，且已有该 SHA 的 unit / chain / durability / ops / faults / media / recovery 定向记录。选择它是为了沿用绑定该 SHA 的真实观察结果，不能将其他 SHA 的结果改标为它。当前仅进入 Q 资格阶段，未宣称 S 合格；release 资格运行应在 Q 的干净 checkout、合格 runner 上执行，核对 S imageID、新 schema 指纹与恢复 Q 的 imageID，之后最终 C 仍完整 all 并重新测量 reference。原先“先验证 release 才能钉定”的循环已在本状态表消除。
+
+拟定 S 身份复核：三个安全修复均为 S 的祖先；重新计算 `sg-gates-local1/candidate-images.tar` 的 SHA256，与原 candidate.json 一致，并通过 Docker inspect 核对原 monolith / api-gateway / transcoder imageID、OCI revision 和 linux/amd64 平台。该复核证明原归档与 S 的身份，不补足缺失的兼容资格或外层退出。
+
+新钉定协议的 Docker 定向回归：同一固定工具镜像，挂载本次版本化配置，`test_perf_protocol.py` 30 项、`test_verify_shell.py` 43 项、candidate-gates 16 项、candidate-evidence 12 项，合计 **101 PASS**、原始退出 **0**；工件 `.verify-artifacts/sg-eff-q-20261024/{protocol.log,protocol.exit,protocol-evidence.json}`，保存源码 / 配置 / 日志 hash。仍是协议与工具验证，不是 Q 的 release 或最终候选 all。
 
 ## 9. 可直接交给后续 AI 的执行指令
 
