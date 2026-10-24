@@ -128,7 +128,11 @@ class VerifyShellTests(unittest.TestCase):
             lines = (SOURCE.parent.parent / ".github/workflows" / workflow).read_text().splitlines()
             uploads = 0
             for offset, line in enumerate(lines):
-                if "uses: actions/upload-artifact@" not in line:
+                # Required evidence is uploaded either straight to the Actions
+                # backend (pull requests) or through the transport wrapper; both
+                # definitions must pin retention explicitly.
+                if not any(marker in line for marker in
+                           ("uses: actions/upload-artifact@", "uses: ./.github/actions/evidence-upload")):
                     continue
                 uploads += 1
                 indentation = len(line) - len(line.lstrip())
@@ -142,6 +146,10 @@ class VerifyShellTests(unittest.TestCase):
                     self.assertIsNotNone(retention, "retention must not depend on an organization default")
                     self.assertGreaterEqual(int(retention[1]), 30)
             self.assertGreater(uploads, 0)
+        wrapper = (SOURCE.parent.parent / ".github/actions/evidence-upload/action.yml").read_text()
+        default = re.search(r"^  retention-days:\n(?:    [^\n]*\n)*?    default: \"(\d+)\"", wrapper, re.M)
+        self.assertIsNotNone(default, "the transport wrapper must pin its own retention default")
+        self.assertGreaterEqual(int(default[1]), 30)
 
     def run_schema_compatibility(self, *, smoke_exit=0, wrong_image=False, changed_schema=False, wrong_baseline=False):
         with tempfile.TemporaryDirectory() as directory:
