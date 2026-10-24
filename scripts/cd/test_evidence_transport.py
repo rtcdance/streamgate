@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location("evidence_transport", Path(__file__).with_name("evidence_transport.py"))
@@ -28,29 +29,26 @@ class EvidenceTransportTests(unittest.TestCase):
 
     def test_collect_single_directory_uses_contents(self):
         self.make_tree({"fuzz-logs/a.log": b"a", "fuzz-logs/sub/b.log": b"b"})
-        root = transport.collect_root([str(self.root / "fuzz-logs")])
-        entries = transport.collect_entries(root)
+        _, entries = transport.collect_sources([str(self.root / "fuzz-logs")])
         self.assertEqual([entry["path"] for entry in entries], ["a.log", "sub/b.log"])
 
     def test_collect_multiple_paths_preserve_relative_layout(self):
         self.make_tree({"candidate.tar": b"tar", "meta/monolith.json": b"{}"})
-        root = transport.collect_root([
+        _, entries = transport.collect_sources([
             str(self.root / "candidate.tar"), str(self.root / "meta" / "*.json"),
         ])
-        entries = transport.collect_entries(root)
         self.assertEqual([entry["path"] for entry in entries], ["candidate.tar", "meta/monolith.json"])
 
     def test_collect_single_file(self):
         self.make_tree({"coverage.out": b"mode: set"})
-        root = transport.collect_root([str(self.root / "coverage.out")])
-        entries = transport.collect_entries(root)
+        _, entries = transport.collect_sources([str(self.root / "coverage.out")])
         self.assertEqual([entry["path"] for entry in entries], ["coverage.out"])
 
     def test_collect_rejects_symlink(self):
         self.make_tree({"a.txt": b"a"})
         os.symlink(self.root / "a.txt", self.root / "link.txt")
         with self.assertRaises(transport.TransportError):
-            transport.collect_entries(self.root)
+            transport.collect_sources([str(self.root)])
 
     def test_validate_entry_path_rejects_escape(self):
         for value in ("../x", "/x", "a/../b", "a//b", "a\\b", "", "."):
@@ -189,6 +187,133 @@ class EvidenceTransportTests(unittest.TestCase):
         ]
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(transport.main(argv), 2)
+
+    def test_collect_sources_excludes_unselected_siblings(self):
+        inputs = self.root / "inputs"
+        inputs.mkdir()
+        (inputs / "candidate.tar").write_bytes(b"tar")
+        (inputs / ".private").mkdir()
+        (inputs / ".private" / "secret.txt").write_bytes(b"secret")
+        (inputs / "unrelated.txt").write_bytes(b"x")
+        _, entries = transport.collect_sources([str(inputs / "candidate.tar")])
+        self.assertEqual([entry["path"] for entry in entries], ["candidate.tar"])
+
+    def test_put_prepare_only_excludes_unselected_siblings(self):
+        inputs = self.root / "inputs"
+        inputs.mkdir()
+        (inputs / "candidate.tar").write_bytes(b"tar")
+        (inputs / ".private").mkdir()
+        (inputs / ".private" / "secret.txt").write_bytes(b"secret")
+        context = self.root / "context"
+        argv = [
+            "put", "--name", "candidate-monolith", "--path", str(inputs / "candidate.tar"),
+            "--image", "ghcr.io/example/evidence", "--tag", "probe",
+            "--source-sha", "a" * 40, "--run-id", "1", "--attempt", "1",
+            "--prepare-only", "--context", str(context),
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(argv), 0)
+        manifest = json.loads((context / "transport.json").read_text())
+        self.assertEqual([entry["path"] for entry in manifest["entries"]], ["candidate.tar"])
+
+    def test_copy_payload_rejects_destination_ancestor_symlink(self):
+        source = self.root / "payload"
+        (source / "meta").mkdir(parents=True)
+        (source / "meta" / "receipt.bin").write_bytes(b"receipt")
+        base = self.root / "base"
+        destination = base / "dest"
+        destination.mkdir(parents=True)
+        outside = base / "outside"
+        outside.mkdir()
+        os.symlink(outside, destination / "meta")
+        with self.assertRaises(transport.TransportError):
+            transport.copy_payload(source, destination)
+        self.assertFalse((outside / "receipt.bin").exists())
+
+    def test_copy_payload_rejects_symlinked_destination_root(self):
+        source = self.root / "payload"
+        source.mkdir()
+        (source / "a.txt").write_bytes(b"a")
+        outside = self.root / "outside"
+        outside.mkdir()
+        destination = self.root / "dest-link"
+        os.symlink(outside, destination)
+        with self.assertRaises(transport.TransportError):
+            transport.copy_payload(source, destination)
+        self.assertFalse((outside / "a.txt").exists())
+
+    def test_copy_payload_rejects_dangling_leaf_symlink(self):
+        source = self.root / "payload"
+        source.mkdir()
+        (source / "a.txt").write_bytes(b"a")
+        destination = self.root / "dest"
+        destination.mkdir()
+        os.symlink(self.root / "missing", destination / "a.txt")
+        with self.assertRaises(transport.TransportError):
+            transport.copy_payload(source, destination)
+        self.assertFalse((self.root / "missing").exists())
+
+    def test_verify_manifest_rejects_unsafe_name(self):
+        manifest = self.manifest()
+        for name in ("../escaped", "/absolute", ".", "..", "a/b"):
+            manifest["name"] = name
+            with self.assertRaises(transport.TransportError, msg=name):
+                transport.verify_manifest(manifest, None, None, None, None)
+
+    def test_get_multi_image_rejects_unsafe_manifest_name(self):
+        manifest = self.manifest()
+        manifest["name"] = "../escaped"
+        manifest["bundleSHA256"] = transport.bundle_hash(manifest["entries"])
+        payload = self.materialize(manifest["entries"])
+        work = Path(tempfile.mkdtemp(dir=self.directory.name))
+
+        def fake_extract(reference, local):
+            return manifest, payload, work
+
+        destination = self.root / "dest"
+        argv = [
+            "get", "--image", "a@sha256:" + "1" * 64, "--image", "b@sha256:" + "2" * 64,
+            "--dest", str(destination), "--expect-sha", "a" * 40,
+            "--expect-run", "40120832170", "--expect-attempt", "1",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((self.root / "escaped").exists())
+
+    def test_get_multi_image_rejects_symlinked_destination_root(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        destination = self.root / "dest-link"
+        os.symlink(outside, destination)
+        payload = self.root / "payload"
+        payload.mkdir()
+        (payload / "data.bin").write_bytes(b"x")
+        entries = [{"path": "data.bin", "mode": 420, "size": 1, "sha256": transport.hashlib.sha256(b"x").hexdigest()}]
+        manifests = []
+        for name in ("artifact-a", "artifact-b"):
+            manifests.append({
+                "schemaVersion": 1, "name": name, "sourceSHA": "a" * 40,
+                "runID": "40120832170", "runAttempt": "1", "entries": entries,
+                "bundleSHA256": transport.bundle_hash(entries),
+            })
+        work = Path(tempfile.mkdtemp(dir=self.directory.name))
+
+        def fake_extract(reference, local):
+            return manifests.pop(0), payload, work
+
+        argv = [
+            "get", "--image", "a@sha256:" + "1" * 64, "--image", "b@sha256:" + "2" * 64,
+            "--dest", str(destination), "--expect-sha", "a" * 40,
+            "--expect-run", "40120832170", "--expect-attempt", "1",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((outside / "artifact-a" / "data.bin").exists())
+        self.assertFalse((outside / "artifact-b" / "data.bin").exists())
 
     def test_copy_payload_rejects_collision(self):
         first = Path(tempfile.mkdtemp(dir=self.directory.name))
