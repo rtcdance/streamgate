@@ -10,6 +10,32 @@ import unittest
 
 
 class ControllerCancellationTests(unittest.TestCase):
+    def test_terminal_stage_refuses_dirty_source_before_docker_or_freezing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
+            (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes())
+            for args in (("init", "-q"), ("config", "user.email", "test@example.invalid"),
+                         ("config", "user.name", "test"), ("add", "-f", "scripts/verify-controller.sh"),
+                         ("commit", "-qm", "fixture")):
+                subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+            (root / "scripts/verify-controller.sh").write_bytes(source.read_bytes() + b"\n# pending repair\n")
+            binary = root / "bin"; binary.mkdir()
+            trace = root / "docker-called"
+            fake = binary / "docker"
+            fake.write_text("#!/bin/sh\ntouch \"$FAKE_TRACE\"\nexit 99\n")
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"], FAKE_TRACE=str(trace))
+            for stage in ("all", "perf", "release", "media,release"):
+                with self.subTest(stage=stage):
+                    env["VERIFY_STAGE"] = stage
+                    result = subprocess.run(["bash", str(root / "scripts/verify-controller.sh")], env=env,
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("frozen clean candidate", result.stderr)
+                    self.assertFalse(trace.exists(), "dirty source reached Docker")
+
     def test_existing_foreign_controller_name_refuses_before_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -76,6 +102,11 @@ with open(os.environ["FAKE_TRACE"], "a") as log:
             env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
                        FAKE_TRACE=str(trace), VERIFY_STAGE="perf", VERIFY_PROJECT="own-gate-test",
                        VERIFY_ARTIFACTS=str(root / "artifacts"))
+            # Reach the environment gate from a valid clean terminal candidate.
+            for args in (("init", "-q"), ("config", "user.email", "test@example.invalid"),
+                         ("config", "user.name", "test"), ("add", "-f", "scripts", "bin"),
+                         ("commit", "-qm", "fixture")):
+                subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
             result = subprocess.run(["bash", str(root / "scripts/verify-controller.sh")], env=env,
                                     capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)

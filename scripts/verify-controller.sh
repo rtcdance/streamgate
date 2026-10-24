@@ -5,15 +5,17 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 export VERIFY_SOURCE_ROOT="$ROOT_DIR"
 export VERIFY_STAGE="${VERIFY_STAGE:-${1:-all}}"
-if [ "$VERIFY_STAGE" = all ]; then
+case ",$VERIFY_STAGE," in
+  *,all,*|*,perf,*|*,release,*)
   source_status="$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=normal)" || {
     echo 'cannot verify candidate checkout state' >&2; exit 1;
   }
   if [ -n "$source_status" ]; then
-    echo 'complete acceptance requires a frozen clean candidate; use individual stages during repairs' >&2
+    echo 'terminal acceptance requires a frozen clean candidate; commit repairs before all/perf/release' >&2
     exit 1
   fi
-fi
+  ;;
+esac
 export VERIFY_PROJECT="${VERIFY_PROJECT:-streamgate-verify-$$-${RANDOM}}"
 export VERIFY_PLATFORM="${VERIFY_PLATFORM:-linux/amd64}"
 if [ -z "${VERIFY_ENVIRONMENT_PROFILE:-}" ]; then

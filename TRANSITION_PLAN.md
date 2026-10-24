@@ -3209,3 +3209,5 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 实际本机预检：8 CPU / 16746086400 bytes RAM / aarch64 daemon，linux/amd64 执行；VM 内 Docker 文件系统 855778164 KiB 空闲，28 个后台容器逐一列出，原始 exit=0。工件：`.verify-artifacts/sg-eff-mac-profile-20261024/local-gate.{log,exit}`。这只证明本机路径通过预检，不证明 release / all 已通过。首次 Docker 工具回归在宿主绝对路径挂载后找不到文件（exit=2，挂载原因未单独定位），保留 tooling.log；改用 /workspace 显式挂载后重验，不隐去失败。
 
 Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e585a256d50a499cd00f9` 内，环境 14＋性能环境 6＋性能协议 30＋controller 3＋shell 45＝**98 PASS**，`tooling-v2.exit=0`。保留原生模式负例，并新增 Desktop 的低资源 / VM 磁盘不可测 / 远端 endpoint / 并发验收拒绝，以及 profile / 平台 / 后台集合变化拒绝比较。源码和日志 hash 存同目录 `tooling-evidence.json`；此结果不计作业务 release 或完整 all。
+
+冻结入口补漏：终验 stage 的 clean-tree 检查扩展到 all / perf / release 及其逗号组合，防止自动 clone 默默舍弃未提交修复。新增动态回归覆盖这些入口，旧代码在 perf / release / media,release 三项失败（controller-before.exit=1），修复后 controller 4/4 与 shell 45/45 Docker 通过；前次 controller-clean-source.exit=1 是旧环境失败夹具缺少 Git 仓库，补齐干净候选夹具后 v2.exit=0，原失败保留。连同上述环境 / 性能环境 / 协议回归，共 99 个不同工具测试通过。开发机 inventory 同步取消“all 必须 32GiB”的过时宿主提示，实际 inventory.exit=0；它仍是清单，不代替 VM 容量门。
