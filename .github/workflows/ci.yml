@@ -640,14 +640,7 @@ jobs:
       - name: Require the documented isolated acceptance runner capacity
         run: |
           set -euo pipefail
-          cores="$(docker info --format '{{.NCPU}}')"
-          memory="$(docker info --format '{{.MemTotal}}')"
-          root="$(docker info --format '{{.DockerRootDir}}')"
-          disk_kib="$(df -Pk "$root" | awk 'NR==2 {print $4}')"
-          [ "$cores" -ge 8 ] && [ "$memory" -ge 34359738368 ] && [ "$disk_kib" -ge 104857600 ] || {
-            echo '::error::Complete acceptance needs an isolated Linux runner with 8 CPU / 32 GiB / 100 GiB free Docker disk. Configure STREAMGATE_ACCEPTANCE_RUNNER.'
-            exit 1
-          }
+          bash scripts/cd/verify_environment.sh all "$VERIFY_PROJECT"
 
       - name: Download the original scanned build archives and metadata
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

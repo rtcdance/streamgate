@@ -2,7 +2,7 @@
 
 <!-- streamgate-acceptance-status: incomplete -->
 
-## 执行提效优化方案（2026-10-23；待实施）
+## 执行提效优化方案（2026-10-24；实施中，进度见 §8.19）
 
 **目标：** 保持 SG-00～SG-15、M0～M8 的既定验收要求，通过合格环境、定向反馈、共享编译缓存和候选冻结减少重复执行。本节调整执行方法，不改变 §0.4 的业务修复依赖，不代表优化已经实现，也不新增 push、CI 派发或生产发布授权。当前整体状态仍为未通过。
 
@@ -2406,11 +2406,11 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
-| EFF-00 环境先行 | 已实现 | `de1ad698`：`scripts/cd/verify_environment.py` 在工具镜像构建前拒绝非原生 amd64、<8 CPU、<32 GiB、Docker 文件系统 <100 GiB、同 daemon 另一验收；`scripts/cd/test_verify_environment.py` 6 个正负例；控制器在任何 `docker build` 之前调用 | 本机 8 vCPU / 15.6 GiB / aarch64 被拒绝，正式 `all`、`perf`、`release` 明确 BLOCKED；定向 stage 不受影响。预检与既有 CI 资源检查的整合未做（计划允许后置） |
+| EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 本机仍不满足原生 Linux / amd64 / 32 GiB，正式 all / perf / release 继续阻塞；工具回归不代替合格 runner 上的实际终验 |
 | EFF-01 脚手架缺陷 | helper 已修；trace 已加；浏览器根因待定位 | `7530e45c` 移除 70 PASS 硬编码，回归覆盖 77/71 项、唯一浏览器失败、其他项失败、多项失败、缺摘要；`de1ad698` 失败 spec 写 `trace.zip` | 浏览器 502 的真实来源仍未定位：候选 media 连续 3 次 77/77，reference seed 两次在 `/health` 收到一次 502 后自愈。按计划保留现场，不把 helper 修复当作根因关闭 |
 | EFF-02 基线资格 | 拟定 S 已确认，未钉定 | 三个必需修复 `8c7c7403`（授权快照）、`d167fa29`（事件回滚）、`06567e8b`（5s/70s 实测）均为 `ceb7f991` 的祖先；现有钉定 `871eab30` 早于这三项，故缺修复的结论成立。拟定 S=`ceb7f991`（当前 HEAD，含上述修复与 EFF 脚手架变更） | 未改 `config/performance.acceptance.json`：资格流程第 1 步要在 S 的 clean checkout 上跑受影响门，第 3 步要在合格 runner 上跑 `release`；两者未完成前钉定会让 perf/release 构建一个未验证基线，且本机无法运行这两个 stage 来发现回归。保留现状并在有 runner 后按流程执行 |
 | EFF-03 编译复用 | 已实现，默认关闭 | `de1ad698`+`55a0e189`：缓存按平台命名、controller 侧解析宿主路径、stage 容器挂载；`unit` 与 CI 的 `go test` 补 `-count=1`；Makefile 不再覆盖调用方 `GOFLAGS`（实测日志 `GOFLAGS=-p=4 -v`） | 冷/热对比未测，按计划保持 `VERIFY_SHARED_GOCACHE=0`；开启条件见上方“共享缓存采用条件” |
-| EFF-04 A 冻结与独占 | 已实现并验证 | `55a0e189`/`d9962d10`/`df884f7c`：正式运行把已批准的 HEAD 克隆到运行工件、子模块从本地 checkout 离线填充、容器只挂载该克隆；`sg-unit-frozen5` 在 `4abcb3c5` 上 PASS（20m47s，冷构建，GOCACHE=off），结束后克隆与锁均已清理 | 正式 `all` 上的冻结路径尚未在合格 runner 验证；定向 stage 仍用编辑目录（设计如此） |
+| EFF-04 A 冻结与独占 | 已实现，冻结路径有定向证据 | 既有 `sg-unit-frozen5` 在 `4abcb3c5` 上 PASS；后续 `sg-unit-frozen6` 与 `sg-gates-local1` 都明确冻结到 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`，分别记录 unit 及 chain / durability / ops / faults / media / recovery PASS；后者 candidate.json 与应用身份一致 | 两个运行不能拼成单次 all；其外层原始 command.exit 未留存，不补写历史退出。正式 all 冻结路径与本轮入口修复仍须合格 runner 复验 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
 | EFF-05 正式收口 | BLOCKED | — | 缺合格 runner（EFF-00 门槛）；未冻结 C，未运行最终 `all`，未取得同 SHA CI |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
@@ -2423,6 +2423,18 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
   - 15.6 GiB RAM; at least 32 GiB are required
   terminal acceptance stays BLOCKED here; run targeted stages (unit, media, ops, ...) on this machine instead
 ```
+
+### 8.20 接手执行证据（2026-10-24；工具回归，不是候选终验）
+
+本轮接手基座为干净 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`。核对已有 `sg-unit-frozen6` 与 `sg-gates-local1` 的冻结源码行、stage PASS、candidate.json 和媒体 / 恢复记录；它们只作为对应 SHA 的定向证据，不补写缺失的历史外层退出，也不声称完整 all。
+
+M0 修复：原环境门在宿主执行 Python，并在 DockerRootDir 不存在时回退测量宿主祖先目录。现改为 Shell 读取 Docker 格式化字段，在无宿主 Python 的 PATH 下验证；原生 Linux、本地 Unix socket、实际 DockerRootDir 及其空闲容量均必须可验证，其他业务容器同样视为竞争负载。CI 调用同一个门。原 6 类环境正负例保留并扩充为 10 项，controller 测试同步使用真实 Shell 门。
+
+固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e585a256d50a499cd00f9`、平台 linux/amd64；从当前 WIP 只读挂载 scripts / config / .github，执行 environment / controller / shell / candidate-gates / candidate-evidence 五组回归：**10＋3＋43＋16＋12＝84 PASS**，7 份 workflow YAML、action pin、86 段 shell 语法通过，原始 Docker / exec exit=0。证据 `.verify-artifacts/sg-eff-m0-20261024/{targeted.log,targeted.exit,tooling-evidence.json}`，其中 provenance 保存工具镜像身份、源码 hash、日志 hash 和 WIP 边界。宿主预检的 environment 10 项与 controller 3 项通过；宿主完整 shell 套件遇到全局 ignore 和平台差异，故不以宿主结果验收，Docker 中同套件 43/43 通过。
+
+真实本机预检另存 `.verify-artifacts/sg-eff-m0-20261024/{local-gate.log,local-gate.exit}`，原始退出 **1**：在构建前拒绝 aarch64 / 16746086400 bytes RAM / Docker Desktop 及同 daemon 的竞争容器。该退出是预期拒绝的证据，不计作 all PASS；没有启动应用、终止其他项目或清理共享资源。
+
+外部环境核查：本机 Docker Desktop 为 aarch64、8 CPU、16746086400 bytes RAM，当前无运行中的 StreamGate 验收；只读 GitHub API 返回仓库注册 runner 数量 0，`STREAMGATE_ACCEPTANCE_RUNNER` 变量查询 HTTP 404。尚无已确认合格终验 runner，也未获得本轮明确 push / CI 派发指令；保持最终门待验。已请求可用 runner 信息，期间继续准备独立资格候选，不反复尝试本机 all。
 
 ## 9. 可直接交给后续 AI 的执行指令
 

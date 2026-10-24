@@ -23,7 +23,7 @@ valid evidence.
 
 Since the EFF pass, `all` / `perf` / `release` are **refused before the tool
 image is built** unless the daemon is native linux/amd64 with >=8 CPU, >=32 GiB
-and >=100 GiB free (`scripts/cd/verify_environment.py`). This machine is
+and >=100 GiB free (`scripts/cd/verify_environment.sh`). This machine is
 aarch64 / 15.6 GiB, so the terminal run is explicitly BLOCKED here — by design,
 not as a flake to retry. Formal runs also use a frozen clone of the approved
 HEAD and a daemon-wide lock; the shared Go cache is opt-in and off by default.

@@ -94,8 +94,7 @@ trap 'exit 143' TERM
 # arm64 daemon measures through emulation, so the final all / full perf /
 # release path requires a dedicated native amd64 runner. Targeted stages are
 # the repair loop and stay available on smaller machines.
-command -v python3 >/dev/null 2>&1 || { echo 'python3 is required for the environment gate' >&2; exit 1; }
-python3 scripts/cd/verify_environment.py --stage "$VERIFY_STAGE" --project "$VERIFY_PROJECT" || exit 1
+bash scripts/cd/verify_environment.sh "$VERIFY_STAGE" "$VERIFY_PROJECT" || exit 1
 # EFF-04 A: run the acceptance from a frozen clone, not from the directory a
 # human or another agent may still be editing. The clone is pinned to the exact
 # HEAD the clean-tree check just approved, its submodules are cloned from the
