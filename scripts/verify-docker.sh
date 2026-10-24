@@ -1770,12 +1770,12 @@ stage_recovery() {
 
   # 4. Both stacks go away HERE, not at the end of the run: the perf stage
   #    measures a fixed-resource stack and must not compete with leftovers.
-  kill "$dst_front" "$src_front" >/dev/null 2>&1 || :
-  local p
-  for p in "$dst" "$src"; do
-    docker compose -p "$p" -f "$VERIFY_COMPOSE_FILE" down -v --remove-orphans >/dev/null 2>&1 \
-      || log "WARNING: recovery cleanup of ${p} reported an error"
-  done
+  # Reuse the full teardown: a surviving verify-h5 alias on a recovery network
+  # can route the next stage's browser to an nginx whose app has been removed.
+  PROJECT_PROXY_PID="$dst_front"
+  teardown_fullstack "$dst"
+  PROJECT_PROXY_PID="$src_front"
+  teardown_fullstack "$src"
   log "recovery: both stacks torn down"
 }
 

@@ -2407,7 +2407,7 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
 | EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 本机仍不满足原生 Linux / amd64 / 32 GiB，正式 all / perf / release 继续阻塞；工具回归不代替合格 runner 上的实际终验 |
-| EFF-01 脚手架缺陷 | helper 已修；trace 已加；浏览器根因待定位 | `7530e45c` 移除 70 PASS 硬编码，回归覆盖 77/71 项、唯一浏览器失败、其他项失败、多项失败、缺摘要；`de1ad698` 失败 spec 写 `trace.zip` | 浏览器 502 的真实来源仍未定位：候选 media 连续 3 次 77/77，reference seed 两次在 `/health` 收到一次 502 后自愈。按计划保留现场，不把 helper 修复当作根因关闭 |
+| EFF-01 脚手架缺陷 | helper 与确定的 recovery 清理缺陷已修；长链复验待执行 | `7530e45c` 修计数；本轮从旧 h5-dns 工件确认 reference 启动时仍连 recovery 的两个网络。新增真实 stage 函数回归在旧实现产生 5 个失败断言，修复后 Docker shell / recovery / controller 45＋8＋3 项通过；恢复阶段复用完整 teardown，显式删 H5、断开两网络并对清理失败报错 | Docker 隔离机制演练已证明旧 H5 / 网络可被正确清除、后续入口 20/20 为 200；自然 DNS 分流的历史 502 未在该演练的 20 次请求中复现，不宣称已证明唯一根因。仍需当前代码的真实 recovery→media 及最终合格 runner 长链复验 |
 | EFF-02 基线资格 | 拟定 S 已版本化钉定，资格未通过 | 2026-10-24 选择已有同 SHA unit 及六个功能门记录的 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，代替先前未测拟定 `ceb7f991` 与缺修复的旧 S `871eab30`；`config/performance.acceptance.json` 已钉定。Q 为包含此次配置与资格说明的干净提交，精确身份另存资格工件，不在提交内自引用 | 配置钉定不等于合格；既有功能日志缺历史外层 command.exit，不能补写。仍缺 Q 上 S 对新 schema 的实际业务兼容 / 恢复、合格 runner 上完整 all / 新鲜 reference / 同 SHA CI；不得发布晋级 |
 | EFF-03 编译复用 | 已实现，默认关闭 | `de1ad698`+`55a0e189`：缓存按平台命名、controller 侧解析宿主路径、stage 容器挂载；`unit` 与 CI 的 `go test` 补 `-count=1`；Makefile 不再覆盖调用方 `GOFLAGS`（实测日志 `GOFLAGS=-p=4 -v`） | 冷/热对比未测，按计划保持 `VERIFY_SHARED_GOCACHE=0`；开启条件见上方“共享缓存采用条件” |
 | EFF-04 A 冻结与独占 | 已实现，冻结路径有定向证据 | 既有 `sg-unit-frozen5` 在 `4abcb3c5` 上 PASS；后续 `sg-unit-frozen6` 与 `sg-gates-local1` 都明确冻结到 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`，分别记录 unit 及 chain / durability / ops / faults / media / recovery PASS；后者 candidate.json 与应用身份一致 | 两个运行不能拼成单次 all；其外层原始 command.exit 未留存，不补写历史退出。正式 all 冻结路径与本轮入口修复仍须合格 runner 复验 |
@@ -2441,6 +2441,10 @@ M0 修复：原环境门在宿主执行 Python，并在 DockerRootDir 不存在�
 拟定 S 身份复核：三个安全修复均为 S 的祖先；重新计算 `sg-gates-local1/candidate-images.tar` 的 SHA256，与原 candidate.json 一致，并通过 Docker inspect 核对原 monolith / api-gateway / transcoder imageID、OCI revision 和 linux/amd64 平台。该复核证明原归档与 S 的身份，不补足缺失的兼容资格或外层退出。
 
 新钉定协议的 Docker 定向回归：同一固定工具镜像，挂载本次版本化配置，`test_perf_protocol.py` 30 项、`test_verify_shell.py` 43 项、candidate-gates 16 项、candidate-evidence 12 项，合计 **101 PASS**、原始退出 **0**；工件 `.verify-artifacts/sg-eff-q-20261024/{protocol.log,protocol.exit,protocol-evidence.json}`，保存源码 / 配置 / 日志 hash。仍是协议与工具验证，不是 Q 的 release 或最终候选 all。
+
+恢复阶段污染整改：旧 `.verify-artifacts/sg-all-local6/h5-dns-sg-all-local6-ref.txt` 明确列出 recovery-src / recovery-dst / ref 三个 project 网络；原 `stage_recovery` 只 kill 代理并 compose down，漏显式删 H5 和断开 controller 网络，并吞清理失败。新增两项动态调用真实 stage / teardown 函数的回归，旧实现 5 个失败断言；修复改为逐个调用现有 `teardown_fullstack`，保留同一清理语义。完整 Docker 回归 **45＋8＋3＝56 PASS**、原始退出 0，工件 `.verify-artifacts/sg-eff-recovery-cleanup-20261024/{before-corrected-fixture.log,before-corrected-fixture.exit,final-docker.log,final-docker.exit}`。首次回归夹具将 mock 的日志写到 stdout，遇到被测 rm 的重定向后丢观测，已改为独立 trace 并用同一正确夹具重验旧实现；初次失败日志仍保留，不伪称产品失败。
+
+真实 Docker DNS / teardown 机制演练使用三个专用网络、一个故意代理到已关闭端口的旧 nginx（直接请求 502）和一个健康后续 nginx（直接请求 200），同用 verify-h5 别名。实际调用共用 teardown 后旧 H5 被删除、controller 脱离两个 recovery 网络，后续自然 DNS 请求 **20/20 HTTP 200**，原始退出 0，资源均按本轮标签清理。工件同目录 `{dns-probe.py,dns-result.json,dns-command.exit,dns-teardown.log}`。演练开始时自然 DNS 的 20 次请求也全为 200，`naturalStaleRouteObserved=false`；因此只证明缺陷整改与隔离效果，历史偶发 502 的最终归因仍有边界，不将机制演练写成应用或浏览器验收。
 
 ## 9. 可直接交给后续 AI 的执行指令
 

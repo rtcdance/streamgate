@@ -15,6 +15,62 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def run_recovery_teardown(self, failure=""):
+        with tempfile.TemporaryDirectory() as directory:
+            commands = [
+                'set -euo pipefail',
+                'PROJECT_NAME=own-run; VERIFY_CONTROLLER=own-controller; VERIFY_PLATFORM=linux/amd64',
+                'VERIFY_COMPOSE_FILE=fixture.yml; CANDIDATE_MANIFEST=fixture.json',
+                'RECOVERY_HELPER_IMAGE=helper; RECOVERY_SOCAT_IMAGE=socat',
+                'VERIFY_MONO_PORT=1001; VERIFY_ANVIL_PORT=1002; VERIFY_MINIO_PORT=1003; VERIFY_H5_PORT=1004',
+                'CREATED_PROJECTS=""; PROXY_PIDS=" 101 202"',
+                'ARTIFACT_DIR=' + shlex.quote(directory),
+                'TRACE_FILE=' + shlex.quote(str(Path(directory) / "docker.trace")),
+                'FAILURE=' + shlex.quote(failure),
+                'log() { echo "$*"; }; fail() { echo "$*" >&2; exit 1; }',
+                'require_controller_tool() { :; }; ensure_runtime_image() { :; }',
+                'run_logged() { :; }; write_recovery_chain_override() { :; }',
+                'bring_up_fullstack() { PROJECT_PROXY_PID=101; }',
+                'start_project_front() { PROJECT_PROXY_PID=202; }',
+                'python3() { :; }; git() { echo ' + 'a' * 40 + '; }',
+                'kill() { echo "PROXY $*"; }; wait() { :; }',
+                'docker() {',
+                '  echo "DOCKER $*" >> "$TRACE_FILE"',
+                '  if [ "$FAILURE" = disconnect ] && [ "$1 $2" = "network disconnect" ]; then return 17; fi',
+                '  if [ "$FAILURE" = down ] && [[ " $* " == *" down "* ]]; then return 42; fi',
+                '  return 0',
+                '}',
+                function("teardown_fullstack"), function("stage_recovery"),
+                'stage_recovery', 'printf "PROXIES:%s\\n" "$PROXY_PIDS"',
+            ]
+            result = subprocess.run(["bash", "-c", '\n'.join(commands)],
+                                    capture_output=True, text=True, timeout=10)
+            trace = Path(directory) / "docker.trace"
+            if trace.exists():
+                result.stdout += trace.read_text()
+            return result
+
+    def test_recovery_teardown_removes_both_h5_aliases_and_controller_networks(self):
+        result = self.run_recovery_teardown()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for project in ("own-run-recovery-dst", "own-run-recovery-src"):
+            remove = f"DOCKER rm -f {project}-h5"
+            detach = f"DOCKER network disconnect {project}_default own-controller"
+            down = f"DOCKER compose -p {project} -f fixture.yml down -v --remove-orphans"
+            with self.subTest(project=project):
+                self.assertIn(remove, result.stdout)
+                self.assertIn(detach, result.stdout)
+                self.assertLess(result.stdout.index(remove), result.stdout.index(detach))
+                self.assertLess(result.stdout.index(detach), result.stdout.index(down))
+        self.assertIn("PROXIES:\n", result.stdout)
+
+    def test_recovery_cleanup_failure_cannot_report_both_stacks_torn_down(self):
+        for failure in ("disconnect", "down"):
+            with self.subTest(failure=failure):
+                result = self.run_recovery_teardown(failure)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("recovery: both stacks torn down", result.stdout)
+
     def test_release_reads_the_actual_frozen_baseline_from_the_protocol_helper(self):
         result = subprocess.run(["bash", "-c", function("perf_acceptance_config") + '\nperf_acceptance_config safetyBaselineRevision'],
                                 cwd=SOURCE.parent.parent, capture_output=True, text=True)
