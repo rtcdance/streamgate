@@ -315,6 +315,187 @@ class EvidenceTransportTests(unittest.TestCase):
         self.assertFalse((outside / "artifact-a" / "data.bin").exists())
         self.assertFalse((outside / "artifact-b" / "data.bin").exists())
 
+    def test_collect_selection_applies_exclusions_before_hashing(self):
+        self.make_tree({
+            "ci-all/build-inputs/candidate-monolith.tar": b"tar",
+            "ci-all/run-1/evidence.json": b"{}",
+        })
+        hashed = []
+        real_hash = transport.file_hash
+
+        def tracking_hash(path):
+            hashed.append(Path(path).name)
+            return real_hash(path)
+
+        with patch.object(transport, "file_hash", side_effect=tracking_hash):
+            _, entries, report = transport.collect_selection(
+                [str(self.root / "ci-all")], excludes=["build-inputs/**"]
+            )
+        self.assertEqual([entry["path"] for entry in entries], ["run-1/evidence.json"])
+        self.assertEqual(report["excluded"], 1)
+        self.assertNotIn("candidate-monolith.tar", hashed)
+
+    def test_collect_selection_excludes_hidden_by_default(self):
+        self.make_tree({"ci-all/visible.json": b"{}", "ci-all/.private/secret.txt": b"s"})
+        _, entries, report = transport.collect_selection([str(self.root / "ci-all")])
+        self.assertEqual([entry["path"] for entry in entries], ["visible.json"])
+        self.assertEqual(report["hiddenExcluded"], 1)
+        _, entries, report = transport.collect_selection(
+            [str(self.root / "ci-all")], excludes=[".private/**"], include_hidden=True
+        )
+        self.assertEqual([entry["path"] for entry in entries], ["visible.json"])
+        self.assertEqual(report["excluded"], 1)
+
+    def test_collect_selection_tolerates_unmatched_spec(self):
+        self.make_tree({"ci-all/ci-job-results.json": b"{}"})
+        _, entries, report = transport.collect_selection([
+            str(self.root / "ci-all" / "ci-job-results.json"),
+            str(self.root / "ci-all" / "ci-evidence.json"),
+        ])
+        self.assertEqual([entry["path"] for entry in entries], ["ci-job-results.json"])
+        self.assertEqual([item["matches"] for item in report["specs"]], [1, 0])
+
+    def test_put_warn_uploads_remaining_files_when_one_spec_is_missing(self):
+        self.make_tree({"ci-all/ci-job-results.json": b"{}"})
+        context = self.root / "context"
+        argv = [
+            "put", "--name", "ci-evidence", "--path", str(self.root / "ci-all" / "ci-job-results.json"),
+            "--path", str(self.root / "ci-all" / "ci-evidence.json"),
+            "--image", "ghcr.io/example/evidence", "--tag", "probe",
+            "--source-sha", "a" * 40, "--run-id", "1", "--attempt", "1",
+            "--if-no-files-found", "warn", "--prepare-only", "--context", str(context),
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(argv), 0)
+        manifest = json.loads((context / "transport.json").read_text())
+        self.assertEqual([entry["path"] for entry in manifest["entries"]], ["ci-job-results.json"])
+
+    def test_put_missing_policy_applies_to_total_selection(self):
+        self.make_tree({"ci-all/build-inputs/big.tar": b"tar"})
+        base = [
+            "put", "--name", "ci-acceptance", "--path", str(self.root / "ci-all"),
+            "--exclude", "build-inputs/**", "--image", "ghcr.io/example/evidence",
+            "--tag", "probe", "--source-sha", "a" * 40, "--run-id", "1", "--attempt", "1",
+            "--prepare-only", "--context", str(self.root / "context"),
+        ]
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(base), 2)
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(base + ["--if-no-files-found", "warn"]), 0)
+
+    def test_put_writes_github_output(self):
+        self.make_tree({"coverage.out": b"mode: set"})
+        output_file = self.root / "github-output"
+        argv = [
+            "put", "--name", "coverage-unit", "--path", str(self.root / "coverage.out"),
+            "--image", "ghcr.io/example/evidence", "--tag", "r1-a1",
+            "--source-sha", "a" * 40, "--run-id", "1", "--attempt", "1",
+            "--prepare-only", "--context", str(self.root / "context"),
+            "--github-output", str(output_file),
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(argv), 0)
+        values = dict(line.split("=", 1) for line in output_file.read_text().splitlines())
+        self.assertEqual(values["status"], "prepared")
+        self.assertEqual(values["files"], "1")
+
+    def staged_images(self, names):
+        payloads = []
+        for name in names:
+            payload = Path(tempfile.mkdtemp(dir=self.directory.name))
+            (payload / f"{name}.bin").write_bytes(name.encode())
+            entries = [{
+                "path": f"{name}.bin", "mode": 420, "size": len(name),
+                "sha256": transport.hashlib.sha256(name.encode()).hexdigest(),
+            }]
+            manifest = {
+                "schemaVersion": 1, "name": name, "sourceSHA": "a" * 40,
+                "runID": "40120832170", "runAttempt": "1", "entries": entries,
+                "bundleSHA256": transport.bundle_hash(entries),
+            }
+            payloads.append((manifest, payload, Path(tempfile.mkdtemp(dir=self.directory.name))))
+        return payloads
+
+    def test_get_rejects_artifact_outside_declared_set(self):
+        staged = self.staged_images(["candidate-monolith", "candidate-manifest-" + "a" * 40])
+
+        def fake_extract(reference, local):
+            return staged.pop(0)
+
+        argv = [
+            "get", "--image", "r@sha256:" + "1" * 64, "--image", "r@sha256:" + "2" * 64,
+            "--dest", str(self.root / "dest"), "--merge", "--require-digest-refs",
+            "--expect-sha", "a" * 40, "--expect-run", "40120832170",
+            "--expect-names", "candidate-monolith",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((self.root / "dest" / "candidate-monolith.bin").exists())
+
+    def test_get_allows_declared_extra_and_bounds_attempt(self):
+        staged = self.staged_images(["candidate-monolith", "candidate-manifest-" + "a" * 40])
+
+        def fake_extract(reference, local):
+            return staged.pop(0)
+
+        argv = [
+            "get", "--image", "r@sha256:" + "1" * 64, "--image", "r@sha256:" + "2" * 64,
+            "--dest", str(self.root / "dest"), "--merge", "--require-digest-refs",
+            "--expect-sha", "a" * 40, "--expect-run", "40120832170",
+            "--expect-names", "candidate-monolith",
+            "--allow-extra-names", "candidate-manifest-" + "a" * 40,
+            "--max-attempt", "2",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(transport.main(argv), 0)
+        self.assertTrue((self.root / "dest" / "candidate-monolith.bin").is_file())
+        self.assertTrue((self.root / "dest" / ("candidate-manifest-" + "a" * 40 + ".bin")).is_file())
+
+    def test_get_rejects_attempt_above_bound(self):
+        staged = self.staged_images(["candidate-monolith"])
+
+        def fake_extract(reference, local):
+            return staged.pop(0)
+
+        argv = [
+            "get", "--image", "r@sha256:" + "1" * 64, "--dest", str(self.root / "dest"),
+            "--expect-sha", "a" * 40, "--expect-run", "40120832170", "--max-attempt", "0",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+
+    def test_get_requires_digest_pinned_references(self):
+        argv = [
+            "get", "--image", "ghcr.io/example/evidence:r1-a1", "--dest", str(self.root / "dest"),
+            "--require-digest-refs",
+        ]
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+
+    def test_get_verifies_every_artifact_before_writing(self):
+        staged = self.staged_images(["candidate-monolith", "candidate-transcoder"])
+        staged[1][0]["entries"][0]["sha256"] = "0" * 64
+        staged[1][0]["bundleSHA256"] = transport.bundle_hash(staged[1][0]["entries"])
+
+        def fake_extract(reference, local):
+            return staged.pop(0)
+
+        argv = [
+            "get", "--image", "r@sha256:" + "1" * 64, "--image", "r@sha256:" + "2" * 64,
+            "--dest", str(self.root / "dest"), "--merge",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((self.root / "dest" / "candidate-monolith.bin").exists())
+
     def test_copy_payload_rejects_collision(self):
         first = Path(tempfile.mkdtemp(dir=self.directory.name))
         second = Path(tempfile.mkdtemp(dir=self.directory.name))

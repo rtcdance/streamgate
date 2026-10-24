@@ -58,6 +58,48 @@ def validate_name(name):
     return name
 
 
+def _glob_regex(pattern):
+    # Artifact globbing: '*' stays inside one path segment, '**' crosses
+    # directories, and '**/' also matches zero directories. Exclusions are
+    # matched against the layout-relative path, exactly like the negated
+    # patterns actions/upload-artifact accepts.
+    pieces = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            pieces.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            pieces.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            pieces.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            pieces.append("[^/]")
+            index += 1
+        else:
+            pieces.append(re.escape(pattern[index]))
+            index += 1
+    return re.compile("^" + "".join(pieces) + "$")
+
+
+def is_excluded(relative, patterns):
+    return any(pattern.match(relative) for pattern in patterns)
+
+
+def is_hidden(relative):
+    return any(part.startswith(".") for part in relative.split("/"))
+
+
+def write_github_output(path, values):
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as stream:
+        for key, value in values.items():
+            stream.write(f"{key}={value}\n")
+
+
 def _file_entry(full, root):
     info = os.lstat(full)
     if stat.S_ISLNK(info.st_mode):
@@ -85,16 +127,21 @@ def _walk_files(directory):
             yield os.path.join(current, name)
 
 
-def collect_sources(specs):
+def collect_selection(specs, excludes=(), include_hidden=False):
     # The matched set is the authorization boundary; the layout root only
-    # decides relative names and never widens what gets packaged.
+    # decides relative names and never widens what gets packaged. Exclusions and
+    # the hidden-file default mirror actions/upload-artifact, and an unmatched
+    # spec is not fatal on its own: the missing-files policy applies to the
+    # total selection, exactly like the action.
     matched = []
+    selection = []
     for spec in specs:
         hits = sorted(glob.glob(spec, recursive=True))
-        if not hits:
-            raise FileNotFoundError("no files matched: " + ", ".join(specs))
+        selection.append({"spec": spec, "matches": len(hits)})
         matched.extend(os.path.abspath(hit) for hit in hits)
     unique = sorted(set(matched))
+    if not unique:
+        raise FileNotFoundError("no files matched: " + ", ".join(specs))
     for path in unique:
         if os.path.islink(path):
             raise TransportError(f"symlink is not allowed: {path}")
@@ -106,15 +153,38 @@ def collect_sources(specs):
         layout_root = os.path.commonpath(unique)
         if os.path.isfile(layout_root):
             layout_root = os.path.dirname(layout_root)
+    patterns = [_glob_regex(pattern) for pattern in excludes]
     entries = {}
+    excluded = 0
+    hidden = 0
     for path in unique:
         files = _walk_files(path) if os.path.isdir(path) else [path]
         for full in files:
+            # Filter before hashing: excluded bytes are never read.
+            relative = os.path.relpath(full, layout_root).replace(os.sep, "/")
+            validate_entry_path(relative)
+            if is_excluded(relative, patterns):
+                excluded += 1
+                continue
+            if not include_hidden and is_hidden(relative):
+                hidden += 1
+                continue
             entry = _file_entry(full, layout_root)
             entries[entry["path"]] = entry
     if not entries:
         raise FileNotFoundError("no regular files matched: " + ", ".join(specs))
-    return layout_root, [entries[key] for key in sorted(entries)]
+    report = {
+        "specs": selection,
+        "excluded": excluded,
+        "hiddenExcluded": hidden,
+        "includeHidden": include_hidden,
+    }
+    return layout_root, [entries[key] for key in sorted(entries)], report
+
+
+def collect_sources(specs):
+    root, entries, _ = collect_selection(specs)
+    return root, entries
 
 
 def collect_entries(root):
@@ -173,7 +243,7 @@ def push_image(context, image, tag, source_url, sha, name, bundle):
     return reference, digest
 
 
-def verify_manifest(manifest, expect_name, expect_sha, expect_run, expect_attempt):
+def verify_manifest(manifest, expect_name, expect_sha, expect_run, expect_attempt, max_attempt=None):
     if manifest.get("schemaVersion") != SCHEMA:
         raise TransportError("unsupported transport schema")
     validate_name(manifest.get("name"))
@@ -185,6 +255,13 @@ def verify_manifest(manifest, expect_name, expect_sha, expect_run, expect_attemp
         raise TransportError("producer run mismatch")
     if expect_attempt is not None and str(manifest.get("runAttempt")) != str(expect_attempt):
         raise TransportError("producer attempt mismatch")
+    if max_attempt is not None:
+        # A failed-job rerun may consume a producer that succeeded in an
+        # earlier attempt of the same run; the producer's real attempt is
+        # preserved and only bounded, never overwritten by the consumer's.
+        attempt = str(manifest.get("runAttempt"))
+        if not re.fullmatch(r"[1-9][0-9]*", attempt) or int(attempt) > int(max_attempt):
+            raise TransportError(f"producer attempt {attempt} is not within 1..{max_attempt}")
     entries = manifest.get("entries")
     if not isinstance(entries, list) or not entries:
         raise TransportError("manifest has no entries")
@@ -362,12 +439,15 @@ def copy_payload(source, destination=None, root_descriptor=None, subpath=""):
 
 def command_put(args):
     try:
-        root, entries = collect_sources(args.path)
+        root, entries, selection = collect_selection(
+            args.path, excludes=args.exclude, include_hidden=args.include_hidden
+        )
     except FileNotFoundError as error:
         if args.if_no_files_found == "error":
             raise TransportError(str(error))
         if args.if_no_files_found == "warn":
             print(f"evidence transport: {error}", file=sys.stderr)
+        write_github_output(args.github_output, {"status": "skipped", "digest": "", "tag": "", "files": "0"})
         print(json.dumps({"status": "skipped", "reason": str(error)}))
         return 0
     manifest = {
@@ -380,6 +460,7 @@ def command_put(args):
         "job": args.job,
         "entries": entries,
         "bundleSHA256": bundle_hash(entries),
+        "selection": selection,
     }
     context = Path(args.context or tempfile.mkdtemp(prefix="sg-evidence-context-"))
     if context.exists() and any(context.iterdir()):
@@ -395,9 +476,12 @@ def command_put(args):
         "entries": len(entries),
         "bytes": sum(entry["size"] for entry in entries),
         "context": str(context),
+        "selection": selection,
     }
     if args.prepare_only:
         result["status"] = "prepared"
+        write_github_output(args.github_output, {"status": "prepared", "digest": "", "tag": args.tag,
+                                                 "files": str(len(entries)), "bytes": str(result["bytes"])})
         print(json.dumps(result, sort_keys=True))
         return 0
     reference = f"{args.image}:{args.tag}"
@@ -410,44 +494,92 @@ def command_put(args):
             context, args.image, args.tag, args.source_url, args.source_sha, args.name, manifest["bundleSHA256"]
         )
         result.update({"image": reference, "digest": digest, "status": "pushed"})
+    write_github_output(args.github_output, {
+        "status": result["status"],
+        "digest": result.get("digest") or "",
+        "image": reference,
+        "tag": args.tag,
+        "files": str(len(entries)),
+        "bytes": str(result["bytes"]),
+    })
     print(json.dumps(result, sort_keys=True))
     return 0
+
+
+def split_names(value):
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def command_get(args):
     destination = Path(args.dest)
     if destination.exists() and any(destination.iterdir()) and not args.merge:
         raise TransportError(f"destination is not empty: {destination}")
-    # Anchor the declared root once; every artifact target is created below this
-    # descriptor with O_NOFOLLOW, so a symlinked --dest can never be re-trusted.
-    root_descriptor = ensure_safe_directory(destination)
-    digests = []
-    restored = 0
+    if args.require_digest_refs:
+        for reference in args.image:
+            if "@sha256:" not in reference or not DIGEST_RE.match(reference.rsplit("@", 1)[-1]):
+                raise TransportError(f"image reference is not digest-pinned: {reference}")
+    expected_names = split_names(args.expect_names)
+    allowed_extra = split_names(args.allow_extra_names)
+    for name in expected_names + allowed_extra:
+        validate_name(name)
+    # Phase 1: pull, verify and stage EVERY artifact before writing anything, so
+    # a wrong fan-in binding cannot leave a half-restored tree behind.
+    staged = []
     try:
         for reference in args.image:
             manifest, payload, work = extract(reference, args.local)
-            try:
-                entries = verify_manifest(
-                    manifest, args.expect_name, args.expect_sha, args.expect_run, args.expect_attempt
-                )
-                verify_tree(payload, entries)
-                name = validate_name(manifest["name"])
-                subpath = "" if (args.merge or len(args.image) == 1) else name
-                copy_payload(payload, root_descriptor=root_descriptor, subpath=subpath)
-                restored += len(entries)
+            staged.append({"manifest": manifest, "payload": payload, "work": work, "reference": reference})
+            entries = verify_manifest(
+                manifest, args.expect_name, args.expect_sha, args.expect_run,
+                args.expect_attempt, max_attempt=args.max_attempt,
+            )
+            verify_tree(payload, entries)
+            staged[-1]["entries"] = entries
+            staged[-1]["digest"] = resolve_digest(reference, args.local)
+        names = [validate_name(item["manifest"]["name"]) for item in staged]
+        if len(set(names)) != len(names):
+            raise TransportError(f"duplicate artifact names: {sorted(names)}")
+        if expected_names:
+            missing = sorted(set(expected_names) - set(names))
+            if missing:
+                raise TransportError(f"missing expected artifacts: {missing}")
+            unexpected = sorted(set(names) - set(expected_names) - set(allowed_extra))
+            if unexpected:
+                raise TransportError(f"artifacts outside the declared set: {unexpected}")
+        # Phase 2: anchor the declared root once; every artifact target is
+        # created below this descriptor with O_NOFOLLOW, so a symlinked --dest
+        # can never be re-trusted.
+        root_descriptor = ensure_safe_directory(destination)
+        digests = []
+        restored = 0
+        try:
+            for item in staged:
+                manifest = item["manifest"]
+                subpath = "" if (args.merge or len(staged) == 1) else manifest["name"]
+                copy_payload(item["payload"], root_descriptor=root_descriptor, subpath=subpath)
+                restored += len(item["entries"])
                 digests.append({
                     "name": manifest["name"],
-                    "image": reference,
-                    "digest": resolve_digest(reference, args.local),
+                    "image": item["reference"],
+                    "digest": item["digest"],
                     "sourceSHA": manifest["sourceSHA"],
                     "runID": manifest["runID"],
                     "runAttempt": manifest["runAttempt"],
                     "bundleSHA256": manifest["bundleSHA256"],
                 })
-            finally:
-                shutil.rmtree(work, ignore_errors=True)
+        finally:
+            os.close(root_descriptor)
     finally:
-        os.close(root_descriptor)
+        for item in staged:
+            shutil.rmtree(item["work"], ignore_errors=True)
+    write_github_output(args.github_output, {
+        "status": "restored",
+        "files": str(restored),
+        "names": ",".join(item["name"] for item in digests),
+        "attempts": ",".join(item["runAttempt"] for item in digests),
+    })
     print(json.dumps({"status": "restored", "files": restored, "artifacts": digests}, sort_keys=True))
     return 0
 
@@ -467,6 +599,9 @@ def build_parser():
     put.add_argument("--job", default="")
     put.add_argument("--source-url", default="https://github.com/rtcdance/streamgate")
     put.add_argument("--if-no-files-found", choices=["ignore", "warn", "error"], default="error")
+    put.add_argument("--exclude", action="append", default=[])
+    put.add_argument("--include-hidden", action="store_true")
+    put.add_argument("--github-output")
     put.add_argument("--context")
     put.add_argument("--prepare-only", action="store_true")
     put.add_argument("--no-push", action="store_true")
@@ -480,6 +615,11 @@ def build_parser():
     get.add_argument("--expect-sha")
     get.add_argument("--expect-run")
     get.add_argument("--expect-attempt")
+    get.add_argument("--max-attempt")
+    get.add_argument("--expect-names", help="comma-separated names every restore must contain")
+    get.add_argument("--allow-extra-names", help="comma-separated names the restore may also contain")
+    get.add_argument("--require-digest-refs", action="store_true")
+    get.add_argument("--github-output")
     get.set_defaults(func=command_get)
     return parser
 
