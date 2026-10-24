@@ -147,12 +147,11 @@ jobs:
           )
           expected=$(python3 -c 'import json;print(json.load(open("restored/meta/monolith.json"))["imageID"])')
           [ "$loaded" = "$expected" ]
-          docker tag "$loaded" streamgate-monolith:restored-gate
           echo "RESTORED_IMAGE_ID_OK id=$loaded"
       - name: Scan the restored image (same blocking rule as build.yml)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          image-ref: streamgate-monolith:restored-gate
+          input: restored/candidate-monolith.tar
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
