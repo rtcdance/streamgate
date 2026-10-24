@@ -29,7 +29,7 @@ fi
 if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
   export VERIFY_GO_CACHE="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
   mkdir -p "$VERIFY_GO_CACHE" || { echo "cannot create Go build cache: $VERIFY_GO_CACHE" >&2; exit 1; }
-  controller_cache_args=(-v "${VERIFY_GO_CACHE}:/gocache" -e GOCACHE=/gocache)
+  controller_cache_args+=(-v "${VERIFY_GO_CACHE}:/gocache" -e GOCACHE=/gocache)
 fi
 export VERIFY_IMAGE="${VERIFY_IMAGE:-${VERIFY_PROJECT}-tools:local}"
 export VERIFY_CONTROLLER="${VERIFY_PROJECT}-controller"
