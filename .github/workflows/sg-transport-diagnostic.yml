@@ -1,0 +1,88 @@
+name: Transport diagnostic (bounded, never merged)
+
+# Proves the Linux -> Mac evidence transport end to end through the real
+# composite wrappers: selection (exclusions, hidden files), registry push,
+# run/attempt binding, digest pinning and byte-exact restore.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish fixture from the Linux runner
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
+    outputs:
+      fixture_sha: ${{ steps.fixture.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build the fixture
+        id: fixture
+        run: |
+          set -euo pipefail
+          rm -rf .verify-artifacts/diag
+          mkdir -p .verify-artifacts/diag/run-1/sub .verify-artifacts/diag/build-inputs .verify-artifacts/diag/.private
+          head -c 1048576 /dev/urandom > .verify-artifacts/diag/run-1/candidate.bin
+          printf '{"k":"v"}' > .verify-artifacts/diag/run-1/sub/meta.json
+          printf 'hidden-evidence' > .verify-artifacts/diag/run-1/.hidden.txt
+          printf 'excluded-input' > .verify-artifacts/diag/build-inputs/candidate.tar
+          printf 'excluded-private' > .verify-artifacts/diag/.private/key
+          sha="$(sha256sum .verify-artifacts/diag/run-1/candidate.bin | awk '{print $1}')"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Transport the fixture
+        id: upload
+        uses: ./.github/actions/evidence-upload
+        with:
+          name: sg-transport-diagnostic
+          path: .verify-artifacts/diag/
+          exclude: |
+            build-inputs/**
+            .private/**
+          include-hidden-files: "true"
+          if-no-files-found: error
+          token: ${{ github.token }}
+
+      - name: Report the transported identity
+        run: |
+          set -euo pipefail
+          echo "backend=${{ steps.upload.outputs.backend }}"
+          echo "digest=${{ steps.upload.outputs.digest }}"
+          echo "tag=${{ steps.upload.outputs.tag }}"
+          [ "${{ steps.upload.outputs.backend }}" = registry ]
+          [ -n "${{ steps.upload.outputs.digest }}" ]
+
+  restore:
+    name: Restore and verify on the Mac runner
+    needs: publish
+    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'macos-latest' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Restore the fixture
+        id: download
+        uses: ./.github/actions/evidence-download
+        with:
+          names: sg-transport-diagnostic
+          path: ${{ github.workspace }}/restored
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
+
+      - name: Verify bytes and selection
+        env:
+          EXPECTED_SHA: ${{ needs.publish.outputs.fixture_sha }}
+        run: |
+          set -euo pipefail
+          actual="$(shasum -a 256 restored/run-1/candidate.bin | awk '{print $1}')"
+          [ "$actual" = "$EXPECTED_SHA" ]
+          [ -f restored/run-1/sub/meta.json ]
+          [ -f restored/run-1/.hidden.txt ]
+          [ ! -e restored/build-inputs ]
+          [ ! -e restored/.private ]
+          echo "TRANSPORT_DIAGNOSTIC_OK sha=$actual files=${{ steps.download.outputs.files }} names=${{ steps.download.outputs.names }}"
