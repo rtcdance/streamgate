@@ -1,0 +1,80 @@
+name: Linux Runner Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [sg/linux-probe-20261025]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux runner (services, amd64, artifact)
+    runs-on: streamgate-linux
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: probe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 24
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - name: Report platform and daemon
+        run: |
+          uname -a
+          docker version --format 'server={{.Server.Os}}/{{.Server.Arch}} {{.Server.Version}}'
+
+      - name: Reach service containers on localhost
+        run: |
+          python3 - <<'PY'
+          import socket
+          for port in (5432, 6379):
+              socket.create_connection(("127.0.0.1", port), 10).close()
+              print("connected", port)
+          PY
+
+      - name: Build for linux/amd64 and record identity
+        run: |
+          docker build --platform linux/amd64 -t probe-tiny - <<'EOF'
+          FROM alpine:3.21
+          RUN echo ok > /ok
+          EOF
+          docker image inspect probe-tiny --format '{{.Id}}' > image-id.txt
+          docker save -o probe-tiny.tar probe-tiny
+          sha256sum probe-tiny.tar | cut -d' ' -f1 > expected.txt
+          cp image-id.txt expected.txt /tmp/
+          echo "image=$(cat image-id.txt)"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-probe-artifact
+          path: |
+            image-id.txt
+            expected.txt
+          retention-days: 1
+
+  mac:
+    name: Mac downloads the Linux artifact
+    needs: linux
+    runs-on: streamgate-acceptance
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-probe-artifact
+          path: dl
+      - name: Verify the round trip
+        run: |
+          set -euo pipefail
+          cat dl/image-id.txt
+          test -s dl/expected.txt
+          echo "LINUX_ARTIFACT_ROUNDTRIP_OK sha=$(cat dl/image-id.txt)"
