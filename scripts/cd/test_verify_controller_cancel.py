@@ -10,7 +10,7 @@ import unittest
 
 
 class ControllerCancellationTests(unittest.TestCase):
-    def test_mid_run_script_rewrite_cannot_change_failed_controller_exit(self):
+    def run_controller_fixture(self, rewrite=True, created=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scripts/cd").mkdir(parents=True)
@@ -25,24 +25,44 @@ class ControllerCancellationTests(unittest.TestCase):
 import os, sys
 from pathlib import Path
 args = sys.argv[1:]
-if args[0] == "build":
+if args[0] == "build" and os.environ["FAKE_REWRITE"] == "1":
     # In-place rewriting reproduces Bash's late-read vulnerability; replacing
     # the inode would leave its existing descriptor pointing at the old file.
     Path(os.environ["FAKE_ENTRY"]).write_text("exit 0\\n" * 20000)
 elif args[:2] == ["image", "inspect"]: print("sha256:" + "1" * 64)
 elif args[:2] == ["context", "inspect"]: print("unix:///tmp/fake.sock")
 elif args[0] == "inspect":
-    print("7" if "ExitCode" in " ".join(args) else "exited")
-elif args[0] == "logs": print("stage failed with exit 7")
+    if "ExitCode" in " ".join(args): print("7")
+    else:
+        counter = Path(os.environ["FAKE_ENTRY"]).parent / "status-count"
+        count = int(counter.read_text()) + 1 if counter.exists() else 1
+        counter.write_text(str(count))
+        print("created" if os.environ["FAKE_CREATED"] == "1" and count == 1 else "exited")
+elif args[0] == "logs":
+    counter = Path(os.environ["FAKE_ENTRY"]).parent / "status-count"
+    if os.environ["FAKE_CREATED"] == "1" and counter.read_text() == "1":
+        print("premature follower ended on created container")
+    else: print("stage failed with exit 7")
 ''')
             fake.chmod(0o755)
             env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
-                       FAKE_ENTRY=str(entry), VERIFY_STAGE="media", VERIFY_FROZEN_SOURCE="0",
+                       FAKE_ENTRY=str(entry), FAKE_REWRITE=str(int(rewrite)), FAKE_CREATED=str(int(created)),
+                       VERIFY_STAGE="media", VERIFY_FROZEN_SOURCE="0",
                        VERIFY_PROJECT="own-snapshot-test", VERIFY_ARTIFACTS=str(root / "artifacts"))
             result = subprocess.run(["bash", str(entry)], env=env, capture_output=True, text=True, timeout=15)
-            self.assertEqual(result.returncode, 7, result.stderr)
-            self.assertIn("stage failed with exit 7", (root / "artifacts/controller.log").read_text())
-            self.assertNotIn("unexpected EOF", result.stderr)
+            return result, (root / "artifacts/controller.log").read_text()
+
+    def test_mid_run_script_rewrite_cannot_change_failed_controller_exit(self):
+        result, log = self.run_controller_fixture()
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertIn("stage failed with exit 7", log)
+        self.assertNotIn("unexpected EOF", result.stderr)
+
+    def test_created_controller_is_waited_for_before_following_logs(self):
+        result, log = self.run_controller_fixture(rewrite=False, created=True)
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertIn("stage failed with exit 7", log)
+        self.assertNotIn("premature follower", log)
 
     def test_terminal_stage_refuses_dirty_source_before_docker_or_freezing(self):
         with tempfile.TemporaryDirectory() as directory:

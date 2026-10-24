@@ -3225,3 +3225,12 @@ Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e58
 候选 / 基线 imageID 和 schema 记录在 release-compat/compatibility.json；整轮判断存 invocation.json，原始 command.exit 保持 0。运行结束后本轮容器 / 锁已清理。下一步只重验修复后的 release，不因这次失败立即重跑 all；兼容与故障门齐全后再冻结最终候选。
 
 Demo mint 最小业务修复：空 ABI 返回错误，合法编码的零余额仍有效。Docker 中真实 ethclient → HTTP RPC → ABI 路径回归覆盖空返回、截断、合法零与持有余额；旧实现空返回负例 exit=1，修复后 pkg/service 完整 race / -count=1 与 go vet 组合 exit=0，694 个顶层测试 / 种子组通过；2 个依赖链环境的 nonce 测试 SKIP，明确不算通过，后续 chain 门仍须验证。证据 sg-eff-mac-mint-20261024/{before,after}.{log,exit} 与 evidence.json。未修改 release 的 HTTP 500 故障断言，完整 release 复验待运行。
+
+
+### 8.23 Mac release 复验通过（2026-10-24）
+
+`sg-eff-mac-release2-20261024` 冻结 Q=`5ceb1f5d59741d8b434d536236aad061b9a5ebf8`，desktop-local / linux/amd64，原始外层 `command.exit=0`，完整 release **PASS WITH BOUNDARIES**：候选 77/77，旧 S=`3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 在新 schema 77/77，schema 前后 SHA256 一致（`fef6f368d56bf446c3fc5e1df368113a64470676dc7ceb1549360e9c105b424a`）；START / HEALTH / SMOKE 三类 B 故障与 A 恢复标记全部存在。错误 NFT 合约现实际返回 HTTP 500（empty ABI），未改故障判据。S 的本机新 schema 兼容资格得到当前证据；S 历史 unit / 六功能门仍按原 SHA 与已有日志解释，不补造历史退出。最终 C 的完整 all / 新鲜 reference / 48 场景与 CI 仍待验，不晋级发布。
+
+重新计算候选与 reference 归档 SHA256，与 manifest 一致；通过 Docker inspect 独立核对两侧三个镜像的 imageID、OCI revision、linux/amd64。候选 monolith imageID=`sha256:7da2138fb93c228a77f19e3ba9d5333ff8659f8660e225f5c03c8510a1734eee`；S monolith=`sha256:0370451eb76a819c7c09cb6676a2d328e8986cfc0d3d1e5c3f8c4ba273fa88e5`。完整身份、日志 hash、清理与边界在 `.verify-artifacts/sg-eff-mac-release2-20261024/release-evidence.json`；本轮结束后容器 / 卷 / 网络 / 锁为空，冻结 source 与 .private 已删除，保留编译 / 浏览器缓存。
+
+日志入口另补一项确定性竞态：Docker inspect 在 created 状态已能查到名字，而此时 logs -f 可立即返回，导致默认 controller.log 为空。已用独立 logs follower 保存本轮完整 controller-observed.log；各 stage 原始日志与退出均正常。新增动态回归在旧代码上确实丢失日志（created-before.exit=1）；新入口等待 running / exited / dead 再采集，controller 6/6＋shell 45/45 Docker 通过（created-after.exit=0），无效或超时状态仍拒绝。修复文件与已测 overlay 字节一致。本轮不因这个日志缺口再跑 release，最终 all 使用修复后的入口，并要求日志采集有效。

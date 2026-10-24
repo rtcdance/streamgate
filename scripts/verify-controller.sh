@@ -280,7 +280,9 @@ state="" tries=0
 # so its stderr is kept instead of discarded.
 while [ "$tries" -lt 60 ]; do
   state="$(docker inspect --format '{{.State.Status}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || state=""
-  [ -n "$state" ] && break
+  # Docker exposes the name while still created; logs -f can then exit before
+  # start and silently lose the entire run. Wait for an executable/terminal state.
+  case "$state" in running|exited|dead) break ;; *) state="" ;; esac
   # A real one-second tick. `read -t` on /dev/null returns at EOF immediately,
   # so it does NOT wait: the loop burned all its retries before the container was
   # even created and reported "did not start" while the controller was in fact
