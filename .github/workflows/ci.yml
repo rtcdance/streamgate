@@ -633,6 +633,11 @@ jobs:
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
       VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}
+      # R-01: the cold/hot and -count=1 replay regressions are recorded, so later
+      # runs reuse the toolchain-keyed compile cache. Test results still rerun.
+      VERIFY_SHARED_GOCACHE: "1"
+      GOMAXPROCS: "4"
+      GOFLAGS: "-p=4 -v"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

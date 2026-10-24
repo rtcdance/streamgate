@@ -58,15 +58,17 @@ export PLAYWRIGHT_BROWSERS_PATH="${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache
 # It stays off unless VERIFY_SHARED_GOCACHE=1 because GOCACHE also stores test
 # RESULTS: adopting it needs proof that a restored cache cannot replay an old
 # PASS (the -count=1 regression) and a cold/hot measurement on the same machine.
-# Until that evidence exists the final acceptance keeps the cold build, which
-# the plan requires. Enabling it is opt-in, never the default.
+# That evidence is recorded (TRANSITION_PLAN.md 8.20/8.28 R-01), so later
+# iterations opt in; the default stays cold for a clean baseline.
 SHARED_GOCACHE=0
 GO_CACHE_DIR=""
 if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
   SHARED_GOCACHE=1
   GO_CACHE_DIR="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
-  # This is a daemon-host path, created by the outer controller. In this
-  # container the same cache is mounted at /gocache, not at the host path.
+  # This is a daemon-host path; the outer controller creates it, and a direct
+  # CI invocation must not rely on the daemon creating a root-owned directory.
+  # In this container the same cache is mounted at /gocache, not at this path.
+  mkdir -p "$GO_CACHE_DIR" || { echo "cannot create Go build cache: $GO_CACHE_DIR" >&2; exit 1; }
 fi
 GO_CACHE_ARGS=()
 if [ "$SHARED_GOCACHE" = 1 ]; then
