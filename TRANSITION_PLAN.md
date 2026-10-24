@@ -2412,7 +2412,7 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 | EFF-03 编译复用 | 机制与接线已验证；显式启用 | 代表包 -count=1 冷 / 热 / 源码变异 / 清空缓存负控通过；controller / stage 的 Go 与浏览器缓存均已挂载。真实多轮阶段耗时已采集，存在候选 / 环境 / 代码变化，不能当受控速度比较 | 代表包约 9.89 倍不外推项目全套加速；阶段估算仅作定位，最终保留真实行为测试与冷构建退路 |
 | EFF-04 A 冻结与独占 | 已实现，当前入口的冻结与清理已实测 | `sg-eff-recovery-media-20261024` 冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa`，本次原始 command.exit=0；重新 hash 应用归档、核对三镜像 imageID / OCI revision、driver 快照与 Git tree 一致；结束后本轮容器 / 卷 / 网络 / 锁均为空，source 与 .private 已清理 | 这是两个指定 stage 的同次运行，不能替代九阶段 all。S=`3e5785e0` 的历史 unit / 六门仅为其定向观察，不补写缺失的旧外层退出 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
-| EFF-05 正式收口 | 已知缺口关闭，进入干净候选最终冻结准备 | caeb 九阶段实际检查已完成、48 场景与两侧 3 轮对比独立复核通过，但原始外层 exit=2，索引失败；严格 fuzz / marker / release 委托阶段修复已集成，a3a7df3d 的 ops 原始 exit=0，新标记路径 Docker 工具 87 PASS | 等待包含本计划的最终干净 C 完整 all / 新鲜 reference / 原始 exit=0 / 完整索引，以及同 SHA CI。未取得 CI 安装 / 注册 / push / 派发授权，不发布晋级 |
+| EFF-05 正式收口 | 已知缺口关闭，进入干净候选最终冻结准备 | caeb 九阶段实际检查已完成、48 场景与两侧 3 轮对比独立复核通过，但原始外层 exit=2，索引失败；严格 fuzz / marker / release 委托阶段修复已集成，a3a7df3d 的 ops 原始 exit=0，新标记路径 Docker 工具 87 PASS | 等待最终干净 C 的完整 all / 新鲜 reference / 原始 exit=0 / 完整索引及同 SHA CI；已确认 CI 工件路径问题待修。用户已委托按默认推荐自动决策，必要 runner / 变量 / 新分支 push / CI 按 §8.30 推进；证据未齐仍不发布晋级 |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
 
 **本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。按 §8.21 的 desktop-local 可继续正式 all / perf / release；下方仅保留修订前 native-linux 的拒绝历史，不是当前本机阻塞：
@@ -3353,3 +3353,136 @@ Codex 再从 5d87fe8b 导出独立只读源码，在上述固定 Docker 工具�
 **最后的执行交接：** 当前这批审计 / 协作 / 真实失败记录由 Codex 一次提交，和已集成代码一起形成干净最终冻结输入；精确提交 SHA 写入运行工件，不在提交内容中自引用。CodeBuddy 是唯一 Docker 终验执行者，收到干净 SHA 后执行新的 all（本轮 fresh reference、48 矩阵、schema、recovery、release、索引与原始退出），期间只写工件，不再次编辑冻结输入。M6 材料在启动前做轻量 snapshot/hash 预检；最终门仍在正式运行中产生。
 
 最终仍缺同 SHA CI / 注册或安装本机 runner / push 与 dispatch 的明确授权，不能据本地阶段结果宣称发布就绪。若新 all 成功，最后一次 SHA / run / digest 进入工件与最终答复，不为回写该次成功再制造一个待验候选；若失败保留原退出，按最小范围诊断，不盲目重启整链。
+
+
+### 8.28 本机 Mac 提效研究：成本模型、实施顺序与验证出口（2026-10-24）
+
+**研究结论：先消除完整 DAG 的无效重跑、跨容器重复编译和性能准备阶段的串行成本，再考虑架构迁移。** 本节只提出后续优化，不改变当前 `aa948e78eae9c782ecc5f3069c766198f42c9b68` / `sg-final-mac-20261024` 的代码、配置、命令、判据或冻结输入；不因新增研究文字重启该轮。没有 Linux 服务器不是本机验收阻塞，也不以购买服务器、升级机器或并行启动多套压测为前置。
+
+本节和 §8.25 的关系：§8.25 是执行审计；本节把已验证的缓存机制、当前运行成本、登录源码和 CodeBuddy 的独立挑战合成可执行优先级。**不在本次研究中修改业务或验收脚本**，以下拟新增能力均未实施。原始材料在 `.verify-artifacts/sg-collab-20261024/`：`efficiency-research.json`、`stage-time-observations.json`、`cache-observational-comparison.json`、`observer-regression.json`、`observer-terminal-regression.json`、`login-design-independent-review.json`、`ci-action-proposal.json`。文件时间只作诊断，Go 测试耗时取原始 `test2json` 的精确测试 `pass.Elapsed`；不把日志转换器给出的事件时间误当真实测试起止。
+
+#### 8.28.1 已知时间预算：为什么完整终验仍然要很久
+
+| 成本 | 当前证据 / 计算 | 能否作为已实现提效 |
+|---|---|---|
+| unit / chain / durability / ops 的跨容器编译 | all3 显式共享 GOCACHE，四份日志跨度合计 **1898.557s（31.64min）**；本轮不共享，合计 **3768.752s（62.81min）**，差 **1870.195s（31.17min）**。两轮 faults / media / recovery 耗时接近 | 不同 SHA / 时段 / 共享机负载，不能认定差值全部由缓存造成；源码可确认未挂载时每个新工具容器重新建立编译缓存。已有代表包冷 / 热 / 源变异负控见 §8.20 |
+| 正式性能预热＋采样 | 48 矩阵＋两侧各 3 个 comparison＋reference pool smoke 1 个＝**55 个实际负载用例**；每例 10s warmup＋30s sample，合计 **2200s（36min40s）** | 当前固定协议预算；完整终验不缩短、不删档位、不删轮次 |
+| 每个性能用例重新串行登录 | `Run → RunPhase` 每例重新真实登录。本轮验收脚本采用 1s 间隔（harness 直接调用默认 7s）：矩阵 `3×4×[(1−1)+(10−1)+(50−1)+(100−1)] = 1884s`；两侧比较 `6×(50−1) = 294s`，合计 **2178s（36.3min）** | 是当前代码安排的等待预算，不是已节省时间；尚不含真实 challenge / sign / login 请求耗时和初次 mint |
+| 性能负载代码的合计预算 | 上两项合计 **4378s（72min58s）**，另有 mint、两侧部署 / seed、冷缓存及故障屏障、监控 / 结果收集，和另外八阶段 | 不能承诺整个 all 几分钟完成。all3 的 55 个真实负载测试 `Elapsed` 合计 **4884.09s（81.40min）**，仅测试体就超过 1h20；这也不是完整 perf 阶段耗时 |
+| AI 等待与重试 | §8.25 的配额失败窗口、长阻塞等待、错报完成和重复 all；新一轮仍观察到“16/48 完成”随后纠正为 7/48 | 是控制与反馈问题；等待通常与 Docker 重叠，不再把它与测试时长相加成节省比例 |
+
+`GOCACHE=off` 是驱动日志中“**没有共享挂载**”的显示值，并非实际设置 Go 环境变量为 `off`；工具容器内仍有自己的默认缓存，只是容器删除后无法供下一阶段使用。
+
+#### 8.28.2 按收益和改动风险排序
+
+| 顺序 / ID | 实施项与准确位置 | 收益判断 | 验证出口 / 失败停止条件 |
+|---|---|---|---|
+| **1 / R-01** | **后续必要迭代显式启用已有共享编译缓存**；`scripts/verify-controller.sh` 的挂载、`scripts/verify-docker.sh:54–74,203–244` 的阶段传递已经实现。不默认执行冷构建；工具链 / 外部 C 库变化、缓存异常或专门冷路径核验时再冷跑 | 无业务改动；现有机制可立即使用，四阶段差值提供高优先级依据。不能许诺全项目 9.89 倍或固定省 31 分钟 | 所有行为 `go test` 保持 `-count=1`，race / build tags / 覆盖率不变；同 SHA、同工具链、同预算验证冷 / 热结果。复跑记录必须不同，源变异必须生效；失败恢复不共享模式，不反复清空别人的缓存 |
+| **2 / R-02** | **把早发现失败放到昂贵测试之前**：已有 shell / fuzz / gates / evidence 87 项 Docker 工具回归约 36.5s；对实际提交做 M6 snapshot/hash，核对 S 兼容性、配置和阶段父日志契约。迭代期按改动选择已有 `VERIFY_STAGE`，已知失败没闭合就不启动 all | 避免再支付一整条前置链；先运行会发现该缺陷的最小测试，比并行堆更多代理直接 | 首失败→最小复现→修复→受影响门四者可追溯；只修 wrapper 时先工具回归，auth / NFT / media 变化仍补真实相关 Docker 门。最终冻结 C 仍独立跑完整 all，不拼接历史 stage 结果 |
+| **3 / R-03** | **先确认认证入口上限，不直接增加登录并发**；`pkg/gateway/gateway.go:245–258` 先安装全局 limiter，`pkg/middleware/ratelimit.go:423–440` 此时取不到已认证钱包，key=ClientIP＋path。配置默认 60/min；`pkg/gateway/routes.go:139–144` 再装进程内 10/min 的 IP＋钱包 limiter（每例 API 重启会重置）；当前验收容器未见 rate_limiting 环境覆盖 | 单 loader IP 的 challenge、login 路径各受全局预算约束；当前约 1 login/s 接近持续上限。盲目 2/4 并发不保证相应倍数，可能产生 429；空窗口的有限突发可能更快，但取决于已有用量和窗口位置，尚无实验。维持平滑总 1/s 仅可重叠部分请求延迟 | 先记录实际配置、每例 loader IP、limiter key、窗口已有用量和 429 / retry-after；拟比较串行与受现有窗口预算约束的 2/4 并发，保留真实登录和失败即失败。不提高服务限额、不伪造客户端 IP，也不让未认证 X-Wallet-Address 替代全局 IP 防线；只有实测有收益且无错误才继续 |
+| **4 / R-04** | **拟新增单场景诊断入口**，复用现有 `run_scenario` / fixture / fault / result 校验，而非复制第二套判据。`VERIFY_STAGE=perf` 的候选模式仍是完整矩阵，不能称为廉价 smoke | 缩短定位 50-viewer 或单个 fault 错误的周期；不是缩短最终正式矩阵 | 诊断输出显式标为 diagnostic，拒绝被最终索引消费；从干净测试栈自动准备真实链 / 钱包 / 媒体，退出、cgroup、媒体 hash 继续保留。故障用例通过后才升级到正式 perf。**当前不存在可复制使用的新筛选参数** |
+| **5 / R-05** | **优先评审“每轮 100 个真实登录 session，供该轮 16 个矩阵用例使用”**，而非跨整个 stage 保存 JWT。下一 round 重新真实登录；两侧 comparison 仍各轮 fresh-login。先新增登录来源、时间、次数、pool/stack/session/epoch/expiry 证明与校验器，澄清 SG-07 允许的复用边界 | 当前矩阵间隔 1884s；若每轮完整真实登录 100 钱包，则间隔 3×99=297s，理论差 **1587s（26.45min）**。仅算间隔（每例 / 每轮首个登录无前置 gap），不是把请求数 1932→300 的差额直接按 1s 计收益；这不是实测收益，还未扣除有效性检查、重登或其它准备；当前终验不采用 | 当前实现每例 fresh-login，计划文字要求独立真实登录钱包、setup 失败终止该轮与每轮新能力，未单独定义 session 复用范围；不能据此默许改测量。先评审并版本化；任何来源 / 过期 / epoch / 撤销负例失败均恢复原模式。禁止延长 TTL、自签 token、复用 capability / NFT 结论或跨恢复周期使用 |
+| **6 / R-06** | **先试原生编译、保留 amd64 运行验收**，而非直接把整栈改 ARM。可研究独立原生 Docker Go builder 交叉编译现有 `CGO_ENABLED=0` 应用；完整原生 ARM 栈需先解决工具链与身份契约 | Docker 官方确认模拟执行对编译开销可能很大；本机无受控数据，**不报 2× / 10×**。当前 monolithic 工具镜像将 Go、Solc、Foundry 绑在一起，拆分有成本 | `Dockerfile.verify:98–101` 的 arm64 Solc checksum 为空，直接 `VERIFY_PLATFORM=linux/arm64` 会失败；还须核对固定镜像支持的平台、ABI / runtime-code hash、`-race` / CGO 和新平台证据。交叉编译只证明构建，不替代目标架构运行；本轮平台不变 |
+| **7 / R-07** | **CI 构建缓存单独优化**：`deploy/docker/Dockerfile.monolith:14` 有 `go build -a`，会强制重建；研究去除无必要的 `-a` 并加入按工具链隔离的 BuildKit Go cache mount。保持先拷贝 go.mod / go.sum 再 COPY 源码的顺序 | 作用于后续 CI 构建，不是当前 Docker all 的主要提速项；模块预下载、Playwright 缓存、loader 单次编译已存在，不能重复记成新收益 | 冷 / 热和源码变异负例、目标平台运行、镜像来源 / scan / archive 身份一致。BuildKit cache mount 仅覆盖 build，**不能替代 R-01 中 docker run 的缓存挂载**；缓存不作为可晋级镜像或 PASS 证据 |
+
+R-01 的缓存建议依据：Go 官方区分 build cache 与成功测试结果缓存，`-count=1` 显式禁用后者；Go 也说明外部 C 库变更不由普通构建缓存完整感知，所以需要绑定工具链与 C 库环境，不能绝对声称“永不 stale”。[Go 官方缓存与测试说明](https://pkg.go.dev/cmd/go#hdr-Build_and_test_caching)。R-06 依据：[Docker 官方多平台与交叉编译说明](https://docs.docker.com/build/building/multi-platform/)。R-07 依据：[Docker 官方缓存优化](https://docs.docker.com/build/cache/optimize/)。本次只引用原理，不升级现有锁定版本。
+
+#### 8.28.3 登录优化的安全与测量边界
+
+CodeBuddy 已通过 SG-COLLAB-20261024-10 做独立只读挑战，Codex 核对源码后保留这些结论：
+
+- `RunPhase` 可以接受已填 JWT 而不登录；现有 `wallet_pool_size / login_paced / logins_failed` 三个字段不能证明真实认证次数。复用模式必须显式版本化、给出计数和来源证明；不能利用这个盲区让旧校验器误通过。
+- access session 与 playback capability 分开；`config/config.yaml` 的 access JWT 默认 2h 是源码默认，**运行时以实际签发 exp 和有效配置为准**。Redis session 7 天也不代表 JWT 7 天有效。不能为了整轮测试延长有效期。
+- cold_cache 的 `nft_cache:*` 清除和进程缓存重置、6 秒屏障必须保留；warmup、fault、资源采样顺序不变。复用 session 不能提前获取或复用 NFT 结论 / 已签 capability；每轮新能力和过期 / 撤销规则不变。
+- pool 严格隔离 application image / candidate / run / stack、chain、钱包、session 及其 epoch、restore epoch、密钥身份和 audience。logout、session 缺失 / 后端不可读、epoch 变化、签名键不可用、过期时不能继续使用。真实凭据仅存 `.private`，日志仅写计数、脱敏身份和证明 hash。
+- 对协议 / 登录拓扑的修改，两侧都用**同一个新 harness，在本轮重新测量**，保留原安全基线 S；`--accept-harness` 或旧 reference cache 不能作为正式 all 的捷径。共享 Mac 上不要求两次随机 p95 完全相等，继续按既定 3 轮中位数和 ≤1.20 的门验证。
+
+`PERF_LOGIN_PACE=0` **不是现有提速开关**：RunPhase 将 0 回退为 7s 默认；正值小于 1s 会被夹到 1s。不能靠改一个数绕过节流 / 证明。R-03 不能通过把窗口平均上限理解成任意时间段的硬速率，也不能把允许突发理解成可无限并发。每例会创建 loader 容器，实际 IP 是否复用需记录，不能假定所有 row 共享一个历史 bucket；Redis 全局 limiter 在 IP 复用且窗口未过期时可能承接旧用量，也不能默认它是空桶。先诊断有界调度的真实收益，再决定是否值得评审 R-05。
+
+#### 8.28.4 AI 协作与进度控制
+
+当前已落地但**只位于忽略工件区**的低风险改进：`observe_run.py` / `watch_progress.py` 每 30 秒读预期路径和单行协议、写小 JSON；区分 ABSENT / INCOMPLETE_JSON / INVALID_ROW / ROW_PROTOCOL_PASS，排除 setup / execution 文件。夹具验证“1/10 完成、50 未写完、100 未开始”只报 **2/4**；JSON 原子替换避免读半文件。运行结束先读取独立 shell 的原始 command.exit，即使冻结 source 已清理也能更新退出；原始 0 只标 `ZERO_EXIT_NEEDS_INDEPENDENT_ACCEPTANCE`，不是自动宣布验收通过。此观察器未修改 C，也未替代 Docker 正式门。
+
+后续可把这套机制纳入现有 CD 工具，仍需其正负例通过。CodeBuddy 已实际改为读取观察器、单次约 55 秒等待；不是只口头约定。停止让模型反复计算文件数量或重读完整日志；每个失败只传场景、首失败片段、精确 SHA、原始退出与工件路径。
+
+配额熔断仍是**待实现 / 待确认产品支持**的策略：`quota_balance_exhausted` 或明确 `retryable=false` 不继续请求模型；网络错误最多 2 次有界退避。不能虚构 CodeBuddy 配置键；若没有受支持接口，只做独立通知 / 状态记录，不通过杀进程或取消 Docker 来代替模型熔断。异步执行者只有一个；Codex 做诊断、方案与独立复核，CodeBuddy 集成并运行，交叉改文件先交接，不在这台 Mac 上增加并行编译、FFmpeg 或第二套终验负载。
+
+#### 8.28.5 执行顺序、观测与回退
+
+1. **当前轮**继续由 CodeBuddy 跑完 aa948e78；本次只做源码 / 旧工件分析，不中途换缓存、改登录或切平台。结果按原 C 保存，研究文字不改变其身份，不以旧 all3 的局部 PASS 代替。
+2. **下一次确有必要的迭代**，先 R-02 的廉价检查与受影响门，并用 R-01 现成显式缓存；不要为了测提效额外重跑整套 all。示例仅用于当前轮结束后的独立迭代：
+
+   ```bash
+   next_run="sg-iter-$(date +%Y%m%d-%H%M%S)"
+   VERIFY_PROJECT="$next_run" \
+   VERIFY_ARTIFACTS="$PWD/.verify-artifacts/$next_run" \
+   VERIFY_ENVIRONMENT_PROFILE=desktop-local \
+   VERIFY_SHARED_GOCACHE=1 \
+   VERIFY_GO_CACHE="$PWD/.verify-artifacts/go-build-cache/linux-amd64" \
+   VERIFY_GOPROXY=https://goproxy.cn,direct \
+   GOMAXPROCS=4 GOFLAGS='-p=4 -v' \
+   make verify-docker VERIFY_STAGE=unit
+   ```
+
+   上例仅示范 **unit 受影响时**的现有命令；若改动只影响媒体编排，可选已有 `VERIFY_STAGE=media,recovery`，它们主要由 controller 驱动，不能据此衡量 Go 阶段缓存收益。不要把 `-count=1` 塞进全局 GOFLAGS（会传给 go build）；保持行为测试的对应参数。按真实改动选门，不盲目复制同一组合。
+3. 需要改登录时，先核对 R-03 的实际限流并在独立诊断里测有界调度；若收益不足，再评审 R-05 的每轮 pool。两者均改变 harness，须版本化且两侧重测；本轮保留原实现。记录 `mint / login / warmup / fault-barrier / sample / drain / collect` 各阶段 monotonic duration，以及真实登录次数、RPC 压力、成功 / 错误 / aborted、媒体 hash 和资源。独立阶段计时目前**拟新增**，不伪称已有；旧文件时间与 test.Elapsed 只是当前定位手段。
+4. 每项实际优化必须有同机同 SHA / 同镜像身份 / 同工具链 / 同预算的前后比较、原始退出、失败负例与回退。共享机若负载不同就记录限制；不把代表包 9.89 倍、两轮 31.17min 差值和理论 36.3min 相加成保证收益。只在必要新候选上补受影响门与最终完整 all / 同 SHA CI。
+5. CI 的只读准备已完成：repo runner=0，两个 acceptance repo 变量未设，aa948e78 CI=0。具体动作与回退见 `ci-action-proposal.json`；`ci.yml` 已用 workflow_call 包含 test.yml，不再重复派发两套测试。安装 / 注册 Mac runner、改变量、push 新分支、派发和 GHCR 写入仍等用户明确授权；当前研究不执行这些外部动作。
+
+**回退边界：** 缓存异常恢复现有不共享模式；登录调度诊断保留现有全局预算；JWT 复用任何来源 / TTL / epoch 负例失败就恢复每用例真实登录；原生 builder 有差异则保留当前固定 amd64 构建路径；观察器异常回到原日志＋raw exit，不碰运行中的测试。研究完成不代表优化已落地，更不代表当前 C 已通过完整终验。
+
+
+### 8.29 多 AI 并行：任务隔离、CI 前置与减少重复终验（2026-10-24）
+
+**建议：当前先采用 CodeBuddy＋Codex＋一个专项执行者；Trae / ZCode 按任务加入，不同时接“完成整份计划”的无限大目标。** 需要并行的是独立修复、审查和证据核对。当前单 Mac 的性能 / 故障 / release 仍由一个 Docker 执行者串行负责；worktree 只隔离文件，不隔离 Docker daemon、端口、内存或压测环境。
+
+#### 8.29.1 本机可用性与已经发生的协作
+
+本机只读确认：ZCode **3.16.3**、Trae CN **3.4.4** 已安装，查询时均未运行，PATH 中未发现 zcode / trae 命令；没有宣称已接入其自动派发接口，也没有为此安装插件、升级应用或启动新 GUI。Mac 物理内存 16 GiB，swap 使用约 8.6 GiB 是当时系统快照，不归因于任何单个 AI。性能窗口内不增加两个 IDE 的索引和本地任务负载。
+
+官方文档确认 TRAE 有多任务与 worktree，ZCode 有按工作区管理任务 / 打开文件夹入口；具体已安装版本的入口与登录可用性仍需实际启动时核对。[TRAE 工作树](https://docs.trae.cn/ide_worktree?lang=zh)、[ZCode 任务与文件管理](https://zcode.z.ai/cn/docs/task-management)。TRAE 当前官方流程可能自动创建分支，不能直接在共享主目录点击自动建树或自动合并；应先明确基线与独立目录，禁止变动共享主线。
+
+本轮已经实际委派一个**Codex 轻量子代理**完成有限的 CI 源码预审；这不是 ZCode / Trae 已接单。预审找到一个确认阻塞，并由主代理最小复现：
+
+- `scripts/cd/import_ci_candidate.py:53` 把归档写成 Mac 的绝对路径；acceptance 可在 Mac，而 `.github/workflows/ci.yml:732` 的 evidence 固定 Ubuntu。工件下载至 Ubuntu 新目录后，`summarize_ci_evidence.py:47` 调用 `assert_candidate_evidence.py:29–35` 的原路径检查，报 **candidate archive escapes this run's directory**。
+- 证据 `parallel-ci-review.json`、`ci-portability-reproduction.json`：复现调用真实 validator、使用临时小夹具，结束自动删除；它只证明工具路径故障，不是 Docker / CI 验收。没有修改当前候选代码、原始运行日志或通过状态。
+- 修复须从生产者开始采用可携带路径、消费者以 run root 解析，继续验证路径边界、hash 和镜像 / SHA。不能下载后直接改 candidate.json（会破坏已有 hash 绑定），也不能删除目录限制。必须补完整工件从 A 搬到 B 后调用真实 summary 的回归，并检查其它实际消费的绝对路径。
+
+#### 8.29.2 推荐分工与可交付任务
+
+| 执行者 | 独立任务 | 文件 / 输出边界 | 停止条件 |
+|---|---|---|---|
+| **CodeBuddy** | 当前 aa948e78 的 Docker all、真实失败诊断；后续统一审查集成补丁 | 独占本轮 project / 数据 / 原始退出；唯一主树代码集成者 | 跑到原始退出，保存真实成功或首失败；不因为其它代理写研究文档而重启，不在未闭合缺陷时反复启动 all |
+| **Codex** | DAG / 身份 / 证据独立核验、任务切分、计划维护 | 唯一写 TRANSITION_PLAN.md；复核其它 AI 的结论，不承担第二套终验 | 每条发现需源码或负例；不把外部 AI 未派发写成已完成，不为追求并行新增无关功能 |
+| **ZCode（拟）** | **Z-CI-01：在独立 worktree 修复已确认的工件搬迁问题**，交付补丁及回归 | 只允许相关 CD manifest / import / validation / summary 与对应测试；不碰 pkg、合约、配置、简历或主计划 | 搬迁正例及路径逃逸 / 篡改负例齐全，输出 patch＋原始命令 / exit；交 CodeBuddy 集成，自己不 merge / push / 跑 all |
+| **Trae（可选）** | **T-GATE-01：只读核对 M0–M8 的关闭条件与 M6 材料证据** | 输出有限 JSON 清单，不改计划 / 简历 / 代码；不做全仓库无限审计 | 一次核对或 15 分钟停止；最多 3 个确证阻塞，无缺陷则 NO_CHANGE；不把本人讲述、录屏、投递或 SG16/17 条件项转给 AI 冒充完成 |
+
+任务卡已准备在 `.verify-artifacts/sg-collab-20261024/{zcode-task.txt,trae-task.txt,parallel-task-pack.json}`，状态为 **PREPARED_NOT_DISPATCHED**。ZCode / Trae 任务尚未启动；实际 CI 预审已由现有子代理完成。为避免重复研究，ZCode 后续接的是明确修复，Trae 接的是关闭条件核对，不再各自重新诊断整份项目。
+
+两个任务开始前必须从指定精确 SHA 建独立 worktree，并核对 cwd / HEAD / 写入白名单；不能让 IDE 在主目录自行切分支或改文件。首次只加一个，完成一个有限任务再决定是否加第四方。记录任务开始、首失败、交付与集成时间；验收失败减少 / 到达首失败更快才算收益，代理数量、token、代码行数不作为提效证据。没有独立任务可推进时就停止该代理，不制造工作填满并发。
+
+#### 8.29.3 更直接的收口提效：一次最终完整 CI acceptance
+
+当前 `ci.yml` 已包含完整 Docker acceptance 以及同一 DAG 内的 `test.yml` workflow_call。**建议后续必要修复完成后，在一个最终冻结候选 C_final 上，直接让已有 CI acceptance job 在本 Mac runner 跑完整 all，再由同 SHA evidence / publishable 汇总**；这次正式 Docker all 同时处于 CI 内，不再额外要求先在本机独立完整跑一次、随后 CI 又完整重复一次。
+
+CodeBuddy 已只读复核现有规则：要求完整 Docker 证据和同 SHA CI 证据，不要求两个彼此独立的 all 执行；CI 已有该入口。原始 Docker index 仍应保持同 SHA CI 待汇总（PENDING / ciRun=null），待真实 DAG 通过后由 CI summary 绑定成功；局部提示可以改成“CI 汇总尚未完成”，不能提前把 raw index 写成 CI 已通过。
+
+这属于执行顺序优化：不删九阶段、48 场景、两侧本轮 fresh reference、原始外层退出、真实媒体 / 撤销 / 恢复 / release、镜像归档和扫描绑定。当前 aa948e78 继续结束并保留其真实结果；其结果不能转给包含后续 CI 修复的 C_final。新的最终候选仍必须完整验收，只是把那次终验放在原本就必跑的 CI acceptance 中，避免增加同样的一轮。
+
+依赖顺序：**隔离修复 CI 搬迁问题 → 针对性工具正负例 / Docker 回归 → 批量合入必要修复与材料 → 冻结 C_final → 经用户授权 push 新分支与派发 ci.yml → 云端既有源码 / build / scan jobs → 本 Mac 的完整 acceptance → 同 SHA evidence / publishable**。普通 CI jobs 已使用 GitHub 托管 Ubuntu，不要求用户自备 Linux 服务器；本机专用 acceptance 仍用 desktop-local，不把资源不足的默认 Ubuntu runner 当完整验收机。
+
+若经授权，云端源码 / 构建门可先于本机空闲准备，不占本机压测资源；Mac acceptance 等当前运行清理结束后才启动。注册 / 安装 runner、设置仓库变量、push、dispatch 和 workflow 的 GHCR 写入均保持现有授权边界，不因“增加 AI”自动获得许可。旧 `ci-action-proposal.json` 已因确认路径缺陷改为 BLOCKED，不能直接照旧派发 aa948e78；最终 SHA 与分支在修复冻结后再填实。
+
+若 CI 中另有失败，先定位该 job / 工具 / 单场景，不退回“所有 AI 各自重新跑 all”。只有实际改动要求时才形成下一候选；最终证据留工件与最终答复，不以成功报告回写再制造无限候选。
+
+
+### 8.30 持续监督与默认推荐决策授权（2026-10-24）
+
+用户最新指示覆盖此前“CI 尚未授权”的操作阻塞：持续监督 CodeBuddy 到其目标真实完成；周期已由 10 分钟改为 **15 分钟**；模型限流备用首选 ID 已更正为 **deepseek-v4.1-flash-sg**，其次 **glm-5.3-flash**。用户进一步委托：遇到用户授权 / 方案选择时，按默认推荐自动决策，确保工作流连续。这个新委托不回写成旧运行曾获授权，也不改写旧失败。
+
+- 已说明、为当前主线收口必要的推荐动作可自主推进：CI 工件路径修复与相应回归、安装 / 注册本 Mac runner、设置 runner / desktop-local 仓库变量、推送新的最终候选验收分支、派发既有 ci.yml 及其既定 GHCR 写入。不再因常规确认重复停工；仍禁止 force-push 共享主线和改动他人项目资源。范围以当前 goal 与本计划主线为准，不扩展 SG16/17、未指定的生产发布或本人事项。
+- 新 runner 依赖按既有规则记录版本 / 来源 / 校验身份，运行在独立目录；注册 token 等仅用于必要步骤，不写入日志或公开工件。若真实缺少账号能力、凭据或系统权限，报准确操作、错误及最小所需信息；不能笼统沿用“未授权”。
+- 轻量巡检器在 `.verify-artifacts/sg-supervision-20261024/`，读取真实 ACP goal / runInFlight、Docker 容器、原始阶段标记和退出码、仅该会话的模型 provider 事件。每 900 秒检查；重启保留原定下一检查时间，跨午夜续读日志，避免反复扫描历史错误。配置 / 状态 / history / 决策记录均不进入候选源码。
+- 只在**确认模型调用 HTTP429**且最新调用未恢复时，按两项已授权模型顺序尝试标准 session/set_model，并重新读取会话验证实际 ID；媒体请求 429 不触发。两个备用均失败则记录具体阻塞，不无限轮换模型或取消正在运行的 Docker。未发生限流不主动改当前模型。
+- CodeBuddy 当前 Docker 运行先结束并保留 raw exit；之后先闭合已确认 CI 缺陷与定向门，按 §8.29 冻结最终 C，在既有 CI acceptance 内完成正式完整 all 与同 SHA CI，不自动启动第三轮旧 C 的完整 all。运行中的冻结 clone 不受计划研究或主树后续修复影响。
+- 只有 CodeBuddy 目标终态与当前候选的完整 Docker / CI / 身份证据独立核验一致时，才停止监督并标记目标完成。goal 消失、超时、局部阶段 PASS 或模型自称完成都不足以证明成功；观察超时先重查同一句柄，不据此重启任务。
