@@ -16,7 +16,7 @@ QUALIFIED = {
 
 
 class VerifyEnvironmentTests(unittest.TestCase):
-    def run_probe(self, probe, stage="all", project="own-run"):
+    def run_probe(self, probe, stage="all", project="own-run", profile="native-linux"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "bin"
@@ -44,6 +44,11 @@ if name == "docker":
         if p.get("ps_error"): sys.exit(1)
         for i, owner in enumerate(p.get("running_projects", [])):
             print(str(i) + "|" + owner)
+    elif args[0] == "run":
+        if p.get("df_error"): sys.exit(1)
+        if "--read-only" not in args or "--network" not in args or args[-2:] != ["-Pk", "/"]: sys.exit(2)
+        print("Filesystem 1024-blocks Used Available Capacity Mounted")
+        print("overlay 9999999999 0 " + str(p["free_bytes"] // 1024) + " 0% /")
     else: sys.exit(2)
 elif name == "uname": print(p["host_os"])
 elif name == "df":
@@ -56,7 +61,8 @@ elif name == "df":
             for name in ("docker", "uname", "df"):
                 (binary / name).symlink_to(tool)
             (binary / "awk").symlink_to(shutil.which("awk"))
-            env = dict(os.environ, PATH=str(binary), FAKE_PROBE=json.dumps(data))
+            env = dict(os.environ, PATH=str(binary), FAKE_PROBE=json.dumps(data),
+                       VERIFY_ENVIRONMENT_PROFILE=profile)
             env.pop("DOCKER_HOST", None)
             self.assertIsNone(shutil.which("python3", path=env["PATH"]))
             return subprocess.run(["/bin/bash", str(SCRIPT), stage, project],
@@ -132,6 +138,38 @@ elif name == "df":
                 result = self.run_probe(dict(QUALIFIED, **changes))
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("env:FAIL", result.stderr)
+
+    def desktop(self, **changes):
+        result = dict(QUALIFIED, host_os="Darwin", operating_system="Docker Desktop",
+                    architecture="aarch64", ncpu=8, mem_total_bytes=16746086400,
+                    docker_root_dir="/not-visible-from-mac")
+        result.update(changes)
+        return result
+
+    def test_desktop_uses_vm_disk_and_reports_shared_emulation_boundary(self):
+        result = self.run_probe(self.desktop(running_projects=["", "own-run"]), profile="desktop-local")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("profile=desktop-local", result.stdout)
+        self.assertIn("background container", result.stdout)
+        self.assertIn("No production capacity claim", result.stdout)
+
+    def test_desktop_rejects_resource_shortfalls_and_probe_errors(self):
+        for changes in ({"ncpu": 4}, {"mem_total_bytes": 8 * 1024 ** 3},
+                        {"free_bytes": 40 * 1024 ** 3}, {"df_error": True},
+                        {"running_projects": ["other-run"]}):
+            with self.subTest(changes=changes):
+                result = self.run_probe(self.desktop(**changes), profile="desktop-local")
+                self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_desktop_profile_cannot_certify_linux_or_remote_daemons(self):
+        for changes in ({"host_os": "Linux"}, {"operating_system": "Ubuntu"},
+                        {"endpoint": "tcp://remote:2375"}):
+            with self.subTest(changes=changes):
+                result = self.run_probe(self.desktop(**changes), profile="desktop-local")
+                self.assertEqual(result.returncode, 1)
+
+    def test_unknown_profile_fails_even_for_targeted_stage(self):
+        self.assertEqual(self.run_probe(QUALIFIED, stage="unit", profile="skip").returncode, 1)
 
 
 if __name__ == "__main__":

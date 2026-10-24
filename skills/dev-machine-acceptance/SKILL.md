@@ -20,8 +20,8 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**。**
 
 - **禁止**把 host 上的 `make test` / `go test` / `go build` 当作验收证据；它们只是快速预检。
 - Mac 本机的 Go/Foundry 结果同样只是预检；但 **Docker Desktop 内的 stage 日志是有效的功能验收证据**（L2/L3）。
-- **性能数字和最终候选的 `all`** 仍以 Linux/CI 为准：macOS 的 Docker VM 与宿主共享 CPU，不能外推为容量或回归基线；本机只跑单 stage / 受影响门（§9）。
-- `make verify-docker VERIFY_STAGE=all`（以及 `perf`、`release`）在本机会被 **EFF-00 环境门直接拒绝**：需要原生 linux/amd64、≥8 CPU、≥32 GiB、Docker 文件系统 ≥100 GiB、同 daemon 无其他验收。拒绝发生在工具镜像构建之前，不是失败重试的对象；本机请改用定向 stage。
+- **Mac-only 约束（2026-10-24）：** 用户只有本机 Mac，没有 Linux 服务器。允许本机 Docker Desktop 执行完整 `all` / `perf` / `release`；功能断言、48 场景矩阵、原始退出与候选身份要求不变。本机性能只证明记录环境下的固定预算观测，不代表独占 Linux 或生产容量。CI 同 SHA 仍是独立门。
+- EFF-00 分环境预检：controller 在 macOS 默认 `VERIFY_ENVIRONMENT_PROFILE=desktop-local`，要求 Docker Desktop ≥8 CPU、≥15 GiB 实际可用内存（配置 16 GiB）、VM 内实际 Docker 文件系统 ≥100 GiB 空闲。通过固定摘要的现有 Docker CLI 镜像在 VM 内测磁盘，不用 Mac 的 `/` 替代。后台业务容器列为测量边界；其他带验收标签的运行仍拒绝。`native-linux` 保留原生 amd64 / 32 GiB / 独占 daemon 严格规则，Linux/CI 默认使用它。
 - 正式运行（`all`/`perf`/`release`）会先把已批准的 HEAD **冻结克隆**到运行工件再挂载，编辑目录的改动不会进入验收；同一 daemon 由固定名网络锁串行化，第二个验收在构建前被拒绝（`VERIFY_MUTEX_TAKEOVER=1` 只在属主无运行容器时接管）。
 - 共享 Go 编译缓存默认关闭（`VERIFY_SHARED_GOCACHE=1` 才启用）：GOCACHE 也存测试结果，未完成冷/热与 `-count=1` 复跑验证前不得默认开启。
 - `make verify-docker` 的 Docker runner 只需要 host 的 **Shell + Git + Docker**；Go/Foundry/Node 是 host 快速编辑用的，不是它的前置。host-run 的 `fullchain-test` 另需 `cast`/`ffmpeg`/`python3`/`curl`（§0.1）。
@@ -84,20 +84,21 @@ GRPC_TARGET=localhost:19090 make fullchain-test   # 71 项全链功能
 | Docker `unit` stage | 4C / 8G | 8C / 16G | race + coverage + forge build |
 | 单 stage（chain/durability/ops/faults/media/recovery） | 4C / 16G | 8C / 32G | 同时起 PG/Redis/MinIO/NATS/Anvil + 多服务 |
 | `perf` / `release` | 8C / 16G | 8C / 32G | 压测 + 多镜像构建 |
-| `make verify-docker VERIFY_STAGE=all` | 8C / 32G | 16C / 64G | 17 个 compose 服务 + 9 stage 串行 |
+| `all`（native-linux） | 8C / 32G | 16C / 64G | 独占 Linux，9 stage 串行 |
+| `all`（desktop-local） | 8C / 配置 16GiB，实际 ≥15GiB | 仅本机可用配置 | 9 stage 串行；本机性能边界，不承诺时延或容量 |
 | E14 类性能/soak 参考 | 8C / 16G 参考机 | 独立 Linux | 共享机 ffmpeg 负载会污染数字 |
-| 本机 Docker Desktop | 8GB VM / 6 vCPU（单 stage + 串行构建） | 16GB VM / 8 vCPU | 6 个并发 `go build -a` 会 OOM；`all`/perf 另找机器 |
+| 本机 Docker Desktop | 8GB VM / 6 vCPU（单 stage + 串行构建） | 16GB VM / 8 vCPU | 6 个并发 `go build -a` 会 OOM；完整门须用 16GiB / 8 vCPU VM |
 
 磁盘：
 
 - 至少 **100GB 空闲 SSD**；本机实测 485GB 可用，Docker VM 磁盘镜像按需增长。
 - Playwright 浏览器约 290MB；MinIO/NATS/PG 数据卷、镜像和 9 个服务构建产物另计。
-- 每轮开始前删除上一轮 `sg-*` 镜像（`docker rmi` + `docker image prune -f`），但**不要** prune builder cache（预热层是资产）。
+- 只按明确归属清理本任务不再需要的旧镜像；保留验收证据与编译缓存。禁止全局 prune 或删除其他项目资源。
 
 系统：
 
-- 本机 macOS + Docker Desktop 是默认开发/功能验收环境；**性能数字只认 Linux/CI**，不能拿本机 VM 数字做回归比较。
-- 8GB VM 上镜像构建必须串行（§0.1）；不要在本机跑 `VERIFY_STAGE=all`、`perf`、`release` 的完整矩阵。
+- 本机 macOS + Docker Desktop 是默认验收环境；性能比较必须是同 VM、同平台、同协议、同预算与同后台容器集合，环境与负载快照随工件保存。相同后台容器不等于相同负载，结论必须保留共享宿主与跨架构边界。
+- 8GB VM 仅作定向功能验证，构建串行（§0.1）；完整门要求配置 16GiB / 8 vCPU，并控制构建并发。
 - 远程 `prod-srs` 的 Docker 已于 2026-10-23 清空，不再作为验收环境。
 
 ### 本机实测（2026-10-23，Docker Desktop）
@@ -108,7 +109,7 @@ Docker VM：6 vCPU / 8GiB / overlayfs
 ```
 
 结论：适合 `unit`、`chain`、`durability`、`ops`、`faults`、`media`、`recovery` 单 stage 与
-`fullchain-deploy` + `fullchain-test`；构建按服务串行。`all`/perf 仍走 Linux/CI。
+`fullchain-deploy` + `fullchain-test`；构建按服务串行。上述为旧 8GiB 快照；当前 16GiB / 8 vCPU VM 可按 desktop-local 执行完整门，须重新实测。
 
 ## 2. 预检（只读）
 
@@ -271,7 +272,7 @@ harness 自身的坑（每条都有真实失败现场，先查这里再怀疑产
 
 - 不把 host `make test` / `go test` 当验收；不把 Mac 本机的 Go/Foundry 结果当验收（Docker 客户端流程见 §0.1）。
 - 不在 dirty tree 上跑 `VERIFY_STAGE=all`（脚本会拒绝，别绕过）。
-- 不在 SRS/ffmpeg 负载期跑 perf/release。
+- 不将共享宿主上的 perf/release 数字写成独占 Linux 或生产容量；记录后台负载，不擅自停止其他项目。
 - 不在 8GB Docker VM 上并发构建全部镜像（会 OOM）；按 §0.1 串行构建。
 - 不用 `pkill -f srs` / `pkill -f ffmpeg` 宽匹配；用 §3 的脚本。
 - 不停 nginx、`srs.ingest.obs.conf`、产品 `srsmedia`。

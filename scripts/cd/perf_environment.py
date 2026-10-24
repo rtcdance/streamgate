@@ -36,6 +36,18 @@ def capture(root, project, compose):
     runner = {key: docker[key] for key in ("ID", "OSType", "Architecture", "NCPU", "MemTotal", "KernelVersion", "ServerVersion")}
     if not runner["ID"] or not runner["NCPU"] or not runner["MemTotal"]:
         raise ValueError("missing Docker runner identity or capacity")
+    runner["operatingSystem"] = docker.get("OperatingSystem", "unknown")
+    runner["executionProfile"] = os.environ.get("VERIFY_ENVIRONMENT_PROFILE", "native-linux")
+    runner["executionPlatform"] = os.environ.get("VERIFY_PLATFORM", "linux/amd64")
+    runner["measurementScope"] = ("local Docker Desktop; shared/emulated latency, no production capacity claim"
+                                   if runner["executionProfile"] == "desktop-local" else "dedicated native Linux")
+    # Keep background peers in the compared runner identity. Equal peers do not
+    # prove equal host load; that limitation remains explicit in local results.
+    own_run = os.environ.get("VERIFY_PROJECT", project)
+    peers = command("docker", "ps", "--format", '{{.ID}}|{{.Label "com.streamgate.verify.run"}}')
+    runner["backgroundContainers"] = sorted(row.split("|", 1)[0] for row in peers.splitlines()
+                                             if row and row.split("|", 1)[-1] != own_run)
+    background_load = command("docker", "stats", "--no-stream", "--format", '{{json .}}')
     identifiers = command("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + project).split()
     services = {}
     for identity in identifiers:
@@ -74,7 +86,7 @@ def capture(root, project, compose):
                 "compose_project": project, "run": resources["containers"]["api"]["run"],
                 "protocolSHA256": hashlib.sha256(Path("config/performance.acceptance.json").read_bytes()).hexdigest(),
                 "composeSHA256": hashlib.sha256(Path(compose).read_bytes()).hexdigest(),
-                "runner": runner, "services": services, "tools": versions,
+                "runner": runner, "backgroundLoadSnapshot": background_load, "services": services, "tools": versions,
                 "applicationImages": {role: resources["containers"][role]["imageID"] for role in ("api", "worker")},
                 "loader": {"kind": "docker", "imageID": image, "binarySHA256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                            "limits": protocol["resources"]["loader"], "maxParallelMediaRequestsPerViewer": 1}}

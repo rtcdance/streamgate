@@ -16,6 +16,13 @@ if [ "$VERIFY_STAGE" = all ]; then
 fi
 export VERIFY_PROJECT="${VERIFY_PROJECT:-streamgate-verify-$$-${RANDOM}}"
 export VERIFY_PLATFORM="${VERIFY_PLATFORM:-linux/amd64}"
+if [ -z "${VERIFY_ENVIRONMENT_PROFILE:-}" ]; then
+  if [ "$(uname -s)" = Darwin ]; then
+    export VERIFY_ENVIRONMENT_PROFILE=desktop-local
+  else
+    export VERIFY_ENVIRONMENT_PROFILE=native-linux
+  fi
+fi
 export VERIFY_ARTIFACTS="${VERIFY_ARTIFACTS:-${ROOT_DIR}/.verify-artifacts/${VERIFY_PROJECT}}"
 # EFF-03 (optional): the shared Go build cache is resolved on the HOST and
 # forwarded, because stage containers bind it through the daemon and the driver
@@ -95,12 +102,15 @@ trap release_mutex EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# EFF-00: refuse an environment that cannot carry the formal run BEFORE the
-# tool image is built. A 16 GiB Docker VM OOM-killed the DAG twice and an
-# arm64 daemon measures through emulation, so the final all / full perf /
-# release path requires a dedicated native amd64 runner. Targeted stages are
-# the repair loop and stay available on smaller machines.
-bash scripts/cd/verify_environment.sh "$VERIFY_STAGE" "$VERIFY_PROJECT" || exit 1
+# EFF-00: qualify the declared execution profile before the expensive build.
+# Desktop results retain their local/emulated/shared-load measurement boundary.
+mkdir -p "$VERIFY_ARTIFACTS"
+if bash scripts/cd/verify_environment.sh "$VERIFY_STAGE" "$VERIFY_PROJECT" >"$VERIFY_ARTIFACTS/environment-preflight.log" 2>&1; then
+  cat "$VERIFY_ARTIFACTS/environment-preflight.log"
+else
+  cat "$VERIFY_ARTIFACTS/environment-preflight.log" >&2
+  exit 1
+fi
 # EFF-04 A: run the acceptance from a frozen clone, not from the directory a
 # human or another agent may still be editing. The clone is pinned to the exact
 # HEAD the clean-tree check just approved, its submodules are cloned from the
@@ -118,7 +128,9 @@ frozen_requested=0
 case "${VERIFY_FROZEN_SOURCE:-auto}" in
   1) frozen_requested=1 ;;
   0) frozen_requested=0 ;;
-  *) [ "$VERIFY_STAGE" = all ] && frozen_requested=1 ;;
+  *) case ",$VERIFY_STAGE," in
+       *,all,*|*,perf,*|*,release,*) frozen_requested=1 ;;
+     esac ;;
 esac
 if [ "$frozen_requested" = 1 ]; then
   FROZEN_SOURCE="$VERIFY_ARTIFACTS/source"

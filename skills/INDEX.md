@@ -12,7 +12,7 @@
    - **Default environment:** the local Mac + Docker Desktop.
    - Set up and verify the Docker dev/test stack (`docker-compose.fullchain.yml`, 17 containers).
    - Run StreamGate's Docker-first acceptance (`make verify-docker` stages, `fullchain-test`).
-   - Check CPU/RAM/disk/toolchain/ports; performance and `all` stay on Linux/CI.
+   - Check CPU/RAM/disk/toolchain/ports; Mac-only full acceptance uses `desktop-local`; native Linux remains a separate strict profile.
 
 1. `remote-dev-machine` — **deprecated 2026-10-23**
    - The `prod-srs` Docker environment was purged; this is a historical record only.

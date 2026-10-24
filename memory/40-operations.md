@@ -60,13 +60,20 @@ Rungs 0–1 are pre-checks. Evidence is a CI run id or a commit hash, never a ho
   `coverage.out`, `deploy/docker/*-linux`, `scripts/h5-demo-acceptance/reports/`.
   Never delete `.workbuddy/`.
 
-## Acceptance environment (2026-10-23)
+## Acceptance environment (2026-10-24)
 
-The **local Mac + Docker Desktop** is the default dev/self-test/acceptance
-environment. The remote `prod-srs` Docker resources were purged on 2026-10-23 and
-`skills/remote-dev-machine` is a historical record only.
+The owner has only a Mac, no Linux server. Local Docker Desktop is the default
+acceptance environment, including the full nine-stage DAG. The controller selects
+`VERIFY_ENVIRONMENT_PROFILE=desktop-local` on macOS: >=8 VM CPUs, >=15 GiB usable
+RAM (16 GiB configured), >=100 GiB free measured inside the Docker filesystem.
+The native-linux profile keeps its amd64 / 32 GiB / dedicated-daemon checks.
 
-- Local VM: 6 vCPU / 8 GiB. Run one stage at a time and build services serially.
-- Functional evidence (stage logs, `fullchain-test`) from local Docker is valid.
-- Performance numbers and the full `all` DAG stay on Linux/CI; a macOS VM number
-  is not a capacity or regression baseline.
+- Keep linux/amd64 until the pinned ARM solc/toolchain is independently ported.
+- Run stages and builds sequentially; shared Go cache is opt-in, tests use -count=1.
+- Other acceptance runs are forbidden; background business containers are reported,
+  never stopped without authorization. Performance manifests bind their IDs, the
+  execution profile/platform and VM identity, and include a load snapshot.
+- Equal background IDs do not prove equal load. Mac performance is a local,
+  potentially emulated/shared-host observation, never production capacity proof.
+- All/perf/release automatically freeze the source; same-SHA CI remains separate.
+- No remote prod-srs acceptance; that environment was purged on 2026-10-23.

@@ -6,7 +6,7 @@
 
 **目标：** 保持 SG-00～SG-15、M0～M8 的既定验收要求，通过合格环境、定向反馈、共享编译缓存和候选冻结减少重复执行。本节调整执行方法，不改变 §0.4 的业务修复依赖，不代表优化已经实现，也不新增 push、CI 派发或生产发布授权。当前整体状态仍为未通过。
 
-**当前执行入口：** 后续 AI 先读本节，再按任务 ID 检索原任务书与 §8 证据；历史“最新状态”按产生时间和 SHA 解释，不能覆盖本节的 2026-10-23 诊断。正式 `all` 的前置条件是 EFF-00 环境资格、EFF-01 已知阻塞关闭、EFF-02 基线资格、EFF-04 A 的候选冻结与独占运行，以及受影响回归通过。EFF-03 缓存提效和 EFF-04 B 的脚手架工程化是可选优化，不阻塞正确性已满足的候选终验；可用冷构建、独立 checkout 和单执行者完成收口。既有运行按原始结果归档，不删除失败记录。
+**当前执行入口：** 后续 AI 先读本节，再按任务 ID 检索原任务书与 §8 证据；历史“最新状态”按产生时间和 SHA 解释，不能覆盖本节的 2026-10-24 Mac-only 执行约束。正式 `all` 的前置条件是 EFF-00 环境资格、EFF-01 已知阻塞关闭、EFF-02 基线资格、EFF-04 A 的候选冻结与独占运行，以及受影响回归通过。EFF-03 缓存提效和 EFF-04 B 的脚手架工程化是可选优化，不阻塞正确性已满足的候选终验；可用冷构建、独立 checkout 和单执行者完成收口。既有运行按原始结果归档，不删除失败记录。
 
 ### 诊断依据与根因
 
@@ -30,11 +30,11 @@
 
 | 顺序 / ID | 实施内容 | 出口标准与失败停止条件 |
 |---|---|---|
-| EFF-00 / P0 环境先行 | 为正式 all、完整 perf / release 落实独占、原生 amd64 Linux runner，满足 ≥8 CPU、≥32 GiB、Docker 所在文件系统空闲 ≥100 GiB；构建前复用现有 CI 资源检查，并保存架构、独占性及同 daemon 无竞争负载的核查结果。CLI / CI 统一预检代码可后续整合 | 无需构建即可拒绝不合格环境；整合自动预检时补资源不足、架构不符、同 daemon 另一验收的正负例。环境资格必须成立，预检代码重构不单列为终验阻塞。无合格 runner 时只继续本机定向修复，终验明确 BLOCKED |
+| EFF-00 / P0 环境先行 | 用户明确只有本机 Mac，无 Linux 服务器。采用 desktop-local：Docker Desktop ≥8 vCPU、配置 16GiB / 实际 ≥15GiB、VM 内 Docker 文件系统空闲 ≥100GiB；冻结源码，构建与阶段串行，禁止并发验收。原生 Linux 另保留 native-linux 严格模式 | 本机完整 all / perf / release 可执行；保留全部业务断言与性能矩阵。预检、平台、后台容器与负载入证据；本机性能仅为本环境固定预算观测，不冒充生产容量。资源不足、磁盘不可测、其他验收或身份变化必须失败；详见 §8.21 |
 | EFF-01 / P0 脚手架缺陷 | reference helper 按完整检查清单及结果判定，移除成功数量硬编码；仅在原本允许的 perf seed 路径应用既定策略。保留浏览器失败日志、trace、代理与应用现场，定向定位真实失败 | 回归覆盖当前 77 项及扩展数量、唯一浏览器失败、另一项失败、多项失败、缺项/缺摘要/进程异常；缺项与异常不可容忍。候选 media / release 浏览器仍须 PASS；修 helper 不等于浏览器根因关闭 |
 | EFF-02 / P0 基线资格 | 选择包含所需修复的不可变拟定 S，在独立资格候选 Q 的版本化协议中钉定 S 并提交；按下文资格流程取得 S 自身安全/业务证据及 Q 上旧 S 对新 schema 的真实兼容证据。reference / rollback 同源 | 配置钉定只表示拟定，不表示合格。允许资格阶段执行现有 release 入口来取得兼容证据；资格通过前禁止正式 all、最终性能比较和发布晋级。证据分别绑定 S、Q、实际镜像和配置 hash；最终资格仍受正式 all 约束 |
 | EFF-03 / P1 可选编译复用 | 采用共享 GOCACHE 前，给 unit 与 CI 等所有行为验收的实际 go test 命令显式添加 -count=1；controller 与 stage 编译缓存按工具链、OS/ARCH、CGO 等隔离，利用 Go 自身源码/参数校验，不因每个 SHA 清空。保留模块和锁定浏览器缓存，业务 fixture 仍隔离；修正 GOFLAGS 覆盖并记录实际值 | 同环境测冷/热耗时；源码变化触发受影响编译；同一行为测试连续两次均实际执行，不能返回旧 PASS。清空或关闭缓存仍能运行；收益未验证时保持关闭，不阻塞最终冷构建验收 |
-| EFF-04 / P0 A 必需、P2 B 可选 | A：一个写入者集成，验收用包含迭代提交的独立冻结 clone/checkout；单执行者独占 daemon，运行期间禁止修改该 checkout、切换及历史重写。B：后续再做构建输出迁移、源码只读挂载和 daemon 级原子锁，不要求先重写脚手架 | A：保存 clean-tree、SHA、镜像与运行独占证据，编辑目录变化不改变验收源码；现有受控生成物仍按原脚本归属和清理。B 若启用，第二个验收须在构建前拒绝，取消释放锁并保留退出；B 未实施可用 A 收口，不能绕过已有身份/清理检查 |
+| EFF-04 / P0 A 必需、P2 B 可选 | A：一个写入者集成，验收用包含迭代提交的独立冻结 clone/checkout；同 daemon 只运行一轮验收，后台业务按环境 profile 记录；运行期间禁止修改该 checkout、切换及历史重写。B：后续再做构建输出迁移、源码只读挂载和 daemon 级原子锁，不要求先重写脚手架 | A：保存 clean-tree、SHA、镜像与运行独占证据，编辑目录变化不改变验收源码；现有受控生成物仍按原脚本归属和清理。B 若启用，第二个验收须在构建前拒绝，取消释放锁并保留退出；B 未实施可用 A 收口，不能绕过已有身份/清理检查 |
 | EFF-05 / P1 正式收口 | EFF-00 / 01 / 02、EFF-04 A 及已知功能失败的定向验证通过后冻结 C；可选优化仅在已验证时启用。合格 runner 上执行完整 all；最终 CI 使用同 SHA 与已扫描原始构建归档，取得本轮新鲜 reference、schema 兼容、三类失败与恢复、M0～M8 索引 | 必需门 PASS、无关键 skip，原始退出与 SHA/image/archive/digest/run 对应；关闭可选缓存不降低通过资格。历史或单阶段绿灯、合成 fixture 不替代。失败后回到定位循环，不自动从头再赌一次 |
 | EFF-06 / P1 状态收口 | 本文件保留唯一当前执行表，分列“实现状态”和“当前候选验证状态”；历史按 SHA 保留、按需检索。交付材料在冻结前准备好；最终 run / digest 存 CI artifact 与最终答复 | 新候选使证据待更新时，不把已实现功能重新写成未开发；整体状态只由最终门决定。遵守 §0.5，避免回填成功 run 不断产生新候选；不新增计划/交接/状态文档 |
 
@@ -49,7 +49,7 @@
 
 **共享缓存采用条件：** `GOCACHE` 同时存储编译产物和 Go 测试结果，不能只挂载缓存就认为测试已重新执行。诊断基座 `c5bbfd04` 的 `stage_unit` 全量 race / coverage 命令缺少 `-count=1`；启用共享缓存前必须确认这条命令及其他行为验收的实际 `go test` 调用均已补齐，并核对 CI 对应入口。若后续已修复，核验其提交与证据，不重复开发。`-count=1` 不放入通用 `GOFLAGS`，否则会传给不接受该测试参数的 `go build` / `go vet`。用独立回归证明同源、同参数、同缓存的两次执行均产生新运行标记，第三次清空缓存仍正确；编译产物继续复用，旧测试结果不得成为当前运行的 PASS。未满足这些条件时关闭可选共享缓存。
 
-最快交付路径使用现有 amd64 工具链与合格 Linux runner。暂不把全面 ARM64 移植加入收口范围：当前 Dockerfile 的 ARM64 solc 校验和为空，直接改 `VERIFY_PLATFORM=linux/arm64` 会引出新构建任务。
+最快交付路径使用本机 Docker Desktop 与现有 amd64 工具链，按 desktop-local 环境边界解释结果。暂不把全面 ARM64 移植加入收口范围：当前 Dockerfile 的 ARM64 solc 校验和为空，直接改 `VERIFY_PLATFORM=linux/arm64` 会引出新构建任务。
 
 ### 修复循环与可执行命令
 
@@ -112,7 +112,7 @@ VERIFY_MODE=candidate make verify-docker VERIFY_STAGE=all
 
 可选缓存优化另行验收：同工具版本、同架构、同资源对比冷/热耗时，记录收益与失败；换机器后的差异不能单独证明缓存收益。启用前完成上述 `-count=1` 与两次实际执行回归；关闭或尚未实现缓存时，此性能目标记为未实施，不阻断正确性终验。EFF-04 B 同样只在启用后验收原子互斥、取消与清理，不将其开发工期加入当前必经路径。
 
-环境、网络、磁盘或身份阻塞出现后，采诊断并结束该轮，保留原始退出；超预算报告具体等待对象，不自动扩大超时或重跑整链。没有合格 runner 或既定 CI 授权时记录外部阻塞，继续独立定向修复，不能靠长时间轮询等待完成。
+环境、网络、磁盘或身份阻塞出现后，采诊断并结束该轮，保留原始退出；超预算报告具体等待对象，不自动扩大超时或重跑整链。本机预检失败或没有既定 CI 授权时分别记录环境 / 外部阻塞，继续独立定向修复，不能靠长时间轮询等待完成。
 
 ### 回滚与交付边界
 
@@ -2406,16 +2406,16 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
-| EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 本机仍不满足原生 Linux / amd64 / 32 GiB，正式 all / perf / release 继续阻塞；工具回归不代替合格 runner 上的实际终验 |
+| EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 旧 native-linux 规则已按用户 Mac-only 约束分环境修订；本机 desktop-local 实际预检 exit=0。工具回归不代替实际候选终验，详见 §8.21 |
 | EFF-01 脚手架缺陷 | helper 与确定的 recovery 清理缺陷已修；真实 recovery→media 通过 | 旧实现的动态回归 5 个失败断言；修复后 Docker 工具 56 项通过。`7f2c208d` 的同一次 `recovery,media` 原始外层 exit=0：恢复 43/43、下一阶段 monolith / api-gateway 各 77/77，进入 media 时仅连接 bridge 与该 media 网络 | 已消除并实测旧网络 / H5 跨阶段残留；机制探针未重现历史 502 的自然 DNS 分流，不宣称唯一归因。最终合格 runner 的完整长链仍待验 |
 | EFF-02 基线资格 | 拟定 S 已版本化钉定，资格未通过 | 2026-10-24 选择已有同 SHA unit 及六个功能门记录的 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，代替先前未测拟定 `ceb7f991` 与缺修复的旧 S `871eab30`；`config/performance.acceptance.json` 已钉定。Q 为包含此次配置与资格说明的干净提交，精确身份另存资格工件，不在提交内自引用 | 配置钉定不等于合格；既有功能日志缺历史外层 command.exit，不能补写。仍缺 Q 上 S 对新 schema 的实际业务兼容 / 恢复、合格 runner 上完整 all / 新鲜 reference / 同 SHA CI；不得发布晋级 |
 | EFF-03 编译复用 | 机制与接线已验证，默认关闭，可显式用于迭代 | 六个独立固定工具容器完成冷 / 热 / 缓存负控 / 源码变异 / 清空缓存复验；代表包冷 30.284s、热 3.062s，-count=1 的运行标记不同，无该参数的控制项确实重放 cached。本轮补齐 controller 的 Go 与 Playwright 缓存挂载；CI 保留编译对象缓存、所有 test.yml 行为测试加 -count=1 | 代表包约 9.89 倍是本机跨架构工具机制测量，不是项目全套加速、服务容量或 M4 证明；实际应用阶段收益待记录。工具回归和源码变异负例见 §8.20，最终默认仍可冷构建 |
 | EFF-04 A 冻结与独占 | 已实现，当前入口的冻结与清理已实测 | `sg-eff-recovery-media-20261024` 冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa`，本次原始 command.exit=0；重新 hash 应用归档、核对三镜像 imageID / OCI revision、driver 快照与 Git tree 一致；结束后本轮容器 / 卷 / 网络 / 锁均为空，source 与 .private 已清理 | 这是两个指定 stage 的同次运行，不能替代九阶段 all。S=`3e5785e0` 的历史 unit / 六门仅为其定向观察，不补写缺失的旧外层退出 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
-| EFF-05 正式收口 | 待外部 runner 与明确 CI 授权 | 本地代码、工具回归、协议 Q 准备及真实恢复→播放验证已完成登记；S 仍为拟定，原生 runner 上的资格 release 尚未执行 | 仓库无注册 runner / 验收变量；本机不符合原生 amd64 / 32 GiB 门槛。仍缺 S 对新 schema 的兼容资格、最终 C 的 all / 新鲜 reference / 48 场景及同 SHA CI；保持 incomplete |
+| EFF-05 正式收口 | 改为本机 Mac 执行；CI 仍需明确授权 | 本地代码、工具回归、协议 Q 准备及真实恢复→播放验证已完成登记；S 仍为拟定，资格 release 待实测 | 不再等待不存在的 Linux 服务器；仍缺 S 对新 schema 的兼容资格、最终 C 的 all / 新鲜 reference / 48 场景及同 SHA CI；保持 incomplete |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
 
-**本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。正式 all / perf / release 继续被环境门直接拒绝；下方为最初拒绝现场，最新 Shell 门还会核对原生宿主与竞争业务容器：
+**本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。按 §8.21 的 desktop-local 可继续正式 all / perf / release；下方仅保留修订前 native-linux 的拒绝历史，不是当前本机阻塞：
 
 ```
 [env:FAIL] this environment cannot carry VERIFY_STAGE=all:
@@ -3194,3 +3194,18 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 **D. 复核自身的教训**:本次复核第一次跑判据时**又踩了 §使用说明第 5 条的 BSD `grep` 陷阱** —— 用了 `grep "a\|b"`(BRE 交替),macOS 下静默返回空,导致误判「某检查 0 命中」。**一律用 `grep -nE`**,且 `grep -c` 在 0 命中时退出码为 1,会掐断 `&&` 链 —— 脚本里必须显式处理。
 
 **E. 已知有意保留 / 未完成**(见 §F.5 与附录 B),不影响 Track A/B 的安全与诚实结论。
+
+
+### 8.21 Mac-only 执行约束与提效（2026-10-24）
+
+**用户确认：只有本机 Mac，无可用 Linux 服务器。** 先前将原生 Linux / 32GiB 作为所有正式门唯一入口，是项目自行设定的环境政策；它与实际资源不符，造成无可执行出口。现拆为 desktop-local 与 native-linux 两种环境 profile。业务、安全、媒体字节、恢复、完整 48 场景、p95 比较阈值以及同 SHA CI 要求不变；只调整运行资格及性能结论的适用环境。
+
+1. **本机正式路径：** controller 在 macOS 自动选择 desktop-local；要求本地 Docker Desktop、Linux daemon、≥8 vCPU、配置 16GiB / 实际 ≥15GiB、VM 内实际 Docker 文件系统 ≥100GiB 空闲。通过项目已有的 digest-pinned Docker CLI 镜像在 VM 内执行 df，不以宿主磁盘容量替代。环境检查在昂贵构建前执行，原始输出存 environment-preflight.log。
+2. **资源纪律：** 单轮验收互斥，阶段和构建串行；GOMAXPROCS=4、make 命令行 GOFLAGS='-p=4 -v'。复用已验证的共享编译 / 浏览器缓存，行为测试仍 -count=1。后台业务不擅自停止；无标签业务容器明确记为共享环境边界，另一带验收标签的运行仍拒绝。all / perf / release（含逗号组合）默认冻结源码。
+3. **性能边界：** 保留完整矩阵和本轮新鲜 reference；environment.json 的 runner 绑定环境 profile、daemon 架构、实际执行平台、VM 身份及后台容器 ID 集合，另附当前 docker stats 快照。不同 profile / 平台 / 后台集合不能直接比较。同一后台集合不代表相同负载，Mac 的跨架构 / 共享宿主时延仅为本环境观测，不证明独占 Linux 或生产容量。
+4. **原生路径：** Linux/CI 默认 native-linux，保留原生 amd64 / ≥8 CPU / ≥32GiB / ≥100GiB / 独占 daemon 要求。Mac-only 收口不再以取得该机器为前置。CI 仍是独立门；未授权 push/dispatch 或未实际运行时保持待验，不写成 PASS。
+5. **执行顺序：** 环境与协议工具回归 → clean Q 的 release（旧 S / 新 schema 真实业务与恢复）→ 受影响失败最小复现及修复 → 冻结 C 完整九阶段 all → 同 SHA CI。失败保存现场并回最小范围，不连续赌完整 DAG。
+
+实际本机预检：8 CPU / 16746086400 bytes RAM / aarch64 daemon，linux/amd64 执行；VM 内 Docker 文件系统 855778164 KiB 空闲，28 个后台容器逐一列出，原始 exit=0。工件：`.verify-artifacts/sg-eff-mac-profile-20261024/local-gate.{log,exit}`。这只证明本机路径通过预检，不证明 release / all 已通过。首次 Docker 工具回归因挂载到与镜像内部路径冲突的宿主绝对路径而找不到文件（exit=2），保留 tooling.log；改用 /workspace 显式挂载后重验，不隐去失败。
+
+Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e585a256d50a499cd00f9` 内，环境 14＋性能环境 6＋性能协议 30＋controller 3＋shell 45＝**98 PASS**，`tooling-v2.exit=0`。保留原生模式负例，并新增 Desktop 的低资源 / VM 磁盘不可测 / 远端 endpoint / 并发验收拒绝，以及 profile / 平台 / 后台集合变化拒绝比较。源码和日志 hash 存同目录 `tooling-evidence.json`；此结果不计作业务 release 或完整 all。

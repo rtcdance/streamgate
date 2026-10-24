@@ -21,14 +21,12 @@ The `prod-srs` Docker resources were purged (0 images/containers/volumes/cache)
 and `remote-dev-machine` is a historical skill. Local functional stages are
 valid evidence.
 
-Since the EFF pass, `all` / `perf` / `release` are **refused before the tool
-image is built** unless the daemon is native linux/amd64 with >=8 CPU, >=32 GiB
-and >=100 GiB free (`scripts/cd/verify_environment.sh`). This machine is
-aarch64 / 15.6 GiB, so the terminal run is explicitly BLOCKED here — by design,
-not as a flake to retry. Formal runs also use a frozen clone of the approved
-HEAD and a daemon-wide lock; the shared Go cache is opt-in and off by default.
-The CLI and CI now share the Shell preflight, with no host Python dependency.
-Go and Playwright caches are explicitly mounted into the frozen controller.
+The owner confirmed Mac-only execution on 2026-10-24. The new `desktop-local`
+profile allows complete all/perf/release under explicit local measurement
+boundaries. Native Linux checks remain available as a separate strict profile.
+Source freezing, single-run locking, raw exits, full workloads and business
+assertions remain required. Profile regression and actual qualification results
+belong to the plan, not an inferred PASS here.
 
 ## Evidenced (checkbox may lag)
 
@@ -50,9 +48,9 @@ its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
 
 | Item | Priority | Note |
 |---|---|---|
-| Baseline compatibility qualification | P0 | S is proposed; actual old-S/new-schema business smoke and candidate recovery pending a qualified runner |
+| Baseline compatibility qualification | P0 | S is proposed; actual old-S/new-schema business smoke and candidate recovery pending actual local qualification |
 | Full current candidate M0–M8 | P0 | No final nine-stage all, fresh same-runner reference, 48-scenario matrix or same-SHA CI |
-| External runner | P0 | Repository registered runners=0 and no acceptance runner variable found; local VM is ineligible |
+| Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
 | Remote CI authorization | P0 | Push/dispatch requires explicit instruction; existing remote mainline history diverged, use a new acceptance branch |
 | SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |
 | SG-17 one native player sample | P2, conditional | only if the scope is extended |
@@ -68,7 +66,7 @@ its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
 
 ## Next moves
 
-1. Obtain an eligible dedicated runner and explicit push/CI authorization.
+1. Verify desktop-local preflight and run the local qualification path; obtain push/CI authorization only when publication is needed.
 2. Run Q's release qualification against proposed S; preserve both identities.
 3. Freeze final C and run complete all, fresh reference/matrix and same-SHA CI.
 4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.

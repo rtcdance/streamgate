@@ -46,6 +46,7 @@ class EnvironmentTests(unittest.TestCase):
         if args[:2] == ("docker", "info"):
             return json.dumps({"ID": "same-runner", "OSType": "linux", "Architecture": "x86_64", "NCPU": 8, "MemTotal": 8000000000, "KernelVersion": "one-kernel", "ServerVersion": "29"})
         if args[:2] == ("docker", "ps"):
+            if args[2] == "--format": return "own|own-project\nbackground|"
             self.assertEqual(args[-1], "label=com.docker.compose.project=own-project")
             return "\n".join(self.services)
         if args[:2] == ("docker", "inspect"): return json.dumps([self.services[args[-1]]])
@@ -89,6 +90,18 @@ class EnvironmentTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError): compare_environments(manifest, changed)
         changed = copy.deepcopy(manifest); changed["services"]["postgres"]["imageID"] = "different"
         with self.assertRaises(ValueError): compare_environments(manifest, changed)
+
+    def test_desktop_scope_platform_and_background_peers_are_bound_to_comparison(self):
+        self.environment.update(VERIFY_ENVIRONMENT_PROFILE="desktop-local", VERIFY_PLATFORM="linux/amd64")
+        manifest = self.capture()
+        self.assertEqual(manifest["runner"]["backgroundContainers"], ["background"])
+        self.assertIn("no production capacity claim", manifest["runner"]["measurementScope"])
+        for field, value in (("executionProfile", "native-linux"), ("executionPlatform", "linux/arm64"),
+                             ("backgroundContainers", ["changed"])):
+            changed = copy.deepcopy(manifest)
+            changed["runner"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                compare_environments(manifest, changed)
 
 
 if __name__ == "__main__": unittest.main()
