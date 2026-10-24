@@ -294,6 +294,18 @@ anvil_rollback() {
 anvil_mine() {
   cast rpc --rpc-url "$ANVIL_URL" anvil_mine "$(printf '0x%x' "$1")" >/dev/null 2>&1
 }
+# journal_rewind_target <head> <booked> prints the height a 64-block rollback
+# lands on, or fails when that landing point cannot orphan <booked>. The chain
+# mines on an interval, so the caller must pass the head it measured for the
+# decision: a second read one block later used to turn the intended 64-block
+# rewind into 65 and fail the boundary check on a moving target.
+journal_rewind_target() {
+  local head="$1" booked="$2" landing
+  landing=$((head - 64))
+  [ "$landing" -lt "$booked" ] || return 1
+  [ "$landing" -gt 4 ] || return 1
+  printf '%s\n' "$landing"
+}
 
 # ---------------------------------------------------------------------------
 # Registry intent / signed-attempt state (SG-13 A). Every assertion below reads
@@ -1960,22 +1972,25 @@ if wait_worker_up "$MONO_CONTAINER" 120; then
         anvil_mine "$NEED" || f "FI05: could not mine up to the 64-block journal boundary"
       fi
       HEAD="$(head_number)"
-      DEPTH=$((HEAD - REWIND))
-      if [ "$DEPTH" -ne 64 ] || [ "$REWIND" -le 4 ]; then
-        f "FI05: a ${DEPTH}-block rewind to ${REWIND} is not the 64-block journal boundary"
-        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rewind depth=${DEPTH} != 64 (boundary unproven)"
-      elif anvil_rollback "$DEPTH" && wait_chain_after "$BOOKED" 120; then
+      # Derive the landing point from THIS reading. The rollback depth is always
+      # the 64-block journal boundary; only the height it lands on moves when a
+      # mining tick slips in between, and that height is what must stay below
+      # the block under test.
+      if ! REWIND="$(journal_rewind_target "$HEAD" "$BOOKED")"; then
+        f "FI05: a 64-block rewind from head ${HEAD} cannot orphan block ${BOOKED}"
+        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rewind from head=${HEAD} lands at or above ${BOOKED}"
+      elif anvil_rollback 64 && wait_chain_after "$BOOKED" 120; then
         BH_AFTER="$(block_hash "$BOOKED")"
         if [ -n "$BH_AFTER" ] && [ "$BH_AFTER" != "$BH_BEFORE" ]; then
           p "FI05: reorged the chain below block ${BOOKED} and re-mined past it, replacing that height with a different block"
-          record FI05-reorg indexer.after_index_before_reorg_check PASS "rewound ${DEPTH} blocks from head ${HEAD} to ${REWIND}, re-mined past ${BOOKED}: ${BH_BEFORE:0:14} -> ${BH_AFTER:0:14}"
+          record FI05-reorg indexer.after_index_before_reorg_check PASS "rewound 64 blocks from head ${HEAD} to ${REWIND}, re-mined past ${BOOKED}: ${BH_BEFORE:0:14} -> ${BH_AFTER:0:14}"
         else
           f "FI05: block ${BOOKED} still carries hash ${BH_AFTER:0:14} after the rewind, so no reorg was produced"
           record FI05-reorg indexer.after_index_before_reorg_check FAIL "block ${BOOKED} hash unchanged"
         fi
       else
-        f "FI05: could not orphan block ${BOOKED} (depth=${DEPTH} head=${HEAD})"
-        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rollback depth=${DEPTH} unusable"
+        f "FI05: could not orphan block ${BOOKED} (depth=64 head=${HEAD} landing=${REWIND})"
+        record FI05-reorg indexer.after_index_before_reorg_check FAIL "rollback depth=64 from head=${HEAD} unusable"
       fi
     else
       f "FI05: the freshly indexed range ${C_BEFORE}..${C_AFTER} carried no event to orphan"

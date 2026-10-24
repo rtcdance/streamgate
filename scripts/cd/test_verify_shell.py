@@ -302,6 +302,31 @@ class VerifyShellTests(unittest.TestCase):
                 self.assertEqual(result.returncode, expected)
                 if expected == 0: self.assertEqual(result.stdout, actual)
 
+    def test_journal_rewind_derives_the_landing_from_one_head_reading(self):
+        # The chain mines on an interval, so re-reading the head before the
+        # rollback turned the intended 64-block rewind into 65 and failed the
+        # FI05 boundary check on a moving target. The depth stays exactly 64;
+        # only the landing height follows the head measured for the decision.
+        source = SOURCE.parent / "durable-fault-acceptance.sh"
+        helper = function("journal_rewind_target", source)
+        cases = [(377, 316, "313", "exactly on the boundary"),
+                 (378, 316, "314", "one mining tick later"),
+                 (60, 100, None, "lands below the usable floor"),
+                 (380, 316, None, "lands on the block that must be orphaned")]
+        for head, booked, expected, note in cases:
+            script = "\n".join(["set -euo pipefail", helper,
+                                f"journal_rewind_target {head} {booked}"])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            with self.subTest(note=note):
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.strip(), expected)
+        body = source.read_text()
+        self.assertIn("anvil_rollback 64", body)
+        self.assertNotIn("DEPTH=$((HEAD - REWIND))", body)
+
     def test_recovery_seed_requires_full_business_acceptance(self):
         source = function("stage_recovery")
         self.assertNotIn("VERIFY_SKIP_BROWSER_INSTALL", source)
