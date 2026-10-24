@@ -3478,11 +3478,28 @@ CodeBuddy 已只读复核现有规则：要求完整 Docker 证据和同 SHA CI 
 
 ### 8.30 持续监督与默认推荐决策授权（2026-10-24）
 
-用户最新指示覆盖此前“CI 尚未授权”的操作阻塞：持续监督 CodeBuddy 到其目标真实完成；周期已由 10 分钟改为 **15 分钟**；模型限流备用首选 ID 已更正为 **deepseek-v4.1-flash-sg**，其次 **glm-5.3-flash**。用户进一步委托：遇到用户授权 / 方案选择时，按默认推荐自动决策，确保工作流连续。这个新委托不回写成旧运行曾获授权，也不改写旧失败。
+用户最新指示覆盖此前“CI 尚未授权”的操作阻塞：持续监督 CodeBuddy 到其目标真实完成；周期先由 10 分钟改为 15 分钟、后按用户更正改为 **30 分钟**；模型限流备用首选 ID 已更正为 **deepseek-v4.1-flash-sg**，其次 **glm-5.3-flash**。用户进一步委托：遇到用户授权 / 方案选择时，按默认推荐自动决策，确保工作流连续。这个新委托不回写成旧运行曾获授权，也不改写旧失败。
 
 - 已说明、为当前主线收口必要的推荐动作可自主推进：CI 工件路径修复与相应回归、安装 / 注册本 Mac runner、设置 runner / desktop-local 仓库变量、推送新的最终候选验收分支、派发既有 ci.yml 及其既定 GHCR 写入。不再因常规确认重复停工；仍禁止 force-push 共享主线和改动他人项目资源。范围以当前 goal 与本计划主线为准，不扩展 SG16/17、未指定的生产发布或本人事项。
 - 新 runner 依赖按既有规则记录版本 / 来源 / 校验身份，运行在独立目录；注册 token 等仅用于必要步骤，不写入日志或公开工件。若真实缺少账号能力、凭据或系统权限，报准确操作、错误及最小所需信息；不能笼统沿用“未授权”。
-- 轻量巡检器在 `.verify-artifacts/sg-supervision-20261024/`，读取真实 ACP goal / runInFlight、Docker 容器、原始阶段标记和退出码、仅该会话的模型 provider 事件。每 900 秒检查；重启保留原定下一检查时间，跨午夜续读日志，避免反复扫描历史错误。配置 / 状态 / history / 决策记录均不进入候选源码。
+- 轻量巡检器在 `.verify-artifacts/sg-supervision-20261024/`，读取真实 ACP goal / runInFlight、Docker 容器、原始阶段标记和退出码、仅该会话的模型 provider 事件。每 1800 秒检查；重启保留原定下一检查时间，跨午夜续读日志，避免反复扫描历史错误。配置 / 状态 / history / 决策记录均不进入候选源码。
 - 只在**确认模型调用 HTTP429**且最新调用未恢复时，按两项已授权模型顺序尝试标准 session/set_model，并重新读取会话验证实际 ID；媒体请求 429 不触发。两个备用均失败则记录具体阻塞，不无限轮换模型或取消正在运行的 Docker。未发生限流不主动改当前模型。
 - CodeBuddy 当前 Docker 运行先结束并保留 raw exit；之后先闭合已确认 CI 缺陷与定向门，按 §8.29 冻结最终 C，在既有 CI acceptance 内完成正式完整 all 与同 SHA CI，不自动启动第三轮旧 C 的完整 all。运行中的冻结 clone 不受计划研究或主树后续修复影响。
 - 只有 CodeBuddy 目标终态与当前候选的完整 Docker / CI / 身份证据独立核验一致时，才停止监督并标记目标完成。goal 消失、超时、局部阶段 PASS 或模型自称完成都不足以证明成功；观察超时先重查同一句柄，不据此重启任务。
+
+
+### 8.31 本地完整 all 闭环与 CI 执行环境衔接（2026-10-25）
+
+**旧冻结候选的本地门已闭合，当前主线的最终同 SHA CI 尚未闭合。** `sg-final2-mac-20261024` 在 `aa948e78eae9c782ecc5f3069c766198f42c9b68` 完成一次真实完整 all：九阶段原始 PASS、`command.exit=0`、M0–M8 索引齐全，相关 run label 容器已清理。Codex 独立调用真实 `assert_candidate_evidence.validate`，重新核对归档、原始工件 hash、三应用镜像身份、配置 / fixture 与九门绑定，exit=0；冻结 source 已按运行流程清理，配置从该精确 Git SHA 提取，不从新主线借用。证据 `.verify-artifacts/sg-supervision-20261024/old-all-independent-review.json`；原始运行工件仍在 `.verify-artifacts/sg-final2-mac-20261024/`。
+
+本轮完整矩阵 48 行、候选比较 3 轮；reference median p95=1853.056ms、candidate=1349.388ms，ratio=0.7281960178213718（门限 1.2）。这是固定本机预算下该轮比较，不是生产容量或通用提效比例；此前首轮 comparison 26 次 503 / outer exit=2 的真实失败保留，成功复跑不证明其根因已排除。
+
+**期间集成的必要修复：** `130715d1` 修复跨 runner 归档 / build-input 路径及完整 A→B summary 搬迁回归；`101bd4a5` 补齐 CLI 从 manifest 所在目录解析相对归档，独立宿主真实 main 入口 14 项通过（Docker 元数据用 mock，非 Docker 验收）；`4832c60f` 将已有共享编译缓存和 GOMAXPROCS=4 / GOFLAGS=-p=4 -v 显式用于 CI acceptance。旧 aa 的完整 all 不能转移给这些新提交；最终新 C 仍按 §8.29 在完整 CI DAG 内完成一次 all，不再独立重复一轮旧 aa。
+
+**CI 已执行到真实平台阻塞：** Mac runner `streamgate-mac-01` 已安装 / 注册，仓库变量分别指向 `streamgate-acceptance` 与 `desktop-local`；验收分支 `sg/acceptance-ci-20261024` 已推送并派发 run `40101004225`。托管 jobs 未分配 runner、steps 为空即失败，下游未执行；没有代码测试失败证据，也没有足够权限读取 Checks 注解（403），不能猜定为账单或 YAML 缺陷。该运行不是验收通过。
+
+独立诊断分支 `sg/codex-runner-probe-20261024` / `060d86fa` 的 run `40102438537` 只执行 date / uname / 标记，不 checkout、不构建、不跑 Docker；性能测量期间 Mac listener 保持 offline，任务 queued。旧 all 结束后 CodeBuddy 启用 listener，该任务在 00:19:35 实际由 `streamgate-mac-01` / runner 2.338.1 执行并成功，日志含 `Darwin` 与 `CODEX_SELFHOSTED_PROBE_OK sha=060d86fa5a7e53aabf6a7752cf2572972ff0bed4`；由此确认自托管任务可执行，再推进 Linux 备用诊断。该诊断成功不能替代任何正式门。
+
+**若托管 Ubuntu 仍不可用，条件备用方案仅使用现有 Mac Docker Desktop：** 官方 Linux actions-runner 容器＋独立 DinD，runner 与 DinD 共享网络栈、相同绝对 workspace 路径和 inner socket。普通同网桥不能满足现有 job 的 localhost 服务语义，也不直接挂外层 Docker socket混用验收 daemon。可行性与静态负例在 `linux-runner-feasibility.json`、`linux-runner-draft-review.json`（同监督工件目录）。CodeBuddy 已准备 ignored 草稿并修复网络布局；在真实 Linux job 的 localhost PG / Redis、workspace hash、镜像 save/load 身份、实际 scan、跨 runner artifact 身份、socket 权限 / 工具链 / 官方镜像 pin 验证之前，仍为 DRAFT / PENDING，不切正式 CI、不删门或矩阵。只用一个 Linux worker避免固定端口冲突，并让 Linux 重任务全部完成后才进入本机性能验收；最终 evidence / publishable 继续绑定同一候选 SHA。
+
+必要的 runner、隔离诊断与既定 CI 操作已在 §8.30 的默认推荐决策授权内；没有再请求常规确认。依赖和组件身份仍按仓库规则记录，不扩展到生产部署或新增付费服务器。后续最终 SHA / CI / digest 成功证据留在工件和最终答复，不为回写一次成功再制造新的待验候选。

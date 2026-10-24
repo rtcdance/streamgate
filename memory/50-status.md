@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revisions:** `caeb1a47` (old all3 outer FAIL), `aa948e78` (failed all, perf repro), `5d87fe8b` (tooling) on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-25 · **Verification revisions:** `caeb1a47` (old all3 outer FAIL), `aa948e78` (complete local all, earlier failure retained), `4832c60f` (CI/cache fixes pending final CI) on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -38,20 +38,22 @@ belong to the plan, not an inferred PASS here.
 | Independent all3 verification | Original caeb verifier in Docker reread matrix/resources/faults/fixture/archives/images; exit 0; p95 ratio 0.9072, local measurement only |
 | Integrated strict fuzz retry | a3a7df3d; affected real Docker ops2 command.exit=0 |
 | Marker/delegated release correction | 5d87fe8b; independent Docker shell49 + fuzz10 + gates16 + evidence12 = 87 PASS |
+| Complete frozen local all | aa948e78 / sg-final2-mac-20261024: raw outer exit 0, nine stages and M0–M8; independent archive/artifact/config/image validation exit 0; remote CI pending |
+| CI portability fixes | 130715d1 + 101bd4a5; full summary relocation and CLI relative archive coverage; host prechecks only |
 | Collaboration ownership | CodeBuddy owns Docker runs and integration; Codex owns independent review and plan; accepted through the local ACP session |
 
 **Bookkeeping warning:** historical completion labels and checkboxes do not
 prove current-candidate completion. Use the current table in plan §8.19 and
-its SHA-bound evidence in §8.20–8.30; overall acceptance remains incomplete.
+its SHA-bound evidence in §8.20–8.31; overall acceptance remains incomplete.
 
 ## Not closed
 
 | Item | Priority | Note |
 |---|---|---|
 | Baseline compatibility qualification | — | Old-S/new-schema behavior, restore and fresh caeb reference measured; new terminal candidate still pending |
-| Full current candidate M0–M8 | P0 | aa948e78 all exited 2 after comparison round 2 had 26x503 (95.31%); perf-only repro exit 0 does not close all. Second all is in flight; CI portability fix and final same-SHA evidence remain required |
+| Full current candidate M0–M8 | P0 | aa948e78 second full all exit 0 closes its local gates; earlier exit 2 / 26x503 remains historical failure. New CI/cache commits require their own final complete CI acceptance; old results do not transfer |
 | Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
-| Same-SHA CI execution | P0 | Owner delegated recommended decisions on 2026-10-24: necessary Mac runner setup, variables, new-branch push and dispatch may proceed under plan §8.30; portability fix still required; no force push |
+| Same-SHA CI execution | P0 | Mac runner registered and variables set; dispatched run 40101004225 failed before hosted runner assignment/steps. Minimal self-hosted probe 40102438537 actually passed on streamgate-mac-01; real Linux fallback diagnostics and final CI remain pending under delegated authorization; no force push |
 | SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |
 | SG-17 one native player sample | P2, conditional | only if the scope is extended |
 
@@ -66,8 +68,8 @@ its SHA-bound evidence in §8.20–8.30; overall acceptance remains incomplete.
 
 ## Next moves
 
-1. Finish the in-flight run, preserve its raw result, and close the confirmed cross-runner archive-path defect with targeted checks.
-2. Under the delegated authorization, prepare this Mac as the acceptance runner with a dedicated label and desktop-local profile.
+1. Preserve aa948e78 complete local evidence; do not run a third old-candidate all or reuse it for changed source.
+2. Mac acquisition probe passed after cleanup; let CodeBuddy qualify a Linux/DinD fallback if hosted jobs remain unavailable. Keep all job/service/scan/artifact gates and separate heavy Linux work from Mac perf.
 3. Freeze final C and run its complete Docker all inside the existing same-SHA CI acceptance job, using exact scanned archives and a fresh reference/matrix; avoid another duplicate standalone full run.
 4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.
 
