@@ -80,9 +80,6 @@ jobs:
             test-unit-web3) echo "path=./pkg/web3/..." >> $GITHUB_OUTPUT ;;
           esac
 
-      - name: Clear Go build cache
-        run: go clean -cache
-
       # pkg/web3/contract's ABI-sync guard compares against the Forge build
       # artifacts in contracts/out, which no other unit job needs — build them
       # only on the web3 leg, in contracts/ (the same cwd the local chain
@@ -103,7 +100,7 @@ jobs:
         run: forge build
 
       - name: Run unit tests
-        run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
+        run: go test -v -race -count=1 -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
 
       - name: Check coverage threshold
         run: |
@@ -229,9 +226,6 @@ jobs:
             test-integration-upload) echo "path=./test/integration/upload/..." >> $GITHUB_OUTPUT ;;
           esac
 
-      - name: Clear Go build cache
-        run: go clean -cache
-
       - name: Run integration tests
         env:
           STREAMGATE_DB_HOST: localhost
@@ -245,7 +239,7 @@ jobs:
           STREAMGATE_STORAGE_ACCESS_KEY: minioadmin
           STREAMGATE_STORAGE_SECRET_KEY: minioadmin
           STREAMGATE_STORAGE_USE_SSL: false
-        run: go test -v -race -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
+        run: go test -v -race -count=1 -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
 
       - name: Upload coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -333,9 +327,6 @@ jobs:
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate < "$f"
           done
 
-      - name: Clear Go build cache
-        run: go clean -cache
-
       - name: Run E2E tests
         env:
           STREAMGATE_DB_HOST: localhost
@@ -349,7 +340,7 @@ jobs:
           STREAMGATE_STORAGE_ACCESS_KEY: minioadmin
           STREAMGATE_STORAGE_SECRET_KEY: minioadmin
           STREAMGATE_STORAGE_USE_SSL: false
-        run: go test -v -tags=e2e -race -coverprofile=coverage.out ./test/e2e/...
+        run: go test -v -tags=e2e -race -count=1 -coverprofile=coverage.out ./test/e2e/...
 
       - name: Upload coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -378,11 +369,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Clear Go build cache
-        run: go clean -cache
-
       - name: Run benchmarks
-        run: go test -bench=. -benchmem -run=^$ ./test/benchmark/... 2>&1 | tee benchmark-results.txt
+        run: go test -count=1 -bench=. -benchmem -run=^$ ./test/benchmark/... 2>&1 | tee benchmark-results.txt
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -65,7 +65,8 @@ GO_CACHE_DIR=""
 if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
   SHARED_GOCACHE=1
   GO_CACHE_DIR="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
-  mkdir -p "$GO_CACHE_DIR" || { echo "could not create the Go build cache at $GO_CACHE_DIR" >&2; exit 1; }
+  # This is a daemon-host path, created by the outer controller. In this
+  # container the same cache is mounted at /gocache, not at the host path.
 fi
 GO_CACHE_ARGS=()
 if [ "$SHARED_GOCACHE" = 1 ]; then

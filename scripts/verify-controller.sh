@@ -21,9 +21,15 @@ export VERIFY_ARTIFACTS="${VERIFY_ARTIFACTS:-${ROOT_DIR}/.verify-artifacts/${VER
 # forwarded, because stage containers bind it through the daemon and the driver
 # cannot invent a host path from inside the controller. Only created when the
 # operator opted in; the default run stays a cold build.
+controller_cache_args=()
+if [ -n "${VERIFY_PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  mkdir -p "$VERIFY_PLAYWRIGHT_BROWSERS_PATH" || { echo 'cannot create browser cache' >&2; exit 1; }
+  controller_cache_args+=(-v "${VERIFY_PLAYWRIGHT_BROWSERS_PATH}:${VERIFY_PLAYWRIGHT_BROWSERS_PATH}")
+fi
 if [ "${VERIFY_SHARED_GOCACHE:-0}" = 1 ]; then
   export VERIFY_GO_CACHE="${VERIFY_GO_CACHE:-${HOME}/.cache/streamgate-go-build/${VERIFY_PLATFORM//\//-}}"
   mkdir -p "$VERIFY_GO_CACHE" || { echo "cannot create Go build cache: $VERIFY_GO_CACHE" >&2; exit 1; }
+  controller_cache_args=(-v "${VERIFY_GO_CACHE}:/gocache" -e GOCACHE=/gocache)
 fi
 export VERIFY_IMAGE="${VERIFY_IMAGE:-${VERIFY_PROJECT}-tools:local}"
 export VERIFY_CONTROLLER="${VERIFY_PROJECT}-controller"
@@ -246,6 +252,7 @@ docker run -d --init --platform "$VERIFY_PLATFORM" --name "$VERIFY_CONTROLLER" \
   --label "com.docker.compose.project=${VERIFY_PROJECT}" \
   -v "${socket}:/var/run/docker.sock" \
   -v "${ROOT_DIR}:${ROOT_DIR}" -v "${VERIFY_ARTIFACTS}:${VERIFY_ARTIFACTS}" \
+  ${controller_cache_args[@]+"${controller_cache_args[@]}"} \
   -w "$ROOT_DIR" "${forward_env[@]}" \
   -e VERIFY_IN_CONTROLLER=1 -e VERIFY_TOOLS_READY=1 \
   "$VERIFY_TOOL_IMAGE_ID" bash "$VERIFY_ARTIFACTS/execution/verify-driver.sh" "$@" \

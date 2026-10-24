@@ -144,6 +144,8 @@ elif args[:2] == ["context", "inspect"]:
             env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
                        FAKE_READY=str(ready), FAKE_TRACE=str(trace),
                        VERIFY_STAGE="media", VERIFY_PROJECT="own-cancel-test", VERIFY_IMAGE="fake:local",
+                       VERIFY_SHARED_GOCACHE="1", VERIFY_GO_CACHE=str(root / "go-cache"),
+                       VERIFY_PLAYWRIGHT_BROWSERS_PATH=str(root / "browser-cache"),
                        VERIFY_ARTIFACTS=str(root / "artifacts"))
             process = subprocess.Popen(["bash", str(root / "scripts/verify-controller.sh")],
                                        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -168,6 +170,11 @@ elif args[:2] == ["context", "inspect"]:
                 calls = [json.loads(line) for line in trace.read_text().splitlines()]
                 self.assertTrue(any(call[:2] == ["rm", "-f"] for call in calls))
                 self.assertTrue(any(call[:2] == ["volume", "ls"] for call in calls))
+                controller = next(call for call in calls if call[0] == "run")
+                self.assertIn(str(root / "go-cache") + ":/gocache", controller)
+                self.assertIn("GOCACHE=/gocache", controller)
+                browsers = str(root / "browser-cache")
+                self.assertIn(browsers + ":" + browsers, controller)
             finally:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
