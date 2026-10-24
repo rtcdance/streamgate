@@ -282,7 +282,12 @@ run_logged() {
 # centrally, after the stage has already returned successfully.
 record_stage_pass() {
   local stage="$1" log_file="${LOG_DIR}/${1}.log"
-  [ -f "$log_file" ] || fail "stage ${stage} produced no log at ${log_file}"
+  # release has no aggregate log: it delegates to release-smoke/-compat/-drills,
+  # and each of those already stamps its own marker through run_logged.
+  if [ ! -f "$log_file" ]; then
+    [ "$stage" = release ] && return 0
+    fail "stage ${stage} produced no log at ${log_file}"
+  fi
   grep -qxF "stage=${stage} PASS" "$log_file" \
     || printf 'stage=%s PASS\n' "$stage" >> "$log_file"
 }

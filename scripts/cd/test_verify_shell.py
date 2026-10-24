@@ -739,12 +739,23 @@ class VerifyShellTests(unittest.TestCase):
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(log.read_text().splitlines().count("stage=perf PASS"), 1)
-            missing = subprocess.run(["bash", "-c", chr(10).join([
+            # release has no aggregate log: it delegates to three sub-stage logs
+            # that already carry their own markers, so it is a no-op here.
+            delegated = subprocess.run(["bash", "-c", chr(10).join([
                 "set -euo pipefail",
                 "LOG_DIR=" + shlex.quote(directory),
                 'fail() { echo "$*" >&2; exit 1; }',
                 source,
                 "record_stage_pass release",
+            ])], capture_output=True, text=True)
+            self.assertEqual(delegated.returncode, 0, delegated.stderr)
+            # Every other stage must have produced its own log.
+            missing = subprocess.run(["bash", "-c", chr(10).join([
+                "set -euo pipefail",
+                "LOG_DIR=" + shlex.quote(directory),
+                'fail() { echo "$*" >&2; exit 1; }',
+                source,
+                "record_stage_pass faults",
             ])], capture_output=True, text=True)
             self.assertNotEqual(missing.returncode, 0, "a stage with no log must fail, never pass silently")
         self.assertEqual(SOURCE.read_text().count('record_stage_pass "$stage"'), 2)
