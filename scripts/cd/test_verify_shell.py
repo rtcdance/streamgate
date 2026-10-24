@@ -720,6 +720,35 @@ class VerifyShellTests(unittest.TestCase):
         ])
         self.assertNotEqual(subprocess.run(["bash", "-c", script], capture_output=True).returncode, 0)
 
+    def test_every_completed_stage_records_its_own_marker(self):
+        # perf runs on the host and never went through run_in_image, so a green
+        # perf left no marker and the evidence index rejected an otherwise
+        # complete run at the very last step.
+        source = function("record_stage_pass")
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "perf.log"
+            log.write_text("RESULT: ALL 77 PASSED" + chr(10))
+            script = chr(10).join([
+                "set -euo pipefail",
+                "LOG_DIR=" + shlex.quote(directory),
+                'fail() { echo "$*" >&2; exit 1; }',
+                source,
+                "record_stage_pass perf",
+                "record_stage_pass perf",
+            ])
+            result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(log.read_text().splitlines().count("stage=perf PASS"), 1)
+            missing = subprocess.run(["bash", "-c", chr(10).join([
+                "set -euo pipefail",
+                "LOG_DIR=" + shlex.quote(directory),
+                'fail() { echo "$*" >&2; exit 1; }',
+                source,
+                "record_stage_pass release",
+            ])], capture_output=True, text=True)
+            self.assertNotEqual(missing.returncode, 0, "a stage with no log must fail, never pass silently")
+        self.assertEqual(SOURCE.read_text().count('record_stage_pass "$stage"'), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

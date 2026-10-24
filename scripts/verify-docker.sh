@@ -275,6 +275,18 @@ run_logged() {
   log "stage=${stage} PASS"
 }
 
+# record_stage_pass <stage> — the candidate evidence index reads the marker out
+# of the stage's own log. Container stages get it from run_in_image; a stage
+# that runs on the host (perf) never did, so a green perf left no marker and the
+# index rejected an otherwise complete run at the very last step. Record it
+# centrally, after the stage has already returned successfully.
+record_stage_pass() {
+  local stage="$1" log_file="${LOG_DIR}/${1}.log"
+  [ -f "$log_file" ] || fail "stage ${stage} produced no log at ${log_file}"
+  grep -qxF "stage=${stage} PASS" "$log_file" \
+    || printf 'stage=%s PASS\n' "$stage" >> "$log_file"
+}
+
 stage_unit() {
   run_in_image unit '
     set -euo pipefail
@@ -1871,6 +1883,7 @@ if [ "$VERIFY_STAGE" = "all" ]; then
   for stage in "${ALL_STAGES[@]}"; do
     assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
     run_stage "$stage"
+    record_stage_pass "$stage"
     assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
   done
   assert_final_candidate_evidence
@@ -1885,6 +1898,7 @@ elif [[ "$VERIFY_STAGE" == *,* ]]; then
     [ -n "$stage" ] || continue
     assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
     run_stage "$stage"
+    record_stage_pass "$stage"
     assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"
   done
 else
