@@ -5,6 +5,12 @@ name: Transport diagnostic (bounded, never merged)
 # run/attempt binding, digest pinning and byte-exact restore.
 
 on:
+  # Pushing this file is the trigger: a workflow_dispatch entry point only
+  # becomes dispatchable once it exists on the default branch, which this
+  # diagnostic branch deliberately never reaches.
+  push:
+    paths:
+      - .github/workflows/sg-transport-diagnostic.yml
   workflow_dispatch:
 
 permissions:
