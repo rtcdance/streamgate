@@ -1,0 +1,87 @@
+name: GHCR real tar restore and scan gate (diagnostic only)
+
+on:
+  push:
+    branches: [sg/ghcr-real-tar-gate-20261025]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish the real candidate tar from Linux
+    runs-on: [self-hosted, streamgate-linux]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.put.outputs.image }}
+      digest: ${{ steps.put.outputs.digest }}
+      archive_sha: ${{ steps.put.outputs.archive_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save and publish the original tar
+        id: put
+        run: |
+          set -euo pipefail
+          docker image inspect streamgate-monolith:candidate >/dev/null
+          docker save -o monolith.tar streamgate-monolith:candidate
+          sha=$(sha256sum monolith.tar | awk '{print $1}')
+          echo "archive_sha=$sha" >> "$GITHUB_OUTPUT"
+          image="ghcr.io/rtcdance/streamgate/evidence-real"
+          python3 scripts/cd/evidence_transport.py put \
+            --name real-monolith --path monolith.tar \
+            --image "$image" --tag "gate-${GITHUB_RUN_ID}" \
+            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --workflow "$GITHUB_WORKFLOW" --job "$GITHUB_JOB" > put.json
+          cat put.json
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$(python3 -c 'import json;print(json.load(open("put.json"))["digest"])')" >> "$GITHUB_OUTPUT"
+
+  restore-scan:
+    name: Restore and scan the original tar on Mac
+    needs: publish
+    runs-on: [self-hosted, macOS, streamgate-acceptance]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore the original tar and verify its bytes
+        env:
+          DIGEST: ${{ needs.publish.outputs.digest }}
+          ARCHIVE_SHA: ${{ needs.publish.outputs.archive_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/cd/evidence_transport.py get \
+            --image "${{ needs.publish.outputs.image }}@${DIGEST}" --dest restored \
+            --expect-name real-monolith --expect-sha "$GITHUB_SHA" \
+            --expect-run "$GITHUB_RUN_ID" --expect-attempt "$GITHUB_RUN_ATTEMPT" > get.json
+          cat get.json
+          actual=$(shasum -a 256 restored/monolith.tar | awk '{print $1}')
+          [ "$actual" = "$ARCHIVE_SHA" ]
+          echo "REAL_TAR_RESTORE_OK sha=$actual digest=$DIGEST"
+      - name: Load the restored tar
+        run: docker load -i restored/monolith.tar
+      - name: Scan the restored image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: streamgate-monolith:candidate
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'

@@ -218,6 +218,8 @@ def extract(reference, local):
 def resolve_digest(reference, local):
     if local:
         return None
+    if "@sha256:" in reference:
+        return reference.rsplit("@", 1)[-1]
     info = json.loads(run_docker("image", "inspect", reference, "--format", "{{json .RepoDigests}}"))
     if not info:
         raise TransportError("pulled image has no repo digest")
