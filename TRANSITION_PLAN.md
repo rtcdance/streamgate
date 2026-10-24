@@ -3503,3 +3503,26 @@ CodeBuddy 已只读复核现有规则：要求完整 Docker 证据和同 SHA CI 
 **若托管 Ubuntu 仍不可用，条件备用方案仅使用现有 Mac Docker Desktop：** 官方 Linux actions-runner 容器＋独立 DinD，runner 与 DinD 共享网络栈、相同绝对 workspace 路径和 inner socket。普通同网桥不能满足现有 job 的 localhost 服务语义，也不直接挂外层 Docker socket混用验收 daemon。可行性与静态负例在 `linux-runner-feasibility.json`、`linux-runner-draft-review.json`（同监督工件目录）。CodeBuddy 已准备 ignored 草稿并修复网络布局；在真实 Linux job 的 localhost PG / Redis、workspace hash、镜像 save/load 身份、实际 scan、跨 runner artifact 身份、socket 权限 / 工具链 / 官方镜像 pin 验证之前，仍为 DRAFT / PENDING，不切正式 CI、不删门或矩阵。只用一个 Linux worker避免固定端口冲突，并让 Linux 重任务全部完成后才进入本机性能验收；最终 evidence / publishable 继续绑定同一候选 SHA。
 
 必要的 runner、隔离诊断与既定 CI 操作已在 §8.30 的默认推荐决策授权内；没有再请求常规确认。依赖和组件身份仍按仓库规则记录，不扩展到生产部署或新增付费服务器。后续最终 SHA / CI / digest 成功证据留在工件和最终答复，不为回写一次成功再制造新的待验候选。
+
+
+### 8.32 真实 CI 推进、上传配额根因与保真备用路径（2026-10-25）
+
+**当前全局状态仍 incomplete。** `1440d0d9a7ad5995f7969bfcf6573e3cb613f9aa` 将既有 ci / build / test workflows 的托管 Linux jobs 路由至明确的 self-hosted Linux 标签，并让 Mac acceptance 等待完整 Linux 前置屏障（含 test-suite / docker / manifest）；没有删业务门、扫描或矩阵。该路线已实际领取 jobs，不再是 §8.31 的零 steps 状态。旧 aa 的本地完整 PASS 仍只证明旧候选。
+
+**已闭合的运行环境缺口：** 官方 runner 基础镜像缺 C 编译器，首个 1440 CI 因 race/cgo 失败，CodeBuddy 添加 build-essential 后重验；随后 run `40115421182` 的 Go Tests 在数据库准备步骤报 `root is not in the sudoers file` / exit=1，而 Forge 已成功。Codex 通过 job logs API 直接定位；CodeBuddy 修复 runner sudo 配置，run `40120832170` 的真实数据库迁移、Go tests、完整 fuzz、coverage 负控与覆盖率门均成功。该 job 独立核验在 `ci-go-tests-failure.json`、`ci-go-tests-repair.json`（监督工件目录）。主流程 Lint、security、Anvil、Solidity 等也已推进成功，但不能据此称整个综合矩阵 / 镜像 / acceptance / evidence 通过。
+
+Mac `streamgate-mac-01` 的实际任务另暴露 `docker: command not found` / 127；CodeBuddy 修复其 listener 环境后，诊断 run `40134686855` / job `120993584714` 真实验证 PATH、Docker daemon、Compose / Buildx 与容器执行成功。其它项目的 `mac-abr-harness` runner 未修改。Linux runner 的恢复还须处理注册 token TTL 与旧会话；恢复脚本 / 依赖身份单独留工件，不把安装或 dry-run 当正式验收。
+
+**新增确证阻塞是 Artifacts 容量，而非测试断言失败或模型 429：** 截至 05:18 的全部 14 个 failed jobs，原始日志均报 `Artifact storage quota has been hit`。保全于 `.verify-artifacts/sg-supervision-20261024/ci-job-snapshots/quota-failures-2118.json`；没有把失败归零或改成暂态成功。全仓只读盘点 2445 个 artifacts 共 536,032,350 B；本轮占 498,764,287 B，其它旧工件仅 37,268,063 B。当前账号 Free 的免费 artifact 存储为 500 MiB，且与 Packages 共享；Actions cache 的 10 GiB 是另一额度。按已产出六个镜像中最小体积估算，完整十个候选约 705 MB，尚不含正式 all / evidence 和其它仓库共享占用；这是规划估算，不是未测镜像的数学下界。不能靠清空旧日志保证原方案适配免费容量，也不删除未保全的历史证据。[GitHub Actions 计费](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+最小恢复首选仍是启用足够 artifact 容量并设有界预算，实际恢复后按同 SHA 局部重试。已准备 US$2/月且启用硬停止的建议；但当前工具无账单写连接器，computer-use 也无可用浏览器，用户账号动作问题仍待答复，没有修改支付方式 / 付费设置或因等待就视为同意。删除工件不会抹去本周期累计使用，存储计量有更新延迟；不会用盲目重派、禁 upload、ignore-error 或改公开仓库绕过。
+
+**免费备用路径已做实际能力验证，尚未完成正式接入：** 官方当前明确 GHCR container image 存储与带宽免费；可将原 tar 作为普通 scratch 运输镜像中的文件，按运输镜像 digest 取回原字节，再核对原 archiveSHA256 / imageID / 源 SHA。不假定任意 OCI artifact media type 可用，也不以应用镜像 pull→save 重造归档。[GitHub Packages 计费](https://docs.github.com/en/billing/concepts/product-billing/github-packages)
+
+隔离诊断分支 `sg/codex-transport-probe-20261025` / `6fa0ec03` 的 run `40134470020`：attempt1 保留 Mac PATH 的 127 失败；修好环境后仅重试失败 jobs，同源码 attempt2 的两个独立 Mac jobs 均成功，实际 package visibility=private，registry digest 拉取与 docker cp 恢复的原 tar hash 前后相同。精确 digest / hash / raw markers 在 `registry-transport-probe.json`。它只证明小测试 tar 的双 Mac job 运输，**不证明 Linux→Mac 真实应用归档、scan、正式 backend 或完整终验**；该诊断 workflow 替换了 ci.yml，仅留隔离分支，绝不能合入主线或当正式全门通过。
+
+CodeBuddy 在从 1440 派生的独立工作树准备最小显式 GHCR evidence backend，Codex 独立审查。必须覆盖所有 artifact 生产 / 消费（候选、SBOM、publication、coverage、fuzz、all、最终 evidence），保留路径 / 符号链接边界、篡改负例、digest / hash / SHA / run 与 producer attempt 绑定及 pattern / merge 语义。只迁大 tar、留下被 quota 拒绝的小 metadata 上传仍不能闭环。若采用备用实现，须形成新候选，先过廉价正负例与真实 Linux→Mac 运输 / scan，再按原完整 CI / all / fresh reference 验收；不能把 1440 的部分成功转给新 C。若账号容量先恢复，则优先原候选必要 jobs 重试，不强推备用改造。
+
+**新的可测提效点：** 真实 cache 镜像 job `120958892090` 的 Go 编译为 146.7s，docker tar 导出 1.7s，而 `type=gha,mode=max` cache 导出为 903.7s。证据 `ci-build-cache-cost.json`；该任务的长耗时不能全归为 amd64 仿真编译。Docker 官方说明默认 scope=buildkit，多个镜像会覆盖同 scope 的缓存；后续必要候选可比较独立 scope / 导出范围 / 持久 builder，保留同 SHA 身份与原始阶段耗时，不在正在执行的 action 中临时改 inputs、删缓存或宣称已实现提效。[Docker GHA cache](https://docs.docker.com/build/cache/backends/gha/)
+
+监督继续每 30 分钟；CodeBuddy 切换工作树后仍跟踪原 session ID，巡检已覆盖原项目与新工作树 provider logs，按事件时间排序并用精确会话隔离。纯日志夹具验证工作树 429 可识别、已恢复成功不会触发旧错误、偏移不重放；未实际触发模型切换。普通单 job 失败优先真实 job logs API 与部分重试，不能仅因下游暂时 skipped 就认定必须取消整条已有效执行的 CI。

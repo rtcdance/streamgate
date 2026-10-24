@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-25 · **Verification revisions:** `caeb1a47` (old all3 outer FAIL), `aa948e78` (complete local all, earlier failure retained), `4832c60f` (CI/cache fixes pending final CI) on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-25 · **Verification revisions:** `caeb1a47` (old all3 outer FAIL), `aa948e78` (complete local all, earlier failure retained), `1440d0d9` (real CI blocked by artifact quota), `6ea60487` (isolated transport helper under review) on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -44,7 +44,7 @@ belong to the plan, not an inferred PASS here.
 
 **Bookkeeping warning:** historical completion labels and checkboxes do not
 prove current-candidate completion. Use the current table in plan §8.19 and
-its SHA-bound evidence in §8.20–8.31; overall acceptance remains incomplete.
+its SHA-bound evidence in §8.20–8.32; overall acceptance remains incomplete.
 
 ## Not closed
 
@@ -52,8 +52,9 @@ its SHA-bound evidence in §8.20–8.31; overall acceptance remains incomplete.
 |---|---|---|
 | Baseline compatibility qualification | — | Old-S/new-schema behavior, restore and fresh caeb reference measured; new terminal candidate still pending |
 | Full current candidate M0–M8 | P0 | aa948e78 second full all exit 0 closes its local gates; earlier exit 2 / 26x503 remains historical failure. New CI/cache commits require their own final complete CI acceptance; old results do not transfer |
+| Artifact capacity / transport | P0 | Current Free allowance cannot reliably hold full candidate/evidence set; bounded paid-storage setup awaits account action, while isolated GHCR transport helper is being prepared. Small private tar round trip passed; production backend and full Linux-to-Mac proof pending |
 | Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
-| Same-SHA CI execution | P0 | Mac runner registered and variables set; dispatched run 40101004225 failed before hosted runner assignment/steps. Minimal self-hosted probe 40102438537 actually passed on streamgate-mac-01; real Linux fallback diagnostics and final CI remain pending under delegated authorization; no force push |
+| Same-SHA CI execution | P0 | Self-hosted Linux jobs now execute at 1440d0d9; source/race/fuzz/coverage and multiple jobs passed, but run 40120832170 has confirmed artifact-quota upload failures. Final complete all/evidence remains pending; no success transfer from old aa or diagnostic probes |
 | SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |
 | SG-17 one native player sample | P2, conditional | only if the scope is extended |
 
@@ -68,8 +69,8 @@ its SHA-bound evidence in §8.20–8.31; overall acceptance remains incomplete.
 
 ## Next moves
 
-1. Preserve aa948e78 complete local evidence; do not run a third old-candidate all or reuse it for changed source.
-2. Mac acquisition probe passed after cleanup; let CodeBuddy qualify a Linux/DinD fallback if hosted jobs remain unavailable. Keep all job/service/scan/artifact gates and separate heavy Linux work from Mac perf.
+1. Preserve aa948e78 local complete evidence, 1440 CI attempts and uploaded candidates; do not delete history or blind redispatch under confirmed storage quota denial.
+2. Recover sufficient artifact capacity for same-SHA partial retry, or qualify the isolated GHCR original-byte transport backend as a new candidate. Cover every artifact route and reject traversal, symlinks, tampering and wrong provenance; small diagnostic success is not full readiness.
 3. Freeze final C and run its complete Docker all inside the existing same-SHA CI acceptance job, using exact scanned archives and a fresh reference/matrix; avoid another duplicate standalone full run.
 4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.
 
