@@ -3223,3 +3223,5 @@ Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e58
 - **脚手架：** 内层 driver 已冻结，外层 controller 仍由 Bash 分段读取原文件。执行者本轮在运行期间编辑外层脚本，触发 unexpected EOF；内部 release-drills exit=1，但原始外层 command.exit=0。**保留此 0，明确判为不可信退出，不补写成失败数也不当 PASS。** 新动态回归在旧入口上稳定重现 controller 退出 7 被文件改写变成 0；修复为完整函数体先解析、再执行且始终 exit，改写后的脚本不能影响本轮 AST 或原始退出。Docker controller 5/5、shell 45/45 通过，旧实现负控 exit=1。原始日志和 hash 分别在 sg-eff-mac-release-20261024/partial-evidence.json 与 sg-eff-mac-profile-20261024/controller-{streaming-before,snapshot}.*。
 
 候选 / 基线 imageID 和 schema 记录在 release-compat/compatibility.json；整轮判断存 invocation.json，原始 command.exit 保持 0。运行结束后本轮容器 / 锁已清理。下一步只重验修复后的 release，不因这次失败立即重跑 all；兼容与故障门齐全后再冻结最终候选。
+
+Demo mint 最小业务修复：空 ABI 返回错误，合法编码的零余额仍有效。Docker 中真实 ethclient → HTTP RPC → ABI 路径回归覆盖空返回、截断、合法零与持有余额；旧实现空返回负例 exit=1，修复后 pkg/service 完整 race / -count=1 与 go vet 组合 exit=0，694 个顶层测试 / 种子组通过；2 个依赖链环境的 nonce 测试 SKIP，明确不算通过，后续 chain 门仍须验证。证据 sg-eff-mac-mint-20261024/{before,after}.{log,exit} 与 evidence.json。未修改 release 的 HTTP 500 故障断言，完整 release 复验待运行。

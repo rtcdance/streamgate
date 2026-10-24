@@ -129,7 +129,9 @@ func (m *DemoNFTMinter) BalanceOf(ctx context.Context, wallet common.Address) (*
 	}
 	bal := new(big.Int)
 	if len(out) == 0 {
-		return bal, nil
+		// Calls to an EOA can succeed with empty data. That is not an encoded
+		// zero balance and must not turn a wrong contract into a mint success.
+		return nil, fmt.Errorf("balanceOf returned empty ABI data for contract %s", m.contractAddr.Hex())
 	}
 	if err := m.parsedABI.UnpackIntoInterface(&bal, "balanceOf", out); err != nil {
 		return nil, fmt.Errorf("unpack balanceOf: %w", err)
