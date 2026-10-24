@@ -31,8 +31,15 @@ if go test -run "^$" -fuzz "^${target}\$" -fuzztime "${seconds}s" "./$package_di
   exit 0
 fi
 
-# A crash is final: go records the reproducer and must never be retried.
-if grep -q "Failing input written to" "$log"; then
+# Only the coordinator shutdown race documented in TRANSITION_PLAN section 0.2
+# qualifies: real progress was made, the deadline expired, and nothing else went
+# wrong. A crash, a seed-corpus failure, a panic, a hung worker or a broken
+# coordinator handshake is final and must never be retried.
+if ! grep -q "fuzz: elapsed:" "$log"; then
+  cat "$log"
+  exit 1
+fi
+if grep -qE "Failing input written to|failure while testing seed corpus entry|panic:|hung or terminated unexpectedly|communicating with fuzzing coordinator" "$log"; then
   cat "$log"
   exit 1
 fi

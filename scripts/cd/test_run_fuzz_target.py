@@ -30,8 +30,16 @@ class RunFuzzTargetTests(unittest.TestCase):
                 'if [ "$behaviour" = crash ]; then',
                 '  echo "--- FAIL: FuzzX (1.00s)"; echo "Failing input written to testdata/fuzz/FuzzX/abc"; exit 1',
                 'fi',
+                'if [ "$behaviour" = no-progress ]; then',
+                '  echo "--- FAIL: FuzzX (31.00s)"; echo "    context deadline exceeded"; exit 1',
+                'fi',
+                'if [ "$behaviour" = hung ]; then',
+                '  echo "fuzz: elapsed: 3s, execs: 1 (0/sec)"; echo "--- FAIL: FuzzX (31.00s)"',
+                '  echo "    context deadline exceeded"; echo "hung or terminated unexpectedly"; exit 1',
+                'fi',
                 'if [ "$behaviour" = deadline-once ] && [ "$n" -gt 1 ]; then exit 0; fi',
                 'if [ "$behaviour" = deadline-once ] || [ "$behaviour" = deadline-always ]; then',
+                '  echo "fuzz: elapsed: 3s, execs: 9000 (3000/sec)"',
                 '  echo "--- FAIL: FuzzX (31.00s)"; echo "    context deadline exceeded"; exit 1',
                 'fi',
                 'echo "--- PASS: FuzzX (30.06s)"; exit 0',
@@ -68,6 +76,17 @@ class RunFuzzTargetTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, 2)
         self.assertIn("context deadline exceeded", result.stderr + result.stdout)
+
+    def test_a_hung_worker_is_final_even_with_a_deadline(self):
+        result, calls, _ = self.run_target("hung")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, 1)
+        self.assertIn("hung or terminated unexpectedly", result.stdout)
+
+    def test_a_deadline_without_progress_is_not_retried(self):
+        result, calls, _ = self.run_target("no-progress")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, 1)
 
     def test_rejects_a_non_positive_budget(self):
         for value in ("0", "x", ""):
