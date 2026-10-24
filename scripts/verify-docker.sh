@@ -283,6 +283,7 @@ stage_unit() {
     # final candidate entrypoint must cover the same contract or a candidate could
     # be accepted here while the fuzz gate that CI enforces never ran (section 0.2 D).
     python3 scripts/cd/test_run_required_fuzz.py
+    python3 scripts/cd/test_run_fuzz_target.py
     python3 scripts/cd/test_verify_proxy.py
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
@@ -533,7 +534,9 @@ stage_ops() {
           continue
         fi
         echo "-- fuzz $d/$t (30s) --"
-        go test -run "^$" -fuzz "^${t}\$" -fuzztime 30s "./$d"
+        # Fail-closed per target: a crash is final, a deadline that produced no
+        # failing input is retried once on one worker (see run-fuzz-target.sh).
+        bash scripts/cd/run-fuzz-target.sh "$d" "$t" 30
       done
     done
   '
