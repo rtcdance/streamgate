@@ -30,18 +30,12 @@ else
   mem_gib=$(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%d", $1/1024/1024/1024}')
 fi
 mem_gib=${mem_gib:-0}
-if [ "$mem_gib" -ge 32 ]; then pass "RAM: ${mem_gib} GiB"
-elif [ "$mem_gib" -ge 16 ]; then warnf "RAM: ${mem_gib} GiB (single stage ok; all/perf needs >=32)"
-else bad "RAM: ${mem_gib} GiB (need >=16 for a single stage, >=32 for all/perf)"; fi
+if [ "$mem_gib" -ge 16 ]; then pass "Host RAM: ${mem_gib} GiB (Docker VM capacity checked separately)"
+else warnf "Host RAM: ${mem_gib} GiB; full desktop-local requires a configured 16 GiB VM"; fi
 
-# Disk
-target=/
-if [ "$(uname -s)" = "Linux" ] && [ -d /home ]; then target=/home; fi
-avail_gb=$(df -Pk "$target" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')
-avail_gb=${avail_gb:-0}
-if [ "$avail_gb" -ge 100 ]; then pass "Disk: ${avail_gb} GiB free on $target"
-elif [ "$avail_gb" -ge 50 ]; then warnf "Disk: ${avail_gb} GiB free on $target (100 recommended for all stages)"
-else bad "Disk: ${avail_gb} GiB free on $target (need >=50, 100 recommended)"; fi
+# Host disk is inventory only: Docker Desktop stores data inside its VM.
+avail_gb=$(df -Pk / 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')
+echo "INFO  Host disk: ${avail_gb:-unknown} GiB free; this does not qualify the Docker filesystem"
 
 # Docker (required for acceptance)
 if command -v docker >/dev/null 2>&1; then
@@ -117,7 +111,9 @@ else
 fi
 
 echo
-echo "NOTE: acceptance is Docker-first (make verify-docker). Host Go/Foundry are pre-check tools only."
+echo "NOTE: inventory only; make verify-docker runs the canonical profile/capacity gate before building."
+echo "NOTE: macOS selects desktop-local (8 VM CPU / 16GiB configured / 100GiB Docker disk); native-linux remains separate."
+echo "NOTE: host Go/Foundry and host disk are not Docker acceptance evidence."
 echo "== summary: $fail FAIL, $warn WARN =="
 [ "$fail" -eq 0 ] || exit 1
 exit 0

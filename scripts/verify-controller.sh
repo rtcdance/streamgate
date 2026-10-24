@@ -116,8 +116,8 @@ fi
 # HEAD the clean-tree check just approved, its submodules are cloned from the
 # local checkouts (offline, no GitHub round trip), and the container mounts the
 # clone, so a mid-run edit or commit in the source tree cannot change what is
-# being verified. Targeted stages keep running from the working tree: they are
-# the repair loop, and paying for a clone on every fix cycle is not the point.
+# being verified. Non-terminal targeted stages keep the working tree by default;
+# all/perf/release (also in stage lists) freeze, unless explicitly overridden.
 mkdir -p "$VERIFY_ARTIFACTS"
 VERIFY_ARTIFACTS="$(cd "$VERIFY_ARTIFACTS" && pwd)"
 export VERIFY_ARTIFACTS

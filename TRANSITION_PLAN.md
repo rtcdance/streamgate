@@ -3206,6 +3206,6 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 4. **原生路径：** Linux/CI 默认 native-linux，保留原生 amd64 / ≥8 CPU / ≥32GiB / ≥100GiB / 独占 daemon 要求。Mac-only 收口不再以取得该机器为前置。CI 仍是独立门；未授权 push/dispatch 或未实际运行时保持待验，不写成 PASS。
 5. **执行顺序：** 环境与协议工具回归 → clean Q 的 release（旧 S / 新 schema 真实业务与恢复）→ 受影响失败最小复现及修复 → 冻结 C 完整九阶段 all → 同 SHA CI。失败保存现场并回最小范围，不连续赌完整 DAG。
 
-实际本机预检：8 CPU / 16746086400 bytes RAM / aarch64 daemon，linux/amd64 执行；VM 内 Docker 文件系统 855778164 KiB 空闲，28 个后台容器逐一列出，原始 exit=0。工件：`.verify-artifacts/sg-eff-mac-profile-20261024/local-gate.{log,exit}`。这只证明本机路径通过预检，不证明 release / all 已通过。首次 Docker 工具回归因挂载到与镜像内部路径冲突的宿主绝对路径而找不到文件（exit=2），保留 tooling.log；改用 /workspace 显式挂载后重验，不隐去失败。
+实际本机预检：8 CPU / 16746086400 bytes RAM / aarch64 daemon，linux/amd64 执行；VM 内 Docker 文件系统 855778164 KiB 空闲，28 个后台容器逐一列出，原始 exit=0。工件：`.verify-artifacts/sg-eff-mac-profile-20261024/local-gate.{log,exit}`。这只证明本机路径通过预检，不证明 release / all 已通过。首次 Docker 工具回归在宿主绝对路径挂载后找不到文件（exit=2，挂载原因未单独定位），保留 tooling.log；改用 /workspace 显式挂载后重验，不隐去失败。
 
 Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e585a256d50a499cd00f9` 内，环境 14＋性能环境 6＋性能协议 30＋controller 3＋shell 45＝**98 PASS**，`tooling-v2.exit=0`。保留原生模式负例，并新增 Desktop 的低资源 / VM 磁盘不可测 / 远端 endpoint / 并发验收拒绝，以及 profile / 平台 / 后台集合变化拒绝比较。源码和日志 hash 存同目录 `tooling-evidence.json`；此结果不计作业务 release 或完整 all。
