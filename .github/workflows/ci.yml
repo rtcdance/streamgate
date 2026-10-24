@@ -1,140 +1,79 @@
-name: Original archive registry transport probe (diagnostic only)
+name: Scoped over-collected diagnostic version cleanup
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
-  group: codex-original-archive-transport-probe
+  group: codex-scoped-diagnostic-containment
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish original test tar in a private transport image
+  cleanup:
+    name: Delete only the identified unsafe diagnostic version
     runs-on: streamgate-acceptance
-    timeout-minutes: 8
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      digest: ${{ steps.publish.outputs.digest }}
-      archive_sha: ${{ steps.publish.outputs.archive_sha }}
-      payload_sha: ${{ steps.publish.outputs.payload_sha }}
+    timeout-minutes: 4
     steps:
-      - name: Publish test bytes without Actions artifacts
-        id: publish
+      - name: Match package digest and tag, delete one version, and verify
         env:
-          REGISTRY_TOKEN: ${{ github.token }}
+          GH_PACKAGE_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          jobtmp="$(mktemp -d "${RUNNER_TEMP%/}/sg-transport-publish.XXXXXX")"
-          export DOCKER_CONFIG="$jobtmp/auth"
-          export PROBE_CONTEXT="$jobtmp/context"
-          image_ref="ghcr.io/rtcdance/streamgate-evidence-transport-probe:probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cleanup() {
-            docker image rm "$image_ref" >/dev/null 2>&1 || true
-            rm -rf "$jobtmp"
-          }
-          trap cleanup EXIT
-          # Keep the short-lived registry credential out of shared Docker config.
-          mkdir -m 700 "$DOCKER_CONFIG" "$PROBE_CONTEXT"
           python3 - <<'PYTHON'
-          import hashlib, io, json, os, pathlib, tarfile
-          root = pathlib.Path(os.environ['PROBE_CONTEXT'])
-          payload = os.urandom(256 * 1024)
-          with tarfile.open(root / 'evidence.tar', 'w') as stream:
-              entry = tarfile.TarInfo('payload.bin')
-              entry.size = len(payload)
-              entry.mtime = 0
-              stream.addfile(entry, io.BytesIO(payload))
-          manifest = {
-              'schemaVersion': 1,
-              'scope': 'diagnostic only; no application or acceptance proof',
-              'sourceSHA': os.environ['GITHUB_SHA'],
-              'runID': os.environ['GITHUB_RUN_ID'],
-              'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
-              'archiveSHA256': hashlib.sha256((root / 'evidence.tar').read_bytes()).hexdigest(),
-              'payloadSHA256': hashlib.sha256(payload).hexdigest(),
+          import json, os, urllib.error, urllib.parse, urllib.request
+          owner = 'rtcdance'
+          package = 'streamgate/evidence-real'
+          digest = 'sha256:68feaa4a0e3a852022f471c03dd1f7489726ae4b16bf9c2e3107ff464728367d'
+          tag = 'gate-40136111416'
+          base = '/users/' + owner + '/packages/container/' + urllib.parse.quote(package, safe='')
+          headers = {
+              'Authorization': 'Bearer ' + os.environ['GH_PACKAGE_TOKEN'],
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
           }
-          (root / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True))
-          (root / 'Dockerfile').write_text('FROM scratch\nCOPY evidence.tar manifest.json /evidence/\n')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-              stream.write('archive_sha=' + manifest['archiveSHA256'] + '\n')
-              stream.write('payload_sha=' + manifest['payloadSHA256'] + '\n')
-          print('ORIGINAL_ARCHIVE_SHA256=' + manifest['archiveSHA256'])
-          PYTHON
-          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker build --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" --label "org.opencontainers.image.revision=${GITHUB_SHA}" -t "$image_ref" "$PROBE_CONTEXT"
-          docker push "$image_ref"
-          digest="$(docker image inspect "$image_ref" --format '{{index .RepoDigests 0}}')"
-          [[ "$digest" =~ ^ghcr\.io/rtcdance/streamgate-evidence-transport-probe@sha256:[0-9a-f]{64}$ ]]
-          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
-          python3 - <<'PYTHON'
-          import json, os, urllib.request
-          request = urllib.request.Request(
-              'https://api.github.com/users/rtcdance/packages/container/streamgate-evidence-transport-probe',
-              headers={'Authorization': 'Bearer ' + os.environ['REGISTRY_TOKEN'], 'Accept': 'application/vnd.github+json'})
-          with urllib.request.urlopen(request, timeout=30) as response:
-              package = json.load(response)
-          assert package['visibility'] == 'private', package['visibility']
-          print('TRANSPORT_PACKAGE_VISIBILITY=private')
-          PYTHON
-          printf 'TRANSPORT_PUBLISHED_DIGEST=%s\n' "$digest"
-
-  restore:
-    name: Restore exact original bytes in a fresh job
-    needs: publish
-    runs-on: streamgate-acceptance
-    timeout-minutes: 8
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - name: Pull by registry digest and verify original tar and payload
-        env:
-          REGISTRY_TOKEN: ${{ github.token }}
-          TRANSPORT_DIGEST: ${{ needs.publish.outputs.digest }}
-          EXPECTED_ARCHIVE_SHA: ${{ needs.publish.outputs.archive_sha }}
-          EXPECTED_PAYLOAD_SHA: ${{ needs.publish.outputs.payload_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          jobtmp="$(mktemp -d "${RUNNER_TEMP%/}/sg-transport-restore.XXXXXX")"
-          export DOCKER_CONFIG="$jobtmp/auth"
-          export RESTORED_EVIDENCE="$jobtmp/restored"
-          container="sg-transport-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cleanup() {
-            docker rm "$container" >/dev/null 2>&1 || true
-            docker image rm "$TRANSPORT_DIGEST" >/dev/null 2>&1 || true
-            rm -rf "$jobtmp"
+          def request(path, method='GET'):
+              req = urllib.request.Request('https://api.github.com' + path, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      data = response.read()
+                      return response.status, json.loads(data) if data else None
+              except urllib.error.HTTPError as error:
+                  print('SCOPED_CLEANUP_HTTP_ERROR ' + json.dumps({'method': method, 'path': path, 'status': error.code}))
+                  raise SystemExit(1)
+          def versions():
+              result = []
+              for page in range(1, 11):
+                  _, rows = request(base + '/versions?per_page=100&page=' + str(page))
+                  result.extend(rows)
+                  if len(rows) < 100:
+                      return result
+              raise SystemExit('bounded version listing exceeded; no deletion performed')
+          _, info = request(base)
+          assert info['name'] == package, 'unexpected package name'
+          assert info['owner']['login'].lower() == owner, 'unexpected package owner'
+          assert info['package_type'] == 'container', 'unexpected package type'
+          before = versions()
+          matches = [item for item in before if item.get('name') == digest and tag in item.get('metadata', {}).get('container', {}).get('tags', [])]
+          if len(matches) != 1:
+              print('SCOPED_CLEANUP_NO_UNIQUE_MATCH ' + json.dumps({'matches': len(matches), 'expectedDigest': digest, 'expectedTag': tag}))
+              raise SystemExit(1)
+          version = matches[0]
+          receipt = {
+              'package': package, 'versionID': version['id'], 'digest': digest,
+              'tag': tag, 'visibilityBefore': info['visibility'],
+              'scope': 'one diagnostic version with over-collected files; no application or Actions artifacts deleted',
           }
-          trap cleanup EXIT
-          mkdir -m 700 "$DOCKER_CONFIG" "$RESTORED_EVIDENCE"
-          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker pull "$TRANSPORT_DIGEST"
-          # The transport container is never started; copy the original file.
-          docker create --name "$container" --label "com.streamgate.transport.probe=${GITHUB_RUN_ID}" "$TRANSPORT_DIGEST" /not-executed >/dev/null
-          docker cp "$container:/evidence/evidence.tar" "$RESTORED_EVIDENCE/evidence.tar"
-          docker cp "$container:/evidence/manifest.json" "$RESTORED_EVIDENCE/manifest.json"
-          python3 - <<'PYTHON'
-          import hashlib, json, os, pathlib, tarfile
-          root = pathlib.Path(os.environ['RESTORED_EVIDENCE'])
-          manifest = json.loads((root / 'manifest.json').read_text())
-          archive_sha = hashlib.sha256((root / 'evidence.tar').read_bytes()).hexdigest()
-          assert archive_sha == os.environ['EXPECTED_ARCHIVE_SHA'] == manifest['archiveSHA256']
-          assert manifest['sourceSHA'] == os.environ['GITHUB_SHA']
-          assert manifest['runID'] == os.environ['GITHUB_RUN_ID']
-          assert manifest['runAttempt'] == os.environ['GITHUB_RUN_ATTEMPT']
-          with tarfile.open(root / 'evidence.tar') as stream:
-              assert stream.getnames() == ['payload.bin']
-              payload = stream.extractfile('payload.bin').read()
-          assert len(payload) == 256 * 1024
-          assert hashlib.sha256(payload).hexdigest() == os.environ['EXPECTED_PAYLOAD_SHA'] == manifest['payloadSHA256']
-          print('ORIGINAL_TAR_REGISTRY_ROUNDTRIP_OK ' + json.dumps({
-              'sourceSHA': manifest['sourceSHA'], 'runID': manifest['runID'],
-              'archiveSHA256': archive_sha, 'transportDigest': os.environ['TRANSPORT_DIGEST'],
-              'scope': 'two-job Mac diagnostic; not Linux/application/acceptance proof'}))
+          print('SCOPED_CLEANUP_SELECTED ' + json.dumps(receipt, sort_keys=True))
+          status, _ = request(base + '/versions/' + str(version['id']), 'DELETE')
+          assert status == 204, 'unexpected delete response'
+          receipt['deleteHTTPStatus'] = status
+          after = versions()
+          assert all(item['id'] != version['id'] for item in after), 'deleted version is still listed'
+          receipt['verifiedAbsentFromVersionList'] = True
+          receipt['otherVersionIDsPreserved'] = sorted(item['id'] for item in before if item['id'] != version['id'])
+          print('SCOPED_DIAGNOSTIC_VERSION_CLEANUP_OK ' + json.dumps(receipt, sort_keys=True))
           PYTHON
