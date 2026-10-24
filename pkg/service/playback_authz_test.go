@@ -151,6 +151,29 @@ func TestAuthorizePlayback_RefusesWhenTheRuleTightensUnderIssuance(t *testing.T)
 	assert.Nil(t, authz)
 }
 
+// Evidence that aged past the freshness bound between the gate decision and
+// issuance is a retryable service condition. Classifying it as a denial would
+// answer 403 ("you hold no NFT") for a holder whose read was simply 5s old,
+// which is exactly what a loaded server must never do.
+func TestAuthorizePlayback_StaleEvidenceIsUnavailableNotDenied(t *testing.T) {
+	resolver := &countingSnapshotResolver{script: []PolicySnapshot{
+		{ContentID: "c1", Rules: []middleware.GatingRule{authzRule(1)}, Version: 1, VerifiedAt: time.Now()},
+	}}
+	gate := &middleware.NFTGateConfig{
+		Verifier:       &quantityVerifier{quantity: big.NewInt(1)},
+		BlockProver:    stableBlockProver{},
+		DefaultChainID: 1,
+		MaxEvidenceAge: time.Nanosecond,
+	}
+	h := NewPlaybackAuthorizer(gate, resolver, zap.NewNop())
+
+	authz, err := h.AuthorizePlayback(t.Context(), "c1", capSessionWallet, SessionBinding{SessionID: "s1", AuthEpoch: 1})
+	require.Error(t, err, "stale evidence must never mint a capability")
+	assert.Nil(t, authz)
+	assert.True(t, errors.Is(err, ErrAuthorizationUnavailable), "stale evidence is unavailable, not denied: %v", err)
+	assert.False(t, errors.Is(err, ErrPlaybackDenied))
+}
+
 // A second change after the single re-authorization is a refusal, not an
 // unbounded retry.
 func TestAuthorizePlayback_RefusesOnASecondRuleAdvance(t *testing.T) {

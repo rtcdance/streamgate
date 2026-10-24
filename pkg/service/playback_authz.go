@@ -141,6 +141,17 @@ func NewPlaybackAuthorizer(gate *middleware.NFTGateConfig, resolver PolicySnapsh
 // resolver or gate, no rules (fail-closed) and no granting rule. If the rule
 // version advances between the granting snapshot and issuance, it re-authorizes
 // fully ONCE against the fresh snapshot; a second advance refuses.
+// authorizationEvaluationError keeps the two failure classes apart: a malformed
+// rule is the caller's bug and is returned unchanged, while a rule that could
+// not be verified is a retryable service condition. Returning the latter as-is
+// made the HTTP layer answer 403 "you hold no NFT" during an RPC outage.
+func authorizationEvaluationError(err error) error {
+	if middleware.IsInvalidGatingRule(err) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", ErrAuthorizationUnavailable, err)
+}
+
 func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, wallet string, session SessionBinding) (*PlaybackAuthorization, error) {
 	if session.SessionID == "" {
 		return nil, ErrAuthorizationSessionRequired
@@ -169,7 +180,7 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 
 	decision, err := middleware.EvaluatePolicy(ctx, a.gate, a.logger, first.Rules, wallet)
 	if err != nil {
-		return nil, err
+		return nil, authorizationEvaluationError(err)
 	}
 	if !decision.Allowed {
 		return nil, ErrPlaybackDenied
@@ -192,7 +203,7 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 		}
 		decision, err = middleware.EvaluatePolicy(ctx, a.gate, a.logger, second.Rules, wallet)
 		if err != nil {
-			return nil, err
+			return nil, authorizationEvaluationError(err)
 		}
 		if !decision.Allowed {
 			return nil, ErrPlaybackDenied
@@ -213,7 +224,11 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 		return nil, ErrPlaybackDenied
 	}
 	if decision.EvidenceObservedAt.IsZero() || time.Since(decision.EvidenceObservedAt) > middleware.EvidenceAgeBound(a.gate) {
-		return nil, fmt.Errorf("NFT authorization evidence exceeded its freshness bound before capability issuance")
+		// Stale evidence is a retryable service condition, not a denial: the
+		// holder may still qualify and a fresh read would answer. Reporting it
+		// as ErrPlaybackDenied would turn a 5s-old read into a 403 "you hold no
+		// NFT" and make a loaded server look like it turns holders away.
+		return nil, fmt.Errorf("%w: NFT authorization evidence exceeded its freshness bound before capability issuance", ErrAuthorizationUnavailable)
 	}
 
 	authz := &PlaybackAuthorization{

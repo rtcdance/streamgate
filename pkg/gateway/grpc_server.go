@@ -781,7 +781,10 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 		case errors.Is(err, service.ErrNoGatingRules):
 			return nil, status.Error(codes.PermissionDenied, "content is gated; no active gating rules are configured for it")
 		case errors.Is(err, service.ErrAuthorizationUnavailable):
-			return nil, status.Error(codes.Internal, "failed to resolve gating rules")
+			// Parity with the HTTP path's 503: the holder may still qualify and a
+			// retry with fresh evidence can answer. Internal would claim a server
+			// bug, PermissionDenied would claim the holder does not qualify.
+			return nil, status.Error(codes.Unavailable, "NFT verification service unavailable")
 		default:
 			return nil, status.Error(codes.PermissionDenied, "NFT ownership required")
 		}

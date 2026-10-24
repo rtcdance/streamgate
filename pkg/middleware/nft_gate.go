@@ -139,6 +139,15 @@ type invalidGatingRuleError struct{ reason string }
 
 func (e *invalidGatingRuleError) Error() string { return "invalid gating rule: " + e.reason }
 
+// IsInvalidGatingRule reports whether err is a malformed-rule error (a caller
+// bug, answered as 400) rather than a rule that could not be verified at all
+// (a service failure, answered as 503). Callers outside this package need the
+// distinction to avoid reporting an RPC outage as a denial.
+func IsInvalidGatingRule(err error) bool {
+	var invalid *invalidGatingRuleError
+	return errors.As(err, &invalid)
+}
+
 type NFTGateConfig struct {
 	Verifier         NFTOwnershipChecker
 	BlockProver      BlockProver

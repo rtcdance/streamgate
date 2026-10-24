@@ -1048,7 +1048,9 @@ func TestStreamingGrpcServer_GetManifest_AuthChecks(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		st, _ := status.FromError(err)
-		assert.Equal(t, codes.PermissionDenied, st.Code())
+		// An RPC failure is retryable unavailability, not "you hold no NFT";
+		// gRPC parity with the HTTP path's 503.
+		assert.Equal(t, codes.Unavailable, st.Code())
 	})
 
 	t.Run("NFT not owned", func(t *testing.T) {
