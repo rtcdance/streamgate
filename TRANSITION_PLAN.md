@@ -3211,3 +3211,15 @@ A/B(同机同代码,仅换工具链):Go **1.25.0** `-count=100`×3 → 全绿;**
 Docker 固定工具镜像 `sha256:f52b4d4bf2f93e37ade5d742848f394a1eebc3966c3e585a256d50a499cd00f9` 内，环境 14＋性能环境 6＋性能协议 30＋controller 3＋shell 45＝**98 PASS**，`tooling-v2.exit=0`。保留原生模式负例，并新增 Desktop 的低资源 / VM 磁盘不可测 / 远端 endpoint / 并发验收拒绝，以及 profile / 平台 / 后台集合变化拒绝比较。源码和日志 hash 存同目录 `tooling-evidence.json`；此结果不计作业务 release 或完整 all。
 
 冻结入口补漏：终验 stage 的 clean-tree 检查扩展到 all / perf / release 及其逗号组合，防止自动 clone 默默舍弃未提交修复。新增动态回归覆盖这些入口，旧代码在 perf / release / media,release 三项失败（controller-before.exit=1），修复后 controller 4/4 与 shell 45/45 Docker 通过；前次 controller-clean-source.exit=1 是旧环境失败夹具缺少 Git 仓库，补齐干净候选夹具后 v2.exit=0，原失败保留。连同上述环境 / 性能环境 / 协议回归，共 99 个不同工具测试通过。开发机 inventory 同步取消“all 必须 32GiB”的过时宿主提示，实际 inventory.exit=0；它仍是清单，不代替 VM 容量门。
+
+
+### 8.22 Mac release 实测失败与最小修复（2026-10-24）
+
+`sg-eff-mac-release-20261024` 冻结 Q=`a4d6faf47eb2e23d714a3f9328a568c065ab4863`，desktop-local，实际候选业务 smoke 77/77、旧 S=`3e5785e0` 在新 schema 的业务 smoke 77/77；schema 前后 SHA256 均为 `fef6f368d56bf446c3fc5e1df368113a64470676dc7ceb1549360e9c105b424a`，候选镜像恢复。START / HEALTH 两类故障与恢复通过。**整轮失败**，SMOKE 没有收口，不能将这些部分证据写成 release PASS。
+
+定位出两个独立根因：
+
+- **业务：** DemoNFTMinter.BalanceOf 把空 ABI 数据当作合法零余额。错误合约 0xdead 可接收交易并产生成功 receipt，但没有 NFT 铸造；接口仍返回 200、balance=0，全链正确检出 `FAIL: dev-mint reported balance=0 — nothing was minted (HTTP 200)`，而故障门要求正确返回 500。修复业务对空 ABI fail-closed，保留原故障断言，不扩展“预期失败”匹配来掩盖接口错误。
+- **脚手架：** 内层 driver 已冻结，外层 controller 仍由 Bash 分段读取原文件。执行者本轮在运行期间编辑外层脚本，触发 unexpected EOF；内部 release-drills exit=1，但原始外层 command.exit=0。**保留此 0，明确判为不可信退出，不补写成失败数也不当 PASS。** 新动态回归在旧入口上稳定重现 controller 退出 7 被文件改写变成 0；修复为完整函数体先解析、再执行且始终 exit，改写后的脚本不能影响本轮 AST 或原始退出。Docker controller 5/5、shell 45/45 通过，旧实现负控 exit=1。原始日志和 hash 分别在 sg-eff-mac-release-20261024/partial-evidence.json 与 sg-eff-mac-profile-20261024/controller-{streaming-before,snapshot}.*。
+
+候选 / 基线 imageID 和 schema 记录在 release-compat/compatibility.json；整轮判断存 invocation.json，原始 command.exit 保持 0。运行结束后本轮容器 / 锁已清理。下一步只重验修复后的 release，不因这次失败立即重跑 all；兼容与故障门齐全后再冻结最终候选。

@@ -10,6 +10,40 @@ import unittest
 
 
 class ControllerCancellationTests(unittest.TestCase):
+    def test_mid_run_script_rewrite_cannot_change_failed_controller_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts/cd").mkdir(parents=True)
+            source = Path(__file__).resolve().parent.parent / "verify-controller.sh"
+            entry = root / "scripts/verify-controller.sh"
+            entry.write_bytes(source.read_bytes())
+            (root / "scripts/cd/verify_environment.sh").write_text("exit 0\n")
+            (root / "scripts/verify-docker.sh").write_text("exit 7\n")
+            binary = root / "bin"; binary.mkdir()
+            fake = binary / "docker"
+            fake.write_text("#!" + sys.executable + "\n" + '''
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[0] == "build":
+    # In-place rewriting reproduces Bash's late-read vulnerability; replacing
+    # the inode would leave its existing descriptor pointing at the old file.
+    Path(os.environ["FAKE_ENTRY"]).write_text("exit 0\\n" * 20000)
+elif args[:2] == ["image", "inspect"]: print("sha256:" + "1" * 64)
+elif args[:2] == ["context", "inspect"]: print("unix:///tmp/fake.sock")
+elif args[0] == "inspect":
+    print("7" if "ExitCode" in " ".join(args) else "exited")
+elif args[0] == "logs": print("stage failed with exit 7")
+''')
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"],
+                       FAKE_ENTRY=str(entry), VERIFY_STAGE="media", VERIFY_FROZEN_SOURCE="0",
+                       VERIFY_PROJECT="own-snapshot-test", VERIFY_ARTIFACTS=str(root / "artifacts"))
+            result = subprocess.run(["bash", str(entry)], env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 7, result.stderr)
+            self.assertIn("stage failed with exit 7", (root / "artifacts/controller.log").read_text())
+            self.assertNotIn("unexpected EOF", result.stderr)
+
     def test_terminal_stage_refuses_dirty_source_before_docker_or_freezing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

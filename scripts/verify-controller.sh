@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Parse the complete controller before doing work. Bash otherwise reads later
+# commands from the editable file after a wait, allowing mid-run edits to alter
+# cleanup or even the reported exit. This function always exits the shell.
+verify_controller_main() {
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 export VERIFY_SOURCE_ROOT="$ROOT_DIR"
@@ -314,3 +318,5 @@ done
 wait "$LOG_FOLLOWER" 2>/dev/null || :
 rc="$(docker inspect --format '{{.State.ExitCode}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || rc=1
 exit "$rc"
+}
+verify_controller_main "$@"
