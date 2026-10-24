@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revision:** `5ceb1f5d` (release), `7f2c208d` (recovery/media) on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revisions:** `caeb1a47` (all3 checks, outer FAIL), `a3a7df3d` (ops), `5d87fe8b` (tooling) on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -31,27 +31,25 @@ belong to the plan, not an inferred PASS here.
 
 | Item | Evidence |
 |---|---|
-| Historical baseline observations | `3e5785e0`: frozen unit plus six functional stages; separate runs, historical outer exits not recorded |
-| M0 Shell gate and CI wiring | `a7791c1d`; fixed Docker tool regressions 84 PASS, real local gate refused before build |
-| Proposed S | `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`, pinned by `39921df4`; protocol/tool regressions 101 PASS; not qualified |
-| Recovery teardown correction | `9b8f0d14`; old stage regression red, corrected Docker regression 56 PASS |
-| Cache wiring | `8a67064b` plus required fix `7f2c208d`; Go/browser mounts and forced test execution verified; initial failed controller run retained |
-| Actual recovery → media | `7f2c208d`, `.verify-artifacts/sg-eff-recovery-media-20261024/`: outer exit 0, recovery 43/43 and media 77/77 ×2; identities and cleanup verified |
-| Mac-only profile and controller integrity | Shell profile gate, dirty-source refusal, parser snapshot and created-state logging regressions; 101 distinct tool tests passed incrementally, old implementations fail negative controls |
-| Empty-ABI mint correction | 5ceb1f5d; Docker pkg/service race plus vet exit 0 (694 top-level groups, two chain-environment skips); old EOA response test fails |
-| Actual local release qualification | 5ceb1f5d; sg-eff-mac-release2-20261024 outer exit 0, candidate/S 77/77 each, schema unchanged, three failures and recoveries; logging observer boundary documented in plan |
-| M6 candidate material preparation | Same frozen revision, four tracked documents snapshotted and hashed; material helper exit 0, full gate pending |
+| Historical baseline observations | 3e5785e0: unit plus six functional stages; historical outer exits not recorded |
+| Mac-only execution | desktop-local, frozen source, daemon mutex, explicit compile/browser cache mounts; native-linux remains a separate profile |
+| Schema / release qualification | 5ceb1f5d release exit 0; candidate/S 77 each, identical schema fingerprint and three failures/recoveries |
+| all3 raw checks | caeb1a47: 48 matrix cases, three comparison rounds per side, media 77 x2, recovery 43, release checks; outer exit 2 because perf marker missing, not complete acceptance |
+| Independent all3 verification | Original caeb verifier in Docker reread matrix/resources/faults/fixture/archives/images; exit 0; p95 ratio 0.9072, local measurement only |
+| Integrated strict fuzz retry | a3a7df3d; affected real Docker ops2 command.exit=0 |
+| Marker/delegated release correction | 5d87fe8b; independent Docker shell49 + fuzz10 + gates16 + evidence12 = 87 PASS |
+| Collaboration ownership | CodeBuddy owns Docker runs and integration; Codex owns independent review and plan; accepted through the local ACP session |
 
 **Bookkeeping warning:** historical completion labels and checkboxes do not
 prove current-candidate completion. Use the current table in plan §8.19 and
-its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
+its SHA-bound evidence in §8.20–8.27; overall acceptance remains incomplete.
 
 ## Not closed
 
 | Item | Priority | Note |
 |---|---|---|
-| Baseline compatibility qualification | — | Current local release qualifies old-S/new-schema business behavior and candidate recovery; terminal all/reference still pending |
-| Full current candidate M0–M8 | P0 | No final nine-stage all, fresh same-runner reference, 48-scenario matrix or same-SHA CI |
+| Baseline compatibility qualification | — | Old-S/new-schema behavior, restore and fresh caeb reference measured; new terminal candidate still pending |
+| Full current candidate M0–M8 | P0 | caeb completed raw checks/matrix but all3 outer exit 2 from missing perf marker; corrected candidate needs fresh all/index and same-SHA CI |
 | Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
 | Remote CI authorization | P0 | Push/dispatch requires explicit instruction; existing remote mainline history diverged, use a new acceptance branch |
 | SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |

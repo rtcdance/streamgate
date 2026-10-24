@@ -2407,12 +2407,12 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
 | EFF-00 环境先行 | 分环境预检已实现并实测 | native-linux 保留原生 amd64 / 32GiB / 独占规则；desktop-local 支持本机完整门，核对 ≥8 vCPU / 实际 ≥15GiB / VM 内 ≥100GiB。实际 Mac 预检 exit=0；环境 / 性能环境 / 协议 / controller / shell 累计 101 个不同工具测试通过 | 无 Linux 服务器已不再阻塞本机；性能只限记录的 Mac 环境，最终 C 仍须实际完整 all |
-| EFF-01 脚手架缺陷 | 定向修复已验证 | recovery→media 在 7f2c208d 通过；本轮补齐 controller 完整解析、终验 clean-tree 与 created 日志竞态负控。空 ABI 假铸造成功修复后，5ceb1f5d 的完整 release 外层 exit=0，候选 / S 各 77/77、三故障及恢复全部通过，见 §8.22–8.23 | 旧失败现场保留；未放宽 HTTP 500 / 媒体 / 恢复断言。最终 C 九阶段仍待验 |
+| EFF-01 脚手架缺陷 | 已知阻塞已修并定向验证；最终候选待冻结 | FI05 同一 head 计算修复、NFT 证据不可用映射、严格 fuzz 重试均已集成；caeb 的 48 场景 / 对比 / release 原始检查完成，整轮因 perf 标记缺失 exit=2。8e403f41 的标记修复经独立 review 又发现 release 父日志缺口，5d87fe8b 补齐真实父阶段记录及失败路径；Docker 工具 87 PASS，详见 §8.27 | 原失败保留；新候选需真实完整 all 并成功生成索引，不能用旧 caeb 的阶段 PASS 替代 |
 | EFF-02 基线资格 | 本机新 schema 兼容资格通过，最终终验待完成 | S=3e5785e069b1126c4b7aa7b6301f8877edfcb0c7 已版本化钉定；Q=5ceb1f5d 的 release 完整通过：S 镜像 77/77、schema 指纹一致、恢复 Q，原始外层 exit=0，两侧归档 / 镜像身份重新核对 | S 历史安全 / 功能记录按原 SHA 保留，不补缺失的历史外层退出；最终 C 的完整 all / 本轮 reference / 48 场景 / 同 SHA CI 未完成，不发布晋级 |
-| EFF-03 编译复用 | 机制与接线已验证，默认关闭，可显式用于迭代 | 六个独立固定工具容器完成冷 / 热 / 缓存负控 / 源码变异 / 清空缓存复验；代表包冷 30.284s、热 3.062s，-count=1 的运行标记不同，无该参数的控制项确实重放 cached。本轮补齐 controller 的 Go 与 Playwright 缓存挂载；CI 保留编译对象缓存、所有 test.yml 行为测试加 -count=1 | 代表包约 9.89 倍是本机跨架构工具机制测量，不是项目全套加速、服务容量或 M4 证明；实际应用阶段收益待记录。工具回归和源码变异负例见 §8.20，最终默认仍可冷构建 |
+| EFF-03 编译复用 | 机制与接线已验证；显式启用 | 代表包 -count=1 冷 / 热 / 源码变异 / 清空缓存负控通过；controller / stage 的 Go 与浏览器缓存均已挂载。真实多轮阶段耗时已采集，存在候选 / 环境 / 代码变化，不能当受控速度比较 | 代表包约 9.89 倍不外推项目全套加速；阶段估算仅作定位，最终保留真实行为测试与冷构建退路 |
 | EFF-04 A 冻结与独占 | 已实现，当前入口的冻结与清理已实测 | `sg-eff-recovery-media-20261024` 冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa`，本次原始 command.exit=0；重新 hash 应用归档、核对三镜像 imageID / OCI revision、driver 快照与 Git tree 一致；结束后本轮容器 / 卷 / 网络 / 锁均为空，source 与 .private 已清理 | 这是两个指定 stage 的同次运行，不能替代九阶段 all。S=`3e5785e0` 的历史 unit / 六门仅为其定向观察，不补写缺失的旧外层退出 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
-| EFF-05 正式收口 | 本机完整终验已具备执行路径 | 环境、工具负控、schema 兼容与 release 三类故障已定向验证；最终 all 使用修复后的日志入口与干净冻结 C，显式复用已验证缓存 | 尚缺最终 C 的完整 all / 新鲜 reference / 48 场景及同 SHA CI；CI 可用本 Mac 的 self-hosted runner，不要求自备 Linux 服务器，注册 / 安装 / push / 派发未执行，见 §8.24 |
+| EFF-05 正式收口 | 已知缺口关闭，进入干净候选最终冻结准备 | caeb 九阶段实际检查已完成、48 场景与两侧 3 轮对比独立复核通过，但原始外层 exit=2，索引失败；严格 fuzz / marker / release 委托阶段修复已集成，a3a7df3d 的 ops 原始 exit=0，新标记路径 Docker 工具 87 PASS | 等待包含本计划的最终干净 C 完整 all / 新鲜 reference / 原始 exit=0 / 完整索引，以及同 SHA CI。未取得 CI 安装 / 注册 / push / 派发授权，不发布晋级 |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
 
 **本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。按 §8.21 的 desktop-local 可继续正式 all / perf / release；下方仅保留修订前 native-linux 的拒绝历史，不是当前本机阻塞：
@@ -3260,3 +3260,96 @@ CI 不要求用户提供 Linux 服务器：其他既有 jobs 可继续使用 Git
 此接线仅为代码与方案，**没有安装 / 注册 runner、修改仓库变量、push 或派发 CI**。执行这些步骤需最终候选可审阅后取得授权：CLAUDE.md 的 Dependencies 与 Git 规则分别约束新增运行程序和 push。当前远端主线与本地历史分叉，使用新的验收分支，禁止 force-push 旧主线。CI 仍须导入本轮已扫描的原始构建归档、绑定同 SHA / image / archive / digest / raw exit；本机 all 不能冒充远端 CI 成功。7 份 workflow 的 YAML、action pin 与 81 段 shell 语法检查 exit=0（sg-eff-mac-profile-20261024/workflows.*）。
 
 回退环境策略只需显式选择 VERIFY_ENVIRONMENT_PROFILE=native-linux（Mac 将按该模式被拒绝），无需回退业务修复或删除证据。可选共享缓存异常时关闭 VERIFY_SHARED_GOCACHE，以新 project 冷构建；不清理其他项目资源，不复用失败轮业务 fixture。
+
+
+### 8.25 CodeBuddy 实际执行审计与提效建议（2026-10-24）
+
+**结论：有可证实的执行效率问题；不能概括成“模型一直在想”或“Mac 跑不了”。** 当前 CodeBuddy 自身没有明显抢占测试资源的证据；主要问题是不可重试错误仍反复重试、修复后过早重跑完整 DAG、监控阻塞过长、状态判断缺少结构化依据，以及性能准备阶段重复登录。以下为本次审计结果与后续建议，**尚未更改 CodeBuddy 配置、测试协议或运行中的候选**。
+
+**候选边界：** CodeBuddy 已接手修复此前 FI05 失败，当前 `sg-eff-mac-all3-20261024` 冻结的是 `caeb1a47f800b6f8ad99b0ee252a4d02cc2a8514`。本节是该候选之外的工作区审计记录，不把历史 / 局部 PASS 改标为当前整体完成，不因新增审计文字重启 all。若后续形成证据提交 D，按 §7 规则 13 分离 candidateSHA 与 evidenceSHA；本节建议未实施，不改变 C 的运行命令、判据或功能声明。代码 / 验收语义若实际改变，才按既定规则形成新候选。
+
+#### 审计范围与可复现证据
+
+只读核查本机 `~/.codebuddy/projects/Users-mingo-Applications-workspace-web3-project-streamgate/` 的 StreamGate 会话、同项目运行日志、Git 提交与 `.verify-artifacts`。未读取 Trae 完整会话，不推断 Trae 的独立责任；不把用户主动切换任务、跨夜空档或等待后台任务的时间当成模型计算时间。
+
+主会话 `01a1622a-69f6-78df-866b-76728c343856` 的冻结审计前缀：2026-10-22 13:51:49 至 2026-10-24 13:15:13（UTC+8），**2338 条记录、680 次 REPL 调用、678 条结果、6 次摘要**。读取截止为前 7478396 bytes，SHA256=`b3fbe6d7a8f1303ec8c2cf5045823d69ad398342f37e4026b16bf4e96f38a9c7`；后续会话可继续追加，不将追加部分混入这一统计。
+
+可复核的脱敏统计与原记录行号 / callId 保存在 `.verify-artifacts/sg-codebuddy-audit-20261024/`：`audit-summary.json`、`verified-launches.json`、`provider-events.json`、`retry-bursts.json`、`run-timings.json`、`audit-inputs.json`、`live-run-snapshot.json`、`incremental-row-check.json`、`fuzz-mixed-error-probe.json`。没有复制原始会话全文；模型内部推理文本不作为报告证据。
+
+#### 已确认的问题，按收益与确定性排序
+
+| 发现 | 当前证据与影响 | 判断边界 |
+|---|---|---|
+| **不可重试的配额错误仍不断重试** | 10 月 23 日主会话的 660 条模型完成事件中：564 success、95 failed、1 cancelled；失败含 **81 次 quota_balance_exhausted、12 次 network_reset、2 次 internal_unknown**。step 558 在 22:41:42–23:01:21 连续 **44 次配额失败**；step 559 在 23:01:43–23:21:34 又有 **37 次配额失败**。配额记录均明确 retryable=false，两窗口合计约 **39.5 分钟** | 是执行框架未及时熔断的直接证据；窗口可与 Docker 后台运行重叠，不和测试时长相加。所读 10 月 24 日日志未发现同类配额失败，不能说今天仍在持续发生 |
+| **过早进入完整 all，重复支付前置门** | 主会话可确认 **13 次正式 all 启动请求**，排除 Read/REPL 失败、环境门 / 锁 smoke 和文档字符串，不代表 13 次跑完全程。其中 sg-all-local1～6 的启动均能回溯到 CodeBuddy 工具调用；本计划顶部已有四个前置阶段累计约 287.6 分钟的工件估算 | 必需测试本来就有成本，不能把 287.6 分钟全算浪费。可优化的是调试期间反复重放与本次改动无关的前置阶段 |
+| **最新实例仍违反“先受影响门”** | FI05 修复 `dab00c80` 后，10:39:16 直接启动 all2，约 **27.1 分钟**后先在 ops 的 FuzzParseSIWEMessage 到点 deadline 失败，**尚未触达 FI05**。其中 unit / chain / durability 的文件时间估算约 **16.6 分钟**，是刚通过的前置门再次执行。11:11 用独立 perf 定位 403 是正确做法；但 11:45 的 gating 修复后，11:46 又直接进入 all3，缺少该修复的 Docker 负载定向复验 | 文件创建至末次写入只是阶段耗时估计；不承诺单次 27.1 分钟全部可省。最终干净候选仍必须完整 all，不能永久拼接跨 SHA 结果 |
+| **监控长时间占住主工具调用** | 已识别 **17 次 Bounded wait**，同步等待区间合计约 **142.4 分钟**；典型循环 58×10 秒，timeout=595000ms。会话中 Bash 引用 626 次，TaskOutput 引用仅 6 次 | 等待本身通常不增加 Docker 执行时间，也不能全部列为浪费；但接近 10 分钟无摘要、不能及时反馈失败，会造成“卡住”的体验与诊断滞后 |
+| **完成状态与实际输出不符** | 13:05:14 公开回复称 round 1 四档已完成；同一次工具结果却显示 100-viewer 通配符未匹配、50-viewer 仍在 RUN。13:05:19 的文件列表还含 setup.raw.log，不能按“4 个 raw.log”推断四档完成。13:15:09 才出现当时的 100-viewer 完成结果 | 这是可复核的状态误报，不能据此推断故意欺骗。warm_cache 文件也不代表整个 round 的四种场景；其余场景位于子目录，统计必须递归 |
+| **性能准备阶段有确定的串行成本** | perf-acceptance.sh 默认 PERF_LOGIN_PACE=1s，RunPhase 每个负载用例重新登录所需钱包。48 用例的纯登录间隔约为 `3×4×[(1−1)+(10−1)+(50−1)+(100−1)] = 1884s`，即 **31.4 分钟**；两侧 50-viewer 三轮比较再有约 **4.9 分钟**。实际首轮 100-viewer 测试耗时 141.8s，与登录准备＋10s warmup＋30s sample 的结构相符 | 这是源码配置下的准备成本估计，不是已实现收益。原先“36 分钟采样下界”没有包含这些登录、部署、seed、故障切换与恢复；不能承诺整轮几分钟完成 |
+| **工具契约与上下文使用仍有小额浪费** | 可直接识别 6 次 REPL 调用错误，包括 plan.slice is not a function、Buffer / setTimeout / PIPESTATUS 不存在；计划读取或检索 23 次。每调用报告的输入上下文中位数约 142.6k tokens，最大 275386，其中最大值的 cached input=274688 | 这些错误多数很快返回，不是数小时的直接证据；大上下文高缓存命中，不能仅凭 token 数断言网络慢。主会话成功模型调用耗时中位数 6.049s、P95 15.528s；总时长不能与重叠后台任务直接相加 |
+| **目标控制口令被当作新目标文本** | 会话输出确实出现 Goal set: active，以及 `/goal resume,目前…` 被解析为清除原目标、设置新的自然语言目标；也出现 Goal evaluation unavailable | 属于 CLI 控制语义 / 使用方式风险，不将用户操作本身归罪于模型。应保留可执行完成条件，不用 active / resume 这样的字串代替验收条件 |
+
+**资源快照（13:33–13:34，UTC+8）：** CodeBuddy CLI `2.168.2`，pid 69038 的 ps 记录约 8.5% CPU（约 0.085 核）、RSS 217104 KiB；其 memwatch 最近记录约 138MB RSS、loopStalls=0。没有证据证明此刻 CodeBuddy 自身大量抢占 CPU / RAM。Mac 确有约 9GB swap 使用，但这是系统快照，不能将历史换页归因于这个进程，也不能据此擅自停止其他项目。
+
+#### 依赖有序的优化方案
+
+| 优先级 / ID | 具体实施建议 | 出口标准 / 失败停止条件 |
+|---|---|---|
+| **P0 / CB-00 配额熔断** | 在 CodeBuddy 已支持的配置层或独立监督器落实错误分类；quota_balance_exhausted / 明确 retryable=false 立即标记 ENV_BLOCKED，保留请求 ID 与最后有效步骤，停止后续模型重试；后台 Docker 任务继续由既有 runner 管理。只对 network_reset 等可恢复错误做最多 2 次有界退避，总等待预算建议 ≤60s | 模拟配额响应时 5 秒内给出明确状态、模型调用次数=1；模拟网络恢复时按预算结束；不会因模型不可用杀掉已经启动的测试。这里是建议策略，未声称 CodeBuddy 存在同名配置键 |
+| **P0 / CB-01 修复闭环再冻结** | FI05 改动先运行支持的 VERIFY_STAGE=faults；门禁 / 撤销先相关 Go 快速预检，再 Docker media 与失败负载用例；fuzz runner 改动先 helper 正负例与 ops。已知失败未关闭时不启动 all。批量关闭后才冻结 C，一轮完整 all＋新鲜 reference＋既定 CI | 每个缺陷有“首失败 → 最小复现 → 修复提交 → 受影响门”四个映射；与改动无关的前置门不在每次迭代重复。不能用定向 PASS 代替最终九阶段，不能继承旧 SHA 证据 |
+| **P0 / CB-02 结构化进度** | 对每个 run 汇总 candidateSHA、stage、状态、首失败、退出码、最近日志时间；性能按 round/scenario/viewers 递归定位完成 JSON，排除 setup / execution / 临时文件，并调用已有单行结果校验函数。进度读取一个小 JSON，不让模型自行猜测日志数量 | 对“setup＋1/10 已完、50 运行、100 不存在”夹具必须报告 2/4；无退出 / 无完整布局时禁止报整体 PASS；区分 success_count、error_count、aborted_count，不从 HTTP status 总数自行推断成功率 |
+| **P1 / CB-03 非阻塞监控** | 测试只启动一次后台任务；使用已有任务通知 / TaskOutput 读取状态。监控每 ≤60s 输出增量摘要，单次同步等待 ≤60s；收到失败事件立即转最小范围诊断。不要再提交一串 595 秒的前台 wait | 人工状态请求能在 ≤60s 获得真实阶段；模型监控取消后不取消后台测试；日志按偏移读取，不重复灌入全文。收益是响应与定位延迟，不能声称删除等待就让 Docker 快 142 分钟 |
+| **P1 / CB-04 精准负载诊断** | 将现有 perf 内部能力封装为明确标记 diagnostic 的入口，重现失败的场景与 50-viewer 等实际档位；自动执行所需链 / 钱包 / 媒体前置，诊断结果不进入终验索引。现有 VERIFY_STAGE=perf 在候选模式仍是完整矩阵，不是假装廉价 smoke | 能在同一冻结修复上重现旧 403 / 新 503 路径、故障前后证据与媒体字节；未知场景拒绝；diagnostic 永远不能产出完整 candidate-gates PASS。此封装尚未实现，不新增可直接复制的虚构参数 |
+| **P1 / CB-05 拆出准备成本** | 先给 mint/login/warmup/sample/drain 分别计时，再研究同一 run 内复用**真实钱包签名登录、由服务签发**的凭据池。保存每钱包的 session / audience / key epoch / restore epoch / 过期信息，过期或失效重登；凭据只进 .private，不进公开工件 | 不跨候选 / 恢复周期复用；所有 viewer 仍独立钱包且有真实登录证明；logout、轮换、恢复、过期负例继续有效。改变测量语义必须版本化协议、双方重测 reference；31.4＋4.9 分钟只是可研究的理论间隔，不是节省承诺。禁止靠自签 JWT、删除 NFT 校验、缩短采样或降低限流证明提速 |
+| **P2 / CB-06 工具与上下文预算** | 启动时一次核对 REPL 可用 API / 返回结构；只使用已确认的 Read/Bash 契约。每个缺陷只带失败片段、必要源码、候选与下一条命令；历史全文留文件，摘要只保留证据指针。执行与轮询使用低成本推理策略，复杂根因定位再提升；先以同任务正确率与耗时比较验证 | 不再出现 Buffer / setTimeout 等不存在对象的重复试错；摘要后仍能恢复准确 SHA / run / 缺失门；不能把更换模型或缩短上下文直接记成已获得加速 |
+| **P1 / CB-07 单一执行所有者** | 当前 all3 保持现有执行者所有权，其他 AI 做只读审计。修改 / 集成集中到一个写入者，冻结候选继续使用独立 clone 与 daemon 互斥；审计报告与候选身份分离 | 第二个验收在昂贵构建前被拒绝；审计追加不触发无意义 all 重跑；对当前 C 的验收不被后续文字更新改标。Mac-only 继续按 §8.24，不等待 Linux 服务器 |
+
+**正确性补充发现：** CodeBuddy 新增的 run-fuzz-target.sh 已比无限重试更有界，但“严格匹配已知 deadline 形态”仍需补负例。本次只用假的 go 程序做了亚秒级解析器特性化：第一次输出 progress＋context deadline exceeded＋额外 unrelated ERROR 并失败，第二次模拟成功；现 helper **调用 2 次并退出 0**。这证明当前 substring / 黑名单识别未拒绝所有未知混合错误，**不是**发现真实业务 fuzz 崩溃。证据 fuzz-mixed-error-probe.json。建议再增加“未知混合错误必须一次退出非零”的回归，按已知输出形态白名单识别；不把扩大重试接受范围作为提效。该问题需要评审后修复和新候选验证，本次审计没有修改正在运行的 C。
+
+#### 本次快照与实施顺序
+
+截至 **2026-10-24 13:36:15（UTC+8）**，CodeBuddy 的 all3 / `caeb1a47` 已有 unit / chain / durability / ops / faults / media / recovery **7 个 stage PASS**；性能目录递归找到 **19/48** 个完成结果，已有纯 per-row 协议函数校验 **19 PASS / 0 FAIL**。这没有验证完整布局、cgroup、两侧回归比较、最终索引或 release，不能宣布 perf / all 完成。100-viewer 的 PASS 是容量探索规则下通过，不等于 100 观众零错误或达到 50-viewer 的 ≥99% 指标；实测该行仍有 503。
+
+建议顺序：**CB-00 配额熔断、CB-02 真实进度 → CB-01 定向修复闭环、CB-03 监控 → CB-04 最小负载诊断 → CB-05 准备阶段优化 → CB-06 上下文调优**。CB-07 从现在起持续执行。首先解决已有证据最强的重试 / 重跑 / 误报，再投入有边界的准备成本优化；不为“极致提效”取消必需门。
+
+回滚：以上目前是建议，不需要回退运行中的业务版本。后续监督器若误分类或漏通知，恢复手动读取原始退出与日志；新增诊断入口若与完整门不一致，停用诊断结果、回到原受影响 stage；凭据复用若任何安全负例失败，恢复每用例真实登录。任何回退都保留失败工件，不把旧 PASS 迁移给新输入。最终是否提效要在同 Mac / 同预算记录到达首失败与完成修复的时间，不能将重叠等待、理论间隔或历史估算相加成一个虚构的节省比例。
+
+
+### 8.26 Codex × CodeBuddy 分工协作（2026-10-24）
+
+用户已明确授权两者分工。2026-10-24 14:05（UTC+8），CodeBuddy 通过其本机 ACP 会话公开回复“分工确认（已收到并接受）”；这是实际通信和确认，不是仅在计划中假定另一个 AI 会配合。原消息 / 回执 / 公开确认在 `.verify-artifacts/sg-collab-20261024/`，对应 SG-COLLAB-20261024-01。
+
+| 角色 | 负责范围 | 所有权与限制 |
+|---|---|---|
+| CodeBuddy | 当前 all3 的 Docker 验收、候选运行工件、其它产品缺陷定位、统一评审集成 | 独占 sg-eff-mac-all3-20261024 / caeb1a47；不因审计文字重启 all，不更改判据。对根工作区的集成保持单写入者，不 stage / 覆盖 Codex 的计划修改；与 Codex 文件交叉前先沟通 |
+| Codex | 独立结果核验、审计与计划；严格 fuzz 重试边界修复 | 两个 fuzz 文件只在独立 worktree 修改，不修改正在验收的源 clone；性能阶段不启动 Docker / Go 构建。补丁与证据交由 CodeBuddy 集中评审集成，不将局部门 / 宿主预检叫作 Docker 通过 |
+| 双方 | 候选、证据与外部动作边界 | caeb 的结果仅证明 caeb；必要语义修复批量完成后才形成新候选、受影响门与最终完整验收。不 push、注册 runner、派发 CI 或发布未经授权的内容 |
+
+**第一份并行贡献已完成：** Codex 从 caeb1a47 的独立 worktree 生成提交 **`f2c9b0ca8ee1d7742307914f33748fa980dfabf6`**，仅修改 `scripts/cd/run-fuzz-target.sh` 与 `scripts/cd/test_run_fuzz_target.py`。已交付 SG-COLLAB-20261024-02，CodeBuddy 已公开回复“补丁评审：接受（f2c9b0ca）”，核对 before/after 与真实日志 replay，并同意当前轮结束、必要改动批量准备好后统一集成；主工作区 HEAD 仍为 caeb，不提前 cherry-pick 到运行输入。
+
+修复将可重试情形限定为：原始退出 1、真实非零 fuzz 执行进展、唯一且匹配的目标失败、唯一独立 deadline 诊断和完整 Go FAIL 结尾。未知混合错误、额外断言、其他目标、零进展、截断输出、非测试退出均保持失败；124 等原始非 1 退出保留。已知协调器 deadline 仍只允许一次单 worker 重试，第二次失败继续失败。
+
+轻量宿主回归（fake-go / Python，不是 Docker 验收）：旧实现触发 **9 个失败断言**；新实现 **10 个测试方法通过**（含 11 类未知 / 不完整形态子例）。直接从 all2 的真实 ops.log 第 238–257 行提取 Go 1.26 deadline 输出，经 fake-go 重放仍恰好 2 次调用 / exit 0，证明已知例外未被误禁。首轮测试夹具有转义错误，原失败保留；修正后重验通过。证据 `contribution-evidence.json`、`helper-before.*`、`helper-after-v2.*`、`recorded-replay.json`；补丁 `fuzz-retry-fix.patch`，工作树 `fuzz-review/`，均位于本节工件目录。
+
+**独立进度核验：** 截至 14:11:05（UTC+8），当前 caeb / all3 递归得到 **38/48** 个结果，已有单行协议检查 **38 PASS / 0 FAIL**，完整 all 的原始退出仍未产生。只核验单行结果，未替代完整布局 / cgroup / reference / release。SG-COLLAB-20261024-03 已将这一快照交给 CodeBuddy，并要求此后控制面单次同步等待 ≤60 秒、优先任务通知与增量状态；不改变真实测试时长或中止测试。
+
+协作交接只传场景、提交、原始退出、日志与补丁；不以反复启动相同 DAG 代替交流。当前未提交计划文字归 Codex，CodeBuddy 已确认不覆盖；后续更新同一节先交接所有权。独立工作树保留供评审，临时 fake-go 目录自动清理；当前轮 Docker 资源由原执行者清理。
+
+协作闭环补充：CodeBuddy 已确认后续监控改为单次 ≤60 秒，不再使用 595 秒阻塞等待。代码评审摘要与实现以实际代码 / 用例为准：唯一约束针对匹配的失败目标和独立 deadline 诊断；Go 的 RUN / NAME / exit-status 包装行不是全部必需项，必要结束标记为 overall FAIL 与包级 FAIL summary。该宿主轻量贡献已被接收，Docker 验收与新候选集成仍由 CodeBuddy 负责，尚未将补丁标为完整验收通过。
+
+
+### 8.27 协作复核、标记缺口收口与最终冻结准备（2026-10-24）
+
+**all3 事实：** CodeBuddy 的 `sg-eff-mac-all3-20261024` / `caeb1a47f800b6f8ad99b0ee252a4d02cc2a8514` 完成了九阶段实际检查；媒体双腿各 77/77、recovery 43/43、release smoke 与旧 S / 新 schema 各 77/77、三类故障及恢复标记齐全。但末尾 `generate_candidate_gates.py` 报 `M0: perf has no successful raw stage completion marker`，**原始 command.exit=2，整轮 FAIL**。即使复制工件后补 marker 可使定位用索引通过，也不能改写原件、补成原轮 exit=0 或宣称整体验收完成。
+
+Codex 使用原 caeb 脚本快照与原 Docker 工具镜像 `sha256:dcba2f0d098e0b944887aeb66eea3ebfe314dbc3ff5097cb2c8eb418f88054c8` 独立复核：完整矩阵 **48 exact cases**、candidate comparison **3 cases**、reference **4 cases**（含单独 pool smoke），布局 / 原始执行退出 / 逐行媒体协议 / cgroup / fault / fixture / 两侧同环境与顺序约束均通过；两侧归档重新 hash、imageID / OCI revision / 平台核对通过。比较 p95：S=1720.893ms、C=1561.216ms，ratio=**0.9072127087506311 ≤1.2**。这是本机跨架构、固定预算的观察，不是生产容量、全套提效比例或新候选证明。原 S 仍为 3e5785e0。原始复核 `all3-independent-verify-v2.exit=0`；首次复核因工具镜像按 .dockerignore 不含 scripts 而导入失败（exit=1），修正为挂载原 caeb 的脚本快照后重验，两个结果均保留。
+
+**已集成修复：** CodeBuddy 以 `a3a7df3d` 集成 Codex 的 f2c9b0ca 严格 fuzz 重试补丁；受影响 `sg-eff-mac-ops2-20261024` 实际 Docker ops **command.exit=0**。其后驱动标记修复先见 8e403f41。Codex 独立提取新函数，直接对 all3 未修改的日志目录调用 release 完成记录，发现实际只有 release-smoke / release-compat / release-drills 三份子日志、没有 release.log，新函数会退出 1；该冻结前负例在 `marker-review.{log,exit}`，避免将该缺口带入下一次整链。
+
+CodeBuddy 以 a63b15f5 / **5d87fe8b** 补齐委托阶段的父级记录，三个入口（all、逗号组合、单 stage）一致。真实 run_stage / stage_release 的动态夹具证明：三个子阶段成功后才生成父日志、标记恰好一次；故障子阶段返回 7 时没有父级 PASS；既无主日志又无子日志的阶段仍失败。没有将整段阶段执行包进新 pipeline 改变其全局状态，也不跳过 release 记录。
+
+Codex 再从 5d87fe8b 导出独立只读源码，在上述固定 Docker 工具镜像运行 shell **49**＋fuzz runner **10**＋candidate gates **16**＋candidate evidence **12**＝**87 PASS**，原始 `marker-docker.exit=0`。因此 CodeBuddy 的两个已知宿主 shell 失败不作为验收依据；同套 Docker 回归已通过。所有日志、源 hash、scope 存 `.verify-artifacts/sg-collab-20261024/prefreeze-review.json`，不把工具回归当作新 C 全量终验。
+
+**最后的执行交接：** 当前这批审计 / 协作 / 真实失败记录由 Codex 一次提交，和已集成代码一起形成干净最终冻结输入；精确提交 SHA 写入运行工件，不在提交内容中自引用。CodeBuddy 是唯一 Docker 终验执行者，收到干净 SHA 后执行新的 all（本轮 fresh reference、48 矩阵、schema、recovery、release、索引与原始退出），期间只写工件，不再次编辑冻结输入。M6 材料在启动前做轻量 snapshot/hash 预检；最终门仍在正式运行中产生。
+
+最终仍缺同 SHA CI / 注册或安装本机 runner / push 与 dispatch 的明确授权，不能据本地阶段结果宣称发布就绪。若新 all 成功，最后一次 SHA / run / digest 进入工件与最终答复，不为回写该次成功再制造一个待验候选；若失败保留原退出，按最小范围诊断，不盲目重启整链。
