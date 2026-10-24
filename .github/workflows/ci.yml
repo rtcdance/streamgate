@@ -1,790 +1,140 @@
-name: CI
+name: Original archive registry transport probe (diagnostic only)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# The reusable candidate workflow needs `packages: write` to retain the
-# scanned candidate in GHCR (non-PR runs only). Fork PR tokens stay read-only
-# regardless — PRs never push, they scan the same artifact bytes. `actions: read`
-# lets the same-SHA test-suite gate poll test.yml's status for this commit.
 permissions:
   contents: read
-  packages: write
-  actions: read
 
-env:
-  GO_VERSION: "1.26.9"
-  GOPROXY: "https://proxy.golang.org,direct"
-  GONOSUMDB: "gonum.org/*"
-  GONOSUMCHECK: "gonum.org/*"
+concurrency:
+  group: codex-original-archive-transport-probe
+  cancel-in-progress: false
 
 jobs:
-  lint:
-    name: Lint
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
+  publish:
+    name: Publish original test tar in a private transport image
+    runs-on: streamgate-acceptance
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+      archive_sha: ${{ steps.publish.outputs.archive_sha }}
+      payload_sha: ${{ steps.publish.outputs.payload_sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
-        with:
-          version: v2.12.2
-          args: --timeout=5m
-
-      - name: Run go vet
-        run: go vet ./...
-
-  test-go:
-    name: Go Tests
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    services:
-      postgres:
-        image: postgres:15-alpine
+      - name: Publish test bytes without Actions artifacts
+        id: publish
         env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      # The ABI-sync guard tests (pkg/web3/contract/abi_sync_test.go) compare
-      # Go-side ABIs against the Forge build artifacts in contracts/out, so this
-      # job needs the contract submodules plus a forge build before go test.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-        with:
-          version: v1.8.5
-
-      - name: Build contracts (ABI-sync guard needs the artifacts)
-        working-directory: contracts
-        run: forge build
-
-      - run: go mod download
-
-      - name: Validate workflow YAML, action pins and shell syntax
-        run: go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
-
-      - name: Verify required-test checker positive and negative cases
-        run: |
-          python3 scripts/cd/test_assert_required_tests.py
-          python3 scripts/cd/test_verify_proxy.py
-          python3 scripts/cd/test_candidate_manifest.py
-          python3 scripts/cd/test_import_ci_candidate.py
-          python3 scripts/cd/test_generate_candidate_gates.py
-          python3 scripts/cd/test_summarize_ci_evidence.py
-          python3 scripts/cd/test_image_identity.py
-          python3 scripts/cd/test_verify_shell.py
-          python3 scripts/cd/test_assert_candidate_evidence.py
-          python3 scripts/cd/test_run_required_fuzz.py
-          python3 scripts/cd/test_run_fuzz_target.py
-
-      - name: Verify H5 API origin inference in pinned Node container
-        run: >-
-          docker run --rm -v "$PWD:/work:ro" -w /work
-          node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
-          node scripts/cd/test_h5_api_base.cjs
-
-      - name: Setup database schema
-        env:
-          PGPASSWORD: streamgate
+          REGISTRY_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
-          # Apply every up-migration in filename order and stop at the first
-          # error (ON_ERROR_STOP=1). The previous `|| true` swallowed bad SQL,
-          # so a broken migration could never fail this job.
-          for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
-            echo "Applying $f..."
-            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test < "$f"
-          done
-
-      - name: Run tests
-        run: |
-          # Package set is shared with `make test-ci` (scripts/ci-packages.sh)
-          # so the local and CI coverage gates cannot drift apart.
-          # -count=1 keeps a restored GOCACHE from replaying a cached PASS.
-          go test -race -count=1 -coverprofile=coverage.out $(./scripts/ci-packages.sh)
-        env:
-          STREAMGATE_DB_HOST: localhost
-          STREAMGATE_DB_PORT: 5432
-          STREAMGATE_DB_USER: streamgate
-          STREAMGATE_DB_PASSWORD: streamgate
-          STREAMGATE_DB_NAME: streamgate_test
-          STREAMGATE_REDIS_HOST: localhost
-          STREAMGATE_REDIS_PORT: 6379
-
-      # Section 0.2 F: "PR 可执行短性能 smoke；最终候选模式必须执行完整矩阵、
-      # reference 比较、恢复与 fuzz". A PR is not the final candidate, so it keeps
-      # the 5s mutation budget; a push runs the SAME contract at the candidate's
-      # full 30s budget, so the fuzz gate that guards a release can never be the
-      # short one by default.
-      - name: "Required fuzz contract (PR: seeds + 5s; candidate: seeds + 30s)"
-        env:
-          FUZZ_LOG_DIR: fuzz-logs
-        run: >-
-          bash scripts/cd/run-required-fuzz.sh
-          ${{ github.event_name == 'pull_request' && '5' || '30' }}
-
-      - name: Upload required fuzz logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: required-fuzz-${{ github.sha }}
-          path: fuzz-logs/
-          retention-days: 30
-          if-no-files-found: warn
-
-      - name: Verify the coverage gate can fail
-        run: bash scripts/check-coverage_test.sh
-
-      - name: Check coverage
-        run: |
-          # Human-readable summary only — never the gate itself.
-          {
-            echo "## Coverage Report"
-            echo ""
-            echo '```'
-            go tool cover -func=coverage.out 2>/dev/null | tail -n 1
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY" || true
-          # The gate, shared with `make test-ci`: integer maths over the
-          # profile's own statement counts, and a hard failure on a
-          # missing/empty/malformed profile (previously: "No coverage data
-          # generated" + exit 0, i.e. no coverage could not fail the job).
-          ./scripts/check-coverage.sh coverage.out 60
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
-        with:
-          files: ./coverage.out
-          flags: unittests
-          token: ${{ secrets.CODECOV_TOKEN }}
-        continue-on-error: true
-
-  test-contracts:
-    name: Solidity Tests
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    defaults:
-      run:
-        working-directory: contracts
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
-
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-        with:
-          version: v1.8.5
-
-      - name: Install Forge dependencies
-        run: forge install
-        continue-on-error: true
-
-      - name: Run Forge tests
-        run: forge test -vvv
-
-      - name: Gas report
-        run: forge test --gas-report
-        continue-on-error: true
-
-  build:
-    name: Build
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - run: go mod download
-
-      - name: Verify go.mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod or go.sum is not tidy" && exit 1)
-
-      - name: Build all binaries
-        run: make build-all VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "ci-$(git rev-parse --short HEAD)")
-
-      - name: Check binary sizes
-        run: |
-          echo "=== Binary Sizes ==="
-          ls -lh bin/ 2>/dev/null || echo "No bin/ directory found"
-
-  security:
-    name: Security Scan
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Install gosec
-        run: GOPROXY=${{ env.GOPROXY }} go install github.com/securego/gosec/v2/cmd/gosec@v2.22.0
-
-      - name: Run gosec
-        run: |
-          gosec -exclude-dir=examples -exclude-dir=test -exclude-dir=pkg/api -exclude=G101,G103,G104,G115,G201,G202,G203,G204,G301,G304,G306 ./...
-
-      - name: Install govulncheck
-        run: GOPROXY=${{ env.GOPROXY }} go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      # REPORTING mode for now: the chainpulse-aligned dependency set (and the
-      # Go stdlib) currently carries known findings, so a hard gate would pin
-      # CI red. Flip to blocking once the vuln debt is paid (dependency bump
-      # is a separate, deliberate task — see TRANSITION_PLAN.md B6).
-      - name: Run govulncheck (report)
-        run: |
-          govulncheck ./... | tee govulncheck.txt || true
-          {
-            echo "## govulncheck report"
-            echo '```'
-            tail -n 40 govulncheck.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY" || true
-        continue-on-error: true
-
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-
-      - name: Run Slither
-        uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
-        with:
-          target: contracts/
-          # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
-          # checks (status == Nonexistent) — intended idiom, the struct merely
-          # carries timestamp fields. Reviewed and accepted (2026-10-11).
-          slither-args: --filter-paths "lib|test" --exclude incorrect-equality,timestamp
-
-  test-anvil:
-    name: Anvil Integration (Web3)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
-        with:
-          version: v1.8.5
-
-      - name: Build contracts (Forge artifacts the Anvil suite loads)
-        working-directory: contracts
-        run: |
-          forge install || true
-          forge build
-
-      - name: Run Anvil integration tests
-        run: go test -tags=anvil -race -count=1 ./test/integration/web3/...
-
-  # SG-08: the comprehensive matrix gates the SAME SHA through a reusable
-  # workflow_call inside this DAG, instead of running as an independent
-  # workflow that merely triggers in parallel (plan §7 rule: independent
-  # workflows must gate via workflow_call or SHA status checks, not just
-  # parallel triggers). test.yml keeps schedule/workflow_dispatch for
-  # standalone runs.
-  test-suite:
-    name: Comprehensive Test Suite (same SHA)
-    uses: ./.github/workflows/test.yml
-
-  # SG-08: the ONE place candidate images are built for this SHA. The reusable
-  # workflow builds each image exactly once (docker-archive artifact with an
-  # OCI revision label), every scan job loads THAT artifact and verifies the
-  # image ID against the recorded one — scanning never rebuilds. PRs never
-  # push to the registry but scan the exact bytes they would deploy.
-  #
-  # `candidate` succeeds only when every source gate above AND every
-  # same-digest Trivy/SBOM scan inside it have passed; a failed gate skips it,
-  # which skips everything downstream (fail-closed, no if:always()).
-  candidate:
-    name: Candidate Images (build once per SHA + same-digest scan)
-    uses: ./.github/workflows/build.yml
-    needs: [lint, test-go, test-contracts, test-anvil, build, security]
-
-  docker:
-    name: Candidate Smoke (same artifact)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    # Smoke THE candidate built once for this SHA — no rebuild for smoke.
-    needs: [candidate]
-    steps:
-      - name: Download the candidate image built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: candidate-monolith
-
-      - name: Load candidate and verify its identity
-        run: |
-          set -euo pipefail
-          docker load -i candidate-monolith.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' streamgate-monolith:candidate)"
-          if [ "$rev" != "${{ github.sha }}" ]; then
-            echo "::error::OCI revision label '$rev' does not match ${{ github.sha }}"
-            exit 1
-          fi
-          docker tag streamgate-monolith:candidate streamgate-monolith:ci
-          echo "smoke-testing candidate ${actual} (revision ${rev})"
-
-      - name: Smoke test monolith (real readiness, not "file exists")
-        run: |
-          set -euo pipefail
-          net=ci-smoke-net
-          docker network create "$net"
-
+          jobtmp="$(mktemp -d "${RUNNER_TEMP%/}/sg-transport-publish.XXXXXX")"
+          export DOCKER_CONFIG="$jobtmp/auth"
+          export PROBE_CONTEXT="$jobtmp/context"
+          image_ref="ghcr.io/rtcdance/streamgate-evidence-transport-probe:probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cleanup() {
-            docker rm -f ci-monolith ci-postgres ci-redis ci-minio ci-nats >/dev/null 2>&1 || true
-            docker network rm "$net" >/dev/null 2>&1 || true
+            docker image rm "$image_ref" >/dev/null 2>&1 || true
+            rm -rf "$jobtmp"
           }
           trap cleanup EXIT
-
-          # Minimal dependency set, addressed by container name on a private
-          # network — the same wiring the fullchain stack uses. The monolith
-          # cannot serve without these, so the smoke must bring them up; a bare
-          # container is not a readiness test.
-          docker run -d --name ci-postgres --network "$net" \
-            -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=streamgate \
-            postgres:15-alpine
-          docker run -d --name ci-redis --network "$net" redis:7-alpine
-          # minio/minio is no longer publicly pullable from Docker Hub (the
-          # same finding test.yml already carries); bitnamilegacy/minio is the
-          # still-published equivalent. It runs as root so the fresh named
-          # volume is writable, and takes the same MINIO_ROOT_* credentials.
-          docker run -d --name ci-minio --network "$net" --user root \
-            -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            bitnamilegacy/minio:2025.7.23-debian-12-r5 server /data
-          docker run -d --name ci-nats --network "$net" nats:2.10-alpine -js
-
-          wait_for() {  # wait_for <label> <cmd...>
-            local label="$1"; shift
-            for _ in $(seq 1 60); do
-              if "$@" >/dev/null 2>&1; then echo "$label ready"; return 0; fi
-              sleep 1
-            done
-            echo "::error::$label did not become ready"
-            return 1
+          # Keep the short-lived registry credential out of shared Docker config.
+          mkdir -m 700 "$DOCKER_CONFIG" "$PROBE_CONTEXT"
+          python3 - <<'PYTHON'
+          import hashlib, io, json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['PROBE_CONTEXT'])
+          payload = os.urandom(256 * 1024)
+          with tarfile.open(root / 'evidence.tar', 'w') as stream:
+              entry = tarfile.TarInfo('payload.bin')
+              entry.size = len(payload)
+              entry.mtime = 0
+              stream.addfile(entry, io.BytesIO(payload))
+          manifest = {
+              'schemaVersion': 1,
+              'scope': 'diagnostic only; no application or acceptance proof',
+              'sourceSHA': os.environ['GITHUB_SHA'],
+              'runID': os.environ['GITHUB_RUN_ID'],
+              'runAttempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'archiveSHA256': hashlib.sha256((root / 'evidence.tar').read_bytes()).hexdigest(),
+              'payloadSHA256': hashlib.sha256(payload).hexdigest(),
           }
-          wait_for postgres docker exec ci-postgres pg_isready -U postgres
-          wait_for redis docker exec ci-redis redis-cli ping
-          wait_for minio docker exec ci-minio curl -fsS http://localhost:9000/minio/health/live
+          (root / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True))
+          (root / 'Dockerfile').write_text('FROM scratch\nCOPY evidence.tar manifest.json /evidence/\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('archive_sha=' + manifest['archiveSHA256'] + '\n')
+              stream.write('payload_sha=' + manifest['payloadSHA256'] + '\n')
+          print('ORIGINAL_ARCHIVE_SHA256=' + manifest['archiveSHA256'])
+          PYTHON
+          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" --label "org.opencontainers.image.revision=${GITHUB_SHA}" -t "$image_ref" "$PROBE_CONTEXT"
+          docker push "$image_ref"
+          digest="$(docker image inspect "$image_ref" --format '{{index .RepoDigests 0}}')"
+          [[ "$digest" =~ ^ghcr\.io/rtcdance/streamgate-evidence-transport-probe@sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          python3 - <<'PYTHON'
+          import json, os, urllib.request
+          request = urllib.request.Request(
+              'https://api.github.com/users/rtcdance/packages/container/streamgate-evidence-transport-probe',
+              headers={'Authorization': 'Bearer ' + os.environ['REGISTRY_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              package = json.load(response)
+          assert package['visibility'] == 'private', package['visibility']
+          print('TRANSPORT_PACKAGE_VISIBILITY=private')
+          PYTHON
+          printf 'TRANSPORT_PUBLISHED_DIGEST=%s\n' "$digest"
 
-          # The candidate under test, pointed at those dependencies.
-          docker run -d --name ci-monolith --network "$net" -p 18080:8080 \
-            -e APP_DEBUG=true \
-            -e STREAMGATE_JWT_SECRET=ci-smoke-jwt-secret-0123456789-abcdef \
-            -e STREAMGATE_DB_HOST=ci-postgres -e STREAMGATE_DB_PORT=5432 \
-            -e STREAMGATE_DB_USER=postgres -e STREAMGATE_DB_PASSWORD=postgres \
-            -e STREAMGATE_DB_NAME=streamgate -e STREAMGATE_DB_SSLMODE=disable \
-            -e STREAMGATE_REDIS_HOST=ci-redis -e STREAMGATE_REDIS_PORT=6379 \
-            -e STREAMGATE_STORAGE_TYPE=minio -e STREAMGATE_STORAGE_ENDPOINT=ci-minio:9000 \
-            -e STREAMGATE_STORAGE_ACCESS_KEY=minioadmin -e STREAMGATE_STORAGE_SECRET_KEY=minioadmin \
-            -e STREAMGATE_STORAGE_BUCKET=streamgate \
-            -e STREAMGATE_NATS_URL=nats://ci-nats:4222 \
-            streamgate-monolith:ci
-
-          # Wait for the image's own HEALTHCHECK (wget /health) to report
-          # healthy. A container that starts but never serves must fail here.
-          healthy=false
-          for i in $(seq 1 60); do
-            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ci-monolith 2>/dev/null || echo missing)"
-            case "$health" in
-              healthy)
-                echo "monolith healthcheck: healthy after ${i}s"
-                healthy=true
-                break
-                ;;
-              unhealthy)
-                echo "::error::monolith healthcheck reported unhealthy"
-                docker logs ci-monolith || true
-                exit 1
-                ;;
-            esac
-            if [ "$(docker inspect -f '{{.State.Running}}' ci-monolith 2>/dev/null || echo false)" != "true" ]; then
-              echo "::error::monolith exited before becoming healthy"
-              docker logs ci-monolith || true
-              exit 1
-            fi
-            sleep 1
-          done
-          if [ "$healthy" != "true" ]; then
-            echo "::error::monolith did not become healthy within 60s"
-            docker logs ci-monolith || true
-            exit 1
-          fi
-
-          # Minimal business request against the real service.
-          code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/health)"
-          echo "GET /health -> $code"
-          [ "$code" = "200" ] || { echo "::error::/health returned $code"; docker logs ci-monolith || true; exit 1; }
-
-  # ---------------------------------------------------------------------------
-  # SG-08 post-candidate gates: durability / ops / perf run against the same
-  # SHA (and, where it matters, the same candidate) and are REQUIRED jobs that
-  # can fail. None of them carries if:always() or continue-on-error.
-  # ---------------------------------------------------------------------------
-
-  durability:
-    name: Durability Gates (DB-backed task/outbox/event/registry)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    needs: [candidate]
-    services:
-      postgres:
-        image: postgres:15-alpine
+  restore:
+    name: Restore exact original bytes in a fresh job
+    needs: publish
+    runs-on: streamgate-acceptance
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Pull by registry digest and verify original tar and payload
         env:
-          POSTGRES_USER: streamgate
-          POSTGRES_PASSWORD: streamgate
-          POSTGRES_DB: streamgate_durability
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - run: go mod download
-
-      # These packages' acceptance suites are gated on STREAMGATE_TEST_DB_DSN
-      # (they would otherwise SKIP, and a skipped required test must fail the
-      # gate — see the assertion script below). With the DSN set they run
-      # against the service container: lease/expiry SQL, outbox atomicity,
-      # event store/checkpoints/journal, registry idempotency/nonce/reorg.
-      # The required list is explicit so a package-wide zero-match run, or a
-      # skip of any of these specific tests, fails instead of going green.
-      - name: Run DB-backed durability suites
-        env:
-          STREAMGATE_TEST_DB_DSN: postgres://streamgate:streamgate@localhost:5432/streamgate_durability?sslmode=disable
+          REGISTRY_TOKEN: ${{ github.token }}
+          TRANSPORT_DIGEST: ${{ needs.publish.outputs.digest }}
+          EXPECTED_ARCHIVE_SHA: ${{ needs.publish.outputs.archive_sha }}
+          EXPECTED_PAYLOAD_SHA: ${{ needs.publish.outputs.payload_sha }}
+        shell: bash
         run: |
           set -euo pipefail
-          go_test_rc=0
-          go test -race -count=1 -p 1 -json \
-            ./pkg/service/transcoding ./pkg/web3/event ./pkg/service/registry ./pkg/service/gating ./pkg/service \
-            > durability-tests.json || go_test_rc=$?
-          python3 scripts/cd/assert_required_tests.py \
-            --suite durability-tests --exit-code "$go_test_rc" \
-            durability-tests.json
-
-      - name: Upload durability test log
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: durability-tests-${{ github.sha }}
-          path: durability-tests.json
-          retention-days: 30
-
-  ops:
-    name: Ops Gates (production profile, drain, shutdown)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    needs: [candidate]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - run: go mod download
-
-      # Profile/ops semantics: production must fail fast instead of degrading
-      # to in-memory fallbacks, the capability-window policy must hold, and
-      # drain/shutdown must behave. Filters keep the gate focused on tests
-      # that define ops behaviour; every one of them must actually run.
-      - name: Run ops/profile/drain gates
-        run: |
-          set -euo pipefail
-          go_test_rc=0
-          go test -race -count=1 -json \
-            -run 'TestBuildProviders_Production|TestBuildProviders_DevStillFallsBackToMemory|TestSetupRouter_Production|TestSetDraining|TestIsDraining|TestDrainMiddleware' \
-            ./pkg/gateway ./pkg/core \
-            > ops-gateway-core.json || go_test_rc=$?
-          python3 scripts/cd/assert_required_tests.py \
-            --suite ops-gateway-core --exit-code "$go_test_rc" \
-            ops-gateway-core.json
-
-          go_test_rc=0
-          go test -race -count=1 -json \
-            -run 'TestValidateProduction|TestIsProduction|TestCapabilityPolicy|TestDeriveProfile' \
-            ./pkg/core/config \
-            > ops-config.json || go_test_rc=$?
-          python3 scripts/cd/assert_required_tests.py \
-            --suite ops-config --exit-code "$go_test_rc" \
-            ops-config.json
-
-      - name: Upload ops test logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ops-tests-${{ github.sha }}
-          path: ops-*.json
-          retention-days: 30
-
-  perf:
-    name: Perf Harness Gates (load harness + metrics overhead)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    needs: [candidate]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - run: go mod download
-
-      # This job pins the HARNESS's own correctness: 5xx / truncated / hash-
-      # mismatched responses must never count as success throughput, and the
-      # percentile/JSON plumbing must round-trip. The LIVE matrix (1/10/50/100
-      # viewers against a running stack, with the injected faults and the
-      # same-runner reference comparison) is the `acceptance` job below, which
-      # runs the unified Docker entry — §0.2 E requires that matrix as a release
-      # gate, not this harness self-test alone.
-      - name: Run perf harness and metrics gates
-        run: |
-          set -euo pipefail
-          go_test_rc=0
-          go test -race -p 1 -count=1 -json ./test/load ./test/performance \
-            > perf-tests.json || go_test_rc=$?
-          python3 scripts/cd/assert_required_tests.py \
-            --suite perf-tests --exit-code "$go_test_rc" \
-            perf-tests.json
-
-      - name: Upload perf test log
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: perf-tests-${{ github.sha }}
-          path: perf-tests.json
-          retention-days: 30
-
-  # One complete entry owns the temporary projects and runs every stage in
-  # order. It imports this run's scanned archives; it never rebuilds candidates.
-  # PRs also run the full protocol here, so no skipped candidate gate can hide
-  # behind the shorter optional PR performance allowance.
-  acceptance:
-    name: Complete Docker Acceptance (M0-M8, one candidate)
-    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
-    # The Mac must start only after every Linux job, so the shared Docker
-    # Desktop VM is idle when the complete candidate DAG begins.
-    needs: [candidate, durability, ops, perf, test-suite, docker, manifest]
-    timeout-minutes: 360
-    env:
-      VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
-      VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
-      VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
-      VERIFY_PROJECT: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}
-      VERIFY_PLATFORM: linux/amd64
-      VERIFY_GOPROXY: https://proxy.golang.org,direct
-      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
-      VERIFY_STAGE: all
-      VERIFY_MODE: candidate
-      VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}
-      # R-01: the cold/hot and -count=1 replay regressions are recorded, so later
-      # runs reuse the toolchain-keyed compile cache. Test results still rerun.
-      VERIFY_SHARED_GOCACHE: "1"
-      GOMAXPROCS: "4"
-      GOFLAGS: "-p=4 -v"
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          submodules: recursive
-          fetch-depth: 0
-
-      - name: Require the documented acceptance profile capacity
-        run: |
-          set -euo pipefail
-          bash scripts/cd/verify_environment.sh all "$VERIFY_PROJECT"
-
-      - name: Download the original scanned build archives and metadata
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-*
-          merge-multiple: true
-          path: .verify-artifacts/ci-all/build-inputs
-
-      - name: Run the complete candidate DAG and preserve its outer exit
-        run: |
-          set -euo pipefail
-          set +e
-          bash scripts/verify-docker.sh 2>&1 | tee .verify-artifacts/ci-all/command.log
-          statuses=("${PIPESTATUS[@]}")
-          set -e
-          printf '%s\n' "${statuses[0]}" > .verify-artifacts/ci-all/command.exit
-          [ "${statuses[0]}" = 0 ] || exit "${statuses[0]}"
-          [ "${statuses[1]}" = 0 ] || exit "${statuses[1]}"
-
-      - name: Upload full raw evidence on success, failure or cancellation
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ci-acceptance-${{ github.sha }}
-          path: |
-            .verify-artifacts/ci-all/
-            !.verify-artifacts/ci-all/build-inputs/**
-            !.verify-artifacts/ci-all/.private/**
-          include-hidden-files: true
-          retention-days: 30
-          if-no-files-found: error
-
-  manifest:
-    name: Candidate Manifest (one SHA, one identity)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    # The structured candidate manifest TRANSITION_PLAN.md §7 requires, so every
-    # later job can name "the candidate" by immutable identity instead of by a
-    # tag that could point anywhere. It depends only on the image build and it
-    # FAILS when any image was built from a different SHA than this run's, so a
-    # manifest that mixes builds is never published as if it described one
-    # candidate. It is a promotion input, not a test: see `publishable`.
-    needs: [candidate]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Collect every candidate image's identity
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: candidate-*
-          merge-multiple: true
-          path: artifacts
-
-      - name: Collect this run's registry publication receipts
-        if: github.event_name != 'pull_request'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: registry-publications-${{ github.sha }}
-          path: artifacts/registry-publications
-
-      - name: Write the manifest
-        env:
-          CI_EVENT_NAME: ${{ github.event_name }}
-          REGISTRY_REPOSITORY: ghcr.io/${{ github.repository }}
-        run: |
-          set -euo pipefail
-          publication_args=()
-          if [ "$CI_EVENT_NAME" != pull_request ]; then
-            publication_args=(--registry-dir artifacts/registry-publications \
-              --registry-repository "$REGISTRY_REPOSITORY" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT")
-          fi
-          python3 scripts/cd/write_candidate_manifest.py \
-            --meta-dir artifacts/meta \
-            --sha "${{ github.sha }}" \
-            --build-tags "nats_integration" \
-            --platform "linux/amd64" \
-            --environment "ci" \
-            "${publication_args[@]}" \
-            --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --out candidate-manifest.json
-
-      - name: Upload the manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: candidate-manifest-${{ github.sha }}
-          path: candidate-manifest.json
-          retention-days: 30
-
-  evidence:
-    name: Candidate Evidence (raw M0-M8 + same-run build identities)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    needs: [lint, test-go, test-contracts, test-anvil, build, security,
-            candidate, manifest, test-suite, docker, durability, ops, perf, acceptance]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Collect complete raw acceptance evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: ci-acceptance-${{ github.sha }}
-          path: .verify-artifacts/ci-all
-
-      - name: Collect the verified build and registry manifest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: candidate-manifest-${{ github.sha }}
-          path: .verify-artifacts/ci-manifest
-
-      - name: Verify every required job, gate and candidate identity
-        env:
-          REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
-          CI_EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          printf '%s\n' "$REQUIRED_JOB_RESULTS" > .verify-artifacts/ci-all/ci-job-results.json
-          python3 scripts/cd/summarize_ci_evidence.py .verify-artifacts/ci-all \
-            --manifest .verify-artifacts/ci-manifest/candidate-manifest.json \
-            --needs .verify-artifacts/ci-all/ci-job-results.json \
-            --revision "$GITHUB_SHA" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT" \
-            --event "$CI_EVENT_NAME" --out .verify-artifacts/ci-all/ci-evidence.json
-
-      - name: Upload the candidate evidence summary
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ci-evidence-${{ github.sha }}
-          path: |
-            .verify-artifacts/ci-all/ci-job-results.json
-            .verify-artifacts/ci-all/ci-evidence.json
-          retention-days: 30
-          if-no-files-found: error
-
-  publishable:
-    name: Publishable (promotion gate)
-    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
-    needs: [evidence]
-    steps:
-      - name: All required evidence passed for this exact candidate
-        run: echo "Candidate is publishable; see this run's ci-evidence artifact. Production deployment requires separate authorization."
+          jobtmp="$(mktemp -d "${RUNNER_TEMP%/}/sg-transport-restore.XXXXXX")"
+          export DOCKER_CONFIG="$jobtmp/auth"
+          export RESTORED_EVIDENCE="$jobtmp/restored"
+          container="sg-transport-probe-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker rm "$container" >/dev/null 2>&1 || true
+            docker image rm "$TRANSPORT_DIGEST" >/dev/null 2>&1 || true
+            rm -rf "$jobtmp"
+          }
+          trap cleanup EXIT
+          mkdir -m 700 "$DOCKER_CONFIG" "$RESTORED_EVIDENCE"
+          printf '%s\n' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$TRANSPORT_DIGEST"
+          # The transport container is never started; copy the original file.
+          docker create --name "$container" --label "com.streamgate.transport.probe=${GITHUB_RUN_ID}" "$TRANSPORT_DIGEST" /not-executed >/dev/null
+          docker cp "$container:/evidence/evidence.tar" "$RESTORED_EVIDENCE/evidence.tar"
+          docker cp "$container:/evidence/manifest.json" "$RESTORED_EVIDENCE/manifest.json"
+          python3 - <<'PYTHON'
+          import hashlib, json, os, pathlib, tarfile
+          root = pathlib.Path(os.environ['RESTORED_EVIDENCE'])
+          manifest = json.loads((root / 'manifest.json').read_text())
+          archive_sha = hashlib.sha256((root / 'evidence.tar').read_bytes()).hexdigest()
+          assert archive_sha == os.environ['EXPECTED_ARCHIVE_SHA'] == manifest['archiveSHA256']
+          assert manifest['sourceSHA'] == os.environ['GITHUB_SHA']
+          assert manifest['runID'] == os.environ['GITHUB_RUN_ID']
+          assert manifest['runAttempt'] == os.environ['GITHUB_RUN_ATTEMPT']
+          with tarfile.open(root / 'evidence.tar') as stream:
+              assert stream.getnames() == ['payload.bin']
+              payload = stream.extractfile('payload.bin').read()
+          assert len(payload) == 256 * 1024
+          assert hashlib.sha256(payload).hexdigest() == os.environ['EXPECTED_PAYLOAD_SHA'] == manifest['payloadSHA256']
+          print('ORIGINAL_TAR_REGISTRY_ROUNDTRIP_OK ' + json.dumps({
+              'sourceSHA': manifest['sourceSHA'], 'runID': manifest['runID'],
+              'archiveSHA256': archive_sha, 'transportDigest': os.environ['TRANSPORT_DIGEST'],
+              'scope': 'two-job Mac diagnostic; not Linux/application/acceptance proof'}))
+          PYTHON
