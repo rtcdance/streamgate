@@ -8,46 +8,97 @@ on:
 permissions:
   contents: read
 
+env:
+  CANDIDATE_SHA: 1440d0d9a7ad5995f7969bfcf6573e3cb613f9aa
+  PRODUCER_RUN: "40120832170"
+  PRODUCER_ATTEMPT: "1"
+  ARTIFACT_ID: "12572922411"
+
 jobs:
   publish:
-    name: Publish the real candidate tar from Linux
+    name: Publish the preserved 401208 archive from Linux
     runs-on: [self-hosted, streamgate-linux]
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read
       packages: write
     outputs:
       image: ${{ steps.put.outputs.image }}
       digest: ${{ steps.put.outputs.digest }}
       archive_sha: ${{ steps.put.outputs.archive_sha }}
+      image_id: ${{ steps.put.outputs.image_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Download the preserved original artifact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request, zipfile
+          token = os.environ["GITHUB_TOKEN"]
+          headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+          url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{os.environ['ARTIFACT_ID']}/zip"
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+          request = urllib.request.Request(url, headers=headers)
+          try:
+              urllib.request.build_opener(NoRedirect).open(request)
+              raise SystemExit("expected a redirect for the artifact download")
+          except urllib.error.HTTPError as error:
+              if error.code not in (301, 302, 303, 307, 308):
+                  raise
+              location = error.headers["Location"]
+          with urllib.request.urlopen(location) as response, open("artifact.zip", "wb") as stream:
+              stream.write(response.read())
+          with zipfile.ZipFile("artifact.zip") as archive:
+              for name in archive.namelist():
+                  if name.startswith("/") or ".." in name.split("/"):
+                      raise SystemExit(f"unsafe artifact entry: {name}")
+              archive.extractall("input")
+          PY
+          test -s input/candidate-monolith.tar
+          test -s input/meta/monolith.json
+      - name: Bind the original archive and its meta
+        id: original
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          meta = json.load(open("input/meta/monolith.json"))
+          assert meta["revision"] == os.environ["CANDIDATE_SHA"], meta["revision"]
+          digest = hashlib.sha256(open("input/candidate-monolith.tar", "rb").read()).hexdigest()
+          assert meta["archiveSHA256"] == digest, "archive SHA differs from the original meta"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+              stream.write("archive_sha=" + digest + "\n")
+              stream.write("image_id=" + meta["imageID"] + "\n")
+          print("ORIGINAL_META_OK archive=" + digest + " image=" + meta["imageID"])
+          PY
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Save and publish the original tar
+      - name: Publish the original tar and meta
         id: put
         run: |
           set -euo pipefail
-          docker image inspect streamgate-monolith:candidate >/dev/null
-          docker save -o monolith.tar streamgate-monolith:candidate
-          sha=$(sha256sum monolith.tar | awk '{print $1}')
-          echo "archive_sha=$sha" >> "$GITHUB_OUTPUT"
           image="ghcr.io/rtcdance/streamgate/evidence-real"
           python3 scripts/cd/evidence_transport.py put \
-            --name real-monolith --path monolith.tar \
-            --image "$image" --tag "gate-${GITHUB_RUN_ID}" \
-            --source-sha "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --name candidate-monolith \
+            --path input/candidate-monolith.tar --path input/meta/monolith.json \
+            --image "$image" --tag "real-${GITHUB_RUN_ID}" \
+            --source-sha "$CANDIDATE_SHA" --run-id "$PRODUCER_RUN" --attempt "$PRODUCER_ATTEMPT" \
             --workflow "$GITHUB_WORKFLOW" --job "$GITHUB_JOB" > put.json
           cat put.json
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "digest=$(python3 -c 'import json;print(json.load(open("put.json"))["digest"])')" >> "$GITHUB_OUTPUT"
 
   restore-scan:
-    name: Restore and scan the original tar on Mac
+    name: Restore and scan the preserved archive on Mac
     needs: publish
     runs-on: [self-hosted, macOS, streamgate-acceptance]
     timeout-minutes: 30
@@ -62,26 +113,39 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore the original tar and verify its bytes
+      - name: Restore and verify the original tar and meta
         env:
           DIGEST: ${{ needs.publish.outputs.digest }}
           ARCHIVE_SHA: ${{ needs.publish.outputs.archive_sha }}
+          IMAGE_ID: ${{ needs.publish.outputs.image_id }}
         run: |
           set -euo pipefail
           python3 scripts/cd/evidence_transport.py get \
             --image "${{ needs.publish.outputs.image }}@${DIGEST}" --dest restored \
-            --expect-name real-monolith --expect-sha "$GITHUB_SHA" \
-            --expect-run "$GITHUB_RUN_ID" --expect-attempt "$GITHUB_RUN_ATTEMPT" > get.json
+            --expect-name candidate-monolith --expect-sha "$CANDIDATE_SHA" \
+            --expect-run "$PRODUCER_RUN" --expect-attempt "$PRODUCER_ATTEMPT" > get.json
           cat get.json
-          actual=$(shasum -a 256 restored/monolith.tar | awk '{print $1}')
-          [ "$actual" = "$ARCHIVE_SHA" ]
-          echo "REAL_TAR_RESTORE_OK sha=$actual digest=$DIGEST"
-      - name: Load the restored tar
-        run: docker load -i restored/monolith.tar
-      - name: Scan the restored image
+          python3 - <<'PY'
+          import hashlib, json, os
+          meta = json.load(open("restored/meta/monolith.json"))
+          actual = hashlib.sha256(open("restored/candidate-monolith.tar", "rb").read()).hexdigest()
+          assert actual == os.environ["ARCHIVE_SHA"], "restored archive SHA mismatch"
+          assert meta["archiveSHA256"] == actual, "restored meta SHA mismatch"
+          assert meta["imageID"] == os.environ["IMAGE_ID"], "restored meta image ID mismatch"
+          assert meta["revision"] == os.environ["CANDIDATE_SHA"], "restored meta revision mismatch"
+          print("REAL_TAR_RESTORE_OK sha=" + actual + " digest=" + os.environ["DIGEST"])
+          PY
+      - name: Load the restored tar and check its identity
+        run: |
+          set -euo pipefail
+          docker load -i restored/candidate-monolith.tar
+          loaded=$(docker image inspect streamgate-monolith:candidate --format '{{.Id}}')
+          [ "$loaded" = "${{ needs.publish.outputs.image_id }}" ]
+          echo "RESTORED_IMAGE_ID_OK id=$loaded"
+      - name: Scan the restored image (report only; build.yml owns the gate)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: streamgate-monolith:candidate
           format: table
           severity: CRITICAL,HIGH
-          exit-code: '1'
+          exit-code: '0'
