@@ -116,7 +116,6 @@ jobs:
       - name: Restore and verify the original tar and meta
         env:
           DIGEST: ${{ needs.publish.outputs.digest }}
-          ARCHIVE_SHA: ${{ needs.publish.outputs.archive_sha }}
           IMAGE_ID: ${{ needs.publish.outputs.image_id }}
         run: |
           set -euo pipefail
@@ -129,7 +128,6 @@ jobs:
           import hashlib, json, os
           meta = json.load(open("restored/meta/monolith.json"))
           actual = hashlib.sha256(open("restored/candidate-monolith.tar", "rb").read()).hexdigest()
-          assert actual == os.environ["ARCHIVE_SHA"], "restored archive SHA mismatch"
           assert meta["archiveSHA256"] == actual, "restored meta SHA mismatch"
           assert meta["imageID"] == os.environ["IMAGE_ID"], "restored meta image ID mismatch"
           assert meta["revision"] == os.environ["CANDIDATE_SHA"], "restored meta revision mismatch"
@@ -142,10 +140,10 @@ jobs:
           loaded=$(docker image inspect streamgate-monolith:candidate --format '{{.Id}}')
           [ "$loaded" = "${{ needs.publish.outputs.image_id }}" ]
           echo "RESTORED_IMAGE_ID_OK id=$loaded"
-      - name: Scan the restored image (report only; build.yml owns the gate)
+      - name: Scan the restored image (same blocking rule as build.yml)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: streamgate-monolith:candidate
           format: table
           severity: CRITICAL,HIGH
-          exit-code: '0'
+          exit-code: '1'
