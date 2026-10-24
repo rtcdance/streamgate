@@ -23,7 +23,7 @@ env:
 jobs:
   verify-deps:
     name: Verify Dependencies
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -43,7 +43,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests - ${{ matrix.test-path }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
     strategy:
       fail-fast: false
@@ -128,7 +128,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests - ${{ matrix.test-path }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
     strategy:
       fail-fast: false
@@ -257,7 +257,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
     services:
       postgres:
@@ -358,7 +358,7 @@ jobs:
 
   benchmark-tests:
     name: Benchmark Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

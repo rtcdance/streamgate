@@ -29,7 +29,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -49,7 +49,7 @@ jobs:
 
   test-go:
     name: Go Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     services:
       postgres:
         image: postgres:15-alpine
@@ -200,7 +200,7 @@ jobs:
 
   test-contracts:
     name: Solidity Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: contracts
@@ -226,7 +226,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -252,7 +252,7 @@ jobs:
 
   security:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -299,7 +299,7 @@ jobs:
 
   test-anvil:
     name: Anvil Integration (Web3)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -347,7 +347,7 @@ jobs:
 
   docker:
     name: Candidate Smoke (same artifact)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     # Smoke THE candidate built once for this SHA — no rebuild for smoke.
     needs: [candidate]
     steps:
@@ -473,7 +473,7 @@ jobs:
 
   durability:
     name: Durability Gates (DB-backed task/outbox/event/registry)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: [candidate]
     services:
       postgres:
@@ -529,7 +529,7 @@ jobs:
 
   ops:
     name: Ops Gates (production profile, drain, shutdown)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: [candidate]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -576,7 +576,7 @@ jobs:
 
   perf:
     name: Perf Harness Gates (load harness + metrics overhead)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: [candidate]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -620,7 +620,9 @@ jobs:
   acceptance:
     name: Complete Docker Acceptance (M0-M8, one candidate)
     runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
-    needs: [candidate, durability, ops, perf]
+    # The Mac must start only after every Linux job, so the shared Docker
+    # Desktop VM is idle when the complete candidate DAG begins.
+    needs: [candidate, durability, ops, perf, test-suite, docker, manifest]
     timeout-minutes: 360
     env:
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
@@ -682,7 +684,7 @@ jobs:
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     # The structured candidate manifest TRANSITION_PLAN.md §7 requires, so every
     # later job can name "the candidate" by immutable identity instead of by a
     # tag that could point anywhere. It depends only on the image build and it
@@ -737,7 +739,7 @@ jobs:
 
   evidence:
     name: Candidate Evidence (raw M0-M8 + same-run build identities)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: [lint, test-go, test-contracts, test-anvil, build, security,
             candidate, manifest, test-suite, docker, durability, ops, perf, acceptance]
     steps:
@@ -781,7 +783,7 @@ jobs:
 
   publishable:
     name: Publishable (promotion gate)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: [evidence]
     steps:
       - name: All required evidence passed for this exact candidate

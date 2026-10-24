@@ -44,7 +44,7 @@ env:
 jobs:
   build-monolith:
     name: Build Monolith (once per SHA)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
     steps:
@@ -98,7 +98,7 @@ jobs:
 
   build-transcoder:
     name: Build Transcoder (once per SHA)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
     steps:
@@ -147,7 +147,7 @@ jobs:
 
   build-microservices:
     name: Build ${{ matrix.service }} (once per SHA)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -198,7 +198,7 @@ jobs:
 
   scan-monolith:
     name: Scan Monolith (same digest)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-monolith
     steps:
       - name: Download candidate artifact
@@ -256,7 +256,7 @@ jobs:
 
   scan-transcoder:
     name: Scan Transcoder (same digest)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-transcoder
     steps:
       - name: Download candidate artifact
@@ -300,7 +300,7 @@ jobs:
 
   scan-microservices:
     name: Scan ${{ matrix.service }} (same digest)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-microservices
     strategy:
       fail-fast: false
@@ -350,7 +350,7 @@ jobs:
 
   retain-candidate:
     name: Retain Candidate in GHCR (same image, per-SHA tag)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     # Retention only after every scan of this candidate passed: the bytes that
     # land in GHCR are the scanned bytes, and nothing unscanned is retained.
     needs: [build-monolith, build-transcoder, build-microservices,
