@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -11,7 +12,7 @@ SOURCE = Path(__file__).resolve().parent / "run-fuzz-target.sh"
 class RunFuzzTargetTests(unittest.TestCase):
     """The retry is bounded and only for a deadline with no failing input."""
 
-    def run_target(self, behaviour):
+    def run_target(self, behaviour, target="FuzzX"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = root / "state"
@@ -20,34 +21,47 @@ class RunFuzzTargetTests(unittest.TestCase):
             bin_dir = root / "bin"
             bin_dir.mkdir()
             go = bin_dir / "go"
-            go.write_text("\n".join([
-                "#!/usr/bin/env bash",
-                'state="$FAKE_STATE"',
-                'n=$(( $(cat "$state/count" 2>/dev/null || echo 0) + 1 ))',
-                'printf "%s\\n" "$n" > "$state/count"',
-                'printf "%s\\n" "$*" >> "$state/args"',
-                f'behaviour="{behaviour}"',
-                'if [ "$behaviour" = crash ]; then',
-                '  echo "--- FAIL: FuzzX (1.00s)"; echo "Failing input written to testdata/fuzz/FuzzX/abc"; exit 1',
-                'fi',
-                'if [ "$behaviour" = no-progress ]; then',
-                '  echo "--- FAIL: FuzzX (31.00s)"; echo "    context deadline exceeded"; exit 1',
-                'fi',
-                'if [ "$behaviour" = hung ]; then',
-                '  echo "fuzz: elapsed: 3s, execs: 1 (0/sec)"; echo "--- FAIL: FuzzX (31.00s)"',
-                '  echo "    context deadline exceeded"; echo "hung or terminated unexpectedly"; exit 1',
-                'fi',
-                'if [ "$behaviour" = deadline-once ] && [ "$n" -gt 1 ]; then exit 0; fi',
-                'if [ "$behaviour" = deadline-once ] || [ "$behaviour" = deadline-always ]; then',
-                '  echo "fuzz: elapsed: 3s, execs: 9000 (3000/sec)"',
-                '  echo "--- FAIL: FuzzX (31.00s)"; echo "    context deadline exceeded"; exit 1',
-                'fi',
-                'echo "--- PASS: FuzzX (30.06s)"; exit 0',
-            ]))
+            go.write_text("#!" + sys.executable + "\n" + r'''
+from pathlib import Path
+import os, sys
+state = Path(os.environ["FAKE_STATE"])
+n = int((state / "count").read_text()) + 1
+(state / "count").write_text(str(n))
+with (state / "args").open("a") as stream: stream.write(" ".join(sys.argv[1:]) + "\n")
+behaviour, target = os.environ["FAKE_BEHAVIOUR"], os.environ["FAKE_TARGET"]
+if behaviour == "success":
+    print("PASS"); sys.exit(0)
+if n > 1 and behaviour != "deadline-always": sys.exit(0)
+# Shape captured from Go 1.26 coordinator shutdown in the all2 ops log.
+lines = ["=== RUN   " + target,
+         "fuzz: elapsed: 0s, gathering baseline coverage: 0/3 completed",
+         "fuzz: elapsed: 0s, gathering baseline coverage: 3/3 completed, now fuzzing with 4 workers",
+         "fuzz: elapsed: 30s, execs: 401456 (13949/sec), new interesting: 4 (total: 18)",
+         "--- FAIL: " + target + " (31.00s)", "    context deadline exceeded",
+         "=== NAME  ", "FAIL", "exit status 1", "FAIL\tgithub.com/rtcdance/streamgate/pkg/web3\t31.273s"]
+if behaviour == "no-progress": lines = [s for s in lines if not s.startswith("fuzz:")]
+if behaviour == "zero-progress": lines[3] = "fuzz: elapsed: 30s, execs: 0 (0/sec)"
+if behaviour == "mixed-error": lines.insert(6, "ERROR: unrelated database handshake failed")
+if behaviour == "mixed-assertion": lines.insert(6, "    parser_test.go:42: unexpected parser result")
+if behaviour == "annotated-deadline": lines[5] = "    request failed: context deadline exceeded"
+if behaviour == "wrong-target": lines[4] = "--- FAIL: FuzzOther (31.00s)"
+if behaviour == "multiple-failures": lines.insert(6, "--- FAIL: FuzzOther (0.00s)")
+if behaviour == "duplicate-deadline": lines.insert(6, "    context deadline exceeded")
+if behaviour == "missing-footer": lines = lines[:6]
+if behaviour == "compile-output": lines = ["fmt", "github.com/rtcdance/streamgate/pkg/web3"] + lines
+if behaviour == "crash": lines.insert(6, "Failing input written to testdata/fuzz/FuzzX/abc")
+if behaviour == "hung": lines.insert(6, "hung or terminated unexpectedly")
+if behaviour == "seed-error": lines.insert(6, "failure while testing seed corpus entry")
+if behaviour == "panic": lines.insert(6, "panic: runtime error")
+if behaviour == "coordinator-error": lines.insert(6, "communicating with fuzzing coordinator")
+print("\n".join(lines))
+sys.exit(124 if behaviour == "non-test-exit" else 1)
+''')
             go.chmod(0o755)
-            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FAKE_STATE": str(state)}
-            result = subprocess.run(["bash", str(SOURCE), "pkg/web3", "FuzzX", "30"],
-                                    capture_output=True, text=True, env=env)
+            env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                   "FAKE_STATE": str(state), "FAKE_BEHAVIOUR": behaviour, "FAKE_TARGET": target}
+            result = subprocess.run(["bash", str(SOURCE), "pkg/web3", target, "30"],
+                                    capture_output=True, text=True, env=env, timeout=10)
             calls = int((state / "count").read_text())
             args = (state / "args").read_text().splitlines() if (state / "args").exists() else []
             return result, calls, args
@@ -87,6 +101,27 @@ class RunFuzzTargetTests(unittest.TestCase):
         result, calls, _ = self.run_target("no-progress")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(calls, 1)
+
+    def test_unknown_or_partial_failures_never_become_retry_success(self):
+        for behaviour in ("mixed-error", "mixed-assertion", "annotated-deadline", "wrong-target",
+                          "multiple-failures", "duplicate-deadline", "missing-footer", "zero-progress",
+                          "seed-error", "panic", "coordinator-error"):
+            with self.subTest(behaviour=behaviour):
+                result, calls, _ = self.run_target(behaviour)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(calls, 1)
+                self.assertNotIn("RETRY:", result.stderr)
+
+    def test_a_non_test_exit_is_preserved_and_never_retried(self):
+        result, calls, _ = self.run_target("non-test-exit")
+        self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
+        self.assertEqual(calls, 1)
+
+    def test_compile_preamble_and_real_target_name_keep_the_known_retry(self):
+        result, calls, args = self.run_target("compile-output", target="FuzzParseSIWEMessage")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, 2)
+        self.assertIn("-fuzz ^FuzzParseSIWEMessage$", args[0])
 
     def test_rejects_a_non_positive_budget(self):
         for value in ("0", "x", ""):

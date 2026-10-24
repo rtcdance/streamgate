@@ -26,25 +26,59 @@ esac
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-if go test -run "^$" -fuzz "^${target}\$" -fuzztime "${seconds}s" "./$package_dir" >"$log" 2>&1; then
+first_rc=0
+go test -run "^$" -fuzz "^${target}\$" -fuzztime "${seconds}s" "./$package_dir" >"$log" 2>&1 || first_rc=$?
+if [ "$first_rc" = 0 ]; then
   cat "$log"
   exit 0
 fi
 
-# Only the coordinator shutdown race documented in TRANSITION_PLAN section 0.2
-# qualifies: real progress was made, the deadline expired, and nothing else went
-# wrong. A crash, a seed-corpus failure, a panic, a hung worker or a broken
-# coordinator handshake is final and must never be retried.
-if ! grep -q "fuzz: elapsed:" "$log"; then
-  cat "$log"
-  exit 1
-fi
-if grep -qE "Failing input written to|failure while testing seed corpus entry|panic:|hung or terminated unexpectedly|communicating with fuzzing coordinator" "$log"; then
-  cat "$log"
-  exit 1
-fi
-
-if grep -q "context deadline exceeded" "$log"; then
+# Only the documented Go coordinator shutdown shape qualifies. A substring
+# plus a blacklist cannot distinguish that shape from a mixed assertion or
+# infrastructure failure. Reject unknown lines, other targets, partial output,
+# repeated diagnostics and non-test exits; never convert those into a retry PASS.
+if [ "$first_rc" = 1 ] && awk -v target="$target" '
+  { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
+  /^[[:space:]]*$/ { next }
+  /^fuzz: elapsed: / {
+    if (failed) { bad=1; next }
+    if ($0 ~ /^fuzz: elapsed: [0-9.hms]+, gathering baseline coverage: [0-9]+\/[0-9]+ completed(, now fuzzing with [0-9]+ workers)?$/) next
+    if ($0 ~ /^fuzz: elapsed: [0-9.hms]+, execs: [0-9]+ \([0-9.]+\/sec\)(, new interesting: [0-9]+ \(total: [0-9]+\))?$/) {
+      if ($0 ~ /execs: [1-9][0-9]* /) progress=1
+      next
+    }
+    bad=1; next
+  }
+  /^=== RUN[[:space:]]/ {
+    name=$0; sub(/^=== RUN[[:space:]]+/, "", name)
+    if (failed || name != target) bad=1
+    next
+  }
+  /^--- FAIL: / {
+    name=$0; sub(/^--- FAIL: /, "", name); sub(/ \([0-9.]+s\)$/, "", name)
+    if (failed || name != target || $0 !~ / \([0-9.]+s\)$/) bad=1
+    failed++; next
+  }
+  /^[[:space:]]+context deadline exceeded$/ {
+    if (failed != 1 || deadline) bad=1
+    deadline++; next
+  }
+  /^=== NAME([[:space:]]|$)/ {
+    name=$0; sub(/^=== NAME[[:space:]]*/, "", name)
+    if (!deadline || (name != "" && name != target)) bad=1
+    next
+  }
+  /^FAIL$/ { if (!deadline || overall++) bad=1; next }
+  /^exit status 1$/ { if (!overall || exited++) bad=1; next }
+  /^FAIL[[:space:]]+[^[:space:]]+[[:space:]]+[0-9.]+s$/ {
+    if (!overall || summary++) bad=1
+    next
+  }
+  !failed && !progress && /^[a-z0-9][a-zA-Z0-9_.~+\/-]*$/ { next }
+  !failed && !progress && /^go: downloading [^[:space:]]+ [^[:space:]]+$/ { next }
+  { bad=1 }
+  END { exit !(progress && failed == 1 && deadline == 1 && overall == 1 && summary == 1 && !bad) }
+' "$log"; then
   cat "$log"
   echo "RETRY: $package_dir/$target hit the fuzz deadline with no failing input; retrying once with -parallel=1" >&2
   go test -run "^$" -fuzz "^${target}\$" -fuzztime "${seconds}s" -parallel=1 "./$package_dir"
@@ -52,4 +86,4 @@ if grep -q "context deadline exceeded" "$log"; then
 fi
 
 cat "$log"
-exit 1
+exit "$first_rc"
