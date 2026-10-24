@@ -739,17 +739,7 @@ class VerifyShellTests(unittest.TestCase):
             result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(log.read_text().splitlines().count("stage=perf PASS"), 1)
-            # release has no aggregate log: it delegates to three sub-stage logs
-            # that already carry their own markers, so it is a no-op here.
-            delegated = subprocess.run(["bash", "-c", chr(10).join([
-                "set -euo pipefail",
-                "LOG_DIR=" + shlex.quote(directory),
-                'fail() { echo "$*" >&2; exit 1; }',
-                source,
-                "record_stage_pass release",
-            ])], capture_output=True, text=True)
-            self.assertEqual(delegated.returncode, 0, delegated.stderr)
-            # Every other stage must have produced its own log.
+            # A stage with neither its own log nor sub-logs must fail closed.
             missing = subprocess.run(["bash", "-c", chr(10).join([
                 "set -euo pipefail",
                 "LOG_DIR=" + shlex.quote(directory),
@@ -758,6 +748,63 @@ class VerifyShellTests(unittest.TestCase):
                 "record_stage_pass faults",
             ])], capture_output=True, text=True)
             self.assertNotEqual(missing.returncode, 0, "a stage with no log must fail, never pass silently")
+
+    def test_delegating_release_stage_stamps_its_own_parent_marker(self):
+        # release writes only release-smoke/-compat/-drills. Drive the REAL
+        # run_stage release branch with stubbed internals: the parent must
+        # record its own completion, and a failing sub-stage must never leave a
+        # PASS behind.
+        functions = [function("run_stage"), function("stage_release"), function("record_stage_pass")]
+        prelude = [
+            "set -euo pipefail",
+            'fail() { echo "$*" >&2; exit 1; }',
+            "PROJECT_NAME=p; VERIFY_MONO_PORT=1; VERIFY_ANVIL_PORT=2; VERIFY_MINIO_PORT=3",
+            "require_controller_tool() { :; }",
+            "perf_acceptance_config() { echo 0123456789abcdef; }",
+            "prebuild_verify_stack() { :; }",
+            "bring_up_fullstack() { :; }",
+            "teardown_fullstack() { :; }",
+            "run_fullchain() { :; }",
+            "release_schema_compatibility() { :; }",
+            'run_logged() { local s="$1"; shift; ( set -e; "$@" ) >"$LOG_DIR/$s.log" 2>&1 || return $?; printf "stage=%s PASS\\n" "$s" >>"$LOG_DIR/$s.log"; }',
+        ]
+        driver_loop = ['for s in release; do run_stage "$s"; record_stage_pass "$s"; done']
+
+        def run_case(behaviour):
+            root = Path(tempfile.mkdtemp())
+            logs = root / "logs"; logs.mkdir()
+            artifacts = root / "artifacts"; artifacts.mkdir()
+            (artifacts / "reference.json").write_text("{}\n")
+            script = chr(10).join(prelude + [behaviour] + [
+                "LOG_DIR=" + shlex.quote(str(logs)),
+                "ARTIFACT_DIR=" + shlex.quote(str(artifacts)),
+            ] + functions + driver_loop)
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True), logs
+
+        result, logs = run_case("release_failure_drills() { :; }")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for sub in ("release-smoke", "release-compat", "release-drills"):
+            self.assertIn("stage=%s PASS" % sub, (logs / (sub + ".log")).read_text())
+        parent = (logs / "release.log").read_text()
+        self.assertEqual(parent.count("stage=release PASS"), 1)
+        self.assertIn("(delegated)", parent)
+
+        failed, failed_logs = run_case("release_failure_drills() { return 7; }")
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertFalse((failed_logs / "release.log").exists(),
+                         "a failed stage must never record a PASS")
+
+    def test_a_stage_without_any_log_still_fails_closed(self):
+        source = function("record_stage_pass")
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(["bash", "-c", chr(10).join([
+                "set -euo pipefail",
+                "LOG_DIR=" + shlex.quote(directory),
+                'fail() { echo "$*" >&2; exit 1; }',
+                source,
+                "record_stage_pass faults",
+            ])], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
         self.assertEqual(SOURCE.read_text().count('record_stage_pass "$stage"'), 2)
 
 

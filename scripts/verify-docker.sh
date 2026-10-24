@@ -281,12 +281,23 @@ run_logged() {
 # index rejected an otherwise complete run at the very last step. Record it
 # centrally, after the stage has already returned successfully.
 record_stage_pass() {
-  local stage="$1" log_file="${LOG_DIR}/${1}.log"
-  # release has no aggregate log: it delegates to release-smoke/-compat/-drills,
-  # and each of those already stamps its own marker through run_logged.
+  local stage="$1" log_file="${LOG_DIR}/${1}.log" sub_logs=()
   if [ ! -f "$log_file" ]; then
-    [ "$stage" = release ] && return 0
-    fail "stage ${stage} produced no log at ${log_file}"
+    # A delegating stage (release) writes only its sub-stage logs. Give the
+    # parent its own record of the lifecycle instead of stamping a sub-log or
+    # skipping: the stage really did start and finish. A stage with no log and
+    # no sub-logs still fails, so a silent no-op cannot pass as evidence.
+    for f in "${LOG_DIR}/${stage}"-*.log; do
+      [ -f "$f" ] && sub_logs+=("$(basename "$f")")
+    done
+    [ "${#sub_logs[@]}" -gt 0 ] || fail "stage ${stage} produced no log at ${log_file}"
+    {
+      printf '# stage=%s (delegated)\n' "$stage"
+      printf '# completed=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf '# sub-stages=%s\n' "${sub_logs[*]}"
+      printf 'stage=%s PASS\n' "$stage"
+    } >> "$log_file"
+    return 0
   fi
   grep -qxF "stage=${stage} PASS" "$log_file" \
     || printf 'stage=%s PASS\n' "$stage" >> "$log_file"
@@ -1908,6 +1919,7 @@ elif [[ "$VERIFY_STAGE" == *,* ]]; then
   done
 else
   run_stage "$VERIFY_STAGE"
+  record_stage_pass "$VERIFY_STAGE"
 fi
 
 if [ "$CANDIDATE_BUILT" = 1 ]; then assert_clean_revision "$ROOT_DIR" "$VERIFY_SOURCE_REVISION"; fi
