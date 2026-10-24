@@ -45,6 +45,11 @@ jobs:
     name: Unit Tests - ${{ matrix.test-path }}
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
+    # Coverage is transported to the private evidence registry on non-PR runs;
+    # pull requests keep the Actions backend and never write to the registry.
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -119,17 +124,21 @@ jobs:
           esac
 
       - name: Upload coverage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: coverage-unit-${{ matrix.test-path }}
           path: coverage.out
           retention-days: 30
           if-no-files-found: ignore
+          token: ${{ github.token }}
 
   integration-tests:
     name: Integration Tests - ${{ matrix.test-path }}
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -242,12 +251,13 @@ jobs:
         run: go test -v -race -count=1 -p=1 -coverprofile=coverage.out ${{ steps.set-path.outputs.path }}
 
       - name: Upload coverage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: coverage-integration-${{ matrix.test-path }}
           path: coverage.out
           retention-days: 30
           if-no-files-found: ignore
+          token: ${{ github.token }}
 
       - name: Cleanup MinIO
         if: always()
@@ -257,6 +267,9 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
+    permissions:
+      contents: read
+      packages: write
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
     services:
@@ -343,12 +356,13 @@ jobs:
         run: go test -v -tags=e2e -race -count=1 -coverprofile=coverage.out ./test/e2e/...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: coverage-e2e
           path: coverage.out
           if-no-files-found: ignore
           retention-days: 30
+          token: ${{ github.token }}
 
       - name: Cleanup MinIO
         if: always()
@@ -360,6 +374,9 @@ jobs:
     name: Benchmark Tests
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: verify-deps
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -373,8 +390,9 @@ jobs:
         run: go test -count=1 -bench=. -benchmem -run=^$ ./test/benchmark/... 2>&1 | tee benchmark-results.txt
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: benchmark-results
           path: benchmark-results.txt
           retention-days: 30
+          token: ${{ github.token }}

@@ -47,6 +47,11 @@ jobs:
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
+    env:
+      # docker/build-push-action uploads a .dockerbuild build record by default.
+      # Nothing consumes it and it competes with the evidence for the artifact
+      # quota, so the upload is disabled deliberately rather than left implicit.
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -88,19 +93,22 @@ jobs:
             --revision "${{ github.sha }}" --out meta/monolith.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: candidate-monolith
           path: |
             candidate-monolith.tar
             meta/monolith.json
           retention-days: 30
+          token: ${{ github.token }}
 
   build-transcoder:
     name: Build Transcoder (once per SHA)
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     outputs:
       image_id: ${{ steps.identity.outputs.image_id }}
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -137,13 +145,14 @@ jobs:
             --revision "${{ github.sha }}" --out meta/transcoder.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: candidate-transcoder
           path: |
             candidate-transcoder.tar
             meta/transcoder.json
           retention-days: 30
+          token: ${{ github.token }}
 
   build-microservices:
     name: Build ${{ matrix.service }} (once per SHA)
@@ -154,6 +163,8 @@ jobs:
         # transcoder is built by the dedicated build-transcoder job (it needs
         # its own output for the release drill), so it is not in this matrix.
         service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -188,23 +199,34 @@ jobs:
             --revision "${{ github.sha }}" --out meta/${{ matrix.service }}.json
 
       - name: Upload candidate artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: candidate-${{ matrix.service }}
           path: |
             candidate-${{ matrix.service }}.tar
             meta/${{ matrix.service }}.json
           retention-days: 30
+          token: ${{ github.token }}
 
   scan-monolith:
     name: Scan Monolith (same digest)
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-monolith
+    permissions:
+      contents: read
+      packages: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download candidate artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-monolith
+          names: candidate-monolith
+          path: ${{ github.workspace }}
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Load candidate and verify identity
         id: load
@@ -248,21 +270,32 @@ jobs:
           output: 'sbom-monolith.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: sbom-monolith
           path: sbom-monolith.spdx
           retention-days: 30
+          token: ${{ github.token }}
 
   scan-transcoder:
     name: Scan Transcoder (same digest)
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-transcoder
+    permissions:
+      contents: read
+      packages: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download candidate artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-transcoder
+          names: candidate-transcoder
+          path: ${{ github.workspace }}
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Load candidate and verify identity
         run: |
@@ -292,16 +325,20 @@ jobs:
           output: 'sbom-transcoder.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: sbom-transcoder
           path: sbom-transcoder.spdx
           retention-days: 30
+          token: ${{ github.token }}
 
   scan-microservices:
     name: Scan ${{ matrix.service }} (same digest)
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
     needs: build-microservices
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -309,10 +346,17 @@ jobs:
         # candidate comes from build-transcoder, not this matrix).
         service: [api-gateway, auth, cache, metadata, monitor, streaming, upload, worker]
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download candidate artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-${{ matrix.service }}
+          names: candidate-${{ matrix.service }}
+          path: ${{ github.workspace }}
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Load candidate and verify identity
         run: |
@@ -342,11 +386,12 @@ jobs:
           output: 'sbom-${{ matrix.service }}.spdx'
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.spdx
           retention-days: 30
+          token: ${{ github.token }}
 
   retain-candidate:
     name: Retain Candidate in GHCR (same image, per-SHA tag)
@@ -370,14 +415,33 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # The finite candidate universe. `candidate-*` also matches
+      # candidate-manifest-<sha>, so the manifest is declared separately as an
+      # allowed extra instead of being mistaken for an image archive.
       - name: Download all candidate artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
+          names: |
+            candidate-monolith
+            candidate-transcoder
+            candidate-api-gateway
+            candidate-auth
+            candidate-cache
+            candidate-metadata
+            candidate-monitor
+            candidate-streaming
+            candidate-upload
+            candidate-worker
+          optional-names: candidate-manifest-${{ github.sha }}
           pattern: candidate-*
           # Every artifact uses unique filenames (candidate-<svc>.tar,
           # meta/<svc>.json), so flattening them is safe and lets push_one
           # read the paths directly.
-          merge-multiple: true
+          merge-multiple: "true"
+          path: ${{ github.workspace }}
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Log in to Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -430,9 +494,10 @@ jobs:
 
       - name: Upload registry publication receipts and raw push outcomes
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: registry-publications-${{ github.sha }}
           path: registry-publications/
           retention-days: 30
           if-no-files-found: error
+          token: ${{ github.token }}

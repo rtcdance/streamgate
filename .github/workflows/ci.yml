@@ -165,12 +165,13 @@ jobs:
 
       - name: Upload required fuzz logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: required-fuzz-${{ github.sha }}
           path: fuzz-logs/
           retention-days: 30
           if-no-files-found: warn
+          token: ${{ github.token }}
 
       - name: Verify the coverage gate can fail
         run: bash scripts/check-coverage_test.sh
@@ -352,10 +353,17 @@ jobs:
     # Smoke THE candidate built once for this SHA — no rebuild for smoke.
     needs: [candidate]
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download the candidate image built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-monolith
+          names: candidate-monolith
+          path: ${{ github.workspace }}
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Load candidate and verify its identity
         run: |
@@ -522,11 +530,12 @@ jobs:
 
       - name: Upload durability test log
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: durability-tests-${{ github.sha }}
           path: durability-tests.json
           retention-days: 30
+          token: ${{ github.token }}
 
   ops:
     name: Ops Gates (production profile, drain, shutdown)
@@ -569,11 +578,12 @@ jobs:
 
       - name: Upload ops test logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ops-tests-${{ github.sha }}
           path: ops-*.json
           retention-days: 30
+          token: ${{ github.token }}
 
   perf:
     name: Perf Harness Gates (load harness + metrics overhead)
@@ -608,11 +618,12 @@ jobs:
 
       - name: Upload perf test log
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: perf-tests-${{ github.sha }}
           path: perf-tests.json
           retention-days: 30
+          token: ${{ github.token }}
 
   # One complete entry owns the temporary projects and runs every stage in
   # order. It imports this run's scanned archives; it never rebuilds candidates.
@@ -652,12 +663,30 @@ jobs:
           set -euo pipefail
           bash scripts/cd/verify_environment.sh all "$VERIFY_PROJECT"
 
+      # `candidate-*` matches the ten image archives AND candidate-manifest-<sha>
+      # (the manifest job is one of this job's needs). Both are declared here so
+      # the fan-in stays exactly what the pattern selected before.
       - name: Download the original scanned build archives and metadata
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
+          names: |
+            candidate-monolith
+            candidate-transcoder
+            candidate-api-gateway
+            candidate-auth
+            candidate-cache
+            candidate-metadata
+            candidate-monitor
+            candidate-streaming
+            candidate-upload
+            candidate-worker
+            candidate-manifest-${{ github.sha }}
           pattern: candidate-*
-          merge-multiple: true
           path: .verify-artifacts/ci-all/build-inputs
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Run the complete candidate DAG and preserve its outer exit
         run: |
@@ -672,16 +701,19 @@ jobs:
 
       - name: Upload full raw evidence on success, failure or cancellation
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ci-acceptance-${{ github.sha }}
-          path: |
-            .verify-artifacts/ci-all/
-            !.verify-artifacts/ci-all/build-inputs/**
-            !.verify-artifacts/ci-all/.private/**
-          include-hidden-files: true
+          path: .verify-artifacts/ci-all/
+          # The restored candidate archives and the private staging area are
+          # inputs, never evidence: they are excluded before any byte is hashed.
+          exclude: |
+            build-inputs/**
+            .private/**
+          include-hidden-files: "true"
           retention-days: 30
           if-no-files-found: error
+          token: ${{ github.token }}
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
@@ -697,18 +729,40 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Collect every candidate image's identity
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
+          names: |
+            candidate-monolith
+            candidate-transcoder
+            candidate-api-gateway
+            candidate-auth
+            candidate-cache
+            candidate-metadata
+            candidate-monitor
+            candidate-streaming
+            candidate-upload
+            candidate-worker
+          # A rerun of this job may already find a manifest from an earlier
+          # attempt of this run; the pattern saw it before, so it is allowed
+          # but never required here.
+          optional-names: candidate-manifest-${{ github.sha }}
           pattern: candidate-*
-          merge-multiple: true
           path: artifacts
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Collect this run's registry publication receipts
         if: github.event_name != 'pull_request'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: registry-publications-${{ github.sha }}
+          names: registry-publications-${{ github.sha }}
           path: artifacts/registry-publications
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Write the manifest
         env:
@@ -732,11 +786,12 @@ jobs:
             --out candidate-manifest.json
 
       - name: Upload the manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: candidate-manifest-${{ github.sha }}
           path: candidate-manifest.json
           retention-days: 30
+          token: ${{ github.token }}
 
   evidence:
     name: Candidate Evidence (raw M0-M8 + same-run build identities)
@@ -747,16 +802,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Collect complete raw acceptance evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: ci-acceptance-${{ github.sha }}
+          names: ci-acceptance-${{ github.sha }}
           path: .verify-artifacts/ci-all
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Collect the verified build and registry manifest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-manifest-${{ github.sha }}
+          names: candidate-manifest-${{ github.sha }}
           path: .verify-artifacts/ci-manifest
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Verify every required job, gate and candidate identity
         env:
@@ -773,7 +836,7 @@ jobs:
 
       - name: Upload the candidate evidence summary
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ci-evidence-${{ github.sha }}
           path: |
@@ -781,6 +844,7 @@ jobs:
             .verify-artifacts/ci-all/ci-evidence.json
           retention-days: 30
           if-no-files-found: error
+          token: ${{ github.token }}
 
   publishable:
     name: Publishable (promotion gate)
