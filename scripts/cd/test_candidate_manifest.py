@@ -1,5 +1,7 @@
 import copy
 import importlib.util
+import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -27,6 +29,44 @@ class CandidateManifestTests(unittest.TestCase):
         }
         self.document["images"]["api-gateway"] = copy.deepcopy(self.document["images"]["monolith"])
         self.document["images"]["transcoder"] = copy.deepcopy(self.document["images"]["monolith"])
+
+    def run_cli(self, manifest, caller):
+        argv = ["candidate_manifest.py", str(manifest), "--revision", "revision", "--platform", "linux/amd64"]
+        previous = os.getcwd()
+        os.chdir(caller)
+        try:
+            with patch("sys.argv", argv), patch.object(candidate, "docker_json", return_value=[self.info]):
+                return candidate.main()
+        finally:
+            os.chdir(previous)
+
+    def relocated(self, archive_bytes=b"candidate archive"):
+        artifacts = Path(self.directory.name) / "artifacts"
+        artifacts.mkdir()
+        (artifacts / "images.tar").write_bytes(archive_bytes)
+        manifest = artifacts / "candidate.json"
+        manifest.write_text(json.dumps(dict(self.document, archive="images.tar")))
+        caller = Path(self.directory.name) / "caller"
+        caller.mkdir()
+        return artifacts, manifest, caller
+
+    def test_cli_verifies_a_relative_archive_beside_its_manifest_from_another_cwd(self):
+        _, manifest, caller = self.relocated()
+        self.run_cli(manifest, caller)
+
+    def test_cli_does_not_read_a_same_named_archive_from_the_calling_directory(self):
+        artifacts, manifest, caller = self.relocated()
+        (caller / "images.tar").write_bytes(b"candidate archive")
+        (artifacts / "images.tar").write_bytes(b"changed beside the manifest")
+        with self.assertRaisesRegex(ValueError, "archive"):
+            self.run_cli(manifest, caller)
+
+    def test_cli_still_accepts_an_absolute_archive_from_another_cwd(self):
+        caller = Path(self.directory.name) / "absolute-caller"
+        caller.mkdir()
+        manifest = Path(self.directory.name) / "absolute.json"
+        manifest.write_text(json.dumps(self.document))
+        self.run_cli(manifest, caller)
 
     def test_exact_identity_passes(self):
         with patch.object(candidate, "docker_json", return_value=[self.info]):

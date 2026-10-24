@@ -85,11 +85,16 @@ def main():
                 "revision": args.revision,
             }
         args.manifest.write_text(json.dumps(document, indent=2) + "\n")
+        archive_path = args.archive
     else:
         document = json.loads(args.manifest.read_text())
         if args.revision and document["revision"] != args.revision:
             raise ValueError("candidate manifest revision does not match this checkout")
-    verify(document, args.project, args.platform)
+        # A downloaded artifact root stores the archive beside its manifest, so
+        # the CLI must not resolve it against whatever directory it was called from.
+        stored = Path(document["archive"])
+        archive_path = stored if stored.is_absolute() else args.manifest.parent / stored
+    verify(document, args.project, args.platform, archive_path=archive_path)
     print(f"candidate identity verified: {document['revision']}")
 
 
