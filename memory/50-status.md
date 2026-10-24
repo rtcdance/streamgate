@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revision:** `7f2c208d` on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revision:** `5ceb1f5d` (release), `7f2c208d` (recovery/media) on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -10,9 +10,8 @@ capability → protected HLS — is implemented, wired, and pinned by regression
 tests. The current phase is closing the remaining plan items and keeping the
 evidence reproducible, not building new surface area.
 
-Baseline facts at snapshot time: version `1.0.6`, 11 build targets, 338 test
-files, ~71% coverage under the Docker unit gate, 60% CI floor, 42 up / 26 down
-migrations.
+Volatile counts live in `CLAUDE.md`; measured results remain bound to their
+source revision and raw artifacts.
 
 ## Environment (2026-10-24)
 
@@ -38,6 +37,9 @@ belong to the plan, not an inferred PASS here.
 | Recovery teardown correction | `9b8f0d14`; old stage regression red, corrected Docker regression 56 PASS |
 | Cache wiring | `8a67064b` plus required fix `7f2c208d`; Go/browser mounts and forced test execution verified; initial failed controller run retained |
 | Actual recovery → media | `7f2c208d`, `.verify-artifacts/sg-eff-recovery-media-20261024/`: outer exit 0, recovery 43/43 and media 77/77 ×2; identities and cleanup verified |
+| Mac-only profile and controller integrity | Shell profile gate, dirty-source refusal, parser snapshot and created-state logging regressions; 101 distinct tool tests passed incrementally, old implementations fail negative controls |
+| Empty-ABI mint correction | 5ceb1f5d; Docker pkg/service race plus vet exit 0 (694 top-level groups, two chain-environment skips); old EOA response test fails |
+| Actual local release qualification | 5ceb1f5d; sg-eff-mac-release2-20261024 outer exit 0, candidate/S 77/77 each, schema unchanged, three failures and recoveries; logging observer boundary documented in plan |
 | M6 candidate material preparation | Same frozen revision, four tracked documents snapshotted and hashed; material helper exit 0, full gate pending |
 
 **Bookkeeping warning:** historical completion labels and checkboxes do not
@@ -48,7 +50,7 @@ its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
 
 | Item | Priority | Note |
 |---|---|---|
-| Baseline compatibility qualification | P0 | S is proposed; actual old-S/new-schema business smoke and candidate recovery pending actual local qualification |
+| Baseline compatibility qualification | — | Current local release qualifies old-S/new-schema business behavior and candidate recovery; terminal all/reference still pending |
 | Full current candidate M0–M8 | P0 | No final nine-stage all, fresh same-runner reference, 48-scenario matrix or same-SHA CI |
 | Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
 | Remote CI authorization | P0 | Push/dispatch requires explicit instruction; existing remote mainline history diverged, use a new acceptance branch |
@@ -66,9 +68,9 @@ its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
 
 ## Next moves
 
-1. Verify desktop-local preflight and run the local qualification path; obtain push/CI authorization only when publication is needed.
-2. Run Q's release qualification against proposed S; preserve both identities.
-3. Freeze final C and run complete all, fresh reference/matrix and same-SHA CI.
+1. Freeze final C and run complete local all with a fresh reference/matrix.
+2. Set up the Mac as the acceptance runner only after installation/registration authorization; workflow supports a runner label and desktop-local profile variables.
+3. Obtain push/dispatch authorization and run same-SHA CI with exact scanned archives.
 4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.
 
 ## Refreshing this file

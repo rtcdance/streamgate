@@ -628,13 +628,14 @@ jobs:
       VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
+      VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Require the documented isolated acceptance runner capacity
+      - name: Require the documented acceptance profile capacity
         run: |
           set -euo pipefail
           bash scripts/cd/verify_environment.sh all "$VERIFY_PROJECT"

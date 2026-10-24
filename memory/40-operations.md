@@ -77,3 +77,9 @@ The native-linux profile keeps its amd64 / 32 GiB / dedicated-daemon checks.
   potentially emulated/shared-host observation, never production capacity proof.
 - All/perf/release automatically freeze the source; same-SHA CI remains separate.
 - No remote prod-srs acceptance; that environment was purged on 2026-10-23.
+
+For same-SHA CI, the acceptance job can use this Mac as a self-hosted runner.
+STREAMGATE_ACCEPTANCE_RUNNER selects its dedicated label;
+STREAMGATE_ACCEPTANCE_PROFILE=desktop-local selects the preflight profile.
+Installation/registration, repository settings, push and dispatch require explicit
+authorization. Local results do not stand in for that job or registry receipts.

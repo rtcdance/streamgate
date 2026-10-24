@@ -2406,13 +2406,13 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
-| EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 旧 native-linux 规则已按用户 Mac-only 约束分环境修订；本机 desktop-local 实际预检 exit=0。工具回归不代替实际候选终验，详见 §8.21 |
-| EFF-01 脚手架缺陷 | helper 与确定的 recovery 清理缺陷已修；真实 recovery→media 通过 | 旧实现的动态回归 5 个失败断言；修复后 Docker 工具 56 项通过。`7f2c208d` 的同一次 `recovery,media` 原始外层 exit=0：恢复 43/43、下一阶段 monolith / api-gateway 各 77/77，进入 media 时仅连接 bridge 与该 media 网络 | 已消除并实测旧网络 / H5 跨阶段残留；机制探针未重现历史 502 的自然 DNS 分流，不宣称唯一归因。最终合格 runner 的完整长链仍待验 |
-| EFF-02 基线资格 | 拟定 S 已版本化钉定，资格未通过 | 2026-10-24 选择已有同 SHA unit 及六个功能门记录的 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，代替先前未测拟定 `ceb7f991` 与缺修复的旧 S `871eab30`；`config/performance.acceptance.json` 已钉定。Q 为包含此次配置与资格说明的干净提交，精确身份另存资格工件，不在提交内自引用 | 配置钉定不等于合格；既有功能日志缺历史外层 command.exit，不能补写。仍缺 Q 上 S 对新 schema 的实际业务兼容 / 恢复、合格 runner 上完整 all / 新鲜 reference / 同 SHA CI；不得发布晋级 |
+| EFF-00 环境先行 | 分环境预检已实现并实测 | native-linux 保留原生 amd64 / 32GiB / 独占规则；desktop-local 支持本机完整门，核对 ≥8 vCPU / 实际 ≥15GiB / VM 内 ≥100GiB。实际 Mac 预检 exit=0；环境 / 性能环境 / 协议 / controller / shell 累计 101 个不同工具测试通过 | 无 Linux 服务器已不再阻塞本机；性能只限记录的 Mac 环境，最终 C 仍须实际完整 all |
+| EFF-01 脚手架缺陷 | 定向修复已验证 | recovery→media 在 7f2c208d 通过；本轮补齐 controller 完整解析、终验 clean-tree 与 created 日志竞态负控。空 ABI 假铸造成功修复后，5ceb1f5d 的完整 release 外层 exit=0，候选 / S 各 77/77、三故障及恢复全部通过，见 §8.22–8.23 | 旧失败现场保留；未放宽 HTTP 500 / 媒体 / 恢复断言。最终 C 九阶段仍待验 |
+| EFF-02 基线资格 | 本机新 schema 兼容资格通过，最终终验待完成 | S=3e5785e069b1126c4b7aa7b6301f8877edfcb0c7 已版本化钉定；Q=5ceb1f5d 的 release 完整通过：S 镜像 77/77、schema 指纹一致、恢复 Q，原始外层 exit=0，两侧归档 / 镜像身份重新核对 | S 历史安全 / 功能记录按原 SHA 保留，不补缺失的历史外层退出；最终 C 的完整 all / 本轮 reference / 48 场景 / 同 SHA CI 未完成，不发布晋级 |
 | EFF-03 编译复用 | 机制与接线已验证，默认关闭，可显式用于迭代 | 六个独立固定工具容器完成冷 / 热 / 缓存负控 / 源码变异 / 清空缓存复验；代表包冷 30.284s、热 3.062s，-count=1 的运行标记不同，无该参数的控制项确实重放 cached。本轮补齐 controller 的 Go 与 Playwright 缓存挂载；CI 保留编译对象缓存、所有 test.yml 行为测试加 -count=1 | 代表包约 9.89 倍是本机跨架构工具机制测量，不是项目全套加速、服务容量或 M4 证明；实际应用阶段收益待记录。工具回归和源码变异负例见 §8.20，最终默认仍可冷构建 |
 | EFF-04 A 冻结与独占 | 已实现，当前入口的冻结与清理已实测 | `sg-eff-recovery-media-20261024` 冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa`，本次原始 command.exit=0；重新 hash 应用归档、核对三镜像 imageID / OCI revision、driver 快照与 Git tree 一致；结束后本轮容器 / 卷 / 网络 / 锁均为空，source 与 .private 已清理 | 这是两个指定 stage 的同次运行，不能替代九阶段 all。S=`3e5785e0` 的历史 unit / 六门仅为其定向观察，不补写缺失的旧外层退出 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
-| EFF-05 正式收口 | 改为本机 Mac 执行；CI 仍需明确授权 | 本地代码、工具回归、协议 Q 准备及真实恢复→播放验证已完成登记；S 仍为拟定，资格 release 待实测 | 不再等待不存在的 Linux 服务器；仍缺 S 对新 schema 的兼容资格、最终 C 的 all / 新鲜 reference / 48 场景及同 SHA CI；保持 incomplete |
+| EFF-05 正式收口 | 本机完整终验已具备执行路径 | 环境、工具负控、schema 兼容与 release 三类故障已定向验证；最终 all 使用修复后的日志入口与干净冻结 C，显式复用已验证缓存 | 尚缺最终 C 的完整 all / 新鲜 reference / 48 场景及同 SHA CI；CI 可用本 Mac 的 self-hosted runner，不要求自备 Linux 服务器，注册 / 安装 / push / 派发未执行，见 §8.24 |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
 
 **本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。按 §8.21 的 desktop-local 可继续正式 all / perf / release；下方仅保留修订前 native-linux 的拒绝历史，不是当前本机阻塞：
@@ -3234,3 +3234,29 @@ Demo mint 最小业务修复：空 ABI 返回错误，合法编码的零余额�
 重新计算候选与 reference 归档 SHA256，与 manifest 一致；通过 Docker inspect 独立核对两侧三个镜像的 imageID、OCI revision、linux/amd64。候选 monolith imageID=`sha256:7da2138fb93c228a77f19e3ba9d5333ff8659f8660e225f5c03c8510a1734eee`；S monolith=`sha256:0370451eb76a819c7c09cb6676a2d328e8986cfc0d3d1e5c3f8c4ba273fa88e5`。完整身份、日志 hash、清理与边界在 `.verify-artifacts/sg-eff-mac-release2-20261024/release-evidence.json`；本轮结束后容器 / 卷 / 网络 / 锁为空，冻结 source 与 .private 已删除，保留编译 / 浏览器缓存。
 
 日志入口另补一项确定性竞态：Docker inspect 在 created 状态已能查到名字，而此时 logs -f 可立即返回，导致默认 controller.log 为空。已用独立 logs follower 保存本轮完整 controller-observed.log；各 stage 原始日志与退出均正常。新增动态回归在旧代码上确实丢失日志（created-before.exit=1）；新入口等待 running / exited / dead 再采集，controller 6/6＋shell 45/45 Docker 通过（created-after.exit=0），无效或超时状态仍拒绝。修复文件与已测 overlay 字节一致。本轮不因这个日志缺口再跑 release，最终 all 使用修复后的入口，并要求日志采集有效。
+
+
+### 8.24 Mac-only 最短收口路径与 CI 接线（2026-10-24）
+
+当前瓶颈已从“没有 Linux 服务器”转为**只做一次有效的完整终验，再取得同 SHA CI**。普通修复继续最小回归；本轮已通过 release，不再重复该门来等待环境。最终 all 串行执行九阶段，保持 1/10/50/100 viewers × 4 故障场景 × 3 repeats、两侧 50-viewer 三轮比较、原 1.2 倍 p95 上限；不沿用历史 reference 或已缓存的测试 PASS。共享编译缓存已通过冷 / 热 / 源码变异 / -count=1 负控，可显式启用；Mac profile 不承诺加速倍数。
+
+```bash
+# 在最终干净提交执行；每轮唯一 project / artifacts，原始退出另存工件
+GOMAXPROCS=4 \
+VERIFY_ENVIRONMENT_PROFILE=desktop-local \
+VERIFY_SHARED_GOCACHE=1 \
+VERIFY_PLAYWRIGHT_BROWSERS_PATH="$PWD/.verify-artifacts/playwright-cache" \
+VERIFY_GOPROXY=https://goproxy.cn,direct \
+make verify-docker VERIFY_STAGE=all GOFLAGS='-p=4 -v'
+```
+
+CI 不要求用户提供 Linux 服务器：其他既有 jobs 可继续使用 GitHub 托管环境；完整 acceptance job 可由**这台 Mac 的专用 self-hosted runner**承担，要求同一登录用户可访问 Docker Desktop，CLI 与 CI 共用互斥与容量门。`.github/workflows/ci.yml` 已支持两项仓库变量：
+
+| 变量 | 本机方案 | 作用 |
+|---|---|---|
+| STREAMGATE_ACCEPTANCE_RUNNER | 本机注册时设置的唯一 label，例如 streamgate-mac | 调度到本机，不使用达不到既定容量门的默认 ubuntu-latest |
+| STREAMGATE_ACCEPTANCE_PROFILE | desktop-local | CI 首次直接调用共用预检时选择正确环境；未设置仍为 native-linux |
+
+此接线仅为代码与方案，**没有安装 / 注册 runner、修改仓库变量、push 或派发 CI**。执行这些步骤需最终候选可审阅后取得授权：CLAUDE.md 的 Dependencies 与 Git 规则分别约束新增运行程序和 push。当前远端主线与本地历史分叉，使用新的验收分支，禁止 force-push 旧主线。CI 仍须导入本轮已扫描的原始构建归档、绑定同 SHA / image / archive / digest / raw exit；本机 all 不能冒充远端 CI 成功。7 份 workflow 的 YAML、action pin 与 81 段 shell 语法检查 exit=0（sg-eff-mac-profile-20261024/workflows.*）。
+
+回退环境策略只需显式选择 VERIFY_ENVIRONMENT_PROFILE=native-linux（Mac 将按该模式被拒绝），无需回退业务修复或删除证据。可选共享缓存异常时关闭 VERIFY_SHARED_GOCACHE，以新 project 冷构建；不清理其他项目资源，不复用失败轮业务 fixture。

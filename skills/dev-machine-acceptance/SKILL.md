@@ -268,6 +268,11 @@ harness 自身的坑（每条都有真实失败现场，先查这里再怀疑产
 6. **复用边界**：证据只能来自同一候选 SHA 的同一次运行；跨 SHA 或跨运行复用必须被显式记录，不能拿旧 run 的数字冒充当前候选（provenance 门就是为此存在的）。
 7. **perf 迭代模式**：`VERIFY_MODE=pr` 只跑短 smoke（1 观众、1 轮、不跑 reference）；完整矩阵与同 runner reference 比较留给候选模式的最终 `all`。
 
+CI on the same Mac: after explicit runner installation/registration authorization,
+set STREAMGATE_ACCEPTANCE_RUNNER to its dedicated label and
+STREAMGATE_ACCEPTANCE_PROFILE=desktop-local. Other jobs remain on hosted runners.
+Preserve the scanned-archive/same-SHA contract; local all does not replace CI.
+
 ## Must Not
 
 - 不把 host `make test` / `go test` 当验收；不把 Mac 本机的 Go/Foundry 结果当验收（Docker 客户端流程见 §0.1）。
