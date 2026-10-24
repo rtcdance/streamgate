@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-23 (EFF pass) · **HEAD:** `4abcb3c5` on `sg/mainline-execution`
+> **Type:** status · **Snapshot:** 2026-10-24 · **Verification revision:** `7f2c208d` on `sg/mainline-execution`
 > **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
 
 ## Where the work stands
@@ -14,7 +14,7 @@ Baseline facts at snapshot time: version `1.0.6`, 11 build targets, 338 test
 files, ~71% coverage under the Docker unit gate, 60% CI floor, 42 up / 26 down
 migrations.
 
-## Environment (2026-10-23)
+## Environment (2026-10-24)
 
 Acceptance runs on the **local Mac + Docker Desktop** (8 vCPU / 16 GiB VM).
 The `prod-srs` Docker resources were purged (0 images/containers/volumes/cache)
@@ -27,39 +27,33 @@ and >=100 GiB free (`scripts/cd/verify_environment.sh`). This machine is
 aarch64 / 15.6 GiB, so the terminal run is explicitly BLOCKED here — by design,
 not as a flake to retry. Formal runs also use a frozen clone of the approved
 HEAD and a daemon-wide lock; the shared Go cache is opt-in and off by default.
+The CLI and CI now share the Shell preflight, with no host Python dependency.
+Go and Playwright caches are explicitly mounted into the frozen controller.
 
 ## Evidenced (checkbox may lag)
 
 | Item | Evidence |
 |---|---|
-| SG-00 unified Docker acceptance entry | plan heading (2026-10-17 final run) |
-| Local `unit` stage | `.verify-artifacts/sg-local-unit3` (2026-10-23, `6b613ec0`) |
-| Frozen-clone `unit` stage | `.verify-artifacts/sg-unit-frozen5` PASS 20m47s, GOCACHE=off (2026-10-23, `4abcb3c5`) |
-| Local `media` stage | `.verify-artifacts/sg-local-media4` 77/77 ×2 (2026-10-23, `6823b56d`) |
-| SG-04 same-chain, same-block holding and reorg | plan §8.9, checked |
-| SG-05 real wallet → real HLS loop | plan §8.10, checked |
-| SG-09 job material (AI portion) | plan SG-09 heading, checked (its SHA is a pre-rewrite label) |
-| SG-10 trusted architecture and wiring | plan §8.1, checked |
-| SG-11 contract standards, state machine, ABI | plan §8.3, checked |
-| SG-06 renewal, transfer, rule/session revocation | plan §8.11, marked complete |
-| SG-07 media performance and observability | plan §8.16 H, marked complete |
-| SG-08 same-artifact CI/CD and recovery | plan §8.16 K.2, marked complete |
-| SG-12 media originals, idempotent tasks, upload safety | plan §8.12, nine steps complete |
-| SG-13 off-chain consistency, tx idempotency, event recovery | plan §8.13 A/B both PASS; box unchecked |
-| SG-14 runtime governance, budget, recovery | plan §8.15 |
-| SG-15 closeout and traceability | plan §8.16–8.17 |
+| Historical baseline observations | `3e5785e0`: frozen unit plus six functional stages; separate runs, historical outer exits not recorded |
+| M0 Shell gate and CI wiring | `a7791c1d`; fixed Docker tool regressions 84 PASS, real local gate refused before build |
+| Proposed S | `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`, pinned by `39921df4`; protocol/tool regressions 101 PASS; not qualified |
+| Recovery teardown correction | `9b8f0d14`; old stage regression red, corrected Docker regression 56 PASS |
+| Cache wiring | `8a67064b` plus required fix `7f2c208d`; Go/browser mounts and forced test execution verified; initial failed controller run retained |
+| Actual recovery → media | `7f2c208d`, `.verify-artifacts/sg-eff-recovery-media-20261024/`: outer exit 0, recovery 43/43 and media 77/77 ×2; identities and cleanup verified |
+| M6 candidate material preparation | Same frozen revision, four tracked documents snapshotted and hashed; material helper exit 0, full gate pending |
 
-**Bookkeeping warning:** SG-00/06/07/08/12/13/14/15 have completion evidence in
-§8 but their checkboxes are still `[ ]`. Treat the checkbox as unreliable; the
-evidence section is the source of truth.
+**Bookkeeping warning:** historical completion labels and checkboxes do not
+prove current-candidate completion. Use the current table in plan §8.19 and
+its SHA-bound evidence in §8.20; overall acceptance remains incomplete.
 
 ## Not closed
 
 | Item | Priority | Note |
 |---|---|---|
-| SG-01 NFT quantity, rules, cache isolation | P0 | §8.4 is all PASS, but its Docker unit stage was never run — re-evidence on a current candidate |
-| SG-02 CI must really fail; one gate for every entry | P0 | §8.5 passes locally; the new CI jobs only run on GitHub — later SG-08 runs may satisfy it, confirm |
-| SG-03 wallet identity, resource ownership, server signing authority | P0 | §8.6/8.7 are partial; §8.8 covers only resource ownership, so the task stays open |
+| Baseline compatibility qualification | P0 | S is proposed; actual old-S/new-schema business smoke and candidate recovery pending a qualified runner |
+| Full current candidate M0–M8 | P0 | No final nine-stage all, fresh same-runner reference, 48-scenario matrix or same-SHA CI |
+| External runner | P0 | Repository registered runners=0 and no acceptance runner variable found; local VM is ineligible |
+| Remote CI authorization | P0 | Push/dispatch requires explicit instruction; existing remote mainline history diverged, use a new acceptance branch |
 | SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |
 | SG-17 one native player sample | P2, conditional | only if the scope is extended |
 
@@ -74,10 +68,10 @@ evidence section is the source of truth.
 
 ## Next moves
 
-1. Reconcile the plan's checkbox state with §8 so status is not ambiguous.
-2. Close or re-evidence SG-01/02/03, the only remaining P0 items.
-3. Decide explicitly whether SG-16/17 are in scope; do not drift into them.
-4. Re-run the full Docker gate on the resulting clean candidate and record the hash.
+1. Obtain an eligible dedicated runner and explicit push/CI authorization.
+2. Run Q's release qualification against proposed S; preserve both identities.
+3. Freeze final C and run complete all, fresh reference/matrix and same-SHA CI.
+4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.
 
 ## Refreshing this file
 

@@ -2400,22 +2400,22 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 实施时在此表追加真实证据，每条格式：`SG / M ID | SHA | 命令与 Docker 环境 | PASS / FAIL / SKIP | CI run / artifact | digest（适用时）| 限制`。任务勾选必须与证据一致；CI 失败不能写成“本地大概率通过”。
 
-### 8.19 EFF 实施状态（2026-10-23）
+### 8.19 EFF 实施状态（2026-10-24）
 
 **当前执行表。** “实现状态”只说明代码是否落地；“候选验证状态”说明证据是否绑定当前候选。两者分开记录，避免把已实现功能写成未开发，也避免把单阶段绿灯写成整体通过。
 
 | EFF | 实现状态 | 证据（提交 / 运行） | 未完成或阻塞 |
 |---|---|---|---|
 | EFF-00 环境先行 | Shell 预检与 CI 已统一，工具定向回归通过 | 2026-10-24 将 Python 运行时预检替换为 `scripts/cd/verify_environment.sh`，恢复 M0 的无宿主 Python 要求；CLI 与 CI 共用入口，拒绝不可验证的 Docker 磁盘、Desktop / 远端 daemon 和竞争业务容器。10 项环境门、3 项 controller、43 项 shell、16 项候选索引、12 项证据校验在固定 Docker 工具镜像内通过；详见 §8.20 | 本机仍不满足原生 Linux / amd64 / 32 GiB，正式 all / perf / release 继续阻塞；工具回归不代替合格 runner 上的实际终验 |
-| EFF-01 脚手架缺陷 | helper 与确定的 recovery 清理缺陷已修；长链复验待执行 | `7530e45c` 修计数；本轮从旧 h5-dns 工件确认 reference 启动时仍连 recovery 的两个网络。新增真实 stage 函数回归在旧实现产生 5 个失败断言，修复后 Docker shell / recovery / controller 45＋8＋3 项通过；恢复阶段复用完整 teardown，显式删 H5、断开两网络并对清理失败报错 | Docker 隔离机制演练已证明旧 H5 / 网络可被正确清除、后续入口 20/20 为 200；自然 DNS 分流的历史 502 未在该演练的 20 次请求中复现，不宣称已证明唯一根因。仍需当前代码的真实 recovery→media 及最终合格 runner 长链复验 |
+| EFF-01 脚手架缺陷 | helper 与确定的 recovery 清理缺陷已修；真实 recovery→media 通过 | 旧实现的动态回归 5 个失败断言；修复后 Docker 工具 56 项通过。`7f2c208d` 的同一次 `recovery,media` 原始外层 exit=0：恢复 43/43、下一阶段 monolith / api-gateway 各 77/77，进入 media 时仅连接 bridge 与该 media 网络 | 已消除并实测旧网络 / H5 跨阶段残留；机制探针未重现历史 502 的自然 DNS 分流，不宣称唯一归因。最终合格 runner 的完整长链仍待验 |
 | EFF-02 基线资格 | 拟定 S 已版本化钉定，资格未通过 | 2026-10-24 选择已有同 SHA unit 及六个功能门记录的 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7` 为拟定 S，代替先前未测拟定 `ceb7f991` 与缺修复的旧 S `871eab30`；`config/performance.acceptance.json` 已钉定。Q 为包含此次配置与资格说明的干净提交，精确身份另存资格工件，不在提交内自引用 | 配置钉定不等于合格；既有功能日志缺历史外层 command.exit，不能补写。仍缺 Q 上 S 对新 schema 的实际业务兼容 / 恢复、合格 runner 上完整 all / 新鲜 reference / 同 SHA CI；不得发布晋级 |
 | EFF-03 编译复用 | 机制与接线已验证，默认关闭，可显式用于迭代 | 六个独立固定工具容器完成冷 / 热 / 缓存负控 / 源码变异 / 清空缓存复验；代表包冷 30.284s、热 3.062s，-count=1 的运行标记不同，无该参数的控制项确实重放 cached。本轮补齐 controller 的 Go 与 Playwright 缓存挂载；CI 保留编译对象缓存、所有 test.yml 行为测试加 -count=1 | 代表包约 9.89 倍是本机跨架构工具机制测量，不是项目全套加速、服务容量或 M4 证明；实际应用阶段收益待记录。工具回归和源码变异负例见 §8.20，最终默认仍可冷构建 |
-| EFF-04 A 冻结与独占 | 已实现，冻结路径有定向证据 | 既有 `sg-unit-frozen5` 在 `4abcb3c5` 上 PASS；后续 `sg-unit-frozen6` 与 `sg-gates-local1` 都明确冻结到 `3e5785e069b1126c4b7aa7b6301f8877edfcb0c7`，分别记录 unit 及 chain / durability / ops / faults / media / recovery PASS；后者 candidate.json 与应用身份一致 | 两个运行不能拼成单次 all；其外层原始 command.exit 未留存，不补写历史退出。正式 all 冻结路径与本轮入口修复仍须合格 runner 复验 |
+| EFF-04 A 冻结与独占 | 已实现，当前入口的冻结与清理已实测 | `sg-eff-recovery-media-20261024` 冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa`，本次原始 command.exit=0；重新 hash 应用归档、核对三镜像 imageID / OCI revision、driver 快照与 Git tree 一致；结束后本轮容器 / 卷 / 网络 / 锁均为空，source 与 .private 已清理 | 这是两个指定 stage 的同次运行，不能替代九阶段 all。S=`3e5785e0` 的历史 unit / 六门仅为其定向观察，不补写缺失的旧外层退出 |
 | EFF-04 B 脚手架工程化 | 已实现（可选） | `de1ad698`：固定名 Docker 网络作 daemon 级互斥，构建前拒绝第二个验收，`cleanup` 释放并保留退出码；`VERIFY_MUTEX_TAKEOVER=1` 仅在属主无运行容器时接管；已手工验证拒绝与接管两条路径 | 构建输出迁移、源码只读挂载未做（计划列为可选，A 可单独收口） |
-| EFF-05 正式收口 | BLOCKED | — | 缺合格 runner（EFF-00 门槛）；未冻结 C，未运行最终 `all`，未取得同 SHA CI |
+| EFF-05 正式收口 | 待外部 runner 与明确 CI 授权 | 本地代码、工具回归、协议 Q 准备及真实恢复→播放验证已完成登记；S 仍为拟定，原生 runner 上的资格 release 尚未执行 | 仓库无注册 runner / 验收变量；本机不符合原生 amd64 / 32 GiB 门槛。仍缺 S 对新 schema 的兼容资格、最终 C 的 all / 新鲜 reference / 48 场景及同 SHA CI；保持 incomplete |
 | EFF-06 状态收口 | 本节 | 本节即唯一当前执行表 | 最终结论等待 EFF-05 |
 
-**本机可执行面：** 定向 stage 仍可在本机跑（`unit` 已验证 20m47s PASS）。正式 `all`/`perf`/`release` 在本机被环境门直接拒绝，拒绝输出：
+**本机可执行面：** 定向 stage 可在本机跑；本轮冻结 `7f2c208d` 的 recovery→media 已实测通过并保存外层退出。历史 unit PASS 按其 SHA 保留，不能当作新候选完整验收。正式 all / perf / release 继续被环境门直接拒绝；下方为最初拒绝现场，最新 Shell 门还会核对原生宿主与竞争业务容器：
 
 ```
 [env:FAIL] this environment cannot carry VERIFY_STAGE=all:
@@ -2449,6 +2449,14 @@ M0 修复：原环境门在宿主执行 Python，并在 DockerRootDir 不存在�
 缓存机制实测：`.verify-artifacts/sg-eff-cache-20261024/{probe.py,result.json,command.exit}` 保存六个独立工具容器的命令、退出、源码 hash、日志 hash、测试运行标记与耗时。固定同一 imageID、linux/amd64、4 CPU / 4 GiB、GOMAXPROCS=4、GOFLAGS=-p=4，关闭网络；cold `30.284s`、warm `3.062s`，两次均 -race / coverage / -count=1，标记不同且无 cached；去掉 -count=1 的正控第二次返回 cached 并重放同一标记；修改真实被测 Go 源码后原始 exit=1；恢复源码、换全空缓存后 `30.733s` 且再次真实执行。整体预期检查 exit=0，私有缓存与临时容器 / 网络锁已清理。此为 Go 缓存机制与代表包测量，不外推应用延迟或完整 unit 加速。
 
 实际缓存接线整改：原代码只将 Go 缓存挂给 stage，controller 自己的应用 / helper 构建仍用临时缓存；冻结 clone 也使原 Playwright 路径不再被挂载。新增 controller 动态回归先在旧接线失败，再补 Go `/gocache` 与指定浏览器目录挂载，取消退出 143 及资源清理断言仍成立。CI 移除 setup-go 之后立即执行的五处 `go clean -cache`，test.yml 的 unit / integration / e2e / benchmark 显式 -count=1，防止以测试结果缓存代替运行。相关 Docker 回归 controller / shell **3＋45 项通过**，7 workflow 的 81 段 shell 语法通过。浏览器目录断言加入后，首轮 controller-final 原始 exit=1：Go 数组赋值覆盖了浏览器挂载；`8a67064b` 中将该轮写成通过的记录有误，本条明确纠正。现改为数组追加，controller-final-v2 **3 项通过、原始 exit=0**，同时保留原失败。工件 `.verify-artifacts/sg-eff-cache-wiring-20261024/` 包含 before / before-browser / after-docker / controller-final / controller-final-v2 各自日志与退出，以及 evidence.json。共享缓存继续 opt-in，不增设终验前置条件，也不将本机机制探针当作原生 Linux 性能证据。
+
+真实恢复→媒体复验：`sg-eff-recovery-media-20261024` 从冻结 `7f2c208dea07ac0ade40e563dcf9abe1ba2f97aa` 执行 `VERIFY_STAGE=recovery,media`，GOMAXPROCS=4 / GOFLAGS=-p=4 -v / 共享 Go cache 显式启用，实际检查 controller 的 `/gocache` 和既有 Playwright cache 挂载。源栈 fullchain 77/77；独立空卷恢复 **43/43**，演练 RTO **87s**，RPO 为受控停写快照条件下的 0；随后新 media 栈的 monolith 与 api-gateway **各 77/77**，两腿均有真签名、上传 / worker / HLS / Range / FFmpeg / 浏览器真播、5s 撤销及 70s 转移失效证据。原始外层 **command.exit=0**；日志文件创建到最后写入约 **15.2 分钟**，仅作本轮耗时估算，不与不同负载 / 旧候选拼作加速百分比。
+
+该次进入 media 时 `h5-dns-...-media.txt` 与实时 inspect 均只有 bridge 和 media_default，没有 recovery-src / recovery-dst；结束后本轮标签下容器、卷、网络、mutex 均为空，冻结 source 与私有备份已清理，其他项目未操作。重新核对 candidate.json revision、三镜像实际 imageID / OCI revision、归档 SHA256、driver 快照 hash；完整证据 `.verify-artifacts/sg-eff-recovery-media-20261024/{invocation.json,targeted-evidence.json,command.exit,candidate.json,logs/,recovery/}` 与同级 `.outer.log`。同一冻结 Git tree 的 `_doc_scenarios` 直接读取计划与三份真实求职材料，四文件快照 / hash 通过，`m6-precheck.exit=0`；这是 M6 材料准备预检，不冒充完整 M6 或整链门。
+
+远端接入边界：实时查询远端 `sg/mainline-execution` 为 `2e04565e2e1aefdfb5e539d508777f1affd5208b`，与本地已分叉（核查时 left/right 为 530 / 583），后续采用新的验收分支，不 force-push 现有分支。CI 文件支持 workflow_dispatch，push 只监听 master / main；因此仅推新分支不会触发本轮 CI，需要针对新分支显式派发。必须先落实合格 runner 和明确 push / CI 授权，再执行发布入口；不以已知资源不足的默认 runner 反复试跑。最后的 run / digest 放原始工件与最终答复，避免证据回写循环。
+
+本地准备的验收分支为 `sg/acceptance-20261024`，指向包含本轮证据摘要的干净提交；精确 revision 保存在外部资格输入工件，避免提交内自引用。它是待最终验收候选，不能继承 `7f2c208d` 的镜像身份或冒充该次运行。最新 API 复核仍为注册 runner=0、RUNNER / ACCEPTANCE 变量=[]；CI workflow ID=`228186346`、state=active。取得合格 runner 与明确授权后，推送该新分支，并对该分支显式派发 ci.yml；现阶段未推送、未派发或上传候选镜像。
 
 ## 9. 可直接交给后续 AI 的执行指令
 
