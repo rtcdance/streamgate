@@ -282,6 +282,39 @@ class EvidenceTransportTests(unittest.TestCase):
             self.assertEqual(transport.main(argv), 2)
         self.assertFalse((self.root / "escaped").exists())
 
+    def test_get_multi_image_rejects_symlinked_destination_root(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        destination = self.root / "dest-link"
+        os.symlink(outside, destination)
+        payload = self.root / "payload"
+        payload.mkdir()
+        (payload / "data.bin").write_bytes(b"x")
+        entries = [{"path": "data.bin", "mode": 420, "size": 1, "sha256": transport.hashlib.sha256(b"x").hexdigest()}]
+        manifests = []
+        for name in ("artifact-a", "artifact-b"):
+            manifests.append({
+                "schemaVersion": 1, "name": name, "sourceSHA": "a" * 40,
+                "runID": "40120832170", "runAttempt": "1", "entries": entries,
+                "bundleSHA256": transport.bundle_hash(entries),
+            })
+        work = Path(tempfile.mkdtemp(dir=self.directory.name))
+
+        def fake_extract(reference, local):
+            return manifests.pop(0), payload, work
+
+        argv = [
+            "get", "--image", "a@sha256:" + "1" * 64, "--image", "b@sha256:" + "2" * 64,
+            "--dest", str(destination), "--expect-sha", "a" * 40,
+            "--expect-run", "40120832170", "--expect-attempt", "1",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((outside / "artifact-a" / "data.bin").exists())
+        self.assertFalse((outside / "artifact-b" / "data.bin").exists())
+
     def test_copy_payload_rejects_collision(self):
         first = Path(tempfile.mkdtemp(dir=self.directory.name))
         second = Path(tempfile.mkdtemp(dir=self.directory.name))

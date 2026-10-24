@@ -256,83 +256,108 @@ def resolve_digest(reference, local):
 
 
 def ensure_safe_directory(path):
-    # The destination root is opened with O_NOFOLLOW and every descendant is
-    # created relative to that descriptor, so a pre-existing symlink inside the
-    # artifact root can never redirect a write. Platform ancestors above the root
-    # (/var, /tmp on macOS) are resolved once before the root is created.
+    # Only the platform mount root (the first component) may be a symlink
+    # (/var, /tmp on macOS). Every component below it is opened with O_NOFOLLOW,
+    # so a symlink at the declared destination or any descendant cannot redirect
+    # a write. The returned descriptor is the trust anchor for all restores.
     absolute = os.path.abspath(path)
     if os.path.islink(absolute):
         raise TransportError(f"destination is a symlink: {absolute}")
-    base = os.path.basename(absolute)
-    if not base:
+    parts = Path(absolute).parts
+    if len(parts) < 2:
         raise TransportError("refusing to restore into the filesystem root")
-    parent = os.path.realpath(os.path.dirname(absolute))
-    parent_descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    anchor = os.path.realpath(parts[0] + parts[1])
+    descriptor = os.open(anchor, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        try:
-            os.mkdir(base, 0o755, dir_fd=parent_descriptor)
-        except FileExistsError:
-            pass
-        return os.open(
-            base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_descriptor
-        )
-    except OSError as error:
-        raise TransportError(f"unsafe destination {absolute}: {error}") from error
-    finally:
-        os.close(parent_descriptor)
-
-
-def copy_payload(source, destination):
-    source = Path(source)
-    root_descriptor = ensure_safe_directory(destination)
-    try:
-        for item in sorted(source.rglob("*")):
-            info = os.lstat(item)
-            if stat.S_ISLNK(info.st_mode):
-                raise TransportError(f"symlink is not allowed: {item}")
-            if stat.S_ISDIR(info.st_mode):
-                continue
-            if not stat.S_ISREG(info.st_mode):
-                raise TransportError(f"special file is not allowed: {item}")
-            relative = item.relative_to(source).as_posix()
-            validate_entry_path(relative)
-            parts = relative.split("/")
-            parent_descriptor = os.dup(root_descriptor)
+        for part in parts[2:]:
             try:
-                for part in parts[:-1]:
+                os.mkdir(part, 0o755, dir_fd=descriptor)
+            except FileExistsError:
+                pass
+            next_descriptor = os.open(
+                part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except OSError as error:
+        os.close(descriptor)
+        raise TransportError(f"unsafe destination {absolute}: {error}") from error
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def copy_payload(source, destination=None, root_descriptor=None, subpath=""):
+    owns_root = root_descriptor is None
+    if owns_root:
+        if destination is None:
+            raise TransportError("destination or root descriptor is required")
+        root_descriptor = ensure_safe_directory(destination)
+    try:
+        base_descriptor = os.dup(root_descriptor)
+        try:
+            for part in [piece for piece in subpath.split("/") if piece]:
+                validate_name(part)
+                try:
+                    os.mkdir(part, 0o755, dir_fd=base_descriptor)
+                except FileExistsError:
+                    pass
+                next_descriptor = os.open(
+                    part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base_descriptor
+                )
+                os.close(base_descriptor)
+                base_descriptor = next_descriptor
+            for item in sorted(Path(source).rglob("*")):
+                info = os.lstat(item)
+                if stat.S_ISLNK(info.st_mode):
+                    raise TransportError(f"symlink is not allowed: {item}")
+                if stat.S_ISDIR(info.st_mode):
+                    continue
+                if not stat.S_ISREG(info.st_mode):
+                    raise TransportError(f"special file is not allowed: {item}")
+                relative = item.relative_to(source).as_posix()
+                validate_entry_path(relative)
+                parts = relative.split("/")
+                parent_descriptor = os.dup(base_descriptor)
+                try:
+                    for part in parts[:-1]:
+                        try:
+                            os.mkdir(part, 0o755, dir_fd=parent_descriptor)
+                        except FileExistsError:
+                            pass
+                        next_descriptor = os.open(
+                            part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_descriptor
+                        )
+                        os.close(parent_descriptor)
+                        parent_descriptor = next_descriptor
                     try:
-                        os.mkdir(part, 0o755, dir_fd=parent_descriptor)
-                    except FileExistsError:
-                        pass
-                    next_descriptor = os.open(
-                        part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_descriptor
-                    )
-                    os.close(parent_descriptor)
-                    parent_descriptor = next_descriptor
-                try:
-                    file_descriptor = os.open(
-                        parts[-1],
-                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                        0o644,
-                        dir_fd=parent_descriptor,
-                    )
-                except FileExistsError as error:
-                    raise TransportError(f"merge collision: {relative}") from error
-                try:
-                    with item.open("rb") as stream:
-                        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                            view = memoryview(chunk)
-                            while view:
-                                written = os.write(file_descriptor, view)
-                                view = view[written:]
+                        file_descriptor = os.open(
+                            parts[-1],
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o644,
+                            dir_fd=parent_descriptor,
+                        )
+                    except FileExistsError as error:
+                        raise TransportError(f"merge collision: {relative}") from error
+                    try:
+                        with item.open("rb") as stream:
+                            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                                view = memoryview(chunk)
+                                while view:
+                                    written = os.write(file_descriptor, view)
+                                    view = view[written:]
+                    finally:
+                        os.close(file_descriptor)
+                except OSError as error:
+                    raise TransportError(f"unsafe destination for {relative}: {error}") from error
                 finally:
-                    os.close(file_descriptor)
-            except OSError as error:
-                raise TransportError(f"unsafe destination for {relative}: {error}") from error
-            finally:
-                os.close(parent_descriptor)
+                    os.close(parent_descriptor)
+        finally:
+            os.close(base_descriptor)
     finally:
-        os.close(root_descriptor)
+        if owns_root:
+            os.close(root_descriptor)
 
 
 def command_put(args):
@@ -393,32 +418,36 @@ def command_get(args):
     destination = Path(args.dest)
     if destination.exists() and any(destination.iterdir()) and not args.merge:
         raise TransportError(f"destination is not empty: {destination}")
+    # Anchor the declared root once; every artifact target is created below this
+    # descriptor with O_NOFOLLOW, so a symlinked --dest can never be re-trusted.
+    root_descriptor = ensure_safe_directory(destination)
     digests = []
     restored = 0
-    for reference in args.image:
-        manifest, payload, work = extract(reference, args.local)
-        try:
-            entries = verify_manifest(
-                manifest, args.expect_name, args.expect_sha, args.expect_run, args.expect_attempt
-            )
-            verify_tree(payload, entries)
-            name = validate_name(manifest["name"])
-            target = destination if (args.merge or len(args.image) == 1) else destination / name
-            if os.path.commonpath([os.path.abspath(destination), os.path.abspath(target)]) != os.path.abspath(destination):
-                raise TransportError(f"artifact target escapes destination: {name!r}")
-            copy_payload(payload, target)
-            restored += len(entries)
-            digests.append({
-                "name": manifest["name"],
-                "image": reference,
-                "digest": resolve_digest(reference, args.local),
-                "sourceSHA": manifest["sourceSHA"],
-                "runID": manifest["runID"],
-                "runAttempt": manifest["runAttempt"],
-                "bundleSHA256": manifest["bundleSHA256"],
-            })
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+    try:
+        for reference in args.image:
+            manifest, payload, work = extract(reference, args.local)
+            try:
+                entries = verify_manifest(
+                    manifest, args.expect_name, args.expect_sha, args.expect_run, args.expect_attempt
+                )
+                verify_tree(payload, entries)
+                name = validate_name(manifest["name"])
+                subpath = "" if (args.merge or len(args.image) == 1) else name
+                copy_payload(payload, root_descriptor=root_descriptor, subpath=subpath)
+                restored += len(entries)
+                digests.append({
+                    "name": manifest["name"],
+                    "image": reference,
+                    "digest": resolve_digest(reference, args.local),
+                    "sourceSHA": manifest["sourceSHA"],
+                    "runID": manifest["runID"],
+                    "runAttempt": manifest["runAttempt"],
+                    "bundleSHA256": manifest["bundleSHA256"],
+                })
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+    finally:
+        os.close(root_descriptor)
     print(json.dumps({"status": "restored", "files": restored, "artifacts": digests}, sort_keys=True))
     return 0
 

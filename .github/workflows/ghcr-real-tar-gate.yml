@@ -26,8 +26,8 @@ jobs:
     outputs:
       image: ${{ steps.put.outputs.image }}
       digest: ${{ steps.put.outputs.digest }}
-      archive_sha: ${{ steps.put.outputs.archive_sha }}
-      image_id: ${{ steps.put.outputs.image_id }}
+      archive_sha: ${{ steps.original.outputs.archive_sha }}
+      image_id: ${{ steps.original.outputs.image_id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Download the preserved original artifact
@@ -135,14 +135,24 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i restored/candidate-monolith.tar
-          loaded=$(docker image inspect streamgate-monolith:candidate --format '{{.Id}}')
+          loaded=$(python3 - <<'PY'
+          import json, tarfile
+          with tarfile.open("restored/candidate-monolith.tar") as archive:
+              config = json.load(archive.extractfile("manifest.json"))[0]["Config"]
+          name = config.rsplit("/", 1)[-1]
+          if name.endswith(".json"):
+              name = name[:-5]
+          print("sha256:" + name)
+          PY
+          )
           expected=$(python3 -c 'import json;print(json.load(open("restored/meta/monolith.json"))["imageID"])')
           [ "$loaded" = "$expected" ]
+          docker tag "$loaded" streamgate-monolith:restored-gate
           echo "RESTORED_IMAGE_ID_OK id=$loaded"
       - name: Scan the restored image (same blocking rule as build.yml)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          image-ref: streamgate-monolith:candidate
+          image-ref: streamgate-monolith:restored-gate
           format: table
           severity: CRITICAL,HIGH
           exit-code: '1'
