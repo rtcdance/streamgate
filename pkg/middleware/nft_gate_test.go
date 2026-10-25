@@ -643,9 +643,9 @@ func (m *mockVersionedRuleResolver) RuleVersion(_ context.Context, _ string) (in
 }
 
 type mockBlockProver struct {
-	header    *BlockHeaderInfo
-	err       error
-	byChain   map[int64]*BlockHeaderInfo
+	header  *BlockHeaderInfo
+	err     error
+	byChain map[int64]*BlockHeaderInfo
 	// mu guards the got* fields: concurrent gate requests record their calls
 	// through the same prover, and -race flags the unsynchronized writes.
 	mu        sync.Mutex
