@@ -151,6 +151,13 @@ class VerifyShellTests(unittest.TestCase):
         self.assertIsNotNone(default, "the transport wrapper must pin its own retention default")
         self.assertGreaterEqual(int(default[1]), 30)
 
+    def test_transport_consumer_binds_the_producing_run(self):
+        root = SOURCE.parent.parent
+        wrapper = (root / ".github/actions/evidence-download/action.yml").read_text()
+        # The tag already scopes the lookup to this run; without --expect-run an
+        # image whose manifest names another producer would still be accepted.
+        self.assertIn('--expect-run "$GITHUB_RUN_ID"', wrapper)
+
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
         # Export is not a gate and cost 5,823s of a 2,139s build before failing on
