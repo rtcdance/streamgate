@@ -72,6 +72,32 @@ class EvidenceTransportTests(unittest.TestCase):
             "bundleSHA256": transport.bundle_hash(entries),
         }
 
+    def test_registry_push_retries_a_dropped_request(self):
+        calls = []
+
+        def fake_docker(*args, capture=True):
+            calls.append(args)
+            if args[0] == "push" and calls.count(("push", "ghcr.io/x/y:t")) == 1:
+                raise transport.TransportError("docker push failed: EOF")
+            if args[:2] == ("image", "inspect"):
+                return json.dumps(["ghcr.io/x/y@sha256:" + "a" * 64])
+            return ""
+
+        with patch.object(transport, "run_docker", side_effect=fake_docker), \
+                patch.object(transport.time, "sleep", return_value=None):
+            _, digest = transport.push_image(
+                self.root, "ghcr.io/x/y", "t", "https://example.invalid", "a" * 40, "n", "b" * 64)
+        self.assertEqual([call[0] for call in calls].count("push"), 2)
+        self.assertEqual(digest, "sha256:" + "a" * 64)
+
+    def test_registry_push_surfaces_a_persistent_failure(self):
+        with patch.object(transport, "run_docker",
+                          side_effect=transport.TransportError("docker push failed: EOF")), \
+                patch.object(transport.time, "sleep", return_value=None):
+            with self.assertRaises(transport.TransportError):
+                transport.push_image(
+                    self.root, "ghcr.io/x/y", "t", "https://example.invalid", "a" * 40, "n", "b" * 64)
+
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()
         transport.verify_manifest(manifest, "candidate-monolith", "a" * 40, "40120832170", "1")

@@ -12,11 +12,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 SCHEMA = 1
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+REGISTRY_ATTEMPTS = 3
+REGISTRY_BACKOFF_SECONDS = 5
 
 
 class TransportError(Exception):
@@ -220,6 +223,21 @@ def run_docker(*args, capture=True):
     return result.stdout
 
 
+def run_registry(*args):
+    # A single dropped request to the registry (proxy EOF, reset) must not
+    # discard the artifact for the whole run; registry pushes are idempotent per
+    # digest, so a bounded retry cannot produce a second or partial artifact.
+    for attempt in range(1, REGISTRY_ATTEMPTS + 1):
+        try:
+            return run_docker(*args)
+        except TransportError as error:
+            if attempt == REGISTRY_ATTEMPTS:
+                raise
+            print(f"evidence transport: {' '.join(args)} attempt {attempt} failed: {error}",
+                  file=sys.stderr)
+            time.sleep(REGISTRY_BACKOFF_SECONDS * attempt)
+
+
 def push_image(context, image, tag, source_url, sha, name, bundle):
     reference = f"{image}:{tag}"
     labels = [
@@ -233,7 +251,7 @@ def push_image(context, image, tag, source_url, sha, name, bundle):
         command.extend(["--label", label])
     command.append(str(context))
     run_docker(*command)
-    run_docker("push", reference)
+    run_registry("push", reference)
     repo_digests = json.loads(run_docker("image", "inspect", reference, "--format", "{{json .RepoDigests}}"))
     if not repo_digests:
         raise TransportError("pushed image has no repo digest")
@@ -305,7 +323,7 @@ def verify_tree(root, entries):
 
 def extract(reference, local):
     if not local:
-        run_docker("pull", reference)
+        run_registry("pull", reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
     # Scratch images carry no command; create only records one and never runs it.
     run_docker("create", "--name", container, reference, "/nonexistent")
