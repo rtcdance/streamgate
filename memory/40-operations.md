@@ -99,3 +99,27 @@ sets the cost of every CI design here:
   the slow part of a full DAG. Do not add uploads that nothing consumes.
 - Expect a failed large upload to surface as a bare `EOF` from the registry; the
   transport helper retries a bounded number of times before it gives up.
+
+## Same-SHA retry after a transient third-party flake (2026-10-25)
+
+A failed job that never reached the candidate's own assertions is retried on the
+same SHA, not by dispatching a new commit: `rerun-failed-jobs` re-runs the failed
+jobs **and their dependents**, so the image/acceptance stages that were skipped
+still execute, and the run keeps one SHA and one evidence chain. The transport
+consumer resolves `g<run>-a<attempt>-<name>` from `max-attempt` downwards, so an
+attempt-2 consumer still accepts attempt-1 artifacts.
+
+Two things that waste time here:
+
+- `gh run rerun <id> --failed` exits **0** even when the API refuses with
+  `403 This workflow is already running`. Confirm with
+  `gh api -X POST .../rerun-failed-jobs` (non-zero on refusal) or by checking
+  that `run_attempt` incremented.
+- `scripts/cd/verify_environment.sh` defaults to `profile=native-linux`, which
+  demands a native amd64 Linux host with 32 GiB RAM. On this Mac it must be run
+  as `VERIFY_ENVIRONMENT_PROFILE=desktop-local`; the CI job gets that from the
+  `STREAMGATE_ACCEPTANCE_PROFILE` repository variable.
+
+The runner container shares the DinD's network namespace
+(`--network container:<dind>`), which is why job steps reach stack ports
+published inside the DinD at `localhost` and why `services:` port mappings work.
