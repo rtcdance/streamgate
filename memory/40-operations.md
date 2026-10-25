@@ -83,3 +83,19 @@ STREAMGATE_ACCEPTANCE_RUNNER selects its dedicated label;
 STREAMGATE_ACCEPTANCE_PROFILE=desktop-local selects the preflight profile.
 Installation/registration, repository settings, push and dispatch require explicit
 authorization. Local results do not stand in for that job or registry receipts.
+
+## Self-hosted runner uplink (2026-10-25)
+
+The Mac's upload path measured **~111 KiB/s** (5 MiB to a public speed-test
+endpoint; the runner's own `/proc/net/dev` agreed at ~113 KiB/s during a cache
+save). Downloads are an order of magnitude faster. This asymmetry, not quota,
+sets the cost of every CI design here:
+
+- Never let a job upload a multi-hundred-MB cache. `actions/setup-go` defaults
+  to caching a 1.2 GiB Go cache, so `cache: false` is deliberate; `cache-to` on
+  the buildx image builds is likewise removed (a `mode=min` export took 5,823s
+  and then failed on the one-hour cache token).
+- Candidate images still have to travel to the Mac, so the transport stages are
+  the slow part of a full DAG. Do not add uploads that nothing consumes.
+- Expect a failed large upload to surface as a bare `EOF` from the registry; the
+  transport helper retries a bounded number of times before it gives up.
