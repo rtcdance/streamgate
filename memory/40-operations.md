@@ -123,3 +123,7 @@ Two things that waste time here:
 The runner container shares the DinD's network namespace
 (`--network container:<dind>`), which is why job steps reach stack ports
 published inside the DinD at `localhost` and why `services:` port mappings work.
+It also means **only one runner container may run at a time**: every runner
+mounts the same `/Users/mingo/ci-work:/work`, so two would share `_work` paths
+and overwrite each other's checkouts. Swapping `sg-linux-runner` for
+`sg-linux-runner-04` is a stop-then-start, never both.
