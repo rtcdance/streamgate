@@ -126,8 +126,15 @@ jobs:
           PGPASSWORD: streamgate
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          # The mirror is reached through the runner's uplink; one 502 must not
+          # fail the job, so the fetch is retried a bounded number of times.
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "apt-get failed after 3 attempts" >&2; exit 1; fi
+            sleep $((attempt * 5))
+          done
           # Apply every up-migration in filename order and stop at the first
           # error (ON_ERROR_STOP=1). The previous `|| true` swallowed bad SQL,
           # so a broken migration could never fail this job.

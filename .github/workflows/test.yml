@@ -211,8 +211,15 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          # The mirror is reached through the runner's uplink; one 502 must not
+          # fail the job, so the fetch is retried a bounded number of times.
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "apt-get failed after 3 attempts" >&2; exit 1; fi
+            sleep $((attempt * 5))
+          done
           # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
           # swallow broken SQL, so a bad migration could never fail this job.
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
@@ -331,8 +338,15 @@ jobs:
         env:
           PGPASSWORD: streamgate
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          # The mirror is reached through the runner's uplink; one 502 must not
+          # fail the job, so the fetch is retried a bounded number of times.
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "apt-get failed after 3 attempts" >&2; exit 1; fi
+            sleep $((attempt * 5))
+          done
           # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
           # swallow broken SQL, so a bad migration could never fail this job.
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
