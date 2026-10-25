@@ -515,6 +515,38 @@ class EvidenceTransportTests(unittest.TestCase):
             self.assertEqual(transport.main(argv), 2)
         self.assertFalse((self.root / "dest" / "candidate-monolith.bin").exists())
 
+    def test_push_retries_transient_registry_failure(self):
+        calls = []
+        slept = []
+
+        def flaky(*args, **kwargs):
+            calls.append(args)
+            if len(calls) < 3:
+                raise transport.TransportError("docker push r:tag failed: EOF")
+            return ""
+
+        with patch.object(transport, "run_docker", side_effect=flaky), \
+                patch.object(transport, "time") as clock, \
+                contextlib.redirect_stderr(io.StringIO()):
+            clock.sleep.side_effect = slept.append
+            transport.push_with_retry("r:tag", attempts=3, backoff=5)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, [5, 10])
+
+    def test_push_keeps_persistent_failure(self):
+        calls = []
+
+        def broken(*args, **kwargs):
+            calls.append(args)
+            raise transport.TransportError("docker push r:tag failed: EOF")
+
+        with patch.object(transport, "run_docker", side_effect=broken), \
+                patch.object(transport, "time"), \
+                contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(transport.TransportError):
+                transport.push_with_retry("r:tag", attempts=3, backoff=0)
+        self.assertEqual(len(calls), 3)
+
     def test_copy_payload_rejects_collision(self):
         first = Path(tempfile.mkdtemp(dir=self.directory.name))
         second = Path(tempfile.mkdtemp(dir=self.directory.name))

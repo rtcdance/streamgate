@@ -12,11 +12,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 SCHEMA = 1
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+PUSH_ATTEMPTS = 3
+PUSH_BACKOFF = 5
 
 
 class TransportError(Exception):
@@ -220,6 +223,29 @@ def run_docker(*args, capture=True):
     return result.stdout
 
 
+def push_with_retry(reference, attempts=PUSH_ATTEMPTS, backoff=PUSH_BACKOFF):
+    """Retry a push that dies mid-upload.
+
+    A registry blip aborts the whole blob upload, which would cost a job that
+    already produced valid evidence. Retry a bounded number of times and keep
+    the last failure as the exit code so a persistent fault is never hidden.
+    """
+    failure = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return run_docker("push", reference)
+        except TransportError as exc:
+            failure = exc
+            if attempt == attempts:
+                break
+            print(
+                f"evidence transport: push {reference} attempt {attempt}/{attempts} failed, retrying: {exc}",
+                file=sys.stderr,
+            )
+            time.sleep(backoff * attempt)
+    raise failure
+
+
 def push_image(context, image, tag, source_url, sha, name, bundle):
     reference = f"{image}:{tag}"
     labels = [
@@ -233,7 +259,7 @@ def push_image(context, image, tag, source_url, sha, name, bundle):
         command.extend(["--label", label])
     command.append(str(context))
     run_docker(*command)
-    run_docker("push", reference)
+    push_with_retry(reference)
     repo_digests = json.loads(run_docker("image", "inspect", reference, "--format", "{{json .RepoDigests}}"))
     if not repo_digests:
         raise TransportError("pushed image has no repo digest")
