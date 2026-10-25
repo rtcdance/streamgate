@@ -81,8 +81,13 @@ jobs:
           # images overwrite each other's cache. mode=min exports only the final
           # stage; the measured mode=max export was ~904s per image (plan
           # §ci-build-cache-cost) against ~147s of Go compilation.
+          #
+          # Only the cache service exports. The repository's Actions cache sits
+          # at the free 10 GB ceiling, and a throttled export can outlive its
+          # pre-signed blob URL: run 40151301352 lost build-api-gateway to
+          # "403 AuthenticationFailed" after the image itself was complete.
+          # Reading stays enabled so a warm scope is still reused.
           cache-from: type=gha,scope=monolith
-          cache-to: type=gha,mode=min,scope=monolith
 
       - name: Record image identity
         id: identity
@@ -134,7 +139,6 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha,scope=transcoder
-          cache-to: type=gha,mode=min,scope=transcoder
 
       - name: Record image identity
         id: identity
@@ -190,7 +194,8 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.service }}
+          # Only the cache service writes a cache entry; see the monolith note.
+          cache-to: ${{ matrix.service == 'cache' && format('type=gha,mode=min,scope={0}', matrix.service) || '' }}
 
       - name: Record image identity
         run: |
