@@ -165,6 +165,18 @@ class VerifyShellTests(unittest.TestCase):
         self.assertNotIn("cache-to:", source)
         self.assertIn("cache-from: type=gha,scope=", source)
 
+    def test_go_setup_does_not_upload_the_module_cache(self):
+        # A 1.2 GiB cache save on the ~111 KiB/s self-hosted uplink blocks the
+        # job for hours; setup-go defaults to caching, so it must be disabled.
+        for workflow in ("ci.yml", "test.yml"):
+            lines = (SOURCE.parent.parent / ".github/workflows" / workflow).read_text().splitlines()
+            for offset, line in enumerate(lines):
+                if "uses: actions/setup-go@" not in line:
+                    continue
+                block = "\n".join(lines[offset:offset + 6])
+                with self.subTest(workflow=workflow, step=offset + 1):
+                    self.assertIn("cache: false", block)
+
     def run_schema_compatibility(self, *, smoke_exit=0, wrong_image=False, changed_schema=False, wrong_baseline=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
