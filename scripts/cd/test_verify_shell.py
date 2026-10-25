@@ -151,6 +151,13 @@ class VerifyShellTests(unittest.TestCase):
         self.assertIsNotNone(default, "the transport wrapper must pin its own retention default")
         self.assertGreaterEqual(int(default[1]), 30)
 
+    def test_candidate_builds_do_not_export_the_layer_cache(self):
+        source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
+        # Export is not a gate and cost 5,823s of a 2,139s build before failing on
+        # the one-hour cache token; re-adding it makes every candidate fragile.
+        self.assertNotIn("cache-to:", source)
+        self.assertIn("cache-from: type=gha,scope=", source)
+
     def run_schema_compatibility(self, *, smoke_exit=0, wrong_image=False, changed_schema=False, wrong_baseline=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
