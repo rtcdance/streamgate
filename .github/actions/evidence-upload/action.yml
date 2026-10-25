@@ -73,15 +73,54 @@ runs:
         EVIDENCE_EXCLUDES: ${{ inputs.exclude }}
       run: |
         set -euo pipefail
+        tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+        # Negations are resolved by @actions/glob against the workspace, not
+        # against the artifact root, so a bare 'build-inputs/**' would never
+        # match '.verify-artifacts/ci-all/build-inputs/**'. Prefix every
+        # negation with the declared artifact root (the common directory of the
+        # positive paths), reproducing the hand-written form the workflow used
+        # before the wrapper existed.
+        root=""
+        first=1
+        while IFS= read -r spec; do
+          [ -n "$spec" ] || continue
+          base="$spec"
+          case "$base" in
+            *[*?[]*) base="${base%%[*?[]*}" ;;
+          esac
+          if [ "${base%/}" != "$base" ]; then
+            base="${base%/}"
+          else
+            base="$(dirname "$base")"
+          fi
+          if [ "$base" = "." ]; then
+            base=""
+          fi
+          if [ "$first" = 1 ]; then
+            root="$base"; first=0
+          elif [ -z "$base" ] || [ -z "$root" ]; then
+            root=""
+          elif [ "$base" != "$root" ]; then
+            common=""; i=0
+            IFS='/' read -r -a a <<< "$root"
+            IFS='/' read -r -a b <<< "$base"
+            while [ "$i" -lt "${#a[@]}" ] && [ "$i" -lt "${#b[@]}" ] && [ "${a[$i]}" = "${b[$i]}" ]; do
+              common="${common:+$common/}${a[$i]}"
+              i=$((i + 1))
+            done
+            root="$common"
+          fi
+        done <<< "$EVIDENCE_PATHS"
         {
           printf '%s\n' "$EVIDENCE_PATHS"
           while IFS= read -r spec; do
-            [ -n "$spec" ] && printf '!%s\n' "$spec"
+            [ -n "$spec" ] || continue
+            printf '!%s%s\n' "${root:+$root/}" "$spec"
           done <<< "$EVIDENCE_EXCLUDES"
-        } > "$RUNNER_TEMP/evidence-actions-path.txt"
+        } > "$tmp/evidence-actions-path.txt"
         {
           echo "actions_path<<EVIDENCE_EOF"
-          cat "$RUNNER_TEMP/evidence-actions-path.txt"
+          cat "$tmp/evidence-actions-path.txt"
           echo "EVIDENCE_EOF"
         } >> "$GITHUB_OUTPUT"
 

@@ -114,6 +114,7 @@ jobs:
           python3 scripts/cd/test_run_required_fuzz.py
           python3 scripts/cd/test_run_fuzz_target.py
           python3 scripts/cd/test_evidence_transport.py
+          python3 scripts/cd/test_evidence_wrappers.py
 
       - name: Verify H5 API origin inference in pinned Node container
         run: >-

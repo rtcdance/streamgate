@@ -478,6 +478,25 @@ class EvidenceTransportTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(transport.main(argv), 2)
 
+    def test_get_rejects_a_same_sha_artifact_from_another_run(self):
+        # Same SHA, same name, same attempt, legal digest - only runID differs.
+        # Without --expect-run this would restore bytes produced by another run.
+        staged = self.staged_images(["candidate-monolith"])
+        staged[0][0]["runID"] = "999"
+
+        def fake_extract(reference, local):
+            return staged.pop(0)
+
+        argv = [
+            "get", "--image", "r@sha256:" + "1" * 64, "--dest", str(self.root / "dest"),
+            "--merge", "--expect-sha", "a" * 40, "--expect-run", "111", "--max-attempt", "2",
+        ]
+        with patch.object(transport, "extract", side_effect=fake_extract), \
+                patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(transport.main(argv), 2)
+        self.assertFalse((self.root / "dest" / "candidate-monolith.bin").exists())
+
     def test_get_verifies_every_artifact_before_writing(self):
         staged = self.staged_images(["candidate-monolith", "candidate-transcoder"])
         staged[1][0]["entries"][0]["sha256"] = "0" * 64

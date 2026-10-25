@@ -315,6 +315,7 @@ stage_unit() {
     python3 scripts/cd/test_run_required_fuzz.py
     python3 scripts/cd/test_run_fuzz_target.py
     python3 scripts/cd/test_evidence_transport.py
+    python3 scripts/cd/test_evidence_wrappers.py
     python3 scripts/cd/test_verify_proxy.py
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
