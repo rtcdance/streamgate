@@ -82,7 +82,9 @@ func TestUploadService_ChunkedUpload(t *testing.T) {
 		}
 
 		chunk := fileContent[i:end]
-		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk, "0xOwner")
+		// The chunk must be attributed to the same owner the upload was
+		// initiated for: the service refuses a foreign wallet.
+		err := uploadService.UploadChunk(context.Background(), uploadID, i/chunkSize, chunk, "user-123")
 		require.NoError(t, err)
 	}
 
