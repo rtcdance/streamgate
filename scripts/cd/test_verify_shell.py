@@ -236,13 +236,16 @@ class VerifyShellTests(unittest.TestCase):
                 self.assertIn(diagnostic, result.stderr)
 
     def run_release_drills(self, smoke_exit=1, smoke_output=None, recovery_image=None, start_exit=1,
-                           start_output="auth.jwt_secret is only 6 bytes — minimum 32 bytes required for HS256"):
+                           start_output="auth.jwt_secret is only 6 bytes — minimum 32 bytes required for HS256",
+                           daemon_image=None):
         image = "sha256:" + "1" * 64
+        daemon_image = daemon_image or image
         if smoke_output is None:
             smoke_output = "PASS: Anvil chainId=31337\nFAIL: dev-mint failed: HTTP 500"
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / "candidate.json"
-            manifest.write_text(json.dumps({"images": {"monolith": {"imageID": image}}}))
+            manifest.write_text(json.dumps({"images": {"monolith": {
+                "imageID": image, "daemonImageID": daemon_image}}}))
             script = '\n'.join([
                 'set -euo pipefail',
                 f'ARTIFACT_DIR={shlex.quote(directory)}',
@@ -265,7 +268,7 @@ class VerifyShellTests(unittest.TestCase):
                 f'    logs) printf "%s\\n" {shlex.quote(start_output)} ;;',
                 '    inspect)',
                 '      case "$field" in',
-                f'        "{{{{.Image}}}}") if [[ "$name" == *"-monolith-1" ]]; then echo {shlex.quote(recovery_image or image)}; else echo {image}; fi ;;',
+                f'        "{{{{.Image}}}}") if [[ "$name" == *"-monolith-1" ]]; then echo {shlex.quote(recovery_image or daemon_image)}; else echo {daemon_image}; fi ;;',
                 '        "{{.State.Status}}") if [[ "$name" == *"-drill-start" ]]; then echo exited; else echo running; fi ;;',
                 f'        "{{{{.State.ExitCode}}}}") echo {start_exit} ;;',
                 '        *) if [[ "$name" == *"-drill-health" ]]; then echo unhealthy; else echo healthy; fi ;;',
@@ -286,6 +289,12 @@ class VerifyShellTests(unittest.TestCase):
         for kind in ("START", "HEALTH", "SMOKE"):
             self.assertIn(f"RELEASE_DRILL_{kind}_B_FAILED", result.stdout)
             self.assertIn(f"RELEASE_DRILL_{kind}_A_RECOVERED", result.stdout)
+
+    def test_release_drills_accept_the_importing_store_id_beside_the_archive_identity(self):
+        daemon_image = "sha256:" + "9" * 64
+        result = self.run_release_drills(daemon_image=daemon_image)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"imageID={daemon_image}", result.stdout)
 
     def test_release_drills_refuse_a_wrong_recovered_image(self):
         result = self.run_release_drills(recovery_image="sha256:" + "2" * 64)

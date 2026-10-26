@@ -1,16 +1,18 @@
 from pathlib import Path
 import hashlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import textwrap
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from image_identity import identity, push_digest, verify_identity
+from image_identity import archive_digests, identity, push_digest, verify_identity
 
 
 class CIManifestTests(unittest.TestCase):
@@ -265,6 +267,55 @@ class ImageIdentityTests(unittest.TestCase):
         self.assertEqual(result["dockerRepoDigests"], ["registry/image@sha256:registry-manifest"])
         self.assertEqual(result["platform"], "linux/amd64")
         self.assertEqual(result["buildTags"], ["nats_integration"])
+
+    def write_archive(self, directory, documents, name="candidate-monolith.tar"):
+        archive = Path(directory) / name
+        with tarfile.open(archive, "w") as tar:
+            for entry, document in documents.items():
+                payload = json.dumps(document).encode()
+                header = tarfile.TarInfo(entry)
+                header.size = len(payload)
+                tar.addfile(header, io.BytesIO(payload))
+        return archive
+
+    def test_containerd_store_id_binds_through_the_archive_config_digest(self):
+        # The classic store reports the config digest as the image ID, the
+        # containerd store reports the OCI manifest digest. One scanned archive
+        # must still bind both, or a containerd acceptance host can never prove
+        # it loaded the image CI built and scanned.
+        config, manifest = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            archive = self.write_archive(directory, {
+                "manifest.json": [{"Config": f"blobs/sha256/{config[7:]}",
+                                   "RepoTags": ["streamgate-monolith:candidate"]}],
+                "index.json": {"manifests": [{"digest": manifest, "annotations": {
+                    "io.containerd.image.name": "docker.io/library/streamgate-monolith:candidate"}}]},
+            })
+            digests = archive_digests(archive)
+            self.assertEqual(digests, (config, manifest))
+            build = identity({**self.info, "Id": config}, "revision", "archive-hash", digests)
+            loaded = identity({**self.info, "Id": manifest}, "revision", "archive-hash", digests)
+            verify_identity(build, loaded)
+            self.assertEqual(build["imageID"], config)
+            self.assertEqual(loaded["imageID"], config)
+            self.assertEqual(loaded["daemonImageID"], manifest)
+            with self.assertRaisesRegex(ValueError, "not a digest"):
+                identity({**self.info, "Id": "sha256:" + "c" * 64}, "revision", "archive-hash", digests)
+
+    def test_classic_store_archive_reports_only_the_config_digest(self):
+        config = "sha256:" + "d" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            archive = self.write_archive(directory, {"manifest.json": [
+                {"Config": f"{config[7:]}.json", "RepoTags": ["streamgate-monolith:candidate"]}]})
+            self.assertEqual(archive_digests(archive), (config, None))
+            self.assertEqual(identity({**self.info, "Id": config}, "revision", "archive-hash",
+                                      archive_digests(archive))["imageID"], config)
+
+    def test_non_archive_files_keep_the_store_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory) / "candidate-monolith.tar"
+            fixture.write_bytes(b"not a tar")
+            self.assertIsNone(archive_digests(fixture))
 
     def test_wrong_revision_fails(self):
         with self.assertRaisesRegex(ValueError, "revision"):

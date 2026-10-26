@@ -1,8 +1,10 @@
 import copy
 import hashlib
+import io
 import json
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -21,18 +23,37 @@ class ImportCandidateTests(unittest.TestCase):
         self.output = self.root / "acceptance/candidate.json"
         self.revision = "a" * 40
         self.infos = {}
+        self.digests = {}
         for service in REQUIRED_SERVICES:
             archive = self.inputs / f"candidate-{service}.tar"
-            archive.write_bytes(service.encode())
-            image_id = "sha256:" + hashlib.sha256(service.encode()).hexdigest()
-            data = {"imageID": image_id, "archiveSHA256": importer.file_hash(archive),
+            config = "sha256:" + hashlib.sha256(("config:" + service).encode()).hexdigest()
+            manifest = "sha256:" + hashlib.sha256(("manifest:" + service).encode()).hexdigest()
+            self.write_archive(archive, service, config, manifest)
+            data = {"imageID": config, "archiveSHA256": importer.file_hash(archive),
                     "registryDigest": None, "revision": self.revision,
                     "platform": "linux/amd64", "buildTags": ["nats_integration"]}
             (self.inputs / f"meta/{service}.json").write_text(json.dumps(data))
-            self.infos[service] = {"Id": image_id, "Os": "linux", "Architecture": "amd64",
+            # The containerd store reports the OCI manifest digest as its ID.
+            self.infos[service] = {"Id": manifest, "Os": "linux", "Architecture": "amd64",
                                    "Config": {"Labels": {"org.opencontainers.image.revision": self.revision,
                                                          "com.streamgate.build.tags": "nats_integration"}}}
+            self.digests[service] = (config, manifest)
         self.commands = []
+
+    @staticmethod
+    def write_archive(archive, service, config, manifest):
+        documents = {
+            "manifest.json": [{"Config": f"blobs/sha256/{config[7:]}",
+                               "RepoTags": [f"streamgate-{service}:candidate"]}],
+            "index.json": {"manifests": [{"digest": manifest, "annotations": {
+                "io.containerd.image.name": f"docker.io/library/streamgate-{service}:candidate"}}]},
+        }
+        with tarfile.open(archive, "w") as tar:
+            for name, document in documents.items():
+                payload = json.dumps(document).encode()
+                header = tarfile.TarInfo(name)
+                header.size = len(payload)
+                tar.addfile(header, io.BytesIO(payload))
 
     def docker(self, command, **kwargs):
         self.commands.append(command)
@@ -56,7 +77,8 @@ class ImportCandidateTests(unittest.TestCase):
         value = self.invoke()
         self.assertEqual(set(value["ciBuildInputs"]["images"]), REQUIRED_SERVICES)
         for service, entry in value["images"].items():
-            self.assertEqual(entry["imageID"], self.infos[service]["Id"])
+            self.assertEqual(entry["imageID"], self.digests[service][0])
+            self.assertEqual(entry["daemonImageID"], self.digests[service][1])
             self.assertEqual(entry["buildArchiveSHA256"], importer.file_hash(self.inputs / f"candidate-{service}.tar"))
         self.assertFalse(any("build" in command for command in self.commands))
         self.assertEqual(len([command for command in self.commands if command[1] == "load"]), 3)
@@ -83,7 +105,25 @@ class ImportCandidateTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
 
     def test_substituted_loaded_image_never_writes_a_manifest(self):
+        # A tag whose store ID is neither digest of the scanned archive cannot
+        # inherit that archive's identity, even when its labels look right.
         self.infos["monolith"]["Id"] = "sha256:" + "f" * 64
+        with self.assertRaisesRegex(ValueError, "not a digest"):
+            self.invoke()
+        self.assertFalse(self.output.exists())
+        self.assertFalse(any(command[1] in ("save", "tag") for command in self.commands))
+
+    def test_classic_store_id_is_the_archive_config_digest(self):
+        for service in REQUIRED_SERVICES:
+            self.infos[service]["Id"] = self.digests[service][0]
+        value = self.invoke()
+        for service, entry in value["images"].items():
+            self.assertEqual(entry["imageID"], entry["daemonImageID"])
+
+    def test_archive_config_digest_must_match_the_ci_record(self):
+        path = self.inputs / "meta/monolith.json"
+        record = json.loads(path.read_text())
+        path.write_text(json.dumps({**record, "imageID": "sha256:" + "e" * 64}))
         with self.assertRaisesRegex(ValueError, "imageID"):
             self.invoke()
         self.assertFalse(self.output.exists())

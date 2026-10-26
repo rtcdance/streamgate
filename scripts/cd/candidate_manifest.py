@@ -36,7 +36,11 @@ def verify(document, project=None, platform=None, archive_path=None):
         if platform and entry["platform"] != platform:
             raise ValueError(f"{service}: requested platform {platform} differs from manifest {entry['platform']}")
         info = docker_json("image", "inspect", entry["tag"])[0]
-        if info["Id"] != entry["imageID"]:
+        # imageID is the archive identity every store agrees on; an importing
+        # daemon records its own ID beside it because the containerd store
+        # reports the OCI manifest digest instead of the config digest.
+        expected_id = entry.get("daemonImageID") or entry["imageID"]
+        if info["Id"] != expected_id:
             raise ValueError(f"{service}: candidate image tag was replaced")
         labels = info["Config"].get("Labels") or {}
         if labels.get("org.opencontainers.image.revision") != document["revision"]:
@@ -52,7 +56,7 @@ def verify(document, project=None, platform=None, archive_path=None):
             ], text=True).split()
             for container_id in ids:
                 actual = docker_json("inspect", container_id)[0]["Image"]
-                if actual != entry["imageID"]:
+                if actual != expected_id:
                     raise ValueError(f"{service}: running stage does not use candidate image")
 
 

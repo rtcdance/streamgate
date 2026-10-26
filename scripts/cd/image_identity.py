@@ -5,11 +5,59 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import tarfile
 
 from candidate_manifest import docker_json, file_hash
 
 
 BINDING_FIELDS = ("imageID", "archiveSHA256", "buildTags", "platform", "revision")
+
+
+def _config_digest(path):
+    name = path.rsplit("/", 1)[-1].removesuffix(".json")
+    if not re.fullmatch(r"[0-9a-f]{64}", name):
+        raise ValueError(f"unexpected archive config path {path}")
+    return "sha256:" + name
+
+
+def archive_digests(path):
+    """Return the (config, manifest) digests of the single image in an archive.
+
+    Docker's classic image store reports the config digest as an image's ID
+    while the containerd store reports the OCI manifest digest. Both are
+    recorded in the archive, so binding to them names the same image on either
+    store instead of only on the daemon that happened to build it. Files that
+    are not docker-save tars (unit fixtures) yield None and keep the store ID.
+    """
+    try:
+        with tarfile.open(path) as archive:
+            names = set(archive.getnames())
+            if "manifest.json" not in names:
+                return None
+            configs = {}
+            for entry in json.load(archive.extractfile("manifest.json")):
+                digest = _config_digest(entry["Config"])
+                for tag in entry.get("RepoTags") or []:
+                    configs[tag.rsplit("/", 1)[-1]] = digest
+            manifests = {}
+            if "index.json" in names:
+                for entry in json.load(archive.extractfile("index.json")).get("manifests", []):
+                    name = (entry.get("annotations") or {}).get("io.containerd.image.name")
+                    if name:
+                        manifests[name.rsplit("/", 1)[-1]] = entry["digest"]
+    except (tarfile.TarError, OSError):
+        return None
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"archive manifest is malformed: {exc}") from exc
+    if not configs:
+        raise ValueError("archive records no tagged image")
+    if len(set(configs.values())) != 1:
+        raise ValueError("archive must contain exactly one image")
+    tag, config = next(iter(configs.items()))
+    manifest = manifests.get(tag)
+    if manifest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(manifest)):
+        raise ValueError("archive records an invalid manifest digest")
+    return config, manifest
 
 
 def verify_identity(expected, observed):
@@ -49,21 +97,27 @@ def publication_record(value, service, repository, push_log, ci_run, ci_attempt)
     }
 
 
-def identity(info, revision, archive_hash):
+def identity(info, revision, archive_hash, digests=None):
     labels = info["Config"].get("Labels") or {}
     if labels.get("org.opencontainers.image.revision") != revision:
         raise ValueError("image revision does not match candidate SHA")
     tags = labels.get("com.streamgate.build.tags", "").split(",")
     if not all(tags):
         raise ValueError("actual build tags must be recorded in image labels")
+    # The archive is the only identity both stores agree on: a classic store
+    # reports its config digest as the image ID, a containerd store its OCI
+    # manifest digest. Keep the store ID beside it for same-daemon checks.
+    content, manifest = digests if digests else (info["Id"], None)
+    if info["Id"] not in {digest for digest in (content, manifest) if digest}:
+        raise ValueError("loaded image identity is not a digest of this archive")
     return {
-        "imageID": info["Id"], "archiveSHA256": archive_hash,
+        "imageID": content, "daemonImageID": info["Id"], "archiveSHA256": archive_hash,
         # Docker's containerd store can synthesize RepoDigests for local builds.
         # Only the later registry publication receipt may fill registryDigest.
         "registryDigest": None, "dockerRepoDigests": info.get("RepoDigests") or [], "buildTags": tags,
         "platform": info["Os"] + "/" + info["Architecture"], "revision": revision,
         # Retain the existing consumers' wire contract during additive rollout.
-        "image_id": info["Id"], "commit": revision,
+        "image_id": content, "commit": revision,
     }
 
 
@@ -81,7 +135,8 @@ def main():
     parser.add_argument("--ci-run")
     parser.add_argument("--ci-attempt")
     args = parser.parse_args()
-    value = identity(docker_json("image", "inspect", args.tag)[0], args.revision, file_hash(args.archive))
+    value = identity(docker_json("image", "inspect", args.tag)[0], args.revision, file_hash(args.archive),
+                     archive_digests(args.archive))
     publication_args = (args.publication_log, args.publication_out, args.service, args.registry_repository, args.ci_run, args.ci_attempt)
     if any(publication_args) and (not args.verify or not all(publication_args)):
         parser.error("publication requires --verify and all publication/CI arguments")

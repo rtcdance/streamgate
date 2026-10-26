@@ -84,6 +84,32 @@ class CandidateManifestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "replaced"):
                 candidate.verify(self.document)
 
+    def test_daemon_store_id_is_checked_beside_the_archive_identity(self):
+        # The imported manifest keeps the archive identity CI recorded and adds
+        # the accepting store's own ID, so a containerd daemon can still detect
+        # a replaced tag without comparing incomparable digest conventions.
+        document = copy.deepcopy(self.document)
+        for entry in document["images"].values():
+            entry["imageID"] = "sha256:" + "c" * 64
+            entry["daemonImageID"] = self.info["Id"]
+        with patch.object(candidate, "docker_json", return_value=[self.info]):
+            candidate.verify(document)
+        with patch.object(candidate, "docker_json", return_value=[dict(self.info, Id="sha256:replacement")]):
+            with self.assertRaisesRegex(ValueError, "replaced"):
+                candidate.verify(document)
+
+    def test_running_container_matches_the_recorded_daemon_identity(self):
+        document = copy.deepcopy(self.document)
+        for entry in document["images"].values():
+            entry["imageID"] = "sha256:" + "c" * 64
+            entry["daemonImageID"] = self.info["Id"]
+        # verify() checks each tag and its running container before the next
+        # service, so the store IDs interleave with the container inspections.
+        inspected = [[copy.deepcopy(self.info)], [{"Image": self.info["Id"]}]] * 3
+        with patch.object(candidate.subprocess, "check_output", return_value="container-id\n"):
+            with patch.object(candidate, "docker_json", side_effect=inspected):
+                candidate.verify(document, "own-project")
+
     def test_wrong_revision_fails(self):
         info = copy.deepcopy(self.info)
         info["Config"]["Labels"]["org.opencontainers.image.revision"] = "wrong"
