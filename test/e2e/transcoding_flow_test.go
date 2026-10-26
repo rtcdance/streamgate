@@ -8,10 +8,31 @@ import (
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/service"
+	"github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/test/helpers"
 
 	"github.com/google/uuid"
 )
+
+// createTranscodeContent inserts a real content row. transcoding_tasks.content_id
+// carries a foreign key to contents(id), so a synthetic UUID is rejected by
+// PostgreSQL — the task must point at a row that exists.
+func createTranscodeContent(t *testing.T, db *storage.Database) string {
+	t.Helper()
+	contentService := service.NewContentService(db, nil, nil)
+	// (owner_id, url) is unique on contents; a per-call URL keeps the fixture
+	// collision-free even when a previous run left rows behind.
+	contentID, err := contentService.CreateContent(context.Background(), &service.Content{
+		Title:       "Transcoding fixture",
+		Description: "content row for transcoding task foreign keys",
+		Type:        "video",
+		URL:         "test-url-" + uuid.New().String(),
+		OwnerID:     "0xTestOwner",
+	})
+	helpers.AssertNoError(t, err)
+	helpers.AssertNotEmpty(t, contentID)
+	return contentID
+}
 
 type mockTranscodingQueue struct{}
 
@@ -129,8 +150,6 @@ func TestE2E_TranscodingFlow(t *testing.T) {
 }
 
 func TestE2E_TranscodingWithRetry(t *testing.T) {
-	t.Skip("StartTask does not support restarting failed tasks")
-
 	// Setup
 	db := helpers.SetupTestDB(t)
 	if db == nil {
@@ -140,9 +159,10 @@ func TestE2E_TranscodingWithRetry(t *testing.T) {
 
 	queue := &mockTranscodingQueue{}
 	transcodingService := service.NewTranscodingService(db, queue)
+	contentID := createTranscodeContent(t, db)
 
 	// Create task
-	taskID, err := transcodingService.Transcode(context.Background(), uuid.New().String(), "1080p", "test-url", 1, "0xTestOwner")
+	taskID, err := transcodingService.Transcode(context.Background(), contentID, "1080p", "test-url", 1, "0xTestOwner")
 	helpers.AssertNoError(t, err)
 
 	// Simulate failure
@@ -154,7 +174,17 @@ func TestE2E_TranscodingWithRetry(t *testing.T) {
 	helpers.AssertNoError(t, err)
 	helpers.AssertEqual(t, "failed", task.Status)
 
-	// Retry task
+	// Retry task: a failed task is re-armed through the public transition map
+	// (failed -> pending, models.validTaskTransitions) before StartTask claims
+	// it again. StartTask itself only moves pending -> processing, which is the
+	// lease-free equivalent of the worker's claim path.
+	err = transcodingService.UpdateTaskStatus(context.Background(), taskID, "pending", 0)
+	helpers.AssertNoError(t, err)
+
+	task, err = transcodingService.GetTranscodingStatus(context.Background(), taskID)
+	helpers.AssertNoError(t, err)
+	helpers.AssertEqual(t, "pending", task.Status)
+
 	err = transcodingService.StartTask(context.Background(), taskID)
 	helpers.AssertNoError(t, err)
 
@@ -183,9 +213,10 @@ func TestE2E_TranscodingCancellation(t *testing.T) {
 
 	queue := &mockTranscodingQueue{}
 	transcodingService := service.NewTranscodingService(db, queue)
+	contentID := createTranscodeContent(t, db)
 
 	// Create task
-	taskID, err := transcodingService.Transcode(context.Background(), uuid.New().String(), "1080p", "test-url", 1, "0xTestOwner")
+	taskID, err := transcodingService.Transcode(context.Background(), contentID, "1080p", "test-url", 1, "0xTestOwner")
 	helpers.AssertNoError(t, err)
 
 	// Start processing

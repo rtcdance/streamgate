@@ -96,7 +96,8 @@ func CleanupTestData(t *testing.T, db *storage.Database) {
 		"transcoding_tasks",
 		"streams",
 		"tasks",
-		"content",
+		"content_gating_rules",
+		"contents",
 		"users",
 	}
 
@@ -246,6 +247,15 @@ func SetupTestStorage(t *testing.T) storage.ObjectStorage {
 	})
 	if err != nil {
 		t.Skipf("Skipping test: failed to setup test storage: %v", err)
+		return nil
+	}
+
+	// Ensure the fixture bucket exists. CreateBucket is idempotent, so this is
+	// a no-op against a stack that already provisioned it, and it keeps the
+	// suite from silently skipping when MinIO is up but nothing created the
+	// bucket out of band.
+	if err := objStorage.CreateBucket(context.Background(), "test-bucket"); err != nil {
+		t.Skipf("Skipping test: storage not accessible: %v", err)
 		return nil
 	}
 
