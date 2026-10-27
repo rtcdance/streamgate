@@ -148,8 +148,11 @@ jobs:
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test < "$f"
+            # The helper looks the row up by BASENAME (it reads the directory
+            # entries), so the ledger must not carry the migrations/ prefix.
+            name=$(basename "$f")
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test -c \
-              "INSERT INTO test_applied_migrations (filename) VALUES ('$f') ON CONFLICT DO NOTHING"
+              "INSERT INTO test_applied_migrations (filename) VALUES ('$name') ON CONFLICT DO NOTHING"
           done
 
       - name: Run tests
