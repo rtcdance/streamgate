@@ -66,10 +66,12 @@ func SetupTestDB(t *testing.T) *storage.Database {
 		return nil
 	}
 
-	// Apply migrations
+	// Apply migrations. A schema that cannot be built is a defect in this
+	// repository, not a missing external service: skipping here once let twelve
+	// E2E tests never run while the job stayed green.
 	if err := ApplyMigrations(t, db); err != nil {
 		_ = db.Close()
-		t.Skipf("Skipping test: failed to apply migrations: %v", err)
+		t.Fatalf("failed to apply migrations: %v", err)
 		return nil
 	}
 

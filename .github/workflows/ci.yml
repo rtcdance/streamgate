@@ -140,9 +140,16 @@ jobs:
           # Apply every up-migration in filename order and stop at the first
           # error (ON_ERROR_STOP=1). The previous `|| true` swallowed bad SQL,
           # so a broken migration could never fail this job.
+          #
+          # Record every file in the table the Go test helper reads, so the
+          # helper does not replay the set against the schema this loop built.
+          psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test -c \
+            "CREATE TABLE IF NOT EXISTS test_applied_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test < "$f"
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test -c \
+              "INSERT INTO test_applied_migrations (filename) VALUES ('$f') ON CONFLICT DO NOTHING"
           done
 
       - name: Run tests

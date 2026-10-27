@@ -224,9 +224,20 @@ jobs:
           done
           # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
           # swallow broken SQL, so a bad migration could never fail this job.
+          #
+          # Record every file in the table the Go test helper reads. Without the
+          # record the helper replays the whole set against the schema this loop
+          # just built; a migration that is not replay-safe (028 adds a UUID
+          # foreign key that 043 later retypes) then fails, and the helper used
+          # to turn that into t.Skip — twelve E2E tests never ran while the job
+          # stayed green.
+          psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate -c \
+            "CREATE TABLE IF NOT EXISTS test_applied_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate < "$f"
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate -c \
+              "INSERT INTO test_applied_migrations (filename) VALUES ('$f') ON CONFLICT DO NOTHING"
           done
 
       - name: Set test path
@@ -351,9 +362,20 @@ jobs:
           done
           # Stop at the first bad migration (ON_ERROR_STOP=1). `|| true` used to
           # swallow broken SQL, so a bad migration could never fail this job.
+          #
+          # Record every file in the table the Go test helper reads. Without the
+          # record the helper replays the whole set against the schema this loop
+          # just built; a migration that is not replay-safe (028 adds a UUID
+          # foreign key that 043 later retypes) then fails, and the helper used
+          # to turn that into t.Skip — twelve E2E tests never ran while the job
+          # stayed green.
+          psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate -c \
+            "CREATE TABLE IF NOT EXISTS test_applied_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate < "$f"
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate -c \
+              "INSERT INTO test_applied_migrations (filename) VALUES ('$f') ON CONFLICT DO NOTHING"
           done
 
       - name: Run E2E tests
