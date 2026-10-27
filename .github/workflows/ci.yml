@@ -644,7 +644,13 @@ jobs:
     # The Mac must start only after every Linux job, so the shared Docker
     # Desktop VM is idle when the complete candidate DAG begins.
     needs: [candidate, durability, ops, perf, test-suite, docker, manifest]
-    timeout-minutes: 360
+    # 360 minutes covered the DAG plus most of the evidence transport, and the
+    # transport was still running when the job was cancelled at 05:36Z on run
+    # 40403641459: ~620 MB of raw evidence at this runner's uplink needs ~4 h on
+    # top of a ~2 h20m DAG. Self-hosted runners accept a longer bound; the stage
+    # gates themselves are unchanged, so this only stops the clock from cutting
+    # an otherwise complete run short.
+    timeout-minutes: 600
     env:
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
