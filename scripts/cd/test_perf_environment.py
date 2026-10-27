@@ -104,7 +104,7 @@ class EnvironmentTests(unittest.TestCase):
         self.environment.update(VERIFY_ENVIRONMENT_PROFILE="desktop-local", VERIFY_PLATFORM="linux/amd64")
         manifest = self.capture()
         self.assertEqual(manifest["runner"]["backgroundContainers"], [{
-            "composeProject": "neighbour-project", "service": "kafka",
+            "service": "kafka",
             "imageID": "sha256:" + "9" * 64, "imageReference": "neighbour:1",
             "limits": {"nanoCPUs": 1000000000, "memoryBytes": 536870912}}])
         self.assertEqual(manifest["backgroundContainerIDs"], ["background"])
@@ -117,10 +117,12 @@ class EnvironmentTests(unittest.TestCase):
                 compare_environments(manifest, changed)
 
     def test_a_restarted_neighbour_is_the_same_background_load(self):
-        # The neighbour restarts between the reference and candidate rounds:
-        # only its instance ID changes, so the environments stay comparable.
+        # The neighbour restarts between the reference and candidate rounds: it
+        # gets a new instance ID and a new compose project name, while the
+        # services, images and limits drawing on the host stay the same.
         manifest = self.capture()
         self.peer_id = "background-restarted"
+        self.peer["Config"]["Labels"]["com.docker.compose.project"] = "neighbour-project-2"
         restarted = self.capture()
         self.assertNotEqual(manifest["backgroundContainerIDs"], restarted["backgroundContainerIDs"])
         self.assertEqual(manifest["runner"]["backgroundContainers"], restarted["runner"]["backgroundContainers"])
@@ -130,7 +132,6 @@ class EnvironmentTests(unittest.TestCase):
         manifest = self.capture()
         mutations = {
             "service": lambda peer: peer.update(service="zookeeper"),
-            "project": lambda peer: peer.update(composeProject="other-project"),
             "image": lambda peer: peer.update(imageID="sha256:" + "8" * 64),
             "cpu": lambda peer: peer["limits"].update(nanoCPUs=2000000000),
             "memory": lambda peer: peer["limits"].update(memoryBytes=1073741824),

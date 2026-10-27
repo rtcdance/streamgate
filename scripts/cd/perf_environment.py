@@ -23,8 +23,12 @@ def background_peer_descriptor(identity):
     """
     record = json.loads(command("docker", "inspect", identity))[0]
     labels = record["Config"]["Labels"] or {}
+    # The compose PROJECT is deliberately absent: the neighbour workload on this
+    # host starts as cp-tx-<random> and takes a fresh project name on every
+    # restart (c8a9091515 -> 050fac2745 -> 648be11a38 within one afternoon), so
+    # it is an instance identifier in the same sense the container ID is. What
+    # draws on the host is the service, its image and its limits.
     return {
-        "composeProject": labels.get("com.docker.compose.project", ""),
         "service": labels.get("com.docker.compose.service", ""),
         "imageID": record["Image"],
         "imageReference": record["Config"]["Image"],
