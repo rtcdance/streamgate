@@ -81,6 +81,23 @@ else:
     raise SystemExit('restarted API did not become ready')
 PY
 }
+# wait_for_rpc_proxies — compose start returns once the container is running,
+# not once socat forwards. The monolith's readiness probe does not exercise the
+# chain, so without this barrier the loader can begin sampling against a proxy
+# that has not connected upstream yet: the manifest's NFT check fails over to a
+# dead endpoint and healthy requests come back 503 (observed in
+# ci-all round=3 warm_cache: 18/538 errors, 96.65% success). Probe THROUGH the
+# proxy names from the anvil container, exactly like verify-docker.sh does.
+wait_for_rpc_proxies() {
+  local name deadline
+  for name in anvil-proxy anvil-fallback-proxy; do
+    deadline=$((SECONDS + 60))
+    until compose exec -T anvil cast chain-id --rpc-url "http://$name:8545" 2>/dev/null | grep -q '31337'; do
+      [ "$SECONDS" -lt "$deadline" ] || die "$name never forwarded to the chain"
+      sleep .2
+    done
+  done
+}
 capture_rpc_status() {
   python3 - "$BASE_URL/api/v1/web3/rpc-status" "$1" <<'PY'
 import json, pathlib, sys, urllib.request
@@ -168,6 +185,7 @@ run_scenario() (
   trap 'exit 130' INT
   trap 'exit 143' TERM
   compose start anvil-proxy anvil-fallback-proxy >/dev/null || die "cannot restore RPC endpoints before warmup"
+  wait_for_rpc_proxies
   restart_playback_api
   loader="$(docker create --init --platform "${VERIFY_PLATFORM:-linux/amd64}" \
     --cpus 1 --memory 512m --network "$PERF_DOCKER_NETWORK" \
