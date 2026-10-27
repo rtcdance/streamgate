@@ -14,6 +14,27 @@ def command(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
+def background_peer_descriptor(identity):
+    """Describe a neighbour container by what it is, never by which instance it is.
+
+    The ID is minted on every start, so two runs of the same workload next to the
+    same neighbours disagree on it; the compose project, service, image and
+    resource limits are what actually change the background load.
+    """
+    record = json.loads(command("docker", "inspect", identity))[0]
+    labels = record["Config"]["Labels"] or {}
+    return {
+        "composeProject": labels.get("com.docker.compose.project", ""),
+        "service": labels.get("com.docker.compose.service", ""),
+        "imageID": record["Image"],
+        "imageReference": record["Config"]["Image"],
+        "limits": {
+            "nanoCPUs": record["HostConfig"]["NanoCpus"],
+            "memoryBytes": record["HostConfig"]["Memory"],
+        },
+    }
+
+
 def capture(root, project, compose):
     root = Path(root)
     rows = sorted(p for p in root.rglob("*-viewers-*.json") if not p.name.endswith(".execution.json"))
@@ -41,12 +62,20 @@ def capture(root, project, compose):
     runner["executionPlatform"] = os.environ.get("VERIFY_PLATFORM", "linux/amd64")
     runner["measurementScope"] = ("local Docker Desktop; shared/emulated latency, no production capacity claim"
                                    if runner["executionProfile"] == "desktop-local" else "dedicated native Linux")
-    # Keep background peers in the compared runner identity. Equal peers do not
-    # prove equal host load; that limitation remains explicit in local results.
+    # Keep background peers in the compared runner identity, but by what they
+    # ARE rather than by which instance they are. A container ID is minted per
+    # start, so an unrelated neighbour restarting mid-run used to make two
+    # otherwise identical environments fail the identity comparison (observed
+    # on 40566983: the only differing field was backgroundContainers, because
+    # another compose project on the same Mac started five containers between
+    # the reference and candidate rounds). Compose project, service, image and
+    # resource limits still refuse a real change in the background load.
     own_run = os.environ.get("VERIFY_PROJECT", project)
     peers = command("docker", "ps", "--format", '{{.ID}}|{{.Label "com.streamgate.verify.run"}}')
-    runner["backgroundContainers"] = sorted(row.split("|", 1)[0] for row in peers.splitlines()
-                                             if row and row.split("|", 1)[-1] != own_run)
+    peer_ids = sorted(row.split("|", 1)[0] for row in peers.splitlines()
+                      if row and row.split("|", 1)[-1] != own_run)
+    runner["backgroundContainers"] = sorted((background_peer_descriptor(i) for i in peer_ids),
+                                             key=lambda peer: json.dumps(peer, sort_keys=True))
     background_load = command("docker", "stats", "--no-stream", "--format", '{{json .}}')
     identifiers = command("docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=" + project).split()
     services = {}
@@ -86,7 +115,11 @@ def capture(root, project, compose):
                 "compose_project": project, "run": resources["containers"]["api"]["run"],
                 "protocolSHA256": hashlib.sha256(Path("config/performance.acceptance.json").read_bytes()).hexdigest(),
                 "composeSHA256": hashlib.sha256(Path(compose).read_bytes()).hexdigest(),
-                "runner": runner, "backgroundLoadSnapshot": background_load, "services": services, "tools": versions,
+                "runner": runner, "backgroundLoadSnapshot": background_load,
+                # Instance IDs are diagnostics only: they are recorded for the
+                # operator and deliberately kept OUT of the compared identity.
+                "backgroundContainerIDs": peer_ids,
+                "services": services, "tools": versions,
                 "applicationImages": {role: resources["containers"][role]["imageID"] for role in ("api", "worker")},
                 "loader": {"kind": "docker", "imageID": image, "binarySHA256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                            "limits": protocol["resources"]["loader"], "maxParallelMediaRequestsPerViewer": 1}}
