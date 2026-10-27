@@ -465,11 +465,29 @@ func (cc *ChainClient) failover(exclude int) error {
 // can drive this exact code path in milliseconds instead of seconds.
 var rpcRequestTimeout = 10 * time.Second
 
-// newRPCHTTPClient is the HTTP client geth's JSON-RPC transport uses. Only the
-// timeout is added; the transport is DefaultTransport's, so proxying, connection
-// pooling, HTTP/2 and the TLS handshake timeout are unchanged.
+// rpcTransport is the connection pool every RPC client shares. The default
+// transport keeps only TWO idle connections per host, so a viewer burst
+// re-dials — and therefore re-resolves the endpoint name — for almost every
+// chain call. In the Docker acceptance stack that DNS fan-out was measured as
+// thousands of "lookup anvil-proxy: no such host" failures in a single
+// 50-viewer round, which surfaced as 503s for real NFT holders. Keep enough
+// idle connections for the viewer fan-out so a steady stream reuses them;
+// proxying, HTTP/2 and the TLS handshake timeout stay DefaultTransport's.
+var rpcTransport = func() http.RoundTripper {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	transport := base.Clone()
+	transport.MaxIdleConns = 256
+	transport.MaxIdleConnsPerHost = 128
+	transport.IdleConnTimeout = 90 * time.Second
+	return transport
+}()
+
+// newRPCHTTPClient is the HTTP client geth's JSON-RPC transport uses.
 func newRPCHTTPClient() *http.Client {
-	return &http.Client{Timeout: rpcRequestTimeout, Transport: http.DefaultTransport}
+	return &http.Client{Timeout: rpcRequestTimeout, Transport: rpcTransport}
 }
 
 func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn func(*ethclient.Client) (T, error)) (T, error) {
