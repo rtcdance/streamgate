@@ -41,10 +41,6 @@ func createTranscodeContent(t *testing.T, db *storage.Database) string {
 
 type mockTranscodingQueue struct{}
 
-type e2eQueueHandle string
-
-func (h e2eQueueHandle) TaskID() string { return string(h) }
-
 func (m *mockTranscodingQueue) Enqueue(task *service.TranscodingTask) error {
 	return nil
 }
