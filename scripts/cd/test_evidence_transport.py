@@ -75,7 +75,7 @@ class EvidenceTransportTests(unittest.TestCase):
     def test_registry_push_retries_a_dropped_request(self):
         calls = []
 
-        def fake_docker(*args, capture=True):
+        def fake_docker(*args, capture=True, timeout=None):
             calls.append(args)
             if args[0] == "push" and calls.count(("push", "ghcr.io/x/y:t")) == 1:
                 raise transport.TransportError("docker push failed: EOF")
@@ -97,6 +97,57 @@ class EvidenceTransportTests(unittest.TestCase):
             with self.assertRaises(transport.TransportError):
                 transport.push_image(
                     self.root, "ghcr.io/x/y", "t", "https://example.invalid", "a" * 40, "n", "b" * 64)
+
+    def test_registry_operation_has_a_finite_timeout(self):
+        with patch.dict(os.environ, {"STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS": "17"}), \
+                patch.object(transport, "run_docker", return_value="ok") as command:
+            self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
+        command.assert_called_once_with("push", "ghcr.io/x/y:t", timeout=17)
+
+    def test_registry_rejects_invalid_timeout_before_starting(self):
+        for value in ("0", "-1", "forever", "1.5"):
+            with self.subTest(value=value), \
+                    patch.dict(os.environ, {"STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS": value}), \
+                    patch.object(transport, "run_docker") as command:
+                with self.assertRaises(transport.TransportError):
+                    transport.run_registry("pull", "ghcr.io/x/y:t")
+                command.assert_not_called()
+
+    def test_registry_authentication_failure_does_not_retry(self):
+        with patch.object(transport, "run_docker", side_effect=transport.TransportError(
+                "docker push failed: unauthorized: authentication required")) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            with self.assertRaises(transport.TransportError):
+                transport.run_registry("push", "ghcr.io/x/y:t")
+        self.assertEqual(command.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_registry_transient_failure_exhausts_three_attempts(self):
+        with patch.object(transport, "run_docker", side_effect=transport.TransportError(
+                "docker pull failed: connection reset by peer")) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            with self.assertRaises(transport.TransportError):
+                transport.run_registry("pull", "ghcr.io/x/y:t")
+        self.assertEqual(command.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    def test_registry_timeout_does_not_stack_background_transfers(self):
+        with patch.object(transport.subprocess, "run", side_effect=transport.subprocess.TimeoutExpired(
+                ["docker", "push", "ghcr.io/x/y:t"], 17)) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            with self.assertRaisesRegex(transport.TransportError, "timed out.*daemon"):
+                transport.run_registry("push", "ghcr.io/x/y:t")
+        self.assertEqual(command.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_real_stalled_docker_client_is_terminated(self):
+        self.make_tree({"docker": b"#!/bin/sh\nexec sleep 30\n"})
+        (self.root / "docker").chmod(0o755)
+        with patch.dict(os.environ, {"PATH": str(self.root) + os.pathsep + os.environ["PATH"]}):
+            before = transport.time.monotonic()
+            with self.assertRaisesRegex(transport.TransportError, "timed out"):
+                transport.run_docker("push", "ghcr.io/x/y:t", timeout=0.1)
+            self.assertLess(transport.time.monotonic() - before, 5)
 
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()
@@ -380,6 +431,16 @@ class EvidenceTransportTests(unittest.TestCase):
         ])
         self.assertEqual([entry["path"] for entry in entries], ["ci-job-results.json"])
         self.assertEqual([item["matches"] for item in report["specs"]], [1, 0])
+
+    def test_ci_summary_with_receipts_preserves_the_summary_layout(self):
+        self.make_tree({"ci-all/ci-job-results.json": b"{}", "ci-all/ci-evidence.json": b"{}",
+                        "ci-all/publication-revalidation/monolith.json": b"receipt"})
+        _, entries, _ = transport.collect_selection([
+            str(self.root / "ci-all/ci-job-results.json"), str(self.root / "ci-all/ci-evidence.json"),
+            str(self.root / "ci-all/publication-revalidation"),
+        ])
+        self.assertEqual([entry["path"] for entry in entries], [
+            "ci-evidence.json", "ci-job-results.json", "publication-revalidation/monolith.json"])
 
     def test_put_warn_uploads_remaining_files_when_one_spec_is_missing(self):
         self.make_tree({"ci-all/ci-job-results.json": b"{}"})

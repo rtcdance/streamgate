@@ -20,9 +20,14 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REGISTRY_ATTEMPTS = 3
 REGISTRY_BACKOFF_SECONDS = 5
+REGISTRY_TIMEOUT_SECONDS = 900
 
 
 class TransportError(Exception):
+    pass
+
+
+class RegistryTimeoutError(TransportError):
     pass
 
 
@@ -216,22 +221,47 @@ def write_context(root, entries, manifest, context):
     )
 
 
-def run_docker(*args, capture=True):
-    result = subprocess.run(["docker", *args], text=True, capture_output=capture)
+def run_docker(*args, capture=True, timeout=None):
+    try:
+        result = subprocess.run(["docker", *args], text=True, capture_output=capture, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        # Killing the CLI bounds the caller, but a remote daemon may continue
+        # transferring. Do not start another transfer until it is inspected.
+        raise RegistryTimeoutError(
+            f"docker {args[0]} timed out after {timeout}s; client terminated; "
+            "inspect daemon transfer activity before retrying"
+        ) from error
     if result.returncode:
         raise TransportError(f"docker {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
     return result.stdout
 
 
 def run_registry(*args):
-    # A single dropped request to the registry (proxy EOF, reset) must not
-    # discard the artifact for the whole run; registry pushes are idempotent per
-    # digest, so a bounded retry cannot produce a second or partial artifact.
+    value = os.environ.get("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS", str(REGISTRY_TIMEOUT_SECONDS))
+    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 3600:
+        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..3600")
+    timeout = int(value)
+    # Retry only transient failures. Authentication/identity failures cannot be
+    # repaired by repeating a command; timeouts may leave daemon work in flight.
     for attempt in range(1, REGISTRY_ATTEMPTS + 1):
         try:
-            return run_docker(*args)
+            return run_docker(*args, timeout=timeout)
+        except RegistryTimeoutError:
+            raise
         except TransportError as error:
-            if attempt == REGISTRY_ATTEMPTS:
+            transient = re.search(
+                r"\bEOF\b|connection reset|broken pipe|connection refused|"
+                r"TLS handshake timeout|i/o timeout|temporary failure|"
+                r"temporarily unavailable|unexpected status.*\b(?:429|5\d\d)\b|"
+                r"\b(?:502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)\b",
+                str(error), re.IGNORECASE,
+            )
+            permanent = re.search(
+                r"unauthorized|forbidden|authentication required|access denied|"
+                r"digest mismatch|manifest unknown|invalid reference|x509",
+                str(error), re.IGNORECASE,
+            )
+            if attempt == REGISTRY_ATTEMPTS or permanent or not transient:
                 raise
             print(f"evidence transport: {' '.join(args)} attempt {attempt} failed: {error}",
                   file=sys.stderr)
