@@ -846,18 +846,35 @@ jobs:
           max-attempt: ${{ github.run_attempt }}
           token: ${{ github.token }}
 
+      - name: Collect raw publication receipts for this verification attempt
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/evidence-download
+        with:
+          names: registry-publications-${{ github.sha }}
+          path: .verify-artifacts/ci-all/publication-revalidation
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
+
       - name: Verify every required job, gate and candidate identity
         env:
           REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
           CI_EVENT_NAME: ${{ github.event_name }}
+          REGISTRY_REPOSITORY: ghcr.io/${{ github.repository }}
         run: |
           set -euo pipefail
+          publication_args=()
+          if [ "$CI_EVENT_NAME" != pull_request ]; then
+            publication_args=(--registry-dir .verify-artifacts/ci-all/publication-revalidation \
+              --registry-repository "$REGISTRY_REPOSITORY")
+          fi
           printf '%s\n' "$REQUIRED_JOB_RESULTS" > .verify-artifacts/ci-all/ci-job-results.json
           python3 scripts/cd/summarize_ci_evidence.py .verify-artifacts/ci-all \
             --manifest .verify-artifacts/ci-manifest/candidate-manifest.json \
             --needs .verify-artifacts/ci-all/ci-job-results.json \
             --revision "$GITHUB_SHA" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT" \
-            --event "$CI_EVENT_NAME" --out .verify-artifacts/ci-all/ci-evidence.json
+            --event "$CI_EVENT_NAME" "${publication_args[@]}" --out .verify-artifacts/ci-all/ci-evidence.json
 
       - name: Upload the candidate evidence summary
         if: always()
@@ -867,6 +884,7 @@ jobs:
           path: |
             .verify-artifacts/ci-all/ci-job-results.json
             .verify-artifacts/ci-all/ci-evidence.json
+            .verify-artifacts/ci-all/publication-revalidation/
           retention-days: 30
           if-no-files-found: error
           token: ${{ github.token }}

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bind a full Docker gate index to this CI run's scanned and published build."""
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -10,7 +11,7 @@ from assert_candidate_evidence import validate
 from candidate_manifest import file_hash
 from image_identity import BINDING_FIELDS
 from generate_candidate_gates import candidate_file
-from write_candidate_manifest import REQUIRED_SERVICES
+from write_candidate_manifest import REQUIRED_SERVICES, merge_publications
 
 
 REQUIRED_JOBS = {
@@ -33,7 +34,43 @@ REQUIREMENTS = {
 }
 
 
-def summarize(root, manifest_path, needs, revision, ci_run, ci_attempt, event, repository):
+def verify_publication(manifest, manifest_path, ci_run, ci_attempt, event, registry_dir, registry_repository):
+    source = manifest.get("registryPublication", {})
+    if event == "pull_request":
+        if source != {"status": "NOT_RECORDED"} or registry_dir is not None or registry_repository is not None:
+            raise ValueError("PRs must not claim a registry publication")
+        return source, None
+    expected = {"status": "RECORDED", "ciRun": ci_run, "ciAttempt": ci_attempt}
+    if source == expected and registry_dir is None and registry_repository is None:
+        return source, None
+    attempt = source.get("ciAttempt")
+    if (set(source) != {"status", "ciRun", "ciAttempt"} or source.get("status") != "RECORDED"
+            or source.get("ciRun") != ci_run or not isinstance(attempt, str)
+            or not re.fullmatch(r"[1-9][0-9]*", attempt) or int(attempt) > int(ci_attempt)
+            or registry_dir is None or not registry_repository):
+        raise ValueError("candidate publication receipts must be verified in this CI run/attempt")
+    # Re-check raw receipts instead of relabelling the inherited manifest. The
+    # accepted image/digest and original producer attempt must remain identical.
+    images = copy.deepcopy(manifest["images"])
+    merge_publications(images, registry_dir, registry_repository, ci_run, attempt)
+    receipts = {}
+    for service, image in images.items():
+        original = manifest["images"][service]
+        if any(image.get(key) != original.get(key) for key in
+               ("registryDigest", "registryReference", "registryPublicationAttempt")):
+            raise ValueError(f"{service}: revalidation changed the accepted registry identity")
+        receipts[service] = {}
+        for suffix in (".json", ".push.log", ".push.exit"):
+            path = registry_dir / f"{service}{suffix}"
+            if path.is_symlink() or not path.resolve().is_relative_to(registry_dir.resolve()):
+                raise ValueError(f"{service}: publication evidence escapes its artifact directory")
+            receipts[service][path.name] = file_hash(path)
+    return expected, {"sourceManifestSHA256": file_hash(manifest_path),
+                      "sourceVerification": source, "receipts": receipts}
+
+
+def summarize(root, manifest_path, needs, revision, ci_run, ci_attempt, event, repository,
+              registry_dir=None, registry_repository=None):
     if (not re.fullmatch(r"[0-9a-f]{40}", revision)
             or not re.fullmatch(r"[1-9][0-9]*", ci_run)
             or not re.fullmatch(r"[1-9][0-9]*", ci_attempt)
@@ -52,12 +89,8 @@ def summarize(root, manifest_path, needs, revision, ci_run, ci_attempt, event, r
             or manifest.get("revision") != revision
             or set(manifest.get("images", {})) != REQUIRED_SERVICES):
         raise ValueError("CI manifest and full Docker evidence do not identify this complete candidate")
-    publication = manifest.get("registryPublication", {})
-    if event == "pull_request":
-        if publication.get("status") != "NOT_RECORDED":
-            raise ValueError("PRs must not claim a registry publication")
-    elif publication != {"status": "RECORDED", "ciRun": ci_run, "ciAttempt": ci_attempt}:
-        raise ValueError("candidate publication receipts must be verified in this CI run/attempt")
+    publication, publication_evidence = verify_publication(
+        manifest, manifest_path, ci_run, ci_attempt, event, registry_dir, registry_repository)
     originals = candidate.get("ciBuildInputs", {}).get("images", {})
     if set(originals) != REQUIRED_SERVICES:
         raise ValueError("full Docker acceptance is not linked to all original CI build archives")
@@ -94,7 +127,8 @@ def summarize(root, manifest_path, needs, revision, ci_run, ci_attempt, event, r
         "gates": [gate["id"] for gate in index["gates"]],
         "candidateManifestSHA256": file_hash(manifest_path),
         "dockerGateIndexSHA256": file_hash(root / "candidate-gates.json"),
-        "registryPublication": publication, "images": manifest["images"],
+        "registryPublication": publication, "registryPublicationEvidence": publication_evidence,
+        "images": manifest["images"],
         "requirements": requirements,
         "limitations": ["Human demonstration and production deployment remain outside this gate."],
     }
@@ -109,10 +143,13 @@ def main():
     parser.add_argument("--ci-run", required=True)
     parser.add_argument("--ci-attempt", required=True)
     parser.add_argument("--event", required=True)
+    parser.add_argument("--registry-dir", type=Path)
+    parser.add_argument("--registry-repository")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     result = summarize(args.artifact_root, args.manifest, json.loads(args.needs.read_text()),
-                       args.revision, args.ci_run, args.ci_attempt, args.event, Path.cwd())
+                       args.revision, args.ci_run, args.ci_attempt, args.event, Path.cwd(),
+                       registry_dir=args.registry_dir, registry_repository=args.registry_repository)
     args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(f"M0-M8 and required upstream CI jobs bound to candidate {args.revision}, run {args.ci_run}/{args.ci_attempt}")
 
