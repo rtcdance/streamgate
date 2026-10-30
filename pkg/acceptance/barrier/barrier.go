@@ -172,16 +172,28 @@ func (p *Point) releasePath() string {
 // killed process could leave behind. A released point also consumes its release
 // marker, so one point serves several scenarios in a run.
 func (p *Point) Arrive(ctx context.Context) error {
+	return p.ArriveFor(ctx, "")
+}
+
+// ArriveFor also identifies the intent stopped at this point. The harness must
+// match it before injecting a fault: unrelated intents share the same point.
+func (p *Point) ArriveFor(ctx context.Context, subject string) error {
 	if p == nil {
 		return nil
 	}
 	if !p.Armed() {
 		return nil
 	}
+	if strings.ContainsAny(subject, " \t\r\n") {
+		return fmt.Errorf("fault barrier %s: subject must be a single marker field", p.name)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	marker := fmt.Sprintf("%s %d %s\n", hostname, os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+	if subject != "" {
+		marker = strings.TrimSuffix(marker, "\n") + " " + subject + "\n"
+	}
 	if err := os.WriteFile(p.reachedPath(), []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("fault barrier %s: cannot publish the reached marker: %w", p.name, err)
 	}

@@ -142,8 +142,8 @@ func (p *Publisher) SetFaultBarrier(b *barrier.Barrier) {
 // arriveAt announces a fault point and waits for the harness to release it. A
 // point that is never released bounds itself by the barrier timeout and is
 // logged rather than allowed to wedge the publisher loop forever.
-func (p *Publisher) arriveAt(ctx context.Context, name string) {
-	if err := p.faultBarrier.Point(name).Arrive(ctx); err != nil {
+func (p *Publisher) arriveAt(ctx context.Context, name, contentID string) {
+	if err := p.faultBarrier.Point(name).ArriveFor(ctx, contentID); err != nil {
 		p.log.Warn("fault barrier point was not released", zap.String("point", name), zap.Error(err))
 	}
 }
@@ -262,7 +262,7 @@ func (p *Publisher) drivePending(ctx context.Context, in *Intent) error {
 
 	// The signed raw tx, its nonce and its hash survive in the DB, but nothing
 	// has been handed to a node yet: a crash here must reuse exactly these bytes.
-	p.arriveAt(ctx, "publisher.before_broadcast")
+	p.arriveAt(ctx, "publisher.before_broadcast", in.ContentID)
 
 	return p.broadcast(ctx, in, signed, StatusSubmitted)
 }
@@ -305,7 +305,7 @@ func (p *Publisher) broadcast(ctx context.Context, in *Intent, signed *tx.Signed
 		// The node has (or is known to have) the tx, but the caller's status
 		// transition has not been written yet: a crash here must re-send these
 		// exact persisted bytes, never re-sign (A.4).
-		p.arriveAt(ctx, "publisher.after_send")
+		p.arriveAt(ctx, "publisher.after_send", in.ContentID)
 		if fromStatus == StatusBroadcastUnknown {
 			// A recovery re-send of the SAME raw tx succeeded (or the node
 			// already had it): back to submitted.
@@ -430,7 +430,7 @@ func (p *Publisher) handleReceipt(ctx context.Context, in *Intent, receipt *type
 	}
 	// The receipt is durable and the intent is back on 'submitted', but the
 	// confirmation decision has not been evaluated yet.
-	p.arriveAt(ctx, "publisher.after_receipt")
+	p.arriveAt(ctx, "publisher.after_receipt", in.ContentID)
 	return p.maybeConfirm(ctx, in.ContentID, receipt.BlockNumber.Uint64(), receipt.BlockHash.Hex())
 }
 

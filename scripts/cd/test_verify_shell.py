@@ -854,5 +854,49 @@ class VerifyShellTests(unittest.TestCase):
         self.assertEqual(SOURCE.read_text().count('record_stage_pass "$stage"'), 2)
 
 
+class FaultBarrierSubjectTests(unittest.TestCase):
+    def run_wait(self, markers, release_fails=False, budget=10):
+        match = re.search(r"^wait_reached_content\(\) \{\n.*?^\}", (SOURCE.parent / "durable-fault-acceptance.sh").read_text(), re.M | re.S)
+        self.assertIsNotNone(match, "FR01 must wait for the exact content at the barrier")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "markers").write_text("\n".join(markers) + "\n")
+            script = '\n'.join([
+                'set -uo pipefail',
+                'marker_of() {',
+                '  head -1 markers',
+                '  if [ "$(wc -l < markers)" -gt 1 ]; then tail -n +2 markers > next; mv next markers; fi',
+                '}',
+                'sleep() { :; }',
+                'release_point() { echo release >> releases; ' + ('return 1;' if release_fails else ':;') + ' }',
+                match[0],
+                f'wait_reached_content publisher.before_broadcast target {budget}',
+            ])
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, timeout=20)
+            releases = (root / "releases").read_text().splitlines() if (root / "releases").exists() else []
+            return result.returncode, releases
+
+    def test_releases_other_intent_once_and_waits_for_target(self):
+        rc, releases = self.run_wait(['host 1 time other'] * 3 + ['host 1 later target'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(releases, ['release'])
+
+    def test_target_remains_parked_for_the_fault(self):
+        rc, releases = self.run_wait(['host 1 time target'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(releases, [])
+
+    def test_wrong_or_missing_identity_cannot_satisfy_the_wait(self):
+        for marker in ['host 1 time other', 'host 1 time', '']:
+            with self.subTest(marker=marker):
+                rc, _ = self.run_wait([marker], budget=1)
+                self.assertNotEqual(rc, 0)
+
+    def test_release_error_fails_the_wait(self):
+        rc, _ = self.run_wait(['host 1 time other', 'host 1 later target'], release_fails=True)
+        self.assertNotEqual(rc, 0)
+
+
+
 if __name__ == "__main__":
     unittest.main()
