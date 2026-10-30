@@ -1,19 +1,19 @@
 # StreamGate 项目讲述稿 + 演示 + 追问（SG-09 / M6 的 AI 交付部分）
 
-> **当前状态（2026-10-22）：整体修复与重新验收未通过。** 本讲述稿中的旧实测数值只对应各自记录的 SHA；`ab172c2` / run `39005594931` 是历史候选，不是当前验收。当前同 SHA `all`、性能/reference 和远端 CI 尚待完成。本文不得照稿宣称当前整体完成；个人贡献、讲述、演示、录屏和投递均须本人核实。生产部署未执行。
+> **当前状态（2026-10-30）：本机候选 PASS WITH BOUNDARIES，同 SHA CI attempt 10 已失败，修复待验。** 代码候选 `4eae43d6abe94f21c7730c1dc27fb2b12b9f095a` 的完整 Docker `all` / M0–M8 及原始 `command.exit=0` 已独立复核；工件为 `sg-final3-4eae43d6`。CI run `40608718226` 的 attempt 10 已失败；后续修复待验，不能宣称项目整体完成。本材料修订不继承代码候选 CI 状态；个人贡献、讲述、演示、录屏和投递仍须本人确认，生产部署未执行。
 
-> 纪律：每个数字都能指到 SHA / 测试名 / 实测断言；file 以 2026-10-13 的仓库为准——行号会漂移，函数名不会。
+> 纪律：每个数字均须指向 SHA / 测试名 / 实测断言；历史代码入口按对应 SHA 解读，当前验收代码候选为 `4eae43d6`，行号仅用于导航。
 > 诚实边界：不说 DRM、不说完全去中心化 / 无需信任、不说生产高可用已验证、不说版权确权；多 RPC 回退 ≠ 轻客户端证明；NFT 持有 ≠ 媒体版权。
 > AI 归属：项目由 AI 辅助编码。**AI 的代码生成不等于"我独立设计实现"**——个人贡献主张逐条标【待本人确认】（第六节）。
-> 下文中 `✅` 与测量值描述其对应 SHA 上的历史证据，不代表当前候选整体通过；当前整体状态见 `TRANSITION_PLAN.md` 顶部标记与 §8.17。`⏳` = 当前待验收 / 待实测；【待本人确认】= 需本人核实。ChainPulse 是独立项目，证据另行整理，不用 StreamGate 的验收为它背书。
+> 下文中 `✅` 与测量值描述其对应 SHA 上的历史证据，不代表当前候选整体通过；当前整体状态见 `TRANSITION_PLAN.md` 顶部标记与 §8.40 之后的记录。`⏳` = 当前待验收 / 待实测；【待本人确认】= 需本人核实。ChainPulse 是独立项目，证据另行整理，不用 StreamGate 的验收为它背书。
 
 ---
 
 ## 零、状态速览（被问进度就照这个说）
 
-- ⏳ 当前整体验收未通过。以下逐项实现和测试记录均为历史 SHA 证据；以 `TRANSITION_PLAN.md` 顶部状态标记和 §8.17 当前表为准。
-- ⏳ 历史 CI：run `39005594931` 只证明旧候选 `ab172c2` 当时 55/55 jobs success；当前候选的同 SHA CI 尚未取得。生产 rollout 未做；本人确认和演示事项另列。
-- 历史实测口径（仅适用于记录的旧 SHA）：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；70s 撤销上界**实测 67s**；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。当前候选须重新验收。
+- 当前候选 `4eae43d6` 本机完整 Docker 门通过；同 SHA CI 与最终审核待完成。后续历史记录仍按各自 SHA 解读，以 `TRANSITION_PLAN.md` 顶部状态及 §8.40 之后的候选记录为准。
+- ⏳ 当前 CI：run `40608718226` 尚无最终成功结论；旧 run `39005594931` / `ab172c2` 仍只算历史。生产 rollout、本人确认和演示事项另列。
+- 历史实测口径（仅适用于记录的旧 SHA）：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；能力自然过期历史观测为 67s（不是转移到拒绝的计时）；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。当前本机媒体门两条腿各 77/77；same-SHA CI 仍待完成。
 
 ---
 
@@ -27,9 +27,9 @@
 
 第一，签名与授权。challenge 是 128 位 nonce、Redis Lua 一次性原子消费，重放必拒；gating 规则 owner 校验在业务层、与写入同一条 SQL 语句，A/B 双钱包越权负例在真实 Postgres 上 7 例全跑 0 skip；服务端代签只有 development + 31337 + 显式开关三重门才存在。
 
-第二，链状态与撤销。授权读取固定到解析出的区块号与哈希，读前后各核对一次；正证据总年龄 ≤5 秒。能力 TTL 60 秒 + 证据 5 秒 + 容差 5 秒，三项**推导**出 70 秒转移撤销上界——验收实测 67 秒失效。
+第二，链状态与撤销。授权读取固定到区块号与哈希，正证据总年龄 ≤5 秒。能力 TTL 60 秒 + 证据 5 秒 + 容差 5 秒，推导出 safe 视图确认转移后 70 秒内拒绝的上界。候选 `4eae43d6` 两条部署腿的 HTTP/gRPC 实测分别为 62.989s/63.208s 与 60.949s/61.149s；链最终性等待不包含在这些计时中。历史 67 秒只是能力自然过期，不作为转移撤销证明。
 
-第三，媒体交付。原件由服务端算 SHA-256 封存进不可覆盖的 key；ffprobe 白名单门拒绝超限而不是截断；转码跑在独立 worker 容器（非 root、无 JWT、无链私钥），验收用数据库 lease_owner 加容器日志做执行归因；播放列表用 FFmpeg 真实 EXTINF，只重写 URI。双部署模式 66 项断言全过。
+第三，媒体交付。原件由服务端算 SHA-256 封存进不可覆盖的 key；ffprobe 白名单门拒绝超限而不是截断；转码跑在独立 worker 容器（非 root、无 JWT、无链私钥），验收用数据库 lease_owner 加容器日志做执行归因；播放列表用 FFmpeg 真实 EXTINF，只重写 URI。当前候选的两条部署腿分别 77/77，通过真实解码与浏览器播放断言；同 SHA CI 尚待完成。
 
 关于 AI：项目是 AI 辅助编码的，我的工作是设计决策、验收判据、代码评审和故障定位——三次'真跑一次'才暴露的问题：分片忽略 Range、规则缓存 30 秒不生效、三个 nonce 分配器在真实栈上互相顶掉交易。AI 让写代码变便宜，让判断代码对不对变贵，这个项目给我的都是判断侧的训练。
 
@@ -188,7 +188,7 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 | 重组失效 | `InvalidateNFTEvidence` + `ReorgDetector` | `TestAnvil_SnapshotRevertProducesARealReorg`、`TestInvalidateNFTEvidence_DropsOnlyThatChainsEvidence` | `7e04648` |
 | 数量阈值 / 缓存顺序 | `evaluateGatingRules` | `TestNFTGate_MinGreaterThanBalance_Denies`、`_CacheOrderLowThenHigh_Denies`、`_ConcurrentDifferentThresholds`（20 轮 min=1 恒 200 / min=2 恒 403）、`TestNFTGate_ERC1155Quantity_OneRejected_TwoAllowed`、`TestAnvil_ERC1155_Web3Service_NFTGate` | `2055677` |
 | 60s 能力 / audience / 会话 epoch | `pkg/service/auth_wallet.go`、`pkg/core/config` | `TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts`、`_MaximaSumToTheBound`、`TestValidateProduction_RejectsASumOverTheBound` | `bf2f4ca`、`727394a`、`08e5584`、`09bcff7` |
-| 70s 实测 / 容差修复 | acceptance + `ParseToken` | `The capability expired inside the 70s revocation bound (67s)`；3s 过期接受 / 10s 拒绝的容差用例 | `396e833`、`685a919` |
+| 历史自然过期 / 容差修复 | acceptance + `ParseToken` | `The capability expired inside the 70s revocation bound (67s)`（自然过期，非转移计时）；3s 过期接受 / 10s 拒绝的容差用例 | `396e833`、`685a919` |
 | 转移 / 登出 / 规则版本撤销 | acceptance | `Transferring the holding away denies the next manifest (403)`、`Logout revokes an ALREADY-ISSUED capability within the 5s bound`、`A capability issued BEFORE the rule change is refused within the bound` | `b93b94f`、`99d4324`、`9f867f2`、`f62ade9` |
 | 依赖故障矩阵 | `scripts/dependency-fault-acceptance.sh` | ALL 16 PASSED（RPC 矩阵 + Redis 矩阵） | `767d506` |
 | 真签名 / 真媒体 / 真播 / Range | `scripts/fullchain-acceptance.sh` | 双模式 ALL 66 PASSED；`Browser played the stream and time advanced`；`Range request returns 206`+`Content-Range`（修复前恒 200） | `41f68a5`、`0146f06`、`9113dff`、`b13249f` |
@@ -236,8 +236,8 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 
 **Q6 70 秒撤销边界怎么来的？**
 一句话：不是拍的常数——60s 能力 + 5s 正证据 + 5s 容差之和，配置校验连**总和**一起查。
-关键点：起点是"健康可信 RPC 的 safe 视图**已包含转移**"（safe 没越块时 200 是正确行为）；历史缺陷容差硬编码 30s ⇒ 真实窗口 90s，修复后实测**67s**；规则/会话撤销是另一条 ≤5s 的路（ruleVersion 不匹配即拒、epoch 推高即拒），与 70s 是两个独立机制。
-测试：`TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts`、`TestValidateProduction_RejectsASumOverTheBound`、验收 `…expired inside the 70s revocation bound (67s)`、`Transferring the holding away denies the next manifest (403)`。
+关键点：起点是健康可信 RPC 的 safe 视图已包含转移；safe 没越块时仍可能允许访问。当前两条部署腿的转移到拒绝实测在 60.949–63.208 秒范围内。历史 67 秒观测为自然过期，不证明转移撤销；规则/会话撤销另有 ≤5 秒判据。
+测试：`TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts`、`TestValidateProduction_RejectsASumOverTheBound`；当前 `sg-final3-4eae43d6/logs/media.log` 的 `M3_HTTP_TRANSFER_70S_PASS` / `M3_GRPC_TRANSFER_70S_PASS` 是转移计时证据。历史 expired capability 断言单独作为到期行为记录。
 边界：70s 是**服务器授权窗口**，不保证链 70s 内确认；RPC 观测延迟单列；对已下载内容无效。
 
 **Q7 播放器分片 / key 请求怎么走？**
@@ -325,7 +325,7 @@ cast send $DEMO_NFT "transferFrom(address,address,uint256)" $WALLET_B $WALLET_A 
 cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 200
 ```
 
-**判分**：验收断言 `Transferred the holder's N token(s) away (balance now 0)`、`The safe view now includes the transfer`、`Transferring the holding away denies the next manifest (403)`、`Transferring the holding back restores access (200)`；单测 `TestCachedQuantity_ReorgStillDetectedWithinChain`、`TestAnvil_SnapshotRevertProducesARealReorg`；"旧能力还能播多久"答 Q6（推导 70s / 实测 67s）。
+**判分**：验收断言 `Transferred the holder's N token(s) away (balance now 0)`、`The safe view now includes the transfer`、`Transferring the holding away denies the next manifest (403)`、`Transferring the holding back restores access (200)`；单测 `TestCachedQuantity_ReorgStillDetectedWithinChain`、`TestAnvil_SnapshotRevertProducesARealReorg`；"旧能力还能播多久"答 Q6（safe 视图确认后 70s 上界；转移计时使用 M3 HTTP/gRPC 标记）。
 **必须讲的三点**：① 顺序——先断言余额归零、再断言 safe 越块、最后判 403，顺序错了会把一次失败的转移误读成"gate 没生效"（safe 没越块时 200 是正确行为）；② 转移后续期失败 ≠ 每个分片查链——manifest/playlist 是续期点，segment 只验能力与撤销版本；③ 转回必须用当前持有人私钥签名，否则 revert 静默失败，会把"非持有人被拒"变成假 PASS。
 
 ---
@@ -341,7 +341,7 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 | 故障定位与修复决策（Range、规则缓存 30s、90s 窗口、latest 泄漏、nonce 三分配器冲突） | 个人排障 | 修复 SHA 见第三节映射表 | 【待本人确认】 |
 | 两道现场小练习的定位与讲解 | 本人现场完成 | 第五节 | 【待本人确认】（需实际练习过） |
 | 代码实现 | **AI 辅助生成** | 仓库提交记录 | 如实说明，不 claim 独立实现 |
-| 历史实测结果（ALL 66 PASSED、67s、SSRF 0 请求、worker 归因） | 仅适用于对应历史 SHA，可复跑旧场景 | `scripts/fullchain-acceptance.sh`、`dependency-fault-acceptance.sh`、`TRANSITION_PLAN.md` §8 | 历史；当前候选未验收 |
+| 历史实测结果（ALL 66 PASSED、67s、SSRF 0 请求、worker 归因） | 仅适用于对应历史 SHA，可复跑旧场景 | `scripts/fullchain-acceptance.sh`、`dependency-fault-acceptance.sh`、`TRANSITION_PLAN.md` §8 | 历史；当前候选的本机结果与 CI 状态见顶部 |
 | 录制演示、回答追问、投递与面试 | 本人进行 | — | AI 不代录屏、不代答、不代发消息 |
 | ChainPulse 条目 | 独立项目 | 证据另行整理 | 不引用 StreamGate 验收为其背书 |
 
@@ -354,4 +354,4 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 3. "不说完全去中心化、不说无需信任、不说生产高可用已验证——这三样我都没有证据。"
 4. "capability 是 bearer：被复制后撤销/到期前可能被别人用；钱包绑定不等于持有私钥的证明；跨钱包负例覆盖 JWT 主体冲突与签名篡改，不是防分享。"
 5. "已下载的媒体、播放器缓冲、已拿到的密钥**不可远程收回**——所以它是 token-gated 访问控制，**不是 DRM**，我也不这么包装它。"
-6. "旧候选 `ab172c2` 的远端 CI 历史 run `39005594931` 曾为 55/55；当前修复候选还没有同 SHA 完整验收与 CI 证据，因此我不会宣称当前整体已通过。生产 rollout 未做。"
+6. "旧候选 `ab172c2` 的 run `39005594931` 为历史记录。当前代码候选 `4eae43d6` 的本机完整 Docker 门已通过，run `40608718226` 的同 SHA CI 仍待最终结论，因此我暂不宣称项目整体完成。生产 rollout 未做。"

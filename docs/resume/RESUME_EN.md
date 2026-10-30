@@ -1,6 +1,6 @@
 # Resume (English)
 
-> **Current delivery status (2026-10-22): overall repair and re-acceptance have not passed.** Test, performance, and CI figures below are historical and belong only to their recorded SHAs. Historical candidate `ab172c2` / run `39005594931` is not the current acceptance result. Work remains in repair and targeted-validation stages; current same-SHA `VERIFY_STAGE=all`, performance matrix/reference comparison, and remote CI are still outstanding. Do not describe the project as fully accepted. Production rollout and personal presentation/recording/application work remain separate pending items.
+> **Current delivery status (2026-10-30): local candidate PASS WITH BOUNDARIES; same-SHA CI attempt 10 failed; final fixes pending validation.** Candidate `4eae43d6abe94f21c7730c1dc27fb2b12b9f095a` passed the complete Docker `all` / M0–M8 with raw `command.exit=0`; artifacts `sg-final3-4eae43d6` were independently revalidated. CI run `40608718226` ended in failure at attempt 10; subsequent fixes need their own complete acceptance and CI. Figures tied to older SHAs remain historical. Production rollout and personal presentation/recording/application work remain pending. This material revision does not inherit the code candidate's CI status.
 
 > Output discipline (TRANSITION_PLAN SG-09): only claims that can be demonstrated live; every figure cites its commit SHA / test evidence (§8). No line counts, no coverage numbers, no "microkernel architecture", no service counts, no version tags.
 > 【待本人确认 / confirm with candidate】 marks claims to verify before sending; `待补 / pending` marks work that is NOT done and must not be presented as complete.
@@ -16,7 +16,7 @@
 
 ## Professional Summary
 
-10+ years in C++, 6+ years in audio/video streaming (iOS/Android native players and streaming delivery), now focused on Go backends with Web3 identity and authorization. StreamGate's reproducible loop: wallet-signature login → server-side NFT rules → same-block ownership evidence → 60s playback capability → protected HLS with real decode → access revoked within ≤70s of an NFT transfer → fault injection and recovery. The project is AI-assisted; I own the requirements freeze, design trade-offs, review and failure-case diagnosis【待本人确认 / confirm with candidate】.
+10+ years in C++, 6+ years in audio/video streaming (iOS/Android native players and streaming delivery), now focused on Go backends with Web3 identity and authorization. StreamGate's reproducible loop: wallet-signature login → server-side NFT rules → same-block ownership evidence → 60s playback capability → protected HLS with real decode → access denied within 70s after the safe view confirms an NFT transfer → fault injection and recovery. The project is AI-assisted; I own the requirements freeze, design trade-offs, review and failure-case diagnosis【待本人确认 / confirm with candidate】.
 
 ## Core Skills
 
@@ -31,7 +31,7 @@
 
 The main line: real wallet signature → one-time challenge → server-side NFT rules → same-block evidence → 60s capability → real HLS playback → access denied after transfer → RPC / Redis faults and recovery. **AI honesty**: most implementation code is AI-generated; I own the design decisions and acceptance criteria, review every change, and locate/fix failing cases — AI code generation is not "I designed and implemented this independently"【待本人确认 / confirm with candidate】.
 
-Current status: engineering implementation and acceptance repairs remain in progress; overall acceptance has not passed. The measurements below are historical records and must be read with their recorded SHAs and raw evidence in TRANSITION_PLAN §8. Historical remote CI run `39005594931` belongs to old candidate `ab172c2`; it does not prove completion of current code or plan. Current-candidate same-SHA Docker `all`, performance matrix/reference comparison, and remote CI remain outstanding. **Not done**: production rollout (no target / secrets / authorization); personal presentation, recording, and application tasks also await the candidate.
+Current status: candidate `4eae43d6` passed complete local Docker acceptance; same-SHA CI and final delivery review remain pending. Each media deployment leg passed 77 checks. HTTP/gRPC transfer denial took 62.989s/63.208s and 60.949s/61.149s after the safe view confirmed the transfer; chain finality waiting is outside those timings. Evidence: `sg-final3-4eae43d6/logs/media.log`. Other historical results retain their own SHA boundaries. **Pending**: production rollout, personal presentation, recording, and applications.
 
 **Entry 1 — Signatures & resource authorization**
 
@@ -55,7 +55,7 @@ Current status: engineering implementation and acceptance repairs remain in prog
 - **My decision**【待本人确认 / confirm with candidate】: pin every ownership read to a single resolved block (number + hash), ERC-165 detection reading the same block; positive evidence has total age ≤5s from the original `observedAt`; caches store balance evidence, never a verdict; the revocation bound is derived (60s capability + 5s evidence + 5s clock skew = 70s) and its sum enforced by `ValidateProduction`; rule versions (Postgres) and session epochs (Redis) are checked at every media request.
 - **Code entry**: `pkg/middleware/nft_gate.go` (`resolveAnchor`, `InvalidateNFTEvidence`), `pkg/web3/nft/verifier.go`, `pkg/core/config/config.go` (`MaxTransferRevocationBound`), migration 036, `storage.SessionStore`.
 - **Measured under**: two real Anvils plus a recording RPC proxy (asserting every `eth_call`'s block parameter equals the anchor); snapshot/revert for a real reorg; transfer → deny → transfer-back → restore; RPC / Redis dependency-fault entries.
-- **Result**: a capability expired at 67s, inside the 70s bound; 5s evidence age; manifest 403 after the transfer, 200 after transferring back; logout revokes issued capabilities within 5s; with RPC fully down a new manifest answers 503 while issued capabilities keep working on their own validity and still expire on time; reorg invalidation drops only that chain's evidence (`796e096`, `b93b94f` / `396e833`, `99d4324`, dependency-fault entry 16/16 `767d506`).
+- **Result**: historical natural capability expiry was 67s (not a transfer-to-denial measurement); 5s evidence age; manifest 403 after the transfer, 200 after transferring back; logout revokes issued capabilities within 5s; with RPC fully down a new manifest answers 503 while issued capabilities keep working on their own validity and still expire on time; reorg invalidation drops only that chain's evidence (`796e096`, `b93b94f` / `396e833`, `99d4324`, dependency-fault entry 16/16 `767d506`).
 
 **Entry 3 — Real media delivery & measured debugging**
 
@@ -92,5 +92,5 @@ Current status: engineering implementation and acceptance repairs remain in prog
 1. Every `[...]` placeholder replaced; every work bullet must survive 10 minutes of follow-up questions.
 2. Every 【待本人确认】 reviewed; the three "my decision" entries were genuinely yours — otherwise reword as "reviewed and co-signed".
 3. Every figure and test name points at evidence: commits `0756ea4 / e859d13 / f891091 / 313d414 / a8784ad / f7f0dd0 / c67b222 / de4b83c` and the matching §8 tables in TRANSITION_PLAN.md.
-4. Follow the current status marker at the top of `TRANSITION_PLAN.md` and its latest §8.17 table. Old candidate `ab172c2` / run `39005594931` and prior performance figures are historical only, not current completion. Current same-SHA full acceptance, performance comparison, and remote CI remain outstanding; production rollout is unperformed, and personal presentation/recording/application tasks await the candidate.
+4. Follow the current status marker at the top of `TRANSITION_PLAN.md` and its latest §8 evidence. Old candidate `ab172c2` / run `39005594931` and prior performance figures are historical only, not current completion. `4eae43d6` has complete local acceptance and performance evidence; subsequent fixes still need full acceptance and same-SHA CI; production rollout is unperformed, and personal presentation/recording/application tasks await the candidate.
 5. No DRM / full-decentralization / production-HA claims — boundary language is in `PROJECT_TALK_SCRIPT.md`.
