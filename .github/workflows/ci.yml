@@ -667,7 +667,11 @@ jobs:
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
       VERIFY_PROJECT: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}
       VERIFY_PLATFORM: linux/amd64
-      VERIFY_GOPROXY: https://proxy.golang.org,direct
+      # proxy.golang.org is intermittently unreachable from this network (measured
+      # 2026-10-30T15:24Z: i/o timeout on the module zip, while goproxy.cn answered
+      # 200). Keep a reachable mirror first and the upstream proxy as the fallback:
+      # the acceptance must not lose a stage to a module download.
+      VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
       VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
