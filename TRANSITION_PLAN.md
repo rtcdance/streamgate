@@ -1091,7 +1091,7 @@ flowchart LR
 **步骤**：
 
 1. 把 R01～R12 逐项关联实际文件 / 接口、稳定测试 ID、目标 SHA / CI / artifact；标出限制。所有对外数字、Ready、支持链 / 协议、交易 confirmed 与媒体加密描述与证据一致，删除相互矛盾的承诺。
-2. 按第三节提交 / 证据闭环冻结干净候选；在该候选 clean checkout + 空专用卷执行完整 `make verify-docker`，再运行精确 SHA 的 CI。unit / chain / media / durability / ops / perf / release 的必需测试实际 PASS，运行阶段引用同一候选产物。至少重复一次核心 wallet→HLS→transfer / task kill 路径，不能只靠上次 warm 数据。
+2. 按第三节提交 / 证据闭环冻结干净候选，运行精确 SHA 的 CI；按 §8.30 已定路线，由 CI 的 acceptance 节点在该候选 clean checkout + 空专用卷完整执行 `VERIFY_STAGE=all`，引用本轮构建且通过同 digest 扫描的原始产物。保留 unit / chain / durability / ops / faults / media / recovery / perf / release 全部九阶段与 M0～M8、全部必需 CI job、48 场景及本轮 reference，不额外先跑一遍独立本机 all。至少重复一次核心 wallet→HLS→transfer / task kill 路径，不能只靠上次 warm 数据；失败/缺失/skip 与身份不符仍拒绝，只有 all 原始外层退出 0 且 CI evidence/publishable 成功才可收口。
 3. 做有限反向证明：隔离副本中临时移除 owner 校验、忽略数量阈值、接受过期 capability，以及让部署核心命令失败；每个预期用例 / harness 必须失败。恢复副本后回归通过；不引入 mutation framework、不改用户主工作区、不提交坏实现。
 4. 解决全部影响必需门的失败与 critical skip，CI / coverage / scan / artifact 校验不得降级。当前 scope 外的真实限制单列；不为可选 testnet、真机、生产 secrets 造假，也不让它们伪装主线已经部署到外网。
 5. README 最前提供“这是什么 / 如何启动 / 真实演示入口 / 架构边界 / 验收证据”；精确写 Docker / Anvil / testnet / production 等级。resume 每项有本人可解释的取舍和失败案例，准备 5 分钟内可启动的已验收 demo（首次镜像拉取耗时另列）。
@@ -4148,6 +4148,14 @@ Docker 工具镜像：`sg-ci-40608718226-9-tools:local`，实际 image ID `sha25
 
 **材料与候选冻结：** README 与中英文简历、讲述脚本的事实修订已复制到收口分支；保留 AI 归属与个人确认占位，不编造个人履历、生产上线或真人演示。删除无盗版、permissionless、60 秒冷启动、无条件 CI green 等无证据承诺，区分服务端授权与 endpoint DRM，修正真实 77 项媒体验收及 HTTP/gRPC transfer 的时间起点。旧 `4eae43d6` 的本机完整通过、旧 `ab172c2` 的历史 CI、当前修复待终验均分别注明。计划中的历史快照按原日期保留。
 
-后续仅将上述必要改动一次提交为最终候选，使用独立 `--no-local` packed checkout 冻结运行完整 all；之后执行同 SHA CI，原始 all 与 CI 各自记录 image/artifact 身份，禁止跨运行混用或覆盖。正式 all/perf 期间不派发竞争同 Mac CPU 的 Linux CI 任务。demo 的 5 分钟 warm 启动仍需真实测量，首次镜像准备时间另列；不得用材料文字代替演示证据。所有门通过后，最终 evidence 提交更新状态，明确其不继承 candidate CI。
+后续仅将上述必要改动集中冻结为最终候选，按 §8.30 在既有 CI acceptance 内执行唯一正式完整 all，依赖本轮扫描完成的同候选 build archives；完整 all 与 CI 的最终证据绑定同 SHA 与原始 image/artifact 身份，不另跑独立本机 all，不跨运行混用或覆盖。CI 的依赖顺序保证 Linux 重任务结束后才进入本机 acceptance/perf。demo 的 5 分钟 warm 启动仍需真实测量，首次镜像准备时间另列；不得用材料文字代替演示证据。所有门通过后，最终 evidence 提交更新状态，明确其不继承 candidate CI。
 
 **可选 runner cache：** 已确认闲置 runner 可申请新 registration token，但旧 bind mount 的 host 临时目录在当前工具侧不可访问；受控激活在修改或重启前停止。短期 token JSON 已删除，startup script、现有 listener 和注册状态均未改变，runner 仍 online/idle。不继续为此扩张改造范围，现有固定 SHA 下载路径与有限重试继续正常使用；不宣称 archive cache 已命中。
+
+
+**§8.51 冻结与实际启动（2026-10-30）：** 必要修复与材料已集中提交为 `df98c4e36d6b4dd8d2e0a8c9135ef33884454494`，独立分支 `sg/codex-closeout-20261030`。提交后工作树干净，五个有限反向证明相关源文件 SHA256 与上表逐一相同。独立 packed clone `/private/tmp/streamgate-final-df98c4e3-20261030` 已用本地 donor 完整填充递归 submodules，实际启动 project `sg-codex-final-df98c4e3-20261030` 的 `VERIFY_STAGE=all` / `VERIFY_FROZEN_SOURCE=1` / `desktop-local`。实时预检 Docker 为 8 CPU、16746086400 bytes、aarch64；仅基础 runner/dind/sg-mig-probe 在后台。使用既有 Linux ELF Chromium 1223 缓存和共享编译缓存、`GOMAXPROCS=2`、`GOFLAGS=-p=2 -v`，不跳过测试或复用旧参考测量。工具镜像为 `sha256:264454d0f5440fff5b22467ffc7b08b186f50d2c89f2f8f340dff4d83743a540`，已进入实际 unit 阶段。外层原始日志位于 clone 的 `.verify-artifacts/sg-codex-final-df98c4e3-20261030.outer.log`，原始退出仅在进程终止后写入同名 `.outer.exit`；此时尚无最终退出，不能记录 all PASS。当前执行 handle 为 `66778`，观察超时须复查同一 handle/容器，不另起运行。候选内容已冻结；此条仅更新用户主目录的后续证据记录，不回写或改变正在执行的候选输入。尚未推送、派发新 CI 或合并默认分支。
+
+
+**§8.51 执行纠正与当前路线：** 复核 §8.30 的既定授权后，确认最终完整 all 应在 CI acceptance 中执行。Codex 自行启动的 `df98c4e3` 独立本机 all 会重复支付约 3 小时成本，因此在该轮仅执行到 unit 工具回归/编译、尚未产生完整 gate 通过时，向本轮专属 host controller 发送 TERM。此举是纠正重复执行选择，不是观察超时、业务失败或为规避失败取消测试。原始外层退出 **143**、实际持续 **274 秒**、完整外层与阶段日志均保留；相关 run-label 容器、网络锁已清理，未取消任何 GitHub job 或他人任务。不得将该轮记成 all PASS，也不复派该本机 all。
+
+SG-15 步骤 2 的执行顺序已对齐 §8.30：精确 SHA CI → 原始同 digest build/scan → CI acceptance 内 clean checkout/空卷的完整九阶段 → evidence/publishable。验收内容、必需 job、反例、性能矩阵、本轮 reference、安全门和原始退出均未删减；只消除额外本机整轮。最终提交只因本次计划流程修订再绑定一次 SHA，相关源代码、CI 实现与已完成的定向/反向证明不变；随后推送独立最终候选分支并只派发一次既有 ci.yml，不触发独立 test.yml、旧候选全量 rerun 或付费资源。此条之后以实际新候选 SHA / run 为当前执行身份，`df98c4e3` 本机中止记录保留为历史。
