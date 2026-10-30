@@ -40,6 +40,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # Use official DB registries; connection failures on mirror.gcr.io do not
+  # necessarily trigger Trivy's limited fallback policy. Updates remain enabled.
+  TRIVY_DB_REPOSITORY: ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
 
 jobs:
   build-monolith:
@@ -246,6 +249,10 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-monolith:candidate
           format: 'table'
           severity: 'CRITICAL,HIGH'
@@ -267,6 +274,10 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-monolith:candidate
           format: 'spdx'
           output: 'sbom-monolith.spdx'
@@ -314,6 +325,10 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-transcoder:candidate
           format: 'table'
           severity: 'CRITICAL,HIGH'
@@ -322,6 +337,10 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-transcoder:candidate
           format: 'spdx'
           output: 'sbom-transcoder.spdx'
@@ -375,6 +394,10 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-${{ matrix.service }}:candidate
           format: 'table'
           severity: 'CRITICAL,HIGH'
@@ -383,6 +406,10 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
+          # after every scan; hosted runners still use the action's remote cache.
+          cache: ${{ runner.environment != 'self-hosted' }}
+          cache-dir: ${{ runner.environment == 'self-hosted' && format('{0}/streamgate-trivy', runner.tool_cache) || format('{0}/.cache/trivy', github.workspace) }}
           image-ref: streamgate-${{ matrix.service }}:candidate
           format: 'spdx'
           output: 'sbom-${{ matrix.service }}.spdx'
