@@ -4427,3 +4427,8 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **根治进候选：** 提交 `de4ee347`（`fix(ci): route slither runtime pip through a reachable mirror`）——docker action 接收 step env，向 slither 容器注入 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（清华镜像，本网络实测稳定）。已推送并派发 [run 41213994944](https://github.com/rtcdance/streamgate/actions/runs/41213994944)（15:15:40Z）。
 - **链路重定向：** 编排器 pid `60003`（TRACKING run 41213994944）+ 保全守卫 pid `60005`（WAITING，repository=/tmp/sg-goproxy-fix@de4ee347，备份目录 acceptance-raw-de4ee347）。旧 run 41180614495 链路已停（其 attempt 6 仅剩 Security Scan 1 个传输失败，历史证据完整保留）。
 - 候选内 CI 健壮性修复累计 4 个（GOPROXY×2、dind mirror 属本地、PIP_INDEX_URL×1）；产品代码自始至终零失败。整体保持 incomplete。
+
+**§8.69 de4ee347 attempt 1 定责（2026-11-01T02:40Z，当前入口）：**
+
+- attempt 1 共 4 个失败：2× transport_reset（既有模式）+ 2× 新形态——`foundry-toolchain` **action 本体**自 codeload.github.com 下载超时（100s HttpClient 超时 ×3 次耗尽，Solidity Tests / Anvil Integration 两个 job 在初始化阶段即死）。均传输类，产品代码零失败。
+- 分类器增纳 `download has timed out` / `Failed to download archive` 模式（SHA256 前缀 `2606095963a06bfe`，handle pid `74972`）。闸门全过后 18:37:58Z 已自动提交 attempt 2 重试。整体保持 incomplete。
