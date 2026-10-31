@@ -4359,3 +4359,5 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **恢复守卫更新：** `recover-acceptance-goproxy-once.py` 改为记录每次闸门失败（含 0 连续），SHA256 `064e44648d1e36dd` 起始（先修日志盲点，再延至 24h 期限以覆盖深夜窗口），当前执行 handle pid `59607`。闸门不变：GHCR daemon 连续 15 次 + VM→proxy.golang.org 连续 10 次 + 互斥锁清洁。
 - **候选后改进项（需新 SHA，本轮冻结期内不动）：** CI 验收 job 的 `VERIFY_GOPROXY` 硬编码 `https://proxy.golang.org,direct`；`verify-docker.sh:177` 本身文档化的逃生通道 `https://goproxy.cn,direct`（实测 VM 内可达、宿主 43ms）可彻底移除此网络闸门。本轮收口后单独提交。
 - **当前姿态：** 等待 proxy.golang.org 恢复窗口（昨晚 19:12–19:34Z 型）；守卫自动派发，attempt 8 期间不干预。整体保持 incomplete。
+
+**§8.59 attempt 8 自动派发（2026-10-31T00:49Z）：** 恢复守卫 `recover-acceptance-goproxy-once.py`（handle 59607）于 00:48:14Z 记录 GHCR daemon 闸门 15 连续成功、00:48:44Z 记录 GOPROXY 闸门 10 连续成功（00:42:21Z 该闸门仍为 0 连续——窗口在 6 分钟内打开），互斥锁清洁校验通过后，00:48:46Z 提交 `rerun-failed-jobs`，API 返回 exit 0。attempt 8 已 in_progress（updatedAt 00:49:48Z），只重跑验收 job 及其 evidence/publishable 下游，其余 52 个 success 直接继承。工具镜像构建为缓存命中。终态与 evidence 待回填；all PASS 结论仍不存在，整体保持 incomplete。
