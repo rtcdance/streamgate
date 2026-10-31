@@ -4391,3 +4391,12 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **预置扩展：** `python:3.9` 已入 dind（宿主既有 + daocloud 通道验证可达作备份）。dind 现货：`postgres:15-alpine`、`redis:7-alpine`、`python:3.9`——**Docker Hub 失败类对全部 12 个 job 离线拔除**。
 - **剩余窗口依赖（编排器闸门自动等）：** ① Security Scan 的 `govulncheck@latest`——`@latest` 必须查询 proxy 的 @v/list，无法用缓存规避（gosec@v2.22.0 为精确版本、缓存可离线）；② Go Tests 的 fuzz 需要宿主负载 < 10。候选后统一：顶层 job `GOPROXY` 改 goproxy.cn 优先（与 cb01a0ed 的验收 job 修法一致）。
 - 编排器（86372）TRACKING attempt 2；attempt 2 非本方重试，编排器重试配额未消耗（每 attempt 一次、连续 2 次后 HOLD）。整体保持 incomplete。
+
+**§8.64 顶层 GOPROXY 修复进候选，新候选 `b2af9647` 为正式收口对象（2026-10-31T07:30Z，当前入口）：**
+
+- **决定性实证：** `GOPROXY=https://proxy.golang.org,direct` 下 `go install govulncheck@latest` 在 proxy 超时后**不回退 direct**（宿主 go1.26.9 实测 60s dial timeout 直接失败）。因此在 proxy.golang.org 窗口关闭期，`cb01a0ed` 候选的 Security Scan（`govulncheck@latest` 必须查询 proxy @v/list）**不可能通过**——cb01a0ed 只修了验收 job 的 `VERIFY_GOPROXY`，顶层 `env.GOPROXY`（ci.yml:25）未动。
+- **修复进候选：** 提交 `b2af9647`（`fix(ci): resolve all top-level Go module fetches through a reachable proxy`，与 cb01a0ed 同一修法扩展到顶层 env，goproxy.cn 优先）已推送至 `sg/codex-closeout-20261030`；concurrency 取消了旧候选被外部反复重派的 attempt 11 轮回（attempt 3–11 共 9 次均无闸门盲跑，每次都折在同类基建问题上，浪费且无收敛）。
+- **正式派发：** [run 41180614495](https://github.com/rtcdance/streamgate/actions/runs/41180614495)（workflow_dispatch，07:26:32Z，headSha=`b2af9647`）。
+- **本地基建加固：** `sg-linux-dind` daemon 经 SIGHUP 热加载 `registry-mirrors: [docker.m.daocloud.io]`（实测 `docker pull postgres:15` 立即成功）——runner 的服务容器/构建 pull 从此不再依赖拥塞的免费镜像源；预置现货 postgres:15(-alpine)、redis:7(-alpine)、python:3.9 仍在。
+- **自动化链重建：** 编排器 `orchestrate-b2af9647.py`（handle pid `21922`，TRACKING）+ 保全守卫 `preserve-current-all-b2af9647.py`（handle pid `21924`，repository=worktree `/tmp/sg-goproxy-fix`，备份目录 `acceptance-raw-b2af9647`）。旧 run 41152444524 的编排/保全已全部停止。
+- 整体保持 incomplete；全绿 + evidence/publishable + 原件保全校验通过前不宣称收口。
