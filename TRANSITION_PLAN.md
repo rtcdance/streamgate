@@ -4400,3 +4400,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **本地基建加固：** `sg-linux-dind` daemon 经 SIGHUP 热加载 `registry-mirrors: [docker.m.daocloud.io]`（实测 `docker pull postgres:15` 立即成功）——runner 的服务容器/构建 pull 从此不再依赖拥塞的免费镜像源；预置现货 postgres:15(-alpine)、redis:7(-alpine)、python:3.9 仍在。
 - **自动化链重建：** 编排器 `orchestrate-b2af9647.py`（handle pid `21922`，TRACKING）+ 保全守卫 `preserve-current-all-b2af9647.py`（handle pid `21924`，repository=worktree `/tmp/sg-goproxy-fix`，备份目录 `acceptance-raw-b2af9647`）。旧 run 41152444524 的编排/保全已全部停止。
 - 整体保持 incomplete；全绿 + evidence/publishable + 原件保全校验通过前不宣称收口。
+
+**§8.65 run 41180614495 attempt 1 定责修正（2026-10-31T10:55Z，当前入口）：**
+
+- **终态 failure，仅 2 个 job 失败**（其余全绿——GOPROXY 修复与 dind mirror 均生效）。编排器初判 REAL 而停止；人工复核两份原始日志后**均为新型传输类**，非产品代码失败：
+  1. Security Scan：slither-action 容器内 `git clone nvm` 时 `GnuTLS recv error (-110)`（github egress 瞬断）；
+  2. Unit Tests - test-unit-web3：foundryup 安装器下载 `socket hang up` / `ECONNREFUSED 199.232.68.133`（Fastly，3 次重试耗尽）。
+- **编排器已升级**（SHA256 前缀 `03edc03d2d643b2d`，handle pid `37206`）：分类器新增 `GnuTLS recv error` / `ECONNREFUSED` / `socket hang up` / `Download failed (attempt` 模式；GOPROXY 闸门改探真实依赖 goproxy.cn（候选已不依赖 proxy.golang.org）。重启后 TRACKING，attempt 1 重试配额未消耗。
+- 教训沉淀：传输类失败形态持续演化，分类器模式须随每次新证据扩充；REAL 判定只应覆盖确实无法归为传输/资源的产品断言失败。
