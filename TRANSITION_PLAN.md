@@ -4432,3 +4432,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 
 - attempt 1 共 4 个失败：2× transport_reset（既有模式）+ 2× 新形态——`foundry-toolchain` **action 本体**自 codeload.github.com 下载超时（100s HttpClient 超时 ×3 次耗尽，Solidity Tests / Anvil Integration 两个 job 在初始化阶段即死）。均传输类，产品代码零失败。
 - 分类器增纳 `download has timed out` / `Failed to download archive` 模式（SHA256 前缀 `2606095963a06bfe`，handle pid `74972`）。闸门全过后 18:37:58Z 已自动提交 attempt 2 重试。整体保持 incomplete。
+
+**§8.69 run 41213994944 attempt 5 复盘与条件复位（2026-11-01T23:55Z，当前入口）：**
+
+- de4ee347（slither 运行时 pip 走 TUNA，与 §8.66 定责一致）候选的 run 41213994944：attempt 4 曾 10 个 Build job 全灭——原始日志显示 buildkit 解析 `alpine:3.21@sha256:ce64…` 时 dial `103.240.182.55` 超时；该 IP 既非 daocloud（47.100.46.249）也非 docker.io 常规边缘，为瞬时死出口节点。20:28Z–23:33Z 窗口整体劣化，与本日早间同类。
+- **条件实测复位（2026-11-01T23:50Z）：** dind mirror 路径健康（`docker pull postgres:15` 秒过 + Dockerfile.auth 测试构建已通过 base 解析进入编译）；GHCR daemon 路径 OK；编排器 streak 按纪律以「实质不同条件已验证」归零。
+- 本轮复测构建造成的瞬时负载升高会自然回落；编排器（pid 79896）将在负载 <10 三连采样后自动重试 attempt 5。整体保持 incomplete。
