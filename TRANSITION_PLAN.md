@@ -4378,3 +4378,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
   3. **Go Tests**：必选 fuzz `FuzzWalletMessage` 31 秒后 `context deadline exceeded`，fuzz 日志显示 6 worker 在第 6 秒后 **0 exec/sec 持续 24 秒**——宿主 load 19.7（8 核）下的环境性停摆，非密码学代码问题；同 fuzz 在 run 40994464129 全部通过。
 - **四闸门恢复守卫 `recover-cb01a0ed-failed-once.py`**（SHA256 前缀 `40f1251c5ede9951`，handle pid `85102`，24h 期限）：仅当互斥锁清洁、**宿主 1 分钟负载 < 10（间隔 30 秒 3 连续采样）**、GHCR daemon 15 连续、proxy.golang.org 10 连续（`govulncheck @list` 同路径探测）全部满足时，提交一次 `rerun-failed-jobs`（12 个失败 job + 其 skipped 下游验收/证据/publishable）。失败集合与日志哈希绑定，任何新增失败或身份变化 STOP。
 - run 41152444524 / attempt 1 为 `cb01a0ed` 的完整首次验收；重跑后仍需全绿 + evidence/publishable 才可收口。整体保持 incomplete。
+
+**§8.62 全自主编排器上线（2026-10-31T02:40Z，当前入口）：**
+
+- **attempt 2（queued，02:09:38Z）由外部派发**（宿主存在存活的 `node codebuddy` 进程，疑似派发者；本方不干预、不冲突——恢复守卫 85102 已按身份变化正确自停，全部为单次提交语义）。
+- **协同式编排器 `orchestrate-until-green.py`**（SHA256 前缀 `ab1f4561624441db`，handle pid `86372`）：跨 attempt 跟踪 run 41152444524；每次终态失败自动下载全部失败 job 原始日志并定责（docker_hub_pull / goproxy_timeout / load_stall / transport_reset = 基础设施类；其余 = REAL）；**全部为基础设施类才允许自动重试**（四闸门：锁清洁 + 负载<10×3 + GHCR 15 连续 + GOPROXY 10 连续），**同一 attempt 只重试一次，连续 2 个基建类 attempt 重试后 HOLD**（不碰运气），任何 REAL 失败 STOP 并留证。run 全绿退出 0 交给保全守卫复制原件。
+- 目标：全流程无需 owner 轮询；编排器/守卫的每次状态转移都落盘 `orchestrator-state.json` 可审计。
