@@ -4420,3 +4420,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - attempt 4 仅 Security Scan 一败：slither 镜像构建内 pip 自 `files.pythonhosted.org` 拉 `crytic_compile` wheel 时 TLS EOF（SSLZeroReturnError，重试 3 次耗尽）+ `tar: Unexpected EOF`。上轮闸门探的是 pypi.org 元数据端点，与实际拉包的 Fastly CDN **不是同一条 egress**，故未能预测。
 - 编排器升级（SHA256 前缀 `082b384b115ee9af`，handle pid `49834`）：闸门改直探 `files.pythonhosted.org` 真实 wheel 下载（5 连续），分类器增纳 SSLZeroReturnError / tar: Unexpected EOF / ReadTimeoutError；streak 归零重启，TRACKING attempt 4。
 - 汇总：attempt 1–4 每轮仅剩 0–2 个传输类失败且形态逐轮减少（5→2→1→1），产品代码持续零失败；传输抖动的收敛路径 = 更精确的依赖探针 + 闸门重试，而非盲跑。
+
+**§8.68 PyPI 根治进候选，新候选 `de4ee347`（当前入口，2026-10-31T15:20Z）：**
+
+- b2af9647 的 attempt 5/6 再证：slither-action 在**容器运行时** pip 安装依赖（crytic_compile 等），`files.pythonhosted.org`（Fastly）反复 TLS EOF/ReadTimeout——重试无收敛（闸门探针通过 ≠ 十分钟后拉包成功），编排器按纪律 HOLD（连续 2 个基建重试后停手，不碰运气）。
+- **根治进候选：** 提交 `de4ee347`（`fix(ci): route slither runtime pip through a reachable mirror`）——docker action 接收 step env，向 slither 容器注入 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`（清华镜像，本网络实测稳定）。已推送并派发 [run 41213994944](https://github.com/rtcdance/streamgate/actions/runs/41213994944)（15:15:40Z）。
+- **链路重定向：** 编排器 pid `60003`（TRACKING run 41213994944）+ 保全守卫 pid `60005`（WAITING，repository=/tmp/sg-goproxy-fix@de4ee347，备份目录 acceptance-raw-de4ee347）。旧 run 41180614495 链路已停（其 attempt 6 仅剩 Security Scan 1 个传输失败，历史证据完整保留）。
+- 候选内 CI 健壮性修复累计 4 个（GOPROXY×2、dind mirror 属本地、PIP_INDEX_URL×1）；产品代码自始至终零失败。整体保持 incomplete。
