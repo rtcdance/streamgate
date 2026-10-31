@@ -4408,3 +4408,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
   2. Unit Tests - test-unit-web3：foundryup 安装器下载 `socket hang up` / `ECONNREFUSED 199.232.68.133`（Fastly，3 次重试耗尽）。
 - **编排器已升级**（SHA256 前缀 `03edc03d2d643b2d`，handle pid `37206`）：分类器新增 `GnuTLS recv error` / `ECONNREFUSED` / `socket hang up` / `Download failed (attempt` 模式；GOPROXY 闸门改探真实依赖 goproxy.cn（候选已不依赖 proxy.golang.org）。重启后 TRACKING，attempt 1 重试配额未消耗。
 - 教训沉淀：传输类失败形态持续演化，分类器模式须随每次新证据扩充；REAL 判定只应覆盖确实无法归为传输/资源的产品断言失败。
+
+**§8.66 attempt 3 定责与 pypi 类纳管（2026-10-31T12:10Z，当前入口）：**
+
+- attempt 1/2 由编排器自动重试（均全基建类，attempt 2 的 Security Scan/unit-web3 已转绿——传输类抖动被重试吸收）；attempt 3 仅剩 Security Scan 一败：slither 容器内 pip 自 `files.pythonhosted.org` 拉包 ReadTimeout（PyPI/Fastly 抖动，attempt 2 同步成功过）——**第 5 种传输形态**。
+- 编排器升级（SHA256 前缀 `3d9a02fdd8ee726e`，handle pid `43316`）：分类器增纳 pythonhosted/IncompleteRead 模式；闸门新增 pypi 小文件 5 连续探测；streak 归零（分类器升级属新信息，非碰运气重跑）。TRACKING，将闸门重试 attempt 3。
+- 迄今全部失败均为传输/资源类，产品代码零失败；负载持续达标（2.7–3.3）。
