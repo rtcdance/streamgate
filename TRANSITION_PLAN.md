@@ -4414,3 +4414,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - attempt 1/2 由编排器自动重试（均全基建类，attempt 2 的 Security Scan/unit-web3 已转绿——传输类抖动被重试吸收）；attempt 3 仅剩 Security Scan 一败：slither 容器内 pip 自 `files.pythonhosted.org` 拉包 ReadTimeout（PyPI/Fastly 抖动，attempt 2 同步成功过）——**第 5 种传输形态**。
 - 编排器升级（SHA256 前缀 `3d9a02fdd8ee726e`，handle pid `43316`）：分类器增纳 pythonhosted/IncompleteRead 模式；闸门新增 pypi 小文件 5 连续探测；streak 归零（分类器升级属新信息，非碰运气重跑）。TRACKING，将闸门重试 attempt 3。
 - 迄今全部失败均为传输/资源类，产品代码零失败；负载持续达标（2.7–3.3）。
+
+**§8.67 attempt 4 定责与 PyPI CDN 直探闸门（2026-10-31T13:20Z，当前入口）：**
+
+- attempt 4 仅 Security Scan 一败：slither 镜像构建内 pip 自 `files.pythonhosted.org` 拉 `crytic_compile` wheel 时 TLS EOF（SSLZeroReturnError，重试 3 次耗尽）+ `tar: Unexpected EOF`。上轮闸门探的是 pypi.org 元数据端点，与实际拉包的 Fastly CDN **不是同一条 egress**，故未能预测。
+- 编排器升级（SHA256 前缀 `082b384b115ee9af`，handle pid `49834`）：闸门改直探 `files.pythonhosted.org` 真实 wheel 下载（5 连续），分类器增纳 SSLZeroReturnError / tar: Unexpected EOF / ReadTimeoutError；streak 归零重启，TRACKING attempt 4。
+- 汇总：attempt 1–4 每轮仅剩 0–2 个传输类失败且形态逐轮减少（5→2→1→1），产品代码持续零失败；传输抖动的收敛路径 = 更精确的依赖探针 + 闸门重试，而非盲跑。
