@@ -311,6 +311,13 @@ jobs:
 
       - name: Run Slither
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
+        # The action pip-installs slither deps at container runtime from
+        # files.pythonhosted.org (Fastly), which this network drops mid-transfer
+        # (measured 2026-10-31: TLS EOF / ReadTimeout across attempts 3-6).
+        # Docker actions receive step env via -e, so route pip through the
+        # reachable TUNA mirror; same transport-harden class as the GOPROXY fix.
+        env:
+          PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         with:
           target: contracts/
           # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
