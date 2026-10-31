@@ -4361,3 +4361,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **当前姿态：** 等待 proxy.golang.org 恢复窗口（昨晚 19:12–19:34Z 型）；守卫自动派发，attempt 8 期间不干预。整体保持 incomplete。
 
 **§8.59 attempt 8 自动派发（2026-10-31T00:49Z）：** 恢复守卫 `recover-acceptance-goproxy-once.py`（handle 59607）于 00:48:14Z 记录 GHCR daemon 闸门 15 连续成功、00:48:44Z 记录 GOPROXY 闸门 10 连续成功（00:42:21Z 该闸门仍为 0 连续——窗口在 6 分钟内打开），互斥锁清洁校验通过后，00:48:46Z 提交 `rerun-failed-jobs`，API 返回 exit 0。attempt 8 已 in_progress（updatedAt 00:49:48Z），只重跑验收 job 及其 evidence/publishable 下游，其余 52 个 success 直接继承。工具镜像构建为缓存命中。终态与 evidence 待回填；all PASS 结论仍不存在，整体保持 incomplete。
+
+**§8.60 路线切换：owner 已部署 GOPROXY 修复，新候选 `cb01a0ed` 成为正式收口对象（2026-10-31T01:00Z，当前入口）：**
+
+- **owner 提交 `cb01a0ed`**（2026-10-30T16:18Z，`fix(ci): resolve acceptance modules through a reachable proxy`）：验收 job 的 `VERIFY_GOPROXY` 改为 `https://goproxy.cn,https://proxy.golang.org,direct`——与 §8.58 记录的候选后改进项一致，且带当日实测注释。已推送至 `sg/codex-closeout-20261030`。
+- **并发抢占：** owner 以 workflow_dispatch 派发 [run 41152444524](https://github.com/rtcdance/streamgate/actions/runs/41152444524)（00:51:44Z，headSha=`cb01a0ed`）；同分支 concurrency `cancel-in-progress` 在 00:51:54Z 取消了 attempt 8（job `124391239592` 日志：`The operation was canceled`，发生在 transport 步骤，非测试失败）。run 40994464129 的恢复守卫为单次提交已正常退出，不会重复派发。
+- **决策：不复活 5c121abe 的 attempt 9。** rerun 只会以旧 ci.yml（proxy.golang.org 优先）重执行，且新候选本来就需要自己的完整验收；owner 的派发即为路线决策，遵守。
+- **保全链重建：** 冻结 clone `/private/tmp/streamgate-final-cb01a0ed-20261031`（本地 packed clone，5 个子模块由 donor 精确填充，树 clean）；新守卫 `preserve-current-all-cb01a0ed.py`（SHA256 前缀 `b609538da3386d39`，handle pid `77622`）绑定 run 41152444524 / 三服务标签 `sg-ci-41152444524-<N>-candidate-*` 同号 N≥1；旧守卫（91484）已停止。
+- **监控：** run 41152444524 每 4 分钟轮询至终态。终态前整体保持 incomplete；无任何 all PASS 结论。
