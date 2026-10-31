@@ -4384,3 +4384,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **attempt 2（queued，02:09:38Z）由外部派发**（宿主存在存活的 `node codebuddy` 进程，疑似派发者；本方不干预、不冲突——恢复守卫 85102 已按身份变化正确自停，全部为单次提交语义）。
 - **协同式编排器 `orchestrate-until-green.py`**（SHA256 前缀 `ab1f4561624441db`，handle pid `86372`）：跨 attempt 跟踪 run 41152444524；每次终态失败自动下载全部失败 job 原始日志并定责（docker_hub_pull / goproxy_timeout / load_stall / transport_reset = 基础设施类；其余 = REAL）；**全部为基础设施类才允许自动重试**（四闸门：锁清洁 + 负载<10×3 + GHCR 15 连续 + GOPROXY 10 连续），**同一 attempt 只重试一次，连续 2 个基建类 attempt 重试后 HOLD**（不碰运气），任何 REAL 失败 STOP 并留证。run 全绿退出 0 交给保全守卫复制原件。
 - 目标：全流程无需 owner 轮询；编排器/守卫的每次状态转移都落盘 `orchestrator-state.json` 可审计。
+
+**§8.63 attempt 2 归因与预置扩展（2026-10-31T03:00Z，当前入口）：**
+
+- **attempt 2（外部派发）终态 failure，同 12 个 job 快速失败（每个 1.5–2 分钟）：** 全部为 Docker Hub 类——免费镜像源从拥塞劣化为**硬断（EOF）**。与 attempt 1 差异：Security Scan 暴露了新的离线缺口——`crytic/slither-action` 内部构建 `FROM python:3.9`。
+- **预置扩展：** `python:3.9` 已入 dind（宿主既有 + daocloud 通道验证可达作备份）。dind 现货：`postgres:15-alpine`、`redis:7-alpine`、`python:3.9`——**Docker Hub 失败类对全部 12 个 job 离线拔除**。
+- **剩余窗口依赖（编排器闸门自动等）：** ① Security Scan 的 `govulncheck@latest`——`@latest` 必须查询 proxy 的 @v/list，无法用缓存规避（gosec@v2.22.0 为精确版本、缓存可离线）；② Go Tests 的 fuzz 需要宿主负载 < 10。候选后统一：顶层 job `GOPROXY` 改 goproxy.cn 优先（与 cb01a0ed 的验收 job 修法一致）。
+- 编排器（86372）TRACKING attempt 2；attempt 2 非本方重试，编排器重试配额未消耗（每 attempt 一次、连续 2 次后 HOLD）。整体保持 incomplete。
