@@ -4369,3 +4369,12 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **决策：不复活 5c121abe 的 attempt 9。** rerun 只会以旧 ci.yml（proxy.golang.org 优先）重执行，且新候选本来就需要自己的完整验收；owner 的派发即为路线决策，遵守。
 - **保全链重建：** 冻结 clone `/private/tmp/streamgate-final-cb01a0ed-20261031`（本地 packed clone，5 个子模块由 donor 精确填充，树 clean）；新守卫 `preserve-current-all-cb01a0ed.py`（SHA256 前缀 `b609538da3386d39`，handle pid `77622`）绑定 run 41152444524 / 三服务标签 `sg-ci-41152444524-<N>-candidate-*` 同号 N≥1；旧守卫（91484）已停止。
 - **监控：** run 41152444524 每 4 分钟轮询至终态。终态前整体保持 incomplete；无任何 all PASS 结论。
+
+**§8.61 run 41152444524 attempt 1 终态归因与四闸门恢复守卫（2026-10-31T02:20Z，当前入口）：**
+
+- **终态：completed / failure —— 14 success / 12 failure / 9 skipped。** 12 个 failure 全部归因为三类基础设施问题，**零产品代码/断言失败**（原始日志 12 份已留档 `sg-closeout-41152444524-recovery/jobs/`，聚合 SHA256 前缀 `b9fefc9b74be8a2d`）：
+  1. **Docker Hub 服务容器拉取失败（8 个集成/E2E）**：`registry-1.docker.io` 经免费镜像源（1ms.run/xuanyuan）拥塞超时。已离线缓解：`postgres:15-alpine`、`redis:7-alpine` 从宿主 `docker save | docker load` 灌入 `sg-linux-dind`（§8.53 预置先例）。
+  2. **Security Scan**：`govulncheck@latest` 的 `@list` 在 proxy.golang.org i/o timeout——cb01a0ed 只修了验收 job 的 `VERIFY_GOPROXY`，顶层 job 的 `GOPROXY` 仍是 proxy.golang.org 优先；候选后应统一改为 goproxy.cn 优先（需新提交）。
+  3. **Go Tests**：必选 fuzz `FuzzWalletMessage` 31 秒后 `context deadline exceeded`，fuzz 日志显示 6 worker 在第 6 秒后 **0 exec/sec 持续 24 秒**——宿主 load 19.7（8 核）下的环境性停摆，非密码学代码问题；同 fuzz 在 run 40994464129 全部通过。
+- **四闸门恢复守卫 `recover-cb01a0ed-failed-once.py`**（SHA256 前缀 `40f1251c5ede9951`，handle pid `85102`，24h 期限）：仅当互斥锁清洁、**宿主 1 分钟负载 < 10（间隔 30 秒 3 连续采样）**、GHCR daemon 15 连续、proxy.golang.org 10 连续（`govulncheck @list` 同路径探测）全部满足时，提交一次 `rerun-failed-jobs`（12 个失败 job + 其 skipped 下游验收/证据/publishable）。失败集合与日志哈希绑定，任何新增失败或身份变化 STOP。
+- run 41152444524 / attempt 1 为 `cb01a0ed` 的完整首次验收；重跑后仍需全绿 + evidence/publishable 才可收口。整体保持 incomplete。
