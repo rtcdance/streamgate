@@ -1,0 +1,11 @@
+# Digest-pinned base images (FROM x@sha256:...) always resolve against
+# registry-1.docker.io, and a docker-container buildx builder has no registry
+# mirrors by default, so every candidate build HEADs the upstream registry
+# directly over the runner egress. That egress degrades in long windows
+# (dial timeouts to fake-IP egress nodes; TRANSITION_PLAN §8.53–8.69), which
+# is what repeatedly killed the "Build <service>" jobs while the daemon-level
+# mirror stayed healthy. Point buildkitd at the same mirror the daemon already
+# uses: it serves docker.io content including digest-pinned manifests, so
+# base-image resolution follows the stable path instead of the flaky one.
+[registry."docker.io"]
+mirrors = ["docker.m.daocloud.io"]
