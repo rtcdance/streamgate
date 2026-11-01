@@ -4572,3 +4572,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - attempt 8（14:30–17:30Z）6 个 Scan job 失败：Scan Monolith 死于 setup-trivy 阶段 `exit code 92`（无错误文本，runner 进程级中断；runner-04 容器本体 16h 未动、负载正常）——非产品代码。其余 5 个 Scan 为同家族传输失败。**其余全部 job（含全部 Build 与测试）全绿，失败面收敛至 Scan 家族**。
 - 处置：exit-92 模式入分类器（SHA256 前缀 `65e48b0851448faa`）；清理看门狗误复活的重复编排器实例（恢复单实例）；streak 归零。attempt 8 将重试为 attempt 9。
 - Scan 家族（setup-trivy exit 92）成为当前唯一未根治形态——若 attempt 9 再现，考虑预置 trivy 二进制/DB 到 TRIVY_CACHE_DIR（/work/_tool/streamgate-trivy，宿主 bind 可写）以缩短 setup 路径。整体保持 incomplete。
+
+**§8.82 attempt 8 终态定责与 attempt 9 预备（2026-11-01T19:25Z，当前入口）：**
+
+- **attempt 8 终态：completed/failure，6 失败全部传输类，产品代码持续零失败：** 5× github-egress（git GnuTLS -110 / connect 失败 / cache action 下载）+ 1× Scan Monolith curl H2 stream error（exit 92，trivy 二进制下载挂 64 分钟后死）。分类器补纳 `exit code 92`（curl CURLE_HTTP2_STREAM，trivy 安装器专用签名）。
+- Build auth 在本 attempt 通过——mirror 修复下的重试闭环成立；scan 波折损集中于 trivy 安装链。
+- streak 按 §8.69 标准复位（第 2 次）：新闸门（host_github_trivy + host_get_trivy_dev 5 连续）直接构成「条件实测」——探针不过关不派发，无碰运气成分。编排器（pid 5372，SHA `13236545c95063f1`）正在过闸，attempt 9 将只重跑 6 个失败 job + 下游。
+- 整体保持 incomplete。
