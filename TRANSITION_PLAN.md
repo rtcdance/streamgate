@@ -4468,3 +4468,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **恢复（含一次错误操作）：** 先 pkill 僵尸 Worker，Listener 立即以同一死消息 respawn（`spawnclient`）无效；随后**错误地** `docker restart sg-linux-runner-04`——容器 6 天前创建时的 token bind-mount 源（/var/folders 临时文件）已被 macOS 清理，start 失败（`not a directory`），runner 短暂下线。正确手段是既有的 host 侧启动器 `ci-linux-runner/run.sh`（设计即「token 一小时过期，每次 resume 重建容器」）：fresh registration token + 原配置重建，30 秒内 `RUNNER_READY`，runner-04 恢复 online。教训：**该 runner 的恢复入口只有 run.sh，永远不要 docker restart**。
 - 死锁期间编排器/守卫全部按纪律自持（HOLD/WAITING），无副作用。runner 恢复后旧 run attempt 12 预计开始执行并按已证签名失败；本方继续按 §8.72 双分支等待。
 - 整体保持 incomplete。
+
+**§8.74 streak 复位、44b860f5 接管槽位与 §8.72 证据更正（2026-11-01T03:45Z，当前入口）：**
+
+- **外部 loop 静默确认：** 旧 run 41213994944 attempt 12 于 03:13:48Z 终态（同签名失败：buildkit digest 解析 `dial tcp 210.56.51.192`），此后 11.5 分钟仓库 0 个 queued run——外部重派 loop 已停止。按 §8.72 既定政策，03:25Z 复位编排器 streak（此前 streak 计的是被外部取消的 attempt，非闸门失败）。
+- **接管成功：** 编排器七道闸门全过（mutex/load/GHCR/goproxy.cn/TUNA/codeload/buildkit-mirror 探针 3 连续），03:43:30Z 提交定向重试，run 41257760476 进入 **attempt 4 / queued**。
+- **§8.72 证据更正（重要）：** 此前「attempt 1/2 的 26 job 全绿继承」表述有误——26/10 数字属于旧 run 41213994944 的 attempt。41257760476 attempt 1 实际为 35 个 job：4 个 success（Go Tests/Lint/Verify Dependencies/Benchmark）、Security Scan failure（01:00Z，foundryup SSL EOF 传输类）、**Candidate Images 组 skipped——10 个 Build job 从未在 CI 上执行过**，其余 cancelled。因此 attempt 4 将包含 Candidate Images 全部构建，是 buildkit mirror 修复（44b860f5）的**首次真实 CI 验证**；本机 A/B 实证（§8.70）与忠实探针（§8.71 升级）是此前仅有的证据。
+- 整体保持 incomplete；attempt 4 终态待回填。
