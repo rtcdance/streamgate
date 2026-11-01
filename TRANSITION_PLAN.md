@@ -4516,3 +4516,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **干预：** kill -9 该 node 进程（仅此一个进程，非 job 取消、非 run 重派）。runner 随即结束该 job 并于 07:21:14Z 派发下一 job（action archive 下载正常）——串行队列恢复流动，其余 job 无损失。
 - **后续：** 被杀 job 的日志签名可读后补入分类器（如实标注为监督干预类，根因仍是传输挂死）；attempt 6 终态待回填。保全守卫/编排器全程未动。
 - 整体保持 incomplete。
+
+**§8.73 run 41257760476 attempt 6 首败定责（2026-11-01T07:30Z，当前入口）：**
+
+- Security Scan 失败（07:21:45Z 终态）：gosec 过、**goproxy.cn 安装 govulncheck 仅 3 秒（§8.64 修复生效实证）**；`govulncheck ./...` 的漏洞库拉取在 `vuln.go.dev` EOF（`|| true` 吞掉不致命）；随后 **foundryup 挂起 1h45m**（runner-04 容器 02:50Z 被外部重建后 foundry 缓存清空，重下载遇 §8.65 同源 github-release 抖动），清理时被杀。纯传输/资源类，零产品代码失败。
+- 其余 18 job 全绿。run 继续执行中；已部署「外部重派观察器」：若 30 分钟内无新 attempt 出现则部署本方编排器接管重试，避免双发。
+- 整体保持 incomplete。
