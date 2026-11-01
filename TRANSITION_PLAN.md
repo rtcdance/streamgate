@@ -4522,3 +4522,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - Security Scan 失败（07:21:45Z 终态）：gosec 过、**goproxy.cn 安装 govulncheck 仅 3 秒（§8.64 修复生效实证）**；`govulncheck ./...` 的漏洞库拉取在 `vuln.go.dev` EOF（`|| true` 吞掉不致命）；随后 **foundryup 挂起 1h45m**（runner-04 容器 02:50Z 被外部重建后 foundry 缓存清空，重下载遇 §8.65 同源 github-release 抖动），清理时被杀。纯传输/资源类，零产品代码失败。
 - 其余 18 job 全绿。run 继续执行中；已部署「外部重派观察器」：若 30 分钟内无新 attempt 出现则部署本方编排器接管重试，避免双发。
 - 整体保持 incomplete。
+
+**§8.74 run 41257760476 attempt 6 定责、solc 预置与本方编排器接管（2026-11-01T08:25Z，当前入口）：**
+
+- attempt 6 终态 failure，3 败全部定责为传输类：① Security Scan——gosec 过、goproxy.cn 3 秒装好 govulncheck（修复实证），漏洞库 `vuln.go.dev` EOF 被吞，真凶是 foundryup 挂起 1h45m（冷缓存 + github-release 抖动）；② Solidity Tests——runner 容器重建后 svm 缓存空，forge 运行时从 `raw.githubusercontent.com`（§8.53 已证不可达）拉 arm64 solc 0.8.24，TLS EOF；③ test-unit-storage——codeload 下载 foundry-toolchain action 超时（3 attempts）。零产品代码失败。
+- **根治预置：** arm64 solc 0.8.24 经 jsdelivr CDN（同一 nikita 仓库同一 commit 的字节）下载并装入 `sg-linux-runner-04:/root/.svm/0.8.24/solc-0.8.24`（Dockerfile.verify 同款布局），`solc --version` 实测通过——Solidity Tests 的 solc 网络依赖离线拔除；foundry v1.8.5 已由 action 装好（symlink 验证）。
+- **本方编排器接管**（外部 30min 无重派，满足 §8.72 预案）：`orchestrate-44b860f5.py`（SHA256 前缀 `8869e9e231cdcd7e`）+ 配套看门狗，分类器增纳 codeload/HttpClient.Timeout/vuln.go.dev 模式。TRACKING，将闸门重试 attempt 6 的 3 个失败 job + 下游。
+- 整体保持 incomplete。
