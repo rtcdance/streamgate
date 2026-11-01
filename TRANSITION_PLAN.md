@@ -4550,3 +4550,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - 处置：分类器增纳 `failed to download vulnerability DB` 模式（SHA256 前缀 `28ad33bc0fd0b123`），streak 按新证据归零；attempt 7 将被闸门重试为 attempt 8。
 - 值得注意：Build 根治已实证——attempt 7 中 6/7 Build job 成功（此前 attempt 4/5 曾 10 个全灭），唯 Build auth 败于 action 下载（新形态，codeload 类）。
 - 整体保持 incomplete。
+
+**§8.80 attempt 7 终态定责与 trivy DB 超时归因（2026-11-01T16:25Z，当前入口）：**
+
+- **attempt 7 终态：completed/failure（~16:13Z），3 失败全部传输类，产品代码持续零失败：** ① Build auth、② Scan Transcoder——均为 codeload.github.com action archive 下载超时（100s HttpClient ×3 耗尽，12:50/15:13）；③ Scan Monolith——trivy 漏洞库自 `ghcr.io/aquasecurity/trivy-db:2` 下载在 trivy-action 的 300s 硬超时内仅完成 57KB/131MB（ghcr 涓流 ~200B/s；131MB@300s 需 450KB/s，结构上不可过），`FATAL failed to download vulnerability DB` 退出 1。
+- **值得记录的正结果：** Build 组 9 个镜像在 mirror 修复下 **8/9 成功构建**（Transcoder/api-gateway/upload/Monolith/metadata/monitor/cache 等，唯 Build auth 死于 codeload 与 mirror 无关）——44b860f5 的核心修复在真实 CI 上成立。
+- **处置：** 分类器补纳 `failed to download vulnerability DB`（attempt 7 曾被误判 REAL）；streak 按 §8.69 标准复位（闸门即条件实测：codeload 5 连续 + GHCR 15 连续 + 锁/负载清洁，不过关不派发）。编排器重启，attempt 8 将只重跑 3 个失败 job + 下游。
+- **候选后改进项（若 codeload/trivy 类反复，需新 SHA）：** ① 自托管 runner 每 job 重新下载 action archive（~30 次/run）放大 codeload 抖动；② trivy-action 的 DB 下载 300s 硬超时在涓流 egress 下不可过——可评估 TRIVY timeout 参数或 DB 预置。
+- 整体保持 incomplete；attempt 8 派发与终态待回填。
