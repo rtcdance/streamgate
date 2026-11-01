@@ -4530,3 +4530,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **本方编排器接管**（外部 30min 无重派，满足 §8.72 预案）：`orchestrate-44b860f5.py`（SHA256 前缀 `8869e9e231cdcd7e`）+ 配套看门狗，分类器增纳 codeload/HttpClient.Timeout/vuln.go.dev 模式。TRACKING，将闸门重试 attempt 6 的 3 个失败 job + 下游。
 - 整体保持 incomplete。
 **§8.75 协同去重（2026-11-01T08:30Z）：** 确认外部（codebuddy）编排器（pid 13530，01:18Z 起）一直在管理 run 41257760476——recovery-submit-attempt-1..5.json 均为其重派记录，且与我方使用同一目录/schema。为防双发，我方编排器（52532）已退出派发，保留：我方看门狗（对共享 state 做幂等条件复位）、保全守卫 v5、solc 预置、终态 watcher。派发权归 codebuddy 单一所有；我方在其 HOLD 超过 1 小时且条件实测健康时才按 §8.72 预案接管。
+
+**§8.78 attempt 6 终态定责、干预产物甄别与编排器修复（2026-11-01T08:45Z，当前入口）：**
+
+- **attempt 6 终态：completed/failure（08:13Z）。** 三个失败全部为传输/干预类，产品代码仍零失败：① Solidity Tests——重派执行后 07:37 失败于 solc 下载（`raw.githubusercontent.com`，`error sending request for url`，与 attempt 4 同源；实测该 host 现已恢复 206）；② test-unit-storage——transport_reset（分类器自动定性）；③ Security Scan——**监督干预产物**：其 foundry-toolchain 步骤 05:35:05Z 起与 Solidity 同秒挂死于 foundry 下载（1h45m 零输出、无任何错误标记），§8.77 的 kill 终止的正是它的 wedged node 进程，失败无传输签名系干预本身所致。
+- **编排器修复链（含一次工程教训）：** 分类器补纳 `error sending request for url`；新增 SUPERVISOR_OVERRIDES 机制（§8.66 纪律：有据的人工 triage 覆盖分类器盲区，本例 job 124760296004 → transport_reset，证据链全文留档）。期间发现相对路径 heredoc 补丁在 shell cwd 重置下静默丢失（文件 SHA 与任何历史版本都不符），改用绝对路径重打全部补丁并逐项验证（SHA256 前缀 `28ad33bc0fd0b123`）。新实例 pid `54520` 已通过 triage 进入闸门。
+- **重试预算：** streak 将 1→2 触顶，attempt 7 为本轮最后一次自动重试；若再遇基建失败将 HOLD 等人工/新信息。runner 侧发现的并行执行疑点（Security Scan 与 Solidity 日志时间重叠）留待 attempt 7 终态后复核。
+- 整体保持 incomplete；attempt 7 派发与终态待回填。
