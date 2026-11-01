@@ -4537,3 +4537,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **编排器修复链（含一次工程教训）：** 分类器补纳 `error sending request for url`；新增 SUPERVISOR_OVERRIDES 机制（§8.66 纪律：有据的人工 triage 覆盖分类器盲区，本例 job 124760296004 → transport_reset，证据链全文留档）。期间发现相对路径 heredoc 补丁在 shell cwd 重置下静默丢失（文件 SHA 与任何历史版本都不符），改用绝对路径重打全部补丁并逐项验证（SHA256 前缀 `28ad33bc0fd0b123`）。新实例 pid `54520` 已通过 triage 进入闸门。
 - **重试预算：** streak 将 1→2 触顶，attempt 7 为本轮最后一次自动重试；若再遇基建失败将 HOLD 等人工/新信息。runner 侧发现的并行执行疑点（Security Scan 与 Solidity 日志时间重叠）留待 attempt 7 终态后复核。
 - 整体保持 incomplete；attempt 7 派发与终态待回填。
+
+**§8.79 保全守卫 12h 期限到期重启（2026-11-01T12:50Z，当前入口）：**
+
+- 44b860f5 保全守卫（原 pid 9952）于 12:43:45Z 按设计期限（12h，自 00:43Z 起）退出：DEADLINE_WITHOUT_CURRENT_ALL——run 因外取消/活锁/挂死累计耗时超过期限，非故障。备份目录从未创建（始终 WAITING），重启无冲突。
+- 已重启（pid `74572`，WAITING_FOR_CURRENT_COMPLETE_ALL，新期限至 ~00:50Z）。教训：期限型守卫需要外部监控其剩余寿命；attempt 7 已进入 Build/Scan 混合阶段（零失败），预计 2–3h 内终态。
+- 整体保持 incomplete。
