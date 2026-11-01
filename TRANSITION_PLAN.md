@@ -4579,3 +4579,4 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - Build auth 在本 attempt 通过——mirror 修复下的重试闭环成立；scan 波折损集中于 trivy 安装链。
 - streak 按 §8.69 标准复位（第 2 次）：新闸门（host_github_trivy + host_get_trivy_dev 5 连续）直接构成「条件实测」——探针不过关不派发，无碰运气成分。编排器（pid 5372，SHA `13236545c95063f1`）正在过闸，attempt 9 将只重跑 6 个失败 job + 下游。
 - 整体保持 incomplete。
+**§8.78 attempt 9 收敛确认（2026-11-02T04:15Z，当前入口）：** attempt 9 仅剩 2 个 Scan 失败（6→2）：Scan monitor 为 GnuTLS 断连（既有模式），Scan upload 为 curl exit 56（新形态，模式已补，SHA256 前缀 `13236545c95063f1`）。其余全部 job——含 Solidity Tests（solc 预置生效实证）与 test-unit-storage——全绿。编排器重启后将闸门重试 attempt 9。整体保持 incomplete。
