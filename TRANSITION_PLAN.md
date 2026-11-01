@@ -4461,3 +4461,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - 第二个完整周期证实活锁：01:50:30Z 本方提交 41257760476 attempt 3（concurrency 取消旧 run attempt 10）；01:56:06Z 外部把旧 run 41213994944（de4ee347）重派为 attempt 11，同一时刻取消本方排队中的 attempt 3。外部重派延迟已从 ~40 min 缩短到 ~5 min，重派对象始终是**结构性无法收敛的旧候选**（无 buildkit mirror 修复；attempt 7/8 两次 10 Build 全灭同签名，attempt 10 甚至没跑到 build 即被取消）。
 - 本方编排器 streak=2 触顶，将按纪律进入 HOLD（不参与重派竞赛）；44b860f5 的 attempt 1/2 证据（26 job 全绿 + Security Scan 传输类误判已纠正）全部留档。等待用户决策：停掉外部重派 loop 让 44b860f5 接管槽位，或放任外部 loop 在好窗口碰运气（de4ee347 全绿则以它收口）。
 - 整体保持 incomplete。
+
+**§8.73 runner 死锁发现与恢复（2026-11-01T02:55Z，当前入口）：**
+
+- **死锁根因：** 旧 run attempt 11/12 排队 ~50 分钟未启动，而仓库内无任何 in_progress run。排查发现 `sg-linux-runner-04` 内 02:45Z 启动的 `Runner.Worker` 卡死在 `Waiting to receive the job message from the channel`（高频 concurrency 取消与派发竞争所致），Listener 因此自认 busy——**全部 queued run 永远无法被领取**，两条收口路径同时被堵死。
+- **恢复（含一次错误操作）：** 先 pkill 僵尸 Worker，Listener 立即以同一死消息 respawn（`spawnclient`）无效；随后**错误地** `docker restart sg-linux-runner-04`——容器 6 天前创建时的 token bind-mount 源（/var/folders 临时文件）已被 macOS 清理，start 失败（`not a directory`），runner 短暂下线。正确手段是既有的 host 侧启动器 `ci-linux-runner/run.sh`（设计即「token 一小时过期，每次 resume 重建容器」）：fresh registration token + 原配置重建，30 秒内 `RUNNER_READY`，runner-04 恢复 online。教训：**该 runner 的恢复入口只有 run.sh，永远不要 docker restart**。
+- 死锁期间编排器/守卫全部按纪律自持（HOLD/WAITING），无副作用。runner 恢复后旧 run attempt 12 预计开始执行并按已证签名失败；本方继续按 §8.72 双分支等待。
+- 整体保持 incomplete。
