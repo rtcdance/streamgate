@@ -4502,3 +4502,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **接管后进展：** 编排器 streak 按「实质不同条件」（重派源已停）复位，05:21:57Z 提交定向重试 → **attempt 6**，05:25Z concurrency 生效：旧 a14 = completed/cancelled，新 a6 = queued/in_progress。本次 attempt 将完整重跑 Security Scan + 全部 cancelled job（含 Candidate Images 构建组——mirror 修复 44b860f5 的首次线上验证）。
 - **恢复路径（若 owner 需要）：** `kill -CONT 39695 73656` 恢复 codebuddy；但其 loop 与本方编排器将重新进入 concurrency 竞争，建议先与监督 loop 协调（停一方再跑另一方）。本方守卫/编排器全程无进程级杀伤，仅暂停。
 - 整体保持 incomplete；attempt 6 终态待回填。
+
+**§8.72 候选 `44b860f5` 接棒，链条整体迁移（2026-11-01T05:40Z，当前入口）：**
+
+- de4ee347 的 run 41213994944 在 attempt 14 被 concurrency 取消：**新候选 `44b860f5`**（`fix(ci): resolve digest-pinned base images through a reachable buildkit mirror`，00:34:47Z，+`.github/buildkitd.toml` 与 build.yml 注入）——正是 §8.69 定性的 buildkit digest 解析问题的根治，由外部派发 [run 41257760476](https://github.com/rtcdance/streamgate/actions/runs/41257760476)。
+- **attempt 6 执行中（05:40Z）：18 job success / 0 failure**，Security Scan（历史惯犯）在跑，7 个排队——三代修复叠加后最干净的一轮。
+- 链条迁移：de4ee347 的编排器/看门狗已停（其 run 终态 cancelled，防对已取消 run 误重派）；保全守卫 v5 上岗（handle 绑 run 41257760476 / SHA `44b860f5` / repository=worktree `/tmp/sg-final-44b860f5` / 备份目录 `acceptance-raw-44b860f5`）；16h watcher 跟踪终态。若 attempt 终态失败且 30 分钟内无外部重派，再部署本方编排器（避免与外部派发者双发）。
+- 整体保持 incomplete。
