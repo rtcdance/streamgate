@@ -4558,3 +4558,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **处置：** 分类器补纳 `failed to download vulnerability DB`（attempt 7 曾被误判 REAL）；streak 按 §8.69 标准复位（闸门即条件实测：codeload 5 连续 + GHCR 15 连续 + 锁/负载清洁，不过关不派发）。编排器重启，attempt 8 将只重跑 3 个失败 job + 下游。
 - **候选后改进项（若 codeload/trivy 类反复，需新 SHA）：** ① 自托管 runner 每 job 重新下载 action archive（~30 次/run）放大 codeload 抖动；② trivy-action 的 DB 下载 300s 硬超时在涓流 egress 下不可过——可评估 TRIVY timeout 参数或 DB 预置。
 - 整体保持 incomplete；attempt 8 派发与终态待回填。
+
+**§8.81 编排器文件回退事故与忠实闸门恢复（2026-11-01T19:00Z，当前入口）：**
+
+- **事故：** 排查 attempt 8 scan 大批折损时发现，磁盘上的编排器脚本已回退为**旧版**（9976 字节：旧的不忠实 `dind_buildkit_digest_base` 闸门、无 codeload/TUNA/忠实 buildkit 闸门，但含 classifier 增补）——即 attempt 8 的派发（16:40Z）是在**欠闸门**状态下发生的。回退时点在 08:46–16:25 之间，机制未查明（多次 shell cwd 重置下的相对路径写操作为最大嫌疑）。教训：**自动化脚本必须用绝对路径改写，且每次派发前校验脚本 SHA**。
+- **恢复：** 从 08:33 备份（`/tmp/orch-backup-ed04.py`，忠实闸门版，sha ed04e526…）恢复，重打全部后续补丁并逐项 grep 验证：SUPERVISOR_OVERRIDES、vulnerability DB、github-port-443 连接失败分类器 + host_github_trivy / host_get_trivy_dev 两条忠实闸门（§8.67 保真规则：闸门必须探 scan job 的真实下载路径）。新版本 SHA256 前缀 `65e48b0851448faa`，实例 pid `2913`。
+- **attempt 8 实况：** Build auth 通过（mirror 修复下重试成功）；Scan Monolith（trivy 二进制 H2 stream error，挂 64 分钟）与 Scan Transcoder（git GnuTLS -110）折损；scan 大军曾 9 个并行活跃，现剩 3 个。全部失败均为传输类，产品代码持续零失败。
+- **结构判断：** trivy 安装链（github releases 查版本 + get.trivy.dev 下载 + ghcr DB）每 job 重复执行 × egress 窗口劣化 = scan 波的主要死因。若 attempt 9 后仍不收敛，启动候选内根治（trivy 二进制/DB 预置或缓存，候选修复 #6，需新 SHA）。
+- 整体保持 incomplete。
