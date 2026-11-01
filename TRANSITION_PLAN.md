@@ -4529,3 +4529,4 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **根治预置：** arm64 solc 0.8.24 经 jsdelivr CDN（同一 nikita 仓库同一 commit 的字节）下载并装入 `sg-linux-runner-04:/root/.svm/0.8.24/solc-0.8.24`（Dockerfile.verify 同款布局），`solc --version` 实测通过——Solidity Tests 的 solc 网络依赖离线拔除；foundry v1.8.5 已由 action 装好（symlink 验证）。
 - **本方编排器接管**（外部 30min 无重派，满足 §8.72 预案）：`orchestrate-44b860f5.py`（SHA256 前缀 `8869e9e231cdcd7e`）+ 配套看门狗，分类器增纳 codeload/HttpClient.Timeout/vuln.go.dev 模式。TRACKING，将闸门重试 attempt 6 的 3 个失败 job + 下游。
 - 整体保持 incomplete。
+**§8.75 协同去重（2026-11-01T08:30Z）：** 确认外部（codebuddy）编排器（pid 13530，01:18Z 起）一直在管理 run 41257760476——recovery-submit-attempt-1..5.json 均为其重派记录，且与我方使用同一目录/schema。为防双发，我方编排器（52532）已退出派发，保留：我方看门狗（对共享 state 做幂等条件复位）、保全守卫 v5、solc 预置、终态 watcher。派发权归 codebuddy 单一所有；我方在其 HOLD 超过 1 小时且条件实测健康时才按 §8.72 预案接管。
