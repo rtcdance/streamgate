@@ -4433,8 +4433,17 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - attempt 1 共 4 个失败：2× transport_reset（既有模式）+ 2× 新形态——`foundry-toolchain` **action 本体**自 codeload.github.com 下载超时（100s HttpClient 超时 ×3 次耗尽，Solidity Tests / Anvil Integration 两个 job 在初始化阶段即死）。均传输类，产品代码零失败。
 - 分类器增纳 `download has timed out` / `Failed to download archive` 模式（SHA256 前缀 `2606095963a06bfe`，handle pid `74972`）。闸门全过后 18:37:58Z 已自动提交 attempt 2 重试。整体保持 incomplete。
 
-**§8.69 run 41213994944 attempt 5 复盘与条件复位（2026-11-01T23:55Z，当前入口）：**
+**§8.69 run 41213994944 attempt 5 复盘与条件复位（2026-10-31T23:55Z）：**
 
 - de4ee347（slither 运行时 pip 走 TUNA，与 §8.66 定责一致）候选的 run 41213994944：attempt 4 曾 10 个 Build job 全灭——原始日志显示 buildkit 解析 `alpine:3.21@sha256:ce64…` 时 dial `103.240.182.55` 超时；该 IP 既非 daocloud（47.100.46.249）也非 docker.io 常规边缘，为瞬时死出口节点。20:28Z–23:33Z 窗口整体劣化，与本日早间同类。
 - **条件实测复位（2026-11-01T23:50Z）：** dind mirror 路径健康（`docker pull postgres:15` 秒过 + Dockerfile.auth 测试构建已通过 base 解析进入编译）；GHCR daemon 路径 OK；编排器 streak 按纪律以「实质不同条件已验证」归零。
 - 本轮复测构建造成的瞬时负载升高会自然回落；编排器（pid 79896）将在负载 <10 三连采样后自动重试 attempt 5。整体保持 incomplete。
+
+**§8.70 attempt 7 定责、buildkit mirror 根治进候选、新候选 `44b860f5`（2026-11-01T01:00Z，当前入口）：**
+
+- **attempt 7 终态：completed/failure —— 26 success / 10 failure / 12 skipped。** 10 个失败恰好是全部 10 个 Build job，其余 26 个 job（unit/integration/E2E/scan/solidity/anvil）全绿继承，产品代码零失败。10 份原始日志已留档 `.verify-artifacts/sg-closeout-de4ee347/recovery/jobs-attempt7/`，抽样核验签名全部一致：buildkit `failed to resolve source metadata`，对 `registry-1.docker.io` 的 digest HEAD dial 超时（每次命中不同坏出口：159.65.107.38 / 162.125.34.133 / 39.109.122.128），与 §8.69 attempt 4 同类。
+- **结构性根因（A/B 实证）：** `build.yml` 的 `setup-buildx-action` 未传 `config:`，CI 用的是 **docker-container 驱动 builder，其 buildkitd 没有任何 registry mirror**——§8.64 灌入 dind daemon 的 daocloud mirror 对这条路径不生效，每次 digest 固定基础镜像解析都直连 `registry-1.docker.io` 走透明代理出口。同一分钟、同一网络对照：无 mirror builder 失败（dial 39.109.122.128 超时，与 CI 日志逐字同类），带 mirror builder 成功解析同一 digest 并构建完成。
+- **旧闸门的保真缺口：** 旧编排器 `dind_buildkit_digest_base` 探针用 `DOCKER_BUILDKIT=1 docker build`——那是 **daemon 内置 buildkit（走 daemon mirror）**，与 CI 失败路径不是同一条 egress，因此 00:20Z 闸门放行、00:25Z CI 即失败；与 §8.67 pypi 探针教训同构。另发现 pypi 闸门仍探 `files.pythonhosted.org`，而候选 de4ee347 已把 slither 依赖切到 TUNA，一并修正。
+- **根治进候选：** 提交 `44b860f5`（`fix(ci): resolve digest-pinned base images through a reachable buildkit mirror`）——新增 `.github/buildkitd.toml`（`[registry."docker.io"] mirrors = ["docker.m.daocloud.io"]`，与 daemon 现用同一镜像源）并给 build.yml 三处 `setup-buildx-action` 接线 `config:`。已推送并派发 [run 41257760476](https://github.com/rtcdance/streamgate/actions/runs/41257760476)（00:41Z，headSha=`44b860f5`）。候选内 CI 健壮性修复累计 5 个；产品代码自始至终零失败。
+- **自动化链重建（gate 忠实化）：** 新编排器 `orchestrate-44b860f5.py`（SHA256 前缀 `58e0f814d17e1286`，pid `9951`，TRACKING run 41257760476）：buildkit 闸门改为复刻 CI 的 container 驱动 builder + mirror 配置 + 同一 digest 解析（3 连续，探针单次 76s 已实测）；pypi 闸门改探 TUNA 实际依赖；新增 codeload 闸门（§8.69 attempt 1 的 foundry 下载路径）。保全守卫 `preserve-current-all-44b860f5.py`（SHA256 前缀 `c32994552848ae22`，pid `9952`，WAITING，repository=/tmp/sg-goproxy-fix@44b860f5，备份目录 `acceptance-raw-44b860f5`）。旧链路（pid 79896/60005，含其 HOLD 状态）已全部停止，attempt 7 的 2 次基建重试计数不带入新候选。预检：网络 7 个、无 mutex 残留、仓库零活动 run。
+- 整体保持 incomplete；全绿 + evidence/publishable + 原件保全校验通过前不宣称收口。
