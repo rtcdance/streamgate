@@ -261,9 +261,21 @@ jobs:
           fi
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
+      # The pre-provisioned binary lives on the persistent tool volume
+      # (survives runner restarts); hosted runners ignore this step.
+      - name: Prepend pre-provisioned Trivy (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: echo "/work/_tool/trivy-bin" >> "$GITHUB_PATH"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
@@ -289,6 +301,12 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
@@ -337,9 +355,21 @@ jobs:
           fi
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
+      # The pre-provisioned binary lives on the persistent tool volume
+      # (survives runner restarts); hosted runners ignore this step.
+      - name: Prepend pre-provisioned Trivy (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: echo "/work/_tool/trivy-bin" >> "$GITHUB_PATH"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
@@ -352,6 +382,12 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
@@ -406,9 +442,21 @@ jobs:
           fi
           echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
 
+      # The pre-provisioned binary lives on the persistent tool volume
+      # (survives runner restarts); hosted runners ignore this step.
+      - name: Prepend pre-provisioned Trivy (self-hosted)
+        if: runner.environment == 'self-hosted'
+        run: echo "/work/_tool/trivy-bin" >> "$GITHUB_PATH"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
@@ -421,6 +469,12 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # Self-hosted egress degrades for hours at a time, and the per-job
+          # trivy binary download was the dominant scan-job killer (§8.80–8.82).
+          # The binary is pre-provisioned on the runner's persistent tool
+          # volume and put on PATH below; hosted runners keep the default
+          # setup-trivy download.
+          skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}
           # Self-hosted DB storage survives checkout clean. Avoid re-uploading it
           # after every scan; hosted runners still use the action's remote cache.
           cache: ${{ runner.environment != 'self-hosted' }}
