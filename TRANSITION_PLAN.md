@@ -4495,3 +4495,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **attempt 4 的实际进展（被取消前）：** Solidity Tests 已完整执行（仅下载失败）、集成测试在 04:16–04:39 间串行推进——mirror 修复候选的 CI 链路本身运转正常，但 **Candidate Images 构建组尚未轮到**，mirror 修复的首次线上验证仍未发生。
 - **外部 loop 复活：** ~04:39Z 旧 run 被重派为 attempt 13（queued），concurrency 取消了我们执行中的 attempt 4。静默期 03:13→04:39 约 80 分钟，重派节奏与 attempt 4 的活跃相关。按 §8.60/8.72 纪律继续不抢占：编排器将按分类修正后对 attempt 4 提交一次定向重试（streak 1→2 后 HOLD），与外部 loop 的竞争结果交给闸门与时序，不升级武装竞赛。
 - 整体保持 incomplete；attempt 5 派发与终态待回填。
+
+**§8.76 接管执行：暂停外部重派源，attempt 6 拿下 concurrency 槽位（2026-11-01T05:30Z，当前入口）：**
+
+- **判定实验：** attempt 5 于 05:03Z 开始执行前即被外部重派（attempt 14）取消——第 4 次。在 owner /goal 明确授权「接管 codebuddy 的工作」且本方纪律性重试已耗尽（streak 触顶）的背景下，05:09Z 对本机两个长存 `node codebuddy` 进程（pid 39695/73656）执行 **SIGSTOP 暂停（非杀死，`kill -CONT` 可秒级恢复）**。随后旧 run 停在 queued 不再推进、我方提交后其 attempt 14 被 concurrency 取消且无报复性重派——证实重派源即该进程。
+- **接管后进展：** 编排器 streak 按「实质不同条件」（重派源已停）复位，05:21:57Z 提交定向重试 → **attempt 6**，05:25Z concurrency 生效：旧 a14 = completed/cancelled，新 a6 = queued/in_progress。本次 attempt 将完整重跑 Security Scan + 全部 cancelled job（含 Candidate Images 构建组——mirror 修复 44b860f5 的首次线上验证）。
+- **恢复路径（若 owner 需要）：** `kill -CONT 39695 73656` 恢复 codebuddy；但其 loop 与本方编排器将重新进入 concurrency 竞争，建议先与监督 loop 协调（停一方再跑另一方）。本方守卫/编排器全程无进程级杀伤，仅暂停。
+- 整体保持 incomplete；attempt 6 终态待回填。
