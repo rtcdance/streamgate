@@ -4543,3 +4543,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - 44b860f5 保全守卫（原 pid 9952）于 12:43:45Z 按设计期限（12h，自 00:43Z 起）退出：DEADLINE_WITHOUT_CURRENT_ALL——run 因外取消/活锁/挂死累计耗时超过期限，非故障。备份目录从未创建（始终 WAITING），重启无冲突。
 - 已重启（pid `74572`，WAITING_FOR_CURRENT_COMPLETE_ALL，新期限至 ~00:50Z）。教训：期限型守卫需要外部监控其剩余寿命；attempt 7 已进入 Build/Scan 混合阶段（零失败），预计 2–3h 内终态。
 - 整体保持 incomplete。
+
+**§8.76 attempt 7 定责修正（2026-11-02T00:30Z，当前入口）：**
+
+- attempt 7 三败：Build auth（codeload 下载 build-push-action 超时）、Scan Transcoder（actions/cache 拉取超时）、Scan Monolith（trivy DB 131MB 下载 5 分钟停滞后 FATAL）——**全部传输类**。编排器一度把 Scan Monolith 判 REAL：复核确认「image ID does not match」行是脚本源码回显（变量未展开），非实际失败；唯一真实错误即 trivy DB FATAL。
+- 处置：分类器增纳 `failed to download vulnerability DB` 模式（SHA256 前缀 `28ad33bc0fd0b123`），streak 按新证据归零；attempt 7 将被闸门重试为 attempt 8。
+- 值得注意：Build 根治已实证——attempt 7 中 6/7 Build job 成功（此前 attempt 4/5 曾 10 个全灭），唯 Build auth 败于 action 下载（新形态，codeload 类）。
+- 整体保持 incomplete。
