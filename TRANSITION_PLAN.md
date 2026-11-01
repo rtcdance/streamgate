@@ -4488,3 +4488,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **修复编排器 STOP 死循环：** attempt 12 重定责两次仍 STOP 的残余根因是 Build Transcoder 日志 API 持续 BlobNotFound，triage 将 LOG_UNAVAILABLE 当停止条件。已改为日志获取带退避重试（4 次/递增 20s），持续不可得按 `log_unavailable` 基建类处理（同批兄弟 job 模式佐证）。编排器重启（SHA256 前缀 `ea979fa96216c4c1`，handle pid `32694`，TRACKING）。
 - **唤醒链最终形态（不再依赖 cron）：** ① 看门狗（pid 8781，纯机械：进程重启 + 五条件 streak 复位，日志 watchdog.log）；② 14h 长时 watcher 只在「all green」或「需要判断」的状态唤醒 agent，HOLD/排队/重试均不触发；③ 用户任意时刻一句「进度」即可补齐全部积压判断。
 - 整体保持 incomplete。
+
+**§8.75 attempt 4 双 REAL 误判纠正、外部 loop 复活与重试（2026-11-01T04:55Z，当前入口）：**
+
+- **attempt 4 定责修正：** 编排器初判 Solidity Tests 与 Security Scan 为 REAL 并 STOP。人工复核两份原始日志（留档 `sg-closeout-44b860f5/recovery/jobs-attempt-4/`）后均为传输类：① Solidity Tests 在 solc 二进制下载阶段 `raw.githubusercontent.com` 流协议错误（`error decoding response body` / `unspecific protocol error`），测试未开始；② Security Scan 的 `foundryup-init` 自 github releases 下载二进制失败（`foundryup-init: command failed: downloader`，§8.71 同族新形态）。分类器补纳两模式（新 SHA256 前缀 `89fbbb5f420db7c1`），编排器重启（pid `34841`）。
+- **attempt 4 的实际进展（被取消前）：** Solidity Tests 已完整执行（仅下载失败）、集成测试在 04:16–04:39 间串行推进——mirror 修复候选的 CI 链路本身运转正常，但 **Candidate Images 构建组尚未轮到**，mirror 修复的首次线上验证仍未发生。
+- **外部 loop 复活：** ~04:39Z 旧 run 被重派为 attempt 13（queued），concurrency 取消了我们执行中的 attempt 4。静默期 03:13→04:39 约 80 分钟，重派节奏与 attempt 4 的活跃相关。按 §8.60/8.72 纪律继续不抢占：编排器将按分类修正后对 attempt 4 提交一次定向重试（streak 1→2 后 HOLD），与外部 loop 的竞争结果交给闸门与时序，不升级武装竞赛。
+- 整体保持 incomplete；attempt 5 派发与终态待回填。
