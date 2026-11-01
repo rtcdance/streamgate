@@ -4475,3 +4475,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **接管成功：** 编排器七道闸门全过（mutex/load/GHCR/goproxy.cn/TUNA/codeload/buildkit-mirror 探针 3 连续），03:43:30Z 提交定向重试，run 41257760476 进入 **attempt 4 / queued**。
 - **§8.72 证据更正（重要）：** 此前「attempt 1/2 的 26 job 全绿继承」表述有误——26/10 数字属于旧 run 41213994944 的 attempt。41257760476 attempt 1 实际为 35 个 job：4 个 success（Go Tests/Lint/Verify Dependencies/Benchmark）、Security Scan failure（01:00Z，foundryup SSL EOF 传输类）、**Candidate Images 组 skipped——10 个 Build job 从未在 CI 上执行过**，其余 cancelled。因此 attempt 4 将包含 Candidate Images 全部构建，是 buildkit mirror 修复（44b860f5）的**首次真实 CI 验证**；本机 A/B 实证（§8.70）与忠实探针（§8.71 升级）是此前仅有的证据。
 - 整体保持 incomplete；attempt 4 终态待回填。
+
+**§8.70 run 41213994944 attempt 12 定责修正与 runner 重建事件（2026-11-01T04:20Z，当前入口）：**
+
+- attempt 7–11 由编排器/看门狗自动循环消化（每轮失败均为既有传输类）；attempt 12（02:44Z 起）10 个 Build job 失败：8× docker_hub_pull + 1× transport_reset + 1× 编排器判 REAL 而停止。人工复核：REAL 实为 **`streamgate-linux-04` runner 容器于 02:50:43Z 被外部重建**（RestartCount=0，非重启；Build auth 日志 `runner has received a shutdown signal`）——容器内工具/module 缓存清空，属全新外部基建事件，非产品代码失败。Build Transcoder 日志 API 暂不可取（BlobNotFound），同事件家族。
+- 处置：分类器新增 `runner_shutdown` 模式（SHA256 前缀 `7ba62a9c26cc038b`，handle pid `30842`）；retriedAttempts/streak 归零（新条件：冷缓存 runner）。attempt 12 将被闸门重试为 attempt 13——注意冷缓存首跑更慢且 setup-go 需重新下载工具链。
+- 编排器 STOP 时无 cron 唤醒（见 §8.71 备注：cron 处于 paused，替换 v2 的尝试因 agent 工具循环故障未完成）——机械兜底已由宿主看门狗（pid 8781）承担，判断类动作依赖用户唤醒。整体保持 incomplete。
