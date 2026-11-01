@@ -4455,3 +4455,9 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **处置：** ①分类器补纳 `unexpected eof while reading` / `foundryup: command failed: download` / `tar: Error is not recoverable`（新 SHA256 前缀 `6bc3eac4127f7a75`）；②重启 de4ee347 保全守卫（pid `13530`，WAITING——旧 run 若全绿，其原件同样需要保全）；③新编排器（44b860f5）改为**旧 run 终态后自动启动**的顺序器（避免两 run 互相经 concurrency 取消），启动后将对 41257760476 提交一次 targeted `rerun-failed-jobs`（只恢复 Security Scan 及其下游，其余 job 继承）。
 - **追踪优先级声明：** de4ee347 与 44b860f5 都是合法收口候选；先到达「无传输失败终态 + evidence/publishable」者先收口。若 de4ee347 attempt 8 再折于 buildkit digest 直连（该候选无 mirror 修复），44b860f5 带修复自然接棒，不做人工取消竞争。
 - 整体保持 incomplete。
+
+**§8.72 活锁证实：外部 loop 与本方编排器争夺 concurrency 槽位（2026-11-01T02:05Z，当前入口）：**
+
+- 第二个完整周期证实活锁：01:50:30Z 本方提交 41257760476 attempt 3（concurrency 取消旧 run attempt 10）；01:56:06Z 外部把旧 run 41213994944（de4ee347）重派为 attempt 11，同一时刻取消本方排队中的 attempt 3。外部重派延迟已从 ~40 min 缩短到 ~5 min，重派对象始终是**结构性无法收敛的旧候选**（无 buildkit mirror 修复；attempt 7/8 两次 10 Build 全灭同签名，attempt 10 甚至没跑到 build 即被取消）。
+- 本方编排器 streak=2 触顶，将按纪律进入 HOLD（不参与重派竞赛）；44b860f5 的 attempt 1/2 证据（26 job 全绿 + Security Scan 传输类误判已纠正）全部留档。等待用户决策：停掉外部重派 loop 让 44b860f5 接管槽位，或放任外部 loop 在好窗口碰运气（de4ee347 全绿则以它收口）。
+- 整体保持 incomplete。
