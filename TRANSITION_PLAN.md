@@ -4447,3 +4447,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **根治进候选：** 提交 `44b860f5`（`fix(ci): resolve digest-pinned base images through a reachable buildkit mirror`）——新增 `.github/buildkitd.toml`（`[registry."docker.io"] mirrors = ["docker.m.daocloud.io"]`，与 daemon 现用同一镜像源）并给 build.yml 三处 `setup-buildx-action` 接线 `config:`。已推送并派发 [run 41257760476](https://github.com/rtcdance/streamgate/actions/runs/41257760476)（00:41Z，headSha=`44b860f5`）。候选内 CI 健壮性修复累计 5 个；产品代码自始至终零失败。
 - **自动化链重建（gate 忠实化）：** 新编排器 `orchestrate-44b860f5.py`（SHA256 前缀 `58e0f814d17e1286`，pid `9951`，TRACKING run 41257760476）：buildkit 闸门改为复刻 CI 的 container 驱动 builder + mirror 配置 + 同一 digest 解析（3 连续，探针单次 76s 已实测）；pypi 闸门改探 TUNA 实际依赖；新增 codeload 闸门（§8.69 attempt 1 的 foundry 下载路径）。保全守卫 `preserve-current-all-44b860f5.py`（SHA256 前缀 `c32994552848ae22`，pid `9952`，WAITING，repository=/tmp/sg-goproxy-fix@44b860f5，备份目录 `acceptance-raw-44b860f5`）。旧链路（pid 79896/60005，含其 HOLD 状态）已全部停止，attempt 7 的 2 次基建重试计数不带入新候选。预检：网络 7 个、无 mutex 残留、仓库零活动 run。
 - 整体保持 incomplete；全绿 + evidence/publishable + 原件保全校验通过前不宣称收口。
+
+**§8.71 新 run 被外部重派取消、REAL 误判纠正与双候选追踪（2026-11-01T01:30Z，当前入口）：**
+
+- **41257760476 attempt 1 定责修正（REAL 判定为误判）：** 01:00:11Z Security Scan 于 Run Slither 失败，但原始日志显示 TUNA pip 安装本身成功（slither-analyzer 0.11.4 装毕），真实失败是容器内 `foundryup` 下载 foundry nightly 时 `curl: (56) … unexpected eof while reading`（SSL EOF）→ `tar: Error is not recoverable`——纯传输类，分类器缺该形态故误判 REAL 并 STOP。原始日志留档 `sg-closeout-44b860f5/recovery/jobs-attempt-1/job-124704467514.log`（SHA256 前缀 `8b9fccd79d9f4ec9`）。
+- **外部重派与 concurrency 取消：** 01:04:21Z 旧 run 41213994944（候选 de4ee347，无 buildkit mirror 修复）被重派为 attempt 8（`triggering_actor=rtcdance`；宿主两个长期存活的 `node codebuddy` 进程，符合 §8.62 外部派发者特征），分支 concurrency 随即在 01:04:20Z 取消了 41257760476。按 §8.60/8.62 纪律：不抢占、不冲突，追踪即可。
+- **处置：** ①分类器补纳 `unexpected eof while reading` / `foundryup: command failed: download` / `tar: Error is not recoverable`（新 SHA256 前缀 `6bc3eac4127f7a75`）；②重启 de4ee347 保全守卫（pid `13530`，WAITING——旧 run 若全绿，其原件同样需要保全）；③新编排器（44b860f5）改为**旧 run 终态后自动启动**的顺序器（避免两 run 互相经 concurrency 取消），启动后将对 41257760476 提交一次 targeted `rerun-failed-jobs`（只恢复 Security Scan 及其下游，其余 job 继承）。
+- **追踪优先级声明：** de4ee347 与 44b860f5 都是合法收口候选；先到达「无传输失败终态 + evidence/publishable」者先收口。若 de4ee347 attempt 8 再折于 buildkit digest 直连（该候选无 mirror 修复），44b860f5 带修复自然接棒，不做人工取消竞争。
+- 整体保持 incomplete。
