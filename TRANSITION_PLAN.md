@@ -4509,3 +4509,10 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **attempt 6 执行中（05:40Z）：18 job success / 0 failure**，Security Scan（历史惯犯）在跑，7 个排队——三代修复叠加后最干净的一轮。
 - 链条迁移：de4ee347 的编排器/看门狗已停（其 run 终态 cancelled，防对已取消 run 误重派）；保全守卫 v5 上岗（handle 绑 run 41257760476 / SHA `44b860f5` / repository=worktree `/tmp/sg-final-44b860f5` / 备份目录 `acceptance-raw-44b860f5`）；16h watcher 跟踪终态。若 attempt 终态失败且 30 分钟内无外部重派，再部署本方编排器（避免与外部派发者双发）。
 - 整体保持 incomplete。
+
+**§8.77 attempt 6 中途排障：foundry-toolchain 下载挂死的干预（2026-11-01T07:25Z，当前入口）：**
+
+- **现象：** attempt 6 串行队列在第一个 job 处停滞 ~2h（05:23 起）：worker 最后一个步骤结果停在 05:35:05，此后仅 10s 周期的 HostContext 轮询行；dind 零容器、无 mutex 网络、互斥锁清洁。进程级定位：`foundry-rs/foundry-toolchain` 的 node action（pid 135597，Solidity Tests job）持一条 ESTABLISHED（GitHub CDN）+ 一条 CLOSE_WAIT 死连接，0% CPU、11 线程睡眠——**foundry 下载挂死**（无超时的 socket read），不会自愈。此前该 action 的失败形态均为快速失败（§8.69 的 100s HttpClient 超时），本次为首次挂死形态。
+- **干预：** kill -9 该 node 进程（仅此一个进程，非 job 取消、非 run 重派）。runner 随即结束该 job 并于 07:21:14Z 派发下一 job（action archive 下载正常）——串行队列恢复流动，其余 job 无损失。
+- **后续：** 被杀 job 的日志签名可读后补入分类器（如实标注为监督干预类，根因仍是传输挂死）；attempt 6 终态待回填。保全守卫/编排器全程未动。
+- 整体保持 incomplete。
