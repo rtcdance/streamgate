@@ -4580,3 +4580,11 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - streak 按 §8.69 标准复位（第 2 次）：新闸门（host_github_trivy + host_get_trivy_dev 5 连续）直接构成「条件实测」——探针不过关不派发，无碰运气成分。编排器（pid 5372，SHA `13236545c95063f1`）正在过闸，attempt 9 将只重跑 6 个失败 job + 下游。
 - 整体保持 incomplete。
 **§8.78 attempt 9 收敛确认（2026-11-02T04:15Z，当前入口）：** attempt 9 仅剩 2 个 Scan 失败（6→2）：Scan monitor 为 GnuTLS 断连（既有模式），Scan upload 为 curl exit 56（新形态，模式已补，SHA256 前缀 `13236545c95063f1`）。其余全部 job——含 Solidity Tests（solc 预置生效实证）与 test-unit-storage——全绿。编排器重启后将闸门重试 attempt 9。整体保持 incomplete。
+
+**§8.83 候选修复 #6 进候选：trivy 预置，新候选 `d0f05152`（2026-11-02T03:55Z，当前入口）：**
+
+- **路线切换依据：** attempt 8/9 实证「定点闸门重试」已无法获胜——19:30 闸门探针通过后 8 分钟 egress 窗口即关闭（exit 56 快速失败），抖动周期短于单 job 下载时长。scan 波每 job 重复执行 trivy 安装链（github releases 查版本 → 下载二进制 → ghcr 拉 131MB DB），~20 次/run 网络依赖是主要死因。
+- **发现既有设计缺口：** workflow 对自托管 runner 已做 DB 本地持久化（`cache-dir: tool_cache/streamgate-trivy`，实测 db/ 已填充），但 **trivy 二进制仍每 job 重新下载**（`cache: false` 连 setup-trivy 的二进制缓存一并关闭）。
+- **修复（提交 `d0f05152`，`fix(ci): pre-provision trivy for self-hosted scan jobs`）：** build.yml 全部 6 处 trivy-action 步骤加 `skip-setup-trivy: ${{ runner.environment == 'self-hosted' }}`（跳过安装动作），3 个 scan job 在 scan 步骤前注入 `Prepend pre-provisioned Trivy (self-hosted)`（把 `/work/_tool/trivy-bin` 挂上 GITHUB_PATH）。host 侧预置（非候选变更，§8.63 先例）：trivy 0.70.0 Linux-ARM64 经 host egress 下载并解压至持久卷 `/work/_tool/trivy-bin/trivy`（容器内实测 `--version` 通过，survives runner restarts）。hosted runners 行为不变。DB 沿用既有本地持久化。
+- **派发与链路：** [run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379)（headSha=`d0f05152`）。编排器 `orchestrate-d0f05152.py`（SHA256 前缀 `8b8c35540820fa2e`，pid `9297`，含全部 9 个传输分类器 + 忠实闸门 + trivy 路径探针）；保全守卫 `preserve-current-all-d0f05152.py`（SHA256 前缀 `004f29b8c36ef936`，pid `9298`，备份目录 `acceptance-raw-d0f05152`）。旧 44b860f5 链路已停，其全部证据留档于 sg-closeout-44b860f5/。streak 从零起算。
+- 整体保持 incomplete；新候选 attempt 1 终态待回填。
