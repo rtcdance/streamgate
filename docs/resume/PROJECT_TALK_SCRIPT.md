@@ -1,19 +1,20 @@
 # StreamGate 项目讲述稿 + 演示 + 追问（SG-09 / M6 的 AI 交付部分）
 
-> **当前状态（2026-10-30）：本机候选 PASS WITH BOUNDARIES，同 SHA CI attempt 10 已失败，修复待验。** 代码候选 `4eae43d6abe94f21c7730c1dc27fb2b12b9f095a` 的完整 Docker `all` / M0–M8 及原始 `command.exit=0` 已独立复核；工件为 `sg-final3-4eae43d6`。CI run `40608718226` 的 attempt 10 已失败；后续修复待验，不能宣称项目整体完成。本材料修订不继承代码候选 CI 状态；个人贡献、讲述、演示、录屏和投递仍须本人确认，生产部署未执行。
+> **当前工程交付（2026-11-02）：PASS WITH BOUNDARIES。** 候选 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e` 完整 Docker all/M0～M8 原始退出 0；CI run `41343759379` attempt 3 为 55/55 success，含 evidence/Publishable。本机已准备 demo 从空演示卷 57.14s 就绪，两模式复验各 77/77。证据见 `TRANSITION_PLAN.md` §8.86；其余带旧 SHA 的数字仍为历史。本材料提交不继承代码候选 CI。本人履历/贡献确认、讲述/录屏/投递仍待本人，生产与 testnet 未验证。
 
-> 纪律：每个数字均须指向 SHA / 测试名 / 实测断言；历史代码入口按对应 SHA 解读，当前验收代码候选为 `4eae43d6`，行号仅用于导航。
+> 纪律：每个数字均须指向 SHA / 测试名 / 实测断言；历史代码入口按对应 SHA 解读，当前交付绑定 `d0f05152`，其余数字按逐项注明的历史 SHA 解读；证据见 `TRANSITION_PLAN.md` §8.86，行号仅用于导航。
 > 诚实边界：不说 DRM、不说完全去中心化 / 无需信任、不说生产高可用已验证、不说版权确权；多 RPC 回退 ≠ 轻客户端证明；NFT 持有 ≠ 媒体版权。
 > AI 归属：项目由 AI 辅助编码。**AI 的代码生成不等于"我独立设计实现"**——个人贡献主张逐条标【待本人确认】（第六节）。
-> 下文中 `✅` 与测量值描述其对应 SHA 上的历史证据，不代表当前候选整体通过；当前整体状态见 `TRANSITION_PLAN.md` 顶部标记与 §8.40 之后的记录。`⏳` = 当前待验收 / 待实测；【待本人确认】= 需本人核实。ChainPulse 是独立项目，证据另行整理，不用 StreamGate 的验收为它背书。
+> 下文中 `✅` 与测量值描述其对应 SHA 上的历史证据，不代表当前候选整体通过；当前工程交付以 `TRANSITION_PLAN.md` 顶部标记与 §8.86 为准。`⏳` = 当前待验收 / 待实测；【待本人确认】= 需本人核实。ChainPulse 是独立项目，证据另行整理，不用 StreamGate 的验收为它背书。
 
 ---
 
 ## 零、状态速览（被问进度就照这个说）
 
-- 当前候选 `4eae43d6` 本机完整 Docker 门通过；同 SHA CI 与最终审核待完成。后续历史记录仍按各自 SHA 解读，以 `TRANSITION_PLAN.md` 顶部状态及 §8.40 之后的候选记录为准。
-- ⏳ 当前 CI：run `40608718226` 尚无最终成功结论；旧 run `39005594931` / `ab172c2` 仍只算历史。生产 rollout、本人确认和演示事项另列。
-- 历史实测口径（仅适用于记录的旧 SHA）：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；能力自然过期历史观测为 67s（不是转移到拒绝的计时）；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。当前本机媒体门两条腿各 77/77；same-SHA CI 仍待完成。
+- 当前工程候选 `d0f05152`：完整九阶段 / M0～M8 原始退出 0，同 SHA CI run `41343759379` attempt 3 为 55/55 success。准备好的空卷 demo 启动 57.14s，两种部署模式复验各 77/77；均限本次 Mac/Docker Desktop 条件，生产/testnet 与本人事项另列。
+- 历史候选 `4eae43d6` 本机完整 Docker 门通过；同 SHA CI run `40608718226` attempt 10 已失败，后续修复须独立验收。后续历史记录仍按各自 SHA 解读，以 `TRANSITION_PLAN.md` 顶部状态及 §8.40 之后的候选记录为准。
+- 历史 CI：run `40608718226` attempt 10 的终态为 failure；当前候选及 CI 以计划的实际证据为准；旧 run `39005594931` / `ab172c2` 仍只算历史。生产 rollout、本人确认和演示事项另列。
+- 历史实测口径（仅适用于记录的旧 SHA）：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；能力自然过期历史观测为 67s（不是转移到拒绝的计时）；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。历史候选 `4eae43d6` 的本机媒体门两条腿各 77/77，其 same-SHA CI 已失败；这些结果不证明后续候选完成。
 
 ---
 
@@ -27,9 +28,9 @@
 
 第一，签名与授权。challenge 是 128 位 nonce、Redis Lua 一次性原子消费，重放必拒；gating 规则 owner 校验在业务层、与写入同一条 SQL 语句，A/B 双钱包越权负例在真实 Postgres 上 7 例全跑 0 skip；服务端代签只有 development + 31337 + 显式开关三重门才存在。
 
-第二，链状态与撤销。授权读取固定到区块号与哈希，正证据总年龄 ≤5 秒。能力 TTL 60 秒 + 证据 5 秒 + 容差 5 秒，推导出 safe 视图确认转移后 70 秒内拒绝的上界。候选 `4eae43d6` 两条部署腿的 HTTP/gRPC 实测分别为 62.989s/63.208s 与 60.949s/61.149s；链最终性等待不包含在这些计时中。历史 67 秒只是能力自然过期，不作为转移撤销证明。
+第二，链状态与撤销。授权读取固定到区块号与哈希，正证据总年龄 ≤5 秒。能力 TTL 60 秒 + 证据 5 秒 + 容差 5 秒，推导出 safe 视图确认转移后 70 秒内拒绝的上界。当前候选 `d0f05152` 两条部署腿的 HTTP/gRPC 实测分别为 61.799s/62.403s 与 59.732s/60.193s；链最终性等待不包含在这些计时中。历史 67 秒只是能力自然过期，不作为转移撤销证明。
 
-第三，媒体交付。原件由服务端算 SHA-256 封存进不可覆盖的 key；ffprobe 白名单门拒绝超限而不是截断；转码跑在独立 worker 容器（非 root、无 JWT、无链私钥），验收用数据库 lease_owner 加容器日志做执行归因；播放列表用 FFmpeg 真实 EXTINF，只重写 URI。当前候选的两条部署腿分别 77/77，通过真实解码与浏览器播放断言；同 SHA CI 尚待完成。
+第三，媒体交付。原件由服务端算 SHA-256 封存进不可覆盖的 key；ffprobe 白名单门拒绝超限而不是截断；转码跑在独立 worker 容器（非 root、无 JWT、无链私钥），验收用数据库 lease_owner 加容器日志做执行归因；播放列表用 FFmpeg 真实 EXTINF，只重写 URI。当前候选 `d0f05152` 两条部署腿各 77/77，通过真实解码与浏览器播放；同 SHA CI run 41343759379 为 55/55 success。本机 warm demo 57.14s，另有两腿各 77/77 真实复验；仅为本次 Mac 环境记录。
 
 关于 AI：项目是 AI 辅助编码的，我的工作是设计决策、验收判据、代码评审和故障定位——三次'真跑一次'才暴露的问题：分片忽略 Range、规则缓存 30 秒不生效、三个 nonce 分配器在真实栈上互相顶掉交易。AI 让写代码变便宜，让判断代码对不对变贵，这个项目给我的都是判断侧的训练。
 
@@ -165,10 +166,10 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 **4. 证据边界：压测与发布（4min）**
 
 - 压测（✅ 已实测，口径先讲）：真实 HTTP client 把响应体**读完并校验大小/hash**，统计的是已授权 playlist + segment + init/key 的**全部响应字节**；固定 EXTINF 节奏、固定 rendition、每观众独立真实登录持 NFT；预热 10s / 采样 30s。**实测（commit `f4d65bc`，fixture hash `086df28b…`；后续权威集合见下）**：1 观众 28/28、10 观众 280/280、50 观众 **1400/1400 成功、0 错误、0 个 4xx**，ttfb_p95 = 58.4 / 85.5 / 61.7ms —— 50 观众 ≥99% 门槛达标（实测 100%）。跑分还**抓出一个真实合桶缺陷**：IP 键控的全局限流器在 auth 之前把所有观众并进一个 manifest 桶（10 观众 120×429），媒体路径豁免后归零（`f4d65bc`，用例 `TestRateLimitMiddleware_MediaRoutesAreNotIPMerged`）。故障矩阵与 p95 回归比较**随后已补齐并实测**（`00aff4e`/`346ac46`）：cold_cache（重启 monolith 清 L1 + 只删 `nft_cache:*`，保留 session）、`rpc_primary_down`（monolith 配两个同链端点，停可停的 socat 主端点）、`rpc_all_down`（两个端点全停）——**50 观众走回退仍 1400/1400；全停时 0 放行、0 媒体字节**（判据落在 harness 内，单次放行即判失败）。同 runner 固定 reference 的 p95 比较：早期布线对齐后 ratio = 1.000（候选 55.98ms vs reference `f20fb92` 55.97ms，各 3 轮中位数，超 1.20× 即失败）；**权威合并运行（候选 `a2ed3b11`，计划 §8.16 H）ratio = 1.029 ≤ 1.20**（72.95 vs 70.89ms），引用以 1.029 为准。过程本身抓出两个真问题：候选被留在故障矩阵的两端点布线上而 reference 只能单端点，首测因此假报 ratio=1.456（改为同布线后 1.000）；reference 轮的 provenance 一度被标成候选 SHA（改用 `PERF_COMMIT` 标注）。1/10/50 × 3 重复与 100 观众容量探索**已实测**（全部 100% 成功、2800/2800，§8.16 H）；该矩阵取自本机固定预算运行，CI 的 perf job 只跑 harness / 指标开销门（非 live 矩阵）。仍未采：CPU/RSS。点名：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 调度模拟，**其数字不可引用**。
-- 历史发布验收记录（不代表当前候选）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；旧 schema 有 additive 迁移 + `.down.sql` 记录。**历史结果**：旧 verify-docker release stage 的空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）；旧候选 `ab172c2` 的 run `39005594931` D 节点实跑空卷部署、migration、回滚兼容腿和三类失败演练（计划 §8.16 K.2）。当前候选的同 SHA release/CI 仍待完成。生产 rollout 未做（无 target / secrets / 授权）。
+- 历史发布验收记录（不代表当前候选）：设计是一 SHA 一候选、扫描/部署/发布全程同 digest（`image@sha256:`）、临时栈空卷 + 真 migration + 真播放 smoke、恢复演练必须"B 确实失败 + A 恢复"双断言（rollback 成功不能洗绿 deploy 失败）；旧 schema 有 additive 迁移 + `.down.sql` 记录。**历史结果**：旧 verify-docker release stage 的空卷部署 smoke **ALL 66 PASSED** + 坏变体被拒 + 健康镜像恢复；部署命令失败的反向证明 `EXIT=1`（0 残留容器）；旧候选 `ab172c2` 的 run `39005594931` D 节点实跑空卷部署、migration、回滚兼容腿和三类失败演练（计划 §8.16 K.2）。当前候选 d0f05152 的 release 与同 SHA CI 已通过，完整本轮证据见 §8.86。生产 rollout 未做（无 target / secrets / 授权）。
 - 已落地的 CI 门一句话带过：覆盖率缺失/空文件即失败（自证 15/15，含 59.9% 必须失败）、迁移 `ON_ERROR_STOP`、Anvil 进候选门禁、smoke 改为"依赖就绪 → healthy → `/health` 200"（`febdf7f`）。
 
-**5. 收尾（2min；待本人按当前证据更新后再讲）**：当前整体修复验收尚未通过；旧候选的数字只可作为历史工程记录，不可说成当前项目已全绿。
+**5. 收尾（2min；待本人按当前证据更新后再讲）**：当前工程候选 d0f05152 的完整 all、同 SHA CI 和真实 demo 已通过；旧候选数字仍按历史来源解读。生产与本人事项不代填。
 
 ### 30 分钟讲述的证据映射表（代码入口 → 测试/断言 → SHA）
 
@@ -236,8 +237,8 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 
 **Q6 70 秒撤销边界怎么来的？**
 一句话：不是拍的常数——60s 能力 + 5s 正证据 + 5s 容差之和，配置校验连**总和**一起查。
-关键点：起点是健康可信 RPC 的 safe 视图已包含转移；safe 没越块时仍可能允许访问。当前两条部署腿的转移到拒绝实测在 60.949–63.208 秒范围内。历史 67 秒观测为自然过期，不证明转移撤销；规则/会话撤销另有 ≤5 秒判据。
-测试：`TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts`、`TestValidateProduction_RejectsASumOverTheBound`；当前 `sg-final3-4eae43d6/logs/media.log` 的 `M3_HTTP_TRANSFER_70S_PASS` / `M3_GRPC_TRANSFER_70S_PASS` 是转移计时证据。历史 expired capability 断言单独作为到期行为记录。
+关键点：起点是健康可信 RPC 的 safe 视图已包含转移；safe 没越块时仍可能允许访问。当前 `d0f05152` 两条部署腿的 HTTP/gRPC 转移到拒绝实测在 59.732–62.403 秒范围内。历史 67 秒观测为自然过期，不证明转移撤销；规则/会话撤销另有 ≤5 秒判据。
+测试：`TestCapabilityPolicy_TransferBoundIsTheSumOfItsParts`、`TestValidateProduction_RejectsASumOverTheBound`；当前工件 `sg-closeout-d0f05152/preserve/acceptance-raw-d0f05152/logs/media.log` 的 `M3_HTTP_TRANSFER_70S_PASS` / `M3_GRPC_TRANSFER_70S_PASS` 是转移计时证据。历史 expired capability 断言单独作为到期行为记录。
 边界：70s 是**服务器授权窗口**，不保证链 70s 内确认；RPC 观测延迟单列；对已下载内容无效。
 
 **Q7 播放器分片 / key 请求怎么走？**
@@ -253,11 +254,11 @@ bash scripts/dependency-fault-acceptance.sh    # 本机实测 ALL 16 PASSED（�
 故障矩阵（cold_cache / rpc_primary_down / rpc_all_down）**已实跑**：50 观众走同链回退仍 1400/1400 无损，全端点停时 **0 放行 / 0 媒体字节**。reference/candidate 的 p95 回归比较**已实现并实测**：早期布线对齐后 ratio = 1.000（候选 55.98ms vs reference 55.97ms），权威合并运行（候选 `a2ed3b11`，计划 §8.16 H）**ratio = 1.029 ≤ 1.20**（72.95 vs 70.89ms，各 3 轮中位数，超 1.20× 即失败）——引用以 1.029 为准。1/10/50 × 3 重复与 100 观众容量探索**已实测**（全部 100% 成功，§8.16 H）；未采的如实说：CPU/RSS。
 边界：`test/performance/performance_test.go:TestConcurrentRequests` 是 sleep 模拟，**引用它数字的回答是错的**。
 
-**Q9 发布 digest 与 schema 回滚？（历史候选证据；当前候选未验收）**
+**Q9 发布 digest 与 schema 回滚？（下列为历史案例；当前候选证据见 §8.86）**
 一句话：设计是"一 SHA 一候选、全程同 digest、additive 迁移可回滚"；**本地 release stage 已实跑**（空卷部署 smoke ALL 66 PASSED + 坏变体被拒 + 健康镜像恢复），**远端** `ab172c2` 同 SHA run 39005594931 的 D 节点也已实跑（临时空卷部署 + 真 migration + 回滚兼容腿 + 三类失败演练，计划 §8.16 K.2）。
 关键点：候选清单 `{candidateSHA, images:{service:digest}}`，扫描/部署/发布只认 `image@sha256:`，提升不换 digest；临时栈空卷 + 真 migration + 真播放 smoke；恢复演练必须"B 确实失败 + A 恢复"双断言，rollback 成功不能掩盖 deploy 失败；schema 全 additive 且 `.down.sql` 齐全（036–040），迁移失败会红（`ON_ERROR_STOP`，删掉了 `|| true`）。
 测试：`scripts/check-coverage_test.sh` 15/15（含 59.9% 必须失败）、`make test-ci COVERAGE_MIN=99` 必须非零、smoke"就绪→healthy→`/health` 200"已在真实依赖栈实测；反向证明"部署命令失败 harness 必须非零退出"实测 `EXIT=1`。
-边界：本机绿灯是预检，权威门是 CI/Docker——冻结候选 `ab172c2` 的同 SHA 远端 CI 已全绿（run 39005594931，55/55、零 skip），M5 的远端部分据此成立；生产 rollout 未做。
+边界：宿主构建是预检，本机 Docker 功能证据与同 SHA CI 分列——历史冻结候选 `ab172c2` 的同 SHA 远端 CI 已全绿（run 39005594931，55/55、零 skip），M5 的远端部分据此成立；生产 rollout 未做。
 
 **Q10 用了 AI 吗？你本人做了什么？**
 一句话：用了，大部分代码 AI 生成；我的工作是设计决策、验收判据、评审与排障——**AI 的代码生成不能自动转成"我独立设计实现"**。
@@ -354,4 +355,4 @@ cast rpc anvil_mine 48 --rpc-url $ANVIL                          # 复验 → 20
 3. "不说完全去中心化、不说无需信任、不说生产高可用已验证——这三样我都没有证据。"
 4. "capability 是 bearer：被复制后撤销/到期前可能被别人用；钱包绑定不等于持有私钥的证明；跨钱包负例覆盖 JWT 主体冲突与签名篡改，不是防分享。"
 5. "已下载的媒体、播放器缓冲、已拿到的密钥**不可远程收回**——所以它是 token-gated 访问控制，**不是 DRM**，我也不这么包装它。"
-6. "旧候选 `ab172c2` 的 run `39005594931` 为历史记录。当前代码候选 `4eae43d6` 的本机完整 Docker 门已通过，run `40608718226` 的同 SHA CI 仍待最终结论，因此我暂不宣称项目整体完成。生产 rollout 未做。"
+6. "旧候选 `ab172c2` 的 run `39005594931` 为历史记录。历史代码候选 `4eae43d6` 的本机完整 Docker 门已通过，run `40608718226` 的同 SHA CI attempt 10 已失败。当前 `d0f05152` 已有完整 all、同 SHA CI 55/55 和 demo 两腿各 77/77 的独立证据；旧记录不用于代替当前证据。生产 rollout 未做。"

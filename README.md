@@ -16,7 +16,7 @@
 
 ---
 
-> **Acceptance status (2026-10-30):** candidate `4eae43d6` passed the complete local Docker M0–M8 gate. Same-SHA [CI run 40608718226](https://github.com/rtcdance/streamgate/actions/runs/40608718226) ended in failure at attempt 10; closeout fixes are being validated in an isolated branch. Production deployment and personal demonstration remain separate tasks. Cold downloads/builds and demo startup have no measured 60-second guarantee.
+> **Verified engineering delivery (2026-11-02):** frozen candidate `d0f05152edc1fb404cb2d78b734c95244e1a7a4e` passed all nine Docker stages and M0–M8 with raw outer exit 0. [Same-SHA CI run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379), attempt 3, completed **55/55 successful jobs**, including evidence and Publishable. The prepared local demo started from empty fixture volumes in **57.14s** and passed **77/77 checks in each deployment mode**. This documentation records that candidate; its own commit does not inherit the candidate CI. Production, testnet and personal presentation/recording/applications remain separate. Measurements apply to the recorded shared Mac/Docker Desktop environment.
 
 ---
 
@@ -47,6 +47,8 @@ monolith on `:8080` (h5-demo then served at `http://localhost:8080/demo`). See [
 That is the entire loop: **wallet sign-in → on-chain NFT ownership check → protected HLS playback.**
 `make fullchain-deploy` starts Anvil and deploys `DemoNFT` for you — no chain setup needed to try it.
 
+The accepted candidate’s prepared local demo was independently started and exercised in both modes. Its replay commands and exact local artifact paths are in `TRANSITION_PLAN.md` §8.86; fresh checkouts still need the setup above. The measured 57.14-second warm startup excludes first downloads and source/submodule preparation.
+
 ### Acceptance Evidence
 
 The acceptance runner creates its own isolated stack from a clean checkout.
@@ -64,9 +66,9 @@ How far the evidence reaches, precisely:
 
 | Level | Status | What it means |
 |-------|--------|---------------|
-| **Docker (local runner)** | PASS WITH BOUNDARIES — `4eae43d6` | A single complete `all` run passed all nine stages and M0–M8 with raw outer exit 0: `sg-final3-4eae43d6`. Local Mac/Docker Desktop measurements do not establish production capacity. See `TRANSITION_PLAN.md` §8.40 onward. |
+| **Docker (local runner)** | PASS WITH BOUNDARIES — `d0f05152` | One complete CI acceptance entry passed all nine stages and M0–M8 with raw outer exit 0. Independently revalidated original artifacts; see `TRANSITION_PLAN.md` §8.86. Shared Mac measurements do not establish production capacity. |
 | **Anvil (local chain)** | Verified | Real chain end-to-end: wallet sign-in, pinned-block NFT evidence, transfer revocation, reorg, endpoint failover. `make test-anvil`. |
-| **GitHub CI** | Failed attempt 10 — [run 40608718226](https://github.com/rtcdance/streamgate/actions/runs/40608718226) | Same-SHA CI for `4eae43d6` ended in failure at attempt 10; subsequent fixes still need their own complete acceptance and CI. Historical [run 39005594931](https://github.com/rtcdance/streamgate/actions/runs/39005594931) passed on old candidate `ab172c2`; its success does not transfer to the current candidate or a later documentation commit. |
+| **GitHub CI** | PASS — [run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379) | Exact candidate `d0f05152`, attempt 3, 55/55 success with no skipped jobs; Candidate Evidence and Publishable passed. Previous candidates retain their historical results. |
 | **Testnet (Sepolia)** | Not verified | Wired behind `make test-testnet`, requires `SEPOLIA_RPC`. Never claimed as acceptance. |
 | **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
 

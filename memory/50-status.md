@@ -1,81 +1,35 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-10-25 · **Verification revisions:** `caeb1a47` (old all3 outer FAIL), `aa948e78` (complete local all, earlier failure retained), `1440d0d9` (real CI blocked by artifact quota), `6ea60487` (isolated transport helper under review) on `sg/mainline-execution`
-> **This file decays.** Re-verify with `git log` and `TRANSITION_PLAN.md` §8 before acting.
+> **Type:** status · **Snapshot:** 2026-11-02 · **Verified code candidate:** `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`
+> Documentation records the candidate; its commit does not inherit candidate CI. Recheck live state before new work.
 
-## Where the work stands
+## Current scope
 
-The core flow — wallet sign-in → NFT ownership at a safe block → playback
-capability → protected HLS — is implemented, wired, and pinned by regression
-tests. The current phase is closing the remaining plan items and keeping the
-evidence reproducible, not building new surface area.
+SG-00 through SG-15 engineering and M6 AI materials are complete with local Mac/Docker Desktop boundaries. No new feature work is required to close this delivery.
 
-Volatile counts live in `CLAUDE.md`; measured results remain bound to their
-source revision and raw artifacts.
+## Authoritative evidence
 
-## Environment (2026-10-24)
+- One complete same-candidate Docker all: original outer exit 0, nine stages, M0–M8 and R01–R12 index complete.
+- CI run 41343759379, attempt 3: 55/55 jobs success, no skip; acceptance, evidence and Publishable succeeded. Publication means promotion eligibility, not production deployment.
+- Independent regeneration of the CI summary is byte-identical to CI: SHA256 `516e0f3abf37b182e8f04c05760519a2287b6fd836f16e7459e39b05ef7dce88`.
+- Four finite counterexamples qualified by exact implementation/test/harness identity under plan §8.51. Original dadb019b run identity and raw exits remain historical.
+- Empty demo fixture volumes: warm startup 57.14s; real original fullchain acceptance 77/77 per monolith and api-gateway mode, both original exits 0. Own demo containers/volumes/networks cleaned; prepared config and image caches retained.
+- Plan §8.86 owns commands, hashes, manifests, measurements and evidence locations. Do not restart green CI to update this snapshot.
 
-Acceptance runs on the **local Mac + Docker Desktop** (8 vCPU / 16 GiB VM).
-The `prod-srs` Docker resources were purged (0 images/containers/volumes/cache)
-and `remote-dev-machine` is a historical skill. Local functional stages are
-valid evidence.
+## Operational rules learned
 
-The owner confirmed Mac-only execution on 2026-10-24. The new `desktop-local`
-profile allows complete all/perf/release under explicit local measurement
-boundaries. Native Linux checks remain available as a separate strict profile.
-Source freezing, single-run locking, raw exits, full workloads and business
-assertions remain required. Profile regression and actual qualification results
-belong to the plan, not an inferred PASS here.
+- Keep the Mac lid open. A task-scoped caffeinate assertion prevents idle sleep, not guaranteed lid-close sleep. Actual lid-close sleep interrupted a prior CI job lease.
+- Initialize every exact gitlink recursively before demo startup. A container being up does not prove contract or business readiness.
+- A cancelled CI shell and its local controller can diverge; preserve original failures, inspect live state, and never relabel residual work as a successful CI job.
+- One dispatcher owns each frozen candidate. Do not reset retry budgets merely by changing an error classifier. No paid quota increase or new parallel acceptance on this Mac.
 
-## Evidenced (checkbox may lag)
+## Boundaries and separately scoped work
 
-| Item | Evidence |
-|---|---|
-| Historical baseline observations | 3e5785e0: unit plus six functional stages; historical outer exits not recorded |
-| Mac-only execution | desktop-local, frozen source, daemon mutex, explicit compile/browser cache mounts; native-linux remains a separate profile |
-| Schema / release qualification | 5ceb1f5d release exit 0; candidate/S 77 each, identical schema fingerprint and three failures/recoveries |
-| all3 raw checks | caeb1a47: 48 matrix cases, three comparison rounds per side, media 77 x2, recovery 43, release checks; outer exit 2 because perf marker missing, not complete acceptance |
-| Independent all3 verification | Original caeb verifier in Docker reread matrix/resources/faults/fixture/archives/images; exit 0; p95 ratio 0.9072, local measurement only |
-| Integrated strict fuzz retry | a3a7df3d; affected real Docker ops2 command.exit=0 |
-| Marker/delegated release correction | 5d87fe8b; independent Docker shell49 + fuzz10 + gates16 + evidence12 = 87 PASS |
-| Complete frozen local all | aa948e78 / sg-final2-mac-20261024: raw outer exit 0, nine stages and M0–M8; independent archive/artifact/config/image validation exit 0; remote CI pending |
-| CI portability fixes | 130715d1 + 101bd4a5; full summary relocation and CLI relative archive coverage; host prechecks only |
-| Collaboration ownership | CodeBuddy owns Docker runs and integration; Codex owns independent review and plan; accepted through the local ACP session |
+- Mac fixed-budget/shared-host measurements do not establish native Linux or production capacity. Testnet and production deployment are unverified.
+- Personal contribution claims, presentation, recording and applications remain human confirmation/work. No fabricated sign-off.
+- SG-16/17 remain conditional and unstarted. ERC-4337 is out of scope; IPFS is not wired into upload.
+- Local reliability drafts 12e1d86e/f501c92f were not included in the accepted candidate; adopting them later requires a new candidate. They are not part of the completed candidate’s CI claims.
 
-**Bookkeeping warning:** historical completion labels and checkboxes do not
-prove current-candidate completion. Use the current table in plan §8.19 and
-its SHA-bound evidence in §8.20–8.32; overall acceptance remains incomplete.
+## Next action
 
-## Not closed
-
-| Item | Priority | Note |
-|---|---|---|
-| Baseline compatibility qualification | — | Old-S/new-schema behavior, restore and fresh caeb reference measured; new terminal candidate still pending |
-| Full current candidate M0–M8 | P0 | aa948e78 second full all exit 0 closes its local gates; earlier exit 2 / 26x503 remains historical failure. New CI/cache commits require their own final complete CI acceptance; old results do not transfer |
-| Artifact capacity / transport | P0 | Current Free allowance cannot reliably hold full candidate/evidence set; bounded paid-storage setup awaits account action, while isolated GHCR transport helper is being prepared. Small private tar round trip passed; production backend and full Linux-to-Mac proof pending |
-| Environment boundary | — | Mac-only; native Linux/production capacity is outside local evidence, not a missing local prerequisite |
-| Same-SHA CI execution | P0 | Self-hosted Linux jobs now execute at 1440d0d9; source/race/fuzz/coverage and multiple jobs passed, but run 40120832170 has confirmed artifact-quota upload failures. Final complete all/evidence remains pending; no success transfer from old aa or diagnostic probes |
-| SG-16 HLS AES-128 and authorization keys | P2, conditional | only if the scope is extended |
-| SG-17 one native player sample | P2, conditional | only if the scope is extended |
-
-## Known limitations (accepted, not bugs to "fix" casually)
-
-- ERC-4337 is out of scope; `pkg/web3/account_abstraction.go` is unused.
-- `pkg/web3/contract/registry.go` is complete but never constructed.
-- IPFS is not wired into upload.
-- The Grafana/Jaeger stack was removed; `/metrics` remains.
-- The platform is centralized; only ownership reads are on-chain.
-- No production capacity or soak test; only fixed-budget local measurements.
-
-## Next moves
-
-1. Preserve aa948e78 local complete evidence, 1440 CI attempts and uploaded candidates; do not delete history or blind redispatch under confirmed storage quota denial.
-2. Recover sufficient artifact capacity for same-SHA partial retry, or qualify the isolated GHCR original-byte transport backend as a new candidate. Cover every artifact route and reject traversal, symlinks, tampering and wrong provenance; small diagnostic success is not full readiness.
-3. Freeze final C and run its complete Docker all inside the existing same-SHA CI acceptance job, using exact scanned archives and a fresh reference/matrix; avoid another duplicate standalone full run.
-4. Keep SG-16/17, production rollout and personal tasks outside the mainline gate.
-
-## Refreshing this file
-
-Replace the snapshot header, rewrite the evidenced and open tables from §8, and
-delete anything that is no longer true. Do not append a history — the plan owns
-history.
+Keep the accepted candidate frozen. Reproduce the prepared demo or start a new explicitly scoped task; do not reopen the completed all/CI cycle based on historical pending notes.
