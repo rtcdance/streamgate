@@ -1,7 +1,10 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import unittest
 
 import test_generate_candidate_gates as fixtures
@@ -38,9 +41,132 @@ class CISummaryTests(unittest.TestCase):
                          "registryPublication": {"status": "RECORDED", "ciRun": "123", "ciAttempt": "1"}}
         self.needs = {job: {"result": "success"} for job in REQUIRED_JOBS}
 
-    def invoke(self, event="push"):
+    def invoke(self, event="push", attempt="1", publications=None):
         self.manifest_path.write_text(json.dumps(self.manifest))
-        return summarize(self.root, self.manifest_path, self.needs, self.revision, "123", "1", event, self.root)
+        extra = {} if publications is None else {"registry_dir": publications,
+                                               "registry_repository": "ghcr.io/example/streamgate"}
+        return summarize(self.root, self.manifest_path, self.needs, self.revision, "123", attempt,
+                         event, self.root, **extra)
+
+    def publications(self):
+        root = self.root / "publications"
+        root.mkdir(exist_ok=True)
+        for service, image in self.images.items():
+            log = root / f"{service}.push.log"
+            log.write_text(f"latest: digest: {image['registryDigest']} size: 123\n")
+            log.with_suffix(".exit").write_text("0\n")
+            image["registryReference"] = f"ghcr.io/example/streamgate/{service}@{image['registryDigest']}"
+            image["registryPublicationAttempt"] = "1"
+            receipt = {**image, "schemaVersion": 1, "service": service, "candidateSHA": self.revision,
+                       "ciRun": "123", "ciAttempt": "1", "pushExitCode": 0, "pushLog": log.name,
+                       "pushLogSHA256": hashlib.sha256(log.read_bytes()).hexdigest()}
+            (root / f"{service}.json").write_text(json.dumps(receipt))
+        return root
+
+    def test_inherited_manifest_requires_actual_receipt_revalidation(self):
+        with self.assertRaisesRegex(ValueError, "publication"):
+            self.invoke(attempt="2")
+
+    def test_revalidation_preserves_original_manifest_and_producer_identity(self):
+        publications = self.publications()
+        result = self.invoke(attempt="2", publications=publications)
+        self.assertEqual(result["registryPublication"]["ciAttempt"], "2")
+        self.assertEqual(json.loads(self.manifest_path.read_text())["registryPublication"]["ciAttempt"], "1")
+        self.assertEqual(result["images"]["monolith"]["registryPublicationAttempt"], "1")
+        proof = result["registryPublicationEvidence"]
+        self.assertEqual(proof["sourceVerification"]["ciAttempt"], "1")
+        self.assertEqual(len(proof["receipts"]), len(REQUIRED_SERVICES))
+        self.assertEqual(proof["sourceManifestSHA256"], hashlib.sha256(self.manifest_path.read_bytes()).hexdigest())
+
+    def test_revalidation_rejects_wrong_publication_bindings(self):
+        publications = self.publications()
+        path = publications / "monolith.json"
+        original = json.loads(path.read_text())
+        for key, value in (("ciRun", "122"), ("ciAttempt", "2"), ("ciAttempt", "3"), ("candidateSHA", "f" * 40),
+                           ("archiveSHA256", "f" * 64), ("imageID", "sha256:" + "f" * 64),
+                           ("platform", "linux/arm64"), ("buildTags", ["wrong"]),
+                           ("pushExitCode", 1), ("service", "auth")):
+            with self.subTest(key=key):
+                path.write_text(json.dumps({**original, key: value}))
+                with self.assertRaises(ValueError):
+                    self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_rejects_tampered_push_log(self):
+        publications = self.publications()
+        (publications / "monolith.push.log").write_text("changed\n")
+        with self.assertRaisesRegex(ValueError, "raw push"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_cannot_change_the_accepted_registry_digest(self):
+        publications = self.publications()
+        self.images["monolith"]["registryDigest"] = "sha256:" + "f" * 64
+        with self.assertRaisesRegex(ValueError, "registry identity"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_rejects_a_coherently_substituted_publication(self):
+        publications = self.publications()
+        path = publications / "monolith.json"
+        receipt = json.loads(path.read_text())
+        digest = "sha256:" + "f" * 64
+        log = publications / "monolith.push.log"
+        log.write_text(f"latest: digest: {digest} size: 123\n")
+        receipt.update(registryDigest=digest, registryReference=f"ghcr.io/example/streamgate/monolith@{digest}",
+                       pushLogSHA256=hashlib.sha256(log.read_bytes()).hexdigest())
+        path.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, "registry identity"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_rejects_a_future_manifest_or_wrong_run(self):
+        publications = self.publications()
+        for value in ({"status": "RECORDED", "ciRun": "123", "ciAttempt": "3"},
+                      {"status": "RECORDED", "ciRun": "122", "ciAttempt": "1"}):
+            self.manifest["registryPublication"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "publication"):
+                self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_cannot_reuse_a_failed_all(self):
+        publications = self.publications()
+        (self.root / "command.exit").write_text("1\n")
+        with self.assertRaisesRegex(ValueError, "raw exit"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_cannot_hide_a_skipped_job(self):
+        publications = self.publications()
+        self.needs["acceptance"]["result"] = "skipped"
+        with self.assertRaisesRegex(ValueError, "required CI job"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_rejects_missing_receipts(self):
+        publications = self.publications()
+        (publications / "auth.json").unlink()
+        with self.assertRaisesRegex(ValueError, "publication receipts"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_revalidation_rejects_symlinked_receipts(self):
+        publications = self.publications()
+        path = publications / "auth.json"
+        saved = self.root / "outside-receipt.json"
+        path.rename(saved)
+        path.symlink_to(saved)
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            self.invoke(attempt="2", publications=publications)
+
+    def test_cli_writes_revalidation_proof_without_changing_the_manifest(self):
+        publications = self.publications()
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        before = self.manifest_path.read_bytes()
+        needs = self.root / "needs.json"
+        needs.write_text(json.dumps(self.needs))
+        output = self.root / "ci-evidence.json"
+        result = subprocess.run([
+            sys.executable, str(Path(__file__).with_name("summarize_ci_evidence.py")), str(self.root),
+            "--manifest", str(self.manifest_path), "--needs", str(needs), "--revision", self.revision,
+            "--ci-run", "123", "--ci-attempt", "2", "--event", "push", "--registry-dir", str(publications),
+            "--registry-repository", "ghcr.io/example/streamgate", "--out", str(output),
+        ], cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(output.read_text())["registryPublication"]["ciAttempt"], "2")
+        self.assertEqual(self.manifest_path.read_bytes(), before)
 
     def relocate(self):
         """Build at A, move the artifact root to B, then delete A."""

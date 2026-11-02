@@ -21,8 +21,8 @@ permissions:
   actions: read
 
 env:
-  GO_VERSION: "1.26.9"
-  GOPROXY: "https://proxy.golang.org,direct"
+  GO_VERSION: "1.26.10"
+  GOPROXY: "https://goproxy.cn,https://proxy.golang.org,direct"
   GONOSUMDB: "gonum.org/*"
   GONOSUMCHECK: "gonum.org/*"
 
@@ -33,10 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # The Go cache is 1.2 GiB and the self-hosted uplink measured ~111 KiB/s,
+      # so one cache save blocks a job for hours; modules download instead.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
@@ -85,7 +87,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
@@ -113,6 +115,7 @@ jobs:
           python3 scripts/cd/test_assert_candidate_evidence.py
           python3 scripts/cd/test_run_required_fuzz.py
           python3 scripts/cd/test_run_fuzz_target.py
+          python3 scripts/cd/test_evidence_transport.py
 
       - name: Verify H5 API origin inference in pinned Node container
         run: >-
@@ -125,14 +128,31 @@ jobs:
           PGPASSWORD: streamgate
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          # The mirror is reached through the runner's uplink; one 502 must not
+          # fail the job, so the fetch is retried a bounded number of times.
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then echo "apt-get failed after 3 attempts" >&2; exit 1; fi
+            sleep $((attempt * 5))
+          done
           # Apply every up-migration in filename order and stop at the first
           # error (ON_ERROR_STOP=1). The previous `|| true` swallowed bad SQL,
           # so a broken migration could never fail this job.
+          #
+          # Record every file in the table the Go test helper reads, so the
+          # helper does not replay the set against the schema this loop built.
+          psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test -c \
+            "CREATE TABLE IF NOT EXISTS test_applied_migrations (filename TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
           for f in $(ls migrations/*.sql | grep -v '\.down\.sql$' | sort); do
             echo "Applying $f..."
             psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test < "$f"
+            # The helper looks the row up by BASENAME (it reads the directory
+            # entries), so the ledger must not carry the migrations/ prefix.
+            name=$(basename "$f")
+            psql -v ON_ERROR_STOP=1 -h localhost -U streamgate -d streamgate_test -c \
+              "INSERT INTO test_applied_migrations (filename) VALUES ('$name') ON CONFLICT DO NOTHING"
           done
 
       - name: Run tests
@@ -164,12 +184,13 @@ jobs:
 
       - name: Upload required fuzz logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: required-fuzz-${{ github.sha }}
           path: fuzz-logs/
           retention-days: 30
           if-no-files-found: warn
+          token: ${{ github.token }}
 
       - name: Verify the coverage gate can fail
         run: bash scripts/check-coverage_test.sh
@@ -233,7 +254,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - run: go mod download
 
@@ -259,7 +280,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - name: Install gosec
         run: GOPROXY=${{ env.GOPROXY }} go install github.com/securego/gosec/v2/cmd/gosec@v2.22.0
@@ -290,6 +311,13 @@ jobs:
 
       - name: Run Slither
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
+        # The action pip-installs slither deps at container runtime from
+        # files.pythonhosted.org (Fastly), which this network drops mid-transfer
+        # (measured 2026-10-31: TLS EOF / ReadTimeout across attempts 3-6).
+        # Docker actions receive step env via -e, so route pip through the
+        # reachable TUNA mirror; same transport-harden class as the GOPROXY fix.
+        env:
+          PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         with:
           target: contracts/
           # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
@@ -306,7 +334,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
@@ -351,10 +379,17 @@ jobs:
     # Smoke THE candidate built once for this SHA — no rebuild for smoke.
     needs: [candidate]
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Download the candidate image built for this SHA
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-monolith
+          names: candidate-monolith
+          path: ${{ github.workspace }}
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Load candidate and verify its identity
         run: |
@@ -495,7 +530,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - run: go mod download
 
@@ -521,11 +556,12 @@ jobs:
 
       - name: Upload durability test log
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: durability-tests-${{ github.sha }}
           path: durability-tests.json
           retention-days: 30
+          token: ${{ github.token }}
 
   ops:
     name: Ops Gates (production profile, drain, shutdown)
@@ -537,7 +573,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - run: go mod download
 
@@ -568,11 +604,12 @@ jobs:
 
       - name: Upload ops test logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ops-tests-${{ github.sha }}
           path: ops-*.json
           retention-days: 30
+          token: ${{ github.token }}
 
   perf:
     name: Perf Harness Gates (load harness + metrics overhead)
@@ -584,7 +621,7 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          cache: false
 
       - run: go mod download
 
@@ -607,11 +644,12 @@ jobs:
 
       - name: Upload perf test log
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: perf-tests-${{ github.sha }}
           path: perf-tests.json
           retention-days: 30
+          token: ${{ github.token }}
 
   # One complete entry owns the temporary projects and runs every stage in
   # order. It imports this run's scanned archives; it never rebuilds candidates.
@@ -623,14 +661,24 @@ jobs:
     # The Mac must start only after every Linux job, so the shared Docker
     # Desktop VM is idle when the complete candidate DAG begins.
     needs: [candidate, durability, ops, perf, test-suite, docker, manifest]
-    timeout-minutes: 360
+    # 360 minutes covered the DAG plus most of the evidence transport, and the
+    # transport was still running when the job was cancelled at 05:36Z on run
+    # 40403641459: ~620 MB of raw evidence at this runner's uplink needs ~4 h on
+    # top of a ~2 h20m DAG. Self-hosted runners accept a longer bound; the stage
+    # gates themselves are unchanged, so this only stops the clock from cutting
+    # an otherwise complete run short.
+    timeout-minutes: 600
     env:
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
       VERIFY_PROJECT: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}
       VERIFY_PLATFORM: linux/amd64
-      VERIFY_GOPROXY: https://proxy.golang.org,direct
+      # proxy.golang.org is intermittently unreachable from this network (measured
+      # 2026-10-30T15:24Z: i/o timeout on the module zip, while goproxy.cn answered
+      # 200). Keep a reachable mirror first and the upstream proxy as the fallback:
+      # the acceptance must not lose a stage to a module download.
+      VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
       VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
@@ -651,12 +699,30 @@ jobs:
           set -euo pipefail
           bash scripts/cd/verify_environment.sh all "$VERIFY_PROJECT"
 
+      # `candidate-*` matches the ten image archives AND candidate-manifest-<sha>
+      # (the manifest job is one of this job's needs). Both are declared here so
+      # the fan-in stays exactly what the pattern selected before.
       - name: Download the original scanned build archives and metadata
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
+          names: |
+            candidate-monolith
+            candidate-transcoder
+            candidate-api-gateway
+            candidate-auth
+            candidate-cache
+            candidate-metadata
+            candidate-monitor
+            candidate-streaming
+            candidate-upload
+            candidate-worker
+            candidate-manifest-${{ github.sha }}
           pattern: candidate-*
-          merge-multiple: true
           path: .verify-artifacts/ci-all/build-inputs
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Run the complete candidate DAG and preserve its outer exit
         run: |
@@ -671,16 +737,19 @@ jobs:
 
       - name: Upload full raw evidence on success, failure or cancellation
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ci-acceptance-${{ github.sha }}
-          path: |
-            .verify-artifacts/ci-all/
-            !.verify-artifacts/ci-all/build-inputs/**
-            !.verify-artifacts/ci-all/.private/**
-          include-hidden-files: true
+          path: .verify-artifacts/ci-all/
+          # The restored candidate archives and the private staging area are
+          # inputs, never evidence: they are excluded before any byte is hashed.
+          exclude: |
+            build-inputs/**
+            .private/**
+          include-hidden-files: "true"
           retention-days: 30
           if-no-files-found: error
+          token: ${{ github.token }}
 
   manifest:
     name: Candidate Manifest (one SHA, one identity)
@@ -696,18 +765,40 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Collect every candidate image's identity
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
+          names: |
+            candidate-monolith
+            candidate-transcoder
+            candidate-api-gateway
+            candidate-auth
+            candidate-cache
+            candidate-metadata
+            candidate-monitor
+            candidate-streaming
+            candidate-upload
+            candidate-worker
+          # A rerun of this job may already find a manifest from an earlier
+          # attempt of this run; the pattern saw it before, so it is allowed
+          # but never required here.
+          optional-names: candidate-manifest-${{ github.sha }}
           pattern: candidate-*
-          merge-multiple: true
           path: artifacts
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Collect this run's registry publication receipts
         if: github.event_name != 'pull_request'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: registry-publications-${{ github.sha }}
+          names: registry-publications-${{ github.sha }}
           path: artifacts/registry-publications
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Write the manifest
         env:
@@ -731,11 +822,12 @@ jobs:
             --out candidate-manifest.json
 
       - name: Upload the manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: candidate-manifest-${{ github.sha }}
           path: candidate-manifest.json
           retention-days: 30
+          token: ${{ github.token }}
 
   evidence:
     name: Candidate Evidence (raw M0-M8 + same-run build identities)
@@ -746,40 +838,67 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Collect complete raw acceptance evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: ci-acceptance-${{ github.sha }}
+          names: ci-acceptance-${{ github.sha }}
           path: .verify-artifacts/ci-all
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Collect the verified build and registry manifest
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: ./.github/actions/evidence-download
         with:
-          name: candidate-manifest-${{ github.sha }}
+          names: candidate-manifest-${{ github.sha }}
           path: .verify-artifacts/ci-manifest
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
+
+      - name: Collect raw publication receipts for this verification attempt
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/evidence-download
+        with:
+          names: registry-publications-${{ github.sha }}
+          path: .verify-artifacts/ci-all/publication-revalidation
+          merge-multiple: "true"
+          expect-sha: ${{ github.sha }}
+          max-attempt: ${{ github.run_attempt }}
+          token: ${{ github.token }}
 
       - name: Verify every required job, gate and candidate identity
         env:
           REQUIRED_JOB_RESULTS: ${{ toJSON(needs) }}
           CI_EVENT_NAME: ${{ github.event_name }}
+          REGISTRY_REPOSITORY: ghcr.io/${{ github.repository }}
         run: |
           set -euo pipefail
+          publication_args=()
+          if [ "$CI_EVENT_NAME" != pull_request ]; then
+            publication_args=(--registry-dir .verify-artifacts/ci-all/publication-revalidation \
+              --registry-repository "$REGISTRY_REPOSITORY")
+          fi
           printf '%s\n' "$REQUIRED_JOB_RESULTS" > .verify-artifacts/ci-all/ci-job-results.json
           python3 scripts/cd/summarize_ci_evidence.py .verify-artifacts/ci-all \
             --manifest .verify-artifacts/ci-manifest/candidate-manifest.json \
             --needs .verify-artifacts/ci-all/ci-job-results.json \
             --revision "$GITHUB_SHA" --ci-run "$GITHUB_RUN_ID" --ci-attempt "$GITHUB_RUN_ATTEMPT" \
-            --event "$CI_EVENT_NAME" --out .verify-artifacts/ci-all/ci-evidence.json
+            --event "$CI_EVENT_NAME" "${publication_args[@]}" --out .verify-artifacts/ci-all/ci-evidence.json
 
       - name: Upload the candidate evidence summary
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/evidence-upload
         with:
           name: ci-evidence-${{ github.sha }}
           path: |
             .verify-artifacts/ci-all/ci-job-results.json
             .verify-artifacts/ci-all/ci-evidence.json
+            .verify-artifacts/ci-all/publication-revalidation/
           retention-days: 30
           if-no-files-found: error
+          token: ${{ github.token }}
 
   publishable:
     name: Publishable (promotion gate)

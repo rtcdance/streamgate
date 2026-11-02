@@ -189,7 +189,15 @@ func TestModels_Timestamps(t *testing.T) {
 	var retrieved models.Content
 	err = db.QueryRow(context.Background(), "SELECT id, title, description, type, duration, size, created_at, updated_at FROM contents WHERE title = $1", content.Title).Scan(&retrieved.ID, &retrieved.Title, &retrieved.Description, &retrieved.Type, &retrieved.Duration, &retrieved.FileSize, &retrieved.CreatedAt, &retrieved.UpdatedAt)
 	require.NoError(t, err)
-	require.True(t, retrieved.CreatedAt.After(beforeSave) && retrieved.CreatedAt.Before(afterSave))
+	// created_at comes from the database clock, which can lag the process clock
+	// by a few milliseconds (measured ~6-8ms behind on a local Docker Postgres).
+	// Compare against a small widened window instead of exact ordering, which
+	// made this assertion fail intermittently.
+	const clockTolerance = 2 * time.Second
+	require.False(t, retrieved.CreatedAt.Before(beforeSave.Add(-clockTolerance)),
+		"created_at %s is too far before the insert window start %s", retrieved.CreatedAt, beforeSave)
+	require.False(t, retrieved.CreatedAt.After(afterSave.Add(clockTolerance)),
+		"created_at %s is too far after the insert window end %s", retrieved.CreatedAt, afterSave)
 }
 
 func TestModels_UpdateTimestamp(t *testing.T) {

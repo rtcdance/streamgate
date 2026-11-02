@@ -37,6 +37,12 @@ class EnvironmentTests(unittest.TestCase):
         self.environment["PERF_MEDIA_HASHES_FILE"] = str(fixture)
         task = self.root / "transcoding-metadata.json"; task.write_text('{"source":"unit task metadata"}\n')
         self.environment["PERF_TRANSCODE_EVIDENCE_FILE"] = str(task)
+        # A neighbour container that belongs to another compose project on the
+        # same daemon: it is background load, never part of the benchmark.
+        self.peer_id = "background"
+        self.peer = {"Image": "sha256:" + "9" * 64, "Config": {"Image": "neighbour:1",
+            "Labels": {"com.docker.compose.project": "neighbour-project", "com.docker.compose.service": "kafka"}},
+            "HostConfig": {"NanoCpus": 1000000000, "Memory": 536870912}}
 
     def save_resources(self):
         (self.root / "resources-warm_cache-50.json").write_text(json.dumps(self.resources))
@@ -46,10 +52,13 @@ class EnvironmentTests(unittest.TestCase):
         if args[:2] == ("docker", "info"):
             return json.dumps({"ID": "same-runner", "OSType": "linux", "Architecture": "x86_64", "NCPU": 8, "MemTotal": 8000000000, "KernelVersion": "one-kernel", "ServerVersion": "29"})
         if args[:2] == ("docker", "ps"):
-            if args[2] == "--format": return "own|own-project\nbackground|"
+            if args[2] == "--format": return f"own|own-project\n{self.peer_id}|"
             self.assertEqual(args[-1], "label=com.docker.compose.project=own-project")
             return "\n".join(self.services)
-        if args[:2] == ("docker", "inspect"): return json.dumps([self.services[args[-1]]])
+        if args[:2] == ("docker", "inspect"):
+            record = self.services.get(args[-1]) or (self.peer if args[-1] == self.peer_id else None)
+            self.assertIsNotNone(record, f"unexpected inspect target {args[-1]}")
+            return json.dumps([record])
         return "pinned-tool-version"
 
     def capture(self):
@@ -94,7 +103,11 @@ class EnvironmentTests(unittest.TestCase):
     def test_desktop_scope_platform_and_background_peers_are_bound_to_comparison(self):
         self.environment.update(VERIFY_ENVIRONMENT_PROFILE="desktop-local", VERIFY_PLATFORM="linux/amd64")
         manifest = self.capture()
-        self.assertEqual(manifest["runner"]["backgroundContainers"], ["background"])
+        self.assertEqual(manifest["runner"]["backgroundContainers"], [{
+            "service": "kafka",
+            "imageID": "sha256:" + "9" * 64, "imageReference": "neighbour:1",
+            "limits": {"nanoCPUs": 1000000000, "memoryBytes": 536870912}}])
+        self.assertEqual(manifest["backgroundContainerIDs"], ["background"])
         self.assertIn("no production capacity claim", manifest["runner"]["measurementScope"])
         for field, value in (("executionProfile", "native-linux"), ("executionPlatform", "linux/arm64"),
                              ("backgroundContainers", ["changed"])):
@@ -102,6 +115,36 @@ class EnvironmentTests(unittest.TestCase):
             changed["runner"][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 compare_environments(manifest, changed)
+
+    def test_a_restarted_neighbour_is_the_same_background_load(self):
+        # The neighbour restarts between the reference and candidate rounds: it
+        # gets a new instance ID and a new compose project name, while the
+        # services, images and limits drawing on the host stay the same.
+        manifest = self.capture()
+        self.peer_id = "background-restarted"
+        self.peer["Config"]["Labels"]["com.docker.compose.project"] = "neighbour-project-2"
+        restarted = self.capture()
+        self.assertNotEqual(manifest["backgroundContainerIDs"], restarted["backgroundContainerIDs"])
+        self.assertEqual(manifest["runner"]["backgroundContainers"], restarted["runner"]["backgroundContainers"])
+        compare_environments(manifest, restarted)
+
+    def test_background_composition_changes_are_refused(self):
+        manifest = self.capture()
+        mutations = {
+            "service": lambda peer: peer.update(service="zookeeper"),
+            "image": lambda peer: peer.update(imageID="sha256:" + "8" * 64),
+            "cpu": lambda peer: peer["limits"].update(nanoCPUs=2000000000),
+            "memory": lambda peer: peer["limits"].update(memoryBytes=1073741824),
+        }
+        for name, mutate in mutations.items():
+            changed = copy.deepcopy(manifest)
+            mutate(changed["runner"]["backgroundContainers"][0])
+            with self.subTest(change=name), self.assertRaises(ValueError):
+                compare_environments(manifest, changed)
+        changed = copy.deepcopy(manifest)
+        changed["runner"]["backgroundContainers"].append(dict(manifest["runner"]["backgroundContainers"][0], service="extra"))
+        with self.subTest(change="extra-peer"), self.assertRaises(ValueError):
+            compare_environments(manifest, changed)
 
 
 if __name__ == "__main__": unittest.main()

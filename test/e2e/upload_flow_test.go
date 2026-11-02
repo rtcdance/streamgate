@@ -39,7 +39,107 @@ func (d *uploadMockDB) Query(_ context.Context, query string, args ...interface{
 	return nil, fmt.Errorf("not implemented")
 }
 
+// uploadQuotaRow scans a single int64 aggregate, standing in for the
+// SELECT COALESCE(SUM(size), 0) the service issues in CheckStorageQuota.
+type uploadQuotaRow struct{ value int64 }
+
+func (r uploadQuotaRow) Scan(dest ...interface{}) error {
+	if len(dest) != 1 {
+		return fmt.Errorf("unexpected scan destinations: %d", len(dest))
+	}
+	target, ok := dest[0].(*int64)
+	if !ok {
+		return fmt.Errorf("unexpected scan destination type %T", dest[0])
+	}
+	*target = r.value
+	return nil
+}
+
+// uploadInfoRow scans the ten columns UploadService.GetUploadStatus selects,
+// in the same order, so the chunk/status paths can read a real record instead
+// of failing with "not implemented".
+type uploadInfoRow struct{ info *service.UploadInfo }
+
+func (r uploadInfoRow) Scan(dest ...interface{}) error {
+	if len(dest) != 10 {
+		return fmt.Errorf("unexpected scan destinations: %d", len(dest))
+	}
+	setString := func(target interface{}, value string) error {
+		switch t := target.(type) {
+		case *string:
+			*t = value
+		case *sql.NullString:
+			*t = sql.NullString{String: value, Valid: true}
+		default:
+			return fmt.Errorf("unexpected destination type %T", target)
+		}
+		return nil
+	}
+	if err := setString(dest[0], r.info.ID); err != nil {
+		return err
+	}
+	if err := setString(dest[1], r.info.Filename); err != nil {
+		return err
+	}
+	size, ok := dest[2].(*int64)
+	if !ok {
+		return fmt.Errorf("unexpected size destination type %T", dest[2])
+	}
+	*size = r.info.Size
+	if err := setString(dest[3], r.info.ContentType); err != nil {
+		return err
+	}
+	if err := setString(dest[4], r.info.Hash); err != nil {
+		return err
+	}
+	if err := setString(dest[5], r.info.Status); err != nil {
+		return err
+	}
+	if err := setString(dest[6], r.info.URL); err != nil {
+		return err
+	}
+	if err := setString(dest[7], r.info.OwnerID); err != nil {
+		return err
+	}
+	createdAt, ok := dest[8].(*time.Time)
+	if !ok {
+		return fmt.Errorf("unexpected created_at destination type %T", dest[8])
+	}
+	*createdAt = r.info.CreatedAt
+	updatedAt, ok := dest[9].(*time.Time)
+	if !ok {
+		return fmt.Errorf("unexpected updated_at destination type %T", dest[9])
+	}
+	*updatedAt = r.info.UpdatedAt
+	return nil
+}
+
 func (d *uploadMockDB) QueryRow(_ context.Context, query string, args ...interface{}) *storage.CancelRow {
+	upper := strings.ToUpper(strings.TrimSpace(query))
+	if strings.Contains(upper, "FROM UPLOADS") && strings.Contains(upper, "WHERE ID = $1") {
+		uploadID := ""
+		if len(args) > 0 {
+			uploadID = fmt.Sprintf("%v", args[0])
+		}
+		record, ok := d.uploads[uploadID]
+		if !ok {
+			return storage.NewErrorCancelRow(sql.ErrNoRows)
+		}
+		return storage.NewTestCancelRow(uploadInfoRow{info: record})
+	}
+	if strings.Contains(upper, "COALESCE(SUM(SIZE), 0)") && strings.Contains(upper, "FROM UPLOADS") {
+		owner := ""
+		if len(args) > 0 {
+			owner = fmt.Sprintf("%v", args[0])
+		}
+		var used int64
+		for _, record := range d.uploads {
+			if record.OwnerID == owner {
+				used += record.Size
+			}
+		}
+		return storage.NewTestCancelRow(uploadQuotaRow{value: used})
+	}
 	return storage.NewErrorCancelRow(fmt.Errorf("not implemented"))
 }
 
@@ -196,8 +296,19 @@ func TestUploadRoutes_Return503WhenNoService(t *testing.T) {
 	}
 }
 
+// minimalMP4 is a valid ISO-BMFF header: the upload handler sniffs the ftyp
+// box at offset 4 and rejects payloads that are not a real container format,
+// so a text fixture would (correctly) be refused with 400.
+func minimalMP4() []byte {
+	header := []byte{
+		0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p',
+		'i', 's', 'o', 'm', 0x00, 0x00, 0x02, 0x00,
+		'i', 's', 'o', 'm', 'i', 's', 'o', '2',
+	}
+	return append(header, bytes.Repeat([]byte{0x00}, 32)...)
+}
+
 func TestUploadWholeFile(t *testing.T) {
-	t.Skip("requires external service")
 	store := newMockSegmentStorage()
 	svc, server := setupUploadE2EServer(t, store)
 	token := testJWT(svc, "0xCreatorWallet")
@@ -208,7 +319,7 @@ func TestUploadWholeFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create form file: %v", err)
 	}
-	if _, err := part.Write([]byte("fake mp4 content for testing")); err != nil {
+	if _, err := part.Write(minimalMP4()); err != nil {
 		t.Fatalf("write form data: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -259,7 +370,6 @@ func TestUploadWholeFile(t *testing.T) {
 }
 
 func TestChunkedUploadInit(t *testing.T) {
-	t.Skip("requires external service")
 	store := newMockSegmentStorage()
 	svc, server := setupUploadE2EServer(t, store)
 	token := testJWT(svc, "0xCreatorWallet")
@@ -297,7 +407,6 @@ func TestChunkedUploadInit(t *testing.T) {
 }
 
 func TestUploadChunk(t *testing.T) {
-	t.Skip("requires external service")
 	store := newMockSegmentStorage()
 	svc, server := setupUploadE2EServer(t, store)
 	token := testJWT(svc, "0xCreatorWallet")
@@ -327,7 +436,7 @@ func TestUploadChunk(t *testing.T) {
 	_ = writer.WriteField("upload_id", uploadID)
 	_ = writer.WriteField("chunk_index", "0")
 	part, _ := writer.CreateFormFile("chunk", "chunk-0")
-	_, _ = part.Write([]byte("fake chunk data"))
+	_, _ = part.Write(minimalMP4())
 	_ = writer.Close()
 
 	req, _ = http.NewRequest("POST", server.URL+"/api/v1/upload/chunk", &buf)

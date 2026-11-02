@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,36 @@ func TestArrive_OnlyBlocksAtAnArmedPoint(t *testing.T) {
 	require.NoError(t, b.Disarm("worker.claimed"))
 	require.NoError(t, p.Arrive(context.Background()))
 	assert.False(t, p.Reached())
+}
+
+func TestArriveFor_IdentifiesEachIntentAtTheSamePoint(t *testing.T) {
+	b, err := Load(durableConfig(t.TempDir(), time.Second), zap.NewNop())
+	require.NoError(t, err)
+	require.NoError(t, b.Arm("publisher.before_broadcast"))
+	p := b.Point("publisher.before_broadcast")
+	for _, contentID := range []string{"earlier-intent", "target-intent"} {
+		done := make(chan error, 1)
+		go func() { done <- p.ArriveFor(context.Background(), contentID) }()
+		require.NoError(t, p.WaitReached(context.Background(), time.Second))
+		marker, err := os.ReadFile(p.reachedPath())
+		require.NoError(t, err)
+		fields := strings.Fields(string(marker))
+		require.Len(t, fields, 4)
+		require.Equal(t, contentID, fields[3])
+		require.NoError(t, p.Release())
+		require.NoError(t, <-done)
+	}
+}
+
+func TestArriveFor_RejectsAmbiguousSubjects(t *testing.T) {
+	b, err := Load(durableConfig(t.TempDir(), time.Second), zap.NewNop())
+	require.NoError(t, err)
+	require.NoError(t, b.Arm("publisher.before_broadcast"))
+	p := b.Point("publisher.before_broadcast")
+	require.Error(t, p.ArriveFor(context.Background(), "first second"))
+	require.False(t, p.Reached())
+	var disabled *Point
+	require.NoError(t, disabled.ArriveFor(context.Background(), "target"))
 }
 
 func TestArm_ClearsAStaleIterationOfTheSamePoint(t *testing.T) {

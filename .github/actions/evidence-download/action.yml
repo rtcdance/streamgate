@@ -1,0 +1,161 @@
+name: Evidence download
+description: >-
+  Restore exactly the declared artifacts. Pull requests read the Actions
+  artifact backend; every other event resolves each finite artifact name to a
+  run-scoped transport image, pins its digest, verifies SHA/run/attempt and
+  restores the original bytes.
+
+inputs:
+  names:
+    description: Newline-separated artifact names that must be restored
+    required: true
+  optional-names:
+    description: Newline-separated names that may also be restored
+    required: false
+    default: ""
+  pattern:
+    description: Actions-backend pattern used on pull requests (empty means a single name)
+    required: false
+    default: ""
+  path:
+    description: Destination directory
+    required: true
+  merge-multiple:
+    description: Flatten every artifact into the destination (download-artifact merge-multiple)
+    required: false
+    default: "false"
+  expect-sha:
+    description: Source SHA every restored artifact must carry
+    required: true
+  max-attempt:
+    description: Highest producer attempt that may be consumed
+    required: true
+  token:
+    description: Token with packages read for the evidence registry
+    required: true
+  registry:
+    required: false
+    default: ghcr.io
+  repository:
+    required: false
+    default: rtcdance/streamgate-evidence
+
+outputs:
+  backend:
+    value: ${{ steps.select.outputs.backend }}
+  names:
+    value: ${{ steps.transport.outputs.names }}
+  files:
+    value: ${{ steps.transport.outputs.files }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select the artifact backend
+      id: select
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${{ github.event_name }}" = pull_request ]; then
+          echo "backend=actions" >> "$GITHUB_OUTPUT"
+        else
+          echo "backend=registry" >> "$GITHUB_OUTPUT"
+        fi
+
+    # The Actions backend takes either one name or one pattern. Normalize the
+    # name here so a block scalar's trailing newline cannot become part of it,
+    # and fail loudly on a multi-name call that forgot to declare a pattern.
+    - name: Normalize the artifact selector
+      id: normalize
+      shell: bash
+      env:
+        EVIDENCE_NAMES: ${{ inputs.names }}
+        EVIDENCE_PATTERN: ${{ inputs.pattern }}
+      run: |
+        set -euo pipefail
+        single="$(printf '%s\n' "$EVIDENCE_NAMES" | sed -n '/[^[:space:]]/p' | head -n 1 | tr -d '\r')"
+        count="$(printf '%s\n' "$EVIDENCE_NAMES" | sed -n '/[^[:space:]]/p' | wc -l | tr -d ' ')"
+        if [ -z "$EVIDENCE_PATTERN" ] && [ "$count" -gt 1 ]; then
+          echo "::error::multiple artifact names require a pattern for the Actions backend"
+          exit 1
+        fi
+        echo "single_name=$single" >> "$GITHUB_OUTPUT"
+
+    - name: Restore from the Actions backend
+      if: steps.select.outputs.backend == 'actions'
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: ${{ inputs.pattern == '' && steps.normalize.outputs.single_name || '' }}
+        pattern: ${{ inputs.pattern }}
+        path: ${{ inputs.path }}
+        merge-multiple: ${{ inputs.merge-multiple }}
+
+    - name: Restore from the evidence registry
+      id: transport
+      if: steps.select.outputs.backend == 'registry'
+      shell: bash
+      env:
+        EVIDENCE_NAMES: ${{ inputs.names }}
+        EVIDENCE_OPTIONAL: ${{ inputs.optional-names }}
+        EVIDENCE_DEST: ${{ inputs.path }}
+        EVIDENCE_MERGE: ${{ inputs.merge-multiple }}
+        EVIDENCE_SHA: ${{ inputs.expect-sha }}
+        EVIDENCE_MAX_ATTEMPT: ${{ inputs.max-attempt }}
+        EVIDENCE_REGISTRY: ${{ inputs.registry }}
+        EVIDENCE_REPOSITORY: ${{ inputs.repository }}
+        EVIDENCE_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        printf '%s' "$EVIDENCE_TOKEN" | docker login "$EVIDENCE_REGISTRY" --username "$GITHUB_ACTOR" --password-stdin >/dev/null
+        trap 'docker logout "$EVIDENCE_REGISTRY" >/dev/null 2>&1 || true' EXIT
+        base="${EVIDENCE_REGISTRY}/${EVIDENCE_REPOSITORY}"
+        # macOS ships bash 3.2, where ${#empty[@]} is an unbound variable under
+        # set -u; counts are tracked explicitly instead of using array lengths.
+        required_names=""; optional_names=""; images=()
+        optional_count=0; images_count=0
+        resolve() {  # resolve <name>: print repo@digest for the newest attempt <= max
+          local name="$1" tag attempt digest
+          tag="$(printf '%s' "$name" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9._-' '-')"
+          for ((attempt = EVIDENCE_MAX_ATTEMPT; attempt >= 1; attempt--)); do
+            if digest="$(docker buildx imagetools inspect \
+                "${base}:g${GITHUB_RUN_ID}-a${attempt}-${tag}" \
+                --format '{{.Manifest.Digest}}' 2>/dev/null)" && [ -n "$digest" ]; then
+              printf '%s@%s\n' "$base" "$digest"
+              return 0
+            fi
+          done
+          return 1
+        }
+        while IFS= read -r name; do
+          [ -n "$name" ] || continue
+          required_names="${required_names:+$required_names,}$name"
+          ref="$(resolve "$name")" || { echo "::error::no transported artifact named $name for this run"; exit 1; }
+          images+=(--image "$ref"); images_count=$((images_count + 1))
+        done <<< "$EVIDENCE_NAMES"
+        while IFS= read -r name; do
+          [ -n "$name" ] || continue
+          optional_count=$((optional_count + 1))
+          optional_names="${optional_names:+$optional_names,}$name"
+          if ref="$(resolve "$name")"; then
+            images+=(--image "$ref"); images_count=$((images_count + 1))
+          else
+            echo "optional artifact $name was not transported"
+          fi
+        done <<< "$EVIDENCE_OPTIONAL"
+        if [ "$images_count" -eq 0 ]; then
+          echo "no artifacts to restore"
+          exit 0
+        fi
+        # The tag already scopes the lookup to this run; --expect-run additionally
+        # rejects an image whose manifest declares another producer run.
+        args=(--dest "$EVIDENCE_DEST" --require-digest-refs --expect-sha "$EVIDENCE_SHA"
+              --expect-run "$GITHUB_RUN_ID"
+              --max-attempt "$EVIDENCE_MAX_ATTEMPT" --github-output "$GITHUB_OUTPUT"
+              --expect-names "$required_names")
+        if [ "$optional_count" -gt 0 ]; then
+          args+=(--allow-extra-names "$optional_names")
+        fi
+        if [ "$EVIDENCE_MERGE" = true ]; then
+          args+=(--merge)
+        fi
+        python3 scripts/cd/evidence_transport.py get "${args[@]}" "${images[@]}"

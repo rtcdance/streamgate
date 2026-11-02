@@ -1,0 +1,135 @@
+name: Evidence upload
+description: >-
+  Store one artifact on the authorized backend. Pull requests keep the Actions
+  artifact backend (read-only token, no registry write); every other event
+  transports the exact bytes to the OCI evidence registry so the Actions
+  artifact quota is not consumed.
+
+inputs:
+  name:
+    description: Artifact name, identical to the name the Actions backend would use
+    required: true
+  path:
+    description: Newline-separated positive paths/globs (actions/upload-artifact semantics)
+    required: true
+  exclude:
+    description: Newline-separated negated patterns, relative to the layout root
+    required: false
+    default: ""
+  include-hidden-files:
+    description: Keep dot-prefixed paths (Actions default is false)
+    required: false
+    default: "false"
+  if-no-files-found:
+    description: Policy applied to the total selection (warn, ignore or error)
+    required: false
+    default: "warn"
+  retention-days:
+    description: Retention for the Actions backend (the registry helper has no TTL)
+    required: false
+    default: "30"
+  token:
+    description: Token with packages write for the evidence registry
+    required: true
+  registry:
+    required: false
+    default: ghcr.io
+  repository:
+    required: false
+    default: rtcdance/streamgate-evidence
+
+outputs:
+  backend:
+    description: actions or registry
+    value: ${{ steps.select.outputs.backend }}
+  digest:
+    description: Registry digest of the transported image (empty on the Actions backend)
+    value: ${{ steps.transport.outputs.digest }}
+  tag:
+    description: Registry tag of the transported image (empty on the Actions backend)
+    value: ${{ steps.transport.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Select the artifact backend
+      id: select
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${{ github.event_name }}" = pull_request ]; then
+          echo "backend=actions" >> "$GITHUB_OUTPUT"
+        else
+          echo "backend=registry" >> "$GITHUB_OUTPUT"
+        fi
+
+    # One source of truth: the positive paths and the negations are declared
+    # separately and the Actions backend rebuilds the exact path list it expects.
+    - name: Build the Actions path list
+      id: prepare
+      shell: bash
+      env:
+        EVIDENCE_PATHS: ${{ inputs.path }}
+        EVIDENCE_EXCLUDES: ${{ inputs.exclude }}
+      run: |
+        set -euo pipefail
+        {
+          printf '%s\n' "$EVIDENCE_PATHS"
+          while IFS= read -r spec; do
+            [ -n "$spec" ] && printf '!%s\n' "$spec"
+          done <<< "$EVIDENCE_EXCLUDES"
+        } > "$RUNNER_TEMP/evidence-actions-path.txt"
+        {
+          echo "actions_path<<EVIDENCE_EOF"
+          cat "$RUNNER_TEMP/evidence-actions-path.txt"
+          echo "EVIDENCE_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Store on the Actions backend
+      if: steps.select.outputs.backend == 'actions'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ steps.prepare.outputs.actions_path }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: ${{ inputs.if-no-files-found }}
+        include-hidden-files: ${{ inputs.include-hidden-files }}
+
+    - name: Store in the evidence registry
+      id: transport
+      if: steps.select.outputs.backend == 'registry'
+      shell: bash
+      env:
+        EVIDENCE_NAME: ${{ inputs.name }}
+        EVIDENCE_PATHS: ${{ inputs.path }}
+        EVIDENCE_EXCLUDES: ${{ inputs.exclude }}
+        EVIDENCE_HIDDEN: ${{ inputs.include-hidden-files }}
+        EVIDENCE_POLICY: ${{ inputs.if-no-files-found }}
+        EVIDENCE_REGISTRY: ${{ inputs.registry }}
+        EVIDENCE_REPOSITORY: ${{ inputs.repository }}
+        EVIDENCE_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        tag="g${GITHUB_RUN_ID}-a${GITHUB_RUN_ATTEMPT}-$(printf '%s' "$EVIDENCE_NAME" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9._-' '-')"
+        args=(--name "$EVIDENCE_NAME"
+              --image "${EVIDENCE_REGISTRY}/${EVIDENCE_REPOSITORY}"
+              --tag "$tag"
+              --source-sha "$GITHUB_SHA"
+              --run-id "$GITHUB_RUN_ID"
+              --attempt "$GITHUB_RUN_ATTEMPT"
+              --workflow "$GITHUB_WORKFLOW"
+              --job "$GITHUB_JOB"
+              --if-no-files-found "$EVIDENCE_POLICY"
+              --github-output "$GITHUB_OUTPUT")
+        while IFS= read -r spec; do
+          [ -n "$spec" ] && args+=(--path "$spec")
+        done <<< "$EVIDENCE_PATHS"
+        while IFS= read -r spec; do
+          [ -n "$spec" ] && args+=(--exclude "$spec")
+        done <<< "$EVIDENCE_EXCLUDES"
+        [ "$EVIDENCE_HIDDEN" = true ] && args+=(--include-hidden)
+        # The token is passed on stdin and never echoed; log out on exit so a
+        # self-hosted runner does not keep GHCR credentials between jobs.
+        printf '%s' "$EVIDENCE_TOKEN" | docker login "$EVIDENCE_REGISTRY" --username "$GITHUB_ACTOR" --password-stdin >/dev/null
+        trap 'docker logout "$EVIDENCE_REGISTRY" >/dev/null 2>&1 || true' EXIT
+        python3 scripts/cd/evidence_transport.py put "${args[@]}"

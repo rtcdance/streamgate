@@ -314,6 +314,7 @@ stage_unit() {
     # be accepted here while the fuzz gate that CI enforces never ran (section 0.2 D).
     python3 scripts/cd/test_run_required_fuzz.py
     python3 scripts/cd/test_run_fuzz_target.py
+    python3 scripts/cd/test_evidence_transport.py
     python3 scripts/cd/test_verify_proxy.py
     python3 scripts/cd/test_candidate_manifest.py
     python3 scripts/cd/test_image_identity.py
@@ -1532,7 +1533,7 @@ release_recover_monolith() {
     --wait --wait-timeout 300 monolith || fail "healthy A failed to start after ${marker}"
   wait_health "http://localhost:${VERIFY_MONO_PORT}/health" 60 \
     || fail "healthy A did not recover after ${marker}"
-  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$CANDIDATE_MANIFEST")" \
+  expected="$(python3 -c 'import json,sys; i=json.load(open(sys.argv[1]))["images"]["monolith"]; print(i.get("daemonImageID") or i["imageID"])' "$CANDIDATE_MANIFEST")" \
     || fail "could not read candidate monolith identity during recovery"
   actual="$(docker inspect --format '{{.Image}}' "${project}-monolith-1")" \
     || fail "could not inspect recovered monolith A"
@@ -1551,7 +1552,7 @@ release_remove_monolith_a() {
 release_failure_drills() {
   local project="$1" b id state health code exit_code deadline override output rc
   local expected
-  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$CANDIDATE_MANIFEST")" \
+  expected="$(python3 -c 'import json,sys; i=json.load(open(sys.argv[1]))["images"]["monolith"]; print(i.get("daemonImageID") or i["imageID"])' "$CANDIDATE_MANIFEST")" \
     || fail "could not read candidate monolith identity for release drills"
 
   # The runtime must successfully launch B before the application refuses its
@@ -1658,7 +1659,7 @@ release_schema_compatibility() {
   python3 scripts/cd/candidate_manifest.py "$ref" --revision "$floor" --platform "$VERIFY_PLATFORM" \
     || fail "rollback baseline image/archive identity changed"
   tag="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["tag"])' "$ref")"
-  expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["images"]["monolith"]["imageID"])' "$ref")"
+  expected="$(python3 -c 'import json,sys; i=json.load(open(sys.argv[1]))["images"]["monolith"]; print(i.get("daemonImageID") or i["imageID"])' "$ref")"
   dir="${ARTIFACT_DIR}/release-compat"
   mkdir -p "$dir"
   override="$dir/baseline.yml"

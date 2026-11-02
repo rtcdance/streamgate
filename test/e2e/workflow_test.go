@@ -4,9 +4,11 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"math/big"
+	"mime/multipart"
 	"net/http"
 	"testing"
 
@@ -17,8 +19,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// seedDemoMedia writes the published HLS layout for the "demo" content: a
+// multivariant playlist pointing at one media playlist, plus a segment. The
+// manifest handler lists streams/<id>/ and serves the stored playlist, so this
+// is the minimum that produces a real, capability-rewritten response.
+func seedDemoMedia(t *testing.T, store *mockSegmentStorage) {
+	t.Helper()
+	objects := map[string]string{
+		"streams/demo/master.m3u8": "#EXTM3U\n#EXT-X-VERSION:3\n" +
+			"#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=1280x720\n720p/index.m3u8\n",
+		"streams/demo/720p/index.m3u8": "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n" +
+			"#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10.000000,\nsegment0.ts\n#EXT-X-ENDLIST\n",
+		"streams/demo/720p/segment0.ts": string([]byte{0x47, 0x40, 0x00, 0x10}),
+	}
+	for key, body := range objects {
+		require.NoError(t, store.Upload(context.Background(), "streamgate", key, []byte(body)))
+	}
+}
+
 func TestE2ENFTVerifyWorkflow(t *testing.T) {
-	t.Skip("requires external service")
 	checker := &mockNFTChecker{balance: big.NewInt(3)}
 	svc, _, server := setupE2EServer(t, checker, nil)
 	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
@@ -41,7 +60,9 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 		assert.Equal(t, true, result["has_nft"])
-		assert.Equal(t, float64(3), result["balance"])
+		// uint256 balances are serialized as decimal strings so no precision is
+		// lost in JSON; the handler returns balance.String().
+		assert.Equal(t, "3", result["balance"])
 		assert.Equal(t, false, result["cache_hit"])
 	})
 
@@ -68,14 +89,26 @@ func TestE2ENFTVerifyWorkflow(t *testing.T) {
 		var result map[string]interface{}
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 		assert.Equal(t, true, result["has_nft"])
-		assert.Equal(t, float64(1), result["balance"])
+		assert.Equal(t, "1", result["balance"])
 	})
 }
 
 func TestE2EStreamingWorkflow(t *testing.T) {
-	t.Skip("requires external service")
 	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	_, verifier, server := setupE2EServer(t, checker, nil)
+	// The gate fails closed on content with no rules, and the manifest handler
+	// answers 404 when nothing was published for the content. So this workflow
+	// needs both halves of a real deployment: a server-side rule that this
+	// holder satisfies, and stored media for the content being requested.
+	const demoContract = "0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f"
+	rules := staticGatingRuleResolver{rules: []middleware.GatingRule{{
+		ContractAddress: demoContract,
+		ChainID:         11155111,
+		Standard:        "erc721",
+		MinBalance:      1,
+	}}}
+	store := newMockSegmentStorage()
+	seedDemoMedia(t, store)
+	_, verifier, server := setupE2EServer(t, checker, store, gateway.WithGatingRuleResolver(rules))
 
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
@@ -89,24 +122,39 @@ func TestE2EStreamingWorkflow(t *testing.T) {
 	})
 	resp, err := http.Post(server.URL+"/api/v1/auth/challenge", "application/json", bytes.NewReader(challengeBody))
 	require.NoError(t, err)
-	var cr map[string]interface{}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&cr))
+	challengeRaw, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "challenge failed: %s", challengeRaw)
+	var cr map[string]interface{}
+	require.NoError(t, json.Unmarshal(challengeRaw, &cr))
+	message, ok := cr["message"].(string)
+	require.True(t, ok, "challenge response has no message: %s", challengeRaw)
+	challengeID, ok := cr["challenge_id"].(string)
+	require.True(t, ok, "challenge response has no challenge_id: %s", challengeRaw)
+	challengeChainID, ok := cr["chain_id"].(float64)
+	require.True(t, ok, "challenge response has no chain_id: %s", challengeRaw)
 
-	signature, err := verifier.SignMessage(cr["message"].(string), privateKey)
+	signature, err := verifier.SignMessage(message, privateKey)
 	require.NoError(t, err)
 
-	loginBody, _ := json.Marshal(map[string]string{
+	// The challenge pins a chain id; the login request must repeat it, because
+	// AuthenticateWithWallet rejects a mismatch (and a zero id) with
+	// ErrChainIDMismatch.
+	loginBody, _ := json.Marshal(map[string]interface{}{
 		"wallet":       wallet,
-		"challenge_id": cr["challenge_id"].(string),
+		"challenge_id": challengeID,
 		"signature":    signature,
+		"chain_id":     int64(challengeChainID),
 	})
 	resp2, err := http.Post(server.URL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
 	require.NoError(t, err)
-	var lr map[string]interface{}
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&lr))
+	loginRaw, _ := io.ReadAll(resp2.Body)
 	_ = resp2.Body.Close()
-	token := lr["token"].(string)
+	require.Equal(t, http.StatusOK, resp2.StatusCode, "login failed: %s", loginRaw)
+	var lr map[string]interface{}
+	require.NoError(t, json.Unmarshal(loginRaw, &lr))
+	token, ok := lr["token"].(string)
+	require.True(t, ok, "login response has no token: %s", loginRaw)
 
 	t.Run("ManifestReturnsHLS", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", server.URL+"/api/v1/streaming/demo/manifest.m3u8?contract=0x8667b7bdf8f27e76200fa450bf48aa78bbbcc61f", http.NoBody)
@@ -152,19 +200,49 @@ func TestE2ETranscodingWorkflow(t *testing.T) {
 }
 
 func TestE2EUploadWorkflow(t *testing.T) {
-	t.Skip("requires external service")
-	checker := &mockNFTChecker{balance: big.NewInt(1)}
-	svc, _, server := setupE2EServer(t, checker, newMockSegmentStorage())
-	jwtToken := testJWT(svc, "0x1234567890123456789012345678901234567890")
+	// The upload routes answer 503 unless the upload service is wired in, so
+	// this workflow uses the full upload server rather than the bare router.
+	store := newMockSegmentStorage()
+	svc, server := setupUploadE2EServer(t, store)
+	jwtToken := testJWT(svc, "0xCreatorWallet")
 
-	t.Run("UploadFile", func(t *testing.T) {
-		req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", bytes.NewReader([]byte("fake video")))
+	t.Run("UploadAndPollStatus", func(t *testing.T) {
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, err := writer.CreateFormFile("file", "workflow.mp4")
+		require.NoError(t, err)
+		_, err = part.Write(minimalMP4())
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+
+		req, _ := http.NewRequest("POST", server.URL+"/api/v1/upload", &buf)
 		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		defer func() { _ = resp.Body.Close() }()
-		// Without multipart form, should get 400 (no file provided)
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		uploadRaw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		require.Equal(t, http.StatusCreated, resp.StatusCode, "upload failed: %s", uploadRaw)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(uploadRaw, &result))
+		uploadID, ok := result["upload_id"].(string)
+		require.True(t, ok, "upload response has no upload_id: %s", uploadRaw)
+
+		// The same wallet must be able to read the record it just created.
+		req2, _ := http.NewRequest("GET", server.URL+"/api/v1/upload/"+uploadID+"/status", http.NoBody)
+		req2.Header.Set("Authorization", "Bearer "+jwtToken)
+		resp2, err := http.DefaultClient.Do(req2)
+		require.NoError(t, err)
+		statusRaw, _ := io.ReadAll(resp2.Body)
+		_ = resp2.Body.Close()
+		require.Equal(t, http.StatusOK, resp2.StatusCode, "status failed: %s", statusRaw)
+
+		var status map[string]interface{}
+		require.NoError(t, json.Unmarshal(statusRaw, &status))
+		assert.Equal(t, uploadID, status["upload_id"])
+		assert.Equal(t, "workflow.mp4", status["filename"])
+		assert.Equal(t, "completed", status["status"])
 	})
 }
 

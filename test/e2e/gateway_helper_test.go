@@ -255,6 +255,19 @@ func (s staticGatingRuleResolver) GetActiveRulesForContent(_ context.Context, _ 
 	return s.rules, nil
 }
 
+// ResolvePolicySnapshot mirrors the production gatingRuleResolverAdapter so
+// the capability-issuing path has a snapshot resolver. A constant rule set is
+// by construction one version, so the double-read re-authorization always sees
+// a stable version.
+func (s staticGatingRuleResolver) ResolvePolicySnapshot(ctx context.Context, contentID string) (service.PolicySnapshot, error) {
+	return service.PolicySnapshot{
+		ContentID:  contentID,
+		Rules:      s.rules,
+		Version:    1,
+		VerifiedAt: time.Now(),
+	}, nil
+}
+
 // setupE2EServer creates an httptest.Server backed by gateway.SetupRouter
 // with mock dependencies injected.
 func setupE2EServer(t *testing.T, checker middleware.NFTOwnershipChecker, segStorage service.SegmentStorage, opts ...gateway.RouterOption) (*service.AuthService, *web3.SignatureVerifier, *httptest.Server) {

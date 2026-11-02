@@ -32,6 +32,7 @@ type ChainClient struct {
 	logger      *zap.Logger
 	rateLimiter *RPCRateLimiter
 	finality    FinalityStrategy
+	rpcSlots    chan struct{}
 	wg          sync.WaitGroup
 	closed      atomic.Bool
 
@@ -127,6 +128,7 @@ func NewChainClientWithFallback(rpcURLs []string, chainID int64, logger *zap.Log
 		activeRPC: 0,
 		chainID:   chainID,
 		logger:    logger,
+		rpcSlots:  make(chan struct{}, rpcMaxConcurrentCalls),
 	}
 
 	if err := cc.connectAny(); err != nil {
@@ -465,11 +467,56 @@ func (cc *ChainClient) failover(exclude int) error {
 // can drive this exact code path in milliseconds instead of seconds.
 var rpcRequestTimeout = 10 * time.Second
 
-// newRPCHTTPClient is the HTTP client geth's JSON-RPC transport uses. Only the
-// timeout is added; the transport is DefaultTransport's, so proxying, connection
-// pooling, HTTP/2 and the TLS handshake timeout are unchanged.
+// rpcTransport is the connection pool every RPC client shares. The default
+// transport keeps only TWO idle connections per host, so a viewer burst
+// re-dials — and therefore re-resolves the endpoint name — for almost every
+// chain call. In the Docker acceptance stack that DNS fan-out was measured as
+// thousands of "lookup anvil-proxy: no such host" failures in a single
+// 50-viewer round, which surfaced as 503s for real NFT holders. Keep enough
+// idle connections for the viewer fan-out so a steady stream reuses them;
+// proxying, HTTP/2 and the TLS handshake timeout stay DefaultTransport's.
+var rpcTransport = func() http.RoundTripper {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultTransport
+	}
+	transport := base.Clone()
+	transport.MaxIdleConns = 256
+	transport.MaxIdleConnsPerHost = 128
+	transport.IdleConnTimeout = 90 * time.Second
+	return transport
+}()
+
+// newRPCHTTPClient is the HTTP client geth's JSON-RPC transport uses.
 func newRPCHTTPClient() *http.Client {
-	return &http.Client{Timeout: rpcRequestTimeout, Transport: http.DefaultTransport}
+	return &http.Client{Timeout: rpcRequestTimeout, Transport: rpcTransport}
+}
+
+// rpcMaxConcurrentCalls bounds the RPC round-trips one chain client keeps in
+// flight. The bound exists because throughput is NOT monotonic in concurrency
+// once the endpoint is CPU-throttled: measured against the acceptance stack's
+// 0.25-CPU socat forwarder, a persistent-connection load of 400 calls ran at
+// ~1030 req/s with 8 in flight, ~370 req/s with 16, ~124 req/s with 25 and
+// ~43 req/s with 50. An unbounded 50-viewer fan-out therefore queued for
+// seconds behind a forwarder that was idle in aggregate, and requests whose
+// evidence aged past the 5s freshness bound answered 503. 16 keeps an order of
+// magnitude of headroom over the measured demand while leaving a fast provider
+// busy.
+const rpcMaxConcurrentCalls = 16
+
+// acquireRPCSlot reserves one in-flight RPC slot, returning the release. A nil
+// channel means the client was built without a bound (tests that construct the
+// struct directly); callers then run unbounded, exactly as before.
+func (cc *ChainClient) acquireRPCSlot(ctx context.Context) (func(), error) {
+	if cc.rpcSlots == nil {
+		return func() {}, nil
+	}
+	select {
+	case cc.rpcSlots <- struct{}{}:
+		return func() { <-cc.rpcSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn func(*ethclient.Client) (T, error)) (T, error) {
@@ -506,8 +553,17 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		cc.mu.RUnlock()
 	}
 
+	call := func(target *ethclient.Client) (T, error) {
+		release, slotErr := cc.acquireRPCSlot(ctx)
+		if slotErr != nil {
+			return zero, NewRetryableError("rpc concurrency slot unavailable", slotErr)
+		}
+		defer release()
+		return fn(target)
+	}
+
 	start := time.Now()
-	result, err := fn(client)
+	result, err := call(client)
 	latency := time.Since(start)
 	monitoring.RPCLatencySeconds.WithLabelValues(op, fromProvider).Observe(latency.Seconds())
 	cc.updateRPCScores(activeIdx, latency, err == nil)
@@ -539,7 +595,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 		monitoring.RPCFailoverTotal.WithLabelValues(op, fromProvider, toProvider).Inc()
 
 		start = time.Now()
-		result, err = fn(client)
+		result, err = call(client)
 		latency = time.Since(start)
 		monitoring.RPCLatencySeconds.WithLabelValues(op, toProvider).Observe(latency.Seconds())
 		cc.updateRPCScores(activeIdx, latency, err == nil)

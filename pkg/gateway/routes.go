@@ -128,7 +128,15 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 	// known and BEFORE the gate so an over-budget request costs no chain read.
 	// Bucket key = wallet + route TEMPLATE (c.FullPath), so segment-name
 	// variation consumes one bucket per viewer, never one per segment.
-	mediaRL := middleware.NewMediaRateLimiter(res.SharedRedis)
+	// A typed-nil *redis.Client is NOT a nil interface: passing res.SharedRedis
+	// straight in would build a Redis limiter around a nil client and panic on
+	// every media request in the demo/unit profile (no Redis). Leave the
+	// interface nil so NewRateLimiter selects the in-memory sliding window.
+	var mediaRedis middleware.RedisClient
+	if res.SharedRedis != nil {
+		mediaRedis = res.SharedRedis
+	}
+	mediaRL := middleware.NewMediaRateLimiter(mediaRedis)
 	streamGroup.Use(middleware.MediaRateLimitMiddleware(mediaRL))
 
 	// Operational endpoints that leak internal state (circuit-breaker states,

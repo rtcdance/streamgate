@@ -7,7 +7,7 @@ import re
 import subprocess
 
 from candidate_manifest import docker_json, file_hash, verify
-from image_identity import identity, verify_identity
+from image_identity import archive_digests, identity, verify_identity
 from write_candidate_manifest import load_images
 
 
@@ -36,15 +36,21 @@ def import_candidate(inputs, prefix, revision, platform, manifest):
     tags = []
     for service in RUNTIME_SERVICES:
         source = inputs / f"candidate-{service}.tar"
+        # The archive, not the local store, names the scanned image: its config
+        # digest is the CI record's imageID on every Docker storage driver.
+        digests = archive_digests(source)
+        if digests is None:
+            raise ValueError(f"{service}: CI build archive is not a docker-save tar")
         subprocess.run(["docker", "load", "-i", str(source)], check=True)
         original_tag = f"streamgate-{service}:candidate"
-        observed = identity(docker_json("image", "inspect", original_tag)[0], revision, file_hash(source))
+        observed = identity(docker_json("image", "inspect", original_tag)[0], revision, file_hash(source), digests)
         verify_identity(images[service], observed)
         tag = f"{prefix}-{service}:latest"
         subprocess.run(["docker", "tag", original_tag, tag], check=True)
         tags.append(tag)
         entries[service] = {
-            "tag": tag, "imageID": observed["imageID"], "registryDigest": None,
+            "tag": tag, "imageID": observed["imageID"], "daemonImageID": observed["daemonImageID"],
+            "registryDigest": None,
             "buildTags": observed["buildTags"], "platform": platform, "revision": revision,
             "buildArchiveSHA256": observed["archiveSHA256"],
         }

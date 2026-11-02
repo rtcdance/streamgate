@@ -128,7 +128,11 @@ class VerifyShellTests(unittest.TestCase):
             lines = (SOURCE.parent.parent / ".github/workflows" / workflow).read_text().splitlines()
             uploads = 0
             for offset, line in enumerate(lines):
-                if "uses: actions/upload-artifact@" not in line:
+                # Required evidence is uploaded either straight to the Actions
+                # backend (pull requests) or through the transport wrapper; both
+                # definitions must pin retention explicitly.
+                if not any(marker in line for marker in
+                           ("uses: actions/upload-artifact@", "uses: ./.github/actions/evidence-upload")):
                     continue
                 uploads += 1
                 indentation = len(line) - len(line.lstrip())
@@ -142,6 +146,36 @@ class VerifyShellTests(unittest.TestCase):
                     self.assertIsNotNone(retention, "retention must not depend on an organization default")
                     self.assertGreaterEqual(int(retention[1]), 30)
             self.assertGreater(uploads, 0)
+        wrapper = (SOURCE.parent.parent / ".github/actions/evidence-upload/action.yml").read_text()
+        default = re.search(r"^  retention-days:\n(?:    [^\n]*\n)*?    default: \"(\d+)\"", wrapper, re.M)
+        self.assertIsNotNone(default, "the transport wrapper must pin its own retention default")
+        self.assertGreaterEqual(int(default[1]), 30)
+
+    def test_transport_consumer_binds_the_producing_run(self):
+        root = SOURCE.parent.parent
+        wrapper = (root / ".github/actions/evidence-download/action.yml").read_text()
+        # The tag already scopes the lookup to this run; without --expect-run an
+        # image whose manifest names another producer would still be accepted.
+        self.assertIn('--expect-run "$GITHUB_RUN_ID"', wrapper)
+
+    def test_candidate_builds_do_not_export_the_layer_cache(self):
+        source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
+        # Export is not a gate and cost 5,823s of a 2,139s build before failing on
+        # the one-hour cache token; re-adding it makes every candidate fragile.
+        self.assertNotIn("cache-to:", source)
+        self.assertIn("cache-from: type=gha,scope=", source)
+
+    def test_go_setup_does_not_upload_the_module_cache(self):
+        # A 1.2 GiB cache save on the ~111 KiB/s self-hosted uplink blocks the
+        # job for hours; setup-go defaults to caching, so it must be disabled.
+        for workflow in ("ci.yml", "test.yml"):
+            lines = (SOURCE.parent.parent / ".github/workflows" / workflow).read_text().splitlines()
+            for offset, line in enumerate(lines):
+                if "uses: actions/setup-go@" not in line:
+                    continue
+                block = "\n".join(lines[offset:offset + 6])
+                with self.subTest(workflow=workflow, step=offset + 1):
+                    self.assertIn("cache: false", block)
 
     def run_schema_compatibility(self, *, smoke_exit=0, wrong_image=False, changed_schema=False, wrong_baseline=False):
         with tempfile.TemporaryDirectory() as directory:
@@ -202,13 +236,16 @@ class VerifyShellTests(unittest.TestCase):
                 self.assertIn(diagnostic, result.stderr)
 
     def run_release_drills(self, smoke_exit=1, smoke_output=None, recovery_image=None, start_exit=1,
-                           start_output="auth.jwt_secret is only 6 bytes — minimum 32 bytes required for HS256"):
+                           start_output="auth.jwt_secret is only 6 bytes — minimum 32 bytes required for HS256",
+                           daemon_image=None):
         image = "sha256:" + "1" * 64
+        daemon_image = daemon_image or image
         if smoke_output is None:
             smoke_output = "PASS: Anvil chainId=31337\nFAIL: dev-mint failed: HTTP 500"
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / "candidate.json"
-            manifest.write_text(json.dumps({"images": {"monolith": {"imageID": image}}}))
+            manifest.write_text(json.dumps({"images": {"monolith": {
+                "imageID": image, "daemonImageID": daemon_image}}}))
             script = '\n'.join([
                 'set -euo pipefail',
                 f'ARTIFACT_DIR={shlex.quote(directory)}',
@@ -231,7 +268,7 @@ class VerifyShellTests(unittest.TestCase):
                 f'    logs) printf "%s\\n" {shlex.quote(start_output)} ;;',
                 '    inspect)',
                 '      case "$field" in',
-                f'        "{{{{.Image}}}}") if [[ "$name" == *"-monolith-1" ]]; then echo {shlex.quote(recovery_image or image)}; else echo {image}; fi ;;',
+                f'        "{{{{.Image}}}}") if [[ "$name" == *"-monolith-1" ]]; then echo {shlex.quote(recovery_image or daemon_image)}; else echo {daemon_image}; fi ;;',
                 '        "{{.State.Status}}") if [[ "$name" == *"-drill-start" ]]; then echo exited; else echo running; fi ;;',
                 f'        "{{{{.State.ExitCode}}}}") echo {start_exit} ;;',
                 '        *) if [[ "$name" == *"-drill-health" ]]; then echo unhealthy; else echo healthy; fi ;;',
@@ -252,6 +289,12 @@ class VerifyShellTests(unittest.TestCase):
         for kind in ("START", "HEALTH", "SMOKE"):
             self.assertIn(f"RELEASE_DRILL_{kind}_B_FAILED", result.stdout)
             self.assertIn(f"RELEASE_DRILL_{kind}_A_RECOVERED", result.stdout)
+
+    def test_release_drills_accept_the_importing_store_id_beside_the_archive_identity(self):
+        daemon_image = "sha256:" + "9" * 64
+        result = self.run_release_drills(daemon_image=daemon_image)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"imageID={daemon_image}", result.stdout)
 
     def test_release_drills_refuse_a_wrong_recovered_image(self):
         result = self.run_release_drills(recovery_image="sha256:" + "2" * 64)
@@ -809,6 +852,50 @@ class VerifyShellTests(unittest.TestCase):
             ])], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
         self.assertEqual(SOURCE.read_text().count('record_stage_pass "$stage"'), 2)
+
+
+class FaultBarrierSubjectTests(unittest.TestCase):
+    def run_wait(self, markers, release_fails=False, budget=10):
+        match = re.search(r"^wait_reached_content\(\) \{\n.*?^\}", (SOURCE.parent / "durable-fault-acceptance.sh").read_text(), re.M | re.S)
+        self.assertIsNotNone(match, "FR01 must wait for the exact content at the barrier")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "markers").write_text("\n".join(markers) + "\n")
+            script = '\n'.join([
+                'set -uo pipefail',
+                'marker_of() {',
+                '  head -1 markers',
+                '  if [ "$(wc -l < markers)" -gt 1 ]; then tail -n +2 markers > next; mv next markers; fi',
+                '}',
+                'sleep() { :; }',
+                'release_point() { echo release >> releases; ' + ('return 1;' if release_fails else ':;') + ' }',
+                match[0],
+                f'wait_reached_content publisher.before_broadcast target {budget}',
+            ])
+            result = subprocess.run(['bash', '-c', script], cwd=root, capture_output=True, text=True, timeout=20)
+            releases = (root / "releases").read_text().splitlines() if (root / "releases").exists() else []
+            return result.returncode, releases
+
+    def test_releases_other_intent_once_and_waits_for_target(self):
+        rc, releases = self.run_wait(['host 1 time other'] * 3 + ['host 1 later target'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(releases, ['release'])
+
+    def test_target_remains_parked_for_the_fault(self):
+        rc, releases = self.run_wait(['host 1 time target'])
+        self.assertEqual(rc, 0)
+        self.assertEqual(releases, [])
+
+    def test_wrong_or_missing_identity_cannot_satisfy_the_wait(self):
+        for marker in ['host 1 time other', 'host 1 time', '']:
+            with self.subTest(marker=marker):
+                rc, _ = self.run_wait([marker], budget=1)
+                self.assertNotEqual(rc, 0)
+
+    def test_release_error_fails_the_wait(self):
+        rc, _ = self.run_wait(['host 1 time other', 'host 1 later target'], release_fails=True)
+        self.assertNotEqual(rc, 0)
+
 
 
 if __name__ == "__main__":

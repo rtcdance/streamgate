@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -642,16 +643,21 @@ func (m *mockVersionedRuleResolver) RuleVersion(_ context.Context, _ string) (in
 }
 
 type mockBlockProver struct {
-	header    *BlockHeaderInfo
-	err       error
-	byChain   map[int64]*BlockHeaderInfo
+	header  *BlockHeaderInfo
+	err     error
+	byChain map[int64]*BlockHeaderInfo
+	// mu guards the got* fields: concurrent gate requests record their calls
+	// through the same prover, and -race flags the unsynchronized writes.
+	mu        sync.Mutex
 	gotChain  int64
 	gotNumber *big.Int
 	gotTag    string
 }
 
 func (m *mockBlockProver) HeaderByNumber(_ context.Context, chainID int64, number *big.Int) (*BlockHeaderInfo, error) {
+	m.mu.Lock()
 	m.gotChain, m.gotNumber = chainID, number
+	m.mu.Unlock()
 	if m.byChain != nil {
 		header, ok := m.byChain[chainID]
 		if !ok {
@@ -665,7 +671,9 @@ func (m *mockBlockProver) HeaderByNumber(_ context.Context, chainID int64, numbe
 // HeaderByTag resolves the anchor block. It returns the same header as
 // HeaderByNumber so the unchanged-block check passes.
 func (m *mockBlockProver) HeaderByTag(_ context.Context, chainID int64, tag string) (*BlockHeaderInfo, error) {
+	m.mu.Lock()
 	m.gotChain, m.gotTag = chainID, tag
+	m.mu.Unlock()
 	if m.byChain != nil {
 		header, ok := m.byChain[chainID]
 		if !ok {

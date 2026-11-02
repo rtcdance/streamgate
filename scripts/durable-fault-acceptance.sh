@@ -180,6 +180,25 @@ wait_reached() {
   return 1
 }
 
+# A prior intent can arrive while the target is still being seeded. Release
+# only that prior rendezvous; the target must remain parked for the crash.
+wait_reached_content() {
+  local point="$1" content="$2" deadline=$((SECONDS + $3)) marker subject released=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    marker="$(marker_of "$point")"
+    subject="$(printf '%s\n' "$marker" | awk '{print $4}')"
+    if [ -n "$subject" ]; then
+      [ "$subject" = "$content" ] && return 0
+      if [ "$marker" != "$released" ]; then
+        release_point "$point" || return 1
+        released="$marker"
+      fi
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
 # wait_sql <sql> <want> <seconds> — bounded poll of a single scalar.
 wait_sql() {
   local sql="$1" want="$2" deadline=$((SECONDS + $3)) got
@@ -1051,7 +1070,7 @@ fi
 log 'FR01 kill at publisher.before_broadcast'
 barrier_reset
 arm publisher.before_broadcast
-if seed_content fr01 && wait_reached publisher.before_broadcast 120; then
+if seed_content fr01 && wait_reached_content publisher.before_broadcast "$CONTENT_ID" 120; then
   FR_TX="$(reg_field "$CONTENT_ID" tx_hash)"
   FR_NONCE="$(reg_field "$CONTENT_ID" nonce)"
   FR_STATUS="$(reg_field "$CONTENT_ID" status)"

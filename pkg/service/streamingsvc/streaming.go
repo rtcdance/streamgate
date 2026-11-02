@@ -500,8 +500,19 @@ func (s *StreamingService) GenerateDASHManifest(contentID string, qualities []Qu
 		fmt.Fprintf(&manifest, `      <Representation bandwidth="%d" width=%q>`, //nolint:gocritic // "%s" is XML attribute syntax, not Go quoting
 			quality.Bitrate*1000, strings.Split(quality.Resolution, "x")[0])
 		manifest.WriteString("\n")
-		fmt.Fprintf(&manifest, `        <BaseURL>%s/%s/%s.mp4?playback_token=%s</BaseURL>`,
-			s.baseURL, contentID, quality.Name, playbackToken)
+		// The caller knows where this representation lives; only synthesise a
+		// path when it supplied none. The token is appended either way so the
+		// capability gate sees every media request.
+		baseURL := quality.URL
+		if baseURL == "" {
+			baseURL = fmt.Sprintf("%s/%s/%s.mp4", s.baseURL, contentID, quality.Name)
+		}
+		separator := "?"
+		if strings.Contains(baseURL, "?") {
+			separator = "&"
+		}
+		fmt.Fprintf(&manifest, `        <BaseURL>%s%splayback_token=%s</BaseURL>`,
+			baseURL, separator, playbackToken)
 		manifest.WriteString("\n")
 		manifest.WriteString(`      </Representation>`)
 		manifest.WriteString("\n")
