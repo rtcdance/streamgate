@@ -1,6 +1,6 @@
 # StreamGate — Token-Gated Video Streaming for Web3
 
-> **Token-gated video delivery.** Users prove NFT ownership to watch — no password, no piracy, no middleware.
+> **Token-gated video delivery.** Wallet sign-in, server-side NFT rules, and authenticated HLS delivery.
 >
 > English: [Overview](#-project-overview) · [Quick Start](#quick-start) · [API Docs](docs/api/openapi.yaml)
 >
@@ -16,11 +16,19 @@
 
 ---
 
-> 🚀 **One-command demo**: `make demo` — starts infra, builds, runs, ready to test in 60 seconds
+> **Verified engineering delivery (2026-11-02):** frozen candidate `d0f05152edc1fb404cb2d78b734c95244e1a7a4e` passed all nine Docker stages and M0–M8 with raw outer exit 0. [Same-SHA CI run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379), attempt 3, completed **55/55 successful jobs**, including evidence and Publishable. The prepared local demo started from empty fixture volumes in **57.14s** and passed **77/77 checks in each deployment mode**. This documentation records that candidate; its own commit does not inherit the candidate CI. Production, testnet and personal presentation/recording/applications remain separate. Measurements apply to the recorded shared Mac/Docker Desktop environment.
 
 ---
 
 ## Quick Start
+
+The development stack requires Docker Compose and the Linux binaries
+`deploy/docker/streamgate-linux` and `deploy/docker/api-gateway-linux`, built for
+the Docker daemon's architecture. Prepare them with the commands in
+[the development guide](CLAUDE.md#docker-devtest-environment) before running the
+target below; `fullchain-deploy` does not compile these binaries. First image
+builds and contract compilation can take several minutes. On a constrained Mac,
+follow the guide's serial image-build procedure to limit CPU and memory use.
 
 ```bash
 make fullchain-deploy             # Postgres + Redis + MinIO + NATS + Anvil(+DemoNFT) + monolith + microservices + h5-demo
@@ -39,13 +47,18 @@ monolith on `:8080` (h5-demo then served at `http://localhost:8080/demo`). See [
 That is the entire loop: **wallet sign-in → on-chain NFT ownership check → protected HLS playback.**
 `make fullchain-deploy` starts Anvil and deploys `DemoNFT` for you — no chain setup needed to try it.
 
+The accepted candidate’s prepared local demo was independently started and exercised in both modes. Its replay commands and exact local artifact paths are in `TRANSITION_PLAN.md` §8.86; fresh checkouts still need the setup above. The measured 57.14-second warm startup excludes first downloads and source/submodule preparation.
+
 ### Acceptance Evidence
 
-Everything above is verified by a single Docker runner — a clean checkout needs no host toolchain:
+The acceptance runner creates its own isolated stack from a clean checkout.
+It requires Git, Make, and Docker; host Go/Foundry/Node toolchains are unnecessary
+for this runner. Its results below do not establish a cold-start time for the
+separate development helper above.
 
 ```bash
 git submodule update --init --recursive
-make verify-docker VERIFY_STAGE=all     # unit · chain · durability · ops · media · perf · release
+make verify-docker VERIFY_STAGE=all     # unit · chain · durability · ops · faults · media · recovery · perf · release
 make verify-docker VERIFY_STAGE=media   # or one stage at a time (each stage log lands in .verify-artifacts/)
 ```
 
@@ -53,14 +66,14 @@ How far the evidence reaches, precisely:
 
 | Level | Status | What it means |
 |-------|--------|---------------|
-| **Docker (local runner)** | Verified, stage by stage | The seven stages each ran green against a per-run isolated stack (dynamic ports, empty volumes, own compose project). This is the acceptance gate for this repo; the single `all` run is the final gate and is recorded in `TRANSITION_PLAN.md` §8. |
+| **Docker (local runner)** | PASS WITH BOUNDARIES — `d0f05152` | One complete CI acceptance entry passed all nine stages and M0–M8 with raw outer exit 0. Independently revalidated original artifacts; see `TRANSITION_PLAN.md` §8.86. Shared Mac measurements do not establish production capacity. |
 | **Anvil (local chain)** | Verified | Real chain end-to-end: wallet sign-in, pinned-block NFT evidence, transfer revocation, reorg, endpoint failover. `make test-anvil`. |
-| **GitHub CI** | Verified — [run 39005594931](https://github.com/rtcdance/streamgate/actions/runs/39005594931) | The full DAG (`ci.yml` → `build.yml`, one image build per SHA, same-digest scan/deploy) ran green on the frozen candidate `ab172c2`: 55/55 jobs success, zero skipped, including the temporary empty-volume deploy with real migrations and the three-class failure drills. |
+| **GitHub CI** | PASS — [run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379) | Exact candidate `d0f05152`, attempt 3, 55/55 success with no skipped jobs; Candidate Evidence and Publishable passed. Previous candidates retain their historical results. |
 | **Testnet (Sepolia)** | Not verified | Wired behind `make test-testnet`, requires `SEPOLIA_RPC`. Never claimed as acceptance. |
 | **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
 
 Supporting numbers live where they can be re-run, not in this file: the performance matrix
-(1/10/50 viewers, each with its own real wallet), the fault matrix (cold cache, primary RPC
+(1/10/50/100 viewers, three repeats per scenario, each viewer with its own real wallet), the fault matrix (cold cache, primary RPC
 stopped, every RPC stopped), the same-runner p95 comparison against a fixed reference
 (`PERF_REFERENCE_REF=<ref>`), and the recovery drill results are recorded in
 `TRANSITION_PLAN.md` §8.
@@ -96,16 +109,15 @@ Two properties worth knowing before you read the code:
 Content creators lose revenue to piracy. Access control is usually one of:
 - **Passwords** (shared, stolen, phished)
 - **Manual whitelists** (doesn't scale, no transparency)
-- **DRM** (proprietary, requires licensing fees, locked to platforms)
+- **Endpoint DRM** (requires a supported client playback integration)
 
 StreamGate replaces the first two with **on-chain NFT ownership**: hold the token, watch the video.
-No shared passwords, no manual whitelists — programmable, transparent, permissionless.
+Content owners configure server-side rules; the service checks possession on chain.
 
 > **Scope note — this is access authorization, not DRM.** DRM protects content against the
 > *endpoint* (hardware trust root, keys that never leave the trusted execution environment).
-> StreamGate's HLS delivery uses short-lived, content-bound playback tokens, which stops direct
-> segment scraping and link sharing, but does **not** stop a determined viewer from capturing
-> playback. It is not a DRM substitute; see [What StreamGate Is Not](#-what-streamgate-is-not).
+> StreamGate's HLS delivery uses short-lived, content-bound playback tokens, which reject unauthenticated media requests. An authorized viewer can still copy a valid
+> bearer token during its lifetime or capture playback. It is not a DRM substitute; see [What StreamGate Is Not](#-what-streamgate-is-not).
 
 ## 🎯 一句话介绍
 
@@ -158,15 +170,15 @@ StreamGate is a Go-based NFT-gated streaming backend. It combines a video distri
 | Manual access management | Admin dashboards, CSV exports | Own the NFT → access is derived from on-chain state, no per-user admin work |
 | Cross-platform | Multiple SDKs per platform | **One API** — REST/gRPC/OpenAPI |
 
-> DRM solves a different problem (content protection at the endpoint), not this one more cheaply.
-> StreamGate does not claim to replace it — see the scope note above.
+> The entitlement gate does not control an authorized client's copy of the media.
+> Client playback protection is outside the implemented scope.
 
 ### 🚫 What StreamGate Is Not
 
 | Not this | Because |
 |----------|---------|
 | **Decentralized video network** | StreamGate is self-hosted infrastructure, not a peer-to-peer network. For decentralized transcoding, see Livepeer. |
-| **Traditional DRM (Widevine/FairPlay)** | DRM requires proprietary licensing. StreamGate uses on-chain ownership as an alternative. |
+| **Traditional DRM (Widevine/FairPlay)** | StreamGate checks server-side entitlement; endpoint DRM integration is outside its implemented scope. |
 | **Managed SaaS / Cloud** | Community edition is self-hosted. A hosted version may be added in a future release. |
 | **No-code platform** | StreamGate is API-first. A Web UI is planned but not yet available. |
 
@@ -205,7 +217,7 @@ Core authentication, NFT verification, and streaming pipeline — implemented an
 
 #### P1 — Usability & Operations (Mostly complete)
 
-Production operations and developer experience — deployed pieces are listed below; observability is partial (metrics endpoint only, no scrape stack).
+Operations and developer experience — implemented components are listed below; production rollout is unverified. Observability is partial (metrics endpoint only, no scrape stack).
 
 - [x] **Dual-mode Deployment** — Monolith (dev) + 9 microservices (prod)
 - [x] **Docker + Docker Compose** — Full stack with health checks
@@ -316,7 +328,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 > Core flow (wallet sign-in → NFT ownership check → protected HLS playback) is implemented
 > end-to-end and pinned by regression tests. The authorization path was audited and reworked to
-> fail closed; CI is green on `master`.
+> fail closed. CI evidence is tied to the exact candidate listed above.
 
 ### Current Priorities
 
@@ -335,7 +347,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 | **Observability stack** | `/metrics` (RED) on every service; the Grafana/Jaeger scrape stack was removed during simplification |
 | **IPFS** | Not wired into the upload path |
 | **Decentralization** | Self-hosted infrastructure, not a peer-to-peer network — ownership checks read the chain, the platform itself is centralized |
-| **Load testing** | No production capacity or soak test has been run; measured fixed-budget local runs are recorded in `TRANSITION_PLAN.md` §8.16 |
+| **Load testing** | No production capacity or soak test has been run; measured fixed-budget local runs are recorded in `TRANSITION_PLAN.md` §8 with their candidate identities |
 
 See `TRANSITION_PLAN.md` for the engineering plan and `docs/ARCHITECTURE.md` for the architecture.
 

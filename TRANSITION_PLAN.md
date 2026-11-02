@@ -1,14 +1,16 @@
 # StreamGate 系统性优化计划：Web3 求职项目与可验证交付
 
-<!-- streamgate-acceptance-status: incomplete -->
+<!-- streamgate-acceptance-status: complete -->
 
-**当前执行（2026-10-31，详见 §8.58）：** 最终候选 `5c121abe0b48dbad82b865bae5eb07c6c0ff48b0` 保持冻结，[CI run 40994464129](https://github.com/rtcdance/streamgate/actions/runs/40994464129) attempt 7 终态 failure：52 job success，唯一 failure 是验收 job——`go mod tidy` 需要 test-dep 模块图且 go 对 proxy 超时不回退 direct，`proxy.golang.org`（Google IP）窗口性不可达所致，非测试失败。GHCR 路径已恢复。恢复守卫 `recover-acceptance-goproxy-once.py`（handle 59607，24h 期限）持双闸门等窗口自动派发 `rerun-failed-jobs`；工具镜像已用缓存重建（attempt 8 构建为缓存命中）。候选后改进项：`VERIFY_GOPROXY` 改 `goproxy.cn`（需新 SHA，收口后做）。整体保持 incomplete。
+**当前交付（2026-11-02，独立终审见 §8.86）：** SG-00～SG-15 的工程与 AI 交付范围已完成，判定 **PASS WITH BOUNDARIES**。冻结代码候选 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`：完整九阶段 `all` 原始退出 0、M0～M8 完整；[同 SHA CI run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379) attempt 3 **55/55 success、零 skip**，Candidate Evidence 与 Publishable 均成功。本机空演示卷 warm 启动 **57.14s**，monolith / api-gateway 的真实业务复验各 **77/77、退出 0**。有限反向证明按 §8.51 同源码规则核验成立；本轮演示资源已清理，配置/镜像/原始证据保留。代码候选保持冻结，当前文档分支仅记录证据，不继承候选 CI；生产、testnet、SG-16/17 与本人讲述/录屏/投递不代填。
 
-## 执行提效优化方案（2026-10-24；实施中，进度见 §8.19）
+**执行已收口：** 以当前候选完整证据结束本轮，不因已通过的阶段或文档回填再次重跑 CI。后续仅保留演示复跑与明确的新任务；本机验收保持开盖，防空闲休眠不能保证阻止合盖休眠。历史失败、暂存可靠性补丁与本轮完成依据分别记录，详见 §8.85～§8.86。
 
-**目标：** 保持 SG-00～SG-15、M0～M8 的既定验收要求，通过合格环境、定向反馈、共享编译缓存和候选冻结减少重复执行。本节调整执行方法，不改变 §0.4 的业务修复依赖，不代表优化已经实现，也不新增 push、CI 派发或生产发布授权。当前整体状态仍为未通过。
+## 历史提效实施方案（2026-10-24；收口结果见 §8.86）
 
-**当前执行入口：** 后续 AI 先读本节，再按任务 ID 检索原任务书与 §8 证据；历史“最新状态”按产生时间和 SHA 解释，不能覆盖本节的 2026-10-24 Mac-only 执行约束。正式 `all` 的前置条件是 EFF-00 环境资格、EFF-01 已知阻塞关闭、EFF-02 基线资格、EFF-04 A 的候选冻结与独占运行，以及受影响回归通过。EFF-03 缓存提效和 EFF-04 B 的脚手架工程化是可选优化，不阻塞正确性已满足的候选终验；可用冷构建、独立 checkout 和单执行者完成收口。既有运行按原始结果归档，不删除失败记录。
+**目标：** 保持 SG-00～SG-15、M0～M8 的既定验收要求，通过合格环境、定向反馈、共享编译缓存和候选冻结减少重复执行。本节保留当时的实施约束，不改变 §0.4 的业务修复依赖，也不新增生产发布授权；当前主线完成结论与证据见 §8.86。
+
+**历史执行入口（本轮已收口，当前以 §8.86 为准）：** 后续 AI 先读本节，再按任务 ID 检索原任务书与 §8 证据；历史“最新状态”按产生时间和 SHA 解释，不能覆盖本节的 2026-10-24 Mac-only 执行约束。正式 `all` 的前置条件是 EFF-00 环境资格、EFF-01 已知阻塞关闭、EFF-02 基线资格、EFF-04 A 的候选冻结与独占运行，以及受影响回归通过。EFF-03 缓存提效和 EFF-04 B 的脚手架工程化是可选优化，不阻塞正确性已满足的候选终验；可用冷构建、独立 checkout 和单执行者完成收口。既有运行按原始结果归档，不删除失败记录。
 
 ### 诊断依据与根因
 
@@ -38,7 +40,7 @@
 | EFF-03 / P1 可选编译复用 | 采用共享 GOCACHE 前，给 unit 与 CI 等所有行为验收的实际 go test 命令显式添加 -count=1；controller 与 stage 编译缓存按工具链、OS/ARCH、CGO 等隔离，利用 Go 自身源码/参数校验，不因每个 SHA 清空。保留模块和锁定浏览器缓存，业务 fixture 仍隔离；修正 GOFLAGS 覆盖并记录实际值 | 同环境测冷/热耗时；源码变化触发受影响编译；同一行为测试连续两次均实际执行，不能返回旧 PASS。清空或关闭缓存仍能运行；收益未验证时保持关闭，不阻塞最终冷构建验收 |
 | EFF-04 / P0 A 必需、P2 B 可选 | A：一个写入者集成，验收用包含迭代提交的独立冻结 clone/checkout；同 daemon 只运行一轮验收，后台业务按环境 profile 记录；运行期间禁止修改该 checkout、切换及历史重写。B：后续再做构建输出迁移、源码只读挂载和 daemon 级原子锁，不要求先重写脚手架 | A：保存 clean-tree、SHA、镜像与运行独占证据，编辑目录变化不改变验收源码；现有受控生成物仍按原脚本归属和清理。B 若启用，第二个验收须在构建前拒绝，取消释放锁并保留退出；B 未实施可用 A 收口，不能绕过已有身份/清理检查 |
 | EFF-05 / P1 正式收口 | EFF-00 / 01 / 02、EFF-04 A 及已知功能失败的定向验证通过后冻结 C；可选优化仅在已验证时启用。合格 runner 上执行完整 all；最终 CI 使用同 SHA 与已扫描原始构建归档，取得本轮新鲜 reference、schema 兼容、三类失败与恢复、M0～M8 索引 | 必需门 PASS、无关键 skip，原始退出与 SHA/image/archive/digest/run 对应；关闭可选缓存不降低通过资格。历史或单阶段绿灯、合成 fixture 不替代。失败后回到定位循环，不自动从头再赌一次 |
-| EFF-06 / P1 状态收口 | 本文件保留唯一当前执行表，分列“实现状态”和“当前候选验证状态”；历史按 SHA 保留、按需检索。交付材料在冻结前准备好；最终 run / digest 存 CI artifact 与最终答复 | 新候选使证据待更新时，不把已实现功能重新写成未开发；整体状态只由最终门决定。遵守 §0.5，避免回填成功 run 不断产生新候选；不新增计划/交接/状态文档 |
+| EFF-06 / P1 状态收口 | 本文件顶部与 §8.86 保留唯一当前结论，分列“实现状态”和“当前候选验证状态”；历史按 SHA 保留、按需检索。交付材料在冻结前准备好；最终 run / digest 存 CI artifact 与最终答复 | 新候选使证据待更新时，不把已实现功能重新写成未开发；整体状态只由最终门决定。遵守 §0.5，避免回填成功 run 不断产生新候选；不新增计划/交接/状态文档 |
 
 最短依赖路径：**EFF-00 环境资格与 EFF-01 定向修复独立推进 → EFF-02 基线资格 → EFF-04 A 冻结与独占确认 → EFF-05 → EFF-06 最终结论**。EFF-03 与 EFF-04 B 可另行实施，不加入必经路径；同 daemon 的验收继续串行。EFF-06 的状态维护从开始即执行，最终结论等待 EFF-05。
 
@@ -768,7 +770,7 @@ flowchart LR
 
 ## 5. 逐项执行任务书
 
-### [ ] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-00 / P0：修复验收脚手架并建立统一 Docker 入口（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-10。**目的**：后续任务不能建立在无法编译、自动 skip 或依赖本机隐藏文件的测试上。
 
@@ -799,7 +801,7 @@ flowchart LR
 
 **验收**：全新 checkout（含 submodules）无主机 Go / Foundry / Node 环境也能运行；初期 all 可因后续任务未完成而失败，但已实现阶段不得假绿。Anvil 基础测试 PASS 且无必需 SKIP，Forge 实际部署 / mint 成功；H5 lock 文件被跟踪；端口冲突与缺工具测试明确失败。后续任务补齐后 all 必须通过。
 
-### [ ] SG-01 / P0：NFT 数量、规则与缓存隔离（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-01 / P0：NFT 数量、规则与缓存隔离（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-00、SG-11。**文件范围**：`pkg/middleware/nft_gate.go` / `nft_cache.go` 与新策略回归；`pkg/service/web3_nft.go`、`pkg/web3/nft/verifier.go` 及对应测试。
 
@@ -817,7 +819,7 @@ flowchart LR
 
 **完成**：实际路由冷、暖、并发结果一致；不能只修 collection 就勾选整个任务。保留缺陷修复前失败与修复后通过的证据。
 
-### [ ] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-02 / P0：CI 必须真实失败，所有入口采用同一门禁（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-00。**文件范围**：`Makefile`、`scripts/check-coverage.sh` 与其回归；`.github/workflows/ci.yml`、`test.yml`、`build.yml`、数据库迁移步骤。
 
@@ -835,7 +837,7 @@ flowchart LR
 
 **完成**：本项校验器 / 依赖负例通过，同 SHA 的当时已实现 jobs 与镜像构建 / 扫描通过；PR 镜像扫描确实执行。后续媒体 / 性能 / CD 验收留给对应任务，最终 M5 仍需全部 jobs 通过；不因尚未实现的后续任务阻断进入 SG-03。
 
-### [ ] SG-03 / P0：钱包身份、资源所有权与服务器签名权限（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-03 / P0：钱包身份、资源所有权与服务器签名权限（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-01、SG-02、SG-11。**文件范围**：`pkg/service/auth_wallet.go`、`pkg/gateway/auth_handlers.go`、`pkg/middleware/auth.go`；gating_rule handlers / service / gateway 装配；content / upload / transcode / transaction 实际路由及对应回归。
 
@@ -902,7 +904,7 @@ flowchart LR
 
 **完成**：实际签名、真实转码、服务端 gate、解码与浏览器时间推进均通过，入口一次执行可复现；没有 fixture / 关键测试没有运行 / holder 404 必须失败。
 
-### [ ] SG-06 / P1：续期、转移与规则 / 会话撤销（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-06 / P1：续期、转移与规则 / 会话撤销（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-04、SG-05、SG-13。**文件范围**：playback token issuer / auth middleware、`auth_wallet.go`、`nft_gate.go`、规则与会话 Redis 版本、H5 播放续期及测试。
 
@@ -919,7 +921,7 @@ flowchart LR
 
 **完成**：上界有计算、配置约束与实测；缓存没有续期式滑动过期突破窗口。不将播放器已有 buffer 播放继续误判为服务器仍发放权限。
 
-### [ ] SG-07 / P1：真实媒体性能与可观测性（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-07 / P1：真实媒体性能与可观测性（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-05、SG-06、SG-14。**文件范围**：`test/load/`、`test/performance/`、streaming / transcoding service、`pkg/monitoring/`、现有 Prometheus 配置；禁止无测量依据全面重构。
 
@@ -940,7 +942,7 @@ flowchart LR
 
 **完成**：至少一组可重放的真实结果、一个有 profile 的工程判断、指标能解释 RPC / cache / media 故障；简历只引用实际测值及条件。
 
-### [ ] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-08 / P1：同产物 CI/CD、临时发布与失败恢复（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-02、SG-05、SG-06、SG-07、SG-10～14。**文件范围**：`.github/workflows/ci.yml` / `build.yml` / `deploy.yml`、Docker 部署脚本 / 配置；有真实 K8s 目标时才改其发布路径。
 
@@ -1018,7 +1020,7 @@ flowchart LR
 
 **完成**：不能再以“ERC-165 返回 true”证明标准合规；旧假标准 / 重用 ID 用例修复前红、修复后绿；绑定契约与服务输入一致。参考 [ERC-721](https://eips.ethereum.org/EIPS/eip-721)、[ERC-165](https://eips.ethereum.org/EIPS/eip-165)、[OpenZeppelin ERC721](https://docs.openzeppelin.com/contracts/5.x/api/token/erc721) 和 [Solidity ABI](https://docs.soliditylang.org/en/latest/abi-spec.html)。
 
-### [ ] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-12 / P0→P1：媒体原件、幂等任务与上传 / 转码安全（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-00、SG-03、SG-04、SG-11。**文件范围**：upload / content / transcoding / streamingsvc、`pkg/plugins/transcoder/`、`pkg/storage/nats_queue.go`、任务模型 / migrations / 测试；复用 Postgres / JetStream，不引入通用工作流框架。
 
@@ -1038,7 +1040,7 @@ flowchart LR
 
 **完成**：任务状态跨重启可查询，原件 digest 对应实际字节，业务副作用只有一份，未完成 generation 不可播放；分片时长 / seek 正确，SSRF 目标服务实际收到 0 请求，子进程 / 临时文件 / 资源泄漏有验证。参考 [NATS acknowledgment / redelivery / DLQ](https://docs.nats.io/learn/jetstream/acknowledgment) 与 [OWASP SSRF](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)。
 
-### [ ] SG-13 / P0→P1：链外一致性、交易幂等与有限事件恢复（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-13 / P0→P1：链外一致性、交易幂等与有限事件恢复（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-03、SG-04、SG-11、SG-12。**文件范围**：content / upload、registry binding / provider、`pkg/web3/tx/`、`pkg/service/web3_tx_track.go`、`pkg/web3/event/`、`pkg/service/web3.go`、Postgres models / migrations / 测试。只为现有登记和授权失效流程提供可靠性，不建设通用交易平台或全链 indexer。
 
@@ -1063,7 +1065,7 @@ flowchart LR
 
 **完成**：真实 Anvil → 固定合约 → durable receipt / digest / creator 关联一致；幂等、未知广播状态、nonce、checkpoint / 重组都有故障用例。不把内存结构、打印 tx hash 或固定链跟踪写成完整交易生命周期。
 
-### [ ] SG-14 / P1：运行治理、资源预算、配置与恢复（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-14 / P1：运行治理、资源预算、配置与恢复（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：SG-05、SG-06、SG-12、SG-13。**文件范围**：gateway / middleware / health、config / providers、core shutdown、H5 页面与脚本、监控、部署配置与现有 API 文档；默认临时 Docker 验收，不需要新云服务或 KMS。
 
@@ -1084,7 +1086,7 @@ flowchart LR
 
 **完成**：约束落实为配置 / 接线 / 测试，完整恢复使用自己专用环境且不触碰现有用户数据。运行图、指标和失败行为可在面试现场解释。参考 [GitHub Actions secure use](https://docs.github.com/en/actions/reference/security/secure-use)、[OWASP XSS Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)。
 
-### [ ] SG-15 / P1：一次收口、需求追溯与交付冻结（本轮重新打开；待当前候选验收，历史见 §8）
+### [x] SG-15 / P1：一次收口、需求追溯与交付冻结（本轮复核完成，2026-11-02；候选 d0f05152，证据见 §8.86）
 
 **依赖**：主线 SG-00～14 全部实现（包括 SG-09 的 AI 成品）；不依赖 SG-16 / 17。**文件范围**：本计划、必要 README / agent docs / resume 的最终事实修订与 CI 验收 runner；无新功能开发。
 
@@ -1195,7 +1197,7 @@ make verify-docker
 
 ## 8. 执行状态与证据登记
 
-**本节原始记录多数写于 2026-10-17，必须按各条记录绑定的 SHA / run / artifact 解读。** `ab172c2` 的 all 与 CI 结果是该历史候选的事实；不能证明获批 A～F 修复后的当前候选完成。当前状态由本文件顶部审核摘要、状态标记和 §8.43 决定；§8.17 已被后续证据替代。历史表格及小节标题中未逐条回填的“完成”只说明当时记录，不可外推到当前 HEAD。
+**本节原始记录多数写于 2026-10-17，必须按各条记录绑定的 SHA / run / artifact 解读。** `ab172c2` 的 all 与 CI 结果是该历史候选的事实；不能证明获批 A～F 修复后的当前候选完成。当前状态由本文件顶部审核摘要、状态标记和 §8.86 决定；§8.17 已被后续证据替代。历史表格及小节标题中未逐条回填的“完成”只说明当时记录，不可外推到当前 HEAD。
 
 | 范围                   | 目前状态 / 链接                                                                                           | 可以证明什么                                                                                                                                                                                                                                                             |
 | -------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -2326,7 +2328,7 @@ J 之后复核发现 SG-08 的计划要求与实现有**三处真实缺口**—�
 
 **K.3 本机失败的诚实记录**：本轮此前 **5 次** `VERIFY_STAGE=all` 尝试未取得全绿，原因逐次为：① `go mod download` 的 HTTP2 framing 抖动（改用文档记载的 `VERIFY_GOPROXY`）；② `golangci-lint: command not found`（修 `02fa012`/`e0d3153`，根因是 Docker 缓存了静默无二进制的层）；③ aarch64 无 solc 0.8.24 预取（改用 `VERIFY_PLATFORM=linux/amd64` 走 CI 同路径）；④⑤⑥ `ops` 阶段 fuzz 三个**不同**目标在 30s 到点后以 `context deadline exceeded` 失败（宿主 load 4–17，且同一 Docker 守护进程上另有外部项目在跑；三次均未写出 crasher、工作树保持干净、该阶段单跑曾 PASS，故判定为宿主调度噪声而非产品缺陷）；⑦ `durability` 阶段 `Unable to find image 'streamgate-verify:local' locally`——工具链镜像被**同一宿主 Docker 守护进程上的外部会话整体 prune 掉**（当时 `docker images` 只剩外部项目的镜像集，本仓库全部镜像与构建缓存同时消失），以及随后的 perf 宿主交叉编译网络依赖（修 `ab172c2`）。最终证据只取自 **ab172c2** 上的单次连续运行，不拼接多次 `VERIFY_STAGE` 结果。为防该 prune 再次中断（⑦ 的失败模式），本次运行期间另用一个**不参与任何断言**的 idle 容器（`sg-verify-image-keeper`，运行结束已删除）持有镜像引用；这是纯本机操作，未改动仓库任何验收语义。
 
-### 8.17 SG-15 步骤 6：历史阶段报告（当前摘要已由 §8.43 替代）
+### 8.17 SG-15 步骤 6：历史阶段报告（当前摘要见 §8.86）
 
 > 本节保留当时阶段快照；以下“当前”均指当时。候选身份、本机验收和 CI 状态以 §8.40～§8.43 为准。
 
@@ -4589,7 +4591,49 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **派发与链路：** [run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379)（headSha=`d0f05152`）。编排器 `orchestrate-d0f05152.py`（SHA256 前缀 `8b8c35540820fa2e`，pid `9297`，含全部 9 个传输分类器 + 忠实闸门 + trivy 路径探针）；保全守卫 `preserve-current-all-d0f05152.py`（SHA256 前缀 `004f29b8c36ef936`，pid `9298`，备份目录 `acceptance-raw-d0f05152`）。旧 44b860f5 链路已停，其全部证据留档于 sg-closeout-44b860f5/。streak 从零起算。
 - 整体保持 incomplete；新候选 attempt 1 终态待回填。
 
-**§8.84 attempt 2 全绿边界与 acceptance 忠实探针、attempt 3 定向重派（2026-11-02T01:40Z，当前入口）：**
+### 8.85 多日低效根因复核与有限收口方案（2026-11-02；阶段历史，终态见 §8.86）
+
+**结论与范围：** 主线实现已有大量成果，但当前候选尚未通过最终交付门；52 个 CI job 成功不等于目标完成，也不能换算为 52/55 的业务完成率。本节替代顶部旧候选与旧守卫的实时叙述，历史记录保留。此次核对实际 CI、runner 日志、本机进程、原始故障日志、脚本和 CodeBuddy 当前定向实验；没有对其几天的完整对话做耗时审计，不能把模型推理时间或个人效率量化为已知根因。
+
+#### 已证实的阻塞与放大机制
+
+| 事实 | 对进度的影响 | 可复核证据 |
+|---|---|---|
+| d0f05152 的 run 41343759379 attempt 2：52 success、1 failure、2 skipped；唯一 failure 是 Complete Docker Acceptance | 构建/扫描等前置门已大幅收敛，下一步应定位验收；继续泛化重构或重跑整个工作流不针对首败 | GitHub run/job API；job 125005931595 原始日志 `.verify-artifacts/sg-closeout-d0f05152/job-125005931595.log`，SHA256 `e8585967dbd33f6f6900ddbf974f12e278d7ff64de8ad10a3816b177c83a224f` |
+| runner 于 11-01 23:36:12Z POST renewjob 超过 100 秒，23:36:23Z 收到 NotFound / TaskAgentJobNotFoundException 后向 worker 发取消 | 长验收依赖的 CI 控制链失效；提前探测一次 GHCR/codeload 成功不能证明几十分钟后的任务续租健康 | `/Users/mingo/actions-runner-streamgate/_diag/Runner_20261025-110905-utc.log`；Worker_20261101-225218-utc.log。已证实任务续租失效，具体网络/代理/上游原因仍待隔离，不能仅凭未设置代理环境变量定责 |
+| CI 步骤取消后，本机 PPID=1 的验收控制器继续执行，随后 faults 失败并自行清理；外层 command.exit 缺失，GHCR 证据上传 denied | CI 与本机生命周期脱节，在已经无法形成该次 CI 完整证据时继续消耗 CPU；后续上传失败也不能掩盖真实断言失败 | 保全目录 `.verify-artifacts/sg-closeout-d0f05152/failed-acceptance-attempt2-20261102/` 及相邻 `failed-acceptance-attempt2-provenance.json`；状态 FAILED_PARTIAL_EVIDENCE_PRESERVED，未补造外层退出码 |
+| faults 的 FW01～FW04 通过，FW05 实际上传返回 401/token expired，后续多场景播种失败 | 测试缓存一个登录 JWT，却不检查生命周期；后续场景进入无有效输入的失败/等待链，无法据此判产品故障恢复失败 | 上述保全目录 `logs/faults.log`；`scripts/durable-fault-acceptance.sh` 的 TOKEN_A 缓存及 seed_content。服务拒绝过期 token 本身正确 |
+| CodeBuddy 新会话完成 3 次同工具镜像 FuzzWalletMessage 实验：退出均 0，约 40～46 秒；随后 01:39Z 又重派原候选 attempt 3 | 定向 fuzz 实验有价值，但不能覆盖独立的 token 过期缺陷或证明任务续租已修复；原候选仍带已知缺陷，再跑 all 有重复失败风险 | `/tmp/sg-fuzz-probe/probe-{1,2,3}.log` 与当前 CodeBuddy trace；GitHub attempt 3。不将 fuzz 的阶段性 0/sec 直接定为死锁 |
+| 历史出现并行编排器重派、concurrency 取消、修改分类器后反复将 streak 归零；当前顶部此前仍写 5c121abe 和旧守卫 | 调度互相干扰与状态滞后使“自动恢复”变成无总预算循环，阅读者也会重新解决已修问题 | 本文件 §8.69～8.83；旧头部与实际 d0f05152 对照。历史记录能证明发生过，不能代替当前进程检查 |
+| 当前 Docker 为 aarch64、8 CPU、16746086400 bytes RAM；工具镜像为 linux/amd64，另有 ChainPulse 业务容器 | 仿真与共享负载是运行成本边界，额外 agent 同时跑 Go/FFmpeg/验收会争用相同 VM；尚无本轮 profiler 证据证明软件编解码是首要瓶颈 | 本轮 docker info、镜像 inspect、docker stats。不改其他项目容器、不承诺硬件编解码能解决控制链/夹具缺陷 |
+
+#### 执行顺序、交付物与停止条件
+
+| 优先级 / 工作 | 具体办法 | 出口 / 失败处理 |
+|---|---|---|
+| P0 / 夹具会话生命周期 | 临近 exp 时走真实 challenge → 签名 → login；有效期内复用，私有文件缓存支持顺序后台子 shell；保留服务重启后清除会话的行为。只对明确的 401/token expired 重试一次上传；403、撤权、其他 401、5xx、传输结果不明均不重放 | 先让旧实现的回归失败，再 Docker 工具回归，最后跑受影响 faults 门。登录失败仍失败，不延长 JWT/播放凭据 TTL，不跳过任何故障场景。局部补丁未进入当前 CI 候选 |
+| P0 / runner 控制链与取消回收 | 当前 CI 运行中只观察；终态后检查 StreamGate 专属 runner 的实际网络路径，对相同 Actions 控制端点比较直连/既有代理，记录连接失败与续租日志。取消传播用带本次 run 标签的最小控制器实验验证，包括外层父 shell 退出 | 连通探针不是长连接修复证明；需要后续真实 job 的续租记录。若需代理，仅改该 runner 的配置并空闲时重启；不改系统代理、其他 runner 或放宽 TLS。回收仅允许处理该 run 的资源，不能把缺失 command.exit 补写为 0 |
+| P0 / 派发权去重 | 当前 attempt 3 已运行，保留观察；我方不启动第二条 CI/all。下一轮只允许一个执行者提交/派发，其他工具只读审查或提交隔离补丁 | 其他执行者不得独立 rerun；提交前同时核对 run attempt、候选 SHA、锁与现存控制器。30min 为常规监督频率，进程终态/明确错误应及时响应，不等待下一次定时点 |
+| P0 / 有限重试 | 同 SHA、同根因无新证据不得自动再派。条件改变且实测支持后最多一次定点失败 job 重试；同因再次失败转修复，累计次数不因改正则/改错误名称/重启守卫归零 | 保存每次实际首败、干预、原始退出与所测条件；探针成功不等于长验收网络必然稳定。停止的是无效重派，诊断/修复继续推进，不要求用户每次说 continue |
+| P1 / 合并确定修复后冻结 | 先脚本单测 → 受影响单 stage，已知阻塞一起修完，再形成一个 clean SHA。复用已有锁定工具/依赖缓存，业务夹具隔离；不同时新建媒体硬件加速、ARM 全迁移或通用编排平台 | 新 SHA 的 CI 必须重验，d0f05152 的 52 个成功 job 不移植为新候选 PASS。最终 all 仅在新候选 CI 验收 job 运行一次，避免本机 all 与 CI all 双付成本；若失败，回到最小复现 |
+| P1 / 收口交付 | 同 SHA 的 all/M0～M8、原始退出、镜像/扫描归档/工件身份与最终上传完整；之后完成有限故障证明、材料真实性、≤300 秒预热演示启动及真实功能验收 | 演示与材料可以提前做只读核查，最终执行绑定新候选。SG-16/17、生产、本人演讲录制/投递不扩大进本轮。任何必需项缺失则整体 incomplete |
+
+#### 本轮落地状态
+
+- 原始失败现场已复制并核对 hash；当前 `d0f05152` 的 attempt 3 由 CodeBuddy 派发，未取消、未另派。
+- 测试会话修复在隔离工作区 `/private/tmp/streamgate-auth-fixture-20261102`、分支 `sg/codex-auth-fixture-20261102`，基于 d0f05152；仅修改故障脚本及对应 Python 回归，未改业务授权代码，现已提交为 `12e1d86e`，未推送。新增 7 项回归在旧实现上暴露 6 个失败断言，修复后 host 快速预检 7/7；固定工具镜像 `sha256:ba6b31fd5592b4bec29fd912d68399cf857598e78b2536db0376ee1e9f847820` 内执行 `python3 scripts/cd/test_verify_shell.py`，**64 tests / exit 0 / 110.232s**，网络关闭、0.5 CPU、384MiB、源码只读。此处测试 JWT 仅为夹具单测输入，不作为真实应用验收。补丁 `.verify-artifacts/sg-closeout-d0f05152/harness-session-lifetime.patch`，SHA256 `1fc01fcaa6cc3f33e5ee8dc91ae2cb2df0719ece298c53ff119763532359b29e`，旁有 `harness-session-lifetime-validation.json`；待在停止写入的候选集成工作区审查/应用，不直接修改运行中的 CI checkout。
+- 尚未修改 runner 网络或重启 runner，也没有宣称 token 修复已通过真实 faults / all。当前运行不包含该补丁，不能用它验证该补丁。
+- 协调通道边界：本轮原生 UI 读取因 native pipe 启动失败而不可用；既有 ACP `/api/v1/acp/connect` 只读连接尝试在 120 秒超时。当前 CodeBuddy 行为由其进程/trace 与实际 CI 交叉核实，未成功发送本方案到其活动会话，也未实现派发权锁定。单执行者与有限重试是待落实出口，不能写成已完成监督；此次研究不再重连占用时间，先交付可审查补丁与本节执行入口。
+
+#### 成本与预期
+
+短期最高收益是减少失败后的整链重付、重复下载及无效场景等待，不是增加模型并行数。把第三个模型加入同一 Docker/同一 CI 调度只会增加竞争机会；如后续明确分工，适合并行的是只读审查、材料核对和隔离补丁准备，集成及验收仍串行。本轮不新开代理或新工具迁移。
+
+执行目标是将每次修复的反馈压到工具回归或受影响门，以首个真实失败作为下一步输入；最终只付一个已知阻塞收敛后的候选全链成本。尚未取得本轮网络稳定性和完整验收耗时，不能承诺固定完成时刻或“提升 N 倍”。若下一轮仍同因失败，应修改方案而非继续累计整夜重跑。GitHub 使用现有默认额度和已授权本机 runner，不付费提额。
+
+参考：GitHub 官方说明支持 runner 专用 `.env` 中设置代理并要求变更后重启，见 [Using proxy servers with a runner](https://docs.github.com/en/enterprise-cloud%40latest/actions/how-tos/manage-runners/use-proxy-servers)；定点重跑能力见 [Re-running workflows and jobs](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)。这些说明不证明本机代理是本次根因；需要上述隔离实验。
+
+**§8.84 attempt 2 全绿边界与 acceptance 忠实探针、attempt 3 定向重派（2026-11-02T01:40Z 原记录；事实更正见下文与 §8.85）：**
 
 - **run 41343759379 attempt 2 终态：completed/failure —— 50 success / 1 failure / 2 skipped。** 唯一 failure 仍是 `Complete Docker Acceptance (M0-M8, one candidate)`；`Candidate Evidence` 与 `Publishable` 因其 skipped。**trivy 预置修复（`d0f05152`）在真实 CI 上成立：20 个 Scan job（10 镜像 × 同 digest）全部 success，Build 组 9/9 全绿，Security Scan / Solidity / Anvil / Go / 全部 unit·integration·E2E 全绿**——传输类失败面在本候选上首次归零。
 - **attempt 1 的 acceptance 失败定责（原始日志 `job-124995478709`）：** `command.exit=1`，unit/chain/durability 三阶段 PASS 后在 **ops** 阶段退出：`GATE FAILURE: required fuzz FuzzWalletMessage exited 1`，日志为 3s 时 execs=17609 之后 **0 exec/sec 持续 24 秒**，随后 `context deadline exceeded`。与 §8.61 的 Go Tests 同签名（调度/内存压力导致的 coordinator shutdown），非产品缺陷。
@@ -4599,3 +4643,97 @@ VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
 - **忠实探针（不是替代门）：** 在工具镜像 `streamgate-verify:local` 内，以 DAG 完全相同的参数（`--platform linux/amd64`、`GOMAXPROCS=4`、`GOFLAGS=-p=4 -v`、同一 `GOCACHE=/Users/mingo/.cache/streamgate-go-build/linux-amd64`、源 `/private/tmp/sg-goproxy-fix@d0f05152` 只读挂载）连续 3 次执行失败的原命令 `go test -count=1 -run '^$' -fuzz '^FuzzWalletMessage$' -fuzztime 30s -timeout 210s ./pkg/web3/signature`：**3/3 exit 0（40–46s）**，日志留档 `/tmp/sg-fuzz-probe/probe-{1,2,3}.log`。探针只证明当前窗口该操作可完成，不构成任何阶段 PASS。
 - **定向重派：** 01:39:16Z 对同一 run 提交 `gh run rerun 41343759379 --failed` → **attempt 3**，只重跑 acceptance 及其 evidence/publishable 下游，其余 50 个 success 继承。派发前固定预检：`streamgate-linux-04` 与 `streamgate-mac-01` 均 online/idle、仓库零活动 run、无 `sg-ci-*`/`verify-*` 容器、无 verify 网络与 mutex。
 - **纪律：** attempt 3 期间不派发新 run、不重跑已绿 job、不改候选输入；若再次出现同类 stall，按 §8.61/§8.84 记录并只做环境侧处置（宿主内存），不放宽 required 判据。整体保持 incomplete。
+
+**2026-11-02T02:03Z 复核更正与实际修复（原记录保留）：**
+
+- §8.84 关于“attempt 2 在 unit 取消、无残留”的描述与原始现场矛盾：保全目录的 unit / chain / durability 日志最后写入分别为 23:06:26 / 23:07:53 / 23:12:47Z，controller.log 明确记录三阶段 PASS，取消时处于 ops 的 required fuzz。外层日志结束于 `docker logs -f` 被 kill 9；本机控制器继续执行，faults.log 最后写入 01:23:11Z，并有真实 401/token expired。此事实不将残留执行晋级为 CI 证据，外层 command.exit 仍缺失。
+- **更直接的宿主证据：** `pmset -g log` 显示本机于 **2026-11-02 07:20:30 +0800 Clamshell Sleep（电池）**，经过 DarkWake / Maintenance Sleep，至 **07:34:49 +0800** 因 lid/HID 完整唤醒；约 14m19s 窗口位于该次验收内，随后 runner 23:36:12Z 续租超时、23:36:23Z 任务失效。已保存筛选电源事件 `.verify-artifacts/sg-closeout-d0f05152/host-power-failure-window.log`。这足以证明执行宿主发生长时间休眠，并高度吻合续租丢失；不再只解释为随机网络或时钟快 7 分钟，也不由此排除其他网络/负载因素。
+- **本轮保护已执行：** `/usr/bin/caffeinate -i -t 36000 -w 54557` 绑定当前 attempt 3 的 Runner.Worker，pmset assertions 已确认有效；worker 退出或达到上限自动释放，不修改永久电源设置。`man caffeinate` 的 `-i` 只保证防空闲休眠，不能保证阻止合盖休眠；本机验收需要保持开盖。没有重启 runner、修改网络或重派 CI。
+- **凭据修复已提交：** 独立 clean 分支 `sg/codex-auth-fixture-20261102` 上 `12e1d86e`，基于 d0f05152；原 64 项 Docker shell 回归已过。仍未跑真实 faults 门，当前 CI 不含该提交。
+- **取消链修复已提交：** 同分支 `f501c92f`。从 workflow 原始 run 块启动长运行夹具，只向 CI 父 shell 发 SIGINT / SIGTERM，旧 pipeline 两项均超时，复现 CI 信号未及时到达控制器。新入口 `exec python3 scripts/cd/run_acceptance.py` 直接接收信号，将 TERM 发送到自己创建的验收进程组，保留完整实时日志与真实子进程退出码；取消即使遇到子进程返回 0，wrapper 也不返回成功。在 Mac 上仅在 step 生存期内建立防空闲休眠 assertion。新增回归同时接入 CI checker 与完整 unit 门。
+- **验证：** 固定工具镜像 `sha256:ba6b31fd5592b4bec29fd912d68399cf857598e78b2536db0376ee1e9f847820` 中执行器 **5 tests / exit 0 / 4.478s**、控制器清理 **7 tests / exit 0 / 36.718s**；后者通过真实控制器脚本和仿真 Docker 客户端证明取消后清除私有快照、自己的二进制和标签资源，保留外来文件与公开结果。Docker 内 workflow YAML / action pins / 37 个 shell 步骤语法检查 PASS。最初新增 CI 集成夹具因未模拟 CI 已创建的 artifact 目录失败，补齐夹具前提后定向与 Docker 复跑通过；没有放宽清理断言。以上是工具回归，不是当前候选的实际故障/全链验收。
+- **当前边界：** 02:02Z attempt 3 / job 125049073185 仍 in_progress，本机 controller 与 unit 容器均实际存活，未触动输入；两个修复提交只存在隔离分支，未推送、未触发新 CI。继续保留该轮；终态按实际结果决定下一步，不预先判失败或再派整链。
+- **保全链修复：** 发现旧 `preserve/preserve-current-all-d0f05152.py` 的 expected 虽已改 d0f05152，验证 repository 却仍指向 `/tmp/sg-final-44b860f5`，且守卫当前没有进程。若 all 成功，其复制前的 HEAD 断言会失败、拿不到备份。已将验证 repository 改为实测 clean 且 HEAD=d0f05152 的 `/private/tmp/sg-goproxy-fix`，保留旧脚本副本，修正后 SHA256 `4a3056ddc71d63e8ec484cb7357f52ada6d3d66a0c50a924f0aa2e4af423c749`；重新启动只读保全守卫，已返回 WAITING_FOR_CURRENT_COMPLETE_ALL。它不派发 CI、不把本机复制等同于远端完成，仅在当前候选完整索引及 command.exit=0 存在时保全并执行原验证器。
+- **可接续产物：** `.verify-artifacts/sg-closeout-d0f05152/prepared-closeout-repairs.patch` 包含 d0f05152 → f501c92f 的完整两项修复，SHA256 `5b1379bc23310b236a013c67453e2ee8d8dd113e2919d892535c9415fa8cacb2`；相邻 JSON 记录 LOCAL_REPAIRS_READY_NOT_ACCEPTED、提交、测试与未推送边界。02:05Z 当前原候选已记录 unit PASS 并进入 chain，不以 pending 修复另派一轮。若原候选成功，先按全部原始交付条件审计；若失败，使用真实首败选择必要修复，不把全部草稿无条件塞入候选再重跑。
+- **交付材料审查与修正（02:15Z）：** 隔离分支新增 `db1040ee`，只修订中英文简历及讲述稿的事实口径：顶部已写旧 run 40608718226 attempt 10 failure，正文和结尾却仍写“同 SHA CI 等待最终结论”，现统一为注明 SHA 的历史失败，当前候选交付看计划实际证据；不将旧 77/77 或旧测量迁移成新候选结果，不代填本人贡献/录屏/投递。该分支 clean、未推送；完整三提交补丁及边界位于 `prepared-closeout-repairs-db1040ee.{patch,json}`，状态 LOCAL_REPAIRS_AND_MATERIALS_READY_NOT_ACCEPTED，不继承 f501c92f 的全链/CI 验收。
+- **演示依赖的实际准备（02:44Z）：** `demo/prepare-demo.py` 已从旧 5c121abe 工具重新绑定当前 d0f05152、clean source `/private/tmp/sg-goproxy-fix` 及真实存在的工具镜像 `10e072c0…`；外来候选与取消退出 143 均被拒绝且未创建输出。Solc 0.8.24 的原 SHA256 复核一致。仍要求完整 M0～M8 + command.exit=0，且正式验收栈退出后才允许 --start；未实际启动 demo，未宣称 300 秒达标。
+- **演示客户端已验证：** 原工具镜像由 `.dockerignore` 排除 scripts/test，不能假定它自带 fullchain 客户端源码；已从精确 d0f05152 导出独立运行副本，记录 archive hash 与 1097 个原始文件 hash。锁定 `npm ci` exit 0，安装后原始文件 hash 全部不变。首次浏览器预检真实失败于基础镜像缺少 libnspr4.so；随后按原 Playwright 的 install-deps chromium 安装既有 OS 依赖，exit 0。Docker commit 客户端 60 秒超时后未重试，之后实际 tag 出现；检查标签及全部基础层前缀一致，恢复得到仅本地演示工具镜像 `sha256:93db7f2a814dea918b7ebe62e1cd891839c4a662dc449ca6e93a99de0142c1b6`，原超时仍保留在 JSON 中。该镜像不替换任何应用或当前 CI 工具输入。
+- **浏览器真实启动预检：** 上述工具中，以网络关闭、0.5 CPU、512MiB 执行原浏览器预检与真实 headless launch，exit 0，版本 148.0.7778.96；chromium/headless revision 1223、ffmpeg revision 1011 与锁文件一致，Solc 字节未变。保留首次失败及后续成功的独立 log/exit、`functional-tools.json`、`functional-source-binding.json`。这只证明浏览器工具可用，不是媒体实播或 demo 业务验收。
+- **缓存复用边界：** 本项目已有同版本 Linux/amd64 浏览器缓存，CI workspace 的 browser-cache 当时为空；待演示工具预检完成，CI 已自行启动浏览器下载，因此未复制/覆盖其缓存，也未打断下载。`browser-cache-prewarm.json` 如实记录 installed=[]、activeDownloadPreserved=true，不能宣称本轮省掉了该下载。后续若需要新候选，可在它进入 media 安装前复用已验证缓存；不需要再构建应用或跳过原安装/实播断言。
+- **实际阶段进度（02:48Z）：** 当前原候选 attempt 3 已有 unit / chain / durability / ops / faults 五阶段 PASS；faults 为 63 PASS、0 FAIL，51 个必需场景齐全，FW05 本轮通过。media 运行中，其 monolith 腿已出现真实浏览器播放 PASS（currentTime=3.55s），整阶段、recovery/perf/release、外层退出与 CI 汇总/上传仍待完成。worker 的 websocket ping 至 02:21:34Z 持续正常，未出现新的续租取消；只陈述该观察窗口，不保证后续永不失联。
+
+- **02:52Z 新鲜复核：** 当前 attempt 3 / job 125049073185 仍 in_progress，media 整阶段 PASS，monolith 与 api-gateway 各有独立 `RESULT: ALL 77 PASSED` 及真实浏览器播放 PASS。前六阶段 unit/chain/durability/ops/faults/media 已通过，正在 recovery-seed；recovery/perf/release、外层退出与 evidence/publishable 尚未证明。worker websocket ping 至 02:50:31Z 正常，防空闲休眠进程仍存活。未重派、未替换候选，未把演示工具预检计为最终 demo。
+- **有限反向证明资格已核验：** 按 §8.51 明确允许的同源码复用条件，独立核对 dadb019b → d0f05152 的 pkg/scripts/config/migrations/test/contracts 与 Dockerfile.verify 均无差异；表中五个 SHA256 全部相同。原 summary/deploy-summary 及七份原始日志/JSON 的 hash、五种 Go 模式原始退出、每个必需 test ID 的 pass/fail、部署负例 1 与恢复 0 均实际复核。结果保存 `finite-proof-qualification-d0f05152.json`，状态 QUALIFIED_BY_EXACT_SOURCE_IDENTITY_UNDER_PLAN_8_51；原始运行身份仍为 dadb019b，不伪装为 d0 新测、不替代 all/CI。该资格不自动转给 prepared db1040ee；若后者晋级，变化的 harness 必须独立重新核验相应证明。
+- **演示执行器已备妥，仍未执行业务验收：** `demo/run-demo-functional.py` 只在完整当前证据、300 秒内启动结果、实际三应用镜像身份和无正式验证栈时执行。它使用原始 fullchain 脚本跑 monolith / api-gateway 两条腿；复用原 verify_proxy 仅在客户端容器 loopback 转发，保留浏览器 localhost origin 与现有 CSP/CORS，不修改应用。当前源码绑定、工具镜像及报告分开记录；外来候选与取消证据的两项拒绝实测通过。`infrastructure-preflight.json` 确认全部七个基础镜像缓存存在、所选十服务依赖闭合、固定端口无既有容器冲突；未启动服务或重建应用。
+- **03:08Z 新鲜复核：** recovery-seed 77/77、recovery 43/43 已通过，当前七个主阶段 PASS，perf 正在本轮 reference / comparison round 3/3。只读取状态，停止额外容器或构建操作，避免在参考与候选测量间改变后台容器集合；完整 perf、release、原始外层退出、CI 上传/汇总以及真实 demo 仍未证明。
+- **CI 最终汇总的保全已接通（03:20Z）：** 核对 runner 挂载与配置后确认 Linux job 的宿主工作区是 `/Users/mingo/ci-work/streamgate/streamgate`，不是带额外 `_work` 的旧推测路径。已启动 `preserve-ci-summary.py` 的只读守卫（实测进程存活），只接收精确 d0f05152 / run 41343759379 / attempt 3 / REQUIRED_GATES_PASS 的摘要，同时核对摘要声明的 gate-index 与 candidate-manifest hash，复制后再次比较源/副本 hash。它仅保存最终 JSON、required-job results、对应身份文件和 publication revalidation；不派发任务，不把摘要已生成等同于上传或 Publishable 成功。现为 WAITING_FOR_CURRENT_CI_SUMMARY，独立保全成功前不补写通过。
+- **03:21Z 矩阵进度快照：** perf 已进入候选侧，已有四份 case execution 记录，原始 attach/exit 均为 0；48 行完整矩阵和 provenance / reference 比较门仍待完成，不能按单点退出认定 perf PASS。worker websocket ping 至 03:20:31Z 正常；当前保留同一验收及防空闲休眠保护，无新 CI/部署/构建。
+- **只读提前校验已落地（03:36Z）：** 对已写完且采样 before/after 齐全的前 11 个 case，直接调用该候选原 `perf_protocol` 的 result / proxy / scenario metrics / RPC failover 函数及原 required-test parser，11 个均通过、无 pending/失败。结果在 `perf-partial-validation.json`，明确为 PARTIAL_CASE_VALIDATION_ONLY；不运行额外服务，不修改输入，不取代资源/环境一致性、完整矩阵或 reference 比较。这样可提前识别历史上“loader 退出 0、最终归因门失败”的确定性问题。观察统计改为递归读取场景子目录，03:39Z 实际已有 12 个 case 原始退出 0（warm/cold/primary-down 各 4），此前顶层计数只覆盖 warm-cache，不能据其判断停滞。整体 perf / all / CI 收口仍待完成。
+- **第一轮矩阵已收齐（03:48Z）：** warm_cache / cold_cache / rpc_primary_down / rpc_all_down 各 1/10/50/100 viewers 共 16 组，原始 attach/exit 全为 0，第二轮已开始。只读提前校验增量处理新增结果，累计 17 个已完成 case 的 result/proxy/metrics/RPC/raw-test 检查通过，不重复校验未变化的旧行；完整三轮 48 行及资源、环境、reference/provenance 最终门仍未完成。CI API 03:41Z 仍是原 attempt 3 / job 125049073185 in_progress，未改候选或派发任务。
+
+
+### 8.86 2026-11-02 最终独立验收与交付冻结
+
+**结论：PASS WITH BOUNDARIES。** SG-00～SG-15 的工程与 M6 AI 成品范围完成。代码候选为 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`，CI 为 [run 41343759379 / attempt 3](https://github.com/rtcdance/streamgate/actions/runs/41343759379)。本节是后续证据记录，文档提交不是新的代码候选、不继承或冒充它自己的 CI 绿灯；已验收的 C 不再修改，不因回填本节制造验证循环。
+
+| 必需项 | 独立核验结果 |
+|---|---|
+| 干净 C / 同产物 | clean checkout、固定 gitlink 子模块、原始扫描归档导入；应用无重建；候选 source/image/archive/registry 身份闭合 |
+| 完整 Docker all | unit、chain、durability、ops、faults、media、recovery、perf、release 九阶段 PASS；原始 `command.exit=0`；原 verifier 再读保全副本通过 |
+| M0～M8 / R01～R12 | 全部 gate 与 required-job 证据齐全；用 C 的原汇总器在本机独立重建，摘要与 CI 副本逐字节相同，SHA256 `516e0f3abf37b182e8f04c05760519a2287b6fd836f16e7459e39b05ef7dce88` |
+| 同 SHA CI / 上传 / 晋级资格 | GitHub API 分页核验 55/55 success、零 skip；acceptance `125049073185`、evidence `125106244822`、publishable `125107370330` 均 completed/success；Publishable 不表示生产已部署 |
+| 真实故障与媒体 | faults 63 PASS、0 FAIL，51 个必需场景齐；media 两条腿各 77/77，均有真实浏览器播放；规则/logout 与 safe 确认转移的 HTTP/gRPC 拒绝边界实际成立 |
+| 性能与 reference | 本轮三轮 × 16 = 48 组合及完整资源/归因/环境核验通过；50-viewer comparison 的 candidate median p95=912.167ms、reference=1757.215ms，ratio=0.519098≤1.2；仅为该 Mac/Docker Desktop 共享环境的观测，不作生产容量或通用提速承诺 |
+| 恢复 / 临时 CD | recovery 43/43，RTO=103s；RPO=0 仅限本次停写排空快照条件。release-smoke / compat / drills 均通过，坏启动/坏健康/坏 smoke 与旧应用＋新 schema 业务腿实际完成 |
+| 四类有限反向证明 | 原 dadb019b 证据与 C 的实现/测试/harness scopes 无差异，五项文件 hash 一致；逐项核对原始 Go test ID、负例退出 1、恢复退出 0 及真实部署冲突。资格文件 `finite-proof-qualification-d0f05152.json`；原运行身份保留，不冒充本轮新测 |
+| 演示启动与业务 | 首次启动因本机演示 checkout 未初始化子模块超时，失败日志保留；离线补齐五个精确 gitlink 后，从空专用卷重新启动，57.14s 内镜像身份/服务/HTTP 全部就绪。两模式原始 fullchain 复验各 77/77、exit 0，包含真实签名、上传、worker、解码、浏览器播放、撤销与转移拒绝 |
+| 材料与清理 | README、中英文简历、讲述稿按 C 与历史 SHA 分列；本人贡献/履历确认占位保留。仅本轮 demo 的容器/卷/网络已清理为 0；保留可复跑配置、必需镜像缓存和原始证据，不触碰 ChainPulse 或 runner/dind |
+
+**原始证据位置（本机项目根 `.verify-artifacts/sg-closeout-d0f05152/`）：**
+
+- `preserve/acceptance-raw-d0f05152/`：完整本机 all 原始日志、矩阵、恢复/CD、候选与索引；索引 SHA256 `65f5dabb6b8fde7aa1e03d48db5e9c18ff52fcf2ccf9637f2aaaabda290340f4`。
+- `ci-summary-attempt3/` 与 `ci-final-audit/`：CI 原摘要、manifest、publication revalidation、55 job 的 API 原始结果与独立重建摘要。原始完整验收与摘要均经既有 GHCR evidence backend 实际传输/恢复和验证，不把本机复制当成远端上传。
+- `demo/startup-20261102T063106163714Z/` 保留首次失败；`demo/startup-20261102T064214726857Z/` 为有效启动；`demo/functional-20261102T064430263883Z/` 为两模式真实验收；`demo/final-cleanup.json` 记录仅本轮资源清理。
+- `finite-proof-qualification-d0f05152.json` 指向 §8.51 原始反例及复用资格；无坏实现提交。
+
+**核心应用不可变发布 digest（全部十应用清单见 CI candidate-manifest）：**
+
+| 应用 | Registry digest |
+|---|---|
+| monolith | `sha256:cedd0f21f55ee60f1756d50d071e1f830076f2fe0ff16883ea2a748e1082c527` |
+| api-gateway | `sha256:18c5e4edcf5ec5ab4b4bc8172175889a7f908b8d15dd9966827f65e92851c25e` |
+| transcoder | `sha256:fa1f05fdbb538080e94729ade365771d8130f6a7f32f18b0389c05df6e946050` |
+
+**需求追溯（完整 JSON 还包含逐个代码文件 hash、稳定场景 ID 和原始工件路径）：**
+
+| 需求 | Gate | 机器证据 |
+|---|---|---|
+| R01 | M1, M2 | `ci-evidence.json` → `requirements.R01`（代码 hash、场景 ID 与工件路径齐全） |
+| R02 | M1, M3 | `ci-evidence.json` → `requirements.R02`（代码 hash、场景 ID 与工件路径齐全） |
+| R03 | M1, M3 | `ci-evidence.json` → `requirements.R03`（代码 hash、场景 ID 与工件路径齐全） |
+| R04 | M1, M4, M7 | `ci-evidence.json` → `requirements.R04`（代码 hash、场景 ID 与工件路径齐全） |
+| R05 | M2, M3, M8 | `ci-evidence.json` → `requirements.R05`（代码 hash、场景 ID 与工件路径齐全） |
+| R06 | M2, M7 | `ci-evidence.json` → `requirements.R06`（代码 hash、场景 ID 与工件路径齐全） |
+| R07 | M8 | `ci-evidence.json` → `requirements.R07`（代码 hash、场景 ID 与工件路径齐全） |
+| R08 | M7 | `ci-evidence.json` → `requirements.R08`（代码 hash、场景 ID 与工件路径齐全） |
+| R09 | M5, M8 | `ci-evidence.json` → `requirements.R09`（代码 hash、场景 ID 与工件路径齐全） |
+| R10 | M4 | `ci-evidence.json` → `requirements.R10`（代码 hash、场景 ID 与工件路径齐全） |
+| R11 | M0, M5 | `ci-evidence.json` → `requirements.R11`（代码 hash、场景 ID 与工件路径齐全） |
+| R12 | M6 | `ci-evidence.json` → `requirements.R12`（代码 hash、场景 ID 与工件路径齐全） |
+
+**本机已准备 demo 的复跑入口（在原项目根执行，使用保留的工件与固定 C checkout）：**
+
+```bash
+python3 -B .verify-artifacts/sg-closeout-d0f05152/demo/prepare-demo.py \
+  .verify-artifacts/sg-closeout-d0f05152/preserve/acceptance-raw-d0f05152 \
+  .verify-artifacts/sg-closeout-d0f05152/demo --start
+# 浏览器入口：http://localhost:18000/demo/ 与 http://localhost:18001/demo/
+python3 -B .verify-artifacts/sg-closeout-d0f05152/demo/run-demo-functional.py \
+  .verify-artifacts/sg-closeout-d0f05152/preserve/acceptance-raw-d0f05152
+```
+
+首次下载、固定源与子模块准备另列；57.14s 仅描述本次已备好镜像/编译器后从空演示卷启动的实际记录。复跑期间保持 Mac 开盖；需要时用 `caffeinate -i` 包住命令防空闲休眠，不能保证阻止合盖休眠。
+
+**监督任务收尾：** 目标证据齐全后，已核实并卸载本项目 `com.streamgate.codebuddy-supervisor` LaunchAgent，保留 plist、历史日志与配置；未停止 runner / DinD 或其他项目。原始命令及退出记录在 `ci-final-audit/supervisor-closeout.json`，最终审计在 `ci-final-audit/final-delivery-audit.json`。
+
+**范围冻结：** testnet/生产、独占 Linux 容量、SG-16/17、本人讲述/录屏/投递仍为未执行/人工项，不冒充完成。独立分支的 `12e1d86e`、`f501c92f` 为后续可靠性候选，未进入 C，不计入 C 的修复或 CI 状态；后续若采用须按新候选验证。当前完成依据是已冻结 C 的全部原始门及实际交付复验，不再为采纳额外草稿重开本轮。
