@@ -383,6 +383,12 @@ jobs:
       - name: Required contract-wallet sessions on real Redis and Anvil
         env:
           W3_REDIS_ADDR: 127.0.0.1:6379
+          # The segment-cost evidence branch only runs under a candidate
+          # context; this job IS the candidate run, so it supplies the SHA the
+          # same way verify-docker's controller does (40-hex, checked by the
+          # test's report gate).
+          W3_CANDIDATE_SHA: ${{ github.sha }}
+          W3_EVIDENCE_CONTEXT: CANDIDATE
         run: bash scripts/cd/run_wallet_session_tests.sh wallet-session-evidence
       - uses: ./.github/actions/evidence-upload
         if: always()
