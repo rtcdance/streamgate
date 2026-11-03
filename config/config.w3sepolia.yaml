@@ -29,3 +29,8 @@ features:
   # The demo transaction signer is a local-Anvil development affordance and
   # must never exist in a public-testnet deployment.
   demo_tx_signer: false
+
+# Auto-upload jobs take their profiles from this producer setting, rather than
+# the worker's transcoding.qualities list. Keep the public demo to one rendition.
+transcode:
+  profiles: ["360p"]

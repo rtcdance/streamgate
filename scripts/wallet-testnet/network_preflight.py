@@ -19,6 +19,10 @@ MAX_FEE_WEI = 20_000_000_000_000_000
 READ_METHODS = {'eth_chainId', 'eth_getBlockByNumber', 'eth_getCode', 'eth_getBalance', 'eth_call'}
 
 
+class RPCUnavailable(ValueError):
+    """Provider dependency unavailable; distinct from contradictory chain facts."""
+
+
 def quantity(value):
     if not isinstance(value, str) or not re.fullmatch(r'0x[0-9a-fA-F]+', value):
         raise ValueError('invalid RPC quantity')
@@ -35,6 +39,8 @@ def header(value, expected=None):
 
 
 class ReadOnlyRPC:
+    allowed_methods = frozenset(READ_METHODS)
+
     def __init__(self, endpoint, slot):
         try:
             parsed = urllib.parse.urlparse(endpoint)
@@ -48,7 +54,7 @@ class ReadOnlyRPC:
         self.events = []
 
     def call(self, method, params):
-        if method not in READ_METHODS:
+        if method not in self.allowed_methods:
             raise ValueError('non-read-only RPC refused')
         # Each operator stays below two RPC messages per second, with no
         # transparent retries that could multiply free-tier usage.
@@ -74,17 +80,18 @@ class ReadOnlyRPC:
                 if not isinstance(error_value, dict) or not isinstance(error_value.get('code'), int):
                     raise ValueError('invalid RPC error envelope')
                 event['rpcErrorCode'] = error_value['code']
-                raise ValueError(f'RPC {method} rejected with code {event["rpcErrorCode"]}')
+                raise RPCUnavailable(f'RPC {method} rejected with code {event["rpcErrorCode"]}')
             if 'result' not in value:
                 raise ValueError('RPC result missing')
             event['result'] = value['result']
+            event['completedAt'] = datetime.now(timezone.utc).isoformat()
             return value['result']
         except urllib.error.HTTPError as error:
             event['httpStatus'] = error.code
-            raise ValueError(f'RPC slot {self.slot} HTTP {error.code}') from None
+            raise RPCUnavailable(f'RPC slot {self.slot} HTTP {error.code}') from None
         except (urllib.error.URLError, OSError):
             event['transportError'] = True
-            raise ValueError(f'RPC slot {self.slot} unavailable') from None
+            raise RPCUnavailable(f'RPC slot {self.slot} unavailable') from None
 
 
 def network_head(rpc):

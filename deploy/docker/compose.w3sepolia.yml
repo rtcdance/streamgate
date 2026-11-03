@@ -1,0 +1,226 @@
+# Local application, real Sepolia. Images and H5 files must come from the same
+# accepted candidate capsule. This file has no build, Anvil or signing service.
+x-labels: &labels
+  com.streamgate.w3.testnet: ${W3_PROJECT:?explicit isolated project required}
+  com.streamgate.w3.candidate: ${W3_CANDIDATE_SHA:?accepted candidate required}
+
+x-storage: &storage
+  APP_DEBUG: "false"
+  STREAMGATE_PROFILE: durable
+  STREAMGATE_DB_HOST: postgres
+  STREAMGATE_DB_PORT: "5432"
+  STREAMGATE_DB_USER: postgres
+  STREAMGATE_DB_PASSWORD: postgres
+  STREAMGATE_DB_NAME: streamgate
+  STREAMGATE_DB_SSLMODE: disable
+  STREAMGATE_REDIS_HOST: redis
+  STREAMGATE_REDIS_PORT: "6379"
+  STREAMGATE_STORAGE_TYPE: minio
+  STREAMGATE_STORAGE_ENDPOINT: minio:9000
+  STREAMGATE_STORAGE_ACCESS_KEY: minioadmin
+  STREAMGATE_STORAGE_SECRET_KEY: minioadmin
+  STREAMGATE_STORAGE_BUCKET: streamgate
+  STREAMGATE_NATS_URL: nats://nats:4222
+  STREAMGATE_CONSUL_HOST: consul
+  STREAMGATE_CONSUL_PORT: "8500"
+
+x-app: &app
+  platform: linux/amd64
+  labels: *labels
+  cpus: 1
+  mem_limit: 1g
+  networks: [data, rpc-egress]
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    minio: {condition: service_healthy}
+    nats: {condition: service_healthy}
+    consul: {condition: service_healthy}
+  healthcheck:
+    test: [CMD, wget, -q, -O, /dev/null, "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    start_period: 30s
+    retries: 10
+
+x-auth: &auth
+  <<: *storage
+  STREAMGATE_ENV: w3sepolia
+  STREAMGATE_JWT_SECRET: ${W3_JWT_SECRET:?private local JWT secret required}
+  STREAMGATE_TRANSCODING_ENABLED: "false"
+  SEPOLIA_RPC_URL: ${SEPOLIA_RPC_URL:?qualified primary HTTPS RPC required}
+  SEPOLIA_RPC_FALLBACK_URL: ${SEPOLIA_RPC_FALLBACK_URL:?qualified fallback HTTPS RPC required}
+  WEB3_CHAIN_ID: "11155111"
+  WEB3_BLOCK_TAG: safe
+  STREAMGATE_ANVIL_DEPLOYER_KEY: ""
+  STREAMGATE_PRIVATE_KEY_HEX: ""
+  STREAMGATE_CONTENT_REGISTRY_ADDRESS: ""
+  CONTENT_REGISTRY_ADDRESS: ""
+  FEATURES_DEMO_TX_SIGNER: "false"
+
+services:
+  postgres:
+    image: postgres:15-alpine@sha256:f7d23353e1b15400d22ebe31189f4d314b87a4c129cc400c8c2d8d4ca127bf81
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    environment: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: streamgate}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    cpus: 0.5
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, streamgate]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    volumes: [redis-data:/data]
+    cpus: 0.25
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    user: root
+    command: [server, /data, --console-address, ":9001"]
+    environment: {MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin}
+    volumes: [minio-data:/data]
+    cpus: 0.5
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, mc, ready, local]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  nats:
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    command: [-js, -m, "8222"]
+    volumes: [nats-data:/data]
+    cpus: 0.25
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, --spider, -q, "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  consul:
+    image: hashicorp/consul:1.21.5@sha256:6126c30072690cb3173a450ff5bde120c3a01e11c9dccab83b1b2314d4c828bd
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    command: [agent, -server, -bootstrap-expect=1, -client=0.0.0.0]
+    volumes: [consul-data:/consul/data]
+    cpus: 0.25
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, curl, -f, "http://localhost:8500/v1/status/leader"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  monolith:
+    <<: *app
+    image: ${W3_MONOLITH_IMAGE:?original accepted monolith image required}
+    environment:
+      <<: *auth
+      STREAMGATE_SIWE_DOMAIN: localhost:${W3_MONOLITH_H5_PORT:-18500}
+      STREAMGATE_SIWE_URI: http://localhost:${W3_MONOLITH_H5_PORT:-18500}/login
+    ports:
+      - "127.0.0.1:${W3_MONOLITH_GRPC_PORT:-18590}:9090"
+
+  api-gateway:
+    <<: *app
+    image: ${W3_API_GATEWAY_IMAGE:?original accepted gateway image required}
+    environment:
+      <<: *auth
+      STREAMGATE_SIWE_DOMAIN: localhost:${W3_GATEWAY_H5_PORT:-18501}
+      STREAMGATE_SIWE_URI: http://localhost:${W3_GATEWAY_H5_PORT:-18501}/login
+    ports:
+      - "127.0.0.1:${W3_GATEWAY_GRPC_PORT:-18591}:9090"
+
+  transcoder:
+    image: ${W3_TRANSCODER_IMAGE:?original accepted transcoder image required}
+    platform: linux/amd64
+    labels: *labels
+    environment:
+      <<: *storage
+      STREAMGATE_ENV: w3sepolia-worker
+    networks: [data]
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio: {condition: service_healthy}
+      nats: {condition: service_healthy}
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    cpus: 1
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 10
+
+  monolith-h5:
+    image: nginx:1.27-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    depends_on:
+      monolith: {condition: service_healthy}
+    ports: ["127.0.0.1:${W3_MONOLITH_H5_PORT:-18500}:8080"]
+    volumes:
+      - "${W3_H5_DIR:?H5 must be extracted from the accepted monolith image}:/usr/share/nginx/html:ro"
+      - "${W3_MONOLITH_NGINX_CONFIG:?prepared monolith proxy required}:/etc/nginx/nginx.conf:ro"
+      - "${W3_CONTRACT_BUNDLE_DIR:?original compiled contract bundle required}:/fixture-build:ro"
+      - "${W3_TESTNET_CONFIG:?verified candidate configuration required}:/testnet.config.json:ro"
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run, /tmp]
+    cpus: 0.25
+    mem_limit: 128m
+
+  gateway-h5:
+    image: nginx:1.27-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
+    platform: linux/amd64
+    labels: *labels
+    networks: [data]
+    depends_on:
+      api-gateway: {condition: service_healthy}
+    ports: ["127.0.0.1:${W3_GATEWAY_H5_PORT:-18501}:8080"]
+    volumes:
+      - "${W3_H5_DIR:?H5 must be extracted from the accepted monolith image}:/usr/share/nginx/html:ro"
+      - "${W3_GATEWAY_NGINX_CONFIG:?prepared gateway proxy required}:/etc/nginx/nginx.conf:ro"
+      - "${W3_CONTRACT_BUNDLE_DIR:?original compiled contract bundle required}:/fixture-build:ro"
+      - "${W3_TESTNET_CONFIG:?verified candidate configuration required}:/testnet.config.json:ro"
+    read_only: true
+    tmpfs: [/var/cache/nginx, /var/run, /tmp]
+    cpus: 0.25
+    mem_limit: 128m
+
+networks:
+  data:
+    internal: true
+    labels: *labels
+  rpc-egress:
+    labels: *labels
+
+volumes:
+  postgres-data: {labels: *labels}
+  redis-data: {labels: *labels}
+  minio-data: {labels: *labels}
+  nats-data: {labels: *labels}
+  consul-data: {labels: *labels}

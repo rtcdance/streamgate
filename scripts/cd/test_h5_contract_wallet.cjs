@@ -41,7 +41,7 @@ test('CW UI keeps signer A separate from subject C and uses the server profile',
 test('wrong chain, foreign SIWE origin and wrong admitted subject fail before use', async () => {
     const e = env(); e.auth.setLoginSubject(C);
     e.api.getChallenge = async () => ({ ...e.challenge(), chain_id: 31337 });
-    await assert.rejects(e.auth.requestChallenge(), /Wrong network/); assert.equal(e.wallet.signed, undefined);
+    await assert.rejects(e.auth.requestChallenge(), { code: 'WALLET_WRONG_CHAIN' }); assert.equal(e.wallet.signed, undefined);
     e.api.getChallenge = async () => ({ ...e.challenge(), message: e.challenge().message.replaceAll('localhost:18000', 'evil.example') });
     await assert.rejects(e.auth.requestChallenge(), /origin/); assert.equal(e.wallet.signed, undefined);
     e.api.getChallenge = async () => e.challenge(); e.api.loginWithChallenge = async () => ({ token: e.jwt(A) });
@@ -112,4 +112,19 @@ test('late initial media load cannot resume playback after identity change', asy
     release({ ok: true, text: async () => '#EXTM3U\n/api/v1/streaming/demo/segment/0.ts?playback_token=OLD\n' });
     await assert.rejects(loading, /cancelled/);
     assert.equal(player.playbackToken, null); assert.equal(player.currentVideoId, null); assert.equal(video.src, '');
+});
+
+test('an unreachable selected backend never falls back to a different chain or origin', async () => {
+    const e = env(); const selected = 'https://sepolia-app.example';
+    const api = new e.APIService(selected); const calls = [];
+    e.context.localStorage.setItem('streamgate_api_base', selected);
+    e.context.fetchImpl = async (url) => {
+        calls.push(String(url));
+        if (!String(url).startsWith(selected + '/')) return { ok: true, status: 200, json: async () => ({ status: 'healthy' }) };
+        throw new Error('selected backend unavailable');
+    };
+    await assert.rejects(api.ensureReachable(), /unavailable/);
+    assert.equal(api.baseUrl, selected);
+    assert.equal(e.context.localStorage.getItem('streamgate_api_base'), selected);
+    assert(calls.length > 0 && calls.every((url) => new URL(url).origin === selected));
 });

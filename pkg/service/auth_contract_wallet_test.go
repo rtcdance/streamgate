@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,6 +111,59 @@ func TestContractWallet_LoginRefreshAndMetadata(t *testing.T) {
 	newClaims, err = s.ParseToken(next)
 	require.NoError(t, err)
 	require.LessOrEqual(t, newClaims.ExpiresAt.Sub(newClaims.IssuedAt.Time), time.Minute)
+}
+
+func TestContractWallet_ChallengeBindingRejectsBeforeProof(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(*AuthService, *stg.WalletChallenge)
+	}{
+		{"domain", func(s *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, s.siweDomain+" wants", "foreign.example wants", 1)
+		}},
+		{"uri", func(s *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "URI: "+s.siweURI, "URI: https://foreign.example/login", 1)
+		}},
+		{"nonce", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "Nonce: "+c.Nonce, "Nonce: differentnonce123", 1)
+		}},
+		{"address", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, c.WalletAddress, "0x1111111111111111111111111111111111111111", 1)
+		}},
+		{"chain", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "Chain ID: 31337", "Chain ID: 1", 1)
+		}},
+		{"version", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "Version: 1", "Version: 2", 1)
+		}},
+		{"issued_at", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "Issued At: "+c.IssuedAt.Format(time.RFC3339), "Issued At: 2000-01-01T00:00:00Z", 1)
+		}},
+		{"expiration", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.Message = strings.Replace(c.Message, "Expiration Time: "+c.ExpiresAt.Format(time.RFC3339), "Expiration Time: 2100-01-01T00:00:00Z", 1)
+		}},
+		{"expired_challenge", func(_ *AuthService, c *stg.WalletChallenge) {
+			c.ExpiresAt = time.Now().UTC().Add(-time.Second)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, verifier, _, _ := contractAuthFixture(t)
+			challenge, err := s.GenerateWalletChallenge(t.Context(), contractAuthWallet, 31337)
+			require.NoError(t, err)
+			original := challenge.Message
+			tc.change(s, challenge)
+			require.True(t, original != challenge.Message || tc.name == "expired_challenge", "negative fixture must change the relevant binding")
+			require.NoError(t, s.challengeStore.SaveChallenge(t.Context(), challenge))
+			token, err := s.AuthenticateWithWallet(t.Context(), contractAuthWallet, challenge.ID, "0x0102", 31337)
+			require.Error(t, err)
+			require.Empty(t, token)
+			require.Zero(t, verifier.calls.Load(), "invalid admission binding must fail before ERC-1271 RPC")
+			stored, err := s.challengeStore.GetChallenge(t.Context(), challenge.ID)
+			require.NoError(t, err)
+			require.True(t, stored.UsedAt.IsZero(), "invalid binding must not consume the challenge")
+		})
+	}
 }
 
 func TestContractWallet_ConcurrentRefreshAndLogout(t *testing.T) {

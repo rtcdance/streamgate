@@ -474,6 +474,7 @@ async _autoMintDemoNFT(address) {
 
     async doLogin() {
         try {
+            delete document.getElementById('login-result').dataset.authError;
             this.showLoading(true);
             this.auth.setLoginSubject(document.getElementById('login-subject')?.value || '');
             await this.auth.requestChallenge();
@@ -515,7 +516,7 @@ async _autoMintDemoNFT(address) {
             errSpan.className = 'error';
             errSpan.textContent = `✗ ${error.message}`;
             errEl.appendChild(errSpan);
-            errEl.dataset.authError = error.code === 4001 ? 'signature-rejected' : error.status === 503 ? 'dependency-unavailable' : error.status === 422 ? 'wallet-unsupported' : 'login-failed';
+            errEl.dataset.authError = error.code === 4001 ? 'signature-rejected' : error.code === 'WALLET_WRONG_CHAIN' ? 'wrong-network' : error.status === 503 ? 'dependency-unavailable' : error.status === 422 ? 'wallet-unsupported' : 'login-failed';
             this.updateStep('auth', 'failed');
             this.setTroubleshooting(
                 'Login failed',

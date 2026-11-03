@@ -323,6 +323,8 @@ class VerifyShellTests(unittest.TestCase):
             for code in (1, 124, 137):
                 script = '\n'.join([
                     'set -euo pipefail; calls=0; VERIFY_H5_PORT=12345',
+                    'VERIFY_SOURCE_REVISION=' + 'a' * 40,
+                    'ARTIFACT_DIR=/owned-fixture-artifacts',
                     'require_controller_tool() { :; }; ensure_playwright() { :; }; start_h5_nginx() { :; }',
                     'log() { :; }; diag_stack_logs() { echo diagnostic; }',
                     f'env() {{ calls=$((calls+1)); if [ "$calls" = {target} ]; then return {code}; fi; }}',
@@ -331,6 +333,66 @@ class VerifyShellTests(unittest.TestCase):
                 with self.subTest(target=target, code=code):
                     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
                     self.assertEqual(result.returncode, code, result.stderr + result.stdout)
+
+    def test_wallet_media_gate_binds_candidate_and_preserves_observer_exit(self):
+        for observer_exit in (0, 7):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                script = '\n'.join([
+                    'set -euo pipefail; VERIFY_H5_PORT=12345',
+                    'VERIFY_SOURCE_REVISION=' + 'a' * 40,
+                    'ARTIFACT_DIR=' + shlex.quote(directory),
+                    'TRACE=' + shlex.quote(str(root / 'trace')),
+                    'require_controller_tool() { :; }; ensure_playwright() { :; }; start_h5_nginx() { :; }',
+                    'log() { :; }; fail() { exit 1; }; diag_stack_logs() { :; }',
+                    'forge() { echo compile >> "$TRACE"; }',
+                    'python3() { echo "archive $*" >> "$TRACE"; }',
+                    'node() { return ' + str(observer_exit) + '; }',
+                    'env() { printf "%s\\n" "$*" >> "$TRACE"; }',
+                    function('run_fullchain'), 'run_fullchain own-project 12346 12347 12348 12349 1',
+                ])
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True)
+                trace = (root / 'trace').read_text()
+                with self.subTest(observer_exit=observer_exit):
+                    self.assertEqual(str(observer_exit), (root / 'wallet-observer-contract.exit').read_text().strip())
+                    self.assertIn('export-build --candidate ' + 'a' * 40, trace)
+                    if observer_exit:
+                        self.assertNotEqual(0, result.returncode)
+                        self.assertNotIn('W3_REQUIRED_MEDIA=', trace)
+                    else:
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertEqual(2, trace.count('W3_REQUIRED_MEDIA=1'))
+                        self.assertEqual(2, trace.count('W3_CANDIDATE_SHA=' + 'a' * 40))
+                        self.assertEqual(2, trace.count('W3_EVIDENCE_CONTEXT=CANDIDATE'))
+                        self.assertEqual(2, trace.count('W3_GRPC_EXPORT_DIR=' + directory + '/wallet-build'))
+
+    def test_wallet_restore_controller_observes_one_barrier_and_preserves_failure(self):
+        for runner_exit, control_exit in ((0, 0), (17, 0), (0, 9)):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                script = '\n'.join([
+                    'set -euo pipefail; PROJECT_NAME=own-project; COMPOSE_FILE=fixture.yml',
+                    'VERIFY_SOURCE_REVISION=' + 'a' * 40,
+                    'ARTIFACT_DIR=' + shlex.quote(directory),
+                    'TRACE=' + shlex.quote(str(root / 'trace')),
+                    'log() { :; }; fail() { exit 1; }; ensure_runtime_image() { :; }; require_controller_tool() { :; }',
+                    'docker() { case "$*" in *"config --format json"*) echo \'{"services":{"postgres":{"image":"pg"},"redis":{"image":"redis"}}}\' ;; *"ps -q postgres"*) echo OWN_PG ;; *) return 0 ;; esac; }',
+                    'python3() { if [ "$1" = scripts/cd/wallet_restore_control.py ]; then echo control >> "$TRACE"; touch "$ARTIFACT_DIR/signal"; return ' + str(control_exit) + '; else command python3 "$@"; fi; }',
+                    'run_in_image() {',
+                    ' if [ ' + str(runner_exit) + ' != 0 ]; then return ' + str(runner_exit) + '; fi',
+                    ' printf "{}" > "$ARTIFACT_DIR/.private/${W3_RESTORE_BARRIER##*/}/ready.json"',
+                    ' while [ ! -f "$ARTIFACT_DIR/signal" ]; do sleep 0.01; done',
+                    '}',
+                    function('stage_durability'), 'stage_durability',
+                ])
+                result = subprocess.run(['bash', '-c', script], capture_output=True, text=True, timeout=10)
+                with self.subTest(runner_exit=runner_exit, control_exit=control_exit):
+                    if runner_exit:
+                        self.assertEqual(runner_exit, result.returncode, result.stderr)
+                        self.assertFalse((root / 'trace').exists())
+                    else:
+                        self.assertEqual(['control'], (root / 'trace').read_text().splitlines())
+                        self.assertEqual(0 if not control_exit else 1, result.returncode, result.stderr)
 
     def test_reorg_requires_two_nonempty_distinct_canonical_hashes(self):
         source = SOURCE.parent / "durable-fault-acceptance.sh"

@@ -3,7 +3,11 @@ set -euo pipefail
 : "${W3_REDIS_ADDR:?BLOCKED: a real Redis address is required for contract-wallet acceptance}"
 output="${1:?usage: run_wallet_session_tests.sh OUTPUT_DIRECTORY}"
 mkdir -p "$output"
+: "${W3_CANDIDATE_SHA:=${GITHUB_SHA:-}}"
+: "${W3_CANDIDATE_SHA:?BLOCKED: exact source candidate required for RPC evidence}"
 rc=0
+W3_SEGMENT_RPC_OUTPUT="$output/wallet-segment-rpc.json" \
+W3_EVIDENCE_CONTEXT="${W3_EVIDENCE_CONTEXT:-CANDIDATE}" W3_CANDIDATE_SHA="$W3_CANDIDATE_SHA" \
 go test -race -count=1 -p 2 -timeout 5m -tags=anvil,integration -json \
   -run '^(TestCWLoginLifecycle_RealRedisAnvil|TestCWProof_ConcurrentChainsAnvil)$' \
   ./test/integration/web3 > "$output/wallet-session-tests.json" 2> "$output/wallet-session-tests.stderr" || rc=$?

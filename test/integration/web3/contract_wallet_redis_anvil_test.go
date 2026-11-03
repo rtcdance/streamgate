@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +35,80 @@ type walletRPCProxy struct {
 	down     atomic.Bool
 	requests atomic.Int64
 	server   *httptest.Server
+	tape     walletRPCTape
+}
+
+type walletChallengeRaceVerifier struct {
+	*service.MultiChainSignatureVerifier
+	before func(context.Context) error
+}
+
+func (v *walletChallengeRaceVerifier) VerifyWalletProof(ctx context.Context, chain int64, scheme, account, message, encoded string) (*signature.AccountProof, error) {
+	if v.before != nil {
+		if err := v.before(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return v.MultiChainSignatureVerifier.VerifyWalletProof(ctx, chain, scheme, account, message, encoded)
+}
+
+func concurrentWalletAdmission(t *testing.T, ctx context.Context, verifier *walletChallengeRaceVerifier, services []*service.AuthService, challenge *storage.WalletChallenge, sig string) string {
+	t.Helper()
+	// Both independent services must have loaded the unused Redis challenge
+	// before either can consume it. The actual Anvil proof is still verified;
+	// only the scheduling of this TOCTOU regression is controlled.
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	releaseBoth := sync.OnceFunc(func() { close(release) })
+	defer releaseBoth()
+	verifier.before = func(callCtx context.Context) error {
+		select {
+		case entered <- struct{}{}:
+		case <-callCtx.Done():
+			return callCtx.Err()
+		}
+		select {
+		case <-release:
+			return nil
+		case <-callCtx.Done():
+			return callCtx.Err()
+		}
+	}
+	type admissionResult struct {
+		token string
+		err   error
+	}
+	results := make(chan admissionResult, 2)
+	for _, auth := range services {
+		go func() {
+			issued, loginErr := auth.AuthenticateWithWallet(ctx, challenge.WalletAddress, challenge.ID, sig, challenge.ChainID)
+			results <- admissionResult{issued, loginErr}
+		}()
+	}
+	for range 2 {
+		select {
+		case <-entered:
+		case failed := <-results:
+			t.Fatalf("an instance failed before reaching the admission barrier: %v", failed.err)
+		case <-ctx.Done():
+			t.Fatal("both instances did not reach real proof verification")
+		}
+	}
+	releaseBoth()
+	var token string
+	winners := 0
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			winners++
+			token = result.token
+		} else {
+			require.ErrorIs(t, result.err, storage.ErrChallengeUsed)
+			require.Empty(t, result.token)
+		}
+	}
+	verifier.before = nil
+	require.Equal(t, 1, winners, "one real Redis challenge may admit exactly one concurrent instance")
+	return token
 }
 
 func newWalletRPCProxy(t *testing.T, target string) *walletRPCProxy {
@@ -48,7 +123,7 @@ func newWalletRPCProxy(t *testing.T, target string) *walletRPCProxy {
 			http.Error(w, "fixture unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		proxy.ServeHTTP(w, r)
+		result.recordRPC(proxy, w, r)
 	}))
 	t.Cleanup(result.server.Close)
 	return result
@@ -88,6 +163,7 @@ func TestCWLoginLifecycle_RealRedisAnvil(t *testing.T) {
 	// The shared recovery authority is a local model in this focused test.
 	// Its Postgres-backed wiring is covered by the full-stack recovery group.
 	restore := storage.NewMemoryRestoreEpochStore()
+	verifier := &walletChallengeRaceVerifier{MultiChainSignatureVerifier: service.NewMultiChainSignatureVerifier(zap.NewNop(), nil, manager)}
 	var ownedKeys []string
 	newService := func() (*service.AuthService, *redis.Client) {
 		r := redis.NewClient(&redis.Options{Addr: redisAddress, MaxRetries: -1})
@@ -99,7 +175,7 @@ func TestCWLoginLifecycle_RealRedisAnvil(t *testing.T) {
 		require.NoError(t, err)
 		return service.NewAuthService("anvil-wallet-lifecycle-secret-at-least-32", nil,
 			service.WithSessionStore(epochs), service.WithWalletSessionStore(proofs), service.WithRestoreEpochStore(restore),
-			service.WithSignatureVerifier(service.NewMultiChainSignatureVerifier(zap.NewNop(), nil, manager)),
+			service.WithSignatureVerifier(verifier),
 			service.WithChallengeStore(storage.NewRedisChallengeStoreWithClient(r, 5*time.Minute)),
 			service.WithSIWEDomain("localhost", "http://localhost/login")), r
 	}
@@ -124,8 +200,7 @@ func TestCWLoginLifecycle_RealRedisAnvil(t *testing.T) {
 	probeValid, err := probe.VerifySignature(ctx, wallet.Hex(), challenge.Message, sig)
 	require.NoError(t, err)
 	require.True(t, probeValid)
-	token, err := s1.AuthenticateWithWallet(ctx, wallet.Hex(), challenge.ID, sig, anvilChainID)
-	require.NoError(t, err)
+	token := concurrentWalletAdmission(t, ctx, verifier, []*service.AuthService{s1, s2}, challenge, sig)
 	claims, err := s1.ParseToken(token)
 	require.NoError(t, err)
 	ownedKeys = append(ownedKeys, "streamgate:session:"+claims.SessionID, "streamgate:wallet-proof:v1:"+claims.SessionID)
@@ -138,6 +213,9 @@ func TestCWLoginLifecycle_RealRedisAnvil(t *testing.T) {
 	balances = nil
 	require.NoError(t, nft.Call(&bind.CallOpts{Context: ctx, BlockNumber: receipt.BlockNumber}, &balances, "balanceOf", wallet))
 	require.Equal(t, int64(1), balances[0].(*big.Int).Int64())
+	t.Run("SegmentProofCost", func(t *testing.T) {
+		token = walletMediaCost(t, ctx, s1, manager, wallet.Hex(), nftAddress.Hex(), token, primary, fallback)
+	})
 	// Deleting the consumed challenge proves renewal uses the admitted proof,
 	// not a public login replay or a second challenge consumption.
 	require.NoError(t, r1.Del(ctx, challenge.ID).Err())

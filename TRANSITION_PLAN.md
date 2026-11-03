@@ -6,7 +6,7 @@
 
 **执行已收口：** 以当前候选完整证据结束本轮，不因已通过的阶段或文档回填再次重跑 CI。后续仅保留演示复跑与明确的新任务；本机验收保持开盖，防空闲休眠不能保证阻止合盖休眠。历史失败、暂存可靠性补丁与本轮完成依据分别记录，详见 §8.85～§8.86。
 
-**新增扩展计划（2026-11-02）：** 合约钱包登录闭环与公开测试网真实用户路径见 [§10](#web3-wallet-testnet-plan)，状态为 **IN_PROGRESS，尚未完成扩展验收**。顶部 complete 仅指已冻结的 SG-00～SG-15 主线；新增计划不继承旧验收，也不撤销 §8.86 的历史结论。W3-00/01已完成开发出口；其余后端、H5与公开路径仍待实施。
+**新增扩展计划（2026-11-02）：** 合约钱包登录闭环与公开测试网真实用户路径见 [§10](#web3-wallet-testnet-plan)，状态为 **IN_PROGRESS，尚未完成扩展验收**。顶部 complete 仅指已冻结的 SG-00～SG-15 主线；新增计划不继承旧验收，也不撤销 §8.86 的历史结论。W3-00/01已完成开发出口；其余后端/H5/工具实现及开发验证进行中，同候选与公开链验收仍未完成。
 
 ## 历史提效实施方案（2026-10-24；收口结果见 §8.86）
 
@@ -4744,7 +4744,7 @@ python3 -B .verify-artifacts/sg-closeout-d0f05152/demo/run-demo-functional.py \
 
 ## 10. 合约钱包登录与公开测试网真实路径开发计划
 
-**日期：**2026-11-02。**状态：IN_PROGRESS，尚未形成冻结候选。** 本节实施两个增量：已部署 ERC-1271 合约钱包的 SIWE 登录闭环，以及本机应用连接 Sepolia 的真实钱包、真实资产与真实播放路径。2026-11-02已启动隔离开发与合约层Docker回归；尚未领取faucet、测试网部署、本人签名、广播或新增CI。合约测试通过不代表登录、媒体或公开链闭环已通过。
+**日期：**2026-11-02启动，2026-11-03复审。**状态：IN_PROGRESS；C0=ea13e781为诊断候选，仍需修复后冻结最终C。** 本节实施两个增量：已部署 ERC-1271 合约钱包的 SIWE 登录闭环，以及本机应用连接 Sepolia 的真实钱包、真实资产与真实播放路径。2026-11-02已启动隔离开发与合约层Docker回归；尚未领取faucet、测试网部署、本人签名、公开链广播或新增CI。合约测试通过不代表登录、媒体或公开链闭环已通过。
 
 **基座：**已验收代码候选 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`；当前仓库检查基于 `master@4bc3fab19bb50e3df370f7488677e0e6f95e1bc7`。前者的完整 all / CI 事实保留在 §8.86；本节的新能力必须形成新候选 C。当前未提交的学习手册、README 和 `.gitignore` 修改另行保留，不在开发时 reset、覆盖或混入未经核对的候选。
 
@@ -4773,8 +4773,64 @@ python3 -B .verify-artifacts/sg-closeout-d0f05152/demo/run-demo-functional.py \
 - 当前后端开发工件更新为`.verify-artifacts/w3-extension/development/20261102T135950Z-wallet-real-redis-anvil/`：**164顶层PASS、0 FAIL/SKIP，原始outer exit0，10个受影响包双tag lint 0 issues**；`source.json`与当前Go源码吻合，真实Redis专用容器/网络清理0。保留先前漏导入、旧调用点与超时fixture cleanup挂起的原始失败，后者goroutine栈确认阻塞在httptest.Close，修复为消费请求body并显式释放fixture；不把重跑覆盖为首轮成功。
 - W3-04进行中：现有H5区分controller A/subject C，服务端profile链与SIWE页面origin检查，短租期singleflight续验、迟到响应隔离、账户/链切换清理，媒体新能力仅用于当前origin/content，并定时复查资格。Node状态机专项使用测试替身，**不能代替真实浏览器/链/媒体**；Docker初轮19项通过但后续`sh`不支持brace expansion导致命令退出1，原始保留，修正验证命令后复测。
 - W3-05接线进行中：默认chain阶段/现有CI Anvil job将真实Redis+Anvil双tag组设为required，原始JSON与exit经现有required-test verifier拒绝缺项/skip。尚未运行完整chain或新CI；PG恢复、完整矩阵与真实双模式媒体仍待相应门禁。W3-02/03暂不勾选，整体未完成，不继承旧C验收。
-- **W3-06开发出口（2026-11-03，ZCode接管codex后完成）：**codex在`network_preflight.py`加固+单测（5/5，快照与终态字节一致）后因用量中断；接管后补齐其余交付：`pkg/core/config`新增`SEPOLIA_RPC_URL`/`SEPOLIA_RPC_FALLBACK_URL`到chain 11155111的端点覆盖（遗留`SEPOLIA_RPC`映射主端点，两者不一致为配置错误且错误信息不含URL值）、`STREAMGATE_SIWE_DOMAIN/URI`显式绑定；`config/config.w3sepolia.yaml` overlay（chain_id=11155111、仅一条链、无Anvil、无deployer key、demo签名显式关、`.invalid`占位端点fail-closed）；`scripts/wallet-testnet/deployment_manifest.py`（TN-02只读build/verify：receipt、canonical地址、on-chain runtime SHA256↔编译产物、owner()核对，拒绝广播）；`scripts/wallet-testnet/verify_web3_testnet.py`（只读汇总入口：preflight→manifest→H5 readiness，用户门控项显式BLOCKED，LOCAL_PASS/TESTNET_BLOCKED/FAIL三态）；`scripts/h5-demo-acceptance/wallet-sepolia.mjs`（真实钱包浏览器协作工具：headed、无本地provider注入、无Anvil key、拒绝31337、用户操作门控30min预算）；`make verify-web3-testnet-preflight`/`verify-web3-testnet`。工具层工件`20261102T235313Z-w3-testnet-tooling-unit/`：preflight 5+manifest 8+verifier 7个单测+H5工具合同3项+config包`-race`，全部原始exit0（固定镜像、断网、源快照SHA表72项）。真实广播/领取faucet仍等本人操作（W3-08）。
-- **W3-05接线完成（2026-11-03）：**media阶段——`fullchain-acceptance.sh`新增"10b Contract-wallet browser matrix"段：`prepare_wallet_anvil.cjs`在验收Anvil上部署C/N并mint给C，`wallet-anvil.mjs`（13个必需CW case）对当前部署模式真实浏览器执行，`run_fullchain`每模式各跑一次即monolith/api-gateway分别覆盖；结果门用场景自带required清单（缺项/失败/页面错误即FAIL，不按数量容差），原始log与result.json复制进harness reports供CI诊断收集。durability阶段——本地scratch Redis与CI durability job同digest `redis:7-alpine@sha256:858f…`，新增`pkg/storage/wallet_session_realredis_test.go`（`integration`tag，`W3_REDIS_ADDR`缺失即Fatal不跳过）：真Redis上跨实例读、8并发CAS仅一胜、准入身份/绝对期限不可变、epoch联动、FLUSHDB后fail-closed拒绝且不能复活、新登录为新准入；`required-tests.json`新增`wallet-session-durability-tests`必需套件+`run_wallet_session_durability_tests.sh`（缺Redis地址即BLOCKED非零），本地durability stage与CI durability job双侧接线。局部验证：workflow YAML/全部shell语法PASS；durability runner对固定digest scratch Redis端到端required通过（原始exit0）；CW段变量推导四情形（verify两模式/host fallback/显式覆盖）与结果门（真13/13结果过、篡改即exit1）均验证。**尚未执行的边界**：CW浏览器矩阵在完整fullchain栈内的端到端（等W3-07同C完整all或冻结后本地验证）；durability阶段"kill Redis中途会话"完整故障注入 drill（存储层语义已由真Redis套件覆盖，链上/会话层drill留作C2候选评估）；公开测试网广播全部等本人。
+- **W3-06历史开发自报（2026-11-03；后续独立复审判未完成）：**codex在`network_preflight.py`加固+单测（5/5，快照与终态字节一致）后因用量中断；接管后补齐其余交付：`pkg/core/config`新增`SEPOLIA_RPC_URL`/`SEPOLIA_RPC_FALLBACK_URL`到chain 11155111的端点覆盖（遗留`SEPOLIA_RPC`映射主端点，两者不一致为配置错误且错误信息不含URL值）、`STREAMGATE_SIWE_DOMAIN/URI`显式绑定；`config/config.w3sepolia.yaml` overlay（chain_id=11155111、仅一条链、无Anvil、无deployer key、demo签名显式关、`.invalid`占位端点fail-closed）；`scripts/wallet-testnet/deployment_manifest.py`（TN-02只读build/verify：receipt、canonical地址、on-chain runtime SHA256↔编译产物、owner()核对，拒绝广播）；`scripts/wallet-testnet/verify_web3_testnet.py`（只读汇总入口：preflight→manifest→H5 readiness，用户门控项显式BLOCKED，LOCAL_PASS/TESTNET_BLOCKED/FAIL三态）；`scripts/h5-demo-acceptance/wallet-sepolia.mjs`（真实钱包浏览器协作工具：headed、无本地provider注入、无Anvil key、拒绝31337、用户操作门控30min预算）；`make verify-web3-testnet-preflight`/`verify-web3-testnet`。工具层工件`20261102T235313Z-w3-testnet-tooling-unit/`：preflight 5+manifest 8+verifier 7个单测+H5工具合同3项+config包`-race`，全部原始exit0（固定镜像、断网、源快照SHA表72项）。真实广播/领取faucet仍等本人操作（W3-08）。
+- **W3-05历史接线自报（2026-11-03；后续独立复审判未完成）：**media阶段——`fullchain-acceptance.sh`新增"10b Contract-wallet browser matrix"段：`prepare_wallet_anvil.cjs`在验收Anvil上部署C/N并mint给C，`wallet-anvil.mjs`（13个必需CW case）对当前部署模式真实浏览器执行，`run_fullchain`每模式各跑一次即monolith/api-gateway分别覆盖；结果门用场景自带required清单（缺项/失败/页面错误即FAIL，不按数量容差），原始log与result.json复制进harness reports供CI诊断收集。durability阶段——本地scratch Redis与CI durability job同digest `redis:7-alpine@sha256:858f…`，新增`pkg/storage/wallet_session_realredis_test.go`（`integration`tag，`W3_REDIS_ADDR`缺失即Fatal不跳过）：真Redis上跨实例读、8并发CAS仅一胜、准入身份/绝对期限不可变、epoch联动、FLUSHDB后fail-closed拒绝且不能复活、新登录为新准入；`required-tests.json`新增`wallet-session-durability-tests`必需套件+`run_wallet_session_durability_tests.sh`（缺Redis地址即BLOCKED非零），本地durability stage与CI durability job双侧接线。局部验证：workflow YAML/全部shell语法PASS；durability runner对固定digest scratch Redis端到端required通过（原始exit0）；CW段变量推导四情形（verify两模式/host fallback/显式覆盖）与结果门（真13/13结果过、篡改即exit1）均验证。**尚未执行的边界**：CW浏览器矩阵在完整fullchain栈内的端到端（等W3-07同C完整all或冻结后本地验证）；durability阶段"kill Redis中途会话"完整故障注入 drill（存储层语义已由真Redis套件覆盖，链上/会话层drill留作C2候选评估）；公开测试网广播全部等本人。
+
+- **2026-11-03独立复审（当前结论）：**隔离树已形成`ea13e781c51d1a0a4ad3c20aa774286c8ec808d4`（下称C0）；复审发现W3-05/06仍有确定缺口，必须修复后再冻结最终C，不把前一代理的“开发出口/接线完成”当验收。C0的定向unit已终态失败（原始Docker exit **1**，`development/unit-recovery/unit.command.exit`）：默认/NATS构建、tag预检与tidy通过，lint因LoadConfig复杂度36超35中止，race/coverage未执行；原控制器已无活动进程，chain未自动执行。编译缓存已保留，后续不再冷编译整套门来诊断。C0当前未取得完整all或同SHA新CI成功。
+- **已复核的局部证据：**`20261102T142217Z-wallet-browser-lab/browser-monolith-5/`与`browser-api-gateway-1/`分别13/13、原始exit0；真实C签名、PG持久化C主体、105s素材、外置worker和连续70s播放/至少3份access/新能力、旧access拒绝、切链清理、拒签不留半登录成立。使用本地EIP-1193测试适配器，不能当本人公开钱包签名；两模式使用同一已上传内容，首次真实上传原件在`browser-monolith-3/`，该早期脚本后续因未切换UI页面失败，原始整体exit1保留。`20261102T145511Z-h5-wallet-state-final/`20项Docker状态机/原有probe回归exit0。
+- **网络资源证据：**`20261102T145848Z-sepolia-network-qualification/`在两个不同HTTPS网关Tenderly/1RPC核对11155111、固定genesis、safe/finalized、同safe锚点、EOA code=0x、余额0.141763346860793075 ETH、历史call与锚点复核，原始exit0，仅NETWORK_READS_PASS，控制权/部署/扩展整体验收均false。该余额是2026-11-02T14:58Z观察，广播前须刷新并estimateGas；dRPC免费端明确拒绝此链（code35），PublicNode genesis已裁剪，不再按付费/放宽身份校验绕过。
+- **复审必须关闭的缺口：**部署verify不能接受空/缺角色/自带失败标志的清单；DemoNFT没有合约级owner()；真实RPC的receipt读取未被只读allow-list接受；receipt/canonical块/创建输入/候选编译归档尚未完整绑定。公开浏览器工具使用新无扩展context、字段与真实H5不符、把未执行反例写成功且可用不完整required列表判完成，需重做。默认fullchain的10s素材不能证明70s续播，新增N地址/SIWE origin也未传入真实入口；已开始修正为105s stream-copy、动态页面origin、显式NFT输入和仅candidate media阶段必需运行，避免向旧S性能/恢复/回滚验收附加其尚不具备的新功能。真实Redis专项改为唯一测试key的精确删除，移除FLUSHDB。新增反例与实际入口复验通过前，W3-05/06保持未完成。
+
+
+- **2026-11-03定向修复与原始结果：**`20261103T015352Z-sepolia-config-startup/` config包`-race`和lint原始exit0：Sepolia环境解析提取独立函数解决复杂度失败，不放宽35阈值；严格profile拒绝非11155111/单RPC/重复host/非HTTPS/非safe-finalized/开发签名及不匹配的本机SIWE origin。`20261103T022850Z-compiled-build-binding/`部署清单12项+入口10项Docker回归exit0，覆盖双角色、DemoNFT ERC-165（不调用其不存在的owner）、双RPC canonical receipt/创建交易/constructor/源码与原CI编译归档索引；同步改写清单和ABI哈希也不能替代独立编译索引。media controller导出C的原ABI/bytecode及索引；最终汇总仍须核对索引所属CI归档，不把部署工具成功当整体验收。
+- **浏览器证据门改为固定合同：**`assert_wallet_browser.py`固定本地组件子项（初轮16，新增owner撤销后19，再接真实gRPC增至23、NFT转移增至26；含真实C主体上传），独立核对候选/模式/夹具/原始退出、safe持仓、71s采样/解码推进、至少3份access与更新能力；缺失报告、空required列表、开发/外来候选、SKIP、重复项均拒绝。完整保留fixture/browser退出、日志与结果，不再由报告自定required决定过门。`20261103T022543Z-wallet-component-gates/`初轮5+10+9+5项Docker回归exit0；此16项是浏览器组件子项，不等于CW-01～16完整矩阵均已通过，最终默认media入口尚待实际复验。
+- **MetaMask输入已确认与工具修复：**用户确认MetaMask及[Google Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。公开观察工具改为显式本机CDP连接已有MetaMask浏览器，只选择既有H5页；不新建无扩展context、不注入provider、不签名或批准。按EOA/C/错误状态分阶段，读取实际session identity、验证本轮SIWE签名恢复A及origin、C严格60s租期和解码/续播。未执行的wrong-network、转移撤销不再写PASS；始终`completeAcceptance=false`、`publicWalletSignoff=false`，阶段观察不是本人批准/完整TN验收。H5显示明确wrong-network错误，选定后端不可达不再自动切到localhost演示栈。`20261103T023653Z-sepolia-browser-and-entry/`28项Node+12项入口+5项证据门Docker回归原始exit0；这证明工具与状态合同，不证明已有真实MetaMask签名。完整测试网入口在用户/链证据缺失时保持TESTNET_BLOCKED/exit2，单独预检最多NETWORK_READY；有足额链上余额时不强迫再次领faucet。
+
+- **新增实际开发栈证据（2026-11-03）：**`20261103T024447Z-wallet-fresh-upload-lab/{monolith,api-gateway}/`分别16/16且原始exit0，使用新部署N（不是硬编码默认N）、C分别真实上传与外置worker出片、页面动态origin；随后`{monolith-policy,api-gateway-policy}/`分别19/19、原始exit0。新增CW-10明确只改owner，safe后A=0/C=1未动NFT，HTTP旧媒体分别16.930s/21.520s拒绝，JWT与capability均仍未到期，旧A新登录拒绝；fixture owner已恢复。均为本地真实签名适配器与**较早开发app二进制**的组件证据，不是冻结C/CI/公开本人签名，也不是CW/TN全矩阵。当前固定浏览器合同已继续扩展真实gRPC子项，早期16/19项不能代替其最终入口。`20261103T023927Z-wallet-observer-cdp/`真实Chrome工具接入/断开契约exit0，缺MetaMask明确BLOCKED且既有页保留；`20261103T024144Z-compiled-archive-smoke/`两份真实Forge产物按C0合约源码导出成功，只是开发导出smoke，不冒充CI原编译归档。
+- **真实gRPC入口暴露的产品缺陷（进行中）：**`monolith-grpc/`原始exit1，真实GetNonce为Unauthenticated；生成客户端请求`/auth.v1.AuthService/GetNonce`，服务端免登录表仍写`/auth.AuthService/GetNonce`。原测试重复旧字符串/直接调用handler，未覆盖实际客户端经过interceptor的首次登录。正在修正精确服务路径、补真正TCP回归；RefreshToken自身body凭据仍由AuthService完整验证，媒体方法继续鉴权。另`20261103T025941Z-cw-grpc-probe-control-final/`探针oracle三组Go TCP反例`-race`及lint原始exit0：NFT撤销观察前后必须确认同一当前身份有效，拒绝用旧JTI轮换/新admission/网络错误伪装媒体撤销。它是探针逻辑回归，不能当真实应用gRPC已过。
+
+- **gRPC派发修复的RED→GREEN：**`20261103T031812Z-grpc-public-methods-red/`新TCP生成客户端回归在旧实现真实报`missing authorization token`、原始exit1。改为以注册ServiceDesc构造精确方法名；仅challenge/签名与由body自证的refresh及健康探针免前置JWT，媒体和其他业务方法仍鉴权。RefreshToken的body签名/proof/epoch/CAS由原AuthService校验，错误body仍拒绝。`20261103T032114Z-grpc-public-methods-green/`完整gateway包**490顶层PASS、0 FAIL/SKIP**，`-race`原始exit0、包lint 0 issues、证据门7项通过，outer exit0。正在只重建monolith/api-gateway两个开发二进制后复测实际gRPC闭环，尚无冻结新C/完整all/同SHA新CI结论。真实Redis数据丢失专项曾两轮业务用例原始exit0，但integration tag lint依次暴露测试助手返回值过多/命名缺失；已整理且`20261103T024257Z-scoped-redis-lint/`当前源码lint0，保留前两轮outer exit1，不把单一用例绿说整轮绿。
+
+- **2026-11-03实栈开发矩阵已扩至26子项：**`20261103T024447Z-wallet-fresh-upload-lab/{monolith-nft-transfer,api-gateway-nft-transfer}/`均26/26、原始exit0；后端为`20261103T032704Z-wallet-development-binaries-grpc/`重建的monolith/gateway（非冻结候选镜像，worker仍为较早开发二进制）。两模式实际gRPC GetNonce→真实A签C→VerifySignature→多次Refresh→GetManifest/GetSegment，与HTTP媒体字节哈希相同。owner-only撤销的gRPC观测分别1.388s/1.444s，NFT仍C持有、JWT/cap未过期；恢复owner后另建独立会话，真实C.execute把N转B、safe时A=0/C=0/B=1，新manifest HTTP403/gRPC PermissionDenied，旧HTTP能力54.911s/56.761s、gRPC能力58.658s/58.524s拒绝；C身份和原admission持续续期，前后VerifyToken有效。NFT用例允许旧cap按既定TTL结束，**不是JWT自然过期或logout**；与owner撤销分开计时。fixture NFT/owner已恢复。独立Docker语义校验`20261103T041755Z-wallet-nft-components-verified/`原始exit0、两模式全部26合同通过，且明确拒绝把原DEVELOPMENT/空candidate身份当候选验收；candidate/public acceptance均false。
+- **CW-12真实恢复与跨OS进程专项：**`20261103T042501Z-wallet-postgres-restore-live/`首轮真实C+Redis+Postgres dump/restore+epoch轮换通过；加强后的`20261103T043041Z-wallet-postgres-restore-live/`加入独立OS子进程，从原Redis读取服务器proof并在不重新签名/不传owner密钥的情况下刷新原会话，child原始exit0。随后仅恢复本轮专属`streamgate_durability`库并在放行前轮换epoch，原proof仍在且JWT未过期时VerifyToken/Refresh/共享授权均拒绝，新登录有效。Go required原始exit0、控制器dump/restore/读取/轮换六步均exit0，专属PG/Redis容器、网络及私有SQL/子进程凭据已清理。新用例有required manifest并接入既有Docker durability阶段；控制程序先核对项目标签、容器名称与running状态，不操作其他库/项目，不重发超时控制命令。此为开发功能证据，不是完整同C Docker/CI或完整应用重启演练。
+
+
+- **2026-11-03 MetaMask/Sepolia 准备入口（未公开广播）：**新增 `deploy/docker/compose.w3sepolia.yml`，只用同候选原镜像，无 build/Anvil；10个服务、发布端口仅127.0.0.1，只有API进程有RPC出网。worker使用独立`w3sepolia-worker` profile，不持JWT/链/签名凭据，1任务/FFmpeg 1线程/1CPU；API的自动上传任务固定360p。发现`LoadConfig`原先未映射`Transcode.Profiles`，单改YAML仍会走ABR；`20261103T074638Z-sepolia-upload-profile-red/`真实配置加载断言原始exit1（实际nil），已按公开profile接线，保留其他profile既有ABR行为。修复后的`20261103T074741Z-sepolia-upload-profile-green/`完整config包race/lint及9项准备工具检查原始exit0；同时证明其他profile仍为空、上传hook保持原ABR默认。不把配置文件存在当运行配置已生效。
+- **同C准备与六笔钱包操作入口：**`scripts/wallet-testnet/prepare_stack.py`先验证既有完整all、原始镜像/归档、默认`ci.yml`成功run，以及真正`CI/acceptance` producer的传输清单和全部payload字节；允许同run合法较早producer attempt，拒绝错SHA/run/job、未来attempt、外置编译索引与篡改内容。H5从不可变镜像提取并逐文件与Git C比对，合约ABI/bytecode取原CI编译索引，不重建；生成本机代理、0600私有环境输入及公共候选配置，不启动应用。新增`h5-demo/testnet/`供MetaMask显式操作2部署+2mint+2转移，固定主入口防止两个模式各做一遍；发送前持久保存nonce/from/to/value/calldata摘要和费用预留，UNKNOWN不重发，只凭真实hash对账；用户4001拒绝与不确定广播分开。预算8笔/0.02 ETH及20%余量，链上交易输入、canonical receipt、部署runtime/NFT日志不符均不能推进。账本与观察报告始终不自证本人批准或整体验收。
+- **本批工具/页面开发验证：**`20261103T074333Z-sepolia-preparation-final/`：5项Compose、4项真实传输格式/CI来源合同、11项交易入口合同、完整config包race/lint、7份workflow语法均原始exit0。`20261103T073550Z-sepolia-panel-browser/`两个真实Chrome工具合同原始exit0：无MetaMask时观察器明确BLOCKED且既有页保留；缺同C配置时真实资产页6按钮均禁用、无pageerror，截图在output。`20261103T074458Z-sepolia-nginx-temp-fix/`原始exit0：两模式均实际读取与原文件字节相同的配置/编译索引，低权限只读Nginx不出网，专属容器清理0；保留此前代理启动失败，真实原因是未配置的fastcgi临时目录触及只读根，已统一移到/tmp，不再靠启动重试掩盖。全部为未冻结开发树组件证据，未提交/推送新C、未触发新CI、未启动公开测试网应用、未领取faucet、未签名/广播；W3-06/07/08/09仍未完成。
+
+
+- **2026-11-03 CW原始用例留证接线：**unit门原先只保留包级stdout，无法独立逐项审计。新增`run_unit_tests.sh`保存同一次原race/coverage执行的`unit-tests.json`、stderr和真实exit；固定`wallet-unit-tests`49项函数，缺项/必需子项SKIP/原进程失败均拒绝，原覆盖率门与独立性能测试保留，不为留证再跑第二套coverage。`20261103T075847Z-unit-evidence-contract/`4项捕获合同+20项required checker+7份workflow语法原始exit0。`20261103T083326Z-wallet-unit-required-real/`在固定Docker工具镜像对6个包实际定向运行：**49顶层PASS，含子例83 PASS、0 FAIL/SKIP，Go原始exit0、独立required校验0、outer0**。这是未冻结开发快照的定向证据，未运行整体覆盖率/完整unit/all/新CI，不因此关闭CW全矩阵。
+- **新增四阶段双RPC只读交易oracle：**`transaction_oracle.py`核对本轮3/4/5/6笔有序交易前缀；从原CI归档绑定creation/runtime，逐笔复查A、nonce、完整calldata（含C.execute）、零value、canonical receipt/实际费用及精确NFT日志，A/C/B持仓和token owner绑定共同safe块，双端必须一致，owner仍A。UNKNOWN/PENDING不重发；输出不能覆盖首轮证据。撤销起点取每端**首次**返回包含原交易的safe响应completedAt，两端都成立的时刻，不把后续慢receipt/余额检查完成时刻当新起点；safe等待最多30min。`20261103T083811Z-sepolia-final-contracts/`9项oracle反例合同（错链/genesis/调用/nonce/费用/持仓/ABI/重组/原始时间）及4项捕获、5项网络、59项shell、7份workflow语法全部原始exit0；公共RPC未用于这些确定性测试。
+- **oracle真实本地EVM验证：**`20261103T081317Z-oracle-real-anvil-receipt-wait/`2项必需Anvil检查原始exit0，实做6笔本地交易并用相同decoder核对4个safe持仓状态；每笔原意图先保存、广播一次、仅轮询其原hash，原receipt/fee/日志/各阶段余额在output。首轮`20261103T081017Z-oracle-real-anvil/`原始exit1保留：send返回hash时receipt尚无，工具正确BLOCKED，修复的是测试夹具限时只读等待，未重发交易。测试公开传输仍明确拒绝http/31337；这些证据scope=LOCAL_ANVIL_ORACLE_DECODER、publicNetworkVerified=false，不是Sepolia业务验收。
+- **公开浏览器独立证据门：**新增`assert_sepolia_browser.mjs`及共享校验器；不相信报告自带的phaseVerified/required列表。复验外部C/mode/主体、原始exit、原私有SIWE文件摘要与A的真实恢复签名、域/URI/nonce/有效期；JWT采样与原私有凭据bytes/hash绑定，续期必须来自同一admission，manifest能力关联**实际提交**的access且exp不越其租期，segment有原响应bytes/hash与真实解码帧推进。拒签/错链须有本轮新challenge和真实UI状态、无半登录。观察器只接既有MetaMask/player页，保留同域资产页；首轮证据不覆盖，原签名/JWT仅留0600私有文件、不进公开日志或CI。该门最多证明阶段，始终completeAcceptance=false，不能替代公开gRPC/转移/故障或最终汇总。`20261103T083811Z-sepolia-final-contracts/`初轮14项Node合同原始exit0；`20261103T085102Z-sepolia-phase-gate-complete/`当前独立证据门8项Docker合同原始exit0，含真实CLI读取原始退出/私有bytes、稀疏采样拒绝、实际签发租期约束与畸形签名不泄露；合成控制输入不作为本人公开钱包证据。
+- **真实Chrome边界与页面接线：**`20261103T083915Z-sepolia-observer-browser-final/`3项浏览器/入口检查原始exit0：拥有的无钱包Chrome夹具中，同origin播放器页与资产页可并存、缺MetaMask仍BLOCKED且既有两个页均保留；缺同C CI时资产页所有交易按钮禁用；重用输出目录在接CDP前拒绝且原始字节不变。`20261103T084201Z-sepolia-api-origin/`10项API origin合同原始exit0：公开18500/18501两模式不再从localStorage悄然沿用旧Anvil后端。新增工具合同和本地Anvildecoder专项已接入开发分支中的既有默认CI/验收入口；公开真实阶段不随CI自动执行。没有新workflow/付费提额/推送/CI触发。本轮未领水、签名或公开广播，最终扩展汇总、剩余CW实栈缺口及完整W3-TN仍待完成。
+
+- **2026-11-03 原始CI上传来源补强：**`ci_provenance.py`只读核对默认ci.yml成功run、原acceptance job及其原始stdout上传JSON，将本地producer的bundleSHA256/文件数/字节数与原GHCR上传digest绑定；本地自洽清单不再足够。`20261103T090157Z-ci-original-upload-provenance/`5项来源反例+4项准备合同+7份workflow语法exit0。`20261103T092221Z-historical-ci-upload-parser-recovery/`只读解析历史run41343759379/attempt3/job125049073185原日志成功；此前API短暂失败保留，未重跑CI。该历史解析仅验证真实日志格式，**不是新扩展C的验收**。
+- **CW-06消息绑定与跨实例重放：**真实Redis+Anvil生命周期测试新增双实例barrier：两实例先读到同一未消费challenge，再放行真实1271验证，严格一份token成功、另一份ErrChallengeUsed且无token。`20261103T091246Z-cw-challenge-race-real-redis/`及内层`20261103T091252Z-cw-challenge-race-anvil/`原始exit0，race/dual-tag lint通过、专用Redis/network清理0。`20261103T092557Z-cw-challenge-bindings/`错domain/URI/nonce/address/chain/version/issuedAt/expiration/已过期challenge共9子例通过，均在proof前拒绝且未消费challenge；race/lint与4项捕获合同exit0。当前固定wallet-unit required增至50函数；先前49项工件仍按当时范围记录，不改写历史结果。
+- **复用原CI gRPC客户端及PENDING原证据：**默认CW media保留同次Go编译的静态linux/amd64客户端与候选/source/binary摘要，两模式产物不同即失败；公开prepare验证原CI客户端后复制，无主机重建或额外依赖。拒绝ARM/脚本/动态loader、外来C/源码、篡改或symlink。真实Docker编译导出已验证（开发快照，不是冻结C产物）。交易oracle确认超时仍exit2，新增保留C/phase/ledger/manifest摘要、原交易及两个safe视图，不再让PENDING丢失归属，也不广播重试。最终`20261103T115802Z-wallet-client-and-pending-final/`：4客户端+4准备+5CI来源+10oracle+59shell+7份workflow+10H5专项均exit0。首轮shell夹具缺ARTIFACT_DIR、次轮验证命令拼错文件名的原始exit1/2保留；修正后最终outer0，不将子项通过冒充失败轮整体通过。
+- **MetaMask兼容边界：**用户选定MetaMask及Google Sepolia faucet；核对[MetaMask账户不匹配提示源码（75494fe0）](https://github.com/MetaMask/metamask-extension/blob/75494fe0be736baa9f7a54421250fc970e007d7b/ui/pages/confirmations/hooks/alerts/signatures/useAccountMismatchAlerts.ts)：SIWE address C与signer A不同时该hook产生Warning，并非在此处硬拒绝；这仍不能证明用户安装版本已可用。页面新增解释，保留C为SIWE主体、server1271裁决，不修改消息以隐藏钱包提示。本轮未访问/批准钱包弹窗，未领取/签名/广播；真实钱包兼容、最终汇总、公开gRPC/转移/故障与同C all/CI仍待完成。
+
+- **2026-11-03 固定CW/TN汇总门已实现（未取得最终验收）：**新增`scripts/cd/verify_web3_extension.py`，固定CW-01～16/TN-01～08，不接受调用者的required/PASS列表；校验器及依赖必须存在于Git C且字节相同。复用原默认CI上传来源、全部payload字节、M0～M8、原Go JSON/exit/必需子例、真实PG dump/restore控制、完整20项Forge钱包suite、两模式26项本地浏览器合同及原CI静态gRPC客户端。缺失、错误候选、SKIP、原进程失败、改写输出均不能整体PASS；C0因尚无本工具/当前源码而严格BLOCKED。没有把开发专项或历史CI升级为新C验收。
+- **公开链历史复算与运行身份：**`phase_evidence.py`严格消费原两个RPC的有序响应及completedAt，重新计算四个资产阶段及PENDING，不靠报告自带PASS/状态裁决；最终再查询当前canonical交易和**原safe块**持仓，不重置撤销时间、不重发六笔交易。`wallet_runtime.py`只读核对原CI准备来源、真实10容器/镜像、profile环境、网络、仅loopback端口、1CPU/1GiB应用预算、只读H5/代理挂载及Git C完整H5集合；当前app启动时间必须早于钱包观察。公共控制门绑定已独立核验的原SIWE会话、原JWT/响应bytes、同一媒体HTTP/gRPC哈希、转移safe时间与连续活跃身份；过期/换session、伪依赖成功或半登录刷新不能代替反例。
+- **本批验证与保留边界：**`20261103T120529Z-original-phase-replay/`4项原响应重放+10项oracle专项exit0；`20261103T121212Z-public-controls-gate/`3项公共控制+4项重放及未冻结候选拒绝exit0；最终`20261103T122205Z-web3-extension-final-gate-contract/`3运行身份+5汇总拒绝+3公开控制+4重放+10oracle共25项及7份workflow语法检查均原始exit0，已接既有默认unit/CI入口，无新workflow/重型all/付费提额。首轮runtime测试夹具把被修改值与预期引用同一dict导致反例未隔离（`20261103T122102Z-web3-extension-runtime-contract/`exit1），改为独立原值后最终通过；原失败保留。全部是未冻结开发快照的校验器控制测试；真实CW-15逐片RPC采集、公开转移/故障/reload采集、受控起栈和本人MetaMask操作仍未完成，不能据此勾选W3-05～09或声称公开成功。
+
+- **汇总状态分类补正：**RPC的HTTP/传输/JSON-RPC依赖拒绝现与矛盾链事实分型；缺两个RPC输入、原预检余额/网络阻塞、超时等归BLOCKED，错候选/篡改/语义矛盾仍FAIL，均非零。`20261103T122653Z-web3-extension-dependency-status/`最终6网络+3运行身份+6汇总+3公开控制+4原响应重放+10oracle+4准备合同共36项及7份workflow语法检查原始exit0；未访问真实钱包、未公开广播、未新增CI。当时下一步固定为补真实CW-15采集和公开controls/起栈采集，完成相关实栈诊断后再冻结C，不为等待本人钱包条件反复运行all。
+
+- **2026-11-03 CW-15真实HTTP/gRPC逐片RPC测量已补齐开发出口：**在已有真实Redis+Anvil生命周期组内新增required子例`TestCWLoginLifecycle_RealRedisAnvil/SegmentProofCost`，默认既有chain及CI入口执行一次，不新增job。复用真实C签名准入与Redis会话，正式PlaybackAuthorizer对真实N持仓作safe锚定授权、IssueCapability签发；HTTP走正式PlaybackTokenAuth→JWT→NFTGate，gRPC通过正式SetupGRPCServer及generated client，经真实loopback连接，分别100次取同一份FFmpeg实际生成的TS并逐次比对字节。仅媒体存储采用专属文件夹具，**不以此替代CW-01的真实worker/MinIO/浏览器或性能容量验收**。
+- **本轮原始测量及边界：**`20261103T124838Z-cw-segment-http-grpc/`保留Go JSON、Go exit0、lint exit0及`wallet-segment-rpc.json`；100 HTTP+100 gRPC在原能力有效期内合计483ms，取片窗口实际新增RPC为0；原准入观察到3次有效1271（探针+两实例准入），随后refresh新增1次有效1271。required会话组3项均通过、race/lint/独立组件语义门/7项汇总反例/20项required checker/7份workflow语法均通过，原始outer0；外层`20261103T124837Z-cw-segment-http-grpc-controller/`及专属Redis/container/network清理均0。计时只反映受限Docker开发夹具，不作为生产吞吐量或容量主张。
+- **测量来源和失败保留：**RPC代理观测实际转发请求与返回，eth_call仅保存selector、to/gas/块号、原输入字节数及SHA256，完整签名/JWT不进报告。汇总强制100 HTTP及100 gRPC、C与safe块、严格ABI magic、gas≤500000、输入≤8292 bytes、原lease与同一能力摘要，并拒绝DEVELOPMENT作为冻结C证据。已核对本轮报告sourceSHA与当前及原快照Go文件一致。早期`20261103T123708Z-cw-segment-proof-cost/`因当前go-ethereum使用input字段而计数器只看data失败；修复双字段后，`20261103T123931Z-cw-segment-input-field/`Go通过但gocritic拒绝带分隔符的filepath.Join参数；该写法修正后的100 HTTP轮`20261103T124259Z-cw-segment-proof-final/`Go/race/lint/语义门/59 shell均通过，组合命令末尾脚本名拼错保留outer2，正确校验单独在`20261103T124645Z-cw-segment-gate-closeout/`exit0，未为此重复Go。随后为补齐gRPC新增路径才执行上述最终200请求轮，取得完整outer0。没有删除原失败、放宽规则、跑all/新CI或公开广播。
+
+- **2026-11-03受控起栈入口已实现（本轮未实际公开起栈）：**`launch_stack.py`复核源程序与依赖字节均属于Git C、默认CI原producer及全部payload、原archive/镜像、原合约编译包/gRPC客户端、配置及完整H5/代理后才启动。只接受本机unix Docker daemon；既有健康同C项目直接复用，无新pull/up/restart；无容器但有旧network/volume时保留资源并BLOCKED。新项目先真实双RPC余额/网络预检，保留原JSON/exit；只补拉缺失的固定digest linux/amd64基础镜像，app仅复用原CI镜像；一次`up --no-build --pull never --wait --wait-timeout 180`后独立检查实际容器。失败保留原命令exit和资源，不自动重建/删除。kernel flock避免并发拉起；清除外部W3/SEPOLIA/COMPOSE变量、禁用隐含.env，启动前检查原只读挂载，避免加载另一栈。`20261103T131047Z-sepolia-stack-launch-contract/`7启动+3运行身份+4准备+5真实Compose解析+7汇总检查及7份workflow语法原始exit0；合成Docker返回只用于控制测试，不证明公开app已启动。跨Docker存储驱动的原CI镜像载入身份映射及真实w3sepolia运行仍须在最终验收前核实，不修改原producer树以迁就本机。
+- **已修复会越界初始化、拖慢启动的实际代码：**原`NewWeb3Service`无条件AddChain11155111/80002/31337/-1/-2，而ApplyChainConfigs只覆盖条目、不移除内建目录；单改Sepolia YAML仍会初始化Polygon/Anvil/Solana。新增受限bootstrap：w3sepolia只初始化指定11155111、失败直接拒绝构造且不切其他网络；worker拒绝Web3服务初始化，两个受限profile不建Solana verifier；旧profile保留原默认链行为。`20261103T131911Z-sepolia-bootstrap-red/`原始exit1，4专项中3 FAIL/1 PASS复现；修复后`20261103T132336Z-sepolia-bootstrap-green/`固定required wallet-unit从50增至54函数，54顶层/含子例97 PASS、0 FAIL/SKIP，race原Go0、独立required门0、service lint0、outer0；另含启动/运行/汇总控制及7份workflow通过。已核对当前三份Go文件与原快照一致。此为开发组件回归，不是新C完整unit覆盖率/all/CI或公开运行证明。
+- **完整入口已接汇总，不再永久只报准备状态：**`make verify-web3-testnet`设置W3_EVIDENCE_DIR时转固定CW/TN只读汇总；外部候选、A/B及24项完整矩阵/组件/原child exit必须一致才能返回PASS WITH BOUNDARIES。无证据目录仍维持准备边界、单独preflight最多NETWORK_READY；不替用户写批准或领取记录。`20261103T133310Z-sepolia-launch-and-final-entry/`7启动+3运行+4准备+5Compose+15入口+7汇总及7份workflow全部原始exit0。入口正例是合成管道控制，不能当真实本人操作/公开验收。汇总现要求外部controller参数，不从报告自选A；收款人亦在下一条按本轮输入固定。
+- **用户已确认接收地址B：**`0x853599CcC0a64F6cA4212AB4dEA5259Eba33942A`，本轮已作EIP-55与非零/不同A格式校验；只作为专用测试NFT接收方，不宣称B控制权/余额已证实。prepare/launch/最终汇总统一外部`--recipient`或W3_SEPOLIA_RECIPIENT；资产页从配置预填并固定B，部署前即拒绝替换，公开每阶段原账本目标亦必须与外部B一致。`20261103T135719Z-sepolia-recipient-binding/`12资产入口+7启动+3运行+4准备+15完整入口+7汇总及7份workflow原始exit0，含更换收款人不得eth_sendTransaction的反例。未领水、签名、公开广播或触发新CI。公开controls原始采集、原CI镜像本机映射核实、实际公开运行、冻结C及同C完整CI仍待完成。
+- **原CI镜像本机映射核实已完成（2026-11-03）：**`20261103T141600Z-historical-image-mapping/`对d0f05152三镜像（api-gateway/monolith/transcoder）比对canonical config ID声明与本机/原daemon实际ID：三者daemon ID与原dind记录一致、metadataMatch全true，`status=DECLARED_MAPPING_MATCH`；原编译归档本机不可得（`originalArchiveAvailable:false`、`archiveVerified:false`）如实记录，未以本地重建或未验证映射冒充等价。
+- **钱包gRPC私有文件桥开发出口：**新增`test/walletgrpc`（acceptance-only桥：凭据经私有文件进出、stdout只有方法与状态码、不签名不写链、拒绝路径逃逸/符号链接/非私有输入），`scripts/h5-demo-acceptance/lib/wallet_file_rpc.mjs`文件协议驱动它对真实栈gRPC verify。首跑`20261103T142942Z-wallet-grpc-file-server/`exit1保留；修复后`20261103T143529Z-wallet-grpc-file-server-green/`3测试race+lint原始exit0；`20261103T144252Z-wallet-file-rpc-live-correct-status/`对monolith与api-gateway各以单进程100次故意无效令牌verify，全部`Unauthenticated`且进程/事件计数一致，scope=`DEVELOPMENT_INVALID_TOKEN_RPC_ONLY`、`completeAcceptance:false`，同批3+7+20测试与7份workflow语法均原始exit0。桥是冻结后公开采样的传输工具，不构成任何钱包准入或公开验收。
+- **公开controls采样工具与语义门补齐（接管会话收尾中断点续作）：**`scripts/wallet-testnet/observe_controls.py`（仅对已验证既有栈观测；先以`git show 候选:path`核对收集器字节属于冻结候选，再按eoa/contract phase跑原`assert_sepolia_browser.mjs`并只读观测公共控制）；`scripts/h5-demo-acceptance/wallet-sepolia-controls.mjs`（无签名、无注入、无审批点击的浏览器观测器，媒体/凭据只进原始字节journal）；`scripts/h5-demo-acceptance/lib/wallet_public_controls.mjs`（SHA256凭证/响应journal，超预算即拒）；`assert_public_controls.py`新增`playback_timeline`（循环推进≥80%墙钟、帧计数单调、拒绝跳time/加速/自然结束/用户暂停/依赖错误冒充撤销，停止点必须为safe窗口内`authorization-ended`）并把live媒体样本钉在safe±5s；`verify_web3_extension.py`的FROZEN清单纳入上述收集器并把账本`transferStartedAt`传入语义门；`transaction_oracle.py`读链节奏10s→2s（0.5 req/s/provider）避免错过safe前live媒体基线，输出补`lastOperationCreatedAtMs`。`20261103T150903Z-w3-public-controls-dev-gate/`（接管会话）：5文件AST+2文件node语法、test_public_controls 3+test_web3_extension 7+test_wallet_transaction_oracle 10+test_assert_required_tests 20、node 3+8+12及7份workflow语法全原始exit0。收集器与语义门仍为冻结后W3-08工具的开发出口：未运行真实收集、未访问钱包、未广播、未触发CI；实际公开路径本人操作仍BLOCKED（W3-08）。
+- **冻结与首次unit修正（2026-11-03）：**首次冻结提交曾按`git add -A`生成，`scripts/verify-docker.sh` unit阶段`test_h5_sepolia_fixture.cjs`以`MODULE_NOT_FOUND ../../h5-demo/testnet/index.html`失败（11/12，原始exit1证据`/tmp/sg-w3-verify-artifacts-63feb853/`）：`.gitignore`全局`*.html`把该页排除在提交外，而`h5-demo/*.html`既有页面均为历史强加跟踪。修正为`git add -f h5-demo/testnet/index.html`并入冻结提交（amend保持一次集成提交），与已验证快照字节一致。另两次外层启动失败为环境残留：陈旧`streamgate-verify-mutex`网络锁与上轮execution证据目录，分别清除/换新目录，未触及候选内容。
+- **unit第二次失败与run_unit_tests流式修正（2026-11-04）：**63feb853首验（`/tmp/sg-w3-verify-artifacts-63feb853/`）unit在`go vet`解析模块时以direct VCS访问golang.org/github.com超时/断流（GnuTLS -110、i/o timeout；本机出口对proxy.golang.org/github.com均不可达，goproxy.cn 53ms可达）——环境性，按脚本文档化旋钮`VERIFY_GOPROXY=https://goproxy.cn,direct`重跑（容器env三层核实生效），go vet/build/golangci-lint（0 issues，C0复杂度败点实锤通过）全过。第二次失败（`/tmp/sg-w3-verify-artifacts-04e08b26-r2/`，7045 pass/104 skip/0 fail、race+coverage执行完）：`assert_required_tests --suite wallet-unit-tests`报3个`package did not start and complete successfully`（docs/migrations/serviceerrors）。根因：`go test -json`对无测试文件包发出包级`skip`收尾，而既有checker（CI多suite共用，本候选未改动）要求每个入流包以`pass`完成——新增的`run_unit_tests.sh`首次把`ci-packages.sh`全量清单（含无测试包）喂入该checker，任何含无测试包的仓库都结构性无法通过。修正保持闸门语义不放宽：`run_unit_tests.sh`改用`go list -f '{{if or .TestGoFiles .XTestGoFiles}}'`只把带测试的包流入gate（74/77，三个无测试包排除，空清单显式非零），既有`assert_required_tests.py`与`ci-packages.sh`零改动。TDD：`test_unit_evidence_capture.py`新增args感知假go夹具与`test_no_test_files_package_is_streamed_out_of_the_required_gate`（旧脚本红：docs包级skip入流；修正后5/5绿），真实树过滤验证74包/0残留。checker对未过滤原始事件复现3失败保留。
+- **chain阶段同源缺口修正（2026-11-04）：**unit PASS后chain在`== anvil integration + web3 service tests ==`步以同类`GATE FAILURE: pkg/service/serviceerrors`失败（`/tmp/sg-w3-verify-artifacts-138cf9f4/logs/chain.log`；forge build/test、oracle解码`LOCAL_ORACLE_DECODER: 6 canonical local transactions, 4 safe states`及该步checker的`required tests: 1 passed`均先通过）。审查全部`assert_required_tests`消费方：CI anvil job（`./test/integration/web3/...`子包全有测试）、`run_wallet_session_tests.sh`/`durability_tests.sh`（显式单包）、CI既有ops/load/perf套件均无此泄露；唯verify-docker chain步`./pkg/service/...`拖入无测试的serviceerrors。修正：chain步同run_unit_tests方案——`go list -tags=anvil -f '{{if or .TestGoFiles .XTestGoFiles}}'`过滤后流式（12包：serviceerrors剔除，test/integration根包的anvil-tagged测试保留，`web3/fork`本就被`//go:build fork`排除语义不变），空清单显式非零；checker与包集语义零改动。真实树验证exit0、0残留。
 
 ### 10.1 目标、范围与不做项
 
@@ -4850,11 +4906,11 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | 角色/资源 | 本次输入与状态 | 使用条件 |
 |---|---|---|
 | 候选操作账户 A | 用户提供 `0x732E24a0BcAb6fA41b1C9148BCF1135587bC76c1`，**READ_ONLY_PARTIAL**：2026-11-02T13:56Z PublicNode chain=11155111、safe余额0.141763346860793075 ETH、code=0x；尚未证明控制权 | 浏览器连接账户一致、普通 EOA 类型符合计划，并完成真实签名；不是把地址字符串当控制权证明 |
-| faucet | 用户提供 [Google Cloud Web3 Faucet](https://cloud.google.com/application/web3/faucet)；只读入口需登录，Sepolia页面显示每次0.05 ETH，未领取 | 本人使用已有 Google 账号及目标网络领取；配额、到账量和可用性以当时页面/链上结果为准，不在计划中虚构 |
-| 受让地址 B | 待准备并记录的独立测试地址，不能等于 A/C/零地址 | 本轮可只接收资产，不必向 B 转入测试 ETH；需要转回时另确认 B 控制权 |
+| faucet | 用户确认MetaMask及 [Google Ethereum Sepolia Faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)，本轮未领取；先以当前余额和费用预算判定是否需要领取 | 本人使用已有 Google 账号及目标网络领取；配额、到账量和可用性以当时页面/链上结果为准，不在计划中虚构 |
+| 受让地址 B | 用户确认 `0x853599CcC0a64F6cA4212AB4dEA5259Eba33942A`，EIP-55格式及不同A已校验；部署后还须不同C/N | 只接收本轮专用测试NFT，无需转入测试ETH；未证明B控制权，需要转回时另确认 |
 | 合约钱包 C | 待用本轮固定合约字节码部署，owner=A | 地址从 canonical receipt 取得，链、创建交易与 runtime codehash 入 manifest |
 | NFT N | 一份专用 Sepolia DemoNFT fixture | 与本地31337及其他项目合约分开；mint仅作测试网fixture，不启用后台开发代签 |
-| RPC | 至少两个独立配置的 HTTPS 端点尚未全部合格：PublicNode本轮地址只读成功，dRPC batch返回HTTP400；并非完整preflight通过 | 主/备 chain ID、固定网络 genesis 身份、safe/finalized 与历史 eth_call 能力通过预检；不满足则测试网部分 BLOCKED |
+| RPC | 2026-11-02T14:58Z Tenderly/1RPC双HTTPS只读资格预检通过；PublicNode genesis裁剪、dRPC免费端拒绝，不作为当前主备；执行前刷新 | 主/备 chain ID、固定网络 genesis 身份、safe/finalized 与历史 eth_call 能力通过预检；不满足则测试网部分 BLOCKED |
 | 应用/媒体 | 本机 Docker、现有 monolith/api-gateway 与真实媒体 fixture | 复用本轮同一候选镜像；测试网 overlay 不启动/替代为 Anvil、不使用本地测试私钥 |
 
 **六步业务流程（两个部署模式共用同一资产变化）：**
@@ -4886,7 +4942,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | [ ] W3-03 / 02 | `auth.go` / `auth_wallet.go`、附加session proof store、`pkg/core/config/`及HTTP/gRPC授权接线；60s租期、续验、绝对会话期限、能力exp约束、原子refresh | 过期宽限只作为重新验证入口，不跳过签名/epoch/绝对期限；错误刷新不能给2h或丢失C/chain/kind；owner变更与并发旧结果不能复活会话；重启/恢复/存储故障拒绝正确 |
 | [ ] W3-04 / 03 | 现有`h5-demo/`登录、钱包与播放器；必要时补OpenAPI响应字段。明确显示A、C、链、资格、授权租期、交易待确认与错误状态 | 真实provider登录两类钱包；30s左右续期可连续播放；切换账户/网络清除旧登录与播放器状态；拒签、过期、无资格、依赖错误不混淆；无后端代签 |
 | [ ] W3-05 / 01–04 | 将CW必需用例接入现有Docker unit/chain/durability/media；复用fullchain与浏览器客户端，增加稳定case ID | §10.6 CW矩阵全部有实际断言及原始退出；monolith/api-gateway、HTTP/gRPC分别覆盖；历史必需场景不删除、不依靠硬编码PASS数量容错 |
-| [x] W3-06 / 00；与本地实现分开准备 | 测试网overlay、部署manifest、环境映射、严格preflight与真实H5检查工具；新增专用测试网验收入口 | 不启动Anvil、不读取31337默认部署、不启用开发签名/后台mint；两RPC/网络/合约身份/费用预检严格失败；缺条件不能跳过为绿。准备工作可先完成，真实广播仍等本轮候选冻结（工具层出口见执行进展2026-11-03条目；真实广播/领取等本人操作仍属W3-08，不因本勾选视为公开路径已验） |
+| [ ] W3-06 / 00；与本地实现分开准备 | 测试网overlay、部署manifest、环境映射、严格preflight与真实H5检查工具；新增专用测试网验收入口 | 不启动Anvil、不读取31337默认部署、不启用开发签名/后台mint；两RPC/网络/合约身份/费用预检严格失败；缺条件不能跳过为绿。准备工作可先完成，真实广播仍等本轮候选冻结（工具层出口见执行进展2026-11-03条目；真实广播/领取等本人操作仍属W3-08，不因本勾选视为公开路径已验） |
 | [ ] W3-07 / 05+06 | 将必要代码、合约、H5、配置与验证器一次集成，冻结C；复用现有CI原始构建、扫描、归档与GHCR证据链，执行同C完整all | 原M0～M8、R01～R12及新增确定性CW用例全部通过；原始outer exit0、必需CI job成功、源码/镜像/编译归档一致。只执行这一轮完整all；有同SHA有效run则接续，不再另开本机all |
 | [ ] W3-08 / 07+公开条件齐备 | 使用C的原镜像和合约构建归档，执行§10.4的EOA/C两条公开用户路径及TN矩阵；每种模式独立留证 | 必需TN案例无fail/skip；真实浏览器签名记录、canonical交易/持仓oracle、媒体与拒绝证据同C。用户操作、Google登录、资金或RPC未就绪则明确BLOCKED，不伪造人工完成 |
 | [ ] W3-09 / 07+08 | 实现/运行只读扩展汇总验证器；更新本节结果、README、简历及学习手册相关边界，清理本轮专用资源 | 确定性CI、公开链证据与本人钱包操作三类均满足；最终状态逐项列PASS/FAIL/BLOCKED。文档证据提交E只记录C，不因回填再生成代码候选或重跑CI |
@@ -4944,7 +5000,7 @@ VERIFY_PROJECT=sg-w3-targeted VERIFY_STAGE=unit,chain,durability,media make veri
 
 上面阶段组合应在必要局部回归已通过后执行，不作为每次保存文件后的默认动作。`sg-w3-targeted` 若已有有效执行则先核对，不并发覆盖工件。W3-07 的完整all由同候选既有CI acceptance入口执行，不在本机先重复一整轮。
 
-**拟新增接口（尚不存在，W3-05/06/09负责实现）：**
+**已实现的专项/准备接口与仍待实现的最终汇总接口：**
 
 ```bash
 # 本地真实合约钱包专项；不接公共网络
@@ -4956,11 +5012,69 @@ make verify-web3-testnet-preflight
 # 只读验收/浏览器协作入口；不自动领取faucet或自行批准钱包交易
 make verify-web3-testnet
 
+
+# 已实现：从成功同C默认CI的原始payload准备本机Sepolia栈；不启动/广播。
+# 路径/身份必须指向真实下载工件，不填示例SHA或历史run冒充本轮。
+python3 scripts/wallet-testnet/prepare_stack.py \
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
+  --recipient "$W3_SEPOLIA_RECIPIENT" \
+  --repository "$W3_REPOSITORY" --ci-run "$W3_CI_RUN_ID" \
+  --producer "$W3_PRODUCER_MANIFEST" --producer-root "$W3_PRODUCER_ROOT" \
+  --ci-root "$W3_CI_ROOT" --build-identity "$W3_BUILD_IDENTITY" \
+  --directory "$W3_STACK_DIR"
+
+
+# 已实现：受控启动/复用；首次启动前保存真实network预检及原始exit。
+# 仅本机独立项目、同C原产物；不会签名、领取或广播。
+python3 scripts/wallet-testnet/launch_stack.py \
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
+  --recipient "$W3_SEPOLIA_RECIPIENT" \
+  --repository "$W3_REPOSITORY" --ci-run "$W3_CI_RUN_ID" \
+  --producer "$W3_PRODUCER_MANIFEST" --producer-root "$W3_PRODUCER_ROOT" \
+  --ci-root "$W3_CI_ROOT" --build-identity "$W3_BUILD_IDENTITY" \
+  --directory "$W3_STACK_DIR" --output "$W3_LAUNCH_REPORT"
+
+# 已实现：每个公开资产状态保留一份新文件；PHASE依次为eoa-held /
+# eoa-transferred / contract-held / contract-transferred。仅只读，不广播。
+W3_SEPOLIA_RPC_PRIMARY="$SEPOLIA_RPC_URL" \
+W3_SEPOLIA_RPC_FALLBACK="$SEPOLIA_RPC_FALLBACK_URL" \
+python3 scripts/wallet-testnet/transaction_oracle.py \
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
+  --ledger "$W3_PHASE_LEDGER" --manifest "$W3_DEPLOYMENT_MANIFEST" \
+  --build-identity "$W3_BUILD_IDENTITY" --phase "$W3_PHASE" \
+  --wait-safe-seconds 1800 --output "$W3_PHASE_ORACLE"
+
+# 已实现：独立校验已观察的公开钱包阶段；MODE=monolith|api-gateway，
+# PHASE=eoa|contract|negative。不能据此关闭TN全矩阵。
+node scripts/cd/assert_sepolia_browser.mjs \
+  --candidate "$W3_CANDIDATE_SHA" --mode "$W3_MODE" --phase "$W3_BROWSER_PHASE" \
+  --controller "$W3_SEPOLIA_ADDRESS" --subject "$W3_PHASE_SUBJECT" \
+  --nft "$W3_NFT" --content "$W3_CONTENT_ID" --origin "$W3_H5_ORIGIN" \
+  --directory "$W3_REPORT_DIR" --exit-file "$W3_BROWSER_EXIT_FILE"
+
 # 最终只读汇总：校验同C原始all/CI、CW/TN案例、网络与人工记录
 : "${W3_CANDIDATE_SHA:?set frozen candidate SHA}" "${W3_EVIDENCE_DIR:?set evidence directory}"
 python3 scripts/cd/verify_web3_extension.py \
-  --candidate "$W3_CANDIDATE_SHA" --evidence "$W3_EVIDENCE_DIR"
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
+  --recipient "$W3_SEPOLIA_RECIPIENT" --evidence "$W3_EVIDENCE_DIR"
 ```
+
+**当前未完成接口边界：**三个Make专项/预检入口、准备脚本、交易oracle、公开阶段独立证据门和固定24项最终汇总工具均已实现；当前未冻结开发树仅取得校验器专项结果，不是完整候选验收。`wallet-segment-rpc.json`真实100 HTTP+100 gRPC采集已接现有chain入口并取得开发组件证据；仍待冻结C后的原CI文件，开发报告不得冒充。受控起栈入口已实现并取得控制测试；公开controls原始观察采集仍未完成，原CI镜像本机映射及实际公开profile运行尚需核实；没有真实文件时必须BLOCKED。后续依次补公开采集、核对本机原CI产物载入、冻结C、执行一次同C默认CI all、复用其原镜像/编译包、刷新双RPC预检、本人MetaMask签名/六笔交易及双模式完整观察。缺同C CI时资产页保持BLOCKED，不能用演示配置解锁正式验收。
+最终汇总的`--evidence`目录下提供`extension.json`（只选择原始路径，不允许status/passed/required/completeAcceptance）。路径全部相对于该目录、不能用绝对路径、`..`或symlink；CI原payload置于独立子目录，公开准备与报告不得写入/污染原producer树。选择字段固定为：
+
+| 字段 | 指向原始证据 |
+|---|---|
+| `schemaVersion=1`、`candidateSHA`、`controller`、`recipient` | 最终C完整40位SHA与本轮A/B，须与外部参数一致；不拿C0或地址字符串代替当前控制权 |
+| `repository`、`ciRunID`、`producer`、`producerRoot`、`ciRoot` | 同C默认CI成功run、原传输清单及完整payload/capsule |
+| `buildIdentity` | `ciRoot`内部原CI `wallet-build/build-identity.json`，不可指向本地重编译索引 |
+| `stackDirectory` | 由prepare生成的独立目录，含0600环境输入、原H5/代理/Compose；最终核验时该栈仍须可读且运行 |
+| `networkReport`、`networkExit`、`deploymentManifest` | 写交易前原双RPC网络/余额预算预检及原始exit、专用部署清单/原ABI字节包 |
+| `chainPhases` | 四个键`eoa-held`/`eoa-transferred`/`contract-held`/`contract-transferred`，每项`ledger`/`report`/`exit`；各阶段保留当时原账本，禁止事后拿最终6笔账本替换前序3/4/5笔 |
+| `pending` | `phase`/`ledger`/`report`/`exit`；必须能从原双RPC读数复算尚未safe的真实交易，exit2且原hash不变，不能伪造延迟或新增交易 |
+| `browserModes.monolith`、`browserModes.api-gateway` | 各自`origin`/`content`；`eoa`/`contract`/`negative`分别选择`directory`/`exit`原观察；`controls`选择`report`/`private`/`exit`原控制观察 |
+
+公共controls的原始私有凭据及响应bytes必须与报告摘要吻合；两类转移分别关联原oracle，旧能力在safe时仍有效、两传输新manifest拒绝、旧媒体≤70s拒绝且持续身份有效，并包含依赖503/Unavailable恢复及真实reload状态。其采集器尚未完成，**不能手填PASS或合成凭据满足正式验收**。公开真实签名、JWT仅保存在私有文件，汇总错误不回显原值。最终矩阵通过仍须完成W3-09文档边界与本轮资源清理后，才能关闭本节。
+
 
 - 统一使用 `SEPOLIA_RPC_URL` / `SEPOLIA_RPC_FALLBACK_URL` 作新profile的输入，并显式映射兼容旧诊断所用 `SEPOLIA_RPC`；不让两套变量指向不同链。文档只写变量名；值经环境/本机未追踪配置注入，不出现在CLI参数或共享日志。
 - 新测试网profile的具体配置键在W3-00/06落定，至少包括chain、两RPC、安全tag、SIWE origin、部署manifest、证明/授权预算、交易费用与数量上限。localhost两个H5 origin按真实部署分别绑定，不能硬编码 `streamgate.io`，也不能反射任意Host作为可信域。
@@ -4974,9 +5088,9 @@ python3 scripts/cd/verify_web3_extension.py \
 
 | 条件 | 当前状态 | 未满足时的处理 |
 |---|---|---|
-| Google账号及faucet领取 | 入口已知，未登录/领取 | 保留本人操作待办；本地开发可继续，不代填到账 |
-| 提供地址的网络、账户类型、余额与签名控制权 | PublicNode单端点safe余额/code已读；双RPC资格与真实签名控制权待预检 | 不猜测、不索取明文私钥；公开阶段BLOCKED，必要时由本人更换合适的测试账户 |
-| 两个合格RPC及免费配额 | 待确认 | 验证器明确失败/阻塞；不使用单端点临时放行，不购买配额，不把协议要求改成latest |
+| Google账号及faucet领取 | 已确认MetaMask + Ethereum Sepolia精确入口，本轮未领取 | 当前余额与费用预算满足时无需重复领水；Google登录/领取由本人完成，不代填到账 |
+| 提供地址的网络、账户类型、余额与签名控制权 | 2026-11-02双RPC只读资格通过，A当时余额0.141763346860793075 ETH/code=0x；真实控制权未证，执行前刷新 | 不猜测、不索取明文私钥；公开阶段BLOCKED，必要时由本人更换合适的测试账户 |
+| 两个合格RPC及免费配额 | Tenderly/1RPC历史只读资格通过；当前可用性和免费限额执行前重新核实 | 验证器明确失败/阻塞；不使用单端点临时放行，不购买配额，不把协议要求改成latest |
 | 本机容量与已有CI/其他项目栈 | 执行前实时核对 | 有有效长跑则保留并等待；不重启/取消有效run，不清理ChainPulse资源；Mac保持开盖 |
 | 真实浏览器钱包签名/广播 | 尚未执行 | 由本人在钱包内完成；自动化可验证结果，不伪造provider响应、签名批准或“本人已确认” |
 
@@ -4996,4 +5110,4 @@ python3 scripts/cd/verify_web3_extension.py \
 
 **完成规则：**W3-00～09出口及CW/TN必需矩阵全部满足，才将扩展标为PASS WITH BOUNDARIES；仅本地绿、仅公开EOA绿、仅1271 helper测试绿或仅CI绿，均不能关闭本节。本人尚未签名、资金/RPC不满足时，保留明确BLOCKED项，不再启动新的完整验收来等待它们。
 
-**协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户提供的Google Cloud faucet](https://cloud.google.com/application/web3/faucet)。6492与7702用于明确拒绝边界，不作为本轮实施功能。
+**协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户确认的Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。6492与7702用于明确拒绝边界，不作为本轮实施功能。

@@ -45,12 +45,15 @@ func DefaultWeb3Deps(cfg *config.Config, logger *zap.Logger) Web3Deps {
 	if len(cfg.Web3.Chains) > 0 {
 		web3.ApplyChainConfigs(cfg.Web3.Chains)
 	}
-	return Web3Deps{
+	deps := Web3Deps{
 		ChainManager: mcm,
 		SigVerifier:  web3.NewSignatureVerifier(logger),
-		SolanaVerif:  web3.NewSolanaVerifier(logger, cfg.Web3.SolanaRPC),
 		EIP712Verif:  web3.NewEIP712Verifier(logger.Named("eip712")),
 	}
+	if cfg.Environment != "w3sepolia" && cfg.Environment != "w3sepolia-worker" {
+		deps.SolanaVerif = web3.NewSolanaVerifier(logger, cfg.Web3.SolanaRPC)
+	}
+	return deps
 }
 
 // Web3Option customises Web3Service construction.
@@ -174,27 +177,8 @@ func NewWeb3Service(deps Web3Deps, cfg *config.Config, logger *zap.Logger, opts 
 		opt(service)
 	}
 
-	// Initialize primary chain (Ethereum)
-	if err := service.multiChainManager.AddChain(11155111); err != nil {
-		logger.Warn("Failed to add Ethereum Sepolia", zap.Error(err))
-	}
-
-	// Initialize Polygon testnet
-	if err := service.multiChainManager.AddChain(80002); err != nil {
-		logger.Warn("Failed to add Polygon Amoy", zap.Error(err))
-	}
-
-	// Initialize Anvil local (dev only)
-	if err := service.multiChainManager.AddChain(31337); err != nil {
-		logger.Warn("Failed to add Anvil local chain", zap.Error(err))
-	}
-
-	// Initialize Solana chains
-	if err := service.multiChainManager.AddChain(-1); err != nil {
-		logger.Warn("Failed to add Solana Mainnet", zap.Error(err))
-	}
-	if err := service.multiChainManager.AddChain(-2); err != nil {
-		logger.Warn("Failed to add Solana Devnet", zap.Error(err))
+	if err := initializeWeb3Chains(cfg, service.multiChainManager, logger); err != nil {
+		return nil, err
 	}
 
 	// Apply RPC rate limiter if configured

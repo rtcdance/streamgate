@@ -190,6 +190,8 @@ services:
       - STREAMGATE_NATS_URL=nats://nats:4222
       - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
+      - STREAMGATE_SIWE_DOMAIN=${VERIFY_SIWE_DOMAIN:-localhost}
+      - STREAMGATE_SIWE_URI=${VERIFY_SIWE_URI:-http://localhost/login}
       - STREAMGATE_ETH_RPC=http://anvil:8545
       # The NFT event indexer subscribes over WebSocket ONLY when this is set; the
       # fault stage turns it on so the real log subscription can be faulted (gap
@@ -276,6 +278,8 @@ services:
       - STREAMGATE_CONSUL_PORT=8500
       - STREAMGATE_TRANSCODING_ENABLED=false
       - STREAMGATE_CORS_ORIGINS=${VERIFY_CORS_ORIGINS:-}
+      - STREAMGATE_SIWE_DOMAIN=${VERIFY_SIWE_DOMAIN:-localhost}
+      - STREAMGATE_SIWE_URI=${VERIFY_SIWE_URI:-http://localhost/login}
       - STREAMGATE_ETH_RPC=http://anvil:8545
       # See the monolith's note: the log indexer needs a WS endpoint.
       - STREAMGATE_ETH_WS_URL=${VERIFY_ETH_WS_URL:-}

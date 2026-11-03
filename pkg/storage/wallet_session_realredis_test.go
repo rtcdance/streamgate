@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,7 +27,7 @@ func realRedisAddr(t *testing.T) string {
 	return addr
 }
 
-func newRealWalletSessionStores(t *testing.T) (*redis.Client, *redis.Client, *RedisSessionStore, *RedisWalletSessionStore, *RedisSessionStore, *RedisWalletSessionStore) {
+func newRealWalletSessionStores(t *testing.T) (client *redis.Client, sessions *RedisSessionStore, proof, peerProof *RedisWalletSessionStore) {
 	t.Helper()
 	addr := realRedisAddr(t)
 	newClient := func() *redis.Client {
@@ -40,11 +41,9 @@ func newRealWalletSessionStores(t *testing.T) (*redis.Client, *redis.Client, *Re
 	require.NoError(t, err)
 	proofs1, err := NewRedisWalletSessionStore(client1)
 	require.NoError(t, err)
-	sessions2, err := NewRedisSessionStore(client2)
-	require.NoError(t, err)
 	proofs2, err := NewRedisWalletSessionStore(client2)
 	require.NoError(t, err)
-	return client1, client2, sessions1, proofs1, sessions2, proofs2
+	return client1, sessions1, proofs1, proofs2
 }
 
 // TestWalletSession_RealRedisDurability proves the CW-12 storage semantics
@@ -53,9 +52,16 @@ func newRealWalletSessionStores(t *testing.T) (*redis.Client, *redis.Client, *Re
 // one-winner CAS renewal under real atomicity, immutable admission fields,
 // epoch interplay, and the fail-closed behavior after proof data loss.
 func TestWalletSession_RealRedisDurability(t *testing.T) {
-	client1, _, sessions1, proofs1, _, proofs2 := newRealWalletSessionStores(t)
+	client1, sessions1, proofs1, proofs2 := newRealWalletSessionStores(t)
 	ctx := context.Background()
 	record := walletSessionFixture()
+	record.SessionID = "wallet-durability-" + uuid.NewString()
+	freshID := record.SessionID + "-after-loss"
+	unrelatedKey := "wallet-durability-unrelated-" + uuid.NewString()
+	t.Cleanup(func() {
+		_ = client1.Del(context.Background(), sessionStorageKey(record.SessionID), walletSessionKey(record.SessionID), sessionStorageKey(freshID), walletSessionKey(freshID), unrelatedKey).Err()
+	})
+	require.NoError(t, client1.Set(ctx, unrelatedKey, "must-survive-proof-loss", time.Minute).Err())
 
 	// Creation on one client must be readable by an independent client — the
 	// "正常未失效记录能跨进程读取" requirement.
@@ -119,10 +125,13 @@ func TestWalletSession_RealRedisDurability(t *testing.T) {
 	require.Equal(t, int64(2), epoch)
 	require.ErrorIs(t, proofs2.CompareAndSwap(ctx, record, nextWalletSession(record, "stale-view")), ErrWalletSessionConflict)
 
-	// Proof data loss (restart semantics, emulated at the data layer by a full
-	// wipe): every dependent read and renewal must FAIL CLOSED — no fallback to
+	// Proof data loss (restart semantics, emulated at the data layer by deleting only this test
+	// session and proof): every dependent read and renewal must FAIL CLOSED — no fallback to
 	// an unproven session, no resurrection of the admitted record.
-	require.NoError(t, client1.FlushDB(ctx).Err())
+	require.NoError(t, client1.Del(ctx, sessionStorageKey(record.SessionID), walletSessionKey(record.SessionID)).Err())
+	untouched, err := client1.Get(ctx, unrelatedKey).Result()
+	require.NoError(t, err)
+	require.Equal(t, "must-survive-proof-loss", untouched)
 	_, err = proofs2.Load(ctx, record.SessionID)
 	require.Error(t, err)
 	require.ErrorIs(t, proofs1.CompareAndSwap(ctx, record, nextWalletSession(record, "after-loss")), ErrWalletSessionConflict)
@@ -130,7 +139,7 @@ func TestWalletSession_RealRedisDurability(t *testing.T) {
 	// A fresh admission after the loss is a NEW login, not a resurrection: the
 	// previous record's identity stays gone.
 	fresh := walletSessionFixture()
-	fresh.SessionID = "wallet-session-after-loss"
+	fresh.SessionID = freshID
 	fresh.CurrentJTI = "fresh-jti"
 	require.NoError(t, sessions1.Create(ctx, fresh.SessionID))
 	require.NoError(t, proofs1.Create(ctx, fresh))

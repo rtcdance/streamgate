@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import urllib.error
 
 sys.dont_write_bytecode = True
 SCRIPT = Path(__file__).resolve().parent.parent / 'wallet-testnet/network_preflight.py'
@@ -94,6 +96,21 @@ class NetworkPreflightTests(unittest.TestCase):
             self.assertFalse(report['walletControlVerified'])
             self.assertFalse(report['deploymentVerified'])
             self.assertFalse(report['completeAcceptance'])
+
+    def test_provider_outage_has_distinct_sanitized_dependency_error(self):
+        errors = [urllib.error.HTTPError('https://secret.example/credential', 503, 'secret-marker', {}, None),
+                  urllib.error.URLError('secret-marker')]
+        for error in errors:
+            rpc = network.ReadOnlyRPC('https://example.com', 0)
+            with mock.patch.object(network.urllib.request, 'urlopen', side_effect=error), self.assertRaises(network.RPCUnavailable) as caught:
+                rpc.call('eth_chainId', [])
+            self.assertNotIn('secret', str(caught.exception)); self.assertEqual(1, len(rpc.events))
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(dict(jsonrpc='2.0', id=1, error=dict(code=-32005, message='secret-marker'))).encode()
+        rpc = network.ReadOnlyRPC('https://example.com', 0)
+        with mock.patch.object(network.urllib.request, 'urlopen', return_value=response), self.assertRaises(network.RPCUnavailable) as caught:
+            rpc.call('eth_chainId', [])
+        self.assertNotIn('secret', str(caught.exception)); self.assertEqual(-32005, rpc.events[0]['rpcErrorCode'])
 
 
 if __name__ == '__main__':

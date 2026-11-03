@@ -1,154 +1,229 @@
-// Sepolia real-wallet browser checker (plan §10 W3-06 prep; real flows = W3-08).
-// Drives the real H5 in a headed browser while the USER performs every wallet
-// operation inside their own extension. This tool never signs, never approves,
-// never broadcasts and never injects a provider: it observes page state at
-// user-action gates and asserts the §10.6 TN expectations. Missing user
-// cooperation is recorded as BLOCKED, never as success.
-//
-// Env: W3_MODE (monolith|api-gateway), W3_H5_BASE, W3_REPORT_DIR,
-//      W3_EXPECTED_CHAIN_ID (default 11155111), W3_EXPECTED_SIWE_DOMAIN,
-//      W3_CONTROLLER (A), W3_SUBJECT_C (contract wallet login subject).
+// Observe a user-operated MetaMask phase in an existing H5 tab. Never sign,
+// approve, inject a provider, create a wallet context or broadcast a transaction.
+// Phase evidence does not replace canonical transfers, safe-time revocation,
+// real gRPC, RPC faults or the final TN-01..08 verifier.
 import { chromium } from 'playwright';
-import { assertLaunchable } from './lib/browser_preflight.mjs';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { settings, evmAddress, validateChallenge, validIdentity, validCapability, phaseVerified, capabilityFromManifest } from './lib/wallet_sepolia_contract.mjs';
+const require = createRequire(import.meta.url);
+const ethers = require('../../h5-demo/vendor/ethers.umd.min.js');
+const hash = (value) => createHash('sha256').update(value).digest('hex');
+const jwtClaims = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
+const report = { component: 'SEPOLIA_REAL_WALLET_BROWSER_PHASE', phase: process.env.W3_PHASE || 'eoa',
+    candidateSHA: process.env.W3_CANDIDATE_SHA || null, mode: process.env.W3_MODE || null,
+    testAdapter: 'EXISTING_METAMASK_CDP_READ_ONLY', publicWalletSignoff: false,
+    completeAcceptance: false, checks: [], errors: [], blockers: [], gates: [], admissions: [], media: [], samples: [], challenges: [], issues: [], refreshes: [] };
+let config, browser, page, onResponse, onError;
+const challenges = new Map(), admissions = new Map(), pending = new Set();
+const privateProofs = [];
+const observedCapabilities = new Set();
+const issuanceJobs = new Set();
+let challengeSequence = 0;
+let preserveExistingOutput = false;
+class Blocked extends Error {}
+const check = (id, ok, detail = {}) => {
+    report.checks.push({ id, ok: ok === true, detail });
+    if (!ok) throw new Error(`Required component check failed: ${id}`);
+    console.log(`PASS ${id}`);
+};
+const summarize = (s) => ({ at: Date.now(), tokenHash: s.token ? hash(s.token) : null, claims: s.claims,
+    identity: s.identity, wallet: s.wallet, time: s.time, frames: s.frames, paused: s.paused, playbackState: s.playbackState, videoError: s.videoError, authError: s.authError });
 
-const mode = process.env.W3_MODE;
-const base = process.env.W3_H5_BASE;
-const output = process.env.W3_REPORT_DIR;
-if (!['monolith', 'api-gateway'].includes(mode)) throw new Error('W3_MODE must be monolith or api-gateway');
-if (!base || !output) throw new Error('H5 base and report paths required');
-const expectedChain = Number(process.env.W3_EXPECTED_CHAIN_ID || '11155111');
-if (!Number.isInteger(expectedChain) || expectedChain === 31337) {
-    throw new Error('the Sepolia tool never runs against the local Anvil chain');
-}
-const controller = process.env.W3_CONTROLLER;
-const subjectC = process.env.W3_SUBJECT_C;
-mkdirSync(output, { recursive: true });
-
-const checks = [], errors = [], mediaResponses = [], gateLog = [];
-const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
-const claim = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
-function check(id, ok, detail = {}) {
-    checks.push({ id, ok, detail });
-    console.log(`${ok ? 'PASS' : 'FAIL'} ${mode} ${id}`);
-    return ok;
-}
-function blocked(id, detail = {}) {
-    checks.push({ id, ok: false, blocked: true, detail });
-    console.log(`BLOCKED ${mode} ${id}`);
+async function state() {
+    if (new URL(page.url()).origin !== config.origin) throw new Error('The selected H5 page navigated away');
+    const value = await page.evaluate(async () => {
+        const video = document.getElementById('video-player');
+        const provider = window.ethereum?.providers?.find((item) => item.isMetaMask) || (window.ethereum?.isMetaMask ? window.ethereum : null);
+        let wallet = null;
+        if (provider) wallet = { metaMask: true, accounts: await provider.request({ method: 'eth_accounts' }), chainId: Number(await provider.request({ method: 'eth_chainId' })) };
+        const stored = sessionStorage.getItem('streamgate_identity');
+        return { token: sessionStorage.getItem('streamgate_token'), identity: stored ? JSON.parse(stored) : null, wallet,
+            time: video?.currentTime || 0, frames: video?.getVideoPlaybackQuality?.().totalVideoFrames || 0, paused: video?.paused ?? true,
+            playbackState: document.getElementById('player-status')?.dataset.sgPlaybackState,
+            videoError: video?.error?.code || null, authError: document.getElementById('login-result')?.dataset.authError || null };
+    });
+    value.claims = value.token ? JSON.parse(Buffer.from(value.token.split('.')[1], 'base64url')) : null;
+    return value;
 }
 
-// Each gate pauses for one user operation and polls page state; the plan caps
-// every required state wait at 30 minutes (§10.4 budget).
-const USER_GATE_TIMEOUT_MS = Number(process.env.W3_USER_GATE_TIMEOUT_MS || '1800000');
-async function userGate(gate, readState, predicate) {
-    console.log(`\n=== USER ACTION REQUIRED (${gate.id}): ${gate.instruction}`);
-    const started = Date.now();
-    while (Date.now() - started < USER_GATE_TIMEOUT_MS) {
-        const state = await readState().catch((error) => ({ pageError: String(error) }));
-        let outcome;
-        try { outcome = await predicate(state); } catch { outcome = undefined; }
-        if (outcome !== undefined) {
-            gateLog.push({ id: gate.id, waitedMs: Date.now() - started, outcome });
-            return outcome;
+async function userGate(id, instruction, predicate) {
+    console.log(`USER ACTION REQUIRED (${id}): ${instruction}`);
+    const started = Date.now(), before = challengeSequence;
+    while (Date.now() - started < config.waitMs) {
+        const current = await state();
+        if (await predicate(current)) {
+            const finished = Date.now();
+            report.gates.push({ id, startedAt: started, finishedAt: finished, elapsedMs: finished - started,
+                challengeSequenceBefore: before, challengeSequenceAfter: challengeSequence, state: summarize(current) });
+            return current;
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
     }
-    gateLog.push({ id: gate.id, waitedMs: Date.now() - started, outcome: 'timeout' });
-    blocked(gate.id, { reason: 'user action not completed within the 30-minute budget' });
-    return undefined;
+    throw new Blocked(`User action ${id} was not observed within the configured wait`);
 }
 
-function pageState() {
-    return page.evaluate(() => {
-        const token = sessionStorage.getItem('streamgate_token');
-        const video = document.getElementById('video-player');
-        return {
-            token,
-            time: video ? video.currentTime : 0,
-            paused: video ? video.paused : true,
-            error: video && video.error ? video.error.message : null,
-            identity: window.__cwLastIdentity || null,
-            playbackState: document.getElementById('player-status') ? document.getElementById('player-status').dataset.sgPlaybackState : null,
-        };
+async function observeResponse(response) {
+    const url = new URL(response.url());
+    if (url.origin !== config.origin) return;
+    const at = Date.now();
+    if (url.pathname === '/api/v1/auth/challenge' && response.status() === 200) {
+        const challenge = await response.json();
+        challenges.set(challenge.challenge_id, challenge); challengeSequence++;
+        report.challenges.push({ sequence: challengeSequence, at, origin: url.origin, status: response.status(), chainId: challenge.chain_id,
+            subject: challenge.wallet || challenge.address, signingType: challenge.signing_type, messageSHA256: hash(challenge.message || '') });
+    } else if (url.pathname === '/api/v1/auth/login' && response.status() === 200) {
+        const request = response.request().postDataJSON(), result = await response.json();
+        const challenge = challenges.get(request.challenge_id);
+        // A pre-existing token cannot stand in for a fresh observed signature.
+        if (!challenge || evmAddress(request.wallet) !== config.subject) return;
+        validateChallenge(challenge, config);
+        let signer;
+        try { signer = evmAddress(ethers.utils.verifyMessage(challenge.message, request.signature)); }
+        catch { throw new Error('Observed SIWE signature has invalid encoding'); }
+        if (signer !== config.controller || request.chain_id !== 11155111) throw new Error('Observed wallet signature/controller or chain mismatch');
+        const admission = { at, controller: signer, subject: config.subject, chainId: 11155111, tokenHash: hash(result.token),
+            challengeIdSHA256: hash(request.challenge_id), messageSHA256: hash(challenge.message), signatureSHA256: hash(request.signature), originBound: true };
+        admissions.set(admission.tokenHash, admission); report.admissions.push(admission);
+        privateProofs.push({ challenge, signature: request.signature, controller: signer, tokenHash: admission.tokenHash,
+            credentials: [{ tokenHash: admission.tokenHash, token: result.token }] });
+    } else if (url.pathname === '/api/v1/auth/refresh' && response.status() === 200) {
+        const request = response.request().postDataJSON(), result = await response.json();
+        const proof = privateProofs.find(item => item.credentials.some(credential => credential.tokenHash === hash(request.token)));
+        // Existing tabs can still finish requests from an older login. Such
+        // traffic cannot prove this phase's fresh admission or its renewal.
+        if (!proof) return;
+        proof.credentials.push({ tokenHash: hash(result.token), token: result.token });
+        report.refreshes.push({ at, oldTokenHash: hash(request.token), newTokenHash: hash(result.token), oldClaims: jwtClaims(request.token), newClaims: jwtClaims(result.token) });
+    } else if (url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8` || url.pathname.startsWith(`/api/v1/streaming/${config.content}/segment/`)) {
+        const token = url.searchParams.get('playback_token');
+        if (!token && url.pathname.endsWith('/manifest.m3u8') && response.status() === 200) {
+            const headers = await response.request().allHeaders();
+            if (!headers.authorization?.startsWith('Bearer ')) throw new Error('Manifest issuance lacks its original access credential');
+            const access = headers.authorization.slice(7), body = await response.text();
+            if (!privateProofs.some(item => item.credentials.some(credential => credential.tokenHash === hash(access)))) return;
+            const capability = capabilityFromManifest(body, config);
+            observedCapabilities.add(hash(capability));
+            report.issues.push({ at, status: response.status(), accessTokenHash: hash(access), accessClaims: jwtClaims(access),
+                capabilityHash: hash(capability), capabilityClaims: jwtClaims(capability), manifestSHA256: hash(body) });
+        }
+        if (token) {
+            // The player's segment can finish before Playwright has delivered
+            // the master body. Wait only for issuance handlers, never for other
+            // segment handlers (which would introduce a dependency cycle).
+            await Promise.all([...issuanceJobs]);
+            if (!observedCapabilities.has(hash(token))) return;
+            const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
+            if (!validCapability(claims, config)) throw new Error('Observed foreign or unbounded media capability');
+            const kind = url.pathname.includes('/segment/') ? 'segment' : 'manifest';
+            const payload = response.status() === 200 && kind === 'segment' ? await response.body() : null;
+            report.media.push({ at, kind, status: response.status(), tokenHash: hash(token), claims,
+                ...(payload ? { size: payload.length, sha256: hash(payload) } : {}) });
+        }
+    }
+}
+
+async function profile(current, prefix) {
+    const result = await page.evaluate(async () => {
+        const response = await fetch('/api/v1/auth/profile', { headers: { Authorization: `Bearer ${sessionStorage.getItem('streamgate_token')}` } });
+        return { status: response.status, data: await response.json() };
     });
+    check(`${prefix}_PROFILE_SUBJECT`, result.status === 200 && evmAddress(result.data.wallet_address) === config.subject,
+        { status: result.status, subject: result.data.wallet_address, accessTokenHash: hash(current.token) });
 }
 
-let browser, page;
 try {
-    await assertLaunchable(chromium);
-    browser = await chromium.launch({ headless: false, args: ['--autoplay-policy=no-user-gesture-required'] });
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-    page = await context.newPage();
-    page.on('pageerror', (error) => errors.push(error.message));
-    page.on('response', (response) => {
-        const url = new URL(response.url());
-        if (url.pathname.includes('/segment/') && url.searchParams.has('playback_token')) {
-            mediaResponses.push({ at: Date.now(), status: response.status(), tokenHash: createHash('sha256').update(url.searchParams.get('playback_token')).digest('hex') });
-        }
+    config = settings(process.env);
+    if (existsSync(join(config.output, 'result.json')) || existsSync(join(config.output, 'siwe-proofs.private.json'))) {
+        preserveExistingOutput = true;
+        throw new Blocked('The report directory already contains original evidence; choose a new phase directory');
+    }
+    browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000, noDefaults: true }).catch(() => { throw new Blocked('The existing MetaMask browser CDP endpoint is unavailable'); });
+    const candidates = browser.contexts().flatMap((context) => context.pages()).filter((candidate) => {
+        try { return new URL(candidate.url()).origin === config.origin; } catch { return false; }
     });
-    await page.goto(new URL('/', base).toString(), { waitUntil: 'networkidle' });
-    check('TN06_PAGE_READY', true, { origin: base });
-    if (process.env.W3_EXPECTED_SIWE_DOMAIN) {
-        const domain = await page.evaluate(() => window.__cwSiweDomain || document.querySelector('[data-sg-siwe-domain]')?.dataset.sgSiweDomain || null);
-        check('TN03_SIWE_ORIGIN_BINDING', domain === null || domain === process.env.W3_EXPECTED_SIWE_DOMAIN, { displayed: domain });
-    }
-
-    // Gate 1: connect the real wallet (controller A). A wrong network is a
-    // legitimate TN-06 outcome and must be DISPLAYED, never silently accepted.
-    const connected = await userGate({ id: 'TN03_USER_CONNECT', instruction: 'connect the controller wallet A in the extension and make sure the network is Sepolia (11155111)' },
-        pageState, (state) => (state.identity ? 'connected' : (state.playbackState === 'wrong-network' ? 'wrong-network' : undefined)));
-    if (connected === 'wrong-network') {
-        check('TN06_WRONG_NETWORK_SHOWN', true);
-    } else if (connected === 'connected') {
-        check('TN06_WRONG_NETWORK_SHOWN', true, { note: 'connected on the expected chain; wrong-network path exercised separately' });
-        const identity = await pageState();
-        check('TN03_CONTROLLER_DISPLAYED', identity.identity && (!controller || same(identity.identity.signer, controller)), identity.identity || {});
-        // Gate 2: EOA login as A (SIWE signature in the wallet).
-        const eoaLogin = await userGate({ id: 'TN03_USER_SIGN_SIWE', instruction: 'complete the SIWE signature in the wallet to log in as A' },
-            pageState, (state) => (state.token ? 'logged-in' : undefined));
-        if (eoaLogin === 'logged-in') {
-            const claims = claim((await pageState()).token);
-            check('TN03_EOA_SUBJECT', claims.sub && (!controller || same(claims.sub, controller)), { sub: claims.sub, kind: claims.wallet_kind || claims.kind });
-            // Gate 3: with the fixture NFT held by A, real playback must work.
-            const playing = await userGate({ id: 'TN03_USER_PLAY', instruction: 'select the fixture content and press play; the video must decode' },
-                pageState, (state) => (state.time > 0 && !state.paused ? 'playing' : undefined));
-            if (playing === 'playing') check('TN03_MEDIA_DECODES', true, { currentTime: (await pageState()).time });
-            // Gate 4: A transfers the NFT away; after the chain reaches safe the
-            // existing capability must be refused without logout tricks.
-            const rejected = await userGate({ id: 'TN05_USER_TRANSFER', instruction: 'transfer the fixture NFT from A to B in the wallet and wait for the app to lose eligibility' },
-                pageState, (state) => (state.playbackState === 'rejected' || state.error ? 'rejected' : undefined));
-            check('TN05_TRANSFER_REVOKES', rejected === 'rejected', { mediaResponses: mediaResponses.length });
-        }
-        // Gate 5: contract-wallet login as subject C (ERC-1271 path).
-        if (subjectC) {
-            const cwLogin = await userGate({ id: 'TN04_USER_C_LOGIN', instruction: `connect the contract wallet C (${subjectC}) and complete its ERC-1271 SIWE login` },
-                pageState, (state) => (state.token && state.identity && same(state.identity.subject, subjectC) ? 'logged-in-c' : undefined));
-            if (cwLogin === 'logged-in-c') {
-                const claims = claim((await pageState()).token);
-                check('TN04_SUBJECT_C', same(claims.sub, subjectC), { sub: claims.sub, kind: claims.wallet_kind || claims.kind });
-                check('TN04_SHORT_LEASE', (claims.exp - claims.iat) <= 70, { leaseSeconds: claims.exp - claims.iat });
-            }
-        }
-    }
-    check('TN06_NO_PAGE_ERRORS', errors.length === 0, { errors: errors.slice(0, 5) });
-} finally {
-    const report = {
-        component: 'SEPOLIA_REAL_WALLET_BROWSER',
-        mode,
-        testAdapter: 'REAL_WALLET_USER_OPERATED',
-        publicWalletSignoff: true,
-        expectedChain,
-        checks,
-        mediaResponses,
-        pageErrors: errors,
-        gates: gateLog,
-        completeAcceptance: checks.length > 0 && checks.every((c) => c.ok) && !checks.some((c) => c.blocked),
+    const pages = [];
+    // The user's transaction panel shares this origin. Select the actual H5
+    // player without closing, navigating or claiming that other wallet tab.
+    for (const candidate of candidates) if (await candidate.locator('#video-player').count() === 1) pages.push(candidate);
+    if (pages.length !== 1) throw new Blocked('Exactly one existing H5 tab on the configured origin is required');
+    [page] = pages;
+    onError = (error) => report.errors.push(error.message);
+    onResponse = (response) => {
+        const url = new URL(response.url());
+        const issuance = url.origin === config.origin && url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8` && !url.searchParams.has('playback_token');
+        const operation = observeResponse(response).catch((error) => report.errors.push(error instanceof SyntaxError ? 'Malformed original HTTP/JWT evidence' : error.message))
+            .finally(() => { pending.delete(operation); issuanceJobs.delete(operation); });
+        if (issuance) issuanceJobs.add(operation);
+        pending.add(operation);
     };
-    writeFileSync(new URL('result.json', `file://${output}/`), JSON.stringify(report, null, 2) + '\n');
-    console.log(`\nreport: ${output}/result.json`);
-    if (browser) await browser.close().catch(() => {});
-    const failed = checks.filter((c) => !c.ok || c.blocked);
-    if (failed.length > 0) process.exitCode = 2;
+    page.on('pageerror', onError); page.on('response', onResponse);
+    const current = await state();
+    if (!current.wallet?.metaMask) throw new Blocked('MetaMask was not found on the existing H5 page');
+    if (config.phase === 'negative') {
+        const beforeWrong = challengeSequence;
+        await userGate('TN06_WRONG_NETWORK', 'select a non-Sepolia network in MetaMask, then attempt H5 login',
+            (s) => s.wallet?.chainId !== 11155111 && !s.token && !s.identity && s.authError === 'wrong-network' && challengeSequence > beforeWrong);
+        check('TN06_WRONG_NETWORK_SHOWN', true);
+        const beforeReject = challengeSequence;
+        await userGate('TN06_USER_CANCEL', 'switch MetaMask to Sepolia, start H5 login and reject its signature request',
+            (s) => s.wallet?.chainId === 11155111 && !s.token && !s.identity && s.authError === 'signature-rejected' && challengeSequence > beforeReject);
+        check('TN06_SIGNATURE_REJECTED', true);
+    } else {
+        const prefix = config.phase === 'contract' ? 'TN04' : 'TN03';
+        const admitted = await userGate(`${prefix}_SIGN_SIWE`, `log in to H5 as ${config.subject}, approving its SIWE request in MetaMask account ${config.controller}`,
+            (s) => validIdentity(s, config) && admissions.has(hash(s.token)));
+        check(`${prefix}_SIWE_ORIGIN_BINDING`, admissions.get(hash(admitted.token))?.originBound === true);
+        check(config.phase === 'contract' ? 'TN04_SUBJECT_C' : 'TN03_EOA_SUBJECT', validIdentity(admitted, config));
+        await profile(admitted, prefix);
+        if (config.phase === 'contract') check('TN04_SHORT_LEASE', admitted.claims.exp - admitted.claims.iat <= 60);
+        const playing = await userGate(`${prefix}_PLAY`, `select fixture content ${config.content} and press play; keep the page playing`,
+            (s) => validIdentity(s, config) && s.time >= 1 && s.frames > 0 && !s.paused && !s.videoError &&
+                report.media.some((r) => r.status === 200 && r.kind === 'segment' && evmAddress(r.claims.wallet_address) === config.subject && r.claims.content_id === config.content && r.claims.chain_id === 11155111));
+        const started = Date.now(), tokens = new Set(), absolute = playing.claims.wallet_session_exp;
+        const duration = config.phase === 'contract' ? 71000 : 4000;
+        let latest = playing;
+        while (Date.now() - started < duration) {
+            latest = await state();
+            if (!validIdentity(latest, config) || latest.paused || latest.videoError) throw new Error('Identity or decoded playback ended during observation');
+            if (config.phase === 'contract' && latest.claims.wallet_session_exp !== absolute) throw new Error('Absolute contract session deadline moved');
+            tokens.add(hash(latest.token)); report.samples.push(summarize(latest));
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+        latest = await state(); report.samples.push(summarize(latest));
+        const decoded = validIdentity(latest, config) && !latest.paused && !latest.videoError && latest.frames > playing.frames && latest.time - playing.time >= (config.phase === 'contract' ? 65 : 2);
+        const capabilities = new Set(report.media.filter((r) => r.status === 200 && r.kind === 'segment' && r.at >= started).map((r) => r.tokenHash));
+        check(config.phase === 'contract' ? 'TN04_MEDIA_RENEWS' : 'TN03_MEDIA_DECODES', decoded &&
+            (config.phase !== 'contract' || (tokens.size >= 3 && capabilities.size >= 2)),
+            { elapsedMs: Date.now() - started, mediaAdvance: latest.time - playing.time, frames: latest.frames - playing.frames, accessTokens: tokens.size, capabilities: capabilities.size });
+    }
+    await Promise.all([...pending]);
+    check('TN06_NO_PAGE_ERRORS', report.errors.length === 0);
+} catch (error) {
+    if (error instanceof Blocked || !config) report.blockers.push(error.message);
+    else report.errors.push(error.message);
+} finally {
+    if (page && onResponse) page.off('response', onResponse);
+    if (page && onError) page.off('pageerror', onError);
+    await Promise.all([...pending]);
+    // No contexts were created. This disconnects the CDP client and preserves
+    // the user's pre-existing browser context, wallet and tabs.
+    if (browser) await browser.close().catch((error) => report.errors.push(error.message));
+    report.phaseVerified = phaseVerified(report);
+    report.status = report.errors.length ? 'FAIL' : report.phaseVerified ? 'WALLET_PHASE_OBSERVED' : 'BLOCKED';
+    report.remaining = ['canonical deployment/CI identity', 'safe holdings/transfer oracles', 'both-mode HTTP/gRPC revocation', 'RPC fault evidence', 'final TN-01..08 verifier'];
+    const output = config?.output || process.env.W3_REPORT_DIR;
+    if (output && !preserveExistingOutput) {
+        mkdirSync(output, { recursive: true, mode: 0o700 });
+        if (privateProofs.length) {
+            const raw = JSON.stringify(privateProofs, null, 2) + '\n';
+            writeFileSync(join(output, 'siwe-proofs.private.json'), raw, { mode: 0o600, flag: 'wx' });
+            report.privateProofSHA256 = hash(raw);
+        }
+        writeFileSync(join(output, 'result.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    }
+    console.log(`${report.status}: wallet phase only; full testnet acceptance=false`);
+    process.exitCode = report.status === 'FAIL' ? 1 : report.phaseVerified ? 0 : 2;
 }

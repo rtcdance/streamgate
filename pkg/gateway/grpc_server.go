@@ -1164,10 +1164,16 @@ func (s *uploadGrpcServer) GetUploadStatus(ctx context.Context, req *uploadv1.Ge
 }
 
 var grpcNoAuthMethods = map[string]bool{
-	"/auth.AuthService/GetNonce":        true,
-	"/auth.AuthService/VerifySignature": true,
-	"/health.HealthService/Check":       true,
-	"/health.HealthService/Watch":       true,
+	// Use the registered descriptors: stale unversioned names make first login
+	// require a JWT. Refresh authenticates its body credential in AuthService,
+	// including proof/epoch/CAS checks, rather than requiring a second live JWT.
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/GetNonce":        true,
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/VerifySignature": true,
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/RefreshToken":    true,
+	"/" + servicev1.HealthService_ServiceDesc.ServiceName + "/Check":      true,
+	"/" + servicev1.HealthService_ServiceDesc.ServiceName + "/Watch":      true,
+	"/" + healthpb.Health_ServiceDesc.ServiceName + "/Check":              true,
+	"/" + healthpb.Health_ServiceDesc.ServiceName + "/Watch":              true,
 }
 
 type grpcContextKey string

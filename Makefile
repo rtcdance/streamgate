@@ -669,6 +669,10 @@ verify-web3-testnet-preflight:
 # verification + H5 readiness checks. It never signs, broadcasts, claims
 # faucet funds or approves wallet transactions; user-operated steps are
 # reported as BLOCKED until the user performs them.
+# Inputs: W3_SEPOLIA_ADDRESS, W3_SEPOLIA_RECIPIENT, W3_CANDIDATE_SHA,
+# W3_BUILD_IDENTITY, W3_DEPLOYMENT_MANIFEST, W3_H5_ORIGIN.
+# Network-only success is NETWORK_READY.
+# With W3_EVIDENCE_DIR, delegate to the frozen fixed CW/TN closeout verifier.
 .PHONY: verify-web3-testnet
 verify-web3-testnet:
 	@python3 scripts/wallet-testnet/verify_web3_testnet.py

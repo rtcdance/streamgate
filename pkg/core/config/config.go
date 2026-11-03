@@ -795,38 +795,21 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
-	// Sepolia profile inputs (W3-06): SEPOLIA_RPC_URL and
-	// SEPOLIA_RPC_FALLBACK_URL override the chain-11155111 endpoints so the
-	// public-testnet overlay never depends on repo-tracked third-party
-	// endpoints. The diagnostic legacy variable SEPOLIA_RPC maps to the
-	// primary endpoint; legacy and current variables pointing at different
-	// URLs is a configuration error, not a silent pick — the two spellings
-	// must never describe different chains. Endpoint values are never echoed
-	// back: they may carry provider credentials.
-	primary := strings.TrimSpace(firstNonEmpty(os.Getenv("SEPOLIA_RPC_URL"), os.Getenv("SEPOLIA_RPC")))
-	fallback := strings.TrimSpace(os.Getenv("SEPOLIA_RPC_FALLBACK_URL"))
-	if legacy := strings.TrimSpace(os.Getenv("SEPOLIA_RPC")); legacy != "" {
-		if current := strings.TrimSpace(os.Getenv("SEPOLIA_RPC_URL")); current != "" && current != legacy {
-			return nil, fmt.Errorf("SEPOLIA_RPC_URL and legacy SEPOLIA_RPC disagree; both must describe the same Sepolia endpoint")
+	if err := applySepoliaInputs(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Environment == "w3sepolia" {
+		// Upload hooks consume Transcode.Profiles, not Transcoding.Qualities.
+		// Scope this mapping to the public demo so existing ABR acceptance is unchanged.
+		cfg.Transcode.Profiles = splitCommaSlice(viper.GetStringSlice("transcode.profiles"))
+		if err := validateSepoliaProfile(cfg); err != nil {
+			return nil, err
 		}
 	}
-	if primary != "" {
-		target := -1
-		for i := range cfg.Web3.Chains {
-			if cfg.Web3.Chains[i].ID == 11155111 {
-				target = i
-				break
-			}
+	if cfg.Environment == "w3sepolia-worker" {
+		if err := validateSepoliaWorkerProfile(cfg); err != nil {
+			return nil, err
 		}
-		if target < 0 {
-			return nil, fmt.Errorf("SEPOLIA_RPC_URL is set but chain 11155111 is not configured")
-		}
-		endpoints := []string{primary}
-		if fallback != "" && fallback != primary {
-			endpoints = append(endpoints, fallback)
-		}
-		cfg.Web3.Chains[target].RPCs = endpoints
-		cfg.Web3.Chains[target].RPC = endpoints[0]
 	}
 
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {

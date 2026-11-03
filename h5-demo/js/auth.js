@@ -60,7 +60,7 @@ class AuthService {
         // the connected wallet's arbitrary network or a hard-coded testnet.
         const response = await this.api.getChallenge(subject, 0, isDemo && !this.loginSubject ? 'personal_sign' : 'siwe');
         if (context.generation !== this.generation) throw new Error('Login cancelled by wallet change');
-        if (Number(response.chain_id) !== context.chainId) throw new Error(`Wrong network: backend requires chain ${response.chain_id}`);
+        if (Number(response.chain_id) !== context.chainId) throw Object.assign(new Error(`Wrong network: backend requires chain ${response.chain_id}`), { code: 'WALLET_WRONG_CHAIN' });
         if (!this.sameAddress(response.wallet || response.address, subject)) throw new Error('Challenge subject mismatch');
         if (!isDemo || this.loginSubject) this.validateSIWEOrigin(response);
         this.currentChallenge = response;

@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE = 'http://localhost:18000';
-const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '28080', '29091']);
+const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '28080', '29091', '18500', '18501']);
 
 function normalizeBaseUrl(url) {
     return url.replace(/\/$/, '');
@@ -145,26 +145,9 @@ class APIService {
     }
 
     async ensureReachable() {
-        try {
-            return await this.healthCheck();
-        } catch (error) {
-            if (this.baseUrl !== DEFAULT_API_BASE) {
-                const previousBase = this.baseUrl;
-                this.baseUrl = DEFAULT_API_BASE;
-                try {
-                    const result = await this.healthCheck();
-                    localStorage.setItem('streamgate_api_base', this.baseUrl);
-                    return {
-                        ...result,
-                        recovered_from: previousBase,
-                    };
-                } catch (fallbackError) {
-                    this.baseUrl = previousBase;
-                    throw fallbackError;
-                }
-            }
-            throw error;
-        }
+        // Backend selection is part of the wallet's network/identity boundary.
+        // A failed Sepolia endpoint must never silently become a local demo.
+        return this.healthCheck();
     }
 
     async refreshToken(token) {

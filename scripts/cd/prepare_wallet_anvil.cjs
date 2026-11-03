@@ -52,7 +52,7 @@ async function prepare(rpcURL, artifactDirectory, output) {
     const safe = await provider.send('eth_getBlockByNumber', ['safe', false]);
     if (parseInt(safe.number, 16) < mint.blockNumber) throw new Error('Safe head does not contain mint');
     if (!(await nft.balanceOf(owner.address, { blockTag: parseInt(safe.number, 16) })).isZero() || !(await nft.balanceOf(wallet.address, { blockTag: parseInt(safe.number, 16) })).eq(1)) throw new Error('Expected A=0 and C=1 at safe');
-    const fixture = { schemaVersion: 1, network: 'ANVIL_LOCAL_ONLY', chainId: 31337, controller: owner.address, contractWallet: wallet.address, nft: nft.address, tokenId: transfer.args.tokenId.toString(), safe: { number: safe.number, hash: safe.hash }, contracts: records, mint: { transactionHash: mint.transactionHash, blockNumber: mint.blockNumber, blockHash: mint.blockHash } };
+    const fixture = { schemaVersion: 1, candidateSHA: process.env.W3_CANDIDATE_SHA || null, evidenceContext: process.env.W3_EVIDENCE_CONTEXT || 'DEVELOPMENT', network: 'ANVIL_LOCAL_ONLY', chainId: 31337, controller: owner.address, contractWallet: wallet.address, nft: nft.address, tokenId: transfer.args.tokenId.toString(), safe: { number: safe.number, hash: safe.hash }, contracts: records, mint: { transactionHash: mint.transactionHash, blockNumber: mint.blockNumber, blockHash: mint.blockHash } };
     fs.writeFileSync(output, JSON.stringify(fixture, null, 2) + '\n');
     console.log(`Prepared local fixture: A=${owner.address} C=${wallet.address} NFT=${nft.address}`);
     return fixture;

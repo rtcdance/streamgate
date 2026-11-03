@@ -1063,7 +1063,21 @@ fi
 # matrix covers monolith and api-gateway separately — one leg never stands in
 # for the other. A missing browser or fixture is a FAILURE, never a skip.
 # ---------------------------------------------------------------------------
+if [ "${W3_REQUIRED_MEDIA:-0}" = 1 ]; then
 printf '\n=== Contract-wallet browser matrix ===\n'
+CW_GRPC_BRIDGE="$WORKDIR/walletgrpc"
+CW_GRPC_BUILD_RC=0
+CGO_ENABLED=0 GOMAXPROCS=2 go build -trimpath -buildvcs=false -p 2 -o "$CW_GRPC_BRIDGE" ./test/walletgrpc >"$WORKDIR/cw-grpc-build.log" 2>&1 || CW_GRPC_BUILD_RC=$?
+printf '%s\n' "$CW_GRPC_BUILD_RC" >"$WORKDIR/cw-grpc-build.exit"
+if [ "$CW_GRPC_BUILD_RC" != 0 ]; then
+    f "Could not build the real contract-wallet gRPC bridge"
+    CW_GRPC_BRIDGE="/bin/false"
+fi
+if [ "$CW_GRPC_BUILD_RC" = 0 ] && [ -n "${W3_GRPC_EXPORT_DIR:-}" ]; then
+    if ! python3 scripts/cd/wallet_helper.py --binary "$CW_GRPC_BRIDGE" \
+        --directory "$W3_GRPC_EXPORT_DIR" --candidate "${W3_CANDIDATE_SHA:-}"
+    then f "Could not preserve the original same-candidate gRPC client"; fi
+fi
 
 CW_MODE="monolith"
 if [ -n "${API_BASE:-}" ] && [ -n "${MONOLITH_BASE:-}" ] && [ "$API_BASE" != "$MONOLITH_BASE" ]; then
@@ -1081,51 +1095,64 @@ CW_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CW_ARTIFACTS="$CW_ROOT/contracts/out"
 
 CW_FIXTURE="$WORKDIR/wallet-fixture.json"
-if [ ! -d "$CW_HARNESS/node_modules/playwright" ]; then
+CW_MEDIA="$WORKDIR/wallet-continuity.mp4"
+# Reuse the decoded baseline fixture by stream-copying it to 105s. The wallet
+# scenario must play beyond two 60s credential leases; a 10s VOD cannot prove it.
+CW_MEDIA_READY=0
+if ffmpeg -hide_banner -loglevel error -y -stream_loop -1 -i "$MEDIA" -t 105 -c copy "$CW_MEDIA"; then
+    CW_MEDIA_READY=1
+else
+    f "Contract-wallet continuity fixture could not be prepared"
+fi
+if [ "$CW_MEDIA_READY" != 1 ]; then
+    f "Contract-wallet browser matrix cannot run without its long media fixture"
+elif [ ! -d "$CW_HARNESS/node_modules/playwright" ]; then
     f "Contract-wallet browser matrix could not run: Playwright not installed under scripts/h5-demo-acceptance"
 elif [ ! -f "$CW_ARTIFACTS/Study1271Wallet.sol/Study1271Wallet.json" ]; then
     f "Contract-wallet browser matrix could not run: contract build artifacts missing (forge build has not run)"
 else
-    if W3_ANVIL_RPC="${ANVIL_URL}" W3_CONTRACT_ARTIFACTS="$CW_ARTIFACTS" \
-        node "$CW_ROOT/scripts/cd/prepare_wallet_anvil.cjs" "$CW_FIXTURE" >"$WORKDIR/cw-fixture.log" 2>&1; then
+    CW_FIXTURE_RC=0
+    W3_ANVIL_RPC="${ANVIL_URL}" W3_CONTRACT_ARTIFACTS="$CW_ARTIFACTS" \
+        node "$CW_ROOT/scripts/cd/prepare_wallet_anvil.cjs" "$CW_FIXTURE" >"$WORKDIR/cw-fixture.log" 2>&1 || CW_FIXTURE_RC=$?
+    printf '%s\n' "$CW_FIXTURE_RC" >"$WORKDIR/cw-fixture.exit"
+    if [ "$CW_FIXTURE_RC" = 0 ]; then
         p "Contract-wallet fixture deployed on the acceptance chain (A owner, C holds the NFT)"
-        if ( W3_MODE="$CW_MODE" W3_H5_BASE="$CW_H5_BASE" W3_ANVIL_RPC="${ANVIL_URL}" \
-                W3_FIXTURE_PATH="$CW_FIXTURE" W3_MEDIA_FILE="$MEDIA" \
-                W3_REPORT_DIR="$WORKDIR/cw-report" \
-                node "$CW_HARNESS/wallet-anvil.mjs" >"$WORKDIR/cw-browser.log" 2>&1 ); then
-            p "Contract-wallet browser matrix passed ($CW_MODE)"
+        CW_BROWSER_RC=0
+        W3_MODE="$CW_MODE" W3_H5_BASE="$CW_H5_BASE" W3_ANVIL_RPC="${ANVIL_URL}" \
+            W3_FIXTURE_PATH="$CW_FIXTURE" W3_MEDIA_FILE="$CW_MEDIA" \
+            W3_GRPC_BRIDGE="$CW_GRPC_BRIDGE" W3_GRPC_TARGET="$GRPC_TARGET" W3_PRIVATE_DIR="$WORKDIR/cw-private" \
+            W3_REPORT_DIR="$WORKDIR/cw-report" \
+            node "$CW_HARNESS/wallet-anvil.mjs" >"$WORKDIR/cw-browser.log" 2>&1 || CW_BROWSER_RC=$?
+        printf '%s\n' "$CW_BROWSER_RC" >"$WORKDIR/cw-browser.exit"
+        if [ "$CW_BROWSER_RC" = 0 ]; then
+            p "Contract-wallet browser component completed ($CW_MODE)"
         else
             DETAIL="$(playback_failure_detail "$WORKDIR/cw-browser.log")"
-            f "Contract-wallet browser matrix failed ($CW_MODE): $DETAIL"
+            f "Contract-wallet browser component failed ($CW_MODE): $DETAIL"
         fi
-        # Keep the raw evidence next to the reports the CI diagnostics collect.
-        mkdir -p "$CW_HARNESS/reports/cw-$CW_MODE" 2>/dev/null || true
-        cp "$WORKDIR/cw-browser.log" "$CW_HARNESS/reports/cw-$CW_MODE/browser.log" 2>/dev/null || true
-        cp "$WORKDIR/cw-report/result.json" "$CW_HARNESS/reports/cw-$CW_MODE/result.json" 2>/dev/null || true
-        # The scenario's own required-check list is the gate: every required
-        # CW case must be present AND ok — a missing case fails, nothing is
-        # tolerated by count.
-        if [ -f "$WORKDIR/cw-report/result.json" ]; then
-            if python3 - "$WORKDIR/cw-report/result.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-have = {c['id']: c['ok'] for c in d['checks']}
-missing = [i for i in d.get('required', []) if not have.get(i)]
-failed = [i for i, ok in have.items() if not ok]
-if missing or failed or d.get('errors'):
-    print('missing=' + ','.join(missing) + ' failed=' + ','.join(failed) + ' errors=' + ';'.join(d.get('errors', [])[:3]))
-    sys.exit(1)
-PY
-            then
-                p "Contract-wallet required browser cases all present and ok ($CW_MODE)"
-            else
-                f "Contract-wallet required browser cases incomplete ($CW_MODE)"
-            fi
+        if python3 "$CW_ROOT/scripts/cd/assert_wallet_browser.py" \
+            --report "$WORKDIR/cw-report/result.json" --fixture "$CW_FIXTURE" \
+            --content "$WORKDIR/cw-report/content.json" --exit-file "$WORKDIR/cw-browser.exit" \
+            --candidate "${W3_CANDIDATE_SHA:-}" --mode "$CW_MODE" >"$WORKDIR/cw-gate.log" 2>&1; then
+            p "Contract-wallet fixed browser component contract passed ($CW_MODE)"
+        else
+            f "Contract-wallet fixed browser component contract failed ($CW_MODE): $(cat "$WORKDIR/cw-gate.log")"
         fi
     else
         DETAIL="$(playback_failure_detail "$WORKDIR/cw-fixture.log")"
         f "Contract-wallet fixture preparation failed: $DETAIL"
     fi
+    # Preserve original process exits, fixture and complete reports even on failure.
+    CW_SAVED="$CW_HARNESS/reports/cw-$CW_MODE"
+    mkdir -p "$CW_SAVED"
+    for CW_FILE in "$WORKDIR"/cw-fixture.log "$WORKDIR"/cw-fixture.exit "$CW_FIXTURE" \
+        "$WORKDIR"/cw-browser.log "$WORKDIR"/cw-browser.exit "$WORKDIR"/cw-gate.log \
+        "$WORKDIR"/cw-grpc-build.log "$WORKDIR"/cw-grpc-build.exit; do
+        if [ -f "$CW_FILE" ]; then cp "$CW_FILE" "$CW_SAVED/"; fi
+    done
+    if [ -d "$WORKDIR/cw-report" ]; then cp -R "$WORKDIR/cw-report/." "$CW_SAVED/"; fi
+fi
+
 fi
 
 # ---------------------------------------------------------------------------
