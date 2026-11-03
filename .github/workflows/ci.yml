@@ -331,6 +331,17 @@ jobs:
 
       - uses: ./.github/actions/foundry-provision
 
+      - name: Compile contracts for the slither analysis
+        working-directory: contracts
+        # Mirror crytic-compile's own foundry invocation (build-info, skip
+        # tests/scripts — which is also what keeps foundry's transient
+        # foundry-pp constructor helpers out of the artifacts), so the
+        # container-side analysis reads these artifacts with
+        # ignore-compilation instead of downloading a x86_64 solc that this
+        # arm64 runner cannot even execute (raw.githubusercontent truncates
+        # that transfer ~4/5 here).
+        run: forge build --build-info --skip "./test/**" --skip "./script/**" --force
+
       - name: Run Slither
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         # The action pip-installs slither deps at container runtime from
@@ -342,6 +353,10 @@ jobs:
           PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         with:
           target: contracts/
+          # The job compiled the contracts above with the runner's native
+          # solc; compiling again in the container would re-download a
+          # x86_64 solc that this arm64 runner cannot even execute.
+          ignore-compilation: true
           # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
           # checks (status == Nonexistent) — intended idiom, the struct merely
           # carries timestamp fields. Reviewed and accepted (2026-10-11).

@@ -3,6 +3,10 @@ set -euo pipefail
 : "${W3_REDIS_ADDR:?BLOCKED: a real Redis address is required for contract-wallet acceptance}"
 output="${1:?usage: run_wallet_session_tests.sh OUTPUT_DIRECTORY}"
 mkdir -p "$output"
+# The go test process runs with the package directory as its cwd, so any
+# relative evidence path would land under test/integration/web3/; hand the
+# suites an absolute directory instead.
+output="$(cd "$output" && pwd)"
 : "${W3_CANDIDATE_SHA:=${GITHUB_SHA:-}}"
 : "${W3_CANDIDATE_SHA:?BLOCKED: exact source candidate required for RPC evidence}"
 rc=0

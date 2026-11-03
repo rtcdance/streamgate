@@ -7,6 +7,9 @@ set -euo pipefail
 : "${W3_REDIS_ADDR:?BLOCKED: a real Redis address is required for the durability wallet-session gate}"
 output="${1:?usage: run_wallet_session_durability_tests.sh OUTPUT_DIRECTORY}"
 mkdir -p "$output"
+# Absolute for the same reason as run_wallet_session_tests.sh: the go test
+# process cwd is the package directory, not the repository root.
+output="$(cd "$output" && pwd)"
 rc=0
 go test -race -count=1 -timeout 3m -tags=integration -json \
   -run '^TestWalletSession_RealRedisDurability$' \
