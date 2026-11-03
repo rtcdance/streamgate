@@ -96,7 +96,7 @@ jobs:
         if: matrix.test-path == 'test-unit-web3'
         run: git submodule update --init --recursive contracts/lib/forge-std contracts/lib/openzeppelin-contracts
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - uses: ./.github/actions/foundry-provision
         if: matrix.test-path == 'test-unit-web3'
         with:
           version: v1.8.5

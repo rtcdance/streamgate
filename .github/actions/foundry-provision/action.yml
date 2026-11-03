@@ -1,0 +1,23 @@
+name: 'StreamGate foundry provisioning'
+description: >-
+  Reuse the self-hosted runner's persistent foundry volume when it already
+  provides a working forge; otherwise fall back to foundry-toolchain. The
+  foundryup bootstrap re-downloads ~6.5MB from GitHub on every job and this
+  network intermittently truncates that transfer (curl 56 at 99%), so a
+  pre-provisioned runner must not pay it again.
+runs:
+  using: composite
+  steps:
+    - id: probe
+      shell: bash
+      run: |
+        if [ -x /root/.foundry/bin/forge ] && /root/.foundry/bin/forge --version >/dev/null 2>&1; then
+          echo "skip-install=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "skip-install=false" >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.probe.outputs.skip-install != 'true'
+      uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+    - if: steps.probe.outputs.skip-install == 'true'
+      shell: bash
+      run: echo "/root/.foundry/bin" >> "$GITHUB_PATH"

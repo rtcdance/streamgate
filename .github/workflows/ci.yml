@@ -89,7 +89,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - uses: ./.github/actions/foundry-provision
         with:
           version: v1.8.5
 
@@ -252,7 +252,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - uses: ./.github/actions/foundry-provision
         with:
           version: v1.8.5
 
@@ -329,7 +329,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY" || true
         continue-on-error: true
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - uses: ./.github/actions/foundry-provision
 
       - name: Run Slither
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
@@ -365,7 +365,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: false
 
-      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - uses: ./.github/actions/foundry-provision
         with:
           version: v1.8.5
 
