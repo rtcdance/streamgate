@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rtcdance/streamgate/pkg/middleware"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
 	stg "github.com/rtcdance/streamgate/pkg/storage"
 	"github.com/rtcdance/streamgate/pkg/web3"
+	walletsig "github.com/rtcdance/streamgate/pkg/web3/signature"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gagliardetto/solana-go"
@@ -212,8 +214,14 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 		}
 	}()
 
+	if s.walletPolicyErr != nil {
+		return "", walletsig.ErrWalletDependency
+	}
 	if challengeID == "" {
 		return "", ErrInvalidRequest
+	}
+	if len(signature) > 2*s.contractWalletPolicy().MaxSignatureBytes+2 {
+		return "", walletsig.ErrWalletFormat
 	}
 	if signature == "" {
 		return "", ErrInvalidRequest
@@ -221,95 +229,35 @@ func (s *AuthService) AuthenticateWithWallet(ctx context.Context, walletAddress,
 
 	challenge, err := s.challengeStore.GetChallenge(ctx, challengeID)
 	if err != nil {
+		if errors.Is(err, stg.ErrChallengeNotFound) || errors.Is(err, stg.ErrChallengeUsed) {
+			return "", err
+		}
+		return "", walletsig.ErrWalletDependency
+	}
+
+	normalizedAddress, err := s.validateWalletAdmission(challenge, walletAddress, chainID)
+	if err != nil {
 		return "", err
 	}
-
-	var normalizedAddress string
-	if isSolanaChain(challenge.ChainID) {
-		// Solana path: base58 address, no hex normalization
-		if !IsValidSolanaAddress(walletAddress) {
-			return "", fmt.Errorf("invalid Solana wallet address: %s", walletAddress)
-		}
-		normalizedAddress = walletAddress
-	} else {
-		// EVM path: hex address normalization
-		if !common.IsHexAddress(walletAddress) {
-			return "", fmt.Errorf("invalid wallet address: %s", walletAddress)
-		}
-		normalizedAddress = common.HexToAddress(walletAddress).Hex()
-	}
-
-	if challenge.WalletAddress != normalizedAddress {
-		return "", ErrInvalidCredential
-	}
-	if challenge.ChainID != 0 && chainID != challenge.ChainID {
-		return "", ErrChainIDMismatch
-	}
-	if !challenge.UsedAt.IsZero() {
-		return "", stg.ErrChallengeUsed
-	}
-	if time.Now().UTC().After(challenge.ExpiresAt) {
-		return "", ErrChallengeExpired
-	}
-
-	// Route to the correct signature verifier based on chain type and signing type
-	var valid bool
-	if isSolanaChain(challenge.ChainID) {
-		verifier, ok := s.signatureVerifier.(ChainAwareSignatureVerifier)
-		if !ok || verifier == nil {
-			return "", ErrNotSupported
-		}
-		valid, err = verifier.VerifyOffchainMessage(ctx, normalizedAddress, challenge.Message, signature)
-	} else if challenge.SigningType == "eip712" {
-		if s.eip712Verifier == nil {
-			return "", ErrNotSupported
-		}
-		// EIP-712 typed data verification: parse the stored JSON message
-		var typedData web3.EIP712TypedData
-		if err := json.Unmarshal([]byte(challenge.Message), &typedData); err != nil {
-			return "", fmt.Errorf("failed to parse stored EIP-712 typed data: %w", err)
-		}
-		valid, err = s.eip712Verifier.VerifyTypedData(normalizedAddress, &typedData, signature)
-	} else {
-		if s.signatureVerifier == nil {
-			return "", ErrNotSupported
-		}
-		// Default: EIP-191 personal_sign
-		valid, err = s.signatureVerifier.VerifySignature(ctx, normalizedAddress, challenge.Message, signature)
-	}
+	proof, err := s.verifyWalletChallengeProof(ctx, challenge, normalizedAddress, signature)
 	if err != nil {
-		return "", fmt.Errorf("failed to verify wallet signature: %w", err)
-	}
-	if !valid {
-		return "", ErrInvalidCredential
-	}
-
-	// For SIWE challenges, validate the parsed message against expected values.
-	// This ensures domain binding (phishing protection), nonce match, and
-	// address consistency per EIP-4361.
-	if challenge.SigningType == "siwe" {
-		parsedSIWE, parseErr := web3.ParseSIWEMessage(challenge.Message)
-		if parseErr != nil {
-			return "", fmt.Errorf("failed to parse SIWE message: %w", parseErr)
-		}
-		if validateErr := web3.ValidateSIWEMessage(parsedSIWE,
-			s.siweDomain,
-			normalizedAddress,
-			challenge.Nonce,
-			challenge.ChainID,
-		); validateErr != nil {
-			return "", fmt.Errorf("SIWE validation failed: %w", validateErr)
-		}
+		return "", err
 	}
 
 	if err := s.challengeStore.MarkChallengeUsed(ctx, challengeID, time.Now().UTC()); err != nil {
 		// This catches the TOCTOU race: if a concurrent request consumed the challenge
 		// between the fast-fail check above and this atomic mark, the error here
 		// prevents token issuance.
-		return "", fmt.Errorf("failed to consume challenge: %w", err)
+		if errors.Is(err, stg.ErrChallengeUsed) || errors.Is(err, stg.ErrChallengeNotFound) {
+			return "", fmt.Errorf("failed to consume challenge: %w", err)
+		}
+		return "", fmt.Errorf("%w: failed to consume challenge", walletsig.ErrWalletDependency)
 	}
 
-	return s.generateWalletToken(normalizedAddress)
+	if proof != nil && proof.Kind == walletsig.AccountContract {
+		return s.generateContractWalletToken(ctx, challenge, proof)
+	}
+	return s.generateWalletToken(normalizedAddress, proof)
 }
 
 // buildEIP712Challenge constructs an EIP-712 typed data structure from a wallet challenge.
@@ -353,7 +301,7 @@ func (s *AuthService) buildEIP712Challenge(challenge *stg.WalletChallenge) *web3
 	}
 }
 
-func (s *AuthService) generateWalletToken(walletAddress string) (string, error) {
+func (s *AuthService) generateWalletToken(walletAddress string, proofs ...*walletsig.AccountProof) (string, error) {
 	sessionID, err := s.StartSession()
 	if err != nil {
 		return "", err
@@ -373,6 +321,14 @@ func (s *AuthService) generateWalletToken(walletAddress string) (string, error) 
 		AuthEpoch:        1,
 		RestoreEpoch:     restoreEpoch,
 		RegisteredClaims: accessTokenClaims(walletAddress, s.jwtExpiry),
+	}
+
+	if len(proofs) > 0 && proofs[0] != nil {
+		if proofs[0].Kind != walletsig.AccountEOA {
+			return "", ErrInvalidCredential
+		}
+		claims.AccountKind = walletsig.AccountEOA
+		claims.ChainID = proofs[0].ChainID
 	}
 
 	return s.signToken(claims)
@@ -438,6 +394,9 @@ func (s *AuthService) GeneratePlaybackToken(ctx context.Context, walletAddress, 
 	opts := playbackTokenOptions{}
 	for _, apply := range options {
 		apply(&opts)
+	}
+	if strings.HasPrefix(opts.sessionID, middleware.ContractWalletSessionPrefix) {
+		return "", ErrAuthorizationSessionRequired
 	}
 	if opts.sessionID == "" {
 		// A capability must inherit the caller's login session. Creating a
@@ -566,11 +525,15 @@ func (s *AuthService) IssueCapability(ctx context.Context, authz *PlaybackAuthor
 			// the audience is what stops one being presented where the other is
 			// expected.
 			Audience:  jwt.ClaimStrings{PlaybackCapabilityAudience},
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(s.now().Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(s.now()),
+			NotBefore: jwt.NewNumericDate(s.now()),
 			Subject:   authz.contentID,
 		},
+	}
+
+	if err := s.boundContractCapability(ctx, authz, claims); err != nil {
+		return "", err
 	}
 
 	svcPlaybackTokenIssued.Inc()
@@ -666,6 +629,12 @@ func (s *AuthService) ParsePlaybackToken(ctx context.Context, tokenString, conte
 		monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "failure").Inc()
 		return nil, ErrTokenRevoked
 	}
+	if requiresContractProof(claims) {
+		if _, err := s.contractRecord(ctx, claims, false); err != nil {
+			return nil, err
+		}
+	}
+
 	monitoring.AuthOperationsTotal.WithLabelValues("parse_playback_token", "success").Inc()
 	return claims, nil
 }
@@ -749,6 +718,12 @@ func (s *AuthService) VerifyToken(ctx context.Context, tokenString string) (*Tok
 	if s.blacklist != nil && claims.JTI != "" && s.blacklist.IsRevoked(ctx, claims.JTI) {
 		return &TokenVerifyResult{Valid: false}, ErrTokenRevoked
 	}
+	if requiresContractProof(claims) {
+		if _, err := s.contractRecord(ctx, claims, true); err != nil {
+			return &TokenVerifyResult{Valid: false}, err
+		}
+	}
+
 	expiresAtStr := ""
 	if claims.ExpiresAt != nil {
 		expiresAtStr = claims.ExpiresAt.Format(time.RFC3339)

@@ -1057,6 +1057,78 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 10b. Contract-wallet browser matrix (plan §10 W3-05): the ERC-1271 login,
+# short-lease renewal and revocation flows in a real browser against THIS
+# deployment mode. run_fullchain invokes this script once per mode, so the
+# matrix covers monolith and api-gateway separately — one leg never stands in
+# for the other. A missing browser or fixture is a FAILURE, never a skip.
+# ---------------------------------------------------------------------------
+printf '\n=== Contract-wallet browser matrix ===\n'
+
+CW_MODE="monolith"
+if [ -n "${API_BASE:-}" ] && [ -n "${MONOLITH_BASE:-}" ] && [ "$API_BASE" != "$MONOLITH_BASE" ]; then
+    CW_MODE="api-gateway"
+fi
+# The scenario needs the page AND the API on one origin (the h5 front door
+# proxies /api/). W3_H5_BASE wins; H5_BASE has the /demo suffix in the verify
+# stack; the fullchain stack's documented front door is localhost:18000.
+CW_H5_BASE="${W3_H5_BASE:-${H5_BASE:-}}"
+CW_H5_BASE="${CW_H5_BASE%/demo}"
+CW_H5_BASE="${CW_H5_BASE%/}"
+[ -n "$CW_H5_BASE" ] || CW_H5_BASE="http://localhost:18000"
+CW_HARNESS="$(cd "$(dirname "$0")/h5-demo-acceptance" 2>/dev/null && pwd || echo '')"
+CW_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CW_ARTIFACTS="$CW_ROOT/contracts/out"
+
+CW_FIXTURE="$WORKDIR/wallet-fixture.json"
+if [ ! -d "$CW_HARNESS/node_modules/playwright" ]; then
+    f "Contract-wallet browser matrix could not run: Playwright not installed under scripts/h5-demo-acceptance"
+elif [ ! -f "$CW_ARTIFACTS/Study1271Wallet.sol/Study1271Wallet.json" ]; then
+    f "Contract-wallet browser matrix could not run: contract build artifacts missing (forge build has not run)"
+else
+    if W3_ANVIL_RPC="${ANVIL_URL}" W3_CONTRACT_ARTIFACTS="$CW_ARTIFACTS" \
+        node "$CW_ROOT/scripts/cd/prepare_wallet_anvil.cjs" "$CW_FIXTURE" >"$WORKDIR/cw-fixture.log" 2>&1; then
+        p "Contract-wallet fixture deployed on the acceptance chain (A owner, C holds the NFT)"
+        if ( W3_MODE="$CW_MODE" W3_H5_BASE="$CW_H5_BASE" W3_ANVIL_RPC="${ANVIL_URL}" \
+                W3_FIXTURE_PATH="$CW_FIXTURE" W3_MEDIA_FILE="$MEDIA" \
+                W3_REPORT_DIR="$WORKDIR/cw-report" \
+                node "$CW_HARNESS/wallet-anvil.mjs" >"$WORKDIR/cw-browser.log" 2>&1 ); then
+            p "Contract-wallet browser matrix passed ($CW_MODE)"
+        else
+            DETAIL="$(playback_failure_detail "$WORKDIR/cw-browser.log")"
+            f "Contract-wallet browser matrix failed ($CW_MODE): $DETAIL"
+        fi
+        # Keep the raw evidence next to the reports the CI diagnostics collect.
+        mkdir -p "$CW_HARNESS/reports/cw-$CW_MODE" 2>/dev/null || true
+        cp "$WORKDIR/cw-browser.log" "$CW_HARNESS/reports/cw-$CW_MODE/browser.log" 2>/dev/null || true
+        cp "$WORKDIR/cw-report/result.json" "$CW_HARNESS/reports/cw-$CW_MODE/result.json" 2>/dev/null || true
+        # The scenario's own required-check list is the gate: every required
+        # CW case must be present AND ok — a missing case fails, nothing is
+        # tolerated by count.
+        if [ -f "$WORKDIR/cw-report/result.json" ]; then
+            if python3 - "$WORKDIR/cw-report/result.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+have = {c['id']: c['ok'] for c in d['checks']}
+missing = [i for i in d.get('required', []) if not have.get(i)]
+failed = [i for i, ok in have.items() if not ok]
+if missing or failed or d.get('errors'):
+    print('missing=' + ','.join(missing) + ' failed=' + ','.join(failed) + ' errors=' + ';'.join(d.get('errors', [])[:3]))
+    sys.exit(1)
+PY
+            then
+                p "Contract-wallet required browser cases all present and ok ($CW_MODE)"
+            else
+                f "Contract-wallet required browser cases incomplete ($CW_MODE)"
+            fi
+        fi
+    else
+        DETAIL="$(playback_failure_detail "$WORKDIR/cw-fixture.log")"
+        f "Contract-wallet fixture preparation failed: $DETAIL"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 11. Logout ends the whole session
 # ---------------------------------------------------------------------------
 printf '\n=== Logout ===\n'

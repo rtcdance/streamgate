@@ -29,8 +29,7 @@ import (
 // ## Security Notes
 //
 //   - ConstantTimeCompare (line 77) prevents timing side-channel attacks.
-//   - If EOA recovery fails and an EIP-1271 checker is configured, the verifier
-//     falls back to smart contract wallet verification (e.g., Gnosis Safe).
+//   - Configured contract verification classifies account code before EOA rules.
 //   - This does NOT support EIP-712 typed data signing (use VerifyTypedData).
 type SignatureVerifier struct {
 	logger  *zap.Logger
@@ -45,13 +44,27 @@ func NewSignatureVerifier(logger *zap.Logger) *SignatureVerifier {
 }
 
 // SetEIP1271Checker sets the EIP-1271 checker for smart contract wallet verification.
-// When set, VerifySignature will fall back to EIP-1271 if EOA recovery fails.
+// Deprecated: use a server-selected AccountVerifier for challenge-bound chain routing.
 func (sv *SignatureVerifier) SetEIP1271Checker(checker *EIP1271Checker) {
 	sv.eip1271 = checker
 }
 
 // VerifySignature verifies a message signature
 func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, message, signature string) (bool, error) {
+	if sv.eip1271 != nil {
+		chain, ok := sv.eip1271.caller.(AccountChain)
+		if !ok {
+			return false, ErrWalletDependency
+		}
+		ctx, cancel := context.WithTimeout(ctx, WalletVerificationTimeout)
+		defer cancel()
+		id, err := chain.ChainID(ctx)
+		if err != nil || id == nil || !id.IsInt64() {
+			return false, ErrWalletDependency
+		}
+		_, err = NewAccountVerifier(chain, sv.logger).Verify(ctx, id.Int64(), "personal_sign", address, message, signature)
+		return err == nil, err
+	}
 	sv.logger.Debug("Verifying signature",
 		zap.String("address", address),
 		zap.Int("message_length", len(message)))
@@ -106,30 +119,6 @@ func (sv *SignatureVerifier) VerifySignature(ctx context.Context, address, messa
 
 	expectedAddress := common.HexToAddress(address)
 	if subtle.ConstantTimeCompare(recoveredAddress.Bytes(), expectedAddress.Bytes()) != 1 {
-		if sv.eip1271 != nil {
-			sv.logger.Debug("EOA recovery mismatch, trying EIP-1271",
-				zap.String("expected", expectedAddress.Hex()),
-				zap.String("recovered", recoveredAddress.Hex()))
-
-			messageHash := sv.hashMessage(message)
-			var hash [32]byte
-			copy(hash[:], messageHash)
-
-			sigCopy := make([]byte, len(sig))
-			copy(sigCopy, sig)
-			if sigCopy[64] < 27 {
-				sigCopy[64] += 27
-			}
-
-			valid, err := sv.eip1271.IsValidSignature(ctx, address, hash, sigCopy)
-			if err == nil && valid {
-				sv.logger.Debug("EIP-1271 signature verified", zap.String("address", address))
-				return true, nil
-			}
-			sv.logger.Debug("EIP-1271 verification failed",
-				zap.String("address", address),
-				zap.Error(err))
-		}
 
 		sv.logger.Warn("Signature verification failed",
 			zap.String("expected", expectedAddress.Hex()),

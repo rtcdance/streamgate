@@ -70,7 +70,7 @@ type forgeArtifact struct {
 
 // loadArtifact reads a Forge build artifact. A missing artifact is a hard
 // failure, never a skip: the suite must not pass without a real compile.
-func loadArtifact(t *testing.T, relPath string) (abi.ABI, []byte) {
+func loadArtifact(t *testing.T, relPath string) (parsedABI abi.ABI, bytecode []byte) {
 	t.Helper()
 	p := filepath.Join(repoRoot(t), relPath)
 	raw, err := os.ReadFile(p)
@@ -102,6 +102,10 @@ func loadArtifact(t *testing.T, relPath string) (abi.ABI, []byte) {
 // epoch of one slot the safe head tracks latest-1, letting tests mine forward
 // until a deployment is genuinely inside the safe view (see mineUntilSafe).
 func startAnvil(t *testing.T) (rpcURL string, cleanup func()) {
+	return startAnvilOnChain(t, anvilChainID)
+}
+
+func startAnvilOnChain(t *testing.T, chainID int64) (rpcURL string, cleanup func()) {
 	t.Helper()
 
 	anvilPath, err := exec.LookPath("anvil")
@@ -120,7 +124,7 @@ func startAnvil(t *testing.T) (rpcURL string, cleanup func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, anvilPath,
 		"--port", fmt.Sprint(port),
-		"--chain-id", fmt.Sprint(anvilChainID),
+		"--chain-id", fmt.Sprint(chainID),
 		"--gas-limit", "30000000",
 		"--accounts", "3",
 		"--slots-in-an-epoch", "1",

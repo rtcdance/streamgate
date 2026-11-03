@@ -6,14 +6,31 @@ class HLSPlayer {
         this.manifestUrl = null;
         this.authToken = null;
         this._manifestParsedBound = null;
+        this.playbackToken = null;
+        this.playbackGeneration = 0;
+        this.blobUrl = null;
+        this.networkRecoveries = 0;
+        this.authorizationTimer = null;
     }
 
     init() {
         if (Hls.isSupported()) {
+            const player = this;
+            const BaseLoader = Hls.DefaultConfig.loader;
+            class AuthorizedLoader extends BaseLoader {
+                load(context, config, callbacks) {
+                    context.url = player.authorizedURL(context.url);
+                    super.load(context, config, callbacks);
+                }
+            }
             this.hls = new Hls({
+                loader: AuthorizedLoader,
                 enableWorker: true,
                 lowLatencyMode: false,
                 backBufferLength: 90,
+                maxBufferLength: 15,
+                maxMaxBufferLength: 30,
+                maxBufferSize: 2 * 1024 * 1024,
                 maxBufferHole: 0.5,
                 maxSeekHole: 2,
                 xhrSetup: (xhr, url) => {
@@ -35,6 +52,11 @@ class HLSPlayer {
     }
 
     async loadVideo(videoId, options = {}) {
+        window.clearTimeout(this.authorizationTimer);
+        this.playbackGeneration++;
+        const generation = this.playbackGeneration;
+        this.playbackToken = null;
+        this.networkRecoveries = 0;
         this.currentVideoId = videoId;
         this.authToken = options.token || null;
         const baseUrl = (options.baseUrl || window.location.origin || 'http://localhost:9090').replace(/\/$/, '');
@@ -57,8 +79,12 @@ class HLSPlayer {
             throw new Error(errorText || `HTTP ${response.status}`);
         }
         const rawManifest = await response.text();
+        if (generation !== this.playbackGeneration || token !== this.authToken) throw new Error('Playback cancelled by identity change');
+        this.captureCapability(rawManifest, baseUrl);
         const manifestText = this.rewriteManifest(rawManifest, baseUrl);
+        this.releaseBlob();
         const manifestBlobUrl = URL.createObjectURL(new Blob([manifestText], { type: 'application/vnd.apple.mpegurl' }));
+        this.blobUrl = manifestBlobUrl;
 
         if (this.hls) {
             if (this.hls.media) {
@@ -74,6 +100,74 @@ class HLSPlayer {
         } else {
             this.video.src = manifestBlobUrl;
             this.video.addEventListener('loadedmetadata', () => this.handleMetadata());
+        }
+        this.scheduleAuthorizationRefresh();
+    }
+
+    scheduleAuthorizationRefresh() {
+        window.clearTimeout(this.authorizationTimer);
+        if (!this.currentVideoId) return;
+        this.authorizationTimer = window.setTimeout(() => this.refreshAuthorization(this.authToken).catch(() => {}), 25000);
+    }
+
+    authorizedURL(raw) {
+        if (!this.playbackToken || !this.manifestUrl) return raw;
+        try {
+            const url = new URL(raw, this.manifestUrl);
+            const manifest = new URL(this.manifestUrl);
+            const prefix = manifest.pathname.slice(0, manifest.pathname.lastIndexOf('/') + 1);
+            // A renewed credential may replace only URLs for this content on
+            // this backend, never credentials on another origin or content.
+            if (url.origin === manifest.origin && url.pathname.startsWith(prefix) && url.searchParams.has('playback_token')) {
+                url.searchParams.set('playback_token', this.playbackToken);
+                return url.href;
+            }
+        } catch { /* malformed URLs are rejected by the loader/server */ }
+        return raw;
+    }
+
+    captureCapability(manifestText, baseUrl) {
+        const tokens = new Set();
+        for (const match of manifestText.matchAll(/(?:^|["\s])([^"\s]*playback_token=[^"\s]*)/gm)) {
+            const url = new URL(match[1], baseUrl);
+            if (url.origin !== new URL(baseUrl).origin) throw new Error('Unexpected media origin');
+            const token = url.searchParams.get('playback_token');
+            if (token) tokens.add(token);
+        }
+        if (tokens.size !== 1) throw new Error('Missing or inconsistent playback capability');
+        this.playbackToken = tokens.values().next().value;
+    }
+
+    releaseBlob() {
+        if (this.blobUrl) URL.revokeObjectURL(this.blobUrl);
+        this.blobUrl = null;
+    }
+
+    async refreshAuthorization(token) {
+        if (!this.currentVideoId || !this.manifestUrl) return;
+        const generation = this.playbackGeneration;
+        this.authToken = token;
+        try {
+            const response = await fetch(this.manifestUrl, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(7000) });
+            if (!response.ok) throw Object.assign(new Error(`Playback authorization: HTTP ${response.status}`), { status: response.status });
+            const manifest = await response.text();
+            if (generation !== this.playbackGeneration || token !== this.authToken) return;
+            this.captureCapability(manifest, new URL(this.manifestUrl).origin);
+            if (!this.hls) {
+                const position = this.video.currentTime;
+                const paused = this.video.paused;
+                this.releaseBlob();
+                this.blobUrl = URL.createObjectURL(new Blob([this.rewriteManifest(manifest, new URL(this.manifestUrl).origin)], { type: 'application/vnd.apple.mpegurl' }));
+                this.video.addEventListener('loadedmetadata', () => {
+                    this.video.currentTime = position;
+                    if (!paused) this.video.play().catch(() => {});
+                }, { once: true });
+                this.video.src = this.blobUrl;
+            }
+            this.scheduleAuthorizationRefresh();
+        } catch (error) {
+            if (generation === this.playbackGeneration && token === this.authToken) this.endPlayback([401, 403].includes(error.status) ? 'authorization-ended' : 'dependency-unavailable');
+            throw error;
         }
     }
 
@@ -135,7 +229,8 @@ class HLSPlayer {
             switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
                     console.log('Fatal network error, trying to recover');
-                    this.hls.startLoad();
+                    if (++this.networkRecoveries <= 2) this.hls.startLoad();
+                    else this.endPlayback('dependency-unavailable');
                     break;
                 case Hls.ErrorTypes.MEDIA_ERROR:
                     console.log('Fatal media error, trying to recover');
@@ -161,6 +256,14 @@ class HLSPlayer {
     }
 
     endPlayback(reason) {
+        window.clearTimeout(this.authorizationTimer);
+        this.authorizationTimer = null;
+        this.playbackGeneration++;
+        this.playbackToken = null;
+        this.authToken = null;
+        this.currentVideoId = null;
+        this.manifestUrl = null;
+        this.releaseBlob();
         try {
             if (this.hls) this.hls.destroy();
         } catch (e) {
@@ -183,7 +286,7 @@ class HLSPlayer {
         if (el) {
             el.textContent = reason === 'authorization-ended'
                 ? 'Playback authorization ended — sign in again to continue.'
-                : 'Playback stopped.';
+                : reason === 'dependency-unavailable' ? 'Playback dependency unavailable — retry after recovery.' : 'Playback stopped.';
             // Machine-readable so the acceptance can assert WHICH happened,
             // rather than inferring it from prose.
             el.dataset.sgPlaybackState = reason;
@@ -236,15 +339,7 @@ class HLSPlayer {
         this.video.pause();
     }
 
-    destroy() {
-        if (this.hls) {
-            this.hls.destroy();
-            this.hls = null;
-        }
-        this.video.src = '';
-        this.currentVideoId = null;
-        this.manifestUrl = null;
-    }
+    destroy() { this.endPlayback('stopped'); }
 
     getCurrentTime() {
         return this.video.currentTime;

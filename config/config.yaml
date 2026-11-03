@@ -189,6 +189,16 @@ auth:
   nonce_expiry: 5m
   siwe_domain: streamgate.io
   siwe_uri: https://streamgate.io/login
+  # Protocol ceilings: deployments may tighten them, never widen them.
+  contract_wallet:
+    lease_ttl: 60s
+    proof_max_age: 5s
+    clock_skew: 5s
+    absolute_session_ttl: 2h
+    max_signature_bytes: 8192
+    max_body_bytes: 20480
+    call_gas_limit: 500000
+    verification_timeout: 5s
   # Key separation (SG-14): access JWTs and playback capabilities verify under
   # independent keys. Empty access_secret falls back to jwt_secret itself, so
   # tokens issued before the split keep verifying; empty capability_secret is

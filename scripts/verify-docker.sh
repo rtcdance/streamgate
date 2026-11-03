@@ -309,6 +309,9 @@ stage_unit() {
   run_in_image unit '
     set -euo pipefail
     python3 scripts/cd/test_assert_required_tests.py
+    python3 scripts/cd/test_wallet_network_preflight.py
+    python3 scripts/cd/test_wallet_deployment_manifest.py
+    python3 scripts/cd/test_wallet_testnet_verifier.py
     # The required-fuzz contract runner is itself a gate: CI calls it, and the
     # final candidate entrypoint must cover the same contract or a candidate could
     # be accepted here while the fuzz gate that CI enforces never ran (section 0.2 D).
@@ -334,6 +337,8 @@ stage_unit() {
     python3 scripts/cd/test_recovery_objects.py
     python3 scripts/cd/test_recovery_drill.py
     go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
+    node scripts/cd/test_h5_contract_wallet.cjs
+    node scripts/cd/test_h5_wallet_sepolia_tool.cjs
     node scripts/cd/test_h5_api_base.cjs
     node scripts/cd/test_browser_preflight.cjs
     node scripts/cd/test_h5_probe_errors.cjs
@@ -354,6 +359,7 @@ stage_unit() {
     # build and only explodes in the chain stage ten minutes later. Vet each tag
     # here, where the feedback is immediate and the cause is obvious.
     go vet -tags anvil ./test/... ./pkg/...
+    go vet -tags anvil,integration ./test/integration/web3/
     go vet -tags load ./test/load/
     go vet -tags testnet ./test/...
     go vet -tags e2e ./test/e2e/
@@ -390,6 +396,13 @@ stage_unit() {
 }
 
 stage_chain() {
+  require_controller_tool docker
+  local redis_image
+  redis_image="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" config --format json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["redis"]["image"])')" || fail "cannot resolve scratch Redis image"
+  ensure_runtime_image "$redis_image"
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 redis \
+    || fail "could not start scratch Redis"
   run_in_image chain '
     set -euo pipefail
     echo "== forge build =="
@@ -403,7 +416,11 @@ stage_chain() {
     # were reachable only by a hand-typed command; the default build excludes them
     # (anvil build tag) and the coverage set reaches the package WITHOUT that tag,
     # so both gates walked past them.
-    go test -tags=anvil -race -count=1 ./test/integration/ ./test/integration/web3/... ./pkg/service/...
+    go_test_rc=0
+    go test -tags=anvil -race -count=1 -json ./test/integration/ ./test/integration/web3/... ./pkg/service/... \
+      > /artifacts/anvil-tests.json || go_test_rc=$?
+    python3 scripts/cd/assert_required_tests.py --suite wallet-account-tests --exit-code "$go_test_rc" /artifacts/anvil-tests.json
+    W3_REDIS_ADDR=redis:6379 bash scripts/cd/run_wallet_session_tests.sh /artifacts
   '
 }
 
@@ -426,6 +443,16 @@ stage_durability() {
   ensure_runtime_image "$pg_image"
   docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 postgres \
     || fail "could not start the scratch Postgres"
+  # Scratch Redis for the required wallet-proof durability suite (plan §10
+  # W3-05 / CW-12): the same pinned image the CI durability job provides, so
+  # the storage contract runs against a real server, not the miniredis Lua
+  # simulation.
+  local redis_image
+  redis_image="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" config --format json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["redis"]["image"])')" || fail "cannot resolve scratch Redis image"
+  ensure_runtime_image "$redis_image"
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 redis \
+    || fail "could not start scratch Redis"
   # The toolchain image ships no psql, so the scratch database is provisioned
   # from the host through the project's postgres container; the tests then
   # reach it by service name over the project network.
@@ -463,6 +490,8 @@ stage_durability() {
     python3 scripts/cd/assert_required_tests.py \
       --suite durability-anvil --exit-code "$go_test_rc" \
       /artifacts/durability-anvil.json
+    echo "== wallet-proof store on a real Redis (plan §10 CW-12) =="
+    W3_REDIS_ADDR=redis:6379 bash scripts/cd/run_wallet_session_durability_tests.sh /artifacts
   '
 }
 

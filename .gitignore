@@ -108,3 +108,10 @@ scripts/h5-demo-acceptance/node_modules/
 
 # Local/remote build logs and fetched evidence (generated, never committed).
 build/
+
+# Required wallet acceptance sources must remain visible despite global scripts ignores.
+!scripts/
+!scripts/cd/
+!scripts/cd/test_h5_contract_wallet.cjs
+!scripts/cd/run_wallet_session_tests.sh
+!scripts/cd/prepare_wallet_anvil.cjs

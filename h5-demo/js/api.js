@@ -92,7 +92,8 @@ class APIService {
                 const errDetail = data?.details ? ` (${data.details})` : data?.detail ? ` (${data.detail})` : '';
                 const err = new Error(errMsg + errDetail);
                 err.status = response.status;
-                if (response.status === 401) {
+                err.code = data?.code || data?.error?.code || '';
+                if (response.status === 401 && this.getAuthToken() === token) {
                     this.clearAuthToken();
                 }
                 throw err;
@@ -166,7 +167,11 @@ class APIService {
         }
     }
 
-    async getChallenge(walletAddress, chainId = 31337, signType = 'eip712') {
+    async refreshToken(token) {
+        return this.post('/api/v1/auth/refresh', { token });
+    }
+
+    async getChallenge(walletAddress, chainId = 0, signType = 'siwe') {
         return this.post('/api/v1/auth/challenge', {
             wallet: walletAddress,
             chain_id: chainId,
@@ -179,7 +184,7 @@ class APIService {
             wallet: walletAddress,
             challenge_id: challengeId,
             signature: signature,
-            chain_id: chainId || 31337,
+            chain_id: chainId,
         });
     }
 

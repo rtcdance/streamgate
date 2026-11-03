@@ -39,7 +39,11 @@ type AuthServer struct {
 
 // NewAuthServer creates a new auth server
 func NewAuthServer(cfg *config.Config, logger *zap.Logger, kernel *core.Microkernel) (*AuthServer, error) {
-	verifier := NewAuthVerifier(logger)
+	probe, err := NewProfileSignatureVerifier(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	verifier := NewAuthVerifierWithVerifiers(logger, probe, nil, nil)
 
 	return &AuthServer{
 		config:   cfg,

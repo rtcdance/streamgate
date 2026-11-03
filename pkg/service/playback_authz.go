@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/golang-jwt/jwt/v4"
+	"strings"
 	"time"
 
 	"github.com/rtcdance/streamgate/pkg/middleware"
@@ -32,6 +34,59 @@ type SessionBinding struct {
 	SessionID    string
 	AuthEpoch    int64
 	RestoreEpoch string
+	wallet       *walletCredentialBinding
+}
+
+// The transport copies scalars into this private immutable value; callers
+// cannot alter the credential deadline after authorization has been sealed.
+type walletCredentialBinding struct {
+	AccountKind            string
+	ChainID                int64
+	WalletProofID          string
+	WalletSessionExpiresAt int64
+	CredentialType         string
+	JTI                    string
+	ExpiresAt              time.Time
+}
+
+// SessionBindingFromVerifiedClaims copies scalar identity fields from a token
+// already verified by the transport. It must never receive request JSON.
+func SessionBindingFromVerifiedClaims(sid string, epoch int64, restore string, values jwt.MapClaims) (SessionBinding, error) {
+	result := SessionBinding{SessionID: sid, AuthEpoch: epoch, RestoreEpoch: restore}
+	if values == nil {
+		if strings.HasPrefix(sid, middleware.ContractWalletSessionPrefix) {
+			return result, ErrAuthorizationSessionRequired
+		}
+		return result, nil
+	}
+	var claims Claims
+	if decodeWalletAccessClaims(values, &claims) != nil {
+		return result, ErrAuthorizationSessionRequired
+	}
+	if claims.SessionID != sid || claims.AuthEpoch != epoch || claims.RestoreEpoch != restore {
+		return result, ErrAuthorizationSessionRequired
+	}
+	meta := &walletCredentialBinding{AccountKind: claims.AccountKind, ChainID: claims.ChainID, WalletProofID: claims.WalletProofID,
+		WalletSessionExpiresAt: claims.WalletSessionExpiresAt, CredentialType: claims.TokenType, JTI: claims.JTI}
+	if claims.ExpiresAt != nil {
+		meta.ExpiresAt = claims.ExpiresAt.Time
+	}
+	result.wallet = meta
+
+	return result, nil
+}
+
+func walletRules(rules []middleware.GatingRule, session SessionBinding) []middleware.GatingRule {
+	if session.wallet == nil || session.wallet.AccountKind != "erc1271" {
+		return rules
+	}
+	filtered := make([]middleware.GatingRule, 0, len(rules))
+	for _, rule := range rules {
+		if rule.ChainID == session.wallet.ChainID {
+			filtered = append(filtered, rule)
+		}
+	}
+	return filtered
 }
 
 // Authorization errors. Transports map them to their own status codes; the
@@ -153,6 +208,9 @@ func authorizationEvaluationError(err error) error {
 }
 
 func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, wallet string, session SessionBinding) (*PlaybackAuthorization, error) {
+	if strings.HasPrefix(session.SessionID, middleware.ContractWalletSessionPrefix) && (session.wallet == nil || session.wallet.AccountKind != "erc1271" || session.wallet.ChainID <= 0 || session.wallet.WalletProofID == "" || session.wallet.ExpiresAt.IsZero()) {
+		return nil, ErrAuthorizationSessionRequired
+	}
 	if session.SessionID == "" {
 		return nil, ErrAuthorizationSessionRequired
 	}
@@ -178,7 +236,11 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 		return nil, ErrNoGatingRules
 	}
 
-	decision, err := middleware.EvaluatePolicy(ctx, a.gate, a.logger, first.Rules, wallet)
+	firstRules := walletRules(first.Rules, session)
+	if len(firstRules) == 0 {
+		return nil, ErrPlaybackDenied
+	}
+	decision, err := middleware.EvaluatePolicy(ctx, a.gate, a.logger, firstRules, wallet)
 	if err != nil {
 		return nil, authorizationEvaluationError(err)
 	}
@@ -201,7 +263,11 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 			}
 			return nil, ErrNoGatingRules
 		}
-		decision, err = middleware.EvaluatePolicy(ctx, a.gate, a.logger, second.Rules, wallet)
+		secondRules := walletRules(second.Rules, session)
+		if len(secondRules) == 0 {
+			return nil, ErrPlaybackDenied
+		}
+		decision, err = middleware.EvaluatePolicy(ctx, a.gate, a.logger, secondRules, wallet)
 		if err != nil {
 			return nil, authorizationEvaluationError(err)
 		}

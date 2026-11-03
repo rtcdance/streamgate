@@ -26,7 +26,7 @@ class StreamGateApp {
         this.refreshAcceptanceSummary();
         this.inspectWalletEnvironment();
         await this.checkBackend();
-        this.restoreSession();
+        await this.restoreSession();
     }
 
     initBackendConfig() {
@@ -144,6 +144,9 @@ class StreamGateApp {
             });
         });
 
+        window.addEventListener('auth:state', (e) => this.handleAuthState(e.detail));
+        document.getElementById('login-subject')?.addEventListener('input', () => this.auth.logout('subject-changed'));
+        window.addEventListener('wallet:disconnected', () => this.auth.logout('wallet-disconnected'));
         window.addEventListener('wallet:accountChanged', (e) => this.onAccountChanged(e));
         window.addEventListener('wallet:chainChanged', (e) => this.onChainChanged(e));
 
@@ -207,13 +210,40 @@ class StreamGateApp {
         }
     }
 
-    restoreSession() {
-        const token = this.api.getAuthToken();
-        if (token) {
-            this.auth.isAuthenticated = true;
-            this.updateStatus('auth', 'online', 'Authenticated');
-            this.updateStep('auth', 'done');
+    async restoreSession() {
+        if (await this.auth.restore()) {
+            this.updateWalletUI(this.auth.identity.controller);
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('login-subject').value = this.auth.loginSubject;
             this.loadMyVideos();
+        }
+    }
+
+    handleAuthState({ state, identity, error }) {
+        const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+        const active = state === 'authenticated';
+        text('login-controller', identity?.controller || this.auth._getActiveWallet().getAddress() || 'Not connected');
+        text('login-subject-value', identity?.subject || 'Not signed in');
+        text('login-chain', identity ? `${identity.chainId} / ${identity.kind}` : 'Unknown');
+        text('login-lease', identity ? new Date(identity.expiresAt).toISOString() : 'Not signed in');
+        text('login-session-state', error ? `${state}: ${error}` : state);
+        this.updateStatus('auth', active ? 'online' : state === 'dependency-unavailable' ? 'pending' : 'offline', active ? 'Authenticated' : state);
+        if (active) {
+            this.updateStep('auth', 'done');
+            this._walletAddress = identity.subject;
+            this._chainId = identity.chainId;
+            const chainSelect = document.getElementById('chain-select');
+            if (chainSelect) chainSelect.value = String(identity.chainId);
+            if (this.player?.currentVideoId) {
+                this.player.refreshAuthorization(this.auth.getToken()).catch((err) => this.showToast(err.message, 'error'));
+            }
+        } else if (state !== 'dependency-unavailable') {
+            this.player?.endPlayback(state);
+            this.isPlaying = false;
+            this.updateStep('nft', 'pending');
+            this.updateStep('playback', 'pending');
+            document.getElementById('nft-result')?.classList.add('hidden');
+            text('nft-status-text', 'Not verified');
         }
     }
 
@@ -223,6 +253,7 @@ class StreamGateApp {
             this.showToast('Backend URL is required', 'error');
             return;
         }
+        this.auth.logout('backend-changed');
         this.api.setBaseUrl(value);
         const apiEl = document.getElementById('sidebar-api-url');
         if (apiEl) apiEl.textContent = value;
@@ -231,6 +262,7 @@ class StreamGateApp {
     }
 
     async connectDemoWallet() {
+        this.auth.logout('wallet-changed');
         demoWallet.setDemoMode(true);
         this.showLoading(true);
         try {
@@ -319,33 +351,6 @@ async _autoMintDemoNFT(address) {
         }
     }
 
-    async _autoEnsureAnvilNFT(address) {
-        if (typeof ethers === 'undefined' || typeof ensureAnvilNFT === 'undefined') return;
-        try {
-            // Use Anvil deployer key directly for minting, works with any wallet
-            const anvilProvider = new ethers.providers.JsonRpcProvider('http://localhost:18545');
-            const deployer = new ethers.Wallet(DEMO_ANVIL_KEY, anvilProvider);
-            const contractAddr = document.getElementById('nft-contract').value;
-            // Contract deployed at 0x5FbDB231... by forge create on Anvil startup
-            const abi = ['function balanceOf(address) view returns (uint256)', 'function mint(address) returns (uint256)'];
-            const c = new ethers.Contract(contractAddr, abi, anvilProvider);
-            const bal = await c.balanceOf(address);
-            if (bal.toNumber() > 0) {
-                this.showToast(`NFT ready (balance: ${bal})`, 'info');
-                return;
-            }
-            // Mint to the connected wallet using deployer key
-            const signed = new ethers.Contract(contractAddr, abi, deployer);
-            for (let i = 0; i < 3; i++) {
-                const tx = await signed.mint(address);
-                await tx.wait();
-            }
-            this.showToast('Auto-minted 3 NFTs for you!', 'success');
-        } catch (e) {
-            console.warn('Auto-ensure NFT failed:', e.message);
-        }
-    }
-
     async mintDemoNFT() {
         if (!demoWallet.isDemoMode && !walletService.isConnected()) {
             this.showToast('Connect a wallet first', 'warning');
@@ -353,13 +358,14 @@ async _autoMintDemoNFT(address) {
         }
         this.showLoading(true);
         try {
+            if (this.auth._getActiveWallet().getChainId() !== 31337) throw new Error('Demo mint is restricted to local Anvil');
             const isDemo = demoWallet.isDemoMode;
             const provider = isDemo
                 ? new ethers.providers.JsonRpcProvider('http://localhost:18545')
                 : walletService.provider;
             const signer = isDemo
                 ? new ethers.Wallet(DEMO_ANVIL_KEY, provider)
-                : provider.getSigner();
+                : new ethers.providers.Web3Provider(provider).getSigner();
             const addr = isDemo ? demoWallet.address : walletService.getAddress();
             const input = document.getElementById('nft-contract');
             let contractAddr = input.value;
@@ -418,6 +424,8 @@ async _autoMintDemoNFT(address) {
     }
 
     async connectWallet() {
+        this.auth.logout('wallet-changed');
+        demoWallet.setDemoMode(false);
         try {
             this.showLoading(true);
             const result = await this.wallet.connect();
@@ -434,10 +442,6 @@ async _autoMintDemoNFT(address) {
             document.getElementById('login-section').classList.remove('hidden');
             document.getElementById('nft-section').classList.remove('hidden');
 
-            // Auto-ensure NFTs on Anvil local chain
-            if (this.wallet.chainId === 31337 || this.wallet.chainId === '0x7a69') {
-                this._autoEnsureAnvilNFT(result.address);
-            }
         } catch (error) {
             this.updateStatus('wallet', 'offline', 'Unavailable');
             this.setTroubleshooting(
@@ -452,6 +456,8 @@ async _autoMintDemoNFT(address) {
 
     updateWalletUI(address) {
         const formatted = this.wallet.formatAddress(address);
+        const controller = document.getElementById('login-controller');
+        if (controller) controller.textContent = address;
         document.getElementById('address-value').textContent = formatted;
         document.getElementById('wallet-address').classList.remove('hidden');
         const ws = document.getElementById('wallet-status');
@@ -469,6 +475,7 @@ async _autoMintDemoNFT(address) {
     async doLogin() {
         try {
             this.showLoading(true);
+            this.auth.setLoginSubject(document.getElementById('login-subject')?.value || '');
             await this.auth.requestChallenge();
             const result = await this.auth.login();
             
@@ -477,7 +484,7 @@ async _autoMintDemoNFT(address) {
             loginEl.textContent = '';
             const span = document.createElement('span');
             span.className = 'success';
-            span.textContent = `✓ Login successful! Token: ${result.token?.slice(0, 20)}...`;
+            span.textContent = `✓ Signed in as ${this.auth.identity.subject}`;
             loginEl.appendChild(span);
             this.updateStatus('auth', 'online', 'Authenticated');
             this.updateStep('auth', 'done');
@@ -489,7 +496,7 @@ async _autoMintDemoNFT(address) {
 
             const walletAddress = this._walletAddress || demoWallet.address;
             const chainId = parseInt(document.getElementById('chain-select').value);
-            if (chainId === 31337 && walletAddress) {
+            if (chainId === 31337 && walletAddress && this.auth.identity?.kind !== 'erc1271') {
                 try {
                     await this._autoMintViaBackend();
                 } catch (mintErr) {
@@ -508,6 +515,7 @@ async _autoMintDemoNFT(address) {
             errSpan.className = 'error';
             errSpan.textContent = `✗ ${error.message}`;
             errEl.appendChild(errSpan);
+            errEl.dataset.authError = error.code === 4001 ? 'signature-rejected' : error.status === 503 ? 'dependency-unavailable' : error.status === 422 ? 'wallet-unsupported' : 'login-failed';
             this.updateStep('auth', 'failed');
             this.setTroubleshooting(
                 'Login failed',
@@ -557,7 +565,7 @@ async _autoMintDemoNFT(address) {
                         ? 'Connected wallet has 0 NFTs on this contract. Click "Mint Demo NFT (Anvil)" to mint, or switch to Demo Mode for an auto-funded test wallet.'
                         : 'Check the connected wallet, contract address, and chain ID. Full acceptance needs a wallet that actually owns the NFT on this chain.'
                 );
-                if (onAnvil && (this.auth.isAuthenticated || this.auth.isLoggedIn())) {
+                if (onAnvil && this.auth.identity?.kind !== 'erc1271' && this.auth.isLoggedIn()) {
                     this._autoMintViaBackend();
                 }
             }
@@ -595,6 +603,8 @@ async _autoMintDemoNFT(address) {
         try {
             this.showLoading(true);
             
+            if (!this.auth.isLoggedIn()) throw new Error('Sign in first');
+            if (!this.player.hls) this.player.init();
             const token = this.auth.getToken();
             await this.player.loadVideo(videoId, {
                 token,
@@ -1493,11 +1503,13 @@ async _autoMintDemoNFT(address) {
     }
 
     onAccountChanged(event) {
+        this._walletAddress = event.detail.address;
         this.updateWalletUI(event.detail.address);
         this.showToast('Account changed', 'info');
     }
 
     onChainChanged(event) {
+        this._chainId = event.detail.chainId;
         this.showToast(`Chain changed to ${event.detail.chainId}`, 'info');
     }
 

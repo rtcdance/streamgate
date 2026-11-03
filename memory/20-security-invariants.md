@@ -17,6 +17,9 @@
 | S8 | `token_type` and audience are checked, not just the signature | `ParsePlaybackToken` | an access JWT must not work as a playback token |
 | S9 | An empty wallet never receives a playback token | `GeneratePlaybackToken` | it would be an unauthenticated success |
 | S10 | Every chain read has an RPC fallback chain | `pkg/web3/`, config `rpc_urls` | a single endpoint is a single point of failure |
+| S11 | Classify a wallet on its server-selected chain at one safe anchor before EOA recovery; contract signatures remain opaque and strict ERC-1271 ABI/magic checks never fall back to EOA | `pkg/web3/signature/account.go`, `eip1271.go` | an owner signature is not the contract's identity or policy |
+| S12 | A contract session carries a server proof, chain, kind, absolute lifetime and short lease; missing metadata never becomes legacy EOA; renewal atomically consumes JTI/version against the current epoch | `auth_contract_wallet.go`, `storage/wallet_session.go`, `access_policy.go` | refresh and stale verification results must not resurrect revoked authority |
+| S13 | A contract-wallet capability expires no later than the credential presented for issuance and only evaluates that identity's chain | `playback_authz.go`, `auth_contract_wallet.go`, HTTP/gRPC bindings | a later refresh or same-address asset on another chain cannot extend an old grant |
 
 ## Gate decision matrix
 

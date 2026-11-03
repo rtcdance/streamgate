@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
 )
 
@@ -18,6 +19,7 @@ type PlaybackIdentity struct {
 	SessionID    string
 	AuthEpoch    int64
 	RestoreEpoch string
+	Claims       jwt.MapClaims
 }
 
 // PlaybackTokenValidator validates a playback token and returns the identity it
@@ -75,6 +77,9 @@ func PlaybackTokenAuth(config PlaybackTokenAuthConfig, logger *zap.Logger) gin.H
 			return
 		}
 		c.Set("playback_auth", true)
+		if identity.Claims != nil {
+			c.Set("jwt_claims", identity.Claims)
+		}
 		c.Set("wallet_address", identity.Wallet)
 		SetSessionBinding(c, identity.SessionID, identity.AuthEpoch)
 		c.Set("restore_epoch", identity.RestoreEpoch)

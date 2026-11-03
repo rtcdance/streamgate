@@ -223,7 +223,18 @@
                     <section id="login-section" class="card hidden">
                         <div class="section-kicker">Step 3</div>
                         <h2>Wallet Login</h2>
-                        <p class="desc">Sign challenge, obtain JWT.</p>
+                        <p class="desc">Connect signer A. For a deployed ERC-1271 wallet, enter login subject C. NFT ownership and playback use the login subject.</p>
+                        <div class="form-group">
+                            <label for="login-subject">Contract wallet C (leave empty for EOA login)</label>
+                            <input id="login-subject" class="input" type="text" placeholder="0x… deployed on the backend chain" autocomplete="off">
+                        </div>
+                        <dl id="login-identity" aria-live="polite">
+                            <dt>Controller / signer A</dt><dd id="login-controller">Not connected</dd>
+                            <dt>Login subject</dt><dd id="login-subject-value">Not signed in</dd>
+                            <dt>Chain / wallet type</dt><dd id="login-chain">Unknown</dd>
+                            <dt>Authorization lease</dt><dd id="login-lease">Not signed in</dd>
+                        </dl>
+                        <p id="login-session-state" role="status">Sign in to verify the selected identity.</p>
                         <button id="login-btn" class="btn btn-success">Sign &amp; Login</button>
                         <div id="login-result" class="result hidden"></div>
                     </section>
@@ -567,11 +578,11 @@
     </div>
     <div id="toast-container" class="toast-container"></div>
 
-<script src="js/api.js?v=23"></script>
+<script src="js/api.js?v=24"></script>
 <script src="js/demo.js?v=22"></script>
-<script src="js/wallet.js?v=21"></script>
-<script src="js/auth.js?v=23"></script>
-<script src="js/player.js?v=21"></script>
-<script src="js/app.js?v=26"></script>
+<script src="js/wallet.js?v=22"></script>
+<script src="js/auth.js?v=24"></script>
+<script src="js/player.js?v=22"></script>
+<script src="js/app.js?v=27"></script>
 </body>
 </html>

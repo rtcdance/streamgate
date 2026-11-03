@@ -26,6 +26,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/storage"
 	web3contract "github.com/rtcdance/streamgate/pkg/web3/contract"
 	"github.com/rtcdance/streamgate/pkg/web3/event"
+	"github.com/rtcdance/streamgate/pkg/web3/signature"
 	txtx "github.com/rtcdance/streamgate/pkg/web3/tx"
 
 	"github.com/go-redis/redis/v8"
@@ -165,7 +166,9 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, d
 		return rc.AuthService, nil
 	}
 	solanaSigner := web3Svc.GetSolanaSigner()
-	signatureVerifier := service.NewMultiChainSignatureVerifier(log, solanaSigner)
+	walletPolicy := cfg.Auth.ContractWallet.Effective()
+	signatureVerifier := service.NewMultiChainSignatureVerifierWithBudget(log, solanaSigner, web3Svc.GetMultiChainManager(), signature.VerificationBudget{
+		MaxSignatureBytes: walletPolicy.MaxSignatureBytes, CallGasLimit: uint64(walletPolicy.CallGasLimit), Timeout: walletPolicy.VerificationTimeout, ProofMaxAge: walletPolicy.ProofMaxAge})
 	eip712Verifier := web3Svc.GetEIP712Verifier()
 	tokenBlacklist, err := provideTokenBlacklist(cfg, log, redisClient, res)
 	if err != nil {
@@ -180,6 +183,14 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, d
 		return nil, err
 	}
 
+	var walletSessions storage.WalletSessionStore
+	if redisClient != nil {
+		walletSessions, err = storage.NewRedisWalletSessionStore(redisClient)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	jwtExpiry := 2 * time.Hour
 	if cfg.Auth.JWTExpiry != "" {
 		if parsed, err := time.ParseDuration(cfg.Auth.JWTExpiry); err == nil && parsed > 0 {
@@ -189,6 +200,9 @@ func provideAuthService(rc *RouterConfig, cfg *config.Config, log *zap.Logger, d
 
 	return service.NewAuthService(cfg.Auth.JWTSecret, nil,
 		service.WithSignatureVerifier(signatureVerifier),
+		service.WithWalletSessionStore(walletSessions),
+		service.WithContractWalletPolicy(walletPolicy),
+		service.WithWalletDefaultChainID(cfg.Web3.ChainID),
 		service.WithEIP712Verifier(eip712Verifier),
 		service.WithChallengeStore(challengeStore),
 		service.WithChallengeTTL(challengeTTL),

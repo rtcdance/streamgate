@@ -229,6 +229,17 @@ class WalletService {
         }
     }
 
+    async restore() {
+        const provider = await this.ensureProvider();
+        if (!provider) return false;
+        const accounts = await provider.request({ method: 'eth_accounts' });
+        if (!accounts.length) return false;
+        this.account = accounts[0];
+        this.chainId = Number(await provider.request({ method: 'eth_chainId' }));
+        this.setupEventListeners();
+        return true;
+    }
+
     setupEventListeners() {
         if (!this.provider || this.eventsBound) {
             return;
@@ -269,7 +280,7 @@ class WalletService {
 
             const signature = await provider.request({
                 method: 'personal_sign',
-                params: [message, this.account],
+                params: [ethers.utils.hexlify(ethers.utils.toUtf8Bytes(message)), this.account],
             });
             return signature;
         } catch (error) {

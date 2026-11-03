@@ -109,11 +109,16 @@ func registerRoutes(router *gin.Engine, cfg *config.Config, log *zap.Logger, svc
 			if err != nil {
 				return nil, err
 			}
+			values, mapErr := claims.ToMapClaims()
+			if mapErr != nil {
+				return nil, mapErr
+			}
 			return &middleware.PlaybackIdentity{
 				Wallet:       claims.WalletAddress,
 				SessionID:    claims.SessionID,
 				AuthEpoch:    claims.AuthEpoch,
 				RestoreEpoch: claims.RestoreEpoch,
+				Claims:       values,
 			}, nil
 		},
 	}, log)

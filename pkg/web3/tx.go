@@ -27,7 +27,7 @@ func (cc *ChainClient) SendTransaction(ctx context.Context, tx *types.Transactio
 
 	client := cc.client.Load()
 	if client == nil {
-		if err := cc.connectAny(); err != nil {
+		if err := cc.connectAnyContext(ctx); err != nil {
 			return fmt.Errorf("sendtx: no rpc available: %w", err)
 		}
 		client = cc.client.Load()

@@ -328,6 +328,13 @@ jobs:
   test-anvil:
     name: Anvil Integration (Web3)
     runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}
+    services:
+      redis:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -347,7 +354,24 @@ jobs:
           forge build
 
       - name: Run Anvil integration tests
-        run: go test -tags=anvil -race -count=1 ./test/integration/web3/...
+        run: |
+          rc=0
+          go test -tags=anvil -race -count=1 -json ./test/integration/web3/... > anvil-tests.json || rc=$?
+          python3 scripts/cd/assert_required_tests.py --suite wallet-account-tests --exit-code "$rc" anvil-tests.json
+      - name: Required contract-wallet sessions on real Redis and Anvil
+        env:
+          W3_REDIS_ADDR: 127.0.0.1:6379
+        run: bash scripts/cd/run_wallet_session_tests.sh wallet-session-evidence
+      - uses: ./.github/actions/evidence-upload
+        if: always()
+        with:
+          name: contract-wallet-chain-${{ github.sha }}
+          token: ${{ github.token }}
+          if-no-files-found: error
+          path: |
+            anvil-tests.json
+            wallet-session-evidence/
+          retention-days: 30
 
   # SG-08: the comprehensive matrix gates the SAME SHA through a reusable
   # workflow_call inside this DAG, instead of running as an independent
@@ -524,6 +548,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -554,12 +585,23 @@ jobs:
             --suite durability-tests --exit-code "$go_test_rc" \
             durability-tests.json
 
+      # Contract-wallet proof store on a REAL Redis (plan §10 W3-05 / CW-12):
+      # the same storage contract the miniredis unit suite simulates, now
+      # against the durability profile's actual server. A missing address or a
+      # skipped case fails the gate.
+      - name: Required wallet-session durability on real Redis
+        env:
+          W3_REDIS_ADDR: 127.0.0.1:6379
+        run: bash scripts/cd/run_wallet_session_durability_tests.sh wallet-session-durability-evidence
+
       - name: Upload durability test log
         if: always()
         uses: ./.github/actions/evidence-upload
         with:
           name: durability-tests-${{ github.sha }}
-          path: durability-tests.json
+          path: |
+            durability-tests.json
+            wallet-session-durability-evidence/
           retention-days: 30
           token: ${{ github.token }}
 
