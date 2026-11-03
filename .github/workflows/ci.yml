@@ -355,12 +355,17 @@ jobs:
           target: contracts/
           # The job compiled the contracts above with the runner's native
           # solc; compiling again in the container would re-download a
-          # x86_64 solc that this arm64 runner cannot even execute.
-          ignore-compilation: true
+          # x86_64 solc that this arm64 runner cannot even execute
+          # (v0.4.0 spells this input `ignore-compile`).
+          ignore-compile: true
+          # Study1271Wallet is the plan §10.3.D DEMO/TEST ONLY fixture (the
+          # restricted owner execute and the inline-asm 1271 magic are its
+          # point); it is reviewed and excluded by path so the production
+          # contracts keep every detector.
           # incorrect-equality + timestamp flag ContentRegistry's enum-sentinel
           # checks (status == Nonexistent) — intended idiom, the struct merely
           # carries timestamp fields. Reviewed and accepted (2026-10-11).
-          slither-args: --filter-paths "lib|test" --exclude incorrect-equality,timestamp
+          slither-args: --filter-paths "lib|test|Study1271Wallet" --exclude incorrect-equality,timestamp
 
   test-anvil:
     name: Anvil Integration (Web3)
