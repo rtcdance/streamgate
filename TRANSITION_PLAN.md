@@ -4832,6 +4832,10 @@ python3 -B .verify-artifacts/sg-closeout-d0f05152/demo/run-demo-functional.py \
 - **unit第二次失败与run_unit_tests流式修正（2026-11-04）：**63feb853首验（`/tmp/sg-w3-verify-artifacts-63feb853/`）unit在`go vet`解析模块时以direct VCS访问golang.org/github.com超时/断流（GnuTLS -110、i/o timeout；本机出口对proxy.golang.org/github.com均不可达，goproxy.cn 53ms可达）——环境性，按脚本文档化旋钮`VERIFY_GOPROXY=https://goproxy.cn,direct`重跑（容器env三层核实生效），go vet/build/golangci-lint（0 issues，C0复杂度败点实锤通过）全过。第二次失败（`/tmp/sg-w3-verify-artifacts-04e08b26-r2/`，7045 pass/104 skip/0 fail、race+coverage执行完）：`assert_required_tests --suite wallet-unit-tests`报3个`package did not start and complete successfully`（docs/migrations/serviceerrors）。根因：`go test -json`对无测试文件包发出包级`skip`收尾，而既有checker（CI多suite共用，本候选未改动）要求每个入流包以`pass`完成——新增的`run_unit_tests.sh`首次把`ci-packages.sh`全量清单（含无测试包）喂入该checker，任何含无测试包的仓库都结构性无法通过。修正保持闸门语义不放宽：`run_unit_tests.sh`改用`go list -f '{{if or .TestGoFiles .XTestGoFiles}}'`只把带测试的包流入gate（74/77，三个无测试包排除，空清单显式非零），既有`assert_required_tests.py`与`ci-packages.sh`零改动。TDD：`test_unit_evidence_capture.py`新增args感知假go夹具与`test_no_test_files_package_is_streamed_out_of_the_required_gate`（旧脚本红：docs包级skip入流；修正后5/5绿），真实树过滤验证74包/0残留。checker对未过滤原始事件复现3失败保留。
 - **chain阶段同源缺口修正（2026-11-04）：**unit PASS后chain在`== anvil integration + web3 service tests ==`步以同类`GATE FAILURE: pkg/service/serviceerrors`失败（`/tmp/sg-w3-verify-artifacts-138cf9f4/logs/chain.log`；forge build/test、oracle解码`LOCAL_ORACLE_DECODER: 6 canonical local transactions, 4 safe states`及该步checker的`required tests: 1 passed`均先通过）。审查全部`assert_required_tests`消费方：CI anvil job（`./test/integration/web3/...`子包全有测试）、`run_wallet_session_tests.sh`/`durability_tests.sh`（显式单包）、CI既有ops/load/perf套件均无此泄露；唯verify-docker chain步`./pkg/service/...`拖入无测试的serviceerrors。修正：chain步同run_unit_tests方案——`go list -tags=anvil -f '{{if or .TestGoFiles .XTestGoFiles}}'`过滤后流式（12包：serviceerrors剔除，test/integration根包的anvil-tagged测试保留，`web3/fork`本就被`//go:build fork`排除语义不变），空清单显式非零；checker与包集语义零改动。真实树验证exit0、0残留。
 
+- **2026-11-04实时复核：保留冻结候选与有效CI。**候选现为`9e22c7539696a64022f47364f11fc24025eb51ee`，默认CI [41736299822](https://github.com/rtcdance/streamgate/actions/runs/41736299822) 于本轮最后核查已有10个job成功、候选镜像构建执行中；尚非完整PASS。`Unit Tests - test-unit-service`各步骤及覆盖率成功，却因runner的Results日志上传长期阻塞、最终CompleteJob返回NotFound而被标为failure：原步骤23:23Z完成，runner到00:32Z才释放。原job日志及私有runner原件保存在`.verify-artifacts/w3-extension/supervision/20261104T003414Z-ci-job-review/`，下载exit0；不能把这个job宣称成功。当前Results等端点根路径只读连通不等于历史签名上传已修复。本轮未重启runner、取消有效CI、推送或触发新CI。
+- **独立审查补丁，不覆盖现有C：**`/private/tmp/streamgate-w3-observer-review-20261104`从9e22c753隔离，修复自然续期JTI切换误判、晚到oracle覆盖原停止时刻、读取尚未写完oracle三个采集问题。仅在同session/proof/epoch/绝对期限、真实新JTI且5s总预算内重读一次；依赖错误/换主体/换会话继续失败，原失败bytes保留。oracle必须有原进程exit0，exit2保留BLOCKED；采集开始前先记录真实循环播放，晚到报告只选原见证，不移动safe时钟。最终汇总新增与已独立核实运行栈JWT密钥的HMAC绑定，拒绝仅格式自洽的外来签名，密钥不进入参数/日志/报告。补丁已接既有专项入口并封装为本地独立修复；尚未推送或取得同C验收。
+- **本轮证据与剩余边界：**`.verify-artifacts/w3-extension/supervision/20261104T004006Z-identity-renewal-red/`及`20261104T004510Z-foreign-credential-key-red/`保留首败；`20261104T005334Z-observer-review-complete/`33项协议/语义检查和7份workflow语法原始outer0；随后新增原oracle发布同步的7项Node和6项Python均通过，首次组合末尾因工具镜像无rg保留outer127，接口另以grep复核exit0；最终`20261104T010126Z-observer-review-verified/`：17项Node＋6项采集器＋4项公开控制＋7项汇总共34项均通过，7份workflow语法及接口检查通过，原始outer0。较早`20261104T004839Z-observer-review-final/`在所有语义检查通过后，诊断Go检查误用noexec临时目录及冷缓存，按已确认的夹具错误仅停止该自建诊断容器，outer2保留；未把它算作验收成功或重跑产品all。本轮均为开发复核，未运行真实MetaMask签名/公开广播。电脑接口再次返回native pipe启动失败，尚未取得现有钱包浏览器的可访问连接。待本轮CI收尾、审查补丁集成与新候选同C验收、原产物复用及真实本人路径；W3-07/08/09仍未关闭。
+
 ### 10.1 目标、范围与不做项
 
 | 增量 | 最小完整交付 | 出口标准 |
@@ -5036,13 +5040,21 @@ python3 scripts/wallet-testnet/launch_stack.py \
 
 # 已实现：每个公开资产状态保留一份新文件；PHASE依次为eoa-held /
 # eoa-transferred / contract-held / contract-transferred。仅只读，不广播。
-W3_SEPOLIA_RPC_PRIMARY="$SEPOLIA_RPC_URL" \
+# 先由两模式采集器产生ready.json，再本人转移；receipt确认并导出原账本后运行。
+# 每阶段的report/exit均用新路径，两模式共用同一份原oracle；不重播交易。
+if W3_SEPOLIA_RPC_PRIMARY="$SEPOLIA_RPC_URL" \
 W3_SEPOLIA_RPC_FALLBACK="$SEPOLIA_RPC_FALLBACK_URL" \
 python3 scripts/wallet-testnet/transaction_oracle.py \
   --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
   --ledger "$W3_PHASE_LEDGER" --manifest "$W3_DEPLOYMENT_MANIFEST" \
   --build-identity "$W3_BUILD_IDENTITY" --phase "$W3_PHASE" \
-  --wait-safe-seconds 1800 --output "$W3_PHASE_ORACLE"
+  --wait-safe-seconds 1800 --output "$W3_PHASE_ORACLE"; then
+  w3_oracle_exit=0
+else
+  w3_oracle_exit=$?
+fi
+( set -C; printf '%s\n' "$w3_oracle_exit" > "$W3_PHASE_ORACLE_EXIT" )
+( exit "$w3_oracle_exit" )
 
 # 已实现：独立校验已观察的公开钱包阶段；MODE=monolith|api-gateway，
 # PHASE=eoa|contract|negative。不能据此关闭TN全矩阵。
@@ -5052,6 +5064,26 @@ node scripts/cd/assert_sepolia_browser.mjs \
   --nft "$W3_NFT" --content "$W3_CONTENT_ID" --origin "$W3_H5_ORIGIN" \
   --directory "$W3_REPORT_DIR" --exit-file "$W3_BROWSER_EXIT_FILE"
 
+# 以下采集接口需先合入独立审查补丁、冻结新C并取得同C默认CI原件。
+# MODE分别启动monolith/api-gateway，BROWSER_PHASE=eoa|contract；
+# 使用各自原钱包阶段目录/exit，原生视频菜单开启Loop；两模式ready.json齐备后本人转移。
+python3 scripts/wallet-testnet/observe_controls.py \
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" \
+  --recipient "$W3_SEPOLIA_RECIPIENT" --repository "$W3_REPOSITORY" --ci-run "$W3_CI_RUN_ID" \
+  --producer "$W3_PRODUCER_MANIFEST" --producer-root "$W3_PRODUCER_ROOT" \
+  --ci-root "$W3_CI_ROOT" --build-identity "$W3_BUILD_IDENTITY" --directory "$W3_STACK_DIR" \
+  --mode "$W3_MODE" --phase "$W3_BROWSER_PHASE" --wallet "$W3_SUBJECT_C" --nft "$W3_NFT" \
+  --content "$W3_CONTENT_ID" --cdp "$W3_CDP_ENDPOINT" \
+  --phase-directory "$W3_REPORT_DIR" --phase-exit "$W3_BROWSER_EXIT_FILE" \
+  --oracle "$W3_PHASE_ORACLE" --oracle-exit "$W3_PHASE_ORACLE_EXIT" --output "$W3_CONTROLS_PHASE_DIR"
+
+# 每模式分别合并eoa/contract原件；仍非完整验收。
+python3 scripts/wallet-testnet/observe_controls.py merge \
+  --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" --recipient "$W3_SEPOLIA_RECIPIENT" \
+  --mode "$W3_MODE" --wallet "$W3_SUBJECT_C" --nft "$W3_NFT" \
+  --content "$W3_CONTENT_ID" --origin "$W3_H5_ORIGIN" \
+  --eoa "$W3_CONTROLS_EOA_DIR" --contract "$W3_CONTROLS_CONTRACT_DIR" --output "$W3_CONTROLS_DIR"
+
 # 最终只读汇总：校验同C原始all/CI、CW/TN案例、网络与人工记录
 : "${W3_CANDIDATE_SHA:?set frozen candidate SHA}" "${W3_EVIDENCE_DIR:?set evidence directory}"
 python3 scripts/cd/verify_web3_extension.py \
@@ -5059,7 +5091,7 @@ python3 scripts/cd/verify_web3_extension.py \
   --recipient "$W3_SEPOLIA_RECIPIENT" --evidence "$W3_EVIDENCE_DIR"
 ```
 
-**当前未完成接口边界：**三个Make专项/预检入口、准备脚本、交易oracle、公开阶段独立证据门和固定24项最终汇总工具均已实现；当前未冻结开发树仅取得校验器专项结果，不是完整候选验收。`wallet-segment-rpc.json`真实100 HTTP+100 gRPC采集已接现有chain入口并取得开发组件证据；仍待冻结C后的原CI文件，开发报告不得冒充。受控起栈入口已实现并取得控制测试；公开controls原始观察采集仍未完成，原CI镜像本机映射及实际公开profile运行尚需核实；没有真实文件时必须BLOCKED。后续依次补公开采集、核对本机原CI产物载入、冻结C、执行一次同C默认CI all、复用其原镜像/编译包、刷新双RPC预检、本人MetaMask签名/六笔交易及双模式完整观察。缺同C CI时资产页保持BLOCKED，不能用演示配置解锁正式验收。
+**当前未完成接口边界：**准备、起栈、交易oracle、原钱包阶段、公开controls采集/合并与固定24项最终汇总工具均已实现；真实采集尚未执行。冻结候选9e22c753的默认CI仍在执行；本轮独立审查补丁尚未并入候选，不继承该C验收。历史镜像daemon ID映射已核实，原archive本机缺失，未来新C仍须核对原下载归档与运行身份。后续保留有效CI到收尾，按实际缺陷集成补丁并冻结新C，复用其同C默认CI原件启动本机profile，再刷新双RPC/预算并完成本人签名、六笔交易与双模式原始观察。缺同C CI或钱包条件保持BLOCKED，不能用开发工件解锁正式验收。
 最终汇总的`--evidence`目录下提供`extension.json`（只选择原始路径，不允许status/passed/required/completeAcceptance）。路径全部相对于该目录、不能用绝对路径、`..`或symlink；CI原payload置于独立子目录，公开准备与报告不得写入/污染原producer树。选择字段固定为：
 
 | 字段 | 指向原始证据 |
@@ -5073,7 +5105,7 @@ python3 scripts/cd/verify_web3_extension.py \
 | `pending` | `phase`/`ledger`/`report`/`exit`；必须能从原双RPC读数复算尚未safe的真实交易，exit2且原hash不变，不能伪造延迟或新增交易 |
 | `browserModes.monolith`、`browserModes.api-gateway` | 各自`origin`/`content`；`eoa`/`contract`/`negative`分别选择`directory`/`exit`原观察；`controls`选择`report`/`private`/`exit`原控制观察 |
 
-公共controls的原始私有凭据及响应bytes必须与报告摘要吻合；两类转移分别关联原oracle，旧能力在safe时仍有效、两传输新manifest拒绝、旧媒体≤70s拒绝且持续身份有效，并包含依赖503/Unavailable恢复及真实reload状态。其采集器尚未完成，**不能手填PASS或合成凭据满足正式验收**。公开真实签名、JWT仅保存在私有文件，汇总错误不回显原值。最终矩阵通过仍须完成W3-09文档边界与本轮资源清理后，才能关闭本节。
+公共controls的原始私有凭据及响应bytes必须与报告摘要吻合；两类转移分别关联原oracle，旧能力在safe时仍有效、两传输新manifest拒绝、旧媒体≤70s拒绝且持续身份有效，并包含依赖503/Unavailable恢复及真实reload状态。采集器已实现但本轮隔离补丁尚未并入已验收候选、实际公开观察未执行，**不能手填PASS或合成凭据满足正式验收**。公开真实签名、JWT仅保存在私有文件，汇总错误不回显原值。最终矩阵通过仍须完成W3-09文档边界与本轮资源清理后，才能关闭本节。
 
 
 - 统一使用 `SEPOLIA_RPC_URL` / `SEPOLIA_RPC_FALLBACK_URL` 作新profile的输入，并显式映射兼容旧诊断所用 `SEPOLIA_RPC`；不让两套变量指向不同链。文档只写变量名；值经环境/本机未追踪配置注入，不出现在CLI参数或共享日志。

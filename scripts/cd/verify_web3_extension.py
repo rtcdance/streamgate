@@ -198,6 +198,9 @@ def verify(args):
         files = subprocess.run(['git', '-C', str(args.source_root), 'ls-tree', '-r', '--name-only', args.candidate, '--', 'h5-demo'], capture_output=True, check=True).stdout.decode().splitlines()
         cached['runtime'] = wallet_runtime.inspect_stack(evidence.path(cached['selection']['stackDirectory']), args.candidate,
             cached['capsule'], lambda path: git(args.source_root, args.candidate, path), files, preparation.nginx, cached['originalCI'])
+        runtime_input = evidence.json(cached['selection']['stackDirectory'] + '/stack.env.json')
+        cached['jwtSecret'] = runtime_input['W3_JWT_SECRET']
+        require(isinstance(cached['jwtSecret'], str) and len(cached['jwtSecret']) >= 32, 'verified runtime signing key required')
 
     check('public-runtime', runtime, ('ci',))
 
@@ -293,6 +296,9 @@ def verify(args):
                 result = subprocess.run(command, capture_output=True, timeout=60)
                 require(result.returncode == 0, 'original browser phase failed independent semantics')
                 if phase != 'negative':
+                    private_proofs = evidence.json(str(directory.relative_to(evidence.root) / 'siwe-proofs.private.json'))
+                    tokens = [credential['token'] for proof in private_proofs for credential in proof['credentials']]
+                    assert_public_controls.authenticate_credentials(tokens, cached['jwtSecret'])
                     observed = evidence.json(str(directory.relative_to(evidence.root) / 'result.json'))
                     require(cached['runtime'][mode]['startedAtMs'] <= min(gate['startedAt'] for gate in observed['gates']),
                             'current public container started after the original wallet observations')
@@ -304,7 +310,7 @@ def verify(args):
         def controls(mode=mode):
             row = cached['selection']['browserModes'][mode]; item = row['controls']
             config = dict(candidateSHA=args.candidate, mode=mode, controller=cached['controller'], wallet=cached['chain']['wallet'],
-                nft=cached['chain']['nft'], content=row['content'], origin=row['origin'], sessionBindings=cached['bindings-' + mode], transferStartedAt=cached['transferStartedAt'])
+                nft=cached['chain']['nft'], content=row['content'], origin=row['origin'], sessionBindings=cached['bindings-' + mode], transferStartedAt=cached['transferStartedAt'], jwtSecret=cached['jwtSecret'])
             assert_public_controls.validate(evidence.json(item['report']), evidence.raw(item['private']), config, cached['oracles'], evidence.exit(item['exit']))
         check('public-controls-' + mode, controls, ('public-browser-' + mode,))
 

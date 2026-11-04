@@ -5,6 +5,7 @@ labels, required list and decoded JWT claims cannot replace the private bytes.
 """
 import base64
 import hashlib
+import hmac
 import json
 import math
 import re
@@ -31,6 +32,18 @@ def decode_jwt(raw):
     values = [json.loads(base64.urlsafe_b64decode(part + '=' * (-len(part) % 4))) for part in parts[:2]]
     require(isinstance(values[0], dict) and values[0].get('alg') == 'HS256' and isinstance(values[1], dict), 'unexpected credential type')
     return values[1]
+
+
+def authenticate_credentials(tokens, secret):
+    require(isinstance(secret, str) and len(secret) >= 32, 'verified runtime signing key required')
+    require(isinstance(tokens, list) and 0 < len(tokens) <= 2048, 'bounded original credentials required')
+    for token in tokens:
+        decode_jwt(token)
+        unsigned, signature = token.rsplit('.', 1)
+        expected = base64.urlsafe_b64encode(hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).digest()).decode().rstrip('=')
+        # Use the secret from the independently inspected runtime, never a key
+        # selected by a report. Keep both key and original token out of errors.
+        require(hmac.compare_digest(expected, signature), 'credential was not signed by the verified runtime')
 
 
 def playback_timeline(samples, started, safe, last_refusal):
@@ -77,6 +90,7 @@ def validate(report, private_raw, config, oracles, original_exit):
     credentials, responses = private['credentials'], private['responses']
     require(isinstance(credentials, dict) and 0 < len(credentials) <= 2048 and isinstance(responses, dict) and len(responses) <= 10000,
             'private evidence is missing or exceeds its budget')
+    authenticate_credentials(list(credentials.values()), config.get('jwtSecret'))
     claims = {}
     for digest, token in credentials.items():
         require(sha(token.encode()) == digest, 'original credential hash mismatch')

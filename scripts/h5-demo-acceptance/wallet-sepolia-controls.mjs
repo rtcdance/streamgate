@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { PrivateFileRPC } from './lib/wallet_file_rpc.mjs';
 import { settings, validIdentity } from './lib/wallet_sepolia_contract.mjs';
-import { PublicControlJournal, claims, digest, chooseBaseline, sameSession, sleep } from './lib/wallet_public_controls.mjs';
+import { PublicControlJournal, claims, digest, chooseBaseline, playbackForWitness, readCompletedOracle, sameSession, sleep } from './lib/wallet_public_controls.mjs';
 
 const execute = promisify(execFile);
 let context, config, browser, page, rpc, journal, disconnected = false;
@@ -56,27 +56,27 @@ async function http(url, options) {
 }
 
 async function oracle() {
-    try {
-        const info = await lstat(context.oracle);
-        if (!info.isFile() || info.isSymbolicLink() || info.size > 8 * 1024 * 1024) throw Error('Original oracle is not a bounded regular file');
-        const raw = await readFile(context.oracle), report = JSON.parse(raw);
-        if (report.status !== 'PHASE_CHAIN_VERIFIED' || report.phase !== config.phase + '-transferred' || report.candidateSHA !== config.candidateSHA || report.recipient !== context.recipient ||
-            report.controller !== config.controller || report.wallet !== context.wallet || report.nft !== config.nft || report.chainId !== 11155111 ||
-            !Number.isFinite(report.safeObservedAtMs)) throw Error('Original transfer oracle belongs to another phase, chain or fixture');
-        return { report, sha256: digest(raw) };
-    } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    const raw = await readCompletedOracle(context.oracle, context.oracleExit);
+    if (!raw) return null;
+    const report = JSON.parse(raw);
+    if (report.status !== 'PHASE_CHAIN_VERIFIED' || report.phase !== config.phase + '-transferred' || report.candidateSHA !== config.candidateSHA || report.recipient !== context.recipient ||
+        report.controller !== config.controller || report.wallet !== context.wallet || report.nft !== config.nft || report.chainId !== 11155111 ||
+        !Number.isFinite(report.safeObservedAtMs)) throw Error('Original transfer oracle belongs to another phase, chain or fixture');
+    return { report, sha256: digest(raw) };
 }
 
 async function transfer() {
     console.log(`USER ACTION ${config.mode} ${config.phase}: keep this content playing and enable Loop in the native video menu before starting the transfer`);
-    const waitStarted = Date.now();
+    const waitStarted = Date.now(); let initialPlayback;
     while (true) {
         const current = await state();
-        if (validIdentity(current, config) && current.playback.loop && !current.playback.paused && !current.playback.ended && current.playback.frames > 0 && current.playback.rate === 1) break;
+        if (validIdentity(current, config) && current.playback.loop && !current.playback.paused && !current.playback.ended && current.playback.frames > 0 && current.playback.rate === 1) {
+            initialPlayback = current.playback; break;
+        }
         if (Date.now() - waitStarted >= config.waitMs) { const error = Error('Normal repeated playback was not observed'); error.blocked = true; throw error; }
         await sleep(1000);
     }
-    const started = Date.now(), baselines = [], identities = [], refusals = [], playback = [];
+    const started = Date.now(), baselines = [], identities = [], refusals = [], playback = [initialPlayback];
     let frozen = false, chain;
     console.log(`READY ${config.mode} ${config.phase}: observe the original user transfer and its concurrently running oracle`);
     await privateWrite('ready.json', { candidateSHA: config.candidateSHA, mode: config.mode, phase: config.phase, startedAt: started, completeAcceptance: false });
@@ -94,6 +94,7 @@ async function transfer() {
                 if (refusal.httpManifest.code === 403 && refusal.grpcManifest.code === 'PermissionDenied' &&
                     refusal.httpMedia.code === 401 && refusal.grpcMedia.code === 'Unauthenticated') {
                     const witness = await journal.live(); identities.push(witness);
+                    playback.push((await state()).playback);
                     refusals.push({ capability: baseline.media.credentialSHA256, refusal, witness });
                 }
             }
@@ -108,14 +109,14 @@ async function transfer() {
                 const last = refusals.find(item => item.capability === baseline.media.credentialSHA256 &&
                     Object.values(item.refusal).every(event => safe <= event.at && event.at <= safe + 70000) &&
                     Object.values(item.refusal).every(event => event.at <= Math.max(item.witness.http.at, item.witness.grpc.at) &&
-                        Math.max(item.witness.http.at, item.witness.grpc.at) - event.at <= 5000));
+                        Math.max(item.witness.http.at, item.witness.grpc.at) - event.at <= 5000) &&
+                    playbackForWitness(playback, item.witness, safe));
                 if (last) {
                     const before = Math.max(baseline.identity.http.at, baseline.identity.grpc.at), after = Math.max(last.witness.http.at, last.witness.grpc.at);
                     const timeline = identities.filter(item => Math.min(item.http.at, item.grpc.at) >= before && Math.max(item.http.at, item.grpc.at) <= after);
                     const { reference, ...publicBaseline } = baseline;
-                    const final = (await state()).playback; playback.push(final);
-                    if (!final.paused || final.state !== 'authorization-ended') throw Error('Actual repeated playback did not stop for authorization loss');
-                    return { oracleSHA256: chain.sha256, baseline: publicBaseline, identities: timeline, refusal: last.refusal, playback };
+                    return { oracleSHA256: chain.sha256, baseline: publicBaseline, identities: timeline, refusal: last.refusal,
+                        playback: playbackForWitness(playback, last.witness, safe) };
                 }
             }
             if (Date.now() > safe + 75000) throw Error('Original safe-time refusal window was missed; do not reset the clock or rebroadcast');
@@ -224,6 +225,7 @@ try {
     }
     if (browser) await browser.close().catch(() => { result.status = 'FAIL'; });
     if (config) {
+        result.credentialRotations = journal?.credentialRotations || [];
         const raw = JSON.stringify(journal?.private || { credentials: {}, responses: {} }, null, 2) + '\n';
         await writeFile(join(config.output, 'controls.private.json'), raw, { flag: 'wx', mode: 0o600 });
         result.privateSHA256 = digest(raw); await privateWrite('result.json', result);

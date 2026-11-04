@@ -75,10 +75,10 @@ def context(args, prepared, identities):
                '-e', 'GOMAXPROCS=1', '--mount', 'type=bind,src=' + str(helper) + ',dst=/walletgrpc,readonly',
                '--mount', 'type=bind,src=' + str(io) + ',dst=/requests', '--entrypoint', '/walletgrpc',
                '-i', runtime['imageID'], '--target', args.mode + ':9090', '--serve', '--request-dir', '/requests']
-    return dict(schemaVersion=1, candidateSHA=args.candidate, project=prepared['project'], wallet=wallet, recipient=prepare.deployment.address(args.recipient),
+    return dict(schemaVersion=1, candidateSHA=args.candidate, project=prepared['project'], wallet=wallet, recipient=prepare.deployment.address(args.recipient), stackDirectory=str(prepared['directory']),
                 container=runtime['containerID'], image=runtime['imageID'], dataNetwork=data, egressNetwork=egress,
                 egressAliases=detail['NetworkSettings']['Networks'][egress].get('Aliases') or [],
-                observerName=name, requestDirectory=str(io), command=command, sessionBinding=binding, oracle=str(args.oracle.resolve()),
+                observerName=name, requestDirectory=str(io), command=command, sessionBinding=binding, oracle=str(args.oracle.resolve()), oracleExit=str(args.oracle_exit.resolve()),
                 environment=dict(W3_MODE=args.mode, W3_PHASE=args.phase, W3_CANDIDATE_SHA=args.candidate,
                     W3_H5_BASE=origin, W3_CDP_ENDPOINT=args.cdp, W3_CONTROLLER=prepare.deployment.address(args.controller),
                     W3_SUBJECT_C=wallet, W3_NFT=nft, W3_CONTENT_ID=args.content, W3_REPORT_DIR=str(args.output),
@@ -98,7 +98,7 @@ def merge_main():
         config = dict(candidateSHA=args.candidate, controller=prepare.deployment.address(args.controller), wallet=prepare.deployment.address(args.wallet),
                       nft=prepare.deployment.address(args.nft), content=args.content, origin=args.origin, mode=args.mode, sessionBindings={}, transferStartedAt={})
         report = {key: value for key, value in config.items() if key not in ('sessionBindings', 'transferStartedAt')}
-        report.update(schemaVersion=1, component='SEPOLIA_PUBLIC_CONTROLS', chainId=11155111, completeAcceptance=False, publicWalletSignoff=False, transfers={})
+        report.update(schemaVersion=1, component='SEPOLIA_PUBLIC_CONTROLS', chainId=11155111, completeAcceptance=False, publicWalletSignoff=False, transfers={}, credentialRotations={})
         private = dict(credentials={}, responses={}); oracles = {}
         for role in ('eoa', 'contract'):
             directory = getattr(args, role)
@@ -122,12 +122,23 @@ def merge_main():
             original_private = raw('controls.private.json')
             require(hashlib.sha256(original_private).hexdigest() == value.get('privateSHA256'), 'original private collector bytes changed')
             data = json.loads(original_private)
+            runtime_path = Path(ctx['stackDirectory']) / 'stack.env.json'
+            require(runtime_path.is_file() and not runtime_path.is_symlink() and runtime_path.stat().st_mode & 0o077 == 0,
+                    'private prepared runtime input required')
+            runtime = json.loads(runtime_path.read_text()); require(runtime.get('W3_CANDIDATE_SHA') == args.candidate, 'runtime signing key belongs to another candidate')
+            secret = runtime['W3_JWT_SECRET']
+            require('jwtSecret' not in config or config['jwtSecret'] == secret, 'role observations belong to different runtime signing keys')
+            config['jwtSecret'] = secret
             require(set(data) == {'credentials', 'responses'}, 'unexpected collector private layout')
             for kind in private:
                 for key, content in data[kind].items():
                     require(key not in private[kind] or private[kind][key] == content, 'private observation collision')
                     private[kind][key] = content
             report['transfers'][role] = value['transfer']; config['sessionBindings'][role] = ctx['sessionBinding']
+            report['credentialRotations'][role] = value.get('credentialRotations', [])
+            oracle_exit = Path(ctx['oracleExit'])
+            require(oracle_exit.is_file() and not oracle_exit.is_symlink() and oracle_exit.stat().st_size <= 16 and oracle_exit.read_text().strip() == '0',
+                    'original oracle process did not exit successfully')
             oracle = Path(ctx['oracle']); require(oracle.is_file() and not oracle.is_symlink(), 'original oracle file required')
             oracle_raw = oracle.read_bytes(); chain = json.loads(oracle_raw)
             require(chain.get('phase') == role + '-transferred' and chain.get('recipient') == prepare.deployment.address(args.recipient), 'oracle phase or recipient changed')
@@ -172,7 +183,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('candidate', 'controller', 'recipient', 'repository', 'ci-run', 'wallet', 'nft', 'content', 'cdp'):
         parser.add_argument('--' + key, required=True)
-    for key in ('producer', 'producer-root', 'ci-root', 'build-identity', 'directory', 'output', 'phase-directory', 'phase-exit', 'oracle'):
+    for key in ('producer', 'producer-root', 'ci-root', 'build-identity', 'directory', 'output', 'phase-directory', 'phase-exit', 'oracle', 'oracle-exit'):
         parser.add_argument('--' + key, required=True, type=Path)
     parser.add_argument('--mode', choices=('monolith', 'api-gateway'), required=True)
     parser.add_argument('--phase', choices=('eoa', 'contract'), required=True)

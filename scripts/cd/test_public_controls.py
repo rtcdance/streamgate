@@ -12,6 +12,7 @@ import assert_public_controls as gate
 def fixture():
     config = dict(candidateSHA='a' * 40, mode='monolith', controller='0x' + '1' * 40, wallet='0x' + '2' * 40,
                   nft='0x' + '3' * 40, content='test-content', origin='http://localhost:18500')
+    secret = 'unit-fixture-secret-for-observation-keys'
     private = dict(credentials={}, responses={})
 
     def token(subject, capability=False, issued=1000):
@@ -23,7 +24,7 @@ def fixture():
         if subject == config['wallet']: values.update(account_kind='erc1271', wallet_proof_id='immutable', wallet_session_exp=8000)
         encode = lambda x: base64.urlsafe_b64encode(json.dumps(x).encode()).decode().rstrip('=')
         unsigned = encode(dict(alg='HS256', typ='JWT')) + '.' + encode(values)
-        raw = unsigned + '.' + base64.urlsafe_b64encode(hmac.new(b'unit-fixture', unsigned.encode(), hashlib.sha256).digest()).decode().rstrip('=')
+        raw = unsigned + '.' + base64.urlsafe_b64encode(hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).digest()).decode().rstrip('=')
         digest = gate.sha(raw.encode()); private['credentials'][digest] = raw
         return digest
 
@@ -66,6 +67,7 @@ def fixture():
     raw = json.dumps(private).encode(); report['privateSHA256'] = gate.sha(raw)
     config['sessionBindings'] = {role: gate.decode_jwt(private['credentials'][transfers[role]['baseline']['identity']['http']['credentialSHA256']]) for role in transfers}
     config['transferStartedAt'] = dict(eoa=1002000, contract=1002000)
+    config['jwtSecret'] = secret
     return report, raw, config, oracles
 
 
@@ -103,6 +105,13 @@ class PublicControlEvidenceTests(unittest.TestCase):
         private = json.loads(raw); digest = next(iter(private['credentials'])); private['credentials'][digest] += 'edited'
         changed = json.dumps(private).encode(); report['privateSHA256'] = gate.sha(changed)
         with self.assertRaises(ValueError): gate.validate(report, changed, config, oracles, 0)
+
+    def test_well_formed_tokens_from_another_stack_key_are_not_original_credentials(self):
+        report, raw, config, oracles = fixture()
+        config['jwtSecret'] = 'different-runtime-secret-from-the-running-stack'
+        with self.assertRaises(ValueError) as error:
+            gate.validate(report, raw, config, oracles, 0)
+        self.assertNotIn(config['jwtSecret'], str(error.exception))
 
 
 if __name__ == '__main__':

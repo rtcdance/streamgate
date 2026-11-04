@@ -324,6 +324,7 @@ stage_unit() {
     python3 scripts/cd/test_wallet_helper.py
     python3 scripts/cd/test_wallet_phase_evidence.py
     python3 scripts/cd/test_public_controls.py
+    python3 scripts/cd/test_wallet_control_collector.py
     python3 scripts/cd/test_web3_extension.py
     python3 scripts/cd/test_wallet_runtime.py
     python3 scripts/cd/test_wallet_stack_launch.py
@@ -355,6 +356,7 @@ stage_unit() {
     node scripts/cd/test_h5_contract_wallet.cjs
     node scripts/cd/test_h5_wallet_sepolia_tool.cjs
     node scripts/cd/test_wallet_file_rpc.cjs
+    node scripts/cd/test_wallet_public_controls.cjs
     node scripts/cd/test_h5_sepolia_fixture.cjs
     node scripts/cd/test_sepolia_browser_evidence.cjs
     node scripts/cd/test_h5_api_base.cjs
