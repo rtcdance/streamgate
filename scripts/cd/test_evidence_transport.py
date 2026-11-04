@@ -72,6 +72,26 @@ class EvidenceTransportTests(unittest.TestCase):
             "bundleSHA256": transport.bundle_hash(entries),
         }
 
+    def test_registry_header_timeout_retries_completed_daemon_error_with_existing_bounds(self):
+        message = 'docker push failed: failed commit on ref layer-sha256: net/http: timeout awaiting response headers'
+        with patch.object(transport, 'run_docker', side_effect=[transport.TransportError(message), 'ok']) as command, \
+                patch.object(transport.time, 'sleep') as sleep:
+            self.assertEqual(transport.run_registry('push', 'ghcr.io/x/y:t'), 'ok')
+        self.assertEqual(command.call_count, 2)
+        self.assertTrue(all(call.args == ('push', 'ghcr.io/x/y:t') for call in command.call_args_list))
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5])
+        with patch.object(transport, 'run_docker', side_effect=transport.TransportError(message)) as command, \
+                patch.object(transport.time, 'sleep') as sleep:
+            with self.assertRaises(transport.TransportError): transport.run_registry('push', 'ghcr.io/x/y:t')
+        self.assertEqual(command.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 10])
+        for permanent in ('unauthorized', 'x509', 'digest mismatch'):
+            with self.subTest(permanent=permanent), patch.object(transport, 'run_docker', side_effect=transport.TransportError(permanent + ': ' + message)) as command, \
+                    patch.object(transport.time, 'sleep') as sleep:
+                with self.assertRaises(transport.TransportError): transport.run_registry('push', 'ghcr.io/x/y:t')
+            self.assertEqual(command.call_count, 1)
+            sleep.assert_not_called()
+
     def test_registry_push_retries_a_dropped_request(self):
         calls = []
 

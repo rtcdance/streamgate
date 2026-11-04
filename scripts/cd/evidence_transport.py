@@ -251,7 +251,7 @@ def run_registry(*args):
         except TransportError as error:
             transient = re.search(
                 r"\bEOF\b|connection reset|broken pipe|connection refused|"
-                r"TLS handshake timeout|i/o timeout|temporary failure|"
+                r"TLS handshake timeout|i/o timeout|timeout awaiting response headers|temporary failure|"
                 r"temporarily unavailable|unexpected status.*\b(?:429|5\d\d)\b|"
                 r"\b(?:502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)\b",
                 str(error), re.IGNORECASE,
