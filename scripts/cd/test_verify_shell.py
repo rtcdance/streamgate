@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +17,48 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_wallet_failure_reports_survive_source_cleanup_in_both_modes(self):
+        fullchain = SOURCE.with_name("fullchain-acceptance.sh").read_text()
+        start = fullchain.index('if [ "${W3_REQUIRED_MEDIA:-0}" = 1 ]; then')
+        end = fullchain.index('# 11. Logout ends the whole session', start)
+        component = fullchain[start:end]
+        detail = function("playback_failure_detail", SOURCE.with_name("fullchain-acceptance.sh"))
+        for mode in ("monolith", "api-gateway"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, durable = root / "source", root / "durable"
+                harness = source / "scripts/h5-demo-acceptance"
+                (harness / "node_modules/playwright").mkdir(parents=True)
+                artifact = source / "contracts/out/Study1271Wallet.sol/Study1271Wallet.json"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_text("{}")
+                script = source / "scripts/fullchain-acceptance.sh"
+                script.write_text('\n'.join([
+                    'set -euo pipefail; FAIL=0; WORKDIR=$(mktemp -d)',
+                    "trap 'rm -rf \"$WORKDIR\"' EXIT",
+                    'W3_REQUIRED_MEDIA=1; MEDIA=unused; ANVIL_URL=http://unused; GRPC_TARGET=unused',
+                    'W3_BROWSER_EXPORT_DIR=' + shlex.quote(str(durable)),
+                    'MONOLITH_BASE=http://monolith; API_BASE=http://' + mode,
+                    'p() { :; }; f() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }',
+                    'go() { return 0; }; ffmpeg() { return 0; }',
+                    'python3() { echo "original browser process failed"; return 1; }',
+                    'node() {',
+                    '  if [[ "$1" == *prepare_wallet_anvil.cjs ]]; then echo \'{"fixture":true}\' > "$2"; return 0; fi',
+                    '  echo \'{"errors":["required observation failed"],"passed":false}\' > "$W3_REPORT_DIR/result.json"',
+                    '  echo \'{"contentId":"original"}\' > "$W3_REPORT_DIR/content.json"',
+                    '  echo "FAIL: original observation failed"; return 19',
+                    '}', detail, component, 'exit "$FAIL"',
+                ]))
+                result = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                shutil.rmtree(source)
+                saved = durable / ("cw-" + mode)
+                self.assertEqual((saved / "cw-browser.exit").read_text(), "19\n")
+                self.assertEqual(json.loads((saved / "result.json").read_text())["passed"], False)
+                self.assertIn("original observation failed", (saved / "cw-browser.log").read_text())
+                self.assertEqual((saved / "cw-fixture.exit").read_text(), "0\n")
+                self.assertEqual((saved / "cw-grpc-build.exit").read_text(), "0\n")
+
     def run_recovery_teardown(self, failure=""):
         with tempfile.TemporaryDirectory() as directory:
             commands = [

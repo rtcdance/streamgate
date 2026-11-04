@@ -146,6 +146,14 @@ def segment_cost_component(value):
             '100 real HTTP and 100 real gRPC deliveries required')
 
 
+def local_wallet(capsule, candidate, mode):
+    directory = capsule / 'wallet-browser' / ('cw-' + mode)
+    for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
+        require((directory / name).read_text().strip() == '0', 'original local wallet process failed')
+    assert_wallet_browser.validate(json.loads((directory / 'result.json').read_text()), json.loads((directory / 'wallet-fixture.json').read_text()),
+        json.loads((directory / 'content.json').read_text()), candidate, mode, 0)
+
+
 def verify(args):
     require(re.fullmatch('[0-9a-f]{40}', args.candidate), 'full candidate SHA required')
     evidence = Evidence(args.evidence); groups = {}; cached = {}
@@ -253,11 +261,7 @@ def verify(args):
 
     for mode in MODES:
         def local(mode=mode):
-            directory = cached['capsule'] / 'source/scripts/h5-demo-acceptance/reports' / ('cw-' + mode)
-            for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
-                require((directory / name).read_text().strip() == '0', 'original local wallet process failed')
-            assert_wallet_browser.validate(json.loads((directory / 'result.json').read_text()), json.loads((directory / 'wallet-fixture.json').read_text()),
-                json.loads((directory / 'content.json').read_text()), args.candidate, mode, 0)
+            local_wallet(cached['capsule'], args.candidate, mode)
         check('local-' + mode, local, ('ci',))
 
     def chain():

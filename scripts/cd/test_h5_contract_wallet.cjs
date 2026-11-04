@@ -128,3 +128,51 @@ test('an unreachable selected backend never falls back to a different chain or o
     assert.equal(e.context.localStorage.getItem('streamgate_api_base'), selected);
     assert(calls.length > 0 && calls.every((url) => new URL(url).origin === selected));
 });
+
+function localManifestFixture({ replacement = {}, status = 403, elapsed = 0, firstStatus = 401 } = {}) {
+    const script = fs.readFileSync(path.join(root, 'scripts/h5-demo-acceptance/wallet-anvil.mjs'), 'utf8');
+    const source = script.match(/^async function nftManifest\(content, current\) \{\n[\s\S]*?^\}/m)?.[0];
+    assert(source, 'local manifest observation function required');
+    const original = { sub: C, wallet_address: C, chain_id: 31337, account_kind: 'erc1271', session_id: 'cw:original', wallet_proof_id: 'proof', wallet_session_exp: 5000, auth_epoch: 1, restore_epoch: 'restore', jti: 'old', iat: 1000, exp: 1060 };
+    const encode = (claims) => 'header.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.signature';
+    const oldToken = encode(original), nextToken = encode({ ...original, jti: 'new', iat: 1020, exp: 1080, ...replacement });
+    const calls = [], attempts = []; let tick = 1020000;
+    const context = vm.createContext({ Date: { now: () => tick },
+        claim: token => JSON.parse(Buffer.from(token.split('.')[1], 'base64url')),
+        hash: token => require('node:crypto').createHash('sha256').update(token).digest('hex'),
+        nftManifestAttempts: attempts,
+        state: async () => { tick += elapsed; return { token: nextToken, claims: JSON.parse(Buffer.from(nextToken.split('.')[1], 'base64url')) }; },
+        api: async (method, endpoint, body, token) => { calls.push(token); return { status: calls.length === 1 ? firstStatus : status }; },
+    });
+    vm.runInContext(source, context);
+    return { run: () => context.nftManifest('content', { token: oldToken, claims: original }), calls, attempts, oldToken, nextToken };
+}
+
+test('local manifest retries one observed same-session JTI rotation and retains the original 401', async () => {
+    const f = localManifestFixture(); const result = await f.run();
+    assert.equal(result.response.status, 403); assert.equal(result.current.token, f.nextToken);
+    assert.deepEqual(f.calls, [f.oldToken, f.nextToken]);
+    assert.deepEqual(f.attempts.map(x => x.status), [401, 403]);
+});
+
+test('local manifest rejects foreign identities, stale leases, repeated 401 and late replacement', async () => {
+    for (const replacement of [{ sub: A }, { wallet_address: A }, { chain_id: 11155111 }, { account_kind: 'eoa' },
+        { session_id: 'cw:foreign' }, { wallet_proof_id: 'foreign' }, { wallet_session_exp: 5001 },
+        { auth_epoch: 2 }, { restore_epoch: 'foreign' }, { jti: 'old' }, { jti: '' }, { exp: 1024 },
+        { exp: 1090 }, { wallet_proof_id: null }]) {
+        const f = localManifestFixture({ replacement });
+        await assert.rejects(f.run(), /same-admission/); assert.equal(f.calls.length, 1);
+        assert.equal(f.attempts[0].status, 401);
+    }
+    const late = localManifestFixture({ elapsed: 5001 });
+    await assert.rejects(late.run(), /same-admission/); assert.equal(late.calls.length, 1);
+    const denied = localManifestFixture({ status: 401 });
+    await assert.rejects(denied.run(), /repeat|budget/); assert.equal(denied.calls.length, 2);
+});
+
+test('local manifest never retries dependency errors or ordinary successful observations', async () => {
+    for (const firstStatus of [200, 403, 429, 503]) {
+        const f = localManifestFixture({ firstStatus }); const result = await f.run();
+        assert.equal(result.response.status, firstStatus); assert.equal(f.calls.length, 1);
+    }
+});

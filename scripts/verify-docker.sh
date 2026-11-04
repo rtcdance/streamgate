@@ -1005,6 +1005,7 @@ run_fullchain() {
     W3_CANDIDATE_SHA="$VERIFY_SOURCE_REVISION"
     W3_EVIDENCE_CONTEXT=CANDIDATE
     W3_GRPC_EXPORT_DIR="$ARTIFACT_DIR/wallet-build"
+    W3_BROWSER_EXPORT_DIR="$ARTIFACT_DIR/wallet-browser"
     ANVIL_URL="http://localhost:${anvil_port}"
     ANVIL_BASE="http://localhost:${anvil_port}"
     MINIO_LIVENESS_URL="http://localhost:${minio_port}/minio/health/live"
