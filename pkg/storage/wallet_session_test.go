@@ -22,7 +22,9 @@ func walletSessionFixture() *WalletSession {
 func newWalletSessionTestStores(t *testing.T) (*miniredis.Miniredis, *redis.Client, *RedisSessionStore, *RedisWalletSessionStore) {
 	t.Helper()
 	server := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1, DialTimeout: 100 * time.Millisecond, ReadTimeout: 100 * time.Millisecond})
+	// Race-instrumented Lua requests contend for miniredis on shared CI CPUs.
+	// This fixture tests CAS outcomes; a 100ms transport budget tests scheduling.
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1, DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second})
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	sessions, err := NewRedisSessionStore(client)
 	require.NoError(t, err)
@@ -67,7 +69,8 @@ func TestWalletSession_CreateAndLoadAcrossInstances(t *testing.T) {
 
 func TestWalletSession_ConcurrentRefreshOnlyOneWinner(t *testing.T) {
 	_, _, sessions, proofs := newWalletSessionTestStores(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	record := walletSessionFixture()
 	require.NoError(t, sessions.Create(ctx, record.SessionID))
 	require.NoError(t, proofs.Create(ctx, record))
