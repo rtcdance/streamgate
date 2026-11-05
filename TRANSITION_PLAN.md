@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T09:13Z attempt 3 接受阶段在perf场景失败（采样边界）：**九阶段执行至perf时，`rpc_all_down` round1 的50观众轮 `TestLoad_AuthorizedMedia` 原exit1，原因 `viewer 44 has no valid completed sample record`（`test/load/harness.go` SamplingViolation）。该轮聚合为 success=0、errors=261、aborted=1、bytes=0、logins_failed=0、采样30.0157s；1与10观众轮在同轮通过。**不是fail-open**：`rpc_all_down` 场景判据（0成功、0媒体字节）本身满足，失败点是“某观众只有被窗口截断的aborted样本”。原 `raw.log`/`json` 与分类保存在 `20261105T091700Z-c5-acceptance-rpc-all-down-sampling-failure/`。此前unit/chain/durability/faults/media（77/77）等阶段均已通过；接受阶段随后仍会按 `if: always()` 上传原件。未改阈值、未改harness、未跳测；等该job终态后按同SHA语义再只重跑失败项（attempt 4）。若同一场景再次同因失败，则按计划停止重跑并定位（可能需要在**新候选C6**中修harness的采样边界判定，而不是放宽断言）。
+
 **2026-11-05T07:13Z attempt 3 通过全部Linux门并进入接受阶段：**只重跑失败项后，`Perf Harness Gates` 本次通过（同一SHA、未改阈值），累计52项success、0失败；`Complete Docker Acceptance (M0-M8, one candidate)` 已在Mac `desktop-local` runner 启动。接受阶段是九阶段all与证据上传，仍需数小时，未提前判定通过。
 
 **2026-11-05T06:57Z attempt 2 终态与第二个失败（时序类）：**attempt 2 在 `Perf Harness Gates` job 127097535623 失败：`go test -race -p 1 -count=1 ./test/load ./test/performance` 中 `TestDistributedTracingPerformance` 超过 100µs/span 阈值，其余31项必需perf用例通过、原exit1。同SHA在本机复现该测试为 **3.25µs/span、PASS**（阈值余量约30倍），故判为宿主机争用下的时序门失败，不是C5回归；C4的同名门通过。原job日志与分类保存在 `20261105T070500Z-c5-perf-tracing-attempt2-failure/`。已按同SHA语义再次只重跑失败项（attempt 3），未改阈值、未跳过测试、未另派run；若同一签名连续第三次失败即停止重试并定位。
