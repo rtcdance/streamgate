@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T10:19Z attempt 3 终态与 attempt 4：**接受job 127103180159 在失败后仍完成 `if: always()` 的600MB证据上传，于10:19Z终态；attempt 3 全程仅perf的 `rpc_all_down` 一项失败。已对该run再次只重跑失败项，attempt=4 进入 in_progress；未改阈值、未改harness、未跳测、未另派run。原job日志补存于同一失败目录。
+
 **2026-11-05T09:13Z attempt 3 接受阶段在perf场景失败（采样边界）：**九阶段执行至perf时，`rpc_all_down` round1 的50观众轮 `TestLoad_AuthorizedMedia` 原exit1，原因 `viewer 44 has no valid completed sample record`（`test/load/harness.go` SamplingViolation）。该轮聚合为 success=0、errors=261、aborted=1、bytes=0、logins_failed=0、采样30.0157s；1与10观众轮在同轮通过。**不是fail-open**：`rpc_all_down` 场景判据（0成功、0媒体字节）本身满足，失败点是“某观众只有被窗口截断的aborted样本”。原 `raw.log`/`json` 与分类保存在 `20261105T091700Z-c5-acceptance-rpc-all-down-sampling-failure/`。此前unit/chain/durability/faults/media（77/77）等阶段均已通过；接受阶段随后仍会按 `if: always()` 上传原件。未改阈值、未改harness、未跳测；等该job终态后按同SHA语义再只重跑失败项（attempt 4）。若同一场景再次同因失败，则按计划停止重跑并定位（可能需要在**新候选C6**中修harness的采样边界判定，而不是放宽断言）。
 
 **2026-11-05T07:13Z attempt 3 通过全部Linux门并进入接受阶段：**只重跑失败项后，`Perf Harness Gates` 本次通过（同一SHA、未改阈值），累计52项success、0失败；`Complete Docker Acceptance (M0-M8, one candidate)` 已在Mac `desktop-local` runner 启动。接受阶段是九阶段all与证据上传，仍需数小时，未提前判定通过。
