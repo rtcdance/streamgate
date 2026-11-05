@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T05:55Z C5同SHA CI首个失败（环境类）：**`Candidate Images / Build upload` job 127049842583 在 `builder 6/6` 的 `go build -tags nats_integration -a ./cmd/microservices/upload` 阶段发生Go编译器SIGSEGV（`unexpected fault address 0xeffff7cee770`，`cmd/compile/internal/ssagen.mapassign_faststr`），buildx原exit1。同SHA的 `Go Tests` 与 `Build` 均success；在本机以完全相同的命令与 `GOOS=linux GOARCH=amd64` 复现构建原exit0并产出54MB二进制，因此判为构建期内存/编译器环境故障，不是源码缺陷。原job日志与分类保存在 `20261105T060100Z-c5-build-upload-first-failure/`；其余任务继续执行，未取消run、未另派新run、未改C。待run到终态后按既有语义只重跑失败项（attempt 2），不重跑已绿的33项。
+
 **2026-11-05T04:12Z 本轮资源清理：**按§10.9移除34个已停止的 `sg-w3-*` 容器、15个卷与8个网络（含失败的C4栈、dev-profile栈与旧lab），清理前后清单及原命令记录在 `.verify-artifacts/w3-extension/supervision/20261105T041154Z-w3-resource-cleanup/`；四套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind`、`sg-mig-probe` 未动。保留镜像、prepared stack目录与全部证据；清理后仍有26个运行中容器，与清理前一致。
 
 **2026-11-05T04:10Z 新候选C5冻结与同SHA CI派发：**接管后的候选冻结为 `8063873829371aa93ed686d963e76c174e9928de`（C5 = `37027d10` 本地启动修复 + `80638738` CUA传输）；工作树clean，递归子模块均为固定gitlink。冻结前定向门全部原exit0：`go build ./...`、受影响包`-race`（`cmd/monolith/streamgate`、`cmd/microservices/api-gateway`）、`golangci-lint` 0 issues、`go vet`、13项Node与9项Python Docker套件、7份workflow语法。分支已推送 `origin/sg/w3-local-profile-20261105`，默认CI run [41966091151](https://github.com/rtcdance/streamgate/actions/runs/41966091151) 于04:10:01Z派发，headSha=80638738。结果未出，不预判通过，也不复用C4绿项。派发前实时容量核对：4套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind` 与 `sg-mig-probe` 保留未动，系统内存空闲32%。
