@@ -16,14 +16,19 @@ export function settings(env) {
     const inputBase = new URL(env.W3_H5_BASE);
     const origin = inputBase.origin;
     if (!['http:', 'https:'].includes(inputBase.protocol) || !loopback(inputBase.hostname) || inputBase.username || inputBase.password) throw new Error('The approved application is local-only');
-    const cdp = new URL(env.W3_CDP_ENDPOINT);
-    if (!['http:', 'https:', 'ws:', 'wss:'].includes(cdp.protocol) || !loopback(cdp.hostname) || cdp.username || cdp.password || !cdp.port) throw new Error('An explicit loopback CDP port for the existing MetaMask browser is required');
+    const transport = env.W3_BROWSER_TRANSPORT || 'cdp';
+    if (!['cdp', 'cua'].includes(transport)) throw new Error('Unsupported browser transport');
+    let cdp = null;
+    if (transport === 'cdp') {
+        cdp = new URL(env.W3_CDP_ENDPOINT);
+        if (!['http:', 'https:', 'ws:', 'wss:'].includes(cdp.protocol) || !loopback(cdp.hostname) || cdp.username || cdp.password || !cdp.port) throw new Error('An explicit loopback CDP port for the existing MetaMask browser is required');
+    } else if (env.W3_CDP_ENDPOINT) throw new Error('CUA transport must not use a browser-wide endpoint');
     const waitMs = Number(env.W3_USER_GATE_TIMEOUT_MS || 1800000);
     if (!Number.isInteger(waitMs) || waitMs < 1000 || waitMs > 1800000) throw new Error('User wait must be between one second and 30 minutes');
     if (phase !== 'negative' && !/^[0-9a-f-]{36}$/i.test(env.W3_CONTENT_ID || '')) throw new Error('W3_CONTENT_ID is required for the fixed fixture');
     if (!env.W3_REPORT_DIR) throw new Error('W3_REPORT_DIR is required');
     const nft = phase === 'negative' ? null : evmAddress(env.W3_NFT);
-    return { phase, mode: env.W3_MODE, candidateSHA: env.W3_CANDIDATE_SHA, controller, subject, nft, origin, cdp: cdp.href, waitMs, content: env.W3_CONTENT_ID, output: env.W3_REPORT_DIR };
+    return { phase, mode: env.W3_MODE, candidateSHA: env.W3_CANDIDATE_SHA, controller, subject, nft, origin, transport, cdp: cdp?.href || null, waitMs, content: env.W3_CONTENT_ID || null, output: env.W3_REPORT_DIR };
 }
 
 function loopback(host) { return ['localhost', '127.0.0.1', '[::1]'].includes(host); }

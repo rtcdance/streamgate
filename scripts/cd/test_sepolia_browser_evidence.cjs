@@ -93,7 +93,8 @@ test('both positive wallet phases require actual proof and original exit, withou
 test('missing, failed, skipped, foreign and simulated reports cannot pass', async () => {
     const { validatePhaseEvidence } = await load(); const good = await fixture();
     for (const change of [r => r.checks.pop(), r => { r.checks[0].ok = 'SKIP'; }, r => r.checks.push({ ...r.checks[0] }), r => { r.candidateSHA = 'b'.repeat(40); },
-        r => { r.mode = 'api-gateway'; }, r => { r.testAdapter = 'INJECTED_PROVIDER'; }, r => { r.errors.push('late page error'); }, r => { r.publicWalletSignoff = true; }]) {
+        r => { r.mode = 'api-gateway'; }, r => { r.testAdapter = 'INJECTED_PROVIDER'; }, r => { r.testAdapter = 'CUA_SCOPED_READ_ONLY'; },
+        r => { r.errors.push('late page error'); }, r => { r.publicWalletSignoff = true; }]) {
         const bad = structuredClone(good.report); change(bad);
         assert.throws(() => validatePhaseEvidence(bad, good.proofsRaw, good.config, 0, ethers));
     }

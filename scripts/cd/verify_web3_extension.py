@@ -43,6 +43,11 @@ FROZEN = ('scripts/cd/verify_web3_extension.py', 'scripts/cd/assert_public_contr
     'scripts/cd/required-tests.json', 'scripts/wallet-testnet/phase_evidence.py', 'scripts/wallet-testnet/transaction_oracle.py',
     'scripts/wallet-testnet/deployment_manifest.py', 'scripts/wallet-testnet/network_preflight.py', 'scripts/wallet-testnet/prepare_stack.py', 'scripts/wallet-testnet/launch_stack.py', 'scripts/wallet-testnet/verify_web3_testnet.py',
     'scripts/h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs', 'scripts/h5-demo-acceptance/lib/wallet_sepolia_contract.mjs',
+    'scripts/h5-demo-acceptance/wallet-sepolia.mjs', 'scripts/h5-demo-acceptance/lib/wallet_phase_network.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_network.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_bridge.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_session.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_filter.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_peer.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_control_contract.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_control_session.mjs',
     'scripts/wallet-testnet/observe_controls.py', 'scripts/h5-demo-acceptance/wallet-sepolia-controls.mjs',
     'scripts/h5-demo-acceptance/lib/wallet_file_rpc.mjs', 'scripts/h5-demo-acceptance/lib/wallet_public_controls.mjs',
     'h5-demo/vendor/ethers.umd.min.js', 'config/performance.acceptance.json')

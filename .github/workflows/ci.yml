@@ -141,6 +141,14 @@ jobs:
           node --test scripts/cd/test_h5_api_base.cjs
           scripts/cd/test_h5_contract_wallet.cjs
           scripts/cd/test_h5_wallet_sepolia_tool.cjs
+          scripts/cd/test_wallet_phase_network.cjs
+          scripts/cd/test_wallet_cua_network.cjs
+          scripts/cd/test_wallet_cua_bridge.cjs
+          scripts/cd/test_wallet_cua_session.cjs
+          scripts/cd/test_wallet_cua_filter.cjs
+          scripts/cd/test_wallet_cua_peer.cjs
+          scripts/cd/test_wallet_cua_control_contract.cjs
+          scripts/cd/test_wallet_cua_control_session.cjs
           scripts/cd/test_wallet_file_rpc.cjs
           scripts/cd/test_wallet_public_controls.cjs
           scripts/cd/test_h5_sepolia_fixture.cjs

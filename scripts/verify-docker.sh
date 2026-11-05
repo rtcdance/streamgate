@@ -355,6 +355,14 @@ stage_unit() {
     go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
     node scripts/cd/test_h5_contract_wallet.cjs
     node scripts/cd/test_h5_wallet_sepolia_tool.cjs
+    node scripts/cd/test_wallet_phase_network.cjs
+    node scripts/cd/test_wallet_cua_network.cjs
+    node scripts/cd/test_wallet_cua_bridge.cjs
+    node scripts/cd/test_wallet_cua_session.cjs
+    node scripts/cd/test_wallet_cua_filter.cjs
+    node scripts/cd/test_wallet_cua_peer.cjs
+    node scripts/cd/test_wallet_cua_control_contract.cjs
+    node scripts/cd/test_wallet_cua_control_session.cjs
     node scripts/cd/test_wallet_file_rpc.cjs
     node scripts/cd/test_wallet_public_controls.cjs
     node scripts/cd/test_h5_sepolia_fixture.cjs
