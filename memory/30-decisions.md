@@ -219,6 +219,29 @@ stays valid and unchanged.
 
 ---
 
+## D-014 — The local Sepolia profile runs with APP_DEBUG on purpose
+
+**Status:** accepted · **Evidence:** `deploy/docker/compose.w3sepolia.yml`,
+`test/testutil/profileguard/profileguard.go`
+
+**Context:** The w3sepolia stack binds storage to the internal Docker network
+without TLS. With `APP_DEBUG=false` both API mains refuse that storage and exit
+before serving, which is exactly how the first C4 launch failed.
+
+**Decision:** Set `APP_DEBUG=true` for the two auth/API services in the local
+Sepolia profile only, and pin the rest with a startup guard that asserts the
+real main still loads: durable storage, chain 11155111, safe/finalized reads, no
+development signer.
+
+**Why:** The flag is what unblocks loopback storage; the invariants that matter
+(demo signer, chain identity, durable storage) are enforced independently and
+would fail the guard if the flag ever bought more than that.
+
+**Consequences:** Do not copy this profile to any shared or production stack, and
+do not "fix" the flag back without re-running the profile guard.
+
+---
+
 ## Adding a decision
 
 Copy the shape above. Keep **Context / Decision / Why / Consequences** — the *why*
