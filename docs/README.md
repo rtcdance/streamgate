@@ -4,6 +4,7 @@ Entry point for project documentation. `TRANSITION_PLAN.md` (repo root) is the *
 
 | Area | Location | Contents |
 |------|----------|----------|
+| Learning | [learning/streamgate-study-guide.html](learning/streamgate-study-guide.html) | 中文系统学习手册：13 个单元、源码与测试入口、交互实验、自测进度、离线文档阅读 |
 | Architecture | [ARCHITECTURE.md](ARCHITECTURE.md) · [architecture/](architecture/) | C4 overview, microkernel, microservices, data flow, communication |
 | API | [api/openapi.yaml](api/openapi.yaml) | OpenAPI 3.0 spec — single source of truth, served at `/docs/openapi.yaml` |
 | Deployment | [../DEPLOY.md](../DEPLOY.md) | 5-minute stack, port map, teardown, deploy FAQ |

@@ -20,6 +20,18 @@
 
 ---
 
+## Contract-wallet extension: scope and verification
+
+**Contract-wallet extension (W3, 2026-11-04): deterministic CI verified; public acceptance pending.** Frozen code candidate `c38dc4bc0bd5ac694261ee60ca07764783b1d05b` passed [default CI 41823377757](https://github.com/rtcdance/streamgate/actions/runs/41823377757) attempt 4 (55/55, no skips) and the complete nine-stage Docker gate (original exit 0). Public MetaMask/Sepolia acceptance remains pending. Historical `d0f05152` results below do not accept this extension. Scope: deployed ERC-1271 accounts with SIWE / EIP-191, demonstrated using the project-owned `Study1271Wallet` test fixture. Real MetaMask signatures, six public transactions and both deployment modes remain unverified. No arbitrary Safe compatibility, ERC-4337, production-wallet or mainnet claims.
+
+The browser controller A signs, while contract wallet C is the authenticated subject and NFT holder. The server classifies the account on its configured chain, pins code and signature checks to one safe block, and rechecks that block's hash. A failed contract check never falls back to EOA recovery.
+
+Contract sessions use an access lease of at most 60 seconds and a fixed absolute lifetime of at most two hours. Refresh revalidates the original server-held proof, then atomically compares the session epoch, JTI and proof version in Redis. A playback capability cannot outlive the access token that authorized it; high-frequency segment requests do not add an ERC-1271 RPC call.
+
+The public path uses **Ethereum Sepolia, chain 11155111**, with two qualified RPCs and one shared fixture for monolith and api-gateway: two deployments, two mints and two transfers. Signing and broadcasting remain user-controlled. A transaction hash or successful receipt alone does not establish safe-chain inclusion or playback revocation.
+
+Read [TRANSITION_PLAN.md §10](TRANSITION_PLAN.md#10-合约钱包登录与公开测试网真实路径开发计划) for the fixed protocol and open acceptance items, or study [unit 13](docs/learning/streamgate-study-guide.html#contract-wallet) for the code path and exercises. The source entry points are `pkg/web3/signature/account.go`, `pkg/service/auth_contract_wallet.go`, `pkg/storage/wallet_session.go` and `contracts/src/Study1271Wallet.sol`.
+
 ## Quick Start
 
 The development stack requires Docker Compose and the Linux binaries
@@ -356,6 +368,7 @@ See `TRANSITION_PLAN.md` for the engineering plan and `docs/ARCHITECTURE.md` for
 | Channel | Purpose |
 |---------|---------|
 | **Documentation** | [docs/](docs/) — architecture, API reference, deployment, runbook |
+| **Study guide** | [系统学习手册（中文）](docs/learning/streamgate-study-guide.html) — 13 units, source reading, exercises and offline reference |
 | **Examples** | [examples/](examples/) — signature verify, NFT verify, streaming, upload |
 | **GitHub Issues** | Bug reports, feature requests |
 | **GitHub Discussions** | Q&A, ideas, show and tell |

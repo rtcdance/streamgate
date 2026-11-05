@@ -43,3 +43,15 @@ Built a Go-based `NFT-gated streaming backend` that combines wallet challenge au
 ## Recommended one-line explanation in interview or resume summary
 
 I used a media backend scenario to demonstrate how Go services and Web3 authorization can work together in a realistic content-access system.
+
+## Contract-wallet extension — use only with its acceptance boundary
+
+**Contract-wallet extension (W3, 2026-11-04): deterministic CI verified; public acceptance pending.** Frozen code candidate `c38dc4bc0bd5ac694261ee60ca07764783b1d05b` passed [default CI 41823377757](https://github.com/rtcdance/streamgate/actions/runs/41823377757) attempt 4 (55/55, no skips) and the complete nine-stage Docker gate (original exit 0). Public MetaMask/Sepolia acceptance remains pending. Historical `d0f05152` results below do not accept this extension. Scope: deployed ERC-1271 accounts with SIWE / EIP-191, demonstrated using the project-owned `Study1271Wallet` test fixture. Real MetaMask signatures, six public transactions and both deployment modes remain unverified. No arbitrary Safe compatibility, ERC-4337, production-wallet or mainnet claims.
+
+Suggested engineering description, subject to the candidate's own contribution review:
+
+- Implemented a deployed ERC-1271 login path in Go that keeps the browser signer distinct from the authenticated contract and its NFT holdings. Signature verification uses one safe-block anchor and a shared total deadline; unsupported account types and failed contract checks are rejected.
+- Bound contract-wallet refresh to server-held login proofs, Redis epoch/JTI/version CAS, a 60-second access lease and a fixed two-hour session limit. Playback capabilities are capped by the issuing access token rather than extended by a later refresh.
+- Prepared a bounded Sepolia demonstration with two independent RPCs and a shared six-transaction fixture across monolith and api-gateway. Public execution and full Web3 extension acceptance remain pending.
+
+中文对应口径：已实现“控制者 A 签名、合约 C 登录并持有资产”的身份模型及有界续验；已准备 Sepolia 双模式演示入口。已具备同候选完整 Docker/CI 证据，当前不能写“已完成公开测试网闭环”。个人设计、实现和评审贡献仍需本人逐条确认。

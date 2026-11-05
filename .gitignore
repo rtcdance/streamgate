@@ -115,3 +115,8 @@ build/
 !scripts/cd/test_h5_contract_wallet.cjs
 !scripts/cd/run_wallet_session_tests.sh
 !scripts/cd/prepare_wallet_anvil.cjs
+
+# Keep the standalone learning guide visible to Git even with a global docs ignore.
+!/docs/
+!/docs/learning/
+!/docs/learning/streamgate-study-guide.html

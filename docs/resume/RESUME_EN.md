@@ -1,5 +1,7 @@
 # Resume (English)
 
+> **Contract-wallet extension (W3, 2026-11-04): deterministic CI verified; public acceptance pending.** Frozen code candidate `c38dc4bc0bd5ac694261ee60ca07764783b1d05b` passed [default CI 41823377757](https://github.com/rtcdance/streamgate/actions/runs/41823377757) attempt 4 (55/55, no skips) and the complete nine-stage Docker gate (original exit 0). Public MetaMask/Sepolia acceptance remains pending. Historical `d0f05152` results below do not accept this extension. Scope: deployed ERC-1271 accounts with SIWE / EIP-191, demonstrated using the project-owned `Study1271Wallet` test fixture. Real MetaMask signatures, six public transactions and both deployment modes remain unverified. No arbitrary Safe compatibility, ERC-4337, production-wallet or mainnet claims.
+
 > **Verified engineering delivery (2026-11-02):** candidate `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`, complete Docker all/M0–M8 with original exit 0; CI run `41343759379` attempt 3 passed 55/55 jobs, including evidence and Publishable. Prepared local demo: 57.14s startup and 77/77 checks in each mode. See `TRANSITION_PLAN.md` §8.86. Other SHA-tagged figures remain historical. This documentation commit does not inherit candidate CI. Personal claims/presentation/recording/applications remain subject to human confirmation; production and testnet are not verified.
 
 > Output discipline (TRANSITION_PLAN SG-09): only claims that can be demonstrated live; every figure cites its commit SHA / test evidence (§8). No line counts, no coverage numbers, no "microkernel architecture", no service counts, no version tags.
@@ -31,7 +33,7 @@
 
 The main line: real wallet signature → one-time challenge → server-side NFT rules → same-block evidence → 60s capability → real HLS playback → access denied after transfer → RPC / Redis faults and recovery. **AI honesty**: most implementation code is AI-generated; I own the design decisions and acceptance criteria, review every change, and locate/fix failing cases — AI code generation is not "I designed and implemented this independently"【待本人确认 / confirm with candidate】.
 
-Current engineering status: `d0f05152` passed complete Docker acceptance and same-SHA CI (run `41343759379`, 55/55). Both media deployment modes passed 77 checks. HTTP/gRPC transfer denial measured 61.799s/62.403s for monolith and 59.732s/60.193s for api-gateway, starting at safe-view confirmation and excluding chain-finality waiting. Prepared local demo startup was 57.14s with 77/77 functional checks per mode. Sources: this candidate’s `logs/media.log`, raw demo logs and plan §8.86. Production, testnet and personal presentation/recording/applications remain unverified or human work.
+Historical base-path acceptance (excluding W3): `d0f05152` passed complete Docker acceptance and same-SHA CI (run `41343759379`, 55/55). Both media deployment modes passed 77 checks. HTTP/gRPC transfer denial measured 61.799s/62.403s for monolith and 59.732s/60.193s for api-gateway, starting at safe-view confirmation and excluding chain-finality waiting. Prepared local demo startup was 57.14s with 77/77 functional checks per mode. Sources: this candidate’s `logs/media.log`, raw demo logs and plan §8.86. Production, testnet and personal presentation/recording/applications remain unverified or human work.
 
 **Entry 1 — Signatures & resource authorization**
 
