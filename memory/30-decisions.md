@@ -194,6 +194,31 @@ material lives under `docs/`. This `memory/` tree holds recall, not status.
 
 ---
 
+## D-013 — A page-scoped CUA transport observes, but never signs off
+
+**Status:** accepted · **Evidence:** `scripts/h5-demo-acceptance/lib/wallet_cua_*.mjs`,
+`scripts/cd/test_sepolia_browser_evidence.cjs`
+
+**Context:** The Sepolia phase collectors need a browser, and the desktop tool
+exposes page-scoped CUA instead of browser-wide CDP. Making the collectors accept
+any transport would also make it easy to launder a synthetic observation into
+public acceptance.
+
+**Decision:** Add `W3_BROWSER_TRANSPORT=cua` as an explicit second transport behind
+a single-use loopback relay with fixed operations and target-origin pinning. Both
+transports feed one `WalletPhaseNetwork`. CUA reports are labelled
+`CUA_SCOPED_READ_ONLY` and the phase validator rejects that adapter, so only the
+existing MetaMask CDP adapter can close TN.
+
+**Why:** Evidence must come from the owner's own browser. A transport that cannot
+be distinguished from a scripted page must not be able to produce a pass.
+
+**Consequences:** CUA runs are development observations. If they are ever to count,
+they need a new frozen candidate and the same CI/all cycle; the frozen C4 result
+stays valid and unchanged.
+
+---
+
 ## Adding a decision
 
 Copy the shape above. Keep **Context / Decision / Why / Consequences** — the *why*
