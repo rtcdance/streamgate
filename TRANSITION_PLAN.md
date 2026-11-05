@@ -4961,6 +4961,10 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T04:12Z 本轮资源清理：**按§10.9移除34个已停止的 `sg-w3-*` 容器、15个卷与8个网络（含失败的C4栈、dev-profile栈与旧lab），清理前后清单及原命令记录在 `.verify-artifacts/w3-extension/supervision/20261105T041154Z-w3-resource-cleanup/`；四套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind`、`sg-mig-probe` 未动。保留镜像、prepared stack目录与全部证据；清理后仍有26个运行中容器，与清理前一致。
+
+**2026-11-05T04:10Z 新候选C5冻结与同SHA CI派发：**接管后的候选冻结为 `8063873829371aa93ed686d963e76c174e9928de`（C5 = `37027d10` 本地启动修复 + `80638738` CUA传输）；工作树clean，递归子模块均为固定gitlink。冻结前定向门全部原exit0：`go build ./...`、受影响包`-race`（`cmd/monolith/streamgate`、`cmd/microservices/api-gateway`）、`golangci-lint` 0 issues、`go vet`、13项Node与9项Python Docker套件、7份workflow语法。分支已推送 `origin/sg/w3-local-profile-20261105`，默认CI run [41966091151](https://github.com/rtcdance/streamgate/actions/runs/41966091151) 于04:10:01Z派发，headSha=80638738。结果未出，不预判通过，也不复用C4绿项。派发前实时容量核对：4套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind` 与 `sg-mig-probe` 保留未动，系统内存空闲32%。
+
 **2026-11-05T04:00Z 接管后的CUA传输提交与材料边界：**接管上一代理未提交的页面级CUA传输后，先复核其停止点（`test_wallet_control_collector.py` 曾因第116行字符串未闭合原始 exit1，修复后复测通过），再在固定Docker工具镜像 `sha256:ba6b31fd…` 内重跑受影响门：13项Node（8个新模块套件+5个既有套件）与9项Python套件全部原始 exit0，7份workflow语法（宿主 `check_workflow_syntax.go` 预检）exit0；原 `command.json`/`stdout`/`stderr`/`exit` 存于 `.verify-artifacts/w3-extension/supervision/20261105T035818Z-cua-transport-verification/`。该工作已提交为 `80638738`（`sg/w3-local-profile-20261105`，26文件）：显式 `W3_BROWSER_TRANSPORT=cua`、单次回环relay、页面级固定操作、目标origin绑定、有界超时与失败关闭，并让两种传输共用 `WalletPhaseNetwork` 的同一 challenge/签名/续期/能力/媒体判断。上文03:31Z条目“控制阶段未实现、全部新代码未提交”由此条取代。
 
 **边界：**CUA报告仍标记 `CUA_SCOPED_READ_ONLY`，`test_sepolia_browser_evidence.cjs` 反向断言其不能通过阶段验证器，故CUA只是开发期观测通道，不能关闭TN；C4（`c38dc4bc`）的九阶段/55项CI结论不受影响。该分支已把新模块纳入最终验证器冻结清单，若要进入正式验收必须按新候选C5重跑完整all与同C默认CI，不能复用C4绿项。
@@ -5208,6 +5212,7 @@ python3 scripts/cd/verify_web3_extension.py \
 | 两个合格RPC及免费配额 | Tenderly/1RPC历史只读资格通过；当前可用性和免费限额执行前重新核实 | 验证器明确失败/阻塞；不使用单端点临时放行，不购买配额，不把协议要求改成latest |
 | 本机容量与已有CI/其他项目栈 | 执行前实时核对 | 有有效长跑则保留并等待；不重启/取消有效run，不清理ChainPulse资源；Mac保持开盖 |
 | 真实浏览器钱包签名/广播 | 尚未执行 | 由本人在钱包内完成；自动化可验证结果，不伪造provider响应、签名批准或“本人已确认” |
+| 观测通道（浏览器级CDP或页面级CUA） | 2026-11-05T04:05Z本机9222/9223/9333无响应；Chrome扩展未开启 `Allow access to file URLs`，CUA `apps/browsers` 为空 | 由本人开启扩展文件访问并保留既有MetaMask页；通道缺失时保持BLOCKED，不代签、不合成观测、不以端口探测代替验收 |
 
 1. 先跑一个最小垂直切片：C接收一份NFT → 登录为C → 真实播放 → 策略变更/转移后拒绝。不要先建设Safe管理台、钱包连接器矩阵或多链框架。
 2. 单元/脚手架失败先做对应最小复现；同签名连续失败两次即停止整链重试并定位。公网429/超时使用有上限的退避及既定fallback；不改变错误分类就重置次数。
