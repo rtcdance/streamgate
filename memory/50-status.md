@@ -42,4 +42,4 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 
 ## Next action
 
-For the extension: finish the public path only when the owner can sign — reuse the preserved C4 originals and prepared stack, restore dual-RPC qualification, then run the six-transaction fixture and both observation modes. Do not re-run green CI/all to refresh this snapshot. For the base path: keep `d0f05152` frozen.
+Dual-RPC qualification was re-verified read-only on 2026-11-05T04:01Z (exit 0, `NETWORK_READS_PASS`, controller still an EOA with 0.19176 ETH at block 12066970), so the network side is ready. No CDP endpoint and no local H5 port is listening, so the remaining extension work is: start the stack from the preserved C4 originals, bring up a wallet browser the owner controls, then run the six-transaction fixture and both observation modes. Do not re-run green CI/all to refresh this snapshot, do not sign for the owner, and do not treat a port probe as acceptance. For the base path: keep `d0f05152` frozen.
