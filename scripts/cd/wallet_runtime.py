@@ -81,8 +81,22 @@ def inspect_stack(directory, candidate, capsule, source_bytes, source_h5_paths, 
         require(not any(key.startswith(('STREAMGATE_', 'WEB3_', 'SEPOLIA_')) and key not in expected_env for key in actual_env), 'undeclared public application override')
         expected_networks = {config['networks'][name]['name'] for name in expected.get('networks', {})}
         require(set(item['NetworkSettings']['Networks']) == expected_networks, 'public service has missing or unexpected network access')
-        for bindings in (item['HostConfig'].get('PortBindings') or {}).values():
-            require(all(binding.get('HostIp') == '127.0.0.1' for binding in bindings or []), 'public stack published a non-loopback port')
+        expected_ports = {(str(port['target']) + '/' + port.get('protocol', 'tcp'), port['host_ip'], str(port['published']))
+                          for port in expected.get('ports', [])}
+
+        def published(bindings):
+            result = set()
+            for target, entries in (bindings or {}).items():
+                for entry in entries or []:
+                    require(entry.get('HostIp') == '127.0.0.1', 'public stack published a non-loopback port')
+                    result.add((target, entry['HostIp'], entry['HostPort']))
+            return result
+
+        # HostConfig records intent even when an internal-only network leaves
+        # the requested port unpublished. Both intent and live bindings matter.
+        require(published(item['HostConfig'].get('PortBindings')) == expected_ports and
+                published(item['NetworkSettings'].get('Ports')) == expected_ports,
+                'public stack requested or live port bindings differ from the prepared profile')
         if service in ('monolith', 'api-gateway', 'transcoder'):
             require(not any(mount.get('Destination', '').startswith('/app') for mount in item.get('Mounts', [])), 'runtime mount replaced accepted app/config bytes')
             require(item['HostConfig'].get('NanoCpus') == 1_000_000_000 and item['HostConfig'].get('Memory') == 1024**3, 'public application resource budget changed')

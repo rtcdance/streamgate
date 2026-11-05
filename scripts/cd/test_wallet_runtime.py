@@ -49,7 +49,14 @@ class RuntimeIdentityTests(unittest.TestCase):
                     Labels={'com.docker.compose.service': service, 'com.streamgate.w3.candidate': CANDIDATE, 'com.streamgate.w3.testnet': PROJECT}),
                     State=dict(Running=True, Health=dict(Status='healthy'), StartedAt='2026-11-03T00:00:00Z'), Mounts=mounts,
                     HostConfig=dict(PortBindings={}, NanoCpus=1_000_000_000, Memory=1024**3),
-                    NetworkSettings=dict(Networks={PROJECT + '_' + name: {} for name in networks})))
+                    NetworkSettings=dict(Networks={PROJECT + '_' + name: {} for name in networks}, Ports={})))
+                if service in ('monolith-h5', 'gateway-h5', 'monolith', 'api-gateway'):
+                    target = 8080 if service.endswith('-h5') else 9090
+                    published = str(18500 + SERVICES.index(service))
+                    config['services'][service]['ports'] = [dict(target=target, published=published, protocol='tcp', host_ip='127.0.0.1')]
+                    binding = {str(target) + '/tcp': [dict(HostIp='127.0.0.1', HostPort=published)]}
+                    containers[-1]['HostConfig']['PortBindings'] = copy.deepcopy(binding)
+                    containers[-1]['NetworkSettings']['Ports'] = copy.deepcopy(binding)
             if mutation: mutation(directory, preparation, variables, config, containers)
             (directory / 'preparation.json').write_text(json.dumps(preparation))
             env = directory / 'stack.env.json'; env.write_text(json.dumps(variables)); env.chmod(0o600)
@@ -89,6 +96,16 @@ class RuntimeIdentityTests(unittest.TestCase):
             lambda d, p, e, c, rows: p['sourceH5SHA256'].clear(),
             lambda d, p, e, c, rows: (d / 'h5/index.html').write_text('changed frontend'),
             lambda d, p, e, c, rows: rows[8]['Mounts'][0].update(Source='/another/h5')]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(ValueError): self.run_fixture(change)
+
+    def test_requested_ports_without_live_publication_or_with_foreign_bindings_are_refused(self):
+        changes = [lambda d, p, e, c, rows: rows[8]['NetworkSettings']['Ports'].clear(),
+            lambda d, p, e, c, rows: rows[9]['NetworkSettings']['Ports'].update({'8080/tcp': []}),
+            lambda d, p, e, c, rows: rows[8]['NetworkSettings']['Ports']['8080/tcp'][0].update(HostPort='19999'),
+            lambda d, p, e, c, rows: rows[8]['NetworkSettings']['Ports']['8080/tcp'][0].update(HostIp='0.0.0.0'),
+            lambda d, p, e, c, rows: rows[0]['NetworkSettings']['Ports'].update({'5432/tcp': [dict(HostIp='127.0.0.1', HostPort='15432')]}),
+            lambda d, p, e, c, rows: rows[8]['HostConfig']['PortBindings'].clear()]
         for change in changes:
             with self.subTest(change=change), self.assertRaises(ValueError): self.run_fixture(change)
 

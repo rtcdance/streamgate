@@ -45,6 +45,9 @@ x-app: &app
 
 x-auth: &auth
   <<: *storage
+  # Loopback-only development storage; durable still forbids memory fallbacks.
+  # Sepolia and the disabled signer flag independently forbid demo signing.
+  APP_DEBUG: "true"
   STREAMGATE_ENV: w3sepolia
   STREAMGATE_JWT_SECRET: ${W3_JWT_SECRET:?private local JWT secret required}
   STREAMGATE_TRANSCODING_ENABLED: "false"
@@ -179,7 +182,7 @@ services:
     image: nginx:1.27-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
     platform: linux/amd64
     labels: *labels
-    networks: [data]
+    networks: [data, web]
     depends_on:
       monolith: {condition: service_healthy}
     ports: ["127.0.0.1:${W3_MONOLITH_H5_PORT:-18500}:8080"]
@@ -197,7 +200,7 @@ services:
     image: nginx:1.27-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
     platform: linux/amd64
     labels: *labels
-    networks: [data]
+    networks: [data, web]
     depends_on:
       api-gateway: {condition: service_healthy}
     ports: ["127.0.0.1:${W3_GATEWAY_H5_PORT:-18501}:8080"]
@@ -216,6 +219,10 @@ networks:
     internal: true
     labels: *labels
   rpc-egress:
+    labels: *labels
+  # Docker Desktop may leave ports unpublished for internal-only containers.
+  # Only H5 proxies join this bridge; storage remains on internal data.
+  web:
     labels: *labels
 
 volumes:
