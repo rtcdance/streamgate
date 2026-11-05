@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T07:13Z attempt 3 通过全部Linux门并进入接受阶段：**只重跑失败项后，`Perf Harness Gates` 本次通过（同一SHA、未改阈值），累计52项success、0失败；`Complete Docker Acceptance (M0-M8, one candidate)` 已在Mac `desktop-local` runner 启动。接受阶段是九阶段all与证据上传，仍需数小时，未提前判定通过。
+
 **2026-11-05T06:57Z attempt 2 终态与第二个失败（时序类）：**attempt 2 在 `Perf Harness Gates` job 127097535623 失败：`go test -race -p 1 -count=1 ./test/load ./test/performance` 中 `TestDistributedTracingPerformance` 超过 100µs/span 阈值，其余31项必需perf用例通过、原exit1。同SHA在本机复现该测试为 **3.25µs/span、PASS**（阈值余量约30倍），故判为宿主机争用下的时序门失败，不是C5回归；C4的同名门通过。原job日志与分类保存在 `20261105T070500Z-c5-perf-tracing-attempt2-failure/`。已按同SHA语义再次只重跑失败项（attempt 3），未改阈值、未跳过测试、未另派run；若同一签名连续第三次失败即停止重试并定位。
 
 **2026-11-05T06:23Z attempt 1 终态与只重跑失败项：**run 41966091151 attempt 1 以 `completed/failure` 结束：37项success、唯一失败仍为 `Build upload`、10项因依赖被skip（各Scan、Retain、Manifest、Perf、Ops、Smoke、Durability、Evidence、Publishable、Acceptance）。按既有同SHA语义对该run执行一次 `rerun-failed-jobs`，已确认 attempt=2 并进入 in_progress；不另派新run、不改C、不重跑已绿项。attempt 2 需重建upload镜像后再执行全部依赖任务，接受阶段仍在其中。
