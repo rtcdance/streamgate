@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T06:23Z attempt 1 终态与只重跑失败项：**run 41966091151 attempt 1 以 `completed/failure` 结束：37项success、唯一失败仍为 `Build upload`、10项因依赖被skip（各Scan、Retain、Manifest、Perf、Ops、Smoke、Durability、Evidence、Publishable、Acceptance）。按既有同SHA语义对该run执行一次 `rerun-failed-jobs`，已确认 attempt=2 并进入 in_progress；不另派新run、不改C、不重跑已绿项。attempt 2 需重建upload镜像后再执行全部依赖任务，接受阶段仍在其中。
+
 **2026-11-05T05:55Z C5同SHA CI首个失败（环境类）：**`Candidate Images / Build upload` job 127049842583 在 `builder 6/6` 的 `go build -tags nats_integration -a ./cmd/microservices/upload` 阶段发生Go编译器SIGSEGV（`unexpected fault address 0xeffff7cee770`，`cmd/compile/internal/ssagen.mapassign_faststr`），buildx原exit1。同SHA的 `Go Tests` 与 `Build` 均success；在本机以完全相同的命令与 `GOOS=linux GOARCH=amd64` 复现构建原exit0并产出54MB二进制，因此判为构建期内存/编译器环境故障，不是源码缺陷。原job日志与分类保存在 `20261105T060100Z-c5-build-upload-first-failure/`；其余任务继续执行，未取消run、未另派新run、未改C。待run到终态后按既有语义只重跑失败项（attempt 2），不重跑已绿的33项。
 
 **2026-11-05T04:12Z 本轮资源清理：**按§10.9移除34个已停止的 `sg-w3-*` 容器、15个卷与8个网络（含失败的C4栈、dev-profile栈与旧lab），清理前后清单及原命令记录在 `.verify-artifacts/w3-extension/supervision/20261105T041154Z-w3-resource-cleanup/`；四套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind`、`sg-mig-probe` 未动。保留镜像、prepared stack目录与全部证据；清理后仍有26个运行中容器，与清理前一致。
