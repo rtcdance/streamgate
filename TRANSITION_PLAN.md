@@ -4961,6 +4961,8 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-05T04:12Z 本轮资源清理：**按§10.9移除34个已停止的 `sg-w3-*` 容器、15个卷与8个网络（含失败的C4栈、dev-profile栈与旧lab），清理前后清单及原命令记录在 `.verify-artifacts/w3-extension/supervision/20261105T041154Z-w3-resource-cleanup/`；四套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind`、`sg-mig-probe` 未动。保留镜像、prepared stack目录与全部证据；清理后仍有26个运行中容器，与清理前一致。
+
 **2026-11-05T04:10Z 新候选C5冻结与同SHA CI派发：**接管后的候选冻结为 `8063873829371aa93ed686d963e76c174e9928de`（C5 = `37027d10` 本地启动修复 + `80638738` CUA传输）；工作树clean，递归子模块均为固定gitlink。冻结前定向门全部原exit0：`go build ./...`、受影响包`-race`（`cmd/monolith/streamgate`、`cmd/microservices/api-gateway`）、`golangci-lint` 0 issues、`go vet`、13项Node与9项Python Docker套件、7份workflow语法。分支已推送 `origin/sg/w3-local-profile-20261105`，默认CI run [41966091151](https://github.com/rtcdance/streamgate/actions/runs/41966091151) 于04:10:01Z派发，headSha=80638738。结果未出，不预判通过，也不复用C4绿项。派发前实时容量核对：4套ChainPulse栈、`sg-linux-runner-04`、`sg-linux-dind` 与 `sg-mig-probe` 保留未动，系统内存空闲32%。
 
 **2026-11-05T04:00Z 接管后的CUA传输提交与材料边界：**接管上一代理未提交的页面级CUA传输后，先复核其停止点（`test_wallet_control_collector.py` 曾因第116行字符串未闭合原始 exit1，修复后复测通过），再在固定Docker工具镜像 `sha256:ba6b31fd…` 内重跑受影响门：13项Node（8个新模块套件+5个既有套件）与9项Python套件全部原始 exit0，7份workflow语法（宿主 `check_workflow_syntax.go` 预检）exit0；原 `command.json`/`stdout`/`stderr`/`exit` 存于 `.verify-artifacts/w3-extension/supervision/20261105T035818Z-cua-transport-verification/`。该工作已提交为 `80638738`（`sg/w3-local-profile-20261105`，26文件）：显式 `W3_BROWSER_TRANSPORT=cua`、单次回环relay、页面级固定操作、目标origin绑定、有界超时与失败关闭，并让两种传输共用 `WalletPhaseNetwork` 的同一 challenge/签名/续期/能力/媒体判断。上文03:31Z条目“控制阶段未实现、全部新代码未提交”由此条取代。
