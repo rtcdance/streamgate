@@ -4969,6 +4969,10 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 **仍待完成：**真实MetaMask签名、六笔公开交易、双模式原始观察与最终汇总；阻塞仍是本人钱包操作与工具侧浏览器连接（Chrome扩展 `Allow access to file URLs` 未开启、CUA `apps/browsers` 为空）。不代签、不伪造观测。
 
+**2026-11-05T04:02Z 双RPC只读资格复验：**用固定工具身份（`network_preflight.py` SHA256 `d097e7dd…`，与00:47Z原运行一致）重跑只读网络预检：原始 exit0、`NETWORK_READS_PASS`，chain 11155111、genesis `0x25a5cc10…`、两provider均有响应、A=`0x732E24a0…` code=`0x`、余额191763346860793075 wei、锚定块12066970/`0xab87babe…`。首轮把仓库根下不存在的 `scripts/wallet-testnet/network_preflight.py`（W3工具只在分支上）当挂载源，docker 原 exit125，保留于 `20261105T040116Z-rpc-requalification/`；改用固定分支副本后成功，原件在 `20261105T040130Z-rpc-requalification/`。仅网络读取；控制权、部署与TN均未验证。
+
+**2026-11-05T04:05Z 浏览器与本地栈现状：**本机 9222/9223/9333 均无CDP响应，18500/18501/18520 均未监听，即既有MetaMask浏览器与本地Sepolia栈当前都未运行。公开路径的阻塞点仍是：起栈（W3-06的开发修复已在分支）、可用且本人可控的钱包浏览器、本人签名。不重启、不代签，也不以端口探测成功代替验收。
+
 **2026-11-05T03:31Z 页面级会话与权限：**已实现受限本机 relay（仅允许固定操作、回环来源和匹配 target origin、顺序及超时失败关闭），会话 capability 存 0700 临时目录中的 0600 文件、不通过网页泄露，关闭时删除。先前真实 Chrome 夹具验证了旧原型的本机往返；因旧原型在网页暴露 capability，随后已修正，**不能把旧原型结果视为当前安全实现验证**。当前 Chrome 扩展在选择自生成会话文件时报 `Allow access to file URLs` 未开启，未绕过；原探针 exit1，临时密钥已删除，见 `20261105T032128Z-cua-private-browser-probe/`。页面会话已实现事件游标、截断/页错误拒绝和浏览器原始时间换算，真实 Chrome 测试时间样本延迟205ms、组件原 exit0，见 `20261105T032331Z-cua-real-clock-fixture/`。钱包阶段入口新增显式 CUA 模式；无 peer 的 Docker CLI 原 exit2、BLOCKED、无私有证明，见 `20261105T033041Z-cua-cli-no-peer/`。CUA 模式尚未被独立验收器接受，控制阶段未实现，全部新代码未提交，公开钱包/CI仍未完成。
 
 **2026-11-05T03:08Z 共享钱包网络判断：**在隔离工作树提取 `wallet_phase_network.mjs`，让原 Playwright 采集入口和 CUA 事件记录共用新 challenge、controller 签名、凭据续期、manifest 能力与媒体字节的判断；已把新测试接入现有 Docker/默认 CI 入口，并将采集器及新模块纳入最终验证器的冻结文件清单。Docker 组合回归原 exit0：27 Node 测试与12 Python 验证器测试，见 `20261105T030619Z-phase-shared-integration/`；7份 workflow 语法原 exit0，见 `20261105T030711Z-wallet-workflow-syntax/`。CUA 事件到同一签名判断的合成夹具连通测试13项原 exit0，见 `20261105T030743Z-cua-phase-contract/`。这些是未提交开发代码与定向测试；尚无 CUA 到正式采集器的在线传输、可信时间映射、控制阶段或真人钱包证据，不把该接线或旧候选当最终验收。

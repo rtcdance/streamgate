@@ -194,35 +194,28 @@ material lives under `docs/`. This `memory/` tree holds recall, not status.
 
 ---
 
-## D-013 — Contract-wallet identity uses revalidated short leases
+## D-013 — A page-scoped CUA transport observes, but never signs off
 
-**Status:** accepted for the ERC-1271 extension · **Evidence:** `pkg/web3/signature/account.go`,
-`pkg/service/auth_contract_wallet.go`, `pkg/storage/wallet_session.go`; acceptance boundaries in plan §10.
+**Status:** accepted · **Evidence:** `scripts/h5-demo-acceptance/lib/wallet_cua_*.mjs`,
+`scripts/cd/test_sepolia_browser_evidence.cjs`
 
-**Context:** ERC-1271 signatures can change validity when contract state changes.
-An EOA owner and a contract at the same address on another chain cannot substitute
-for the admitted contract identity. A two-hour JWT without revalidation would
-outlive a revoked signing policy.
+**Context:** The Sepolia phase collectors need a browser, and the desktop tool
+exposes page-scoped CUA instead of browser-wide CDP. Making the collectors accept
+any transport would also make it easy to launder a synthetic observation into
+public acceptance.
 
-**Decision:** Support deployed ERC-1271 wallets through server-selected chain/code
-classification and pinned safe reads. Persist the admitted proof separately from
-the existing Redis epoch string. Contract access leases are bounded by 60 seconds,
-proof observation age by 5 seconds and clock tolerance by 5 seconds; the absolute
-session lifetime is bounded by two hours. Refresh rechecks the admitted proof and
-uses Redis CAS across epoch, JTI and version. The `cw:` session namespace prevents
-missing wallet metadata from falling back to EOA compatibility. HTTP and gRPC
-propagate a private immutable credential binding so capability expiry cannot
-borrow a later session lease.
+**Decision:** Add `W3_BROWSER_TRANSPORT=cua` as an explicit second transport behind
+a single-use loopback relay with fixed operations and target-origin pinning. Both
+transports feed one `WalletPhaseNetwork`. CUA reports are labelled
+`CUA_SCOPED_READ_ONLY` and the phase validator rejects that adapter, so only the
+existing MetaMask CDP adapter can close TN.
 
-**Why:** This preserves contract-defined authorization and bounded revocation
-without one chain call per video segment. Ordinary EOA session semantics remain
-separate. ERC-4337, ERC-6492, EIP-7702 and vendor-wide wallet compatibility remain
-outside this extension; the single-owner fixture is only a demo/test wallet.
+**Why:** Evidence must come from the owner's own browser. A transport that cannot
+be distinguished from a scripted page must not be able to produce a pass.
 
-**Consequences:** A contract proof/authority outage denies renewal; a confirmed
-policy rejection revokes the shared session. Missing proof metadata denies use.
-Renewal is not a new login or another nonce consumption. Backend component proof
-is not browser, public-network or full-stack acceptance; those remain §10 gates.
+**Consequences:** CUA runs are development observations. If they are ever to count,
+they need a new frozen candidate and the same CI/all cycle; the frozen C4 result
+stays valid and unchanged.
 
 ---
 
