@@ -4961,6 +4961,28 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 ### 10.5 依赖有序的开发任务
 
+**2026-11-06T12:07Z `fec06e44` 的 Build Monolith 因 runner 租约失效被放弃（非产品缺陷）：**同 SHA run 42204376036 attempt 1 中，`Candidate Images ... / Build Monolith` job 127858619192 于 11:14:02Z 起跑、11:28:21Z 步骤 4 `Build candidate image (export docker-archive)` 变为 `cancelled`，12:01:25Z 由 runner 记为 `Abandoned`，GitHub 侧 conclusion=failure；前序 9 项（Go Tests、Build、Anvil Integration (Web3)、Verify Dependencies、Solidity Tests、Security Scan、Lint、E2E Tests）同 SHA 均已 success。**根因在 runner 的作业租约续期：**`streamgate-linux-04` 容器日志 11:28:24Z 出现 `POST https://tokenghub.actions.githubusercontent.com/_apis/oauth2/token/... failed. HTTP Status: BadRequest`，随后 `VssOAuthTokenRequestException: The token expired on 11/06/2026 11:33:20. Current server time is 12:00:09`；租约续期失败后 worker 取消步骤并在 32 分钟后放弃作业。同一时刻容器内 `date` 与宿主、GitHub `Date` 头均已一致（见 `clock-comparison.txt`），属容器时钟瞬时跳变触发的令牌判定，不是候选代码、镜像构建或 scan 逻辑缺陷。原 job/run/jobs/runners JSON、runner 原始日志片段与作业生命周期行保存在 `.verify-artifacts/w3-extension/supervision/20261106T120700Z-fec06e44-build-monolith-abandoned/`。**处置：**不取消、不重派整轮、不改候选；等该 run 终结后对同 SHA 仅 `rerun-failed-jobs`。派发或重跑前先比对容器与 GitHub `Date` 时钟，避免再次把时钟跳变误判为构建失败。该 run 仍有 26 项排队（单 runner 串行），全部下游与公开路径均未完成。
+
+**2026-11-06T10:40Z 公网条件刷新：**在固定 Docker 工具镜像中以新候选原 `network_preflight.py` 和已有 0600 端点配置执行只读双 RPC 预检，原 exit 0、`NETWORK_READS_PASS`；chain 11155111、两 provider、锚定块 12075977，A 的余额 `191763346860793075` wei、code=`0x`。原输出位于 `.verify-artifacts/w3-extension/supervision/20261106T104043Z-fec06e44-rpc-qualification/`，未暴露端点；不证明钱包控制权或部署。执行真实交易前仍按新鲜状态核对。
+
+**2026-11-06 控制通道首次接入修复待集成：**使用真实 Chrome、本机合成状态及两条合成 HTTP 响应验证控制 relay；在 `fec06e44` 的首个控制状态请求等待约 23 秒和 16 秒的两次探针均因原 15 秒响应上限失败，首败与第二次原 stdout 保留在 `.verify-artifacts/w3-extension/supervision/20261106T105132Z-cua-initial-connect/`。新隔离工作树 `/private/tmp/streamgate-w3-cua-connect-20261106` 仅允许**首个连接**最多等待 120 秒，并要求初始页面状态时间距应答不超过 5 秒；后续请求的 15 秒限额、身份校验、撤销/安全时间窗口及事件新鲜度均未放宽。真实 Chrome 探针实际首次等待后总耗时 39.193 秒、三项合成控制观察通过、进程 exit 0；Docker 控制回归在旧候选原 exit 1、修复后 exit 0，34 项关联 Node 测试亦通过。该修复尚未提交、推送或形成新候选；当前 `fec06e44` CI 不取消、不重派。这些探针不是本人签名、公开转移或完整验收。
+
+**原候选优先策略：**另在原 `fec06e44` 下先打开目标页并取得页面能力，再启动控制采集器、接入临时 relay；真实 Chrome 合成控制探针三项通过，工具观察进程 exit 0、总耗时 10.029 秒，处于既有 15 秒限制内。该探针只证明提前准备可行，仍有约 5 秒余量，不能保证每次接入成功；正式采集时先准备两模式目标页与页面能力，再启动采集器并立即连续接入。暂保留隔离修复作备用，先接续现有同候选 CI；若实际接入超时则保留原失败并再评估该修复，不为便利提前取消有效 CI 或重派整轮。
+
+**双模式预备接入补验：**使用原 `fec06e44` 的两个真实 Chrome 目标页及两个独立 relay，同时发起两个合成控制采集；页面先预备、两边各完成三项状态/HTTP 观察，工具观察进程 exit 0，总耗时分别 14.979 秒和 15.124 秒。总耗时包含首次连接后的 HTTP 观察，不能误称首次握手耗时；两侧均实际通过各自的 15 秒单次响应约束。该次余量较紧，只证明本机合成双通道可行，不证明真实转移时的采样连续性或 safe→拒绝时限。
+
+**2026-11-06 文档候选状态校正：**隔离文档工作树 `/private/tmp/streamgate-w3-delivery-docs-20261104` 的 README、学习手册与四份中英文项目材料已将 C4 标为历史候选，并明确当前 `fec06e44` 的 CI 与公开路径尚未确认；旧原件和 SHA 边界不变。静态复核学习手册 2174 个 ID、173 个内部锚点有效，内嵌脚本和源码 `<pre>` 字节未改；此为未提交的文档状态修订，不是当前 CI、公开链或最终交付通过。
+
+**2026-11-06T10:39Z 新候选与 CI：**扫描身份修复及下述 CUA 证据接线合并冻结为 `fec06e44576a026b2a3ea8c304c38ea09981c841`；隔离分支 `sg/w3-cua-evidence-20261106` 干净、递归子模块为固定 gitlink，已推送并派发同 SHA 默认 CI [42204376036](https://github.com/rtcdance/streamgate/actions/runs/42204376036)，初次 API 返回 queued；不以派发或局部测试当通过。派发前原 `streamgate-linux-04` 在线空闲，容器内对 checkout 固定 codeload 归档一次只读探测 HTTP 200，`STREAMGATE_LINUX_RUNNER=streamgate-linux` 保持原值，未改变计费或 runner 配置。CI 和公开路径按实际证据继续。
+
+**2026-11-06T10:58Z 同一运行复核：**GitHub jobs API 返回 `fec06e44` 同 SHA 的 Go Tests、Build、Anvil Integration 已成功；Comprehensive Test Suite / Verify Dependencies 正在 `streamgate-linux-04` 启动，Solidity、Security、Lint 排队。runner API 显示 Linux 04 online/busy，Mac 01 online/idle；整个 workflow 尚未终结，后续镜像、完整 all 与最终汇总均不能预判。原 run 保留，不重派，后续按 30 分钟节奏复查。
+
+**2026-11-06T11:10Z 例行复核：**同 SHA/run attempt 1 的 Build、Go、Solidity、Security、Anvil、Lint 和综合依赖检查共 7 项 success；综合 E2E 正在 Linux 04 运行，其余综合单元/集成及十个镜像构建尚排队。原 run/jobs/runners API 原输出和退出均保存在 `.verify-artifacts/w3-extension/supervision/20261106T111049Z-fec06e44-ci-check/`。当前只有 Linux 04 可用且 busy，Mac 01 在线空闲；workflow 未结束，全部下游与公开验收待定，不把局部成功当完整 CI。
+
+**2026-11-06 CUA 证据接线开发与定向验证：**隔离工作树已加入 0600、有界的 CUA 私有 relay 记录及阶段重放；独立 CLI 仅在原 exit、同候选身份、签名与凭据、网络事件、来源、状态和原始文件均满足约束时接受 CUA，原 CDP 验收路径保留。EOA/C/负向的合成签名正例及重新计算文件摘要后的事件/时间/身份/凭据反例已接入；Docker 定向 Node 组合 55 项 exit 0、扩展验证器 8 项 exit 0，原件在 `.verify-artifacts/w3-extension/supervision/20261106T102319Z-cua-trace-replay-dev/`。初次组合因缺少 Playwright 包 exit 1；装入隔离依赖后首次挂载 exit 125、第二次因镜像缺少 `libnspr4.so` exit 1；第三次在临时容器安装依赖后浏览器测试 3/3 exit 0，外层清理目录时自身 exit 1，临时目录已另行删除，原件均保留。恢复连接的 Chrome 已在自有回环测试页成功选择无敏感测试文件；受限 relay 会话与一条合成 HTTP 响应原始采集完成（3 次会话调用、6 次请求、1 次响应，观察到进程 exit 0，见 `network-probe-v2.*`）。首次网络探针因浏览器事件超过原定 5 秒新鲜度而 exit 1，原输出保留；连续执行触发及采集后通过，没有放宽时序。另一次初始探针要求测试页没有钱包 provider 而失败，Chrome 实际注入 provider；此次无签名或链上交易。本人签名、公开链交易和同候选 CI 仍未验证；本地合成夹具不证明真人钱包或链上验收。记录的是经过源限定过滤的 relay 事件，并非浏览器来源的密码学证明；最终仍需可信采集会话与独立链/服务证据交叉核验。
+
+**2026-11-06T10:10Z 接手后的扫描修复：**C8 首败及终态保留，不重派。隔离工作树 `/private/tmp/streamgate-w3-cua-evidence-20261106` 从 C8 创建；三个 scan 步骤改为调用既有 `image_identity.py --verify`，联合校验归档哈希、config/manifest 关联、源码 revision、构建标签与平台，构建输出统一报告归档 config 身份。新增回归直接执行三个工作流扫描步骤：经典与 containerd 身份可绑定，替换镜像或篡改归档均拒绝。Docker 工具镜像中，C8 原工作流执行新增回归原 exit 1（`c8-regression-red-v2`），修复后 28 项身份测试与工作流语法检查原始 exit 均为 0，保存在 `.verify-artifacts/w3-extension/supervision/20261106T100957Z-scan-identity-fix/`。首版红灯因测试替身未实现 inspect 而退出 125，已保留且不计为有效复现；v2 补齐 inspect 后才得到原扫描逻辑的 exit 1。改动尚未提交、推送或获得新候选 CI；这是定向验证，不是完整验收。Chrome 工具 inventory 已重新识别 Chrome，但并未证明钱包采集/文件选择已可用。
+
 **2026-11-06T10:07Z C8 在托管 runner 上止步于镜像身份口径，临时切换已回滚（本人暂停目标时点）：**run 42197570209 attempt 1 = **36 success / 10 failure / 9 skipped**，`Anvil Integration` 与全部 `Build <service>` **已通过**（ffmpeg 供给生效，C7 的 codeload 失败未复现）；10 项失败全部是 `Scan <service> (same digest)`，原错误 `loaded monolith image ID sha256:5463ca73… does not match the built candidate sha256:2b34b9a2…`，即在托管 runner 的镜像仓库下，`docker load` 后的镜像身份与构建期记录的 config digest 不同——与 C6 修的是**同一类双口径问题、但位于另一处脚本**（scan 路径），需要再改候选才能兼容，属于托管环境与自建环境的存储驱动差异，不是产品缺陷。**据此回滚临时切换**：已把 `STREAMGATE_LINUX_RUNNER` 恢复为 `streamgate-linux`（原值），托管实验不改写既有拓扑；`STREAMGATE_ACCEPTANCE_RUNNER/_PROFILE` 全程未动。**当前状态：**C5 `80638738` 同SHA CI 全绿与九阶段原始退出 0 仍成立且为公开栈准备所用；C6/C7/C8 三次候选改动（镜像双口径、pip 镜像路由、ffmpeg 供给）各自的失败原件与定位均已入档，但**没有一个候选取得同SHA全绿**，因此扩展仍不能标 PASS WITH BOUNDARIES。**恢复路径（需外部条件）：**自建 Linux runner 的 `codeload.github.com` 出口恢复后，对 C8 或其后继只重跑失败项即可继续；若坚持托管 runner，则需在 scan 路径引入同一套双口径判定并形成新候选。
 
 **2026-11-06T09:30Z 经本人授权临时改用 GitHub 托管 runner，定位到 ffmpeg 缺失并形成 C8（`382cc20f`）：**自建 Linux runner 的 `codeload.github.com` 出口自 03:00Z 起持续不可用（`docker/setup-buildx-action`、`docker/build-push-action` 等动作归档下载三次重试均超时），C7 的 attempt 1/2/3 全部因此失败、且镜像构建从未成功过。**本人选择“临时切换到托管 runner”**后，先保存原值（`STREAMGATE_LINUX_RUNNER=streamgate-linux`）再删除该变量，使 `runs-on: ${{ vars.STREAMGATE_LINUX_RUNNER || 'ubuntu-latest' }}` 回退到 `ubuntu-latest`；`STREAMGATE_ACCEPTANCE_RUNNER`/`_PROFILE` 未动，acceptance 仍在 `desktop-local` 的 Mac 上。取消卡死的 42154582616 attempt 3（记录为 cancelled，前三次失败原件已保全）后重新 dispatch 同 SHA：**run 42194951357 = 25 success / 1 failure / 9 skipped**，唯一失败是 `Anvil Integration (Web3)`。**根因已定位到具体断言：**该 job 的 `TestCWLoginLifecycle_RealRedisAnvil/SegmentProofCost` 在 `contract_wallet_media_cost_anvil_test.go:226-228` 调用 `ffmpeg` 生成 1 秒 fixture；GitHub 托管 Ubuntu 镜像**不含 ffmpeg**（官方 runner-images 清单无该项），而自建镜像自带带 libx264 的 ffmpeg，故属环境缺失而非产品缺陷。本机复现佐证：用**缺 libx264** 的本地 ffmpeg 在同一行失败并报 `Unrecognized option 'preset'`，证明该断言只取决于编码器可用性。据此形成 **C8 `382cc20f`**：仅在 `command -v ffmpeg` 缺失时 `apt-get install ffmpeg`（自建路径继续用镜像自带版本），**不改测试、断言、超时、阈值或检测器**，已推送并 dispatch run 42197570209。**C8 绿后恢复 `STREAMGATE_LINUX_RUNNER=streamgate-linux`**，不让临时切换固化成新拓扑。
@@ -5151,6 +5173,13 @@ python3 scripts/wallet-testnet/launch_stack.py \
 # eoa-transferred / contract-held / contract-transferred。仅只读，不广播。
 # 先由两模式采集器产生ready.json，再本人转移；receipt确认并导出原账本后运行。
 # 每阶段的report/exit均用新路径，两模式共用同一份原oracle；不重播交易。
+# TN-07 的真实 PENDING 另用新输出先运行一次相同入口，将
+# --wait-safe-seconds 设为 0：需账本已对账到 canonical receipt、
+# 但至少一个 provider 的 safe 尚未包含该区块；优先在 mint-a 对账后的
+# eoa-held 阶段采集，不与撤销计时抢资源。exit 2 只有报告含
+# 原始 pending 及两端响应、可被 phase_evidence.py 重放才算该项证据。
+# 若已 safe 或遇普通 RPC/输入阻塞，保留原结果，不把它改写成 PENDING，
+# 更不能为了制造 PENDING 重发交易；后续正常 oracle 用独立输出。
 if W3_SEPOLIA_RPC_PRIMARY="$SEPOLIA_RPC_URL" \
 W3_SEPOLIA_RPC_FALLBACK="$SEPOLIA_RPC_FALLBACK_URL" \
 python3 scripts/wallet-testnet/transaction_oracle.py \
@@ -5173,7 +5202,8 @@ node scripts/cd/assert_sepolia_browser.mjs \
   --nft "$W3_NFT" --content "$W3_CONTENT_ID" --origin "$W3_H5_ORIGIN" \
   --directory "$W3_REPORT_DIR" --exit-file "$W3_BROWSER_EXIT_FILE"
 
-# 以下采集接口需先合入独立审查补丁、冻结新C并取得同C默认CI原件。
+# 以下采集接口须先取得新候选同 SHA 默认 CI 原件；示例采用页面级 CUA，
+# 需将 collector 输出的 CUA_RELAY 与指定本机页面连接，由本人操作钱包弹窗。
 # MODE分别启动monolith/api-gateway，BROWSER_PHASE=eoa|contract；
 # 使用各自原钱包阶段目录/exit，原生视频菜单开启Loop；两模式ready.json齐备后本人转移。
 python3 scripts/wallet-testnet/observe_controls.py \
@@ -5182,7 +5212,7 @@ python3 scripts/wallet-testnet/observe_controls.py \
   --producer "$W3_PRODUCER_MANIFEST" --producer-root "$W3_PRODUCER_ROOT" \
   --ci-root "$W3_CI_ROOT" --build-identity "$W3_BUILD_IDENTITY" --directory "$W3_STACK_DIR" \
   --mode "$W3_MODE" --phase "$W3_BROWSER_PHASE" --wallet "$W3_SUBJECT_C" --nft "$W3_NFT" \
-  --content "$W3_CONTENT_ID" --cdp "$W3_CDP_ENDPOINT" \
+  --content "$W3_CONTENT_ID" --transport cua \
   --phase-directory "$W3_REPORT_DIR" --phase-exit "$W3_BROWSER_EXIT_FILE" \
   --oracle "$W3_PHASE_ORACLE" --oracle-exit "$W3_PHASE_ORACLE_EXIT" --output "$W3_CONTROLS_PHASE_DIR"
 
@@ -5200,7 +5230,7 @@ python3 scripts/cd/verify_web3_extension.py \
   --recipient "$W3_SEPOLIA_RECIPIENT" --evidence "$W3_EVIDENCE_DIR"
 ```
 
-**当前未完成接口边界：**本轮源程序/配置/合约/采集与固定24项汇总已集成，批量修复采样时序/报告保留/汇总路径及上传错误分类后的当前冻结候选为c38dc4bc（C4），默认CI41823377757 attempt4截至2026-11-04 22:12Z的API列表为55项成功、0项失败、0项排队、0项运行、0项跳过；C4同C完整all与CI原件已独立验证，公开路径仍待验收。9054cecf/run41758926448 attempt3的media与上传原始failure均已保全并由C4取代；9e22及b376旧run在保全后因旧候选被取代取消，不混用其绿项为C4验收。后续仅复用已验证C4原件及准备文件，恢复双RPC资格与浏览器连接，再完成真实MetaMask签名、六笔交易、双模式原始观察与W3-09交付；不再重跑已通过CI/all。Chrome在本人已确认配置及@后仍为工具连接不可用；重建CUA后直接getTab亦返回Browser is not available: chrome，无真实钱包签名或广播。公开路径未完成，缺必需证据必须BLOCKED。
+**历史接口边界（2026-11-04，当前状态以本节较新记录为准）：**本轮源程序/配置/合约/采集与固定24项汇总已集成，批量修复采样时序/报告保留/汇总路径及上传错误分类后的当时冻结候选为c38dc4bc（C4），默认CI41823377757 attempt4截至2026-11-04 22:12Z的API列表为55项成功、0项失败、0项排队、0项运行、0项跳过；C4同C完整all与CI原件已独立验证，公开路径仍待验收。9054cecf/run41758926448 attempt3的media与上传原始failure均已保全并由C4取代；9e22及b376旧run在保全后因旧候选被取代取消，不混用其绿项为C4验收。后续仅复用已验证C4原件及准备文件，恢复双RPC资格与浏览器连接，再完成真实MetaMask签名、六笔交易、双模式原始观察与W3-09交付；不再重跑已通过CI/all。Chrome在本人已确认配置及@后仍为工具连接不可用；重建CUA后直接getTab亦返回Browser is not available: chrome，无真实钱包签名或广播。公开路径未完成，缺必需证据必须BLOCKED。
 **2026-11-04T17:41Z 原上传恢复与新失败核对：**attempt3的candidate-transcoder/monitor/auth三个原producer收据均已成功，source均为C4，job分别126725730421/126725732280/126725732424；原摘要与bundle SHA保存在`.verify-artifacts/w3-extension/supervision/c38dc4bc-run41823377757-upload-budget-recovery/recovered-uploads.json`。随后Retain job126742771865于17:38:13Z在证据上传动作的GHCR登录/token连接阶段报`Client.Timeout exceeded while awaiting headers`、原exit1；不能以页面仍queued/0失败判断本轮正常，也不能把已成功的镜像保留主体当作该job成功。原日志、退出与诊断保存在`.verify-artifacts/w3-extension/supervision/20261104T174135Z-c4-retain-login-first-failure`；本次仅保全观察，未重跑、未新派发、未改C或runner。真实Chrome连接重新观察仍无可用browser，直接MetaMask getTab仍报Browser is not available: chrome，未进行签名或广播。
 **2026-11-04T17:45Z 平台故障边界：**GitHub官方`https://www.githubstatus.com/`于17:40:33Z公告Actions事故（id `h02n9572mx9y`，investigating）；本轮原JSON及exit保存在上述17:41失败原件目录的`github-unresolved-incidents.*`。此前16:34官方公告亦明确提到job状态延迟，但不能据此断言本轮GHCR token超时就是同一根因。17:42带no-cache与独立query的两次run REST仍返回queued，服务端Date与请求ID均更新；局部job随后从排队收敛为success，证明状态仍在补齐。保留同run，不因观测延迟取消、重启runner或另派CI。监控已显式分列attempt、原失败、skip及平台事故；不会再以滞后API的0失败表述完整健康。
 **2026-11-04T18:19Z 同run仅失败项恢复：**原attempt3已在API收敛为46成功、仅Retain job126742771865失败、8跳过。官方18:07:51Z公告Actions故障已缓解进入monitoring；Linux原token端点匿名探测已恢复快速401响应（仅连接恢复，不是授权上传证明）。候选/远端C4一致且clean，两runner同id在线空闲、无Worker/传输/内栈、Mac容量原门exit0、3600预算保留后，对同run执行一次`rerun-failed-jobs`，原POST exit0并确认attempt4；Linux原Listener18:18:06Z已启动Retain Worker。46个成功任务复用，无C5/新run/整链重复派发。该登录步骤本次只恢复一次，再同因失败须停止重复重试并诊断；前两次lease/900预算恢复及原失败均保留，不重置历史。原guards、request及观测位于`.verify-artifacts/w3-extension/supervision/c38dc4bc-run41823377757-retained-receipt-login-recovery/`，完整验收与真实公开钱包仍未完成。
@@ -5244,7 +5274,7 @@ python3 scripts/cd/verify_web3_extension.py \
 | 两个合格RPC及免费配额 | Tenderly/1RPC历史只读资格通过；当前可用性和免费限额执行前重新核实 | 验证器明确失败/阻塞；不使用单端点临时放行，不购买配额，不把协议要求改成latest |
 | 本机容量与已有CI/其他项目栈 | 执行前实时核对 | 有有效长跑则保留并等待；不重启/取消有效run，不清理ChainPulse资源；Mac保持开盖 |
 | 真实浏览器钱包签名/广播 | 尚未执行 | 由本人在钱包内完成；自动化可验证结果，不伪造provider响应、签名批准或“本人已确认” |
-| 观测通道（浏览器级CDP或页面级CUA） | 2026-11-05T04:05Z本机9222/9223/9333无响应；Chrome扩展未开启 `Allow access to file URLs`，CUA `apps/browsers` 为空 | 由本人开启扩展文件访问并保留既有MetaMask页；通道缺失时保持BLOCKED，不代签、不合成观测、不以端口探测代替验收 |
+| 观测通道（浏览器级CDP或页面级CUA） | 2026-11-06 Chrome 已连接，本地文件选择及合成 HTTP relay 往返通过；新候选真实钱包阶段未执行 | CI 原件就绪后使用页面级 CUA，本人操作 MetaMask；通道缺失时保持 BLOCKED，不代签、不合成观测、不以端口探测代替验收 |
 
 1. 先跑一个最小垂直切片：C接收一份NFT → 登录为C → 真实播放 → 策略变更/转移后拒绝。不要先建设Safe管理台、钱包连接器矩阵或多链框架。
 2. 单元/脚手架失败先做对应最小复现；同签名连续失败两次即停止整链重试并定位。公网429/超时使用有上限的退避及既定fallback；不改变错误分类就重置次数。
