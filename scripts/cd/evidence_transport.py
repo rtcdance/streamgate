@@ -351,9 +351,35 @@ def verify_tree(root, entries):
         raise TransportError(f"missing restored files: {sorted(missing)}")
 
 
+EVIDENCE_PLATFORMS = ("linux/amd64", "linux/arm64")
+NO_MATCHING_MANIFEST = re.compile(r"no matching manifest for", re.IGNORECASE)
+
+
+def pull_image(reference):
+    try:
+        return run_registry("pull", reference)
+    except TransportError as error:
+        if not NO_MATCHING_MANIFEST.search(str(error)):
+            raise
+        # The evidence image is a data carrier: the payload is read with
+        # `docker cp` and the image is never executed. A host whose CPU
+        # architecture differs from the publishing job's therefore only needs
+        # the other published platform, which must be requested explicitly
+        # because `docker pull` filters a single-platform index by host arch.
+        last = error
+        for platform in EVIDENCE_PLATFORMS:
+            try:
+                return run_registry("pull", "--platform", platform, reference)
+            except TransportError as retry:
+                if not NO_MATCHING_MANIFEST.search(str(retry)):
+                    raise
+                last = retry
+        raise last
+
+
 def extract(reference, local):
     if not local:
-        run_registry("pull", reference)
+        pull_image(reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
     # Scratch images carry no command; create only records one and never runs it.
     run_docker("create", "--name", container, reference, "/nonexistent")

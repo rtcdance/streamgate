@@ -169,6 +169,44 @@ class EvidenceTransportTests(unittest.TestCase):
                 transport.run_docker("push", "ghcr.io/x/y:t", timeout=0.1)
             self.assertLess(transport.time.monotonic() - before, 5)
 
+    def test_extract_pulls_a_published_platform_when_the_host_arch_has_none(self):
+        # The acceptance host (arm64) must be able to restore evidence published
+        # by an amd64 CI job; the image is data-only, so the other published
+        # platform is enough and must be requested explicitly.
+        registry_calls = []
+        def fake_registry(*args):
+            registry_calls.append(args)
+            if "--platform" not in args:
+                raise transport.TransportError(
+                    "docker pull failed: Error response from daemon: no matching manifest for linux/arm64/v8 in the manifest list entries")
+            return "ok"
+        def fake_docker(*args, capture=True, timeout=None):
+            if args[0] == "cp" and args[1].endswith("transport.json"):
+                Path(args[2]).write_text(json.dumps({"schemaVersion": 1, "entries": []}))
+            return ""
+        reference = "ghcr.io/x/y@sha256:" + "a" * 64
+        with patch.object(transport, "run_registry", side_effect=fake_registry), \
+             patch.object(transport, "run_docker", side_effect=fake_docker), \
+             patch.object(transport.subprocess, "run", return_value=None):
+            manifest, _, _ = transport.extract(reference, False)
+        self.assertEqual(manifest["schemaVersion"], 1)
+        self.assertEqual(registry_calls[0], ("pull", reference))
+        self.assertEqual(registry_calls[1], ("pull", "--platform", "linux/amd64", reference))
+
+    def test_evidence_pull_does_not_retry_an_unrelated_failure_on_another_platform(self):
+        with patch.object(transport, "run_registry", side_effect=transport.TransportError(
+                "docker pull failed: unauthorized: authentication required")) as command:
+            with self.assertRaises(transport.TransportError):
+                transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
+        self.assertEqual(command.call_count, 1)
+
+    def test_evidence_pull_surfaces_the_last_platform_failure(self):
+        message = "docker pull failed: no matching manifest for linux/arm64/v8 in the manifest list entries"
+        with patch.object(transport, "run_registry", side_effect=transport.TransportError(message)) as command:
+            with self.assertRaises(transport.TransportError):
+                transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
+        self.assertEqual(command.call_count, 3)
+
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()
         transport.verify_manifest(manifest, "candidate-monolith", "a" * 40, "40120832170", "1")
