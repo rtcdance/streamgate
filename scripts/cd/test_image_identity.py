@@ -298,6 +298,57 @@ esac
                 result = subprocess.run(["bash", "-c", script], cwd=self.root, env=env, capture_output=True, text=True)
                 self.assertNotEqual(result.returncode, 0)
 
+    def test_smoke_step_binds_archive_across_docker_stores_and_rejects_substitution(self):
+        # The smoke job runs on whichever store its runner has: a classic store
+        # reports the config digest as the image ID, a containerd store the OCI
+        # manifest digest. It must accept both, and still reject a substituted
+        # image or a tampered archive.
+        source = (Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml").read_text()
+        steps = re.findall(r"^      - name: Load candidate and verify its identity\n        run: \|\n((?:          .*\n|\n)+)", source, re.M)
+        self.assertEqual(len(steps), 1)
+        (self.root / "scripts").symlink_to(Path(__file__).resolve().parents[1], target_is_directory=True)
+        binary_dir = self.root / "bin"
+        binary_dir.mkdir()
+        docker = binary_dir / "docker"
+        docker.write_text('''#!/bin/sh
+case "$1" in
+  load) exit 0 ;;
+  image) cat "$SG_TEST_INSPECT" ;;
+  inspect) python3 -c 'import json,os; print(json.load(open(os.environ["SG_TEST_INSPECT"]))[0]["Id"])' ;;
+  tag) exit 0 ;;
+  *) exit 125 ;;
+esac
+''')
+        docker.chmod(0o755)
+        inspected = self.root / "inspect.json"
+        env = {**os.environ, "PATH": str(binary_dir) + os.pathsep + os.environ["PATH"], "SG_TEST_INSPECT": str(inspected)}
+        config, manifest = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+        archive = self.root / "candidate-monolith.tar"
+        with tarfile.open(archive, "w") as tar:
+            for name, document in {
+                "manifest.json": [{"Config": f"blobs/sha256/{config[7:]}", "RepoTags": ["streamgate-monolith:candidate"]}],
+                "index.json": {"manifests": [{"digest": manifest, "annotations": {"io.containerd.image.name": "docker.io/library/streamgate-monolith:candidate"}}]},
+            }.items():
+                payload = json.dumps(document).encode()
+                entry = tarfile.TarInfo(name); entry.size = len(payload)
+                tar.addfile(entry, io.BytesIO(payload))
+        info = {"Id": manifest, "Config": {"Labels": {"org.opencontainers.image.revision": self.revision,
+                "com.streamgate.build.tags": "nats_integration"}}, "Os": "linux", "Architecture": "amd64"}
+        (self.meta / "monolith.json").write_text(json.dumps(identity(
+            {**info, "Id": config}, self.revision, hashlib.sha256(archive.read_bytes()).hexdigest(), (config, manifest))))
+        script = textwrap.dedent(steps[0]).replace("${{ github.sha }}", self.revision)
+        inspected.write_text(json.dumps([info]))
+        result = subprocess.run(["bash", "-c", script], cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        inspected.write_text(json.dumps([{**info, "Id": "sha256:" + "c" * 64}]))
+        result = subprocess.run(["bash", "-c", script], cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        inspected.write_text(json.dumps([info]))
+        with archive.open("ab") as stream:
+            stream.write(b"tampered")
+        result = subprocess.run(["bash", "-c", script], cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+
 
 class ImageIdentityTests(unittest.TestCase):
     def setUp(self):

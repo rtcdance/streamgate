@@ -497,19 +497,11 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-monolith.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' streamgate-monolith:candidate)"
-          if [ "$rev" != "${{ github.sha }}" ]; then
-            echo "::error::OCI revision label '$rev' does not match ${{ github.sha }}"
-            exit 1
-          fi
+          python3 scripts/cd/image_identity.py --verify \
+            --tag streamgate-monolith:candidate --archive candidate-monolith.tar \
+            --revision "${{ github.sha }}" --out meta/monolith.json
           docker tag streamgate-monolith:candidate streamgate-monolith:ci
-          echo "smoke-testing candidate ${actual} (revision ${rev})"
+          echo "smoke-testing candidate $(python3 -c 'import json; print(json.load(open("meta/monolith.json"))["imageID"])') (revision ${{ github.sha }})"
 
       - name: Smoke test monolith (real readiness, not "file exists")
         run: |
