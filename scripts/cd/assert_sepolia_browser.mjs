@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { validatePhaseEvidence } from '../h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs';
+import { validatePhaseEvidence, validateCuaPhaseEvidence } from '../h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs';
 const ethers = createRequire(import.meta.url)('../../h5-demo/vendor/ethers.umd.min.js');
 try {
     const args = process.argv.slice(2), values = {};
@@ -19,7 +19,13 @@ try {
     const proofs = values['--phase'] === 'negative' ? null : readFileSync(join(directory, 'siwe-proofs.private.json'), 'utf8');
     const config = { candidateSHA: values['--candidate'], mode: values['--mode'], phase: values['--phase'], controller: values['--controller'],
         subject: values['--subject'], origin: values['--origin'], nft: values['--nft'], content: values['--content'] };
-    validatePhaseEvidence(JSON.parse(reportRaw), proofs, config, 0, ethers);
+    const report = JSON.parse(reportRaw);
+    if (report.testAdapter === 'CUA_SCOPED_READ_ONLY') {
+        const path = join(directory, 'cua-trace.private.json');
+        const stat = lstatSync(path);
+        if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || stat.size > 128 * 1024 * 1024) throw Error('private CUA trace must be a bounded owner-only original file');
+        await validateCuaPhaseEvidence(report, proofs, readFileSync(path, 'utf8'), config, 0, ethers);
+    } else validatePhaseEvidence(report, proofs, config, 0, ethers);
     console.log('SEPOLIA_WALLET_PHASE_VERIFIED: phase only; full acceptance=false');
 } catch (error) {
     console.error((error.code === 'ENOENT' ? 'BLOCKED: ' : 'FAIL: ') + (error instanceof SyntaxError ? 'Malformed original phase evidence' : error.message));

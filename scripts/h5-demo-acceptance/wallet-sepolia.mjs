@@ -10,6 +10,7 @@ import { settings, evmAddress, validIdentity, phaseVerified } from './lib/wallet
 import { WalletPhaseNetwork } from './lib/wallet_phase_network.mjs';
 import { CuaPageBridge } from './lib/wallet_cua_bridge.mjs';
 import { CuaPageSession } from './lib/wallet_cua_session.mjs';
+import { CuaTrace } from './lib/wallet_cua_trace.mjs';
 const require = createRequire(import.meta.url);
 const ethers = require('../../h5-demo/vendor/ethers.umd.min.js');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -17,7 +18,7 @@ const report = { component: 'SEPOLIA_REAL_WALLET_BROWSER_PHASE', phase: process.
     candidateSHA: process.env.W3_CANDIDATE_SHA || null, mode: process.env.W3_MODE || null,
     testAdapter: process.env.W3_BROWSER_TRANSPORT === 'cua' ? 'CUA_SCOPED_READ_ONLY' : 'EXISTING_METAMASK_CDP_READ_ONLY', publicWalletSignoff: false,
     completeAcceptance: false, checks: [], errors: [], blockers: [], gates: [], admissions: [], media: [], samples: [], challenges: [], issues: [], refreshes: [] };
-let config, browser, page, onResponse, onError, cuaBridge, cuaSession, cuaStarted = false;
+let config, browser, page, onResponse, onError, cuaBridge, cuaSession, cuaTrace, cuaStarted = false;
 let phaseNetwork, admissions = new Map(), privateProofs = [];
 const pending = new Set();
 const issuanceJobs = new Set();
@@ -34,7 +35,7 @@ const summarize = (s) => ({ at: Date.now(), tokenHash: s.token ? hash(s.token) :
 
 async function state() {
     if (cuaSession) {
-        const value = await cuaSession.state();
+        const value = await cuaTrace.run('state', () => cuaSession.state());
         value.claims = value.token ? JSON.parse(Buffer.from(value.token.split('.')[1], 'base64url')) : null;
         return value;
     }
@@ -89,7 +90,7 @@ async function observeResponse(response) {
 }
 
 async function profile(current, prefix) {
-    const result = cuaSession ? await cuaSession.profile() : await page.evaluate(async () => {
+    const result = cuaSession ? await cuaTrace.run('profile', () => cuaSession.profile()) : await page.evaluate(async () => {
         const response = await fetch('/api/v1/auth/profile', { headers: { Authorization: `Bearer ${sessionStorage.getItem('streamgate_token')}` } });
         return { status: response.status, data: await response.json() };
     });
@@ -101,18 +102,20 @@ try {
     config = settings(process.env);
     phaseNetwork = new WalletPhaseNetwork({ config, report, ethers });
     admissions = phaseNetwork.admissions; privateProofs = phaseNetwork.privateProofs;
-    if (existsSync(join(config.output, 'result.json')) || existsSync(join(config.output, 'siwe-proofs.private.json'))) {
+    if (existsSync(join(config.output, 'result.json')) || existsSync(join(config.output, 'siwe-proofs.private.json')) || existsSync(join(config.output, 'cua-trace.private.json'))) {
         preserveExistingOutput = true;
         throw new Blocked('The report directory already contains original evidence; choose a new phase directory');
     }
     if (config.transport === 'cua') {
         cuaBridge = new CuaPageBridge({ targetOrigin: config.origin });
         await cuaBridge.start();
-        cuaSession = new CuaPageSession({ bridge: cuaBridge, origin: config.origin, content: config.content,
+        cuaTrace = new CuaTrace({ bridge: cuaBridge, candidateSHA: config.candidateSHA, mode: config.mode,
+            phase: config.phase, origin: config.origin, content: config.content });
+        cuaSession = new CuaPageSession({ bridge: cuaTrace, origin: config.origin, content: config.content,
             onResponse: async row => { await phaseNetwork.observe(row); challengeSequence = phaseNetwork.challengeSequence; },
             onPageError: reason => report.errors.push(reason) });
         console.log('CUA_RELAY ' + JSON.stringify({ origin: cuaBridge.origin, sessionFile: cuaBridge.sessionFile, targetOrigin: config.origin }));
-        try { await cuaSession.start(); cuaStarted = true; }
+        try { await cuaTrace.run('start', () => cuaSession.start()); cuaStarted = true; }
         catch { throw new Blocked('The origin-scoped CUA observer did not connect'); }
     } else {
         const { chromium } = await import('playwright');
@@ -186,7 +189,7 @@ try {
     if (page && onError) page.off('pageerror', onError);
     await Promise.all([...pending]);
     if (cuaSession && cuaStarted) {
-        try { await cuaSession.finish(); }
+        try { await cuaTrace.run('finish', () => cuaSession.finish()); }
         catch { report.errors.push('CUA observer ended with incomplete original events'); }
     }
     if (cuaBridge) {
@@ -206,6 +209,13 @@ try {
             const raw = JSON.stringify(privateProofs, null, 2) + '\n';
             writeFileSync(join(output, 'siwe-proofs.private.json'), raw, { mode: 0o600, flag: 'wx' });
             report.privateProofSHA256 = hash(raw);
+        }
+        if (cuaTrace && report.phaseVerified) {
+            try {
+                const raw = cuaTrace.serialize();
+                writeFileSync(join(output, 'cua-trace.private.json'), raw, { mode: 0o600, flag: 'wx' });
+                report.cuaTraceSHA256 = hash(raw);
+            } catch { report.errors.push('CUA private trace was incomplete or could not be saved'); report.phaseVerified = false; report.status = 'FAIL'; }
         }
         writeFileSync(join(output, 'result.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     }

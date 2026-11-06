@@ -4,9 +4,10 @@ import { CuaNetworkCapture, browserResponseEpoch } from './wallet_cua_network.mj
 // must serve the relay operations; missing, stale or incomplete observations
 // terminate this session rather than manufacturing a successful phase.
 export class CuaPageSession {
-    constructor({ bridge, origin, content, onResponse, onPageError }) {
+    constructor({ bridge, origin, content, onResponse, onPageError, now = Date.now }) {
         if (!bridge || typeof bridge.request !== 'function' || typeof onResponse !== 'function' || typeof onPageError !== 'function') throw Error('bridge and observation callbacks required');
-        this.bridge = bridge; this.origin = origin; this.onResponse = onResponse; this.onPageError = onPageError;
+        if (typeof now !== 'function') throw Error('observation clock required');
+        this.bridge = bridge; this.origin = origin; this.onResponse = onResponse; this.onPageError = onPageError; this.now = now;
         this.network = new CuaNetworkCapture({ origin, content, getBody: requestId => bridge.request('network-body', { requestId }) });
         this.cursor = null; this.failed = false; this.closed = false; this.unresolved = false;
     }
@@ -39,7 +40,7 @@ export class CuaPageSession {
             this.cursor = batch.cursor; this.unresolved = batch.unresolved;
             // Check freshness when evidence is delivered, including any wait
             // for delayed headers; an earlier processing time is insufficient.
-            for (const row of rows) await this.onResponse({ ...row, at: browserResponseEpoch(row) });
+            for (const row of rows) await this.onResponse({ ...row, at: browserResponseEpoch(row, this.now()) });
             if (!batch.hasMore) return;
         }
         throw Error('browser event stream exceeded page budget');

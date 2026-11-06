@@ -75,3 +75,33 @@ test('cannot finish while the peer still holds an unclassified request', async (
     const session = new CuaPageSession({ bridge: f.bridge, origin, content, onResponse: () => {}, onPageError: () => {} });
     await session.start(); await assert.rejects(session.finish(), /unresolved/);
 });
+
+test('private trace records original bounded requests and complete call ranges', async () => {
+    const { CuaPageSession } = await load();
+    const { CuaTrace } = await import('../h5-demo-acceptance/lib/wallet_cua_trace.mjs');
+    const f = fixture(); f.responses.push({ cursor: 13, events: f.events, truncated: false, hasMore: false, unresolved: false });
+    const trace = new CuaTrace({ bridge: f.bridge, candidateSHA: 'a'.repeat(40), mode: 'monolith', phase: 'eoa', origin, content });
+    const session = new CuaPageSession({ bridge: trace, origin, content, onResponse: () => {}, onPageError: () => {} });
+    await assert.rejects(trace.request('state', {}), /outside trace call/);
+    await trace.run('start', () => session.start());
+    await trace.run('state', () => session.state());
+    await assert.rejects(async () => trace.serialize(), /incomplete/);
+    await trace.run('finish', () => session.finish());
+    const saved = JSON.parse(trace.serialize());
+    assert.deepEqual(saved.calls.map(call => call.kind), ['start', 'state', 'finish']);
+    assert.deepEqual(saved.requests.map(call => call.op), f.calls.map(call => call.op));
+    assert.deepEqual(saved.requests.find(call => call.op === 'network-events').value.events, f.events);
+    assert.equal(saved.calls[0].first, 0);
+    assert.equal(saved.calls.at(-1).end, saved.requests.length);
+    f.events[0].params.request.url = 'http://evil.example/';
+    assert.notEqual(saved.requests.find(call => call.op === 'network-events').value.events[0].params.request.url, f.events[0].params.request.url);
+});
+
+test('trace budget or failed relay prevents a successful trace', async () => {
+    const { CuaTrace } = await import('../h5-demo-acceptance/lib/wallet_cua_trace.mjs');
+    const trace = new CuaTrace({ bridge: { request: async () => ({ body: 'x'.repeat(2048) }) }, candidateSHA: 'a'.repeat(40),
+        mode: 'monolith', phase: 'eoa', origin, content, limit: 1024 });
+    await assert.rejects(trace.run('start', () => trace.request('network-enable', {})), /budget/);
+    assert.throws(() => trace.serialize(), /incomplete/);
+    await assert.rejects(trace.run('finish', async () => {}), /invalid/);
+});
