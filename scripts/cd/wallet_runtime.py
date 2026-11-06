@@ -72,7 +72,14 @@ def inspect_stack(directory, candidate, capsule, source_bytes, source_h5_paths, 
                 labels.get('com.streamgate.w3.testnet') == project and item['State']['Running'], 'foreign, duplicated or stopped public stack container')
         seen.add(service); expected = config['services'][service]
         image = json.loads(command(['docker', 'image', 'inspect', '--platform', 'linux/amd64', expected['image']]))[0]
-        require(item['Image'] == image['Id'], 'running public container is from another image')
+        # The same image legitimately has two identities: the classic graphdriver
+        # store names a container by the config digest (also `image inspect`'s Id),
+        # while Docker Desktop's containerd store names it by the manifest digest
+        # recorded in RepoDigests and in a digest-pinned reference. Accept exactly
+        # those two; a tag or an unrelated digest still fails.
+        digests = {value.rsplit('@', 1)[-1] for value in image.get('RepoDigests') or [] if '@sha256:' in value}
+        if '@sha256:' in expected['image']: digests.add(expected['image'].rsplit('@', 1)[-1])
+        require(item['Image'] in ({image['Id']} | digests), 'running public container is from another image')
         if expected.get('healthcheck'):
             require(item['State'].get('Health', {}).get('Status') == 'healthy', 'required public service is not healthy')
         actual_env = dict(value.split('=', 1) for value in item['Config'].get('Env', []) if '=' in value)
