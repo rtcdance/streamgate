@@ -83,8 +83,8 @@ class EvidenceTransportTests(unittest.TestCase):
         with patch.object(transport, 'run_docker', side_effect=transport.TransportError(message)) as command, \
                 patch.object(transport.time, 'sleep') as sleep:
             with self.assertRaises(transport.TransportError): transport.run_registry('push', 'ghcr.io/x/y:t')
-        self.assertEqual(command.call_count, 3)
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 10])
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 10, 15, 20])
         for permanent in ('unauthorized', 'x509', 'digest mismatch'):
             with self.subTest(permanent=permanent), patch.object(transport, 'run_docker', side_effect=transport.TransportError(permanent + ': ' + message)) as command, \
                     patch.object(transport.time, 'sleep') as sleep:
@@ -148,8 +148,8 @@ class EvidenceTransportTests(unittest.TestCase):
                 patch.object(transport.time, "sleep") as sleep:
             with self.assertRaises(transport.TransportError):
                 transport.run_registry("pull", "ghcr.io/x/y:t")
-        self.assertEqual(command.call_count, 3)
-        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10, 15, 20])
 
     def test_registry_timeout_does_not_stack_background_transfers(self):
         with patch.object(transport.subprocess, "run", side_effect=transport.subprocess.TimeoutExpired(
@@ -205,7 +205,7 @@ class EvidenceTransportTests(unittest.TestCase):
         with patch.object(transport, "run_registry", side_effect=transport.TransportError(message)) as command:
             with self.assertRaises(transport.TransportError):
                 transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
-        self.assertEqual(command.call_count, 3)
+        self.assertEqual(command.call_count, 5)
 
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()
