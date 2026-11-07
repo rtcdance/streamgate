@@ -395,12 +395,14 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-monolith.tar
+          # Store-agnostic check: a classic store reports the config digest as the
+          # image ID and a containerd store the manifest digest, so the archive is
+          # the only identity both agree on. image_identity.py binds to it.
+          python3 scripts/cd/image_identity.py \
+            --verify --tag streamgate-monolith:candidate \
+            --archive candidate-monolith.tar \
+            --revision "${{ github.sha }}" --out meta/monolith.json
           actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
           rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' streamgate-monolith:candidate)"
           if [ "$rev" != "${{ github.sha }}" ]; then
             echo "::error::OCI revision label '$rev' does not match ${{ github.sha }}"
