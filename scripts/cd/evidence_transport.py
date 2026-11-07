@@ -18,7 +18,7 @@ import uuid
 SCHEMA = 1
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-REGISTRY_ATTEMPTS = 3
+REGISTRY_ATTEMPTS = 5
 REGISTRY_BACKOFF_SECONDS = 5
 REGISTRY_TIMEOUT_SECONDS = 900
 
@@ -238,8 +238,8 @@ def run_docker(*args, capture=True, timeout=None):
 
 def run_registry(*args):
     value = os.environ.get("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS", str(REGISTRY_TIMEOUT_SECONDS))
-    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 3600:
-        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..3600")
+    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 7200:
+        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..7200")
     timeout = int(value)
     # Retry only transient failures. Authentication/identity failures cannot be
     # repaired by repeating a command; timeouts may leave daemon work in flight.

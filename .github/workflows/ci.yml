@@ -792,6 +792,7 @@ jobs:
       # the acceptance must not lose a stage to a module download.
       VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
       VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
+      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "7200"
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
       VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}
