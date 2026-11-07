@@ -1723,7 +1723,7 @@ stage_release() {
 # stacks are never touched — the drill only owns the two projects below.
 # scripts/backup-restore-drill.sh carries the seven steps of the plan.
 # ---------------------------------------------------------------------------
-RECOVERY_HELPER_IMAGE="alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507"
+RECOVERY_HELPER_IMAGE="alpine:3.21@sha256:87a4361f6c819618a6bafa2ed5228714cb0bb22195d2b49c95eb26799990128a"
 RECOVERY_SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
 
 # write_recovery_chain_override <dst-project> <src-project> <file> — the target
