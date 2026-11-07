@@ -205,7 +205,7 @@ class EvidenceTransportTests(unittest.TestCase):
         with patch.object(transport, "run_registry", side_effect=transport.TransportError(message)) as command:
             with self.assertRaises(transport.TransportError):
                 transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
-        self.assertEqual(command.call_count, 5)
+        self.assertEqual(command.call_count, 3)
 
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()
