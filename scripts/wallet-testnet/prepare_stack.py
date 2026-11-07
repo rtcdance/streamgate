@@ -44,6 +44,10 @@ pid /tmp/nginx.pid;
 events { worker_connections 512; }
 http {
   include /etc/nginx/mime.types;
+  # The pinned nginx image maps only `js`; the H5 panel is an ES module pair
+  # (panel.mjs + fixture.mjs) and browsers refuse to execute a module served
+  # with the octet-stream default, so declare the type explicitly.
+  types { application/javascript mjs; }
   default_type application/octet-stream;
   access_log /dev/stdout;
   client_body_temp_path /tmp/client_body;
