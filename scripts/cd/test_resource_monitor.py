@@ -1,7 +1,11 @@
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +28,71 @@ class ResourceTests(unittest.TestCase):
             with patch("resource_monitor.Engine", return_value=engine), patch("resource_monitor.signal.signal"), patch("resource_monitor.time.sleep", side_effect=lambda _: args.stop_file.touch()):
                 monitor(args)
             self.assertTrue(args.ready_file.is_file(), "sampling cannot be released before every role is observed")
+
+    def inspected(self):
+        return {"Id": "container", "Image": "sha256:" + "a" * 64, "Config": {"Labels": {}},
+                "HostConfig": {"NanoCpus": 1, "Memory": 1000}, "RestartCount": 0,
+                "State": {"Running": True, "OOMKilled": False, "StartedAt": "one"}}
+
+    def timed_monitor(self, root, interval, limit, stats_for):
+        calls = {}
+
+        def container(identity, suffix):
+            if suffix == "json":
+                return self.inspected()
+            calls[identity] = calls.get(identity, 0) + 1
+            return stats_for(identity, calls[identity])
+
+        engine = MagicMock(); engine.container.side_effect = container
+        args = SimpleNamespace(target=[role + "=" + role for role in ("api", "worker", "loader")], socket="unused",
+                               output=root / "stats.jsonl", stop_file=root / "stop", ready_file=root / "ready.json",
+                               timeout=30, interval=interval)
+        watchdog = threading.Timer(limit, args.stop_file.touch)
+        watchdog.start()
+        try:
+            with patch("resource_monitor.Engine", return_value=engine), patch("resource_monitor.signal.signal"):
+                monitor(args)
+        finally:
+            watchdog.join()
+        return [json.loads(line) for line in args.output.read_text().splitlines()]
+
+    def iso(self, seconds):
+        return datetime.fromtimestamp(seconds, timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def test_slow_role_does_not_starve_the_other_roles_cadence(self):
+        # Every one-shot stats call is slow under load (the 100-viewer scenario).
+        # Sampling roles sequentially makes their cadence the SUM of all calls,
+        # so the 2.5s gate that summarize enforces is broken by construction;
+        # each role must be sampled on its own schedule.
+        def stats_for(identity, call):
+            time.sleep(0.5)
+            return {"read": self.iso(time.time()), "cpu_stats": {"cpu_usage": {"total_usage": call}},
+                    "memory_stats": {"usage": 300, "stats": {"total_rss": 100}}}
+
+        with tempfile.TemporaryDirectory() as directory:
+            rows = self.timed_monitor(Path(directory), 0.1, 1.9, stats_for)
+        for role in ("worker", "loader"):
+            stamps = sorted(row["timestamp"] for row in rows if row.get("role") == role and "error" not in row)
+            self.assertGreaterEqual(len(stamps), 3, role + " was sampled too rarely")
+            gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+            self.assertLess(max(gaps), 1.0, role + " cadence was starved by the slow api role")
+
+    def test_repeated_daemon_reads_are_not_written_as_duplicate_samples(self):
+        # The daemon can serve the same read twice; writing it verbatim creates
+        # a zero-delta duplicate that the cadence gate rejects. A read that does
+        # not advance is the same sample, not a new observation.
+        base = time.time()
+
+        def stats_for(identity, call):
+            advance = 0 if (identity == "worker" and call <= 2) else call
+            return {"read": self.iso(base + advance), "cpu_stats": {"cpu_usage": {"total_usage": call}},
+                    "memory_stats": {"usage": 300, "stats": {"total_rss": 100}}}
+
+        with tempfile.TemporaryDirectory() as directory:
+            rows = self.timed_monitor(Path(directory), 0.02, 0.6, stats_for)
+        stamps = [row["timestamp"] for row in rows if row.get("role") == "worker" and "error" not in row]
+        self.assertGreaterEqual(len(stamps), 3, "worker was sampled too rarely")
+        self.assertTrue(all(b > a for a, b in zip(stamps, stamps[1:])), "a repeated daemon read was recorded as a new sample")
 
     def test_cgroup_v1_cpu_and_rss(self):
         record = normalize({"cpu_stats": {"cpu_usage": {"total_usage": 2000000000}}, "memory_stats": {"usage": 300, "stats": {"total_rss": 100}}})

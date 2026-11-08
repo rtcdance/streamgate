@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import socket
+import threading
 import time
 from urllib.parse import quote
 
@@ -137,37 +138,72 @@ def monitor(args):
                           "revision": labels.get("org.opencontainers.image.revision"),
                           "project": labels.get("com.docker.compose.project"), "run": labels.get("com.streamgate.verify.run"), "runtimeBefore": runtime(inspected)}
     args.output.with_suffix(".containers.json").write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n")
-    stopped = False
+    # One sampler thread per role: summarize rejects any per-role gap above 2.5s,
+    # and a sequential loop makes every role's cadence the SUM of all one-shot
+    # stats calls — a single slow call under the 100-viewer scenario then breaks
+    # the gate by construction (observed as round-2 warm_cache viewers=100 in
+    # run 42352481359 attempt 4). Concurrent sampling keeps each cadence
+    # independent; the JSONL stream and its fields are unchanged.
+    stopped = threading.Event()
 
     def stop(_signal, _frame):
-        nonlocal stopped
-        stopped = True
+        stopped.set()
 
     signal.signal(signal.SIGTERM, stop)
-    deadline = time.monotonic() + args.timeout
+    lock = threading.Lock()
     ready_roles = set()
-    with args.output.open("w") as output:
-        while not stopped and not args.stop_file.exists():
+    written_read = {}
+
+    def watch(role, identity):
+        next_slot = time.monotonic()
+        while True:
+            row = {"role": role, "containerID": metadata[role]["containerID"], "timestamp": time.time()}
+            try:
+                stats = engine.container(identity, "stats?stream=false&one-shot=true")
+                row.update(normalize(stats))
+                read = timestamp(stats["read"])
+                # A daemon read that does not advance is the same sample served
+                # again; recording it would create the zero-delta duplicate the
+                # cadence gate rejects, so only strictly advancing reads stream.
+                row = row if read > written_read.get(role, 0.0) else None
+                if row is not None:
+                    row["timestamp"] = read
+            except (ValueError, OSError, KeyError, http.client.HTTPException) as exc:
+                row["error"] = type(exc).__name__
+            with lock:
+                if row is not None:
+                    output.write(json.dumps(row, sort_keys=True) + "\n")
+                    output.flush()
+                    if "error" not in row:
+                        written_read[role] = row["timestamp"]
+                        if row["rss_bytes"] > 0:
+                            ready_roles.add(role)
+                            if args.ready_file is not None and ready_roles == set(targets) and not args.ready_file.exists():
+                                args.ready_file.write_text(json.dumps({"event": "resources.ready", "roles": sorted(ready_roles), "timestamp": time.time()}) + "\n")
+            if stopped.is_set() or args.stop_file.exists():
+                break
+            next_slot += args.interval
+            delay = next_slot - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_slot = time.monotonic()
+
+    output = args.output.open("w")
+    try:
+        threads = [threading.Thread(target=watch, args=(role, identity), name="resource-" + role) for role, identity in targets.items()]
+        for thread in threads:
+            thread.start()
+        deadline = time.monotonic() + args.timeout
+        while not stopped.is_set() and not args.stop_file.exists():
             if time.monotonic() >= deadline:
                 raise ValueError("resource monitor timed out")
-            cycle = time.monotonic()
-            for role, identity in targets.items():
-                if stopped or args.stop_file.exists():
-                    break
-                row = {"role": role, "containerID": metadata[role]["containerID"], "timestamp": time.time()}
-                try:
-                    stats = engine.container(identity, "stats?stream=false&one-shot=true")
-                    row.update(normalize(stats))
-                    row["timestamp"] = timestamp(stats["read"])
-                    if row["rss_bytes"] > 0:
-                        ready_roles.add(role)
-                except (ValueError, OSError, KeyError, http.client.HTTPException) as exc:
-                    row["error"] = type(exc).__name__
-                output.write(json.dumps(row, sort_keys=True) + "\n")
-                output.flush()
-            if args.ready_file is not None and ready_roles == set(targets) and not args.ready_file.exists():
-                args.ready_file.write_text(json.dumps({"event": "resources.ready", "roles": sorted(ready_roles), "timestamp": time.time()}) + "\n")
-            time.sleep(max(0, args.interval - (time.monotonic() - cycle)))
+            stopped.wait(0.2)
+    finally:
+        stopped.set()
+        for thread in threads:
+            thread.join()
+        output.close()
     for role, identity in targets.items():
         metadata[role]["runtimeAfter"] = runtime(engine.container(identity, "json"))
     args.output.with_suffix(".containers.json").write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n")
