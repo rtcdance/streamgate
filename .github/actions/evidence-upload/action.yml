@@ -129,7 +129,19 @@ runs:
         done <<< "$EVIDENCE_EXCLUDES"
         [ "$EVIDENCE_HIDDEN" = true ] && args+=(--include-hidden)
         # The token is passed on stdin and never echoed; log out on exit so a
-        # self-hosted runner does not keep GHCR credentials between jobs.
-        printf '%s' "$EVIDENCE_TOKEN" | docker login "$EVIDENCE_REGISTRY" --username "$GITHUB_ACTOR" --password-stdin >/dev/null
+        # self-hosted runner does not keep GHCR credentials between jobs. GHCR
+        # intermittently denies a token it accepts minutes earlier (run
+        # 42352481359 attempt 4: a same-attempt Retain-in-GHCR write succeeded
+        # while this login was denied once), so retry the ping; only the
+        # exhausted final attempt surfaces the real error verbosely.
+        login_attempts=0
+        until printf '%s' "$EVIDENCE_TOKEN" | docker login "$EVIDENCE_REGISTRY" --username "$GITHUB_ACTOR" --password-stdin >/dev/null 2>&1; do
+          login_attempts=$((login_attempts + 1))
+          [ "$login_attempts" -lt 3 ] || {
+            printf '%s' "$EVIDENCE_TOKEN" | docker login "$EVIDENCE_REGISTRY" --username "$GITHUB_ACTOR" --password-stdin
+            exit 1
+          }
+          sleep 5
+        done
         trap 'docker logout "$EVIDENCE_REGISTRY" >/dev/null 2>&1 || true' EXIT
         python3 scripts/cd/evidence_transport.py put "${args[@]}"

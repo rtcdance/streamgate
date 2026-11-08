@@ -201,6 +201,19 @@ class VerifyShellTests(unittest.TestCase):
         # image whose manifest names another producer would still be accepted.
         self.assertIn('--expect-run "$GITHUB_RUN_ID"', wrapper)
 
+    def test_evidence_upload_login_survives_a_transient_ghcr_denial(self):
+        root = SOURCE.parent.parent
+        wrapper = (root / ".github/actions/evidence-upload/action.yml").read_text()
+        start = wrapper.index("Store in the evidence registry")
+        block = wrapper[start:wrapper.index("evidence_transport.py put", start)]
+        # GHCR intermittently denies a token it accepts minutes earlier (run
+        # 42352481359 attempt 4: a same-attempt Retain-in-GHCR write succeeded
+        # while this login was denied once); the login must not single-shot.
+        self.assertIn("until", block, "the GHCR login must be retried, not single-shot")
+        self.assertGreaterEqual(block.count("docker login"), 2, "the last attempt must surface the real error verbosely")
+        self.assertIn("sleep 5", block, "login retries need a backoff")
+        self.assertIn("docker logout", wrapper, "credentials must still be dropped after the retries")
+
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
         # Export is not a gate and cost 5,823s of a 2,139s build before failing on
