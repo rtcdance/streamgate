@@ -214,6 +214,22 @@ class VerifyShellTests(unittest.TestCase):
         self.assertIn("sleep 5", block, "login retries need a backoff")
         self.assertIn("docker logout", wrapper, "credentials must still be dropped after the retries")
 
+    def test_acceptance_clock_and_browser_cache_survive_slow_link_reruns(self):
+        source = (SOURCE.parent.parent / ".github/workflows/ci.yml").read_text()
+        start = source.index("Complete Docker Acceptance")
+        # The cross-border evenings stretch the evidence restore and the upload
+        # to hours each at tens of KB/s (nettop deltas 30-70KB/s, 2026-11-08/09);
+        # a 600-minute clock cut a complete run short mid-perf on run
+        # 42460355401 attempt 2. The stage gates are unchanged — only the clock.
+        timeout = re.search(r"timeout-minutes:\s*(\d+)", source[start:])
+        self.assertIsNotNone(timeout, "the acceptance job must pin its own timeout")
+        self.assertGreaterEqual(int(timeout[1]), 900)
+        # The browser cache must live outside the checkout: every rerun runs
+        # `git clean -ffdx` over the workspace, which would discard a
+        # mid-download browser and repeat the slowest part of the bootstrap.
+        self.assertNotIn("${{ github.workspace }}/.verify-artifacts/browser-cache", source)
+        self.assertIn("${{ github.workspace }}/../browser-cache", source)
+
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
         # Export is not a gate and cost 5,823s of a 2,139s build before failing on

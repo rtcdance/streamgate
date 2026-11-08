@@ -778,8 +778,11 @@ jobs:
     # 40403641459: ~620 MB of raw evidence at this runner's uplink needs ~4 h on
     # top of a ~2 h20m DAG. Self-hosted runners accept a longer bound; the stage
     # gates themselves are unchanged, so this only stops the clock from cutting
-    # an otherwise complete run short.
-    timeout-minutes: 600
+    # an otherwise complete run short. 900 minutes additionally covers the
+    # cross-border evenings where the evidence restore and the upload each
+    # stretch for hours at tens of KB/s (observed 2026-11-08/09, nettop deltas
+    # of 30-70KB/s) on top of the DAG and the transport.
+    timeout-minutes: 900
     env:
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
@@ -791,7 +794,10 @@ jobs:
       # 200). Keep a reachable mirror first and the upstream proxy as the fallback:
       # the acceptance must not lose a stage to a module download.
       VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
-      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
+      # One level above the checkout: actions/checkout cleans the workspace
+      # with `git clean -ffdx` on every rerun, which would discard a mid-download
+      # browser and force the slow CDN fetch onto every attempt.
+      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/../browser-cache
       STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "7200"
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
