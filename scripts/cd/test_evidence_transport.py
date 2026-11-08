@@ -151,6 +151,18 @@ class EvidenceTransportTests(unittest.TestCase):
         self.assertEqual(command.call_count, 5)
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10, 15, 20])
 
+    def test_registry_blob_rejection_400_is_retried_as_transient(self):
+        # GHCR blob PUTs intermittently answer 400 Bad Request to a valid push
+        # (run 42352481359 attempt 2); an unclassified status single-shots past
+        # the retry budget, so it must be treated like the other transient
+        # registry answers. Authentication failures keep their own test above.
+        message = "docker push failed: failed to push refs: unexpected status: 400 Bad Request"
+        with patch.object(transport, "run_docker", side_effect=[transport.TransportError(message), "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5])
+
     def test_registry_timeout_does_not_stack_background_transfers(self):
         with patch.object(transport.subprocess, "run", side_effect=transport.subprocess.TimeoutExpired(
                 ["docker", "push", "ghcr.io/x/y:t"], 17)) as command, \
