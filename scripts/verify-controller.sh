@@ -206,18 +206,49 @@ cleanup() {
   docker rm -f "$VERIFY_CONTROLLER" >/dev/null 2>&1 || :
   # If the controller was killed before its EXIT trap, remove only this run's
   # labelled resources. Other projects and their persistent volumes are untouched.
+  # Every silenced removal names itself on failure, and only counts as a
+  # failure when its target actually survives: "already gone" achieved the
+  # release postcondition. The trap previously flipped a green verification
+  # (original exit=0) without leaving a trace of which silenced command failed.
   local ids
-  ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker rm -f $ids >/dev/null 2>&1 || cleanup_rc=1; fi
-  ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker volume rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
-  ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker network rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
+  ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: container listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker rm -f $ids >/dev/null 2>&1 || :
+    ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run containers survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
+  ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: volume listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker volume rm $ids >/dev/null 2>&1 || :
+    ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run volumes survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
+  ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: network listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker network rm $ids >/dev/null 2>&1 || :
+    ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run networks survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
   # Release the daemon lock only if this run created it; a takeover or a failed
   # acquire must not remove someone else's lock. The exit code is preserved
   # above, so a cleanup failure can never turn a cancelled run into a pass.
+  # A lock that is already gone was released; only one that still exists
+  # afterwards is a cleanup failure.
   if [ "${MUTEX_OWNER:-0}" = 1 ]; then
-    docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || cleanup_rc=1
+    if ! docker network rm "$MUTEX_NAME" >/dev/null 2>&1 \
+       && docker network inspect "$MUTEX_NAME" >/dev/null 2>&1; then
+      echo "verify-controller cleanup: acceptance lock ${MUTEX_NAME} could not be released" >&2
+      cleanup_rc=1
+    fi
   fi
   # The frozen clone is reproducible from the recorded revision; keeping ~900MB
   # of it per run would only make the artifacts directory unmanageable.
@@ -240,7 +271,11 @@ cleanup() {
     fi
     for worktree in "$VERIFY_ARTIFACTS"/.private/reference-build.*; do
       [ -d "$worktree" ] || continue
-      git worktree remove --force "$worktree" >/dev/null 2>&1 || cleanup_rc=1
+      git worktree remove --force "$worktree" >/dev/null 2>&1 || :
+      if [ -d "$worktree" ]; then
+        echo "verify-controller cleanup: reference worktree survives removal: $worktree" >&2
+        cleanup_rc=1
+      fi
     done
     rm -f -- "$VERIFY_ARTIFACTS/perf-loader.test" || cleanup_rc=1
     rm -rf -- "$VERIFY_ARTIFACTS/.private" || cleanup_rc=1
