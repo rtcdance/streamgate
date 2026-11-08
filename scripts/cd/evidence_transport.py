@@ -21,7 +21,6 @@ SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REGISTRY_ATTEMPTS = 5
 REGISTRY_BACKOFF_SECONDS = 5
 REGISTRY_TIMEOUT_SECONDS = 900
-PULL_TIMEOUT_SECONDS = 900
 
 
 class TransportError(Exception):
@@ -248,16 +247,14 @@ def run_registry(*args):
     if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 7200:
         raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..7200")
     timeout = int(value)
-    # The long-network budget exists for pushes (they are not resumable). The
-    # same value must not govern pulls: a dead socket then stalls one pull for
-    # the whole window and the non-retryable timeout aborts the attempt
-    # (observed 2026-11-08 as two consecutive acceptance downloads hanging ~50
-    # minutes on the first pull with zero daemon connections). A pull is
-    # resumable — the daemon keeps completed layers — so it runs on a short
-    # fresh-client budget and a timeout retries like any transient answer.
+    # The long-network budget applies to pushes AND pulls: the cross-border
+    # uplink to the evidence registry degrades to tens of KB/s for hours at a
+    # time (observed 2026-11-08, nettop deltas of ~34KB/s while every naive
+    # liveness signal read as a stall), so a pull legitimately needs the whole
+    # window. A pull timeout still retries instead of aborting: the daemon
+    # keeps completed layers, so a fresh client resumes cheaply and a stuck
+    # one gets new connections within the existing attempt budget.
     pull = args[0] == "pull"
-    if pull:
-        timeout = min(timeout, PULL_TIMEOUT_SECONDS)
     # Retry only transient failures. Authentication/identity failures cannot be
     # repaired by repeating a command; timeouts may leave daemon work in flight.
     for attempt in range(1, REGISTRY_ATTEMPTS + 1):

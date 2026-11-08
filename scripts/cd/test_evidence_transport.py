@@ -124,22 +124,22 @@ class EvidenceTransportTests(unittest.TestCase):
             self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
         command.assert_called_once_with("push", "ghcr.io/x/y:t", timeout=17)
 
-    def test_pull_timeout_is_capped_below_the_push_budget_and_retried(self):
-        # One dead socket must not burn a whole attempt: the acceptance env sets
-        # a 7200s push budget (slow uplink), and the same value reached pulls —
-        # two consecutive downloads (run 42445238047 attempts 1-2) then hung ~50
-        # minutes on the first pull with zero daemon connections, and the
-        # timeout abort is non-retryable. Pulls are resumable (the daemon keeps
-        # completed layers), so they run on a short fresh-client budget and a
-        # timeout retries like any transient answer.
+    def test_pull_timeout_uses_the_registered_budget_and_retries(self):
+        # The acceptance env sets a 7200s budget and pulls legitimately need
+        # all of it: the cross-border uplink degrades to tens of KB/s for hours
+        # (nettop deltas of ~34KB/s on 2026-11-08 while every naive liveness
+        # signal read as a stall — the earlier 900s cap could never complete a
+        # large layer on that link). A pull timeout still retries instead of
+        # aborting, because the daemon keeps completed layers and a fresh
+        # client resumes cheaply.
         timeout_error = transport.RegistryTimeoutError(
-            "docker pull timed out after 900s; client terminated; "
+            "docker pull timed out after 7200s; client terminated; "
             "inspect daemon transfer activity before retrying")
         with patch.dict(os.environ, {"STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS": "7200"}), \
                 patch.object(transport, "run_docker", side_effect=[timeout_error, timeout_error, "ok"]) as command, \
                 patch.object(transport.time, "sleep") as sleep:
             self.assertEqual(transport.run_registry("pull", "ghcr.io/x/y@sha256:" + "a" * 64), "ok")
-        self.assertEqual([call.kwargs["timeout"] for call in command.call_args_list], [900, 900, 900])
+        self.assertEqual([call.kwargs["timeout"] for call in command.call_args_list], [7200, 7200, 7200])
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
 
     def test_pull_timeout_budget_still_exhausts(self):
