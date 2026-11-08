@@ -230,6 +230,23 @@ class VerifyShellTests(unittest.TestCase):
         self.assertNotIn("${{ github.workspace }}/.verify-artifacts/browser-cache", source)
         self.assertIn("${{ github.workspace }}/../browser-cache", source)
 
+    def test_frozen_source_populates_nested_submodules_offline(self):
+        controller = (SOURCE.parent / "verify-controller.sh").read_text()
+        # The URL override for the superproject's own .gitmodules does not
+        # reach submodule-level .gitmodules files: openzeppelin's nested libs
+        # (erc4626-tests, forge-std, halmos) then clone from GitHub, and the
+        # cross-border egress killed three acceptance attempts
+        # (2026-11-09, runs 42504506447 attempts 3/6/7). The frozen flow must
+        # rewrite every nested submodule URL to the local checkout the same
+        # way it rewrites the top level, before the recursive update.
+        frozen_start = controller.index("if [ \"$frozen_requested\" = 1 ]; then")
+        frozen_block = controller[frozen_start:controller.index("proxy_args=()", frozen_start)]
+        self.assertIn("find \"$FROZEN_SOURCE\" -name .gitmodules", frozen_block,
+                      "the frozen flow must discover submodule-level .gitmodules files")
+        self.assertGreaterEqual(frozen_block.count("submodule update --init"), 2,
+                                "nested URLs must be rewritten between the top-level and the recursive update")
+        self.assertIn("protocol.file.allow=always", frozen_block)
+
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()
         # Export is not a gate and cost 5,823s of a 2,139s build before failing on

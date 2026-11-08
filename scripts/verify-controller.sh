@@ -159,6 +159,22 @@ if [ "$frozen_requested" = 1 ]; then
     # Git refuses the "file" transport for submodules by default (CVE-2022-39253).
     # The URL was set on the line above to a checkout we control, so allowing it
     # here keeps the population offline instead of fetching from GitHub.
+    git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --quiet \
+      || { echo "could not populate the frozen source top-level submodules" >&2; exit 1; }
+    # The superproject's URL overrides do not reach submodule-level .gitmodules
+    # files: openzeppelin's nested libs (erc4626-tests, forge-std, halmos) would
+    # still clone from GitHub, and the cross-border egress killed three
+    # acceptance attempts at exactly that clone (2026-11-09, run 42504506447
+    # attempts 3/6/7). Rewrite every nested submodule URL to the local checkout
+    # the same way as the top level, then finish the recursion offline.
+    while IFS= read -r gitmodules; do
+      base="${gitmodules#"$FROZEN_SOURCE"/}"; base="${base%/.gitmodules}"
+      while read -r _ sub; do
+        [ -n "$sub" ] || continue
+        [ -d "$SOURCE_REPO/$base/$sub" ] || continue
+        git -C "$FROZEN_SOURCE/$base" config "submodule.$sub.url" "$SOURCE_REPO/$base/$sub" || exit 1
+      done < <(git -C "$FROZEN_SOURCE/$base" config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}')
+    done < <(find "$FROZEN_SOURCE" -name .gitmodules -not -path '*/.git/*')
     git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --recursive --quiet \
       || { echo "could not populate the frozen source submodules" >&2; exit 1; }
   fi
