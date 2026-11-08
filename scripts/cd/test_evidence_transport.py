@@ -124,6 +124,49 @@ class EvidenceTransportTests(unittest.TestCase):
             self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
         command.assert_called_once_with("push", "ghcr.io/x/y:t", timeout=17)
 
+    def test_pull_timeout_is_capped_below_the_push_budget_and_retried(self):
+        # One dead socket must not burn a whole attempt: the acceptance env sets
+        # a 7200s push budget (slow uplink), and the same value reached pulls —
+        # two consecutive downloads (run 42445238047 attempts 1-2) then hung ~50
+        # minutes on the first pull with zero daemon connections, and the
+        # timeout abort is non-retryable. Pulls are resumable (the daemon keeps
+        # completed layers), so they run on a short fresh-client budget and a
+        # timeout retries like any transient answer.
+        timeout_error = transport.RegistryTimeoutError(
+            "docker pull timed out after 900s; client terminated; "
+            "inspect daemon transfer activity before retrying")
+        with patch.dict(os.environ, {"STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS": "7200"}), \
+                patch.object(transport, "run_docker", side_effect=[timeout_error, timeout_error, "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("pull", "ghcr.io/x/y@sha256:" + "a" * 64), "ok")
+        self.assertEqual([call.kwargs["timeout"] for call in command.call_args_list], [900, 900, 900])
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    def test_pull_timeout_budget_still_exhausts(self):
+        error = transport.RegistryTimeoutError("docker pull timed out after 900s; client terminated")
+        with patch.object(transport, "run_docker", side_effect=error) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            with self.assertRaises(transport.TransportError):
+                transport.run_registry("pull", "ghcr.io/x/y:t")
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10, 15, 20])
+
+    def test_killed_pull_client_is_retried(self):
+        # An operator killing a stalled docker client must read as a transient
+        # pull failure, not single-shot the download step.
+        killed = transport.TransportError("docker pull ghcr.io/x/y:t failed: terminated by signal 15")
+        with patch.object(transport, "run_docker", side_effect=[killed, "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("pull", "ghcr.io/x/y:t"), "ok")
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5])
+
+    def test_run_docker_names_signal_deaths(self):
+        with patch.object(transport.subprocess, "run") as command:
+            command.return_value = transport.subprocess.CompletedProcess(["docker", "pull"], -15, stdout="", stderr="")
+            with self.assertRaisesRegex(transport.TransportError, "terminated by signal 15"):
+                transport.run_docker("pull", "ghcr.io/x/y:t", timeout=5)
+
     def test_registry_rejects_invalid_timeout_before_starting(self):
         for value in ("0", "-1", "forever", "1.5"):
             with self.subTest(value=value), \
