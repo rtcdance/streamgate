@@ -7,11 +7,14 @@ const os = require('node:os');
 const path = require('node:path');
 const load = () => import('../h5-demo-acceptance/lib/wallet_public_controls.mjs');
 const subject = '0x' + '2'.repeat(40);
+// One synthetic session mints one absolute deadline: deriving it per call from
+// the wall clock makes consecutive tokens straddle a second boundary and then
+// correctly look like different admissions to sameSession.
+const issued = Math.floor(Date.now() / 1000);
 
 function token(overrides = {}) {
-    const now = Math.floor(Date.now() / 1000);
     const body = { sub: subject, wallet_address: subject, chain_id: 11155111, account_kind: 'erc1271',
-        iat: now, exp: now + 60, wallet_session_exp: now + 7200, session_id: 'cw:admitted',
+        iat: issued, exp: issued + 60, wallet_session_exp: issued + 7200, session_id: 'cw:admitted',
         wallet_proof_id: 'original-proof', auth_epoch: 1, restore_epoch: 'original-restore', jti: 'old', ...overrides };
     return Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url') + '.' + Buffer.from(JSON.stringify(body)).toString('base64url') + '.synthetic';
 }
@@ -113,4 +116,20 @@ test('a partial oracle is not consumed before its original process exit', async 
     await fs.writeFile(report, JSON.stringify({ original: true }));
     assert.deepEqual(JSON.parse(await readCompletedOracle(report, exit)), { original: true });
     await fs.unlink(report); await assert.rejects(readCompletedOracle(report, exit), { code: 'ENOENT' });
+});
+
+test('synthetic session tokens never slide their absolute session deadline', async () => {
+    const { claims } = await load();
+    // The rotation contract compares wallet_session_exp for exact equality:
+    // one admission keeps one absolute deadline across renewals. A fixture that
+    // mints it from a per-call wall clock flakes whenever consecutive calls
+    // straddle a second boundary (run 42546543088 Go Tests, 2026-11-09:
+    // "No bounded same-admission credential rotation was observed").
+    const real = Date.now; let tick = 1700000000000;
+    Date.now = () => (tick += 1500);
+    try {
+        const first = claims(token()), second = claims(token());
+        assert.equal(second.wallet_session_exp, first.wallet_session_exp,
+            'one synthetic session must mint one absolute deadline');
+    } finally { Date.now = real; }
 });
