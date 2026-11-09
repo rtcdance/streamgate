@@ -246,6 +246,73 @@ class VerifyShellTests(unittest.TestCase):
         self.assertGreaterEqual(frozen_block.count("submodule update --init"), 2,
                                 "nested URLs must be rewritten between the top-level and the recursive update")
         self.assertIn("protocol.file.allow=always", frozen_block)
+        # The rewrite must also be *effective*: a field-mismatched read turns
+        # the nested loop into a silent no-op and the recursive update then
+        # clones the nested libs from GitHub anyway (run 42529439780 attempt 2,
+        # 2026-11-09: "could not populate the frozen source submodules"). The
+        # fixture's committed submodule URLs point at paths that cannot be
+        # cloned, so population can only succeed through the local-checkout
+        # rewrite — a textual pin cannot tell the difference.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            env = dict(os.environ,
+                       GIT_AUTHOR_NAME="fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                       GIT_COMMITTER_NAME="fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+
+            def git(*args, cwd):
+                return subprocess.run(["git", "-c", "protocol.file.allow=always", *args],
+                                      cwd=cwd, env=env, capture_output=True, text=True, check=True)
+
+            missing = "file://" + str(root / "does-not-exist")
+            git("init", "-q", str(root / "nested_src"), cwd=root)
+            (root / "nested_src" / "n.txt").write_text("nested\n")
+            git("add", ".", cwd=root / "nested_src")
+            git("commit", "-qm", "nested", cwd=root / "nested_src")
+            git("init", "-q", str(root / "sub_src"), cwd=root)
+            (root / "sub_src" / "s.txt").write_text("sub\n")
+            git("add", ".", cwd=root / "sub_src")
+            git("commit", "-qm", "sub", cwd=root / "sub_src")
+            git("submodule", "add", "-q", str(root / "nested_src"), "lib/nested", cwd=root / "sub_src")
+            git("commit", "-qm", "add nested", cwd=root / "sub_src")
+            git("init", "-q", str(source), cwd=root)
+            (source / "o.txt").write_text("source\n")
+            git("add", ".", cwd=source)
+            git("commit", "-qm", "source", cwd=source)
+            git("submodule", "add", "-q", str(root / "sub_src"), "sub", cwd=source)
+            git("commit", "-qm", "add sub", cwd=source)
+            git("submodule", "update", "--init", cwd=source)
+            # Rewriting only the committed URLs keeps both rewrite loops under
+            # test: the working checkouts below stay clonable as file paths.
+            git("config", "--file", ".gitmodules", "submodule.lib/nested.url", missing + "/nested.git", cwd=source / "sub")
+            git("add", ".gitmodules", cwd=source / "sub")
+            git("commit", "-qm", "unclonable nested URL", cwd=source / "sub")
+            git("add", "sub", cwd=source)
+            git("commit", "-qm", "pin nested URL rewrite", cwd=source)
+            git("config", "--file", ".gitmodules", "submodule.sub.url", missing + "/sub.git", cwd=source)
+            git("add", ".gitmodules", cwd=source)
+            git("commit", "-qm", "unclonable sub URL", cwd=source)
+            git("clone", "-q", str(root / "nested_src"), str(source / "sub" / "lib" / "nested"), cwd=root)
+            nested_sha = git("ls-tree", "HEAD", "lib/nested", cwd=source / "sub").stdout.split()[2]
+            git("checkout", "-q", nested_sha, cwd=source / "sub" / "lib" / "nested")
+
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            extraction = controller.index('SOURCE_REPO="$ROOT_DIR"')
+            runner = "\n".join([
+                "set -euo pipefail",
+                "ROOT_DIR=" + shlex.quote(str(source)),
+                "VERIFY_ARTIFACTS=" + shlex.quote(str(artifacts)),
+                "VERIFY_STAGE=all",
+                controller[extraction:controller.index("proxy_args=()", extraction)],
+            ])
+            result = subprocess.run(["bash", "-c", runner], capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((artifacts / "source/sub/lib/nested/n.txt").is_file(),
+                            "the nested submodule must be populated without network access")
+            rewritten = git("config", "--get", "submodule.lib/nested.url", cwd=artifacts / "source" / "sub")
+            self.assertEqual(rewritten.stdout.strip(), str(source / "sub" / "lib" / "nested"),
+                             "the nested URL override must point at the local checkout")
 
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()

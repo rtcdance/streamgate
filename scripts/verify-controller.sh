@@ -173,7 +173,7 @@ if [ "$frozen_requested" = 1 ]; then
         [ -n "$sub" ] || continue
         [ -d "$SOURCE_REPO/$base/$sub" ] || continue
         git -C "$FROZEN_SOURCE/$base" config "submodule.$sub.url" "$SOURCE_REPO/$base/$sub" || exit 1
-      done < <(git -C "$FROZEN_SOURCE/$base" config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null | awk '{print $2}')
+      done < <(git -C "$FROZEN_SOURCE/$base" config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null)
     done < <(find "$FROZEN_SOURCE" -name .gitmodules -not -path '*/.git/*')
     git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --recursive --quiet \
       || { echo "could not populate the frozen source submodules" >&2; exit 1; }
