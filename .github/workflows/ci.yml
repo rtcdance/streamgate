@@ -671,6 +671,10 @@ jobs:
     # an otherwise complete run short.
     timeout-minutes: 600
     env:
+      # ~620 MB of raw evidence needs several hours on this uplink (see above);
+      # the transport's own 900 s default aborts the pull long before a transfer
+      # can finish. This is a transport budget, not a gate.
+      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
