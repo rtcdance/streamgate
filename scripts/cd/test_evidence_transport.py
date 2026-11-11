@@ -232,7 +232,11 @@ class EvidenceTransportTests(unittest.TestCase):
         manifest = json.loads((context / "transport.json").read_text())
         self.assertEqual(manifest["bundleSHA256"], result["bundleSHA256"])
         self.assertEqual((context / "payload" / "candidate.tar").read_bytes(), b"tar")
-        self.assertIn("COPY payload/ /payload/", (context / "Dockerfile").read_text())
+        dockerfile = (context / "Dockerfile").read_text()
+        # One COPY per artifact: an interrupted transfer must not discard the
+        # progress of every other artifact, so layers are per-artifact.
+        self.assertIn('COPY "payload/candidate.tar" "/payload/candidate.tar"', dockerfile)
+        self.assertEqual(dockerfile.count('\nCOPY "payload/'), 1)
 
     def test_put_skips_missing_files_when_ignored(self):
         argv = [

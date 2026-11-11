@@ -216,9 +216,16 @@ def write_context(root, entries, manifest, context):
         except OSError:
             shutil.copy2(source, target)
     (context / "transport.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
-    (context / "Dockerfile").write_text(
-        "FROM scratch\nCOPY payload/ /payload/\nCOPY transport.json /transport.json\n"
-    )
+    # One COPY per artifact rather than one COPY of the whole tree: a single
+    # 1 GB layer is discarded wholesale whenever a transfer is interrupted, so
+    # retries never accumulate. Layer-per-artifact lets each completed ~100 MB
+    # layer stay cached in the daemon and makes later attempts strictly cheaper.
+    dockerfile = ["FROM scratch"]
+    for entry in entries:
+        quoted = json.dumps(f"payload/{entry['path']}")
+        dockerfile.append(f"COPY {quoted} {json.dumps('/payload/' + entry['path'])}")
+    dockerfile.append("COPY transport.json /transport.json")
+    (context / "Dockerfile").write_text("\n".join(dockerfile) + "\n")
 
 
 def run_docker(*args, capture=True, timeout=None):
