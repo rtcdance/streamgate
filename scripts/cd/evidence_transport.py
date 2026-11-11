@@ -353,7 +353,12 @@ def verify_tree(root, entries):
 
 def extract(reference, local):
     if not local:
-        run_registry("pull", reference)
+        # The transport image is FROM scratch and carries only JSON/payload, so its
+        # content is architecture independent, but it is built on the amd64 runner
+        # and is therefore single-arch. The acceptance also runs on arm64 macOS,
+        # where an unprefixed pull fails with "no matching manifest for
+        # linux/arm64/v8", so request the one platform the image actually has.
+        run_registry("pull", "--platform", "linux/amd64", reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
     # Scratch images carry no command; create only records one and never runs it.
     run_docker("create", "--name", container, reference, "/nonexistent")
