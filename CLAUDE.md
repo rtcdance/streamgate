@@ -3,11 +3,6 @@
 NFT-gated streaming platform in Go. Core flow: **wallet sign-in → NFT ownership check → protected HLS streaming**.
 
 - Microkernel plugin architecture, dual-mode: monolith (dev) or 9 microservices (prod)
-- 11 build targets (`make build-all`) · 340 tracked Go test files · ~71% coverage (verify-docker unit gate) · 60% CI floor
-
-## Stack
-
-Go 1.26 · Gin · go-ethereum + solana-go · PostgreSQL 15 · Redis 7 · MinIO/S3 · NATS · Consul · HLS/DASH via FFmpeg · Zap + Prometheus + OpenTelemetry · gRPC · Docker Compose + Kubernetes · testify + uber/mock
 
 ## Project knowledge (tool-neutral)
 
@@ -67,40 +62,7 @@ make contracts-test        # also: contracts-build, contracts-deploy-anvil
 
 ## Docker dev/test environment
 
-`docker-compose.fullchain.yml` is the local dev/test environment: 17 containers, every one healthchecked. `make fullchain-deploy` starts it; it needs the two Linux binaries the "quick" Dockerfiles `COPY` (the deploy script does not build them):
-
-```bash
-GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
-GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
-```
-
-| Host port | Service |
-|---|---|
-| 18080 / 19090 | monolith HTTP / gRPC |
-| 28080 | api-gateway |
-| 18000 / 18001 | h5-demo (monolith / gateway view) |
-| 18545 | Anvil — chain 31337, DemoNFT + ContentRegistry |
-| 15432 / 16379 / 19000-19001 / 14222 / 28500 | PostgreSQL / Redis / MinIO / NATS / Consul |
-
-`scripts/docker-deploy.sh` seeds the demo gating rule (`content_id='demo'`). A host-run acceptance needs `GRPC_TARGET=localhost:19090` — the script default `monolith:9090` only resolves inside the compose network.
-
-## Layout
-
-| Path | What it is |
-|------|-----------|
-| `cmd/monolith/` | monolith entry — every plugin in one process (port 8080) |
-| `cmd/microservices/` | 9 standalone entries: api-gateway, auth, transcoder, streaming, upload, metadata, cache, worker, monitor |
-| `pkg/core/` | microkernel, `GenericPlugin`, config, event bus, logger |
-| `pkg/plugins/` | 9 thin plugin wrappers — delegate to `pkg/service/` |
-| `pkg/service/` | business logic; subpackages `content/ transcoding/ streamingsvc/ gating/ upload/ category/ playbackstats/ sigchain/` |
-| `pkg/gateway/` | REST handlers, one file per domain (`<domain>_handlers.go`); `routes.go` is the single registration point |
-| `pkg/middleware/` | auth, `nft_gate`, `playback_token_auth`, cors, circuitbreaker, ratelimit, tracing |
-| `pkg/web3/` | signature, `nft/` verifier, `contract/`, `solana/`, reorg, gas, events |
-| `pkg/storage/` | PostgreSQL, Redis, MinIO/S3, NATS, cache |
-| `test/` | unit, integration, e2e, benchmark, security |
-| `skills/` | tool-neutral AI skills — catalog in `skills/INDEX.md` |
-| `migrations/` | 42 up / 26 down SQL migrations |
-| `h5-demo/`, `examples/` | frontend demo and standalone samples — not part of the Go build |
+Fullchain stack (prebuilt Linux binaries, host ports, demo seeding, `GRPC_TARGET`): see `skills/dev-machine-acceptance` §0.1.
 
 ## Component Status
 
@@ -240,16 +202,6 @@ JWT-protected:
   /api/v1/categories{/:id}   /api/v1/gating-rules{/:id}
   /api/v1/playback/{stats,events}
 ```
-
-### Interfaces
-
-| Interface | File | Implementations |
-|---|---|---|
-| `Plugin` | `pkg/core/microkernel.go` | 9 plugins |
-| `ServerLifecycle` | `pkg/core/generic_plugin.go` | all plugin servers (Start/Stop/Health) |
-| `EventBus` | `pkg/core/event/event.go` | MemoryEventBus (monolith), NATSEventBus (microservices) |
-
-Microservice mains do their own wiring (89 lines each; api-gateway 118) — `core.RunMicroservice()` exists but has no callers.
 
 ### Workflow
 - `grep` before LSP when locating a symbol; `pkg/service/` is the primary logic layer. Use relative paths in file references.

@@ -29,6 +29,25 @@ StreamGate 的验收门禁是 **`make verify-docker` 的 stage** 或 **CI**。**
 
 ## 0.1 本机 Docker 开发/测试环境（Docker Desktop）
 
+### Quick reference (moved from CLAUDE.md)
+
+`docker-compose.fullchain.yml` is the local dev/test environment: 17 containers, every one healthchecked. `make fullchain-deploy` starts it; it needs the two Linux binaries the "quick" Dockerfiles `COPY` (the deploy script does not build them):
+
+```bash
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/streamgate-linux ./cmd/monolith/streamgate
+GOOS=linux GOARCH=$(go env GOARCH) CGO_ENABLED=0 go build -o deploy/docker/api-gateway-linux ./cmd/microservices/api-gateway
+```
+
+| Host port | Service |
+|---|---|
+| 18080 / 19090 | monolith HTTP / gRPC |
+| 28080 | api-gateway |
+| 18000 / 18001 | h5-demo (monolith / gateway view) |
+| 18545 | Anvil — chain 31337, DemoNFT + ContentRegistry |
+| 15432 / 16379 / 19000-19001 / 14222 / 28500 | PostgreSQL / Redis / MinIO / NATS / Consul |
+
+`scripts/docker-deploy.sh` seeds the demo gating rule (`content_id='demo'`). A host-run acceptance needs `GRPC_TARGET=localhost:19090` — the script default `monolith:9090` only resolves inside the compose network.
+
 适用于 macOS/Windows 工作站：host 只做编辑与客户端，服务全部跑在 `docker-compose.fullchain.yml`（17 个容器，全部带 healthcheck）。
 
 前置：
