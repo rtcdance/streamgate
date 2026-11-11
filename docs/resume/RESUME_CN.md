@@ -1,6 +1,6 @@
 # 简历(中文)
 
-> **合约钱包扩展（W3，2026-11-04）：确定性验收通过，公开路径待验收。** 代码候选 `c38dc4bc0bd5ac694261ee60ca07764783b1d05b` 已冻结；[默认 CI 41823377757](https://github.com/rtcdance/streamgate/actions/runs/41823377757) attempt 4 已 55/55 成功、无跳过，完整九阶段 Docker 原始退出 0；公开 Sepolia 路径仍未完成，不以此关闭公开验收。下文 `d0f05152` 的结果仍为原主链路历史证据。支持边界为已部署 ERC-1271、SIWE / EIP-191 与本轮自有 `Study1271Wallet` 测试钱包。真实 MetaMask 签名、六笔公开交易及两种部署模式仍待留证，不宣称任意 Safe 兼容、ERC-4337、生产钱包或主网部署。
+> **合约钱包扩展（W3，2026-11-11）：确定性验收通过；公开 Sepolia 路径部分实证；完整验收仍开放。** 代码候选 `d267ad4439ba672fecf373cae22f07852a0f6ada` 已冻结；[默认 CI 42548083086](https://github.com/rtcdance/streamgate/actions/runs/42548083086) attempt 2 已 55/55 成功、无跳过，完整九阶段 Docker 原始退出 0，只读固定矩阵收口 CW-01～16 与 TN-08 全 PASS、无 FAIL 项。公开 Sepolia 实证（2026-11-10/11）已留痕：六笔真实交易（两部署、两铸造、两转移，总费用 0.009153 ETH）、链上持仓 oracle 双 RPC 核验、真实 MetaMask SIWE 登录与一次拒签。仍开放：媒体播放证据、合约钱包与 api-gateway 浏览器阶段及剩余 TN 矩阵格；固定矩阵整体判定保持 BLOCKED（14 格中 11 格），且本轮写交易前网络资格原件缺失，不宣称完整公开验收达成。下文 `d0f05152` 的结果仍为原主链路历史证据。支持边界为已部署 ERC-1271、SIWE / EIP-191 与本轮自有 `Study1271Wallet` 测试钱包；不宣称任意 Safe 兼容、ERC-4337、生产钱包或主网部署。
 
 > **原有主链路历史交付（2026-11-02）：PASS WITH BOUNDARIES。** 候选 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e` 完整 Docker all/M0～M8 原始退出 0；CI run `41343759379` attempt 3 为 55/55 success，含 evidence/Publishable。本机已准备 demo 从空演示卷 57.14s 就绪，两模式复验各 77/77。证据见 `TRANSITION_PLAN.md` §8.86；其余带旧 SHA 的数字仍为历史。本材料提交不继承代码候选 CI。本人履历/贡献确认、讲述/录屏/投递仍待本人，生产与 testnet 未验证。
 
