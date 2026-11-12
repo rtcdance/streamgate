@@ -238,8 +238,10 @@ def run_docker(*args, capture=True, timeout=None):
 
 def run_registry(*args):
     value = os.environ.get("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS", str(REGISTRY_TIMEOUT_SECONDS))
-    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 3600:
-        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..3600")
+    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 14400:
+        # 14400 matches the transfer budget injected by ci.yml; a lower cap here
+        # would reject the workflow's own env and abort the acceptance job.
+        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..14400")
     timeout = int(value)
     # Retry only transient failures. Authentication/identity failures cannot be
     # repaired by repeating a command; timeouts may leave daemon work in flight.
