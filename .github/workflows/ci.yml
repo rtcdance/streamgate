@@ -128,6 +128,7 @@ jobs:
           python3 scripts/cd/test_ci_provenance.py
           python3 scripts/cd/test_wallet_helper.py
           python3 scripts/cd/test_wallet_phase_evidence.py
+          python3 scripts/cd/test_wallet_media_fixture.py
           python3 scripts/cd/test_public_controls.py
           python3 scripts/cd/test_wallet_control_collector.py
           python3 scripts/cd/test_web3_extension.py
