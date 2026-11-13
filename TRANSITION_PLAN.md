@@ -166,7 +166,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | [x] W3-06 / 00；与本地实现分开准备 | 测试网overlay、部署manifest、环境映射、严格preflight与真实H5检查工具；新增专用测试网验收入口 | 不启动Anvil、不读取31337默认部署、不启用开发签名/后台mint；两RPC/网络/合约身份/费用预检严格失败；缺条件不能跳过为绿。准备工作可先完成，真实广播仍等本轮候选冻结 |
 | [x] W3-07 / 05+06 | 将必要代码、合约、H5、配置与验证器一次集成，冻结C；复用现有CI原始构建、扫描、归档与GHCR证据链，执行同C完整all | 原M0～M8、R01～R12及新增确定性CW用例全部通过；原始outer exit0、必需CI job成功、源码/镜像/编译归档一致。只执行这一轮完整all；有同SHA有效run则接续，不再另开本机all |
 | [x] W3-08 / 07+公开条件齐备 | 使用C的原镜像和合约构建归档，执行§10.4的EOA/C两条公开用户路径及TN矩阵；每种模式独立留证 | **r7 判定 PASS WITH FIXTURE_BLOCKED（§C.3.2）**：6 笔交易 + oracle + MetaMask SIWE + NFT 检查已实证；媒体 fixture 缺失属 BLOCKED 非 FAIL，TN 矩阵 11/14 格与 fixture 恢复留后续轮次。用户操作、Google登录、资金或RPC未就绪则明确BLOCKED，不伪造人工完成 |
-| [~] W3-09 / 07+08 | 实现/运行只读扩展汇总验证器；更新本节结果、README、简历及学习手册相关边界，清理本轮专用资源。**进行中（2026-11-13）**：README/中英简历/项目条目/讲述稿/13 单元学习手册已按 r7 终态发布于 `sg/w3-delivery-docs-20261104`（候选 `d267ad44` 口径，BLOCKED 边界如实标注）；本文件状态表已同步。**未完成**：只读汇总验证器 `verify_web3_extension.py` 对本轮证据的最终运行（公开链证据目录尚未补齐 media fixture 与跨模式阶段，运行会如实报 BLOCKED）、本轮专用资源清理、最终 git tag | 最终状态逐项列 PASS/FAIL/BLOCKED：确定性 CI ✅（run 42548083086 全绿）；公开链证据 🟡（六笔交易+oracle+SIWE 实证，11/14 TN 格 BLOCKED 待 fixture）；本人钱包操作 ✅（六笔由本人签名广播）；三类中无 FAIL。文档证据提交 E 只记录 C，不因回填再生成代码候选或重跑 CI |
+| [~] W3-09 / 07+08 | 实现/运行只读扩展汇总验证器；更新本节结果、README、简历及学习手册相关边界，清理本轮专用资源。**进行中（2026-11-13）**：README/中英简历/项目条目/讲述稿/13 单元学习手册已按 r7 终态发布于 `sg/w3-delivery-docs-20261104`（候选 `d267ad44` 口径，BLOCKED 边界如实标注）；本文件状态表已同步。**2026-11-13 只读验证器复跑与资源恢复（Mac 端，`d267ad44` 候选 checkout）**：初跑 public-runtime FAIL 定因为 r7 栈容器已不存在（非证据退化）；清掉三个无容器的遗留 W3 compose 项目残留（`sg-w3-d267ad44-4bdeba31/5144577b`、`sg-w3-80638738-b94c0a73` 各 5 卷 + 网络）后，经 `launch_stack.py` 同产物受控重启 STARTED_HEALTHY（network_preflight exit 0），复跑 `verify_web3_extension.py` **exit 2 / 整体 BLOCKED**：source/ci/cw-suites/cw-segment-cost/local-monolith/local-api-gateway/public-runtime PASS，public-network BLOCKED（写交易前资格原件缺失，已知边界）→ public-chain 及浏览器/controls 各格 BLOCKED。与 2026-11-11 权威判定一致，无 FAIL 洗绿。证据目录 `20261113T*-w3-09-{verifier-recheck,stack-relaunch,verifier-after-relaunch}`。fixture 恢复流程已录入 §10.7（`media_fixture.py`，属 `sg/w3-media-fixture-20261113` 候选分支，推送/CI/实跑待 owner 授权）。清理：临时 worktree 10 个（含本机 `/tmp` prunable 残留）已移除；r7 栈保持运行（验证器 runtime 门要求），候选镜像按约保留。**未完成**：最终 git tag、向 master 合并（需 owner 授权 push） | 最终状态逐项列 PASS/FAIL/BLOCKED：确定性 CI ✅（run 42548083086 全绿）；公开链证据 🟡（六笔交易+oracle+SIWE 实证，11/14 TN 格 BLOCKED 待 fixture）；本人钱包操作 ✅（六笔由本人签名广播）；三类中无 FAIL。文档证据提交 E 只记录 C，不因回填再生成代码候选或重跑 CI |
 
 依赖路径：`W3-00 → 01 → 02 → 03 → 04 → 05`；`W3-00 → 06`；`05+06 → 07 → 08 → 09`。多个阅读/设计工作不等于允许在同一Mac并发跑验收；本轮默认单一集成者、单一执行栈。
 
@@ -301,6 +301,20 @@ python3 scripts/wallet-testnet/observe_controls.py \
   --content "$W3_CONTENT_ID" --transport cua \
   --phase-directory "$W3_REPORT_DIR" --phase-exit "$W3_BROWSER_EXIT_FILE" \
   --oracle "$W3_PHASE_ORACLE" --oracle-exit "$W3_PHASE_ORACLE_EXIT" --output "$W3_CONTROLS_PHASE_DIR"
+
+# 媒体 fixture（候选分支 sg/w3-media-fixture-20261113 起提供）：A 在 H5 完成一次
+# MetaMask SIWE 登录后，把 sessionStorage 的 streamgate_token 写入 0600 私有文件；
+# 在 mint-a 已对账（A 持有 N）后、两模式浏览器阶段之前运行一次，两模式共用同一
+# 栈数据库，故只上传一次。不签名、不广播、不 mint、不读私钥；token 不入报告。
+# exit 0=PASS / 1=FAIL / 2=BLOCKED；输出每次新路径，已存在即拒绝。
+# r7 的 11 格 BLOCKED（TN 播放证据）即由此步骤恢复：W3-08 r7 时 preparation
+# 未调用媒体生成/上传（权威配方在 scripts/fullchain-acceptance.sh:187–290），
+# `BLOCKED_FIXTURE_MISSING` 为当时真实状态，不能回填洗绿。
+python3 scripts/wallet-testnet/media_fixture.py \
+  --base-url "$W3_MONOLITH_ORIGIN" --controller "$W3_SEPOLIA_ADDRESS" \
+  --token-file "$W3_A_TOKEN_FILE" --manifest "$W3_DEPLOYMENT_MANIFEST" \
+  --output "$W3_MEDIA_FIXTURE_REPORT"
+# 报告中的 contentID 即后续各阶段的 --content / W3_CONTENT_ID。
 
 # 每模式分别合并eoa/contract原件；仍非完整验收。
 python3 scripts/wallet-testnet/observe_controls.py merge \
