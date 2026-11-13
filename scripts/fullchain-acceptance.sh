@@ -121,7 +121,7 @@ wait_for_manifest() {
 playback_failure_detail() {
     local detail=""
     detail="$(grep -m1 '\[pid=[0-9]*\]\[err\]' "$1" 2>/dev/null | head -c 200 || true)"
-    [ -n "$detail" ] || detail="$(grep -m1 -E '✗|FAILED' "$1" 2>/dev/null | head -c 200 || true)"
+    [ -n "$detail" ] || detail="$(grep -m1 -E '✗|FAILED|^FAIL[: ]' "$1" 2>/dev/null | head -c 200 || true)"
     [ -n "$detail" ] || detail="$(tail -c 200 "$1" 2>/dev/null | tr '\n' ' ' || true)"
     printf '%s' "$detail"
 }
@@ -1054,6 +1054,105 @@ JSON
     fi
 else
     f "Skipped browser playback: missing content or token"
+fi
+
+# ---------------------------------------------------------------------------
+# 10b. Contract-wallet browser matrix (plan §10 W3-05): the ERC-1271 login,
+# short-lease renewal and revocation flows in a real browser against THIS
+# deployment mode. run_fullchain invokes this script once per mode, so the
+# matrix covers monolith and api-gateway separately — one leg never stands in
+# for the other. A missing browser or fixture is a FAILURE, never a skip.
+# ---------------------------------------------------------------------------
+if [ "${W3_REQUIRED_MEDIA:-0}" = 1 ]; then
+printf '\n=== Contract-wallet browser matrix ===\n'
+CW_MODE="monolith"
+if [ -n "${API_BASE:-}" ] && [ -n "${MONOLITH_BASE:-}" ] && [ "$API_BASE" != "$MONOLITH_BASE" ]; then
+    CW_MODE="api-gateway"
+fi
+# The scenario needs the page AND the API on one origin (the h5 front door
+# proxies /api/). W3_H5_BASE wins; H5_BASE has the /demo suffix in the verify
+# stack; the fullchain stack's documented front door is localhost:18000.
+CW_H5_BASE="${W3_H5_BASE:-${H5_BASE:-}}"
+CW_H5_BASE="${CW_H5_BASE%/demo}"
+CW_H5_BASE="${CW_H5_BASE%/}"
+[ -n "$CW_H5_BASE" ] || CW_H5_BASE="http://localhost:18000"
+CW_HARNESS="$(cd "$(dirname "$0")/h5-demo-acceptance" 2>/dev/null && pwd || echo '')"
+CW_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CW_ARTIFACTS="$CW_ROOT/contracts/out"
+
+# Write evidence outside the disposable frozen source when the controller
+# supplies its mounted artifact root. Direct writes also survive cancellation.
+CW_SAVED="${W3_BROWSER_EXPORT_DIR:-$CW_HARNESS/reports}/cw-$CW_MODE"
+mkdir -p "$(dirname "$CW_SAVED")"
+if ! mkdir -m 700 "$CW_SAVED"; then
+    f "Contract-wallet evidence directory already exists or cannot be created: $CW_SAVED"
+    exit 1
+fi
+
+CW_GRPC_BRIDGE="$WORKDIR/walletgrpc"
+CW_GRPC_BUILD_RC=0
+CGO_ENABLED=0 GOMAXPROCS=2 go build -trimpath -buildvcs=false -p 2 -o "$CW_GRPC_BRIDGE" ./test/walletgrpc >"$CW_SAVED/cw-grpc-build.log" 2>&1 || CW_GRPC_BUILD_RC=$?
+printf '%s\n' "$CW_GRPC_BUILD_RC" >"$CW_SAVED/cw-grpc-build.exit"
+if [ "$CW_GRPC_BUILD_RC" != 0 ]; then
+    f "Could not build the real contract-wallet gRPC bridge"
+    CW_GRPC_BRIDGE="/bin/false"
+fi
+if [ "$CW_GRPC_BUILD_RC" = 0 ] && [ -n "${W3_GRPC_EXPORT_DIR:-}" ]; then
+    if ! python3 scripts/cd/wallet_helper.py --binary "$CW_GRPC_BRIDGE" \
+        --directory "$W3_GRPC_EXPORT_DIR" --candidate "${W3_CANDIDATE_SHA:-}"
+    then f "Could not preserve the original same-candidate gRPC client"; fi
+fi
+
+CW_FIXTURE="$CW_SAVED/wallet-fixture.json"
+CW_MEDIA="$WORKDIR/wallet-continuity.mp4"
+# Reuse the decoded baseline fixture by stream-copying it to 105s. The wallet
+# scenario must play beyond two 60s credential leases; a 10s VOD cannot prove it.
+CW_MEDIA_READY=0
+if ffmpeg -hide_banner -loglevel error -y -stream_loop -1 -i "$MEDIA" -t 105 -c copy "$CW_MEDIA"; then
+    CW_MEDIA_READY=1
+else
+    f "Contract-wallet continuity fixture could not be prepared"
+fi
+if [ "$CW_MEDIA_READY" != 1 ]; then
+    f "Contract-wallet browser matrix cannot run without its long media fixture"
+elif [ ! -d "$CW_HARNESS/node_modules/playwright" ]; then
+    f "Contract-wallet browser matrix could not run: Playwright not installed under scripts/h5-demo-acceptance"
+elif [ ! -f "$CW_ARTIFACTS/Study1271Wallet.sol/Study1271Wallet.json" ]; then
+    f "Contract-wallet browser matrix could not run: contract build artifacts missing (forge build has not run)"
+else
+    CW_FIXTURE_RC=0
+    W3_ANVIL_RPC="${ANVIL_URL}" W3_CONTRACT_ARTIFACTS="$CW_ARTIFACTS" \
+        node "$CW_ROOT/scripts/cd/prepare_wallet_anvil.cjs" "$CW_FIXTURE" >"$CW_SAVED/cw-fixture.log" 2>&1 || CW_FIXTURE_RC=$?
+    printf '%s\n' "$CW_FIXTURE_RC" >"$CW_SAVED/cw-fixture.exit"
+    if [ "$CW_FIXTURE_RC" = 0 ]; then
+        p "Contract-wallet fixture deployed on the acceptance chain (A owner, C holds the NFT)"
+        CW_BROWSER_RC=0
+        W3_MODE="$CW_MODE" W3_H5_BASE="$CW_H5_BASE" W3_ANVIL_RPC="${ANVIL_URL}" \
+            W3_FIXTURE_PATH="$CW_FIXTURE" W3_MEDIA_FILE="$CW_MEDIA" \
+            W3_GRPC_BRIDGE="$CW_GRPC_BRIDGE" W3_GRPC_TARGET="$GRPC_TARGET" W3_PRIVATE_DIR="$WORKDIR/cw-private" \
+            W3_REPORT_DIR="$CW_SAVED" \
+            node "$CW_HARNESS/wallet-anvil.mjs" >"$CW_SAVED/cw-browser.log" 2>&1 || CW_BROWSER_RC=$?
+        printf '%s\n' "$CW_BROWSER_RC" >"$CW_SAVED/cw-browser.exit"
+        if [ "$CW_BROWSER_RC" = 0 ]; then
+            p "Contract-wallet browser component completed ($CW_MODE)"
+        else
+            DETAIL="$(playback_failure_detail "$CW_SAVED/cw-browser.log")"
+            f "Contract-wallet browser component failed ($CW_MODE): $DETAIL"
+        fi
+        if python3 "$CW_ROOT/scripts/cd/assert_wallet_browser.py" \
+            --report "$CW_SAVED/result.json" --fixture "$CW_FIXTURE" \
+            --content "$CW_SAVED/content.json" --exit-file "$CW_SAVED/cw-browser.exit" \
+            --candidate "${W3_CANDIDATE_SHA:-}" --mode "$CW_MODE" >"$CW_SAVED/cw-gate.log" 2>&1; then
+            p "Contract-wallet fixed browser component contract passed ($CW_MODE)"
+        else
+            f "Contract-wallet fixed browser component contract failed ($CW_MODE): $(cat "$CW_SAVED/cw-gate.log")"
+        fi
+    else
+        DETAIL="$(playback_failure_detail "$CW_SAVED/cw-fixture.log")"
+        f "Contract-wallet fixture preparation failed: $DETAIL"
+    fi
+fi
+
 fi
 
 # ---------------------------------------------------------------------------

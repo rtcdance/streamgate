@@ -56,6 +56,7 @@
             </nav>
 
             <div class="sidebar-footer">
+                <a href="testnet/" style="display:block;margin-bottom:12px;color:inherit">Sepolia 测试资产 · MetaMask</a>
                 <div class="wallet-info" id="sidebar-wallet" style="border:1px solid rgba(255,255,255,0.1);border-radius:1rem;padding:12px;margin-bottom:8px">
                     <div class="label" style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.5);margin-bottom:4px">Wallet</div>
                     <div id="wallet-status-text" class="status-value unknown" style="font-size:13px">Unknown</div>
@@ -223,7 +224,19 @@
                     <section id="login-section" class="card hidden">
                         <div class="section-kicker">Step 3</div>
                         <h2>Wallet Login</h2>
-                        <p class="desc">Sign challenge, obtain JWT.</p>
+                        <p class="desc">Connect signer A. For a deployed ERC-1271 wallet, enter login subject C. NFT ownership and playback use the login subject.</p>
+                        <p class="desc">For contract login, MetaMask may warn that signer A differs from SIWE account C. Check both addresses and the site domain before deciding whether to sign. The server verifies the proof against C.</p>
+                        <div class="form-group">
+                            <label for="login-subject">Contract wallet C (leave empty for EOA login)</label>
+                            <input id="login-subject" class="input" type="text" placeholder="0x… deployed on the backend chain" autocomplete="off">
+                        </div>
+                        <dl id="login-identity" aria-live="polite">
+                            <dt>Controller / signer A</dt><dd id="login-controller">Not connected</dd>
+                            <dt>Login subject</dt><dd id="login-subject-value">Not signed in</dd>
+                            <dt>Chain / wallet type</dt><dd id="login-chain">Unknown</dd>
+                            <dt>Authorization lease</dt><dd id="login-lease">Not signed in</dd>
+                        </dl>
+                        <p id="login-session-state" role="status">Sign in to verify the selected identity.</p>
                         <button id="login-btn" class="btn btn-success">Sign &amp; Login</button>
                         <div id="login-result" class="result hidden"></div>
                     </section>
@@ -235,7 +248,7 @@
                         <p class="desc">Verify NFT ownership for gated access.</p>
                         <div class="form-group">
                             <label for="nft-contract">NFT Contract Address</label>
-                            <input type="text" id="nft-contract" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3" readonly>
+                            <input type="text" id="nft-contract" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3">
                         </div>
                         <div class="form-group">
                             <label for="chain-select">Blockchain</label>
@@ -372,7 +385,7 @@
                         </div>
                         <div class="form-group">
                             <label for="nft-contract-playback">NFT Contract</label>
-                            <input type="text" id="nft-contract-playback" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3" readonly>
+                            <input type="text" id="nft-contract-playback" class="input" value="0x5FbDB2315678afecb367f032d93F642f64180aa3">
                         </div>
                         <button id="play-video" class="btn btn-success">Play Video</button>
                         <div class="player-container">
@@ -567,11 +580,11 @@
     </div>
     <div id="toast-container" class="toast-container"></div>
 
-<script src="js/api.js?v=23"></script>
+<script src="js/api.js?v=24"></script>
 <script src="js/demo.js?v=22"></script>
-<script src="js/wallet.js?v=21"></script>
-<script src="js/auth.js?v=23"></script>
-<script src="js/player.js?v=21"></script>
-<script src="js/app.js?v=26"></script>
+<script src="js/wallet.js?v=22"></script>
+<script src="js/auth.js?v=24"></script>
+<script src="js/player.js?v=22"></script>
+<script src="js/app.js?v=27"></script>
 </body>
 </html>

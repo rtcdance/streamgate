@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"go.uber.org/zap"
 )
 
@@ -27,6 +28,10 @@ func (m *mockEIP1271Caller) CallContract(ctx context.Context, callMsg ethereum.C
 
 func (m *mockEIP1271Caller) CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error) {
 	return nil, nil
+}
+
+func (m *mockEIP1271Caller) HeaderByNumber(_ context.Context, _ *big.Int) (*types.Header, error) {
+	return &types.Header{Number: big.NewInt(17)}, nil
 }
 
 func parseEIP1271ABI() abi.ABI {

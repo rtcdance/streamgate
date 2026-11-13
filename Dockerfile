@@ -24,7 +24,7 @@ ARG BUILDTIME
 WORKDIR /app
 
 # Build tools
-RUN apk add --no-cache git
+RUN apk add --no-cache git musl-utils
 
 # Cache-aware dependency download
 #   go.mod/go.sum are bound read-only — changes invalidate only this step

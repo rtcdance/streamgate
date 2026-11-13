@@ -8,6 +8,21 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
+const ContractWalletSessionPrefix = "cw:"
+
+// WalletAccessValidator verifies the server proof behind a contract session.
+// Both transports require it; a missing validator never means legacy EOA.
+type WalletAccessValidator interface {
+	ValidateWalletAccess(context.Context, jwt.MapClaims) error
+}
+
+func RequiresContractWalletProof(claims jwt.MapClaims) bool {
+	kind, _ := claims["account_kind"].(string)
+	sid, _ := claims["session_id"].(string)
+	proof, _ := claims["wallet_proof_id"].(string)
+	return kind == "erc1271" || strings.HasPrefix(sid, ContractWalletSessionPrefix) || proof != ""
+}
+
 // RestoreEpochValidator reports the Postgres-authoritative recovery epoch and
 // whether it could be read. *service.AuthService implements it, so HTTP and gRPC
 // compare against the same authority rather than each keeping its own copy.
@@ -48,21 +63,24 @@ type AccessPolicy struct {
 // wrapper previously returned, so a caller maps them back without duplicating
 // the strings.
 type accessPolicyError struct {
-	msg  string
-	code string
+	status int
+	msg    string
+	code   string
 }
 
 func (e *accessPolicyError) Error() string { return e.msg }
 
 var (
-	ErrAccessNotAccessToken   = &accessPolicyError{msg: "token is not an access token", code: "UNAUTHORIZED"}
-	ErrAccessIssuerMismatch   = &accessPolicyError{msg: "token issuer mismatch", code: "UNAUTHORIZED"}
-	ErrAccessAudienceMismatch = &accessPolicyError{msg: "token audience mismatch", code: "UNAUTHORIZED"}
-	ErrAccessNotSessionBound  = &accessPolicyError{msg: "token is not bound to a session", code: "UNAUTHORIZED"}
-	ErrAccessNoEpoch          = &accessPolicyError{msg: "token carries no auth epoch", code: "UNAUTHORIZED"}
-	ErrAccessSessionInvalid   = &accessPolicyError{msg: "session is no longer valid", code: "UNAUTHORIZED"}
-	ErrAccessRevoked          = &accessPolicyError{msg: "token revoked", code: "TOKEN_REVOKED"}
-	ErrAccessNoWallet         = &accessPolicyError{msg: "token missing wallet address", code: "UNAUTHORIZED"}
+	ErrAccessWalletInvalid     = &accessPolicyError{msg: "contract wallet session is invalid", code: "UNAUTHORIZED"}
+	ErrAccessWalletUnavailable = &accessPolicyError{status: 503, msg: "wallet proof authority is unavailable", code: "AUTH_UNAVAILABLE"}
+	ErrAccessNotAccessToken    = &accessPolicyError{msg: "token is not an access token", code: "UNAUTHORIZED"}
+	ErrAccessIssuerMismatch    = &accessPolicyError{msg: "token issuer mismatch", code: "UNAUTHORIZED"}
+	ErrAccessAudienceMismatch  = &accessPolicyError{msg: "token audience mismatch", code: "UNAUTHORIZED"}
+	ErrAccessNotSessionBound   = &accessPolicyError{msg: "token is not bound to a session", code: "UNAUTHORIZED"}
+	ErrAccessNoEpoch           = &accessPolicyError{msg: "token carries no auth epoch", code: "UNAUTHORIZED"}
+	ErrAccessSessionInvalid    = &accessPolicyError{msg: "session is no longer valid", code: "UNAUTHORIZED"}
+	ErrAccessRevoked           = &accessPolicyError{msg: "token revoked", code: "TOKEN_REVOKED"}
+	ErrAccessNoWallet          = &accessPolicyError{msg: "token missing wallet address", code: "UNAUTHORIZED"}
 	// The recovery-epoch refusals. An absent claim is refused rather than
 	// defaulted: a credential minted before the restore-epoch scheme existed must
 	// not be grandfathered in.
@@ -76,6 +94,9 @@ var (
 func AccessErrorBody(err error) (status int, message, code string) {
 	var pe *accessPolicyError
 	if errors.As(err, &pe) {
+		if pe.status != 0 {
+			return pe.status, pe.msg, pe.code
+		}
 		return 401, pe.msg, pe.code
 	}
 	return 401, "invalid token", "UNAUTHORIZED"
@@ -112,6 +133,19 @@ func AuthorizeAccessClaims(ctx context.Context, policy AccessPolicy, claims jwt.
 	epoch, hasEpoch := numericClaim(claims["auth_epoch"])
 	if !hasEpoch {
 		return AccessDecision{}, ErrAccessNoEpoch
+	}
+	kind, _ := claims["account_kind"].(string)
+	if kind != "" && kind != "eoa" && kind != "erc1271" {
+		return AccessDecision{}, ErrAccessWalletInvalid
+	}
+	if RequiresContractWalletProof(claims) {
+		validator, ok := policy.SessionValidator.(WalletAccessValidator)
+		if !ok {
+			return AccessDecision{}, ErrAccessWalletInvalid
+		}
+		if err := validator.ValidateWalletAccess(ctx, claims); err != nil {
+			return AccessDecision{}, err
+		}
 	}
 	if policy.SessionValidator != nil && !policy.SessionValidator.SessionValid(sessionID, epoch) {
 		return AccessDecision{}, ErrAccessSessionInvalid

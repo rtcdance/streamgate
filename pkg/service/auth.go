@@ -73,10 +73,14 @@ func (v *JWTVerifier) ParseToken(tokenString string) (*Claims, error) {
 		return nil, fmt.Errorf("token verification failed: %w", err)
 	}
 
-	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+	skew := 30 * time.Second
+	if requiresContractProof(claims) {
+		skew = MaxClockSkew
+	}
+	if claims.ExpiresAt != nil && time.Now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
-	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+	if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time.Add(-skew)) {
 		return nil, fmt.Errorf("token not yet valid")
 	}
 
@@ -147,20 +151,24 @@ type AuthService struct {
 	playbackTokenTTL  time.Duration
 	// clockSkew is the tolerance applied to exp/nbf checks. It is a real input to
 	// the revocation bound, so it comes from config rather than a constant.
-	clockSkew    time.Duration
-	sessionMu    sync.RWMutex
-	sessionCache map[string]cachedSession
-	sessionStore stg.SessionStore
+	clockSkew       time.Duration
+	sessionMu       sync.RWMutex
+	sessionCache    map[string]cachedSession
+	sessionStore    stg.SessionStore
+	walletSessions  stg.WalletSessionStore
+	walletPolicy    ContractWalletPolicy
+	walletPolicyErr error
 	// restoreEpochs is the Postgres-authoritative recovery epoch. Every credential
 	// this service issues carries it and every entry point compares against it, so
 	// a restore regenerates one value and invalidates the whole credential
 	// universe at once.
-	restoreEpochs     stg.RestoreEpochStore
-	ruleVersionMu     sync.RWMutex
-	ruleVersionReader RuleVersionReader
-	eip712Verifier    web3.EIP712VerifierInterface
-	siweDomain        string
-	siweURI           string
+	restoreEpochs        stg.RestoreEpochStore
+	ruleVersionMu        sync.RWMutex
+	ruleVersionReader    RuleVersionReader
+	eip712Verifier       web3.EIP712VerifierInterface
+	siweDomain           string
+	siweURI              string
+	walletDefaultChainID int64
 }
 
 // AuthServiceOption configures an AuthService with optional dependencies.
@@ -227,14 +235,17 @@ type Claims struct {
 	// TokenType discriminates credential kinds: "playback" for playback
 	// tokens; empty for auth JWTs. ParsePlaybackToken enforces it so an auth
 	// JWT can never be replayed as a playback credential.
-	TokenType         string `json:"token_type,omitempty"`
-	WalletAddress     string `json:"wallet_address,omitempty"`
-	ContentID         string `json:"content_id,omitempty"`
-	Contract          string `json:"contract,omitempty"`
-	TokenID           string `json:"token_id,omitempty"`
-	ChainID           int64  `json:"chain_id,omitempty"`
-	JTI               string `json:"jti,omitempty"`
-	ClientFingerprint string `json:"client_fingerprint,omitempty"`
+	TokenType              string `json:"token_type,omitempty"`
+	WalletAddress          string `json:"wallet_address,omitempty"`
+	AccountKind            string `json:"account_kind,omitempty"`
+	WalletProofID          string `json:"wallet_proof_id,omitempty"`
+	WalletSessionExpiresAt int64  `json:"wallet_session_exp,omitempty"`
+	ContentID              string `json:"content_id,omitempty"`
+	Contract               string `json:"contract,omitempty"`
+	TokenID                string `json:"token_id,omitempty"`
+	ChainID                int64  `json:"chain_id,omitempty"`
+	JTI                    string `json:"jti,omitempty"`
+	ClientFingerprint      string `json:"client_fingerprint,omitempty"`
 	// SessionID identifies the login session a credential belongs to, and
 	// AuthEpoch is the session's generation counter. Together they let a logout
 	// or a bulk revocation invalidate every credential of a session without
@@ -680,6 +691,7 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		challengeStore:    stg.NewMemoryChallengeStore(),
 		challengeTTL:      defaultChallengeTTL,
 		jwtExpiry:         2 * time.Hour,
+		walletPolicy:      defaultContractWalletPolicy(),
 		playbackTokenTTL:  DefaultPlaybackTokenTTL,
 		clockSkew:         DefaultClockSkew,
 		sessionCache:      make(map[string]cachedSession),
@@ -687,9 +699,10 @@ func NewAuthService(jwtSecret string, storage AuthStorage, opts ...AuthServiceOp
 		// The fallback restore-epoch authority is process-local, so a restore that
 		// rotates the Postgres epoch is invisible to it. The wiring replaces it in
 		// every real deployment and refuses the fallback in a strict profile.
-		restoreEpochs: stg.NewMemoryRestoreEpochStore(),
-		siweDomain:    "streamgate.io",
-		siweURI:       "https://streamgate.io/login",
+		restoreEpochs:        stg.NewMemoryRestoreEpochStore(),
+		siweDomain:           "streamgate.io",
+		siweURI:              "https://streamgate.io/login",
+		walletDefaultChainID: 1,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -824,7 +837,7 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 
 	// With WithoutClaimsValidation, token.Valid is based on signature only.
 	// Manually check exp/nbf with the configured clock skew tolerance.
-	skew := s.ClockSkew()
+	skew := s.claimClockSkew(claims)
 	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
@@ -848,7 +861,7 @@ func (s *AuthService) parseTokenCapability(tokenString string) (*Claims, error) 
 	if claims == nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
-	skew := s.ClockSkew()
+	skew := s.claimClockSkew(claims)
 	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
@@ -886,7 +899,7 @@ func (s *AuthService) parseTokenRS256(tokenString string) (*Claims, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
-	skew := s.ClockSkew()
+	skew := s.claimClockSkew(claims)
 	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
 		return nil, ErrTokenExpired
 	}
@@ -1011,6 +1024,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		return "", ErrTokenRevoked
 	}
 
+	if requiresContractProof(claims) {
+		return s.refreshContractWallet(ctx, claims)
+	}
+
 	if s.blacklist != nil && claims.ExpiresAt != nil {
 		remainingTTL := time.Until(claims.ExpiresAt.Time)
 		if remainingTTL > 0 {
@@ -1047,6 +1064,8 @@ func (s *AuthService) RefreshToken(ctx context.Context, tokenString string) (str
 		Username:      claims.Username,
 		TokenType:     AccessTokenType,
 		WalletAddress: claims.WalletAddress,
+		ChainID:       claims.ChainID,
+		AccountKind:   claims.AccountKind,
 		JTI:           generateID(),
 		SessionID:     claims.SessionID,
 		AuthEpoch:     epoch,
@@ -1084,14 +1103,18 @@ func (s *AuthService) parseTokenAllowExpired(tokenString string, gracePeriod tim
 	if claims == nil {
 		return nil, fmt.Errorf("failed to parse token: %w", lastErr)
 	}
-	// Manual 30s leeway for clock skew
-	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(30*time.Second)) {
+	// Refresh grace admits revalidation only; CW never inherits 30s normal leeway.
+	skew := 30 * time.Second
+	if requiresContractProof(claims) {
+		skew = s.contractClockSkew()
+	}
+	if claims.ExpiresAt != nil && s.now().After(claims.ExpiresAt.Time.Add(skew)) {
 		expiredDuration := s.now().Sub(claims.ExpiresAt.Time)
 		if expiredDuration > gracePeriod {
 			return nil, ErrTokenExpired
 		}
 	}
-	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-30*time.Second)) {
+	if claims.NotBefore != nil && s.now().Before(claims.NotBefore.Time.Add(-skew)) {
 		return nil, fmt.Errorf("token not yet valid")
 	}
 	return claims, nil

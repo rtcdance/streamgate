@@ -2,12 +2,30 @@
   "version": 1,
   "suites": {
     "durability-tests": [
-      {"package": "github.com/rtcdance/streamgate/pkg/service/gating", "test": "TestAcceptance_GatingRuleSnapshotRepeatableRead"},
-      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_SubmittedRebroadcastSameRawTx"},
-      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_SubmittedRecoveryUsesReceipt"},
-      {"package": "github.com/rtcdance/streamgate/pkg/service/registry", "test": "TestAcceptance_AfterSendBarrierPoint"},
-      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestAcceptance_NFTTransferBatchNeverGrants"},
-      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestNFTEventHandler_HandleTransferBatch"},
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/gating",
+        "test": "TestAcceptance_GatingRuleSnapshotRepeatableRead"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_SubmittedRebroadcastSameRawTx"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_SubmittedRecoveryUsesReceipt"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/registry",
+        "test": "TestAcceptance_AfterSendBarrierPoint"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAcceptance_NFTTransferBatchNeverGrants"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestNFTEventHandler_HandleTransferBatch"
+      },
       {
         "package": "github.com/rtcdance/streamgate/pkg/service/transcoding",
         "test": "TestOutbox_MissingDLQIntentRetainsOriginalDelivery"
@@ -172,19 +190,52 @@
       }
     ],
     "startup-cleanup": [
-      {"package": "github.com/rtcdance/streamgate/pkg/plugins/transcoder", "test": "TestTranscoderPlugin_StopBeforeInitAndRepeatedStop"}
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/plugins/transcoder",
+        "test": "TestTranscoderPlugin_StopBeforeInitAndRepeatedStop"
+      }
     ],
     "credential-consistency": [
-      {"package": "github.com/rtcdance/streamgate/pkg/service", "test": "TestIssueCapability_RejectsChangedCredentialAfterAuthorization"},
-      {"package": "github.com/rtcdance/streamgate/pkg/middleware", "test": "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_RejectsDuplicateCredentials"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcVerifyJWT_AccessKeyRotation"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGrpcGetManifest_RequiresMatchingRestoreEpoch"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_GetSegment_RefusesAnotherSessionCapability"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestPublishedGeneration_AuthorityFailureNeverServesLegacy"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestAcceptance_TaskGenerationPublish"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_PublishedRenditionSegmentRoundTrip"},
-      {"package": "github.com/rtcdance/streamgate/pkg/gateway", "test": "TestGRPC_PlaylistMetadataRejectsInvalidInput"}
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestIssueCapability_RejectsChangedCredentialAfterAuthorization"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestHTTPAuth_RejectsAmbiguousAndConflictingCredentials"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGrpcVerifyJWT_RejectsDuplicateCredentials"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGrpcVerifyJWT_AccessKeyRotation"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGrpcGetManifest_RequiresMatchingRestoreEpoch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGRPC_GetSegment_RefusesAnotherSessionCapability"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestPublishedGeneration_AuthorityFailureNeverServesLegacy"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestAcceptance_TaskGenerationPublish"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGRPC_PublishedRenditionSegmentRoundTrip"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestGRPC_PlaylistMetadataRejectsInvalidInput"
+      }
     ],
     "ops-gateway-core": [
       {
@@ -323,10 +374,16 @@
       }
     ],
     "perf-live": [
-      {"package": "github.com/rtcdance/streamgate/test/load", "test": "TestLoad_AuthorizedMedia"}
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestLoad_AuthorizedMedia"
+      }
     ],
     "perf-setup": [
-      {"package": "github.com/rtcdance/streamgate/test/load", "test": "TestPerfSetup_MintViewerWallets"}
+      {
+        "package": "github.com/rtcdance/streamgate/test/load",
+        "test": "TestPerfSetup_MintViewerWallets"
+      }
     ],
     "perf-tests": [
       {
@@ -452,6 +509,288 @@
       {
         "package": "github.com/rtcdance/streamgate/test/performance",
         "test": "TestRateLimitingPerformance"
+      }
+    ],
+    "wallet-account-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration/web3",
+        "test": "TestCWAccountProof_Anvil"
+      }
+    ],
+    "wallet-session-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration/web3",
+        "test": "TestCWLoginLifecycle_RealRedisAnvil"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration/web3",
+        "test": "TestCWProof_ConcurrentChainsAnvil"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration/web3",
+        "test": "TestCWLoginLifecycle_RealRedisAnvil/SegmentProofCost"
+      }
+    ],
+    "wallet-postgres-restore-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/test/integration/web3",
+        "test": "TestCWSession_RealPostgresRestore"
+      }
+    ],
+    "wallet-session-durability-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_RealRedisDurability"
+      }
+    ],
+    "wallet-unit-tests": [
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_OpaqueContractProofPinned"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_RejectsBeforeRPC"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_FailClosed"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_NoContractEOAFallback"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_BudgetsAndUnsupportedTypedContract"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestEIP1271_PinnedInputAndLegacyDispatch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_EIP712EOAChainAndDigest"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountProof_OriginalObservationAge"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/web3/signature",
+        "test": "TestAccountVerifier_ConfiguredBudgetsReachCalls"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_LoginRefreshAndMetadata"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_ConcurrentRefreshAndLogout"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_PolicyChangeAndDependencyAreDistinct"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_MissingMetadataCannotBecomeEOA"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_AbsoluteDeadlineDoesNotSlide"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_CapabilityClipsPresentedCredential"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_ConfiguredLeaseLifetimeAndFreshness"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_CreateAndLoadAcrossInstances"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_ConcurrentRefreshOnlyOneWinner"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_LogoutAndMissingEpochCannotResurrect"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_ImmutableAdmissionAndLifetime"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestWalletSession_MissingCorruptExpiredAndUnavailable"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestMemorySessionStore_CreateCannotResetRevokedEpoch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/storage",
+        "test": "TestRedisSessionStore_BumpCannotResetEpochAcrossExpiry"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestContractWalletTransport_HTTPAndGRPCMetadataAndLeeway"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestContractWalletTransport_AuthBodyAndStableErrors"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestContractWalletTransport_ExplicitSIWEAndNormalizedSubject"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestContractWalletTransport_GRPCUsesProfileAndStoredChallenge"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/gateway",
+        "test": "TestContractWalletTransport_NetworkAuthMethodsAndProtectedMedia"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestNFTGateMiddleware_PlaylistWithCapabilityStillChecksTheChain"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestNFTGateMiddleware_SegmentWithCapabilitySkipsTheChain"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestNFTGateMiddleware_PlaylistWithCapabilityRefusesANonHolder"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestIsPlaylistRequest_MatchesTheRoutePattern"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_BlockHashEvidenceIsChainScoped"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_ReorgStillDetectedWithinChain"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_SameChainCacheHitSkipsProver"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_EvidenceOlderThanBoundIsRejected"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_EvidenceWithinBoundIsUsable"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestCachedQuantity_ZeroObservedAtIsRejected"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/middleware",
+        "test": "TestSetCachedEntry_ObservedAtIsNotRefreshed"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestGenerateWalletChallenge_EVM_SIWE"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestGenerateWalletChallenge_EVM_PersonalSign"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestGenerateWalletChallenge_EVM_EIP712"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_EIP712_Success"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_EIP712_InvalidSignature"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_AddressMismatch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_ChainIDMismatch"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_ChallengeAlreadyUsed"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthenticateWithWallet_ExpiredChallenge"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service/sigchain",
+        "test": "TestMultiChainSignatureVerifier_ProofNeedsConfiguredChain"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestContractWallet_ChallengeBindingRejectsBeforeProof"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestWeb3Service_SepoliaBootstrapDoesNotAddDefaultChains"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestWeb3Service_RestrictedBootstrapRejectsWorkerOrForeignChain"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestWeb3Service_LegacyBootstrapPreservesDefaultChains"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestDefaultWeb3Deps_RestrictedProfilesHaveNoSolanaVerifier"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/walletgrpc",
+        "test": "TestWalletGRPCBridge_ServesPrivateFilesUntilEOF"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/walletgrpc",
+        "test": "TestWalletGRPCBridge_RejectsEscapesSymlinksAndNonprivateInput"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/test/walletgrpc",
+        "test": "TestWalletGRPCBridge_PreservesOriginalOutput"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/holding_retained"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/holding_transferred"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/rule_changes_during_refresh"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/refreshed_evidence_expires_at_third_snapshot"
       }
     ]
   }

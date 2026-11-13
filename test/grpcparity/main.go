@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	authv1 "github.com/rtcdance/streamgate/pkg/api/v1/auth"
 	streamingv1 "github.com/rtcdance/streamgate/pkg/api/v1/streaming"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -34,6 +35,9 @@ type options struct {
 	target           string
 	content          string
 	token            string
+	tokenFile        string
+	walletSubject    string
+	walletChain      int64
 	mode             string
 	capability       string
 	httpBase         string
@@ -58,6 +62,9 @@ func parseFlags() options {
 	flag.StringVar(&o.target, "target", "", "host:port of the gRPC server (e.g. monolith:9090)")
 	flag.StringVar(&o.content, "content", "", "content id whose manifest is authorized")
 	flag.StringVar(&o.token, "token", "", "the caller's real Bearer access token")
+	flag.StringVar(&o.tokenFile, "token-file", "", "private atomically updated CW token file; holder-ok or NFT capability-wait")
+	flag.StringVar(&o.walletSubject, "wallet-subject", "", "expected contract-wallet subject for --token-file")
+	flag.Int64Var(&o.walletChain, "wallet-chain", 0, "expected contract-wallet chain for --token-file")
 	flag.StringVar(&o.mode, "mode", "", "assertion mode: holder-ok | capability-wait | non-holder-denied | threshold-denied | threshold-denied-bounded | conflict-denied")
 	flag.StringVar(&o.capability, "capability", "", "a capability that does NOT belong to --token's caller (conflict-denied only)")
 	flag.StringVar(&o.httpBase, "http-base", "", "HTTP base of the same deployment mode, used to fetch a real segment (holder-ok only)")
@@ -76,8 +83,8 @@ func parseFlags() options {
 	if o.content == "" {
 		missing = append(missing, "--content")
 	}
-	if o.token == "" {
-		missing = append(missing, "--token")
+	if o.token == "" && o.tokenFile == "" {
+		missing = append(missing, "--token or --token-file")
 	}
 	if o.mode == "" {
 		missing = append(missing, "--mode")
@@ -85,6 +92,11 @@ func parseFlags() options {
 	if len(missing) > 0 {
 		fmt.Fprintf(os.Stderr, "FAIL: missing required flags: %s\n", strings.Join(missing, ", "))
 		flag.Usage()
+		os.Exit(1)
+	}
+	if o.tokenFile != "" && (o.token != "" || o.walletSubject == "" || o.walletChain <= 0 ||
+		(o.mode != "holder-ok" && o.mode != "capability-wait")) {
+		fmt.Fprintln(os.Stderr, "FAIL: CW token-file requires an exclusive credential, expected subject/chain and holder-ok or NFT capability-wait")
 		os.Exit(1)
 	}
 
@@ -113,6 +125,13 @@ func parseFlags() options {
 }
 
 func run(o options) error {
+	if o.tokenFile != "" {
+		var err error
+		o.token, err = currentCWToken(o)
+		if err != nil {
+			return err
+		}
+	}
 	conn, err := grpc.NewClient(o.target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("could not create a gRPC client for %s: %w", o.target, err)
@@ -124,7 +143,7 @@ func run(o options) error {
 	case "holder-ok":
 		return holderOK(client, o)
 	case "capability-wait":
-		return capabilityWait(client, o)
+		return capabilityWait(client, authv1.NewAuthServiceClient(conn), o)
 	case "non-holder-denied":
 		return denied(client, o, "non-holder")
 	case "threshold-denied":
@@ -189,7 +208,11 @@ func holderOK(client streamingv1.StreamingServiceClient, o options) error {
 	remaining := time.Until(time.Unix(exp, 0))
 	lo := time.Duration(o.expectExpSecond-5) * time.Second
 	hi := time.Duration(o.expectExpSecond+5) * time.Second
-	if remaining < lo || remaining > hi {
+	if o.tokenFile != "" {
+		if err := validateCWCapability(o.token, capability, o); err != nil || remaining <= 0 {
+			return fmt.Errorf("CW capability is outside the presented credential's identity or lifetime")
+		}
+	} else if remaining < lo || remaining > hi {
 		return fmt.Errorf("capability expires in %s, outside the %ds shared policy window [%s..%s]",
 			remaining.Round(time.Second), o.expectExpSecond, lo, hi)
 	}
@@ -241,7 +264,7 @@ func writePrivateEvidence(path string, value any) error {
 // capabilityWait probes an already-issued capability on real gRPC media. It
 // intentionally reports only status and elapsed time; bearer credentials are
 // never included in output or acceptance logs.
-func capabilityWait(client streamingv1.StreamingServiceClient, o options) error {
+func capabilityWait(client streamingv1.StreamingServiceClient, auth authv1.AuthServiceClient, o options) error {
 	data, err := os.ReadFile(o.evidenceFile)
 	if err != nil {
 		return fmt.Errorf("read private capability evidence: %w", err)
@@ -265,10 +288,32 @@ func capabilityWait(client streamingv1.StreamingServiceClient, o options) error 
 	}
 	start := time.Now().Add(-time.Duration(o.elapsedAtStartMS) * time.Millisecond)
 	deadline := start.Add(time.Duration(o.deadlineSeconds * float64(time.Second)))
+	if o.tokenFile != "" {
+		exp, err := jwtExpiry(o.capability)
+		if err != nil || !time.Unix(exp, 0).After(start) {
+			return fmt.Errorf("CW capability was already expired at the revocation observation")
+		}
+	}
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			return fmt.Errorf("gRPC capability remained accepted for %.0f seconds after revocation event", o.deadlineSeconds)
+		}
+		if o.tokenFile != "" {
+			denied, err := guardedCWMediaProbe(client, auth, o, remaining)
+			if err == nil && denied {
+				elapsed := time.Since(start)
+				if elapsed > time.Duration(o.deadlineSeconds*float64(time.Second)) {
+					return fmt.Errorf("CW capability denial arrived after the measured deadline")
+				}
+				fmt.Printf("%s elapsed=%s identity_control=valid\n", o.passMarker, elapsed.Round(time.Millisecond))
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("CW media denial was not confirmed with a valid current identity within the deadline")
+			}
+			time.Sleep(250 * time.Millisecond)
+			continue
 		}
 		ctx, cancel := callContextTimeout(o.token, remaining, "playback-token", o.capability)
 		_, err := client.GetSegment(ctx, &streamingv1.GetSegmentRequest{ContentId: o.content, SegmentId: o.segmentID})

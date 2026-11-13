@@ -372,10 +372,13 @@ func TestVerifyGRPCJWT_NoAuthMethods(t *testing.T) {
 		name   string
 		method string
 	}{
-		{"GetNonce", "/auth.AuthService/GetNonce"},
-		{"VerifySignature", "/auth.AuthService/VerifySignature"},
-		{"HealthCheck", "/health.HealthService/Check"},
-		{"HealthWatch", "/health.HealthService/Watch"},
+		{"GetNonce", "/auth.v1.AuthService/GetNonce"},
+		{"VerifySignature", "/auth.v1.AuthService/VerifySignature"},
+		{"RefreshToken", "/auth.v1.AuthService/RefreshToken"},
+		{"StandardHealthCheck", "/grpc.health.v1.Health/Check"},
+		{"StandardHealthWatch", "/grpc.health.v1.Health/Watch"},
+		{"HealthCheck", "/streamgate.v1.HealthService/Check"},
+		{"HealthWatch", "/streamgate.v1.HealthService/Watch"},
 	}
 
 	for _, tt := range tests {
@@ -609,7 +612,7 @@ func TestGrpcStreamAuthInterceptor(t *testing.T) {
 
 	t.Run("no auth method passes through", func(t *testing.T) {
 		stream := &mockServerStream{ctx: context.Background()}
-		err := interceptor("srv", stream, &grpc.StreamServerInfo{FullMethod: "/auth.AuthService/GetNonce"}, func(srv interface{}, ss grpc.ServerStream) error {
+		err := interceptor("srv", stream, &grpc.StreamServerInfo{FullMethod: "/auth.v1.AuthService/GetNonce"}, func(srv interface{}, ss grpc.ServerStream) error {
 			return nil
 		})
 		assert.NoError(t, err)
@@ -630,7 +633,7 @@ func TestGrpcAuthInterceptor(t *testing.T) {
 	interceptor := grpcAuthInterceptor(secret, nil, nil, log)
 
 	t.Run("no auth method passes through", func(t *testing.T) {
-		resp, err := interceptor(context.Background(), "req", &grpc.UnaryServerInfo{FullMethod: "/auth.AuthService/GetNonce"}, func(ctx context.Context, req interface{}) (interface{}, error) {
+		resp, err := interceptor(context.Background(), "req", &grpc.UnaryServerInfo{FullMethod: "/auth.v1.AuthService/GetNonce"}, func(ctx context.Context, req interface{}) (interface{}, error) {
 			return "ok", nil
 		})
 		assert.NoError(t, err)
@@ -1287,10 +1290,13 @@ func TestUploadGrpcServer_NoWalletMethods(t *testing.T) {
 
 func TestGrpcNoAuthMethods(t *testing.T) {
 	expected := map[string]bool{
-		"/auth.AuthService/GetNonce":        true,
-		"/auth.AuthService/VerifySignature": true,
-		"/health.HealthService/Check":       true,
-		"/health.HealthService/Watch":       true,
+		"/auth.v1.AuthService/GetNonce":        true,
+		"/auth.v1.AuthService/VerifySignature": true,
+		"/auth.v1.AuthService/RefreshToken":    true,
+		"/grpc.health.v1.Health/Check":         true,
+		"/grpc.health.v1.Health/Watch":         true,
+		"/streamgate.v1.HealthService/Check":   true,
+		"/streamgate.v1.HealthService/Watch":   true,
 	}
 	assert.Equal(t, expected, grpcNoAuthMethods)
 }

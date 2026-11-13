@@ -49,6 +49,13 @@ func (cc *ChainClient) CallContract(ctx context.Context, msg ethereum.CallMsg, b
 	})
 }
 
+// ChainID reads network identity through the caller's bounded fallback path.
+func (cc *ChainClient) ChainID(ctx context.Context) (*big.Int, error) {
+	return withChainClient(ctx, cc, "ChainClient.ChainID", func(client *ethclient.Client) (*big.Int, error) {
+		return client.ChainID(ctx)
+	})
+}
+
 // CodeAt implements EthCaller, delegating to the active RPC client.
 func (cc *ChainClient) CodeAt(ctx context.Context, contract common.Address, blockNumber *big.Int) ([]byte, error) {
 	return withChainClient(ctx, cc, "ChainClient.CodeAt", func(client *ethclient.Client) ([]byte, error) {
@@ -106,6 +113,11 @@ func NewChainClient(rpcURL string, chainID int64, logger *zap.Logger) (*ChainCli
 
 // NewChainClientWithFallback creates a chain client with multiple RPC candidates.
 func NewChainClientWithFallback(rpcURLs []string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
+	return NewChainClientWithContext(context.Background(), rpcURLs, chainID, logger)
+}
+
+// NewChainClientWithContext includes endpoint handshakes in the caller budget.
+func NewChainClientWithContext(ctx context.Context, rpcURLs []string, chainID int64, logger *zap.Logger) (*ChainClient, error) {
 	normalizedRPCs := make([]string, 0, len(rpcURLs))
 	for _, rpcURL := range rpcURLs {
 		rpcURL = strings.TrimSpace(rpcURL)
@@ -131,7 +143,7 @@ func NewChainClientWithFallback(rpcURLs []string, chainID int64, logger *zap.Log
 		rpcSlots:  make(chan struct{}, rpcMaxConcurrentCalls),
 	}
 
-	if err := cc.connectAny(); err != nil {
+	if err := cc.connectAnyContext(ctx); err != nil {
 		return nil, err
 	}
 
@@ -322,13 +334,13 @@ func (cc *ChainClient) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (cc *ChainClient) connectAny() error {
+func (cc *ChainClient) connectAnyContext(ctx context.Context) error {
 	var lastErr error
 	for _, idx := range cc.sortedRPCScores() {
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
+		client, chainIDFromRPC, err := cc.connectAt(ctx, idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -342,7 +354,7 @@ func (cc *ChainClient) connectAny() error {
 		return nil
 	}
 	for _, idx := range cc.sortedRPCScores() {
-		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
+		client, chainIDFromRPC, err := cc.connectAt(ctx, idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -411,7 +423,7 @@ func (cc *ChainClient) setActiveClient(idx int, client *ethclient.Client, resetF
 // failover switches to another ready endpoint, EXCLUDING the endpoint that just
 // failed (passed in, not re-read: a concurrent switch could otherwise make the
 // exclusion name a healthy endpoint and put it in cooldown).
-func (cc *ChainClient) failover(exclude int) error {
+func (cc *ChainClient) failoverContext(ctx context.Context, exclude int) error {
 	var lastErr error
 	for _, idx := range cc.sortedRPCScores() {
 		if idx == exclude {
@@ -420,7 +432,7 @@ func (cc *ChainClient) failover(exclude int) error {
 		if !cc.endpointReady(idx, false) {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
+		client, chainIDFromRPC, err := cc.connectAt(ctx, idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -436,7 +448,7 @@ func (cc *ChainClient) failover(exclude int) error {
 		if idx == exclude {
 			continue
 		}
-		client, chainIDFromRPC, err := cc.connectAt(context.Background(), idx)
+		client, chainIDFromRPC, err := cc.connectAt(ctx, idx)
 		if err != nil {
 			cc.recordEndpointFailure(idx)
 			lastErr = err
@@ -544,7 +556,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 	cc.mu.RUnlock()
 
 	if client == nil {
-		if err := cc.connectAny(); err != nil {
+		if err := cc.connectAnyContext(ctx); err != nil {
 			return zero, err
 		}
 		client, activeIdx = cc.activeClientSnapshot()
@@ -583,7 +595,7 @@ func withChainClient[T any](ctx context.Context, cc *ChainClient, op string, fn 
 
 	lastErr := err
 	for attempts := 1; attempts < total; attempts++ {
-		if failoverErr := cc.failover(activeIdx); failoverErr != nil {
+		if failoverErr := cc.failoverContext(ctx, activeIdx); failoverErr != nil {
 			lastErr = failoverErr
 			continue
 		}

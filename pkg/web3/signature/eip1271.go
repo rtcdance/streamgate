@@ -1,14 +1,16 @@
 package signature
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rtcdance/streamgate/pkg/web3/internal/abiutil"
 	"go.uber.org/zap"
 )
@@ -23,63 +25,74 @@ type ContractCaller interface {
 
 type EIP1271Checker struct {
 	caller ContractCaller
-	logger *zap.Logger
 	abi    abi.ABI
 }
 
-func NewEIP1271Checker(caller ContractCaller, logger *zap.Logger) *EIP1271Checker {
-	return &EIP1271Checker{
-		caller: caller,
-		logger: logger,
-		abi:    abiutil.MustParseABI("EIP-1271", EIP1271ABI),
-	}
+func NewEIP1271Checker(caller ContractCaller, _ *zap.Logger) *EIP1271Checker {
+	return &EIP1271Checker{caller: caller, abi: abiutil.MustParseABI("EIP-1271", EIP1271ABI)}
 }
 
-func (c *EIP1271Checker) IsValidSignature(ctx context.Context, contractAddress string, hash [32]byte, signature []byte) (bool, error) {
-	contract := common.HexToAddress(contractAddress)
+// IsValidSignature resolves and rechecks a safe anchor. Clients that cannot
+// supply safe headers are refused; a nil block must never imply latest.
+func (c *EIP1271Checker) IsValidSignature(ctx context.Context, address string, hash [32]byte, signature []byte) (bool, error) {
+	reader, ok := c.caller.(interface {
+		HeaderByNumber(context.Context, *big.Int) (*types.Header, error)
+	})
+	if !ok {
+		return false, ErrWalletDependency
+	}
+	ctx, cancel := context.WithTimeout(ctx, WalletVerificationTimeout)
+	defer cancel()
+	header, err := reader.HeaderByNumber(ctx, big.NewInt(int64(rpc.SafeBlockNumber)))
+	if err != nil || header == nil || header.Number == nil || !header.Number.IsUint64() {
+		return false, ErrWalletDependency
+	}
+	number := new(big.Int).Set(header.Number)
+	valid, err := c.IsValidSignatureAt(ctx, address, hash, signature, number)
+	if err != nil {
+		return false, err
+	}
+	recheck, err := reader.HeaderByNumber(ctx, number)
+	if err != nil || recheck == nil || recheck.Number == nil || recheck.Number.Cmp(number) != 0 || recheck.Hash() != header.Hash() || ctx.Err() != nil {
+		return false, ErrWalletDependency
+	}
+	return valid, nil
+}
 
+// IsValidSignatureAt uses opaque signature bytes at the caller's concrete
+// anchor. It never performs EOA recovery and never retries at latest.
+func (c *EIP1271Checker) IsValidSignatureAt(ctx context.Context, address string, hash [32]byte, signature []byte, number *big.Int) (bool, error) {
+	return c.isValidSignatureAt(ctx, address, hash, signature, number, WalletCallGasLimit)
+}
+
+func (c *EIP1271Checker) isValidSignatureAt(ctx context.Context, address string, hash [32]byte, signature []byte, number *big.Int, gas uint64) (bool, error) {
+	if !common.IsHexAddress(address) || number == nil || number.Sign() < 0 || len(signature) == 0 || len(signature) > MaxWalletSignatureBytes {
+		return false, ErrWalletFormat
+	}
+	if bytes.HasSuffix(signature, wrapped6492Suffix) {
+		return false, ErrWalletUnsupported
+	}
+	if c.caller == nil {
+		return false, ErrWalletDependency
+	}
+	ctx, cancel := context.WithTimeout(ctx, WalletVerificationTimeout)
+	defer cancel()
 	data, err := c.abi.Pack("isValidSignature", hash, signature)
 	if err != nil {
-		return false, fmt.Errorf("failed to pack isValidSignature: %w", err)
+		return false, fmt.Errorf("%w: signature encoding", ErrWalletFormat)
 	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	result, err := c.caller.CallContract(ctx, ethereum.CallMsg{
-		To:   &contract,
-		Data: data,
-	}, nil)
+	contract := common.HexToAddress(address)
+	result, err := walletCall(ctx, c.caller, ethereum.CallMsg{To: &contract, Data: data, Gas: gas}, new(big.Int).Set(number))
 	if err != nil {
-		c.logger.Debug("EIP-1271 isValidSignature call failed",
-			zap.String("contract", contractAddress),
-			zap.Error(err))
-		return false, fmt.Errorf("EIP-1271 call failed: %w", err)
+		return false, err
 	}
-
-	unpacked, err := c.abi.Unpack("isValidSignature", result)
-	if err != nil {
-		c.logger.Debug("EIP-1271 result unpack failed",
-			zap.String("contract", contractAddress),
-			zap.Error(err))
-		return false, fmt.Errorf("failed to unpack isValidSignature result: %w", err)
+	if ctx.Err() != nil {
+		return false, ErrWalletDependency
 	}
-
-	if len(unpacked) == 0 {
-		return false, fmt.Errorf("isValidSignature returned no data")
+	// bytes4 has exactly one ABI word, left-aligned with zero padding.
+	// ABI Unpack alone accepts dirty padding or trailing words in some versions.
+	if len(result) != 32 || !bytes.Equal(result[4:], make([]byte, 28)) {
+		return false, ErrWalletSignature
 	}
-
-	switch v := unpacked[0].(type) {
-	case [4]byte:
-		return v == EIP1271MagicValue, nil
-	case []byte:
-		if len(v) >= 4 {
-			var magic [4]byte
-			copy(magic[:], v[:4])
-			return magic == EIP1271MagicValue, nil
-		}
-		return false, nil
-	default:
-		return false, fmt.Errorf("unexpected type for isValidSignature result: %T", unpacked[0])
-	}
+	return bytes.Equal(result[:4], EIP1271MagicValue[:]), nil
 }

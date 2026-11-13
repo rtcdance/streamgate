@@ -42,6 +42,10 @@ func ValidateSIWEMessage(msg *SIWEMessage, expectedDomain, expectedAddress, expe
 		return fmt.Errorf("SIWE address is not EIP-55 checksummed: got %q, want %q", msg.Address, checksummed)
 	}
 
+	if expectedAddress != "" && !strings.EqualFold(msg.Address, expectedAddress) {
+		return fmt.Errorf("SIWE address mismatch")
+	}
+
 	if expectedDomain != "" && !strings.EqualFold(msg.Domain, expectedDomain) {
 		return fmt.Errorf("SIWE domain mismatch: got %q, want %q", msg.Domain, expectedDomain)
 	}

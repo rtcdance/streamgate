@@ -97,12 +97,11 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-monolith.tar
-          image_id="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
           mkdir -p meta
           python3 scripts/cd/image_identity.py \
             --tag streamgate-monolith:candidate --archive candidate-monolith.tar \
             --revision "${{ github.sha }}" --out meta/monolith.json
+          echo "image_id=$(python3 -c 'import json; print(json.load(open("meta/monolith.json"))["imageID"])')" >> "$GITHUB_OUTPUT"
 
       - name: Upload candidate artifact
         uses: ./.github/actions/evidence-upload
@@ -153,12 +152,11 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-transcoder.tar
-          image_id="$(docker inspect --format '{{.Id}}' streamgate-transcoder:candidate)"
-          echo "image_id=${image_id}" >> "$GITHUB_OUTPUT"
           mkdir -p meta
           python3 scripts/cd/image_identity.py \
             --tag streamgate-transcoder:candidate --archive candidate-transcoder.tar \
             --revision "${{ github.sha }}" --out meta/transcoder.json
+          echo "image_id=$(python3 -c 'import json; print(json.load(open("meta/transcoder.json"))["imageID"])')" >> "$GITHUB_OUTPUT"
 
       - name: Upload candidate artifact
         uses: ./.github/actions/evidence-upload
@@ -212,7 +210,6 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-${{ matrix.service }}.tar
-          image_id="$(docker inspect --format '{{.Id}}' streamgate-${{ matrix.service }}:candidate)"
           mkdir -p meta
           python3 scripts/cd/image_identity.py \
             --tag streamgate-${{ matrix.service }}:candidate --archive candidate-${{ matrix.service }}.tar \
@@ -253,13 +250,9 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-monolith.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded monolith image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
+          python3 scripts/cd/image_identity.py --verify \
+            --tag streamgate-monolith:candidate --archive candidate-monolith.tar \
+            --revision "${{ github.sha }}" --out meta/monolith.json
 
       # The pre-provisioned binary lives on the persistent tool volume
       # (survives runner restarts); hosted runners ignore this step.
@@ -347,13 +340,9 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-transcoder.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-transcoder:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/transcoder.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded transcoder image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
+          python3 scripts/cd/image_identity.py --verify \
+            --tag streamgate-transcoder:candidate --archive candidate-transcoder.tar \
+            --revision "${{ github.sha }}" --out meta/transcoder.json
 
       # The pre-provisioned binary lives on the persistent tool volume
       # (survives runner restarts); hosted runners ignore this step.
@@ -434,13 +423,9 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-${{ matrix.service }}.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-${{ matrix.service }}:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/${{ matrix.service }}.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded ${{ matrix.service }} image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          echo "Scanning candidate ${actual} (commit ${{ github.sha }})"
+          python3 scripts/cd/image_identity.py --verify \
+            --tag streamgate-${{ matrix.service }}:candidate --archive candidate-${{ matrix.service }}.tar \
+            --revision "${{ github.sha }}" --out meta/${{ matrix.service }}.json
 
       # The pre-provisioned binary lives on the persistent tool volume
       # (survives runner restarts); hosted runners ignore this step.

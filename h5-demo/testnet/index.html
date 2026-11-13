@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>StreamGate · Sepolia 测试资产</title>
+<style>body{max-width:850px;margin:40px auto;padding:0 20px;font:16px/1.7 system-ui;color:#18283a;background:#f5f7fa}section{background:white;border:1px solid #dce3eb;border-radius:12px;padding:20px;margin:20px 0}button,input{font:inherit;padding:8px;margin:4px 0}button{cursor:pointer}input{box-sizing:border-box;width:100%}code,pre{overflow-wrap:anywhere;white-space:pre-wrap;font-size:13px}a{color:#1656a3}.operations{display:grid;gap:10px}#status{white-space:pre-wrap}label{display:block}</style></head>
+<body>
+<h1>Sepolia 测试资产</h1>
+<p>MetaMask 控制六笔测试交易。两个部署模式共用同一组资产；每次转移前，先在两个模式完成登录和播放观察。</p>
+<section><p id="candidate">正在核对候选与原始编译归档…</p><p id="account"></p><button id="connect" disabled>连接 MetaMask</button>
+<label for="recipient">独立接收地址 B（只接收 NFT，无需充值 ETH）</label><input id="recipient" placeholder="0x…" autocomplete="off" spellcheck="false">
+<p>上限 8 笔、累计费用预算 0.02 Sepolia ETH，并预留 20% 余量。仅使用测试资产。</p>
+<a href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" target="_blank" rel="noopener noreferrer">Google Ethereum Sepolia faucet</a></section>
+<section><div class="operations">
+<button data-op="deploy-nft" disabled>1 · 部署测试 NFT N</button>
+<button data-op="deploy-wallet" disabled>2 · 部署合约钱包 C（owner=A）</button>
+<button data-op="mint-a" disabled>3 · 为 A mint NFT → 两个模式先完成 EOA 登录和播放</button>
+<button data-op="transfer-a" disabled>4 · A 的 NFT 转给 B → 观察两模式资格撤销</button>
+<button data-op="mint-c" disabled>5 · 为 C mint NFT → 两个模式先完成合约钱包登录和播放</button>
+<button data-op="transfer-c" disabled>6 · C.execute 将 NFT 转给 B → 观察两模式资格撤销</button>
+</div><p>每次交易返回后点击“对账”。UNKNOWN 时从 MetaMask 活动复制原交易 hash，不重发。</p>
+<select id="operation" aria-label="待对账操作"></select><input id="hash" placeholder="仅 UNKNOWN 时填写原交易 0x…hash" aria-label="原交易 hash">
+<button id="reconcile" disabled>只读对账</button><button id="export" disabled>导出交易账本</button>
+<p id="status" role="status" aria-live="polite">尚未准备</p><pre id="ledger"></pre></section>
+<p>本页只准备测试资产。交易 receipt、页面可用均不代表 CW/TN 验收完成。<a href="/">返回登录与播放器</a></p>
+<script src="../vendor/ethers.umd.min.js"></script><script type="module" src="panel.mjs"></script>
+</body></html>

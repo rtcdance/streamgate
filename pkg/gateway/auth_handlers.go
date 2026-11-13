@@ -44,11 +44,12 @@ func RegisterAuthRoutes(router *gin.Engine, log *zap.Logger, cfg *config.Config,
 
 func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, authService.WalletAuthBodyLimit())
 		var req struct {
 			Address  string `json:"address"`
 			Wallet   string `json:"wallet"`
 			ChainID  int64  `json:"chain_id"`
-			SignType string `json:"sign_type" binding:"omitempty,oneof=personal_sign eip712"`
+			SignType string `json:"sign_type" binding:"omitempty,oneof=siwe personal_sign eip712"`
 		}
 		if errs := BindAndValidate(c, &req); errs != nil {
 			abortWithValidationError(c, errs)
@@ -66,6 +67,9 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 		chainID := req.ChainID
 		if chainID == 0 {
 			chainID = cfg.Web3.ChainID
+			if chainID == 0 {
+				chainID = authService.DefaultWalletChainID()
+			}
 		}
 		challenge, err := authService.GenerateWalletChallenge(c.Request.Context(), wallet, chainID, req.SignType)
 		if err != nil {
@@ -86,6 +90,7 @@ func handleAuthChallenge(cfg *config.Config, authService *service.AuthService) g
 
 func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, authService.WalletAuthBodyLimit())
 		var req struct {
 			Address     string `json:"address"`
 			Wallet      string `json:"wallet"`
@@ -104,18 +109,29 @@ func handleAuthLogin(authService *service.AuthService) gin.HandlerFunc {
 		token, err := authService.AuthenticateWithWallet(c.Request.Context(), wallet, req.ChallengeID, req.Signature, req.ChainID)
 		if err != nil {
 			monitoring.AuthOperationsTotal.WithLabelValues("login", "failure").Inc()
-			abortWithErrorDetail(c, http.StatusUnauthorized, ErrUnauthorized, "authentication failed", err.Error())
+			status, code, message := walletAuthError(err)
+			abortWithError(c, status, code, message)
 			return
 		}
 		monitoring.AuthOperationsTotal.WithLabelValues("login", "success").Inc()
 		// Parse token to extract expires_at
 		var expiresAt string
+		kind := ""
+		chainID := int64(0)
 		if claims, err := authService.ParseToken(token); err == nil && claims.ExpiresAt != nil {
 			expiresAt = claims.ExpiresAt.Format(time.RFC3339)
+			wallet = claims.WalletAddress
+			kind = claims.AccountKind
+			chainID = claims.ChainID
 		}
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		c.Header("Pragma", "no-cache")
-		respondOK(c, gin.H{"token": token, "address": wallet, "wallet_address": wallet, "expires_at": expiresAt})
+		response := gin.H{"token": token, "address": wallet, "wallet_address": wallet, "expires_at": expiresAt}
+		if kind != "" {
+			response["account_kind"] = kind
+			response["chain_id"] = chainID
+		}
+		respondOK(c, response)
 	}
 }
 
@@ -159,6 +175,7 @@ func handleAuthRegister(authService *service.AuthService, log *zap.Logger) gin.H
 
 func handleAuthRefresh(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, authService.WalletAuthBodyLimit())
 		var req struct {
 			Token string `json:"token" binding:"required"`
 		}
@@ -176,7 +193,8 @@ func handleAuthRefresh(authService *service.AuthService) gin.HandlerFunc {
 		newToken, err := authService.RefreshToken(c.Request.Context(), req.Token)
 		if err != nil {
 			monitoring.AuthOperationsTotal.WithLabelValues("refresh", "failure").Inc()
-			abortWithError(c, http.StatusUnauthorized, ErrUnauthorized, "token refresh failed")
+			status, code, message := walletAuthError(err)
+			abortWithError(c, status, code, message)
 			return
 		}
 		monitoring.AuthOperationsTotal.WithLabelValues("refresh", "success").Inc()

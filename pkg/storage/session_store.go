@@ -47,6 +47,9 @@ func (m *MemorySessionStore) Create(_ context.Context, sessionID string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, exists := m.sessions[sessionID]; exists {
+		return fmt.Errorf("session already exists: %s", sessionID)
+	}
 	m.sessions[sessionID] = 1
 	return nil
 }
@@ -89,8 +92,12 @@ func NewRedisSessionStore(client *redis.Client) (*RedisSessionStore, error) {
 	return &RedisSessionStore{client: client, ttl: DefaultSessionTTL}, nil
 }
 
-func (r *RedisSessionStore) key(sessionID string) string {
+func sessionStorageKey(sessionID string) string {
 	return "streamgate:session:" + sessionID
+}
+
+func (r *RedisSessionStore) key(sessionID string) string {
+	return sessionStorageKey(sessionID)
 }
 
 func (r *RedisSessionStore) Create(ctx context.Context, sessionID string) error {
@@ -128,16 +135,21 @@ func (r *RedisSessionStore) Bump(ctx context.Context, sessionID string) (int64, 
 	if sessionID == "" {
 		return 0, fmt.Errorf("session id is required")
 	}
-	// Only bump a session that exists: creating one here would turn a revocation
-	// of an unknown session into a live one.
-	if _, ok := r.Epoch(ctx, sessionID); !ok {
-		return 0, fmt.Errorf("session not found: %s", sessionID)
-	}
-	epoch, err := r.client.Incr(ctx, r.key(sessionID)).Result()
+	// Check and increment atomically. GET followed by INCR could recreate a
+	// session at epoch 1 if expiry/deletion happened between the commands.
+	epoch, err := bumpExistingSession.Run(ctx, r.client, []string{r.key(sessionID)}, r.ttl.Milliseconds()).Int64()
 	if err != nil {
 		return 0, fmt.Errorf("failed to bump session epoch: %w", err)
 	}
-	// Keep the record alive for as long as its credentials could be.
-	_ = r.client.Expire(ctx, r.key(sessionID), r.ttl).Err()
+	if epoch <= 0 {
+		return 0, fmt.Errorf("session not found: %s", sessionID)
+	}
 	return epoch, nil
 }
+
+var bumpExistingSession = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if not current or not tonumber(current) or tonumber(current) < 1 then return 0 end
+local epoch = redis.call('INCR', KEYS[1])
+redis.call('PEXPIRE', KEYS[1], ARGV[1])
+return epoch`)

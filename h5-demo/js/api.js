@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE = 'http://localhost:18000';
-const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '28080', '29091']);
+const ACCEPTANCE_BACKEND_PORTS = new Set(['18080', '18000', '18001', '19090', '28080', '29091', '18500', '18501']);
 
 function normalizeBaseUrl(url) {
     return url.replace(/\/$/, '');
@@ -92,7 +92,8 @@ class APIService {
                 const errDetail = data?.details ? ` (${data.details})` : data?.detail ? ` (${data.detail})` : '';
                 const err = new Error(errMsg + errDetail);
                 err.status = response.status;
-                if (response.status === 401) {
+                err.code = data?.code || data?.error?.code || '';
+                if (response.status === 401 && this.getAuthToken() === token) {
                     this.clearAuthToken();
                 }
                 throw err;
@@ -144,29 +145,16 @@ class APIService {
     }
 
     async ensureReachable() {
-        try {
-            return await this.healthCheck();
-        } catch (error) {
-            if (this.baseUrl !== DEFAULT_API_BASE) {
-                const previousBase = this.baseUrl;
-                this.baseUrl = DEFAULT_API_BASE;
-                try {
-                    const result = await this.healthCheck();
-                    localStorage.setItem('streamgate_api_base', this.baseUrl);
-                    return {
-                        ...result,
-                        recovered_from: previousBase,
-                    };
-                } catch (fallbackError) {
-                    this.baseUrl = previousBase;
-                    throw fallbackError;
-                }
-            }
-            throw error;
-        }
+        // Backend selection is part of the wallet's network/identity boundary.
+        // A failed Sepolia endpoint must never silently become a local demo.
+        return this.healthCheck();
     }
 
-    async getChallenge(walletAddress, chainId = 31337, signType = 'eip712') {
+    async refreshToken(token) {
+        return this.post('/api/v1/auth/refresh', { token });
+    }
+
+    async getChallenge(walletAddress, chainId = 0, signType = 'siwe') {
         return this.post('/api/v1/auth/challenge', {
             wallet: walletAddress,
             chain_id: chainId,
@@ -179,7 +167,7 @@ class APIService {
             wallet: walletAddress,
             challenge_id: challengeId,
             signature: signature,
-            chain_id: chainId || 31337,
+            chain_id: chainId,
         });
     }
 

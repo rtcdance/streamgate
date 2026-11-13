@@ -107,7 +107,7 @@ func (r *RedisChallengeStore) GetChallenge(ctx context.Context, id string) (*Wal
 	data, err := r.client.Get(ctx, id).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, fmt.Errorf("challenge not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", ErrChallengeNotFound, id)
 		}
 		return nil, fmt.Errorf("failed to get challenge: %w", err)
 	}

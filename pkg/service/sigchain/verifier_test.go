@@ -7,6 +7,7 @@ import (
 
 	"github.com/rtcdance/streamgate/pkg/service/serviceerrors"
 	"github.com/rtcdance/streamgate/pkg/web3"
+	"github.com/rtcdance/streamgate/pkg/web3/signature"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,4 +129,11 @@ func TestMultiChainSignatureVerifier_VerifyOffchainMessage(t *testing.T) {
 
 func TestMultiChainSignatureVerifier_InterfaceCompliance(t *testing.T) {
 	var _ web3.SolanaSigner = &mockSolanaSigner{}
+}
+
+func TestMultiChainSignatureVerifier_ProofNeedsConfiguredChain(t *testing.T) {
+	v := NewMultiChainSignatureVerifier(zap.NewNop(), nil)
+	proof, err := v.VerifyWalletProof(context.Background(), 31337, "siwe", "0x1234567890123456789012345678901234567890", "message", "0x01")
+	require.Nil(t, proof)
+	require.ErrorIs(t, err, signature.ErrWalletDependency)
 }

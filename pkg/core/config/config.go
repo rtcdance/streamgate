@@ -401,6 +401,7 @@ type MonitoringConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
+	ContractWallet     ContractWalletConfig
 	JWTSecret          string
 	JWTExpiry          string
 	RefreshTokenExpiry string
@@ -474,6 +475,9 @@ func LoadConfig() (*Config, error) {
 	viper.SetEnvPrefix("")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
+	for _, name := range []string{"lease_ttl", "proof_max_age", "clock_skew", "absolute_session_ttl", "max_signature_bytes", "max_body_bytes", "call_gas_limit", "verification_timeout"} {
+		_ = viper.BindEnv("auth.contract_wallet."+name, "STREAMGATE_AUTH_CONTRACT_WALLET_"+strings.ToUpper(name), "AUTH_CONTRACT_WALLET_"+strings.ToUpper(name))
+	}
 
 	// Database — STREAMGATE_DB_* (legacy DATABASE_* also supported)
 	_ = viper.BindEnv("database.host", "STREAMGATE_DB_HOST")
@@ -549,6 +553,13 @@ func LoadConfig() (*Config, error) {
 
 	// CORS
 	_ = viper.BindEnv("cors.allowed_origins", "STREAMGATE_CORS_ORIGINS")
+
+	// SIWE page binding (W3-06 testnet profile): the SIWE domain/URI must name
+	// the origin the H5 is actually served from, so it is deployment input, not
+	// a repo-tracked value. Explicitly bound so AutomaticEnv's key derivation
+	// is not the only path to a security-relevant origin decision.
+	_ = viper.BindEnv("auth.siwe_domain", "STREAMGATE_SIWE_DOMAIN")
+	_ = viper.BindEnv("auth.siwe_uri", "STREAMGATE_SIWE_URI")
 
 	configPaths := []string{"./config", "."}
 
@@ -730,6 +741,16 @@ func LoadConfig() (*Config, error) {
 		},
 
 		Auth: AuthConfig{
+			ContractWallet: ContractWalletConfig{
+				LeaseTTL:            viper.GetDuration("auth.contract_wallet.lease_ttl"),
+				ProofMaxAge:         viper.GetDuration("auth.contract_wallet.proof_max_age"),
+				ClockSkew:           viper.GetDuration("auth.contract_wallet.clock_skew"),
+				AbsoluteSessionTTL:  viper.GetDuration("auth.contract_wallet.absolute_session_ttl"),
+				VerificationTimeout: viper.GetDuration("auth.contract_wallet.verification_timeout"),
+				MaxSignatureBytes:   viper.GetInt("auth.contract_wallet.max_signature_bytes"),
+				MaxBodyBytes:        viper.GetInt64("auth.contract_wallet.max_body_bytes"),
+				CallGasLimit:        viper.GetInt64("auth.contract_wallet.call_gas_limit"),
+			},
 			JWTSecret:                 viper.GetString("auth.jwt_secret"),
 			JWTExpiry:                 viper.GetString("auth.jwt_expiry"),
 			RefreshTokenExpiry:        viper.GetString("auth.refresh_token_expiry"),
@@ -774,6 +795,23 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	if err := applySepoliaInputs(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Environment == "w3sepolia" {
+		// Upload hooks consume Transcode.Profiles, not Transcoding.Qualities.
+		// Scope this mapping to the public demo so existing ABR acceptance is unchanged.
+		cfg.Transcode.Profiles = splitCommaSlice(viper.GetStringSlice("transcode.profiles"))
+		if err := validateSepoliaProfile(cfg); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.Environment == "w3sepolia-worker" {
+		if err := validateSepoliaWorkerProfile(cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
 		return nil, fmt.Errorf("invalid server port: %d", cfg.Server.Port)
 	}
@@ -812,6 +850,13 @@ func LoadConfig() (*Config, error) {
 		if strings.TrimSpace(cfg.Acceptance.FaultBarrierDir) == "" {
 			return nil, fmt.Errorf("acceptance.fault_barrier_dir is required when the fault barrier is enabled")
 		}
+	}
+
+	if err := validateContractWalletInput(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Auth.ContractWallet.Validate(); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
@@ -968,6 +1013,15 @@ func setDefaults() {
 	viper.SetDefault("features.clock_skew", DefaultClockSkew.String())
 
 	// Auth defaults: must set via AUTH_JWT_SECRET env var
+	walletDefaults := DefaultContractWalletConfig()
+	viper.SetDefault("auth.contract_wallet.lease_ttl", walletDefaults.LeaseTTL.String())
+	viper.SetDefault("auth.contract_wallet.proof_max_age", walletDefaults.ProofMaxAge.String())
+	viper.SetDefault("auth.contract_wallet.clock_skew", walletDefaults.ClockSkew.String())
+	viper.SetDefault("auth.contract_wallet.absolute_session_ttl", walletDefaults.AbsoluteSessionTTL.String())
+	viper.SetDefault("auth.contract_wallet.verification_timeout", walletDefaults.VerificationTimeout.String())
+	viper.SetDefault("auth.contract_wallet.max_signature_bytes", walletDefaults.MaxSignatureBytes)
+	viper.SetDefault("auth.contract_wallet.max_body_bytes", walletDefaults.MaxBodyBytes)
+	viper.SetDefault("auth.contract_wallet.call_gas_limit", walletDefaults.CallGasLimit)
 	viper.SetDefault("auth.jwt_secret", "")
 	viper.SetDefault("auth.nonce_expiry", "5m")
 	// Key separation defaults: empty means "derive" — the access key falls
@@ -1343,6 +1397,9 @@ func (c *Config) ValidateProduction(log *zap.Logger) error {
 
 	c.validateProductionDeps(&ve)
 	c.validateRuntimeWindows(&ve)
+	if err := c.Auth.ContractWallet.Validate(); err != nil {
+		ve.Critical = append(ve.Critical, err.Error())
+	}
 	c.validateKeyPolicy(&ve)
 
 	if c.Storage.AccessKey == "minioadmin" || c.Storage.SecretKey == "minioadmin" { // #nosec G101 -- checking for insecure default
@@ -1597,6 +1654,7 @@ func DefaultConfig() *Config {
 		},
 
 		Auth: AuthConfig{
+			ContractWallet:     DefaultContractWalletConfig(),
 			JWTSecret:          envOr("STREAMGATE_JWT_SECRET", ""),
 			JWTExpiry:          "2h",
 			RefreshTokenExpiry: "168h",
@@ -1864,6 +1922,17 @@ func (cm *ConfigManager) Watch(ctx context.Context, interval time.Duration) erro
 
 // splitCommaSlice splits any string elements within the slice by comma,
 // trims leading/trailing whitespace, and ignores empty entries.
+// firstNonEmpty returns the first value that is non-empty after trimming, or
+// the empty string when every value is blank.
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func splitCommaSlice(slice []string) []string {
 	var result []string
 	for _, item := range slice {

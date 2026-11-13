@@ -161,6 +161,18 @@ func (p *Point) releasePath() string {
 	return filepath.Join(p.barrier.dir, p.name+releaseSuffix)
 }
 
+// publishFile writes data and moves it onto path with one rename, so a reader
+// that polls for the path's existence (Reached, WaitReached, the component's
+// release wait) can never observe the file between create and write and act on
+// a zero-byte marker.
+func publishFile(path string, data []byte) error {
+	publishing := path + ".publishing"
+	if err := os.WriteFile(publishing, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(publishing, path)
+}
+
 // Arrive announces that the component reached this point and waits for the
 // harness to release it. It is a no-op when no barrier is configured, and also
 // when this point is not armed — a scenario only stops where it asked to.
@@ -194,7 +206,7 @@ func (p *Point) ArriveFor(ctx context.Context, subject string) error {
 	if subject != "" {
 		marker = strings.TrimSuffix(marker, "\n") + " " + subject + "\n"
 	}
-	if err := os.WriteFile(p.reachedPath(), []byte(marker), 0o644); err != nil {
+	if err := publishFile(p.reachedPath(), []byte(marker)); err != nil {
 		return fmt.Errorf("fault barrier %s: cannot publish the reached marker: %w", p.name, err)
 	}
 	defer func() { _ = os.Remove(p.reachedPath()) }()
@@ -245,7 +257,7 @@ func (b *Barrier) Arm(name string) error {
 			return fmt.Errorf("fault barrier %s: cannot clear %s: %w", name, path, err)
 		}
 	}
-	if err := os.WriteFile(p.armedPath(), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+	if err := publishFile(p.armedPath(), []byte(fmt.Sprintf("%d\n", os.Getpid()))); err != nil {
 		return fmt.Errorf("fault barrier %s: cannot arm: %w", name, err)
 	}
 	return nil
@@ -323,7 +335,7 @@ func (p *Point) Release() error {
 	if p == nil {
 		return errors.New("fault barrier: no barrier is configured for this point")
 	}
-	if err := os.WriteFile(p.releasePath(), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+	if err := publishFile(p.releasePath(), []byte(fmt.Sprintf("%d\n", os.Getpid()))); err != nil {
 		return fmt.Errorf("fault barrier %s: cannot write the release marker: %w", p.name, err)
 	}
 	return nil

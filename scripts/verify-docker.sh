@@ -216,6 +216,8 @@ run_in_image() {
   local tool_env=()
   [ -n "${GOMAXPROCS:-}" ] && tool_env+=(-e "GOMAXPROCS=${GOMAXPROCS}")
   [ -n "${GOFLAGS:-}" ] && tool_env+=(-e "GOFLAGS=${GOFLAGS}")
+  [ -n "${W3_RESTORE_BARRIER:-}" ] && tool_env+=(-e "W3_RESTORE_BARRIER=${W3_RESTORE_BARRIER}")
+  [ -n "${VERIFY_SOURCE_REVISION:-}" ] && tool_env+=(-e "W3_CANDIDATE_SHA=${VERIFY_SOURCE_REVISION}")
   mkdir -p "$LOG_DIR"
   if docker network inspect "${PROJECT_NAME}_default" >/dev/null 2>&1; then
     net_args=(--network "${PROJECT_NAME}_default")
@@ -309,6 +311,23 @@ stage_unit() {
   run_in_image unit '
     set -euo pipefail
     python3 scripts/cd/test_assert_required_tests.py
+    python3 scripts/cd/test_wallet_network_preflight.py
+    python3 scripts/cd/test_wallet_deployment_manifest.py
+    python3 scripts/cd/test_wallet_testnet_verifier.py
+    python3 scripts/cd/test_assert_wallet_browser.py
+    python3 scripts/cd/test_wallet_restore_control.py
+    python3 scripts/cd/test_wallet_sepolia_compose.py
+    python3 scripts/cd/test_wallet_stack_prepare.py
+    python3 scripts/cd/test_unit_evidence_capture.py
+    python3 scripts/cd/test_wallet_transaction_oracle.py
+    python3 scripts/cd/test_ci_provenance.py
+    python3 scripts/cd/test_wallet_helper.py
+    python3 scripts/cd/test_wallet_phase_evidence.py
+    python3 scripts/cd/test_public_controls.py
+    python3 scripts/cd/test_wallet_control_collector.py
+    python3 scripts/cd/test_web3_extension.py
+    python3 scripts/cd/test_wallet_runtime.py
+    python3 scripts/cd/test_wallet_stack_launch.py
     # The required-fuzz contract runner is itself a gate: CI calls it, and the
     # final candidate entrypoint must cover the same contract or a candidate could
     # be accepted here while the fuzz gate that CI enforces never ran (section 0.2 D).
@@ -334,6 +353,20 @@ stage_unit() {
     python3 scripts/cd/test_recovery_objects.py
     python3 scripts/cd/test_recovery_drill.py
     go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
+    node scripts/cd/test_h5_contract_wallet.cjs
+    node scripts/cd/test_h5_wallet_sepolia_tool.cjs
+    node scripts/cd/test_wallet_phase_network.cjs
+    node scripts/cd/test_wallet_cua_network.cjs
+    node scripts/cd/test_wallet_cua_bridge.cjs
+    node scripts/cd/test_wallet_cua_session.cjs
+    node scripts/cd/test_wallet_cua_filter.cjs
+    node scripts/cd/test_wallet_cua_peer.cjs
+    node scripts/cd/test_wallet_cua_control_contract.cjs
+    node scripts/cd/test_wallet_cua_control_session.cjs
+    node scripts/cd/test_wallet_file_rpc.cjs
+    node scripts/cd/test_wallet_public_controls.cjs
+    node scripts/cd/test_h5_sepolia_fixture.cjs
+    node scripts/cd/test_sepolia_browser_evidence.cjs
     node scripts/cd/test_h5_api_base.cjs
     node scripts/cd/test_browser_preflight.cjs
     node scripts/cd/test_h5_probe_errors.cjs
@@ -354,6 +387,8 @@ stage_unit() {
     # build and only explodes in the chain stage ten minutes later. Vet each tag
     # here, where the feedback is immediate and the cause is obvious.
     go vet -tags anvil ./test/... ./pkg/...
+    go vet -tags anvil,integration ./test/integration/web3/
+    go vet -tags anvil,integration,fullchain ./test/integration/web3/
     go vet -tags load ./test/load/
     go vet -tags testnet ./test/...
     go vet -tags e2e ./test/e2e/
@@ -380,8 +415,7 @@ stage_unit() {
     # -count=1 is load-bearing: with a shared GOCACHE a cached PASS is a
     # stored test result, and this stage must re-execute the suites rather
     # than replay a verdict from an earlier run.
-    go test -race -count=1 -covermode=atomic -coverprofile=/artifacts/coverage.out \
-      $(./scripts/ci-packages.sh | grep -v '^github.com/rtcdance/streamgate/test/performance$')
+    bash scripts/cd/run_unit_tests.sh /artifacts
     go test -race -count=1 -p 1 ./test/performance
     ./scripts/check-coverage.sh /artifacts/coverage.out "${COVERAGE_MIN:-60}"
     echo "== coverage gate self-test (the gate must be able to fail) =="
@@ -390,12 +424,25 @@ stage_unit() {
 }
 
 stage_chain() {
+  require_controller_tool docker
+  local redis_image
+  redis_image="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" config --format json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["redis"]["image"])')" || fail "cannot resolve scratch Redis image"
+  ensure_runtime_image "$redis_image"
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 redis \
+    || fail "could not start scratch Redis"
   run_in_image chain '
     set -euo pipefail
     echo "== forge build =="
     ( cd contracts && forge build )
     echo "== forge test =="
     ( cd contracts && forge test )
+    oracle_rc=0
+    W3_ORACLE_ARTIFACT_DIR=/artifacts/wallet-oracle-anvil \
+      python3 scripts/cd/test_wallet_transaction_oracle_anvil.py > /artifacts/wallet-oracle-anvil.log 2>&1 || oracle_rc=$?
+    printf "%s\n" "$oracle_rc" > /artifacts/wallet-oracle-anvil.exit
+    cat /artifacts/wallet-oracle-anvil.log
+    [ "$oracle_rc" = 0 ] || exit "$oracle_rc"
     echo "== anvil integration + web3 service tests =="
     # `./test/integration/` (the package root) carries the Anvil suites that prove
     # the deployment IDENTITY — the ContentRegistry roundtrip, the refusals for an
@@ -403,7 +450,18 @@ stage_chain() {
     # were reachable only by a hand-typed command; the default build excludes them
     # (anvil build tag) and the coverage set reaches the package WITHOUT that tag,
     # so both gates walked past them.
-    go test -tags=anvil -race -count=1 ./test/integration/ ./test/integration/web3/... ./pkg/service/...
+    go_test_rc=0
+    # The checker requires every streamed package to complete "pass" while
+    # `go test -json` ends no-test-file packages (pkg/service/serviceerrors)
+    # with a package-level "skip". Stream only packages that carry tests; the
+    # same -tags=anvil keeps anvil-only test files counted here.
+    anvil_packages="$(go list -tags=anvil -f "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}" ./test/integration/ ./test/integration/web3/... ./pkg/service/...)"
+    if [ -z "$anvil_packages" ]; then echo "✗ no anvil-tagged packages selected for the required chain gate" >&2; exit 1; fi
+    go test -tags=anvil -race -count=1 -json $anvil_packages \
+      > /artifacts/anvil-tests.json || go_test_rc=$?
+    printf "%s\n" "$go_test_rc" > /artifacts/anvil-tests.exit
+    python3 scripts/cd/assert_required_tests.py --suite wallet-account-tests --exit-code "$go_test_rc" /artifacts/anvil-tests.json
+    W3_REDIS_ADDR=redis:6379 bash scripts/cd/run_wallet_session_tests.sh /artifacts
   '
 }
 
@@ -426,6 +484,16 @@ stage_durability() {
   ensure_runtime_image "$pg_image"
   docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 postgres \
     || fail "could not start the scratch Postgres"
+  # Scratch Redis for the required wallet-proof durability suite (plan §10
+  # W3-05 / CW-12): the same pinned image the CI durability job provides, so
+  # the storage contract runs against a real server, not the miniredis Lua
+  # simulation.
+  local redis_image
+  redis_image="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" config --format json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["redis"]["image"])')" || fail "cannot resolve scratch Redis image"
+  ensure_runtime_image "$redis_image"
+  docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" up -d --pull never --wait --wait-timeout 120 redis \
+    || fail "could not start scratch Redis"
   # The toolchain image ships no psql, so the scratch database is provisioned
   # from the host through the project's postgres container; the tests then
   # reach it by service name over the project network.
@@ -438,6 +506,12 @@ stage_durability() {
   docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" exec -T postgres \
     psql -U postgres -d postgres -c "CREATE DATABASE streamgate_durability" \
     || fail "could not create the scratch database"
+  local barrier stage_pid stage_rc=0 control_rc=1 pg_container
+  mkdir -p -m 700 "$ARTIFACT_DIR/.private"
+  barrier="$(mktemp -d "$ARTIFACT_DIR/.private/wallet-restore.XXXXXX")"
+  local -x W3_RESTORE_BARRIER="/artifacts/.private/$(basename "$barrier")"
+  pg_container="$(docker compose -p "$PROJECT_NAME" -f "$COMPOSE_FILE" ps -q postgres)"
+  [ -n "$pg_container" ] || fail "scratch Postgres identity is missing"
   run_in_image durability '
     set -euo pipefail
     export STREAMGATE_TEST_DB_DSN="postgres://postgres:postgres@postgres:5432/streamgate_durability?sslmode=disable"
@@ -463,7 +537,33 @@ stage_durability() {
     python3 scripts/cd/assert_required_tests.py \
       --suite durability-anvil --exit-code "$go_test_rc" \
       /artifacts/durability-anvil.json
-  '
+    echo "== wallet-proof store on a real Redis (plan §10 CW-12) =="
+    W3_REDIS_ADDR=redis:6379 bash scripts/cd/run_wallet_session_durability_tests.sh /artifacts
+    echo "== real CW admission across scratch Postgres dump/restore =="
+    go_test_rc=0
+    W3_REDIS_ADDR=redis:6379 go test -race -count=1 -p 2 -timeout 2m \
+      -tags=anvil,integration,fullchain -run "^TestCWSession_RealPostgresRestore$" -json \
+      ./test/integration/web3 > /artifacts/wallet-postgres-restore.json || go_test_rc=$?
+    printf "%s\n" "$go_test_rc" > /artifacts/wallet-postgres-restore.exit
+    python3 scripts/cd/assert_required_tests.py --suite wallet-postgres-restore-tests \
+      --exit-code "$go_test_rc" /artifacts/wallet-postgres-restore.json
+  ' &
+  stage_pid=$!
+  # Observe valid active compilation/tests without restarting them. The Go
+  # test bounds the live-credential barrier; SQL control runs exactly once.
+  while kill -0 "$stage_pid" 2>/dev/null; do
+    if [ -f "$barrier/ready.json" ]; then
+      control_rc=0
+      python3 scripts/cd/wallet_restore_control.py --barrier "$barrier" \
+        --postgres "$pg_container" --project "$PROJECT_NAME" --candidate "$VERIFY_SOURCE_REVISION" \
+        --output "$ARTIFACT_DIR/wallet-postgres-restore-control.json" || control_rc=$?
+      break
+    fi
+    sleep 1
+  done
+  wait "$stage_pid" || stage_rc=$?
+  [ "$stage_rc" = 0 ] || return "$stage_rc"
+  [ "$control_rc" = 0 ] || fail "required live CW Postgres restore control did not complete"
 }
 
 # ---------------------------------------------------------------------------
@@ -887,17 +987,33 @@ PYPORTS
 # a gateway). The H5 page comes from the per-run nginx proxy above, whose /api
 # upstream is switched to the mode under test.
 run_fullchain() {
-  local project="$1" mono_port="$2" gw_port="$3" anvil_port="$4" minio_port="$5" rc=0
+  local project="$1" mono_port="$2" gw_port="$3" anvil_port="$4" minio_port="$5" wallet_matrix="${6:-0}" rc=0
   require_controller_tool curl
   require_controller_tool python3
   require_controller_tool cast
   require_controller_tool ffmpeg
   require_controller_tool timeout
   ensure_playwright
+  if [ "$wallet_matrix" = 1 ]; then
+    ( cd contracts && forge build ) || fail "wallet fixture contract compilation failed"
+    python3 scripts/wallet-testnet/deployment_manifest.py export-build \
+      --candidate "$VERIFY_SOURCE_REVISION" --output "$ARTIFACT_DIR/wallet-build/build-identity.json" \
+      || fail "candidate wallet compilation archive failed"
+    local observer_rc=0
+    node --test scripts/h5-demo-acceptance/wallet-sepolia-cdp-contract.mjs \
+      > "$ARTIFACT_DIR/wallet-observer-contract.log" 2>&1 || observer_rc=$?
+    printf '%s\n' "$observer_rc" > "$ARTIFACT_DIR/wallet-observer-contract.exit"
+    [ "$observer_rc" = 0 ] || fail "public wallet observer tool contract failed"
+  fi
   local common_env=(
     PG_CONTAINER="${project}-postgres-1"
     REDIS_CONTAINER="${project}-redis-1"
     TC="${project}-transcoder-1"
+    W3_REQUIRED_MEDIA="$wallet_matrix"
+    W3_CANDIDATE_SHA="$VERIFY_SOURCE_REVISION"
+    W3_EVIDENCE_CONTEXT=CANDIDATE
+    W3_GRPC_EXPORT_DIR="$ARTIFACT_DIR/wallet-build"
+    W3_BROWSER_EXPORT_DIR="$ARTIFACT_DIR/wallet-browser"
     ANVIL_URL="http://localhost:${anvil_port}"
     ANVIL_BASE="http://localhost:${anvil_port}"
     MINIO_LIVENESS_URL="http://localhost:${minio_port}/minio/health/live"
@@ -982,8 +1098,10 @@ bring_up_fullstack() {
   start_project_front "$project"
   # The H5 browser origin is a dynamic localhost secure context.
   VERIFY_CORS_ORIGINS="http://localhost:${VERIFY_MONO_PORT},http://localhost:${VERIFY_H5_PORT}"
+  VERIFY_SIWE_DOMAIN="localhost:${VERIFY_H5_PORT}"
+  VERIFY_SIWE_URI="http://localhost:${VERIFY_H5_PORT}/login"
   export VERIFY_MONO_PORT VERIFY_GW_PORT VERIFY_MINIO_PORT VERIFY_ANVIL_PORT \
-    VERIFY_IMAGE_PREFIX VERIFY_CORS_ORIGINS
+    VERIFY_IMAGE_PREFIX VERIFY_CORS_ORIGINS VERIFY_SIWE_DOMAIN VERIFY_SIWE_URI
   log "project ${project} ports: monolith=${VERIFY_MONO_PORT} gateway=${VERIFY_GW_PORT} minio=${VERIFY_MINIO_PORT} anvil=${VERIFY_ANVIL_PORT}"
   prebuild_verify_stack "$project"
   # Split the requested services: infra first (migrations need Postgres), app
@@ -1059,7 +1177,7 @@ stage_media() {
   require_controller_tool docker
   local project="${PROJECT_NAME}-media"
   bring_up_fullstack "$project"
-  run_logged media run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_GW_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT"
+  run_logged media run_fullchain "$project" "$VERIFY_MONO_PORT" "$VERIFY_GW_PORT" "$VERIFY_ANVIL_PORT" "$VERIFY_MINIO_PORT" 1
   teardown_fullstack "$project"
 }
 

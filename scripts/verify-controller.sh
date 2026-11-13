@@ -159,6 +159,22 @@ if [ "$frozen_requested" = 1 ]; then
     # Git refuses the "file" transport for submodules by default (CVE-2022-39253).
     # The URL was set on the line above to a checkout we control, so allowing it
     # here keeps the population offline instead of fetching from GitHub.
+    git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --quiet \
+      || { echo "could not populate the frozen source top-level submodules" >&2; exit 1; }
+    # The superproject's URL overrides do not reach submodule-level .gitmodules
+    # files: openzeppelin's nested libs (erc4626-tests, forge-std, halmos) would
+    # still clone from GitHub, and the cross-border egress killed three
+    # acceptance attempts at exactly that clone (2026-11-09, run 42504506447
+    # attempts 3/6/7). Rewrite every nested submodule URL to the local checkout
+    # the same way as the top level, then finish the recursion offline.
+    while IFS= read -r gitmodules; do
+      base="${gitmodules#"$FROZEN_SOURCE"/}"; base="${base%/.gitmodules}"
+      while read -r _ sub; do
+        [ -n "$sub" ] || continue
+        [ -d "$SOURCE_REPO/$base/$sub" ] || continue
+        git -C "$FROZEN_SOURCE/$base" config "submodule.$sub.url" "$SOURCE_REPO/$base/$sub" || exit 1
+      done < <(git -C "$FROZEN_SOURCE/$base" config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null)
+    done < <(find "$FROZEN_SOURCE" -name .gitmodules -not -path '*/.git/*')
     git -C "$FROZEN_SOURCE" -c protocol.file.allow=always submodule update --init --recursive --quiet \
       || { echo "could not populate the frozen source submodules" >&2; exit 1; }
   fi
@@ -206,18 +222,49 @@ cleanup() {
   docker rm -f "$VERIFY_CONTROLLER" >/dev/null 2>&1 || :
   # If the controller was killed before its EXIT trap, remove only this run's
   # labelled resources. Other projects and their persistent volumes are untouched.
+  # Every silenced removal names itself on failure, and only counts as a
+  # failure when its target actually survives: "already gone" achieved the
+  # release postcondition. The trap previously flipped a green verification
+  # (original exit=0) without leaving a trace of which silenced command failed.
   local ids
-  ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker rm -f $ids >/dev/null 2>&1 || cleanup_rc=1; fi
-  ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker volume rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
-  ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; cleanup_rc=1; }
-  if [ -n "$ids" ]; then docker network rm $ids >/dev/null 2>&1 || cleanup_rc=1; fi
+  ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: container listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker rm -f $ids >/dev/null 2>&1 || :
+    ids="$(docker ps -aq --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run containers survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
+  ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: volume listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker volume rm $ids >/dev/null 2>&1 || :
+    ids="$(docker volume ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run volumes survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
+  ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids=""; echo 'verify-controller cleanup: network listing failed' >&2; cleanup_rc=1; }
+  if [ -n "$ids" ]; then
+    docker network rm $ids >/dev/null 2>&1 || :
+    ids="$(docker network ls -q --filter "label=com.streamgate.verify.run=${VERIFY_PROJECT}" --filter label=com.docker.compose.project)" || { ids='listing-failed'; }
+    if [ -n "$ids" ]; then
+      echo "verify-controller cleanup: run networks survive removal: $ids" >&2
+      cleanup_rc=1
+    fi
+  fi
   # Release the daemon lock only if this run created it; a takeover or a failed
   # acquire must not remove someone else's lock. The exit code is preserved
   # above, so a cleanup failure can never turn a cancelled run into a pass.
+  # A lock that is already gone was released; only one that still exists
+  # afterwards is a cleanup failure.
   if [ "${MUTEX_OWNER:-0}" = 1 ]; then
-    docker network rm "$MUTEX_NAME" >/dev/null 2>&1 || cleanup_rc=1
+    if ! docker network rm "$MUTEX_NAME" >/dev/null 2>&1 \
+       && docker network inspect "$MUTEX_NAME" >/dev/null 2>&1; then
+      echo "verify-controller cleanup: acceptance lock ${MUTEX_NAME} could not be released" >&2
+      cleanup_rc=1
+    fi
   fi
   # The frozen clone is reproducible from the recorded revision; keeping ~900MB
   # of it per run would only make the artifacts directory unmanageable.
@@ -240,7 +287,11 @@ cleanup() {
     fi
     for worktree in "$VERIFY_ARTIFACTS"/.private/reference-build.*; do
       [ -d "$worktree" ] || continue
-      git worktree remove --force "$worktree" >/dev/null 2>&1 || cleanup_rc=1
+      git worktree remove --force "$worktree" >/dev/null 2>&1 || :
+      if [ -d "$worktree" ]; then
+        echo "verify-controller cleanup: reference worktree survives removal: $worktree" >&2
+        cleanup_rc=1
+      fi
     done
     rm -f -- "$VERIFY_ARTIFACTS/perf-loader.test" || cleanup_rc=1
     rm -rf -- "$VERIFY_ARTIFACTS/.private" || cleanup_rc=1

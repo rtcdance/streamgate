@@ -651,6 +651,32 @@ deploy-logs:
 # host Go / Foundry / Node toolchain. Stages: unit | chain | durability | ops |
 # media | recovery | perf | release | all. Stages not yet implemented fail
 # loudly.
+.PHONY: verify-wallets-anvil
+verify-wallets-anvil:
+	@VERIFY_STAGE=chain scripts/verify-docker.sh
+
+# ─── Sepolia public-testnet entries (plan §10 W3-06) ──────────
+# Strict read-only preflight: two qualified HTTPS endpoints are REQUIRED.
+# Endpoint values come from the environment (SEPOLIA_RPC_URL /
+# SEPOLIA_RPC_FALLBACK_URL, legacy SEPOLIA_RPC for the primary) and are never
+# echoed. Missing endpoints exit nonzero with a BLOCKED report — a single
+# endpoint or an unqualified network is never accepted.
+.PHONY: verify-web3-testnet-preflight
+verify-web3-testnet-preflight:
+	@python3 scripts/wallet-testnet/verify_web3_testnet.py --stage preflight
+
+# Read-only acceptance/collaboration entry: preflight + deployment manifest
+# verification + H5 readiness checks. It never signs, broadcasts, claims
+# faucet funds or approves wallet transactions; user-operated steps are
+# reported as BLOCKED until the user performs them.
+# Inputs: W3_SEPOLIA_ADDRESS, W3_SEPOLIA_RECIPIENT, W3_CANDIDATE_SHA,
+# W3_BUILD_IDENTITY, W3_DEPLOYMENT_MANIFEST, W3_H5_ORIGIN.
+# Network-only success is NETWORK_READY.
+# With W3_EVIDENCE_DIR, delegate to the frozen fixed CW/TN closeout verifier.
+.PHONY: verify-web3-testnet
+verify-web3-testnet:
+	@python3 scripts/wallet-testnet/verify_web3_testnet.py
+
 .PHONY: verify-docker
 verify-docker:
 	@VERIFY_STAGE="$(if $(VERIFY_STAGE),$(VERIFY_STAGE),all)" scripts/verify-docker.sh

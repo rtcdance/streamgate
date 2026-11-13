@@ -35,6 +35,12 @@ test('known acceptance port corrects the historical stale backend', () => {
     assert.equal(infer('http://localhost:29091/demo/', 'http://localhost:18000'), 'http://localhost:29091');
 });
 
+for (const port of ['18500', '18501']) {
+    test(`Sepolia ${port} cannot silently reuse the old Anvil backend`, () => {
+        assert.equal(infer(`http://localhost:${port}/`, 'http://localhost:18000'), `http://localhost:${port}`);
+    });
+}
+
 test('file preview retains its configured backend', () => {
     assert.equal(infer('file:///tmp/demo/index.html', 'https://backend.example/'), 'https://backend.example');
 });

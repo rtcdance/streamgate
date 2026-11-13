@@ -277,7 +277,7 @@ type authGrpcServer struct {
 }
 
 func (s *authGrpcServer) GetNonce(ctx context.Context, req *authv1.GetNonceRequest) (*authv1.GetNonceResponse, error) {
-	chainID := int64(1)
+	chainID := s.authSvc.DefaultWalletChainID()
 	if req.ChainType == "solana" {
 		chainID = -1
 	}
@@ -293,15 +293,27 @@ func (s *authGrpcServer) GetNonce(ctx context.Context, req *authv1.GetNonceReque
 }
 
 func (s *authGrpcServer) VerifySignature(ctx context.Context, req *authv1.VerifySignatureRequest) (*authv1.VerifySignatureResponse, error) {
-	token, err := s.authSvc.AuthenticateWithWallet(ctx, req.WalletAddress, req.Nonce, req.Signature, 0)
+	token, err := s.authSvc.AuthenticateStoredWalletChallenge(ctx, req.WalletAddress, req.Nonce, req.Signature)
 	if err != nil {
+		if httpStatus, _, _ := walletAuthError(err); httpStatus == 503 || httpStatus == 422 || httpStatus == 400 {
+			return nil, walletAuthGRPCError(err)
+		}
 		return &authv1.VerifySignatureResponse{Valid: false}, nil
 	}
 	result, err := s.authSvc.VerifyToken(ctx, token)
-	if err != nil || result == nil || !result.Valid {
+	if err != nil {
+		return nil, walletAuthGRPCError(err)
+	}
+	if result == nil || !result.Valid {
 		return &authv1.VerifySignatureResponse{Valid: false}, nil
 	}
+	claims, err := s.authSvc.ParseToken(token)
+	if err != nil {
+		return nil, walletAuthGRPCError(err)
+	}
 	return &authv1.VerifySignatureResponse{
+		ExpiresAt:   claims.ExpiresAt.Unix(),
+		UserInfo:    &authv1.UserInfo{WalletAddress: claims.WalletAddress},
 		Valid:       true,
 		AccessToken: token,
 	}, nil
@@ -310,9 +322,14 @@ func (s *authGrpcServer) VerifySignature(ctx context.Context, req *authv1.Verify
 func (s *authGrpcServer) RefreshToken(ctx context.Context, req *authv1.RefreshTokenRequest) (*authv1.RefreshTokenResponse, error) {
 	newToken, err := s.authSvc.RefreshToken(ctx, req.RefreshToken)
 	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, "invalid refresh token")
+		return nil, walletAuthGRPCError(err)
+	}
+	claims, err := s.authSvc.ParseToken(newToken)
+	if err != nil {
+		return nil, walletAuthGRPCError(err)
 	}
 	return &authv1.RefreshTokenResponse{
+		ExpiresAt:   claims.ExpiresAt.Unix(),
 		Success:     true,
 		AccessToken: newToken,
 	}, nil
@@ -750,7 +767,11 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 
 	sessionID, epoch := grpcSessionFromContext(ctx)
 	restoreEpoch, _ := ctx.Value(grpcRestoreEpochKey).(string)
-	session := service.SessionBinding{SessionID: sessionID, AuthEpoch: epoch, RestoreEpoch: restoreEpoch}
+	values, _ := ctx.Value(grpcWalletClaimsKey).(jwt.MapClaims)
+	session, bindingErr := service.SessionBindingFromVerifiedClaims(sessionID, epoch, restoreEpoch, values)
+	if bindingErr != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid wallet binding")
+	}
 
 	// If the caller ALSO carries a playback capability, it must agree with the
 	// access token's wallet, session and epoch. Disagreement is refused.
@@ -792,7 +813,17 @@ func (s *streamingGrpcServer) GetManifest(ctx context.Context, req *streamingv1.
 
 	playbackToken, err := s.authSvc.IssueCapability(ctx, authz, s.authSvc.PlaybackTokenTTL(), "")
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to generate playback token")
+		httpStatus, _, message := walletCapabilityError(err)
+		switch httpStatus {
+		case 401:
+			return nil, status.Error(codes.Unauthenticated, message)
+		case 403:
+			return nil, status.Error(codes.PermissionDenied, message)
+		case 503:
+			return nil, status.Error(codes.Unavailable, message)
+		default:
+			return nil, status.Error(codes.Internal, message)
+		}
 	}
 
 	// Resolve ONLY the published generation; a mid-flight staging prefix is
@@ -1133,10 +1164,16 @@ func (s *uploadGrpcServer) GetUploadStatus(ctx context.Context, req *uploadv1.Ge
 }
 
 var grpcNoAuthMethods = map[string]bool{
-	"/auth.AuthService/GetNonce":        true,
-	"/auth.AuthService/VerifySignature": true,
-	"/health.HealthService/Check":       true,
-	"/health.HealthService/Watch":       true,
+	// Use the registered descriptors: stale unversioned names make first login
+	// require a JWT. Refresh authenticates its body credential in AuthService,
+	// including proof/epoch/CAS checks, rather than requiring a second live JWT.
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/GetNonce":        true,
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/VerifySignature": true,
+	"/" + authv1.AuthService_ServiceDesc.ServiceName + "/RefreshToken":    true,
+	"/" + servicev1.HealthService_ServiceDesc.ServiceName + "/Check":      true,
+	"/" + servicev1.HealthService_ServiceDesc.ServiceName + "/Watch":      true,
+	"/" + healthpb.Health_ServiceDesc.ServiceName + "/Check":              true,
+	"/" + healthpb.Health_ServiceDesc.ServiceName + "/Watch":              true,
 }
 
 type grpcContextKey string
@@ -1146,6 +1183,7 @@ const (
 	grpcSessionKey      grpcContextKey = "grpc_session_id"
 	grpcEpochKey        grpcContextKey = "grpc_auth_epoch"
 	grpcRestoreEpochKey grpcContextKey = "grpc_restore_epoch"
+	grpcWalletClaimsKey grpcContextKey = "grpc_verified_wallet_claims"
 )
 
 func grpcWalletFromContext(ctx context.Context) string {
@@ -1276,6 +1314,10 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 	}
 	decision, err := middleware.AuthorizeAccessClaims(ctx, policy, claims)
 	if err != nil {
+		httpStatus, _, _ := middleware.AccessErrorBody(err)
+		if httpStatus == 503 {
+			return nil, status.Error(codes.Unavailable, "wallet verification unavailable")
+		}
 		return nil, status.Error(codes.Unauthenticated, err.Error())
 	}
 
@@ -1283,6 +1325,7 @@ func verifyGRPCJWT(ctx context.Context, fullMethod, jwtSecret string, authSvc *s
 	ctx = context.WithValue(ctx, grpcSessionKey, decision.SessionID)
 	ctx = context.WithValue(ctx, grpcEpochKey, decision.AuthEpoch)
 	ctx = context.WithValue(ctx, grpcRestoreEpochKey, claims["restore_epoch"])
+	ctx = context.WithValue(ctx, grpcWalletClaimsKey, claims)
 	return ctx, nil
 }
 

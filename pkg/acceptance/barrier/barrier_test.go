@@ -131,6 +131,27 @@ func TestArriveFor_IdentifiesEachIntentAtTheSamePoint(t *testing.T) {
 	}
 }
 
+func TestReachedMarkerIsNeverObservedEmpty(t *testing.T) {
+	// WaitReached returns on the marker's existence, so a create-then-write
+	// publication would let a fast reader read a zero-byte file (observed as
+	// "[] should have 4 item(s), but has 0" under CI load). The publisher must
+	// rename the complete marker into place.
+	b, err := Load(durableConfig(t.TempDir(), time.Second), zap.NewNop())
+	require.NoError(t, err)
+	require.NoError(t, b.Arm("publisher.before_broadcast"))
+	p := b.Point("publisher.before_broadcast")
+	for range 200 {
+		done := make(chan error, 1)
+		go func() { done <- p.ArriveFor(context.Background(), "intent") }()
+		require.NoError(t, p.WaitReached(context.Background(), time.Second))
+		marker, err := os.ReadFile(p.reachedPath())
+		require.NoError(t, err)
+		require.Len(t, strings.Fields(string(marker)), 4, "a reader that sees the marker must see it complete")
+		require.NoError(t, p.Release())
+		require.NoError(t, <-done)
+	}
+}
+
 func TestArriveFor_RejectsAmbiguousSubjects(t *testing.T) {
 	b, err := Load(durableConfig(t.TempDir(), time.Second), zap.NewNop())
 	require.NoError(t, err)

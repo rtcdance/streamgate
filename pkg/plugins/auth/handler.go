@@ -2,10 +2,12 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/rtcdance/streamgate/pkg/core"
 	"github.com/rtcdance/streamgate/pkg/monitoring"
+	"github.com/rtcdance/streamgate/pkg/web3/signature"
 	"go.uber.org/zap"
 )
 
@@ -69,6 +71,13 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 		Signature string `json:"signature"`
 	}
 
+	limit := int64(20 * 1024)
+	if verifier, ok := h.verifier.sigVerifier.(interface{ WalletAuthBodyLimit() int64 }); ok {
+		limit = verifier.WalletAuthBodyLimit()
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.logger.Error("Failed to decode request", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_decode_error", map[string]string{})
@@ -81,7 +90,16 @@ func (h *AuthHandler) VerifySignatureHandler(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		h.logger.Error("Failed to verify signature", zap.Error(err))
 		h.metricsCollector.IncrementCounter("verify_signature_failed", map[string]string{})
-		w.WriteHeader(http.StatusInternalServerError)
+		code := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, signature.ErrWalletFormat):
+			code = http.StatusBadRequest
+		case errors.Is(err, signature.ErrWalletUnsupported):
+			code = http.StatusUnprocessableEntity
+		case errors.Is(err, signature.ErrWalletDependency):
+			code = http.StatusServiceUnavailable
+		}
+		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "verification failed"})
 		return
 	}

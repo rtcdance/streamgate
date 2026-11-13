@@ -21,6 +21,7 @@ import (
 	"github.com/rtcdance/streamgate/pkg/storage"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v4"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 )
@@ -510,9 +511,7 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 			abortWithError(c, http.StatusInternalServerError, ErrInternalError, "authorization is unavailable")
 			return
 		}
-		sessionID, authEpoch := middleware.GetSessionBinding(c)
-		authz, authzErr := authorizer.AuthorizePlayback(c.Request.Context(), contentID, wallet,
-			service.SessionBinding{SessionID: sessionID, AuthEpoch: authEpoch, RestoreEpoch: c.GetString("restore_epoch")})
+		authz, authzErr := authorizeHTTPManifest(c, authorizer, contentID, wallet)
 		if authzErr != nil {
 			// The gate let this request through, so a failure here is either the
 			// same denial over slightly newer evidence (403), a broken credential
@@ -530,7 +529,8 @@ func RegisterStreamingRoutes(router gin.IRouter, log *zap.Logger, authService *s
 		}
 		generatedToken, err := authService.IssueCapability(c.Request.Context(), authz, authService.PlaybackTokenTTL(), c.GetHeader("X-Client-Fingerprint"))
 		if err != nil {
-			abortWithErrorDetail(c, http.StatusInternalServerError, ErrInternalError, internalErrMsg(c, err), err.Error())
+			httpStatus, code, message := walletCapabilityError(err)
+			abortWithError(c, httpStatus, code, message)
 			return
 		}
 		playbackToken := generatedToken
@@ -1270,4 +1270,15 @@ func buildPublishedGenerationCandidates(contentID, segName, quality string, cach
 		add("720p", 1)
 	}
 	return candidates
+}
+
+func authorizeHTTPManifest(c *gin.Context, authorizer *service.PlaybackAuthorizer, contentID, wallet string) (*service.PlaybackAuthorization, error) {
+	sid, epoch := middleware.GetSessionBinding(c)
+	raw, _ := c.Get("jwt_claims")
+	values, _ := raw.(jwt.MapClaims)
+	binding, err := service.SessionBindingFromVerifiedClaims(sid, epoch, c.GetString("restore_epoch"), values)
+	if err != nil {
+		return nil, err
+	}
+	return authorizer.AuthorizePlayback(c.Request.Context(), contentID, wallet, binding)
 }

@@ -1,0 +1,36 @@
+# Sepolia public-testnet overlay (plan §10 W3-06). Activate with
+# STREAMGATE_ENV=w3sepolia. This profile runs against the real Sepolia
+# testnet (chain 11155111): Anvil fixtures, the 31337 chain entry and every
+# local demo-signing path are absent from this profile, and the tracked
+# third-party Sepolia endpoints from config.yaml are replaced by a placeholder
+# that fails DNS resolution loudly. Real endpoints are deployment input:
+#   SEPOLIA_RPC_URL / SEPOLIA_RPC_FALLBACK_URL   (legacy SEPOLIA_RPC accepted
+#   for the primary endpoint; the two spellings must never disagree)
+# The SIWE page binding is likewise deployment input:
+#   STREAMGATE_SIWE_DOMAIN / STREAMGATE_SIWE_URI
+# Values are injected by the environment at deploy time and never tracked in
+# this repository.
+web3:
+  chain_id: 11155111
+  anvil_demo_contract: ""
+  anvil_deployer_key: ""
+  chains:
+    - id: 11155111
+      name: "ethereum-sepolia"
+      # Placeholder: fails closed (DNS .invalid) unless SEPOLIA_RPC_URL is set.
+      rpc_url: "https://sepolia-endpoint.invalid"
+      rpc_urls:
+        - "https://sepolia-endpoint.invalid"
+      explorer_url: "https://sepolia.etherscan.io"
+      currency: "ETH"
+      testnet: true
+
+features:
+  # The demo transaction signer is a local-Anvil development affordance and
+  # must never exist in a public-testnet deployment.
+  demo_tx_signer: false
+
+# Auto-upload jobs take their profiles from this producer setting, rather than
+# the worker's transcoding.qualities list. Keep the public demo to one rendition.
+transcode:
+  profiles: ["360p"]

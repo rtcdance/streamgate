@@ -1,0 +1,18 @@
+app:
+  profile: durable
+auth:
+  jwt_secret: ""
+features:
+  demo_tx_signer: false
+web3:
+  chain_id: 0
+  ethereum_rpc: ""
+  chains: []
+  anvil_demo_contract: ""
+  anvil_deployer_key: ""
+  content_registry_address: ""
+  transaction:
+    private_key_hex: ""
+transcoding:
+  max_workers: 1
+  ffmpeg_threads: 1
