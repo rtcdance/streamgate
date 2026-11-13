@@ -25,7 +25,7 @@ if (evidenceContext === 'CANDIDATE' && (!bridge || !process.env.W3_GRPC_TARGET))
 if (!base || !output || !process.env.W3_MEDIA_FILE) throw new Error('H5, media and report paths required');
 mkdirSync(output, { recursive: true });
 const checks = [], samples = [], errors = [], proxies = [];
-const grpcSamples = [], grpcExits = [], grpcNFTSamples = [], nftProbes = [];
+const grpcSamples = [], grpcExits = [], grpcNFTSamples = [], nftProbes = [], nftManifestAttempts = [];
 let mediaPhase = 'lease';
 const freshUpload = !process.env.W3_CONTENT_ID;
 const hash = (v) => createHash('sha256').update(v).digest('hex');
@@ -98,6 +98,29 @@ async function grpcMediaBaseline(content) {
     if (media.code !== 'OK' || http.status !== 200 || media.data.size !== bytes.length || media.data.sha256 !== hash(bytes)) throw new Error('gRPC and protected HTTP media bytes differ');
     return { content, segment: segment.segment_id, capability, capabilityExp: c.exp, accessExp: access.exp, capabilityHash: hash(capability), sha256: hash(bytes), size: bytes.length, observedAt: Date.now() };
 }
+async function nftManifest(content, current) {
+    const started = Date.now();
+    const request = async (identity) => {
+        const response = await api('GET', `/api/v1/streaming/${content}/manifest.m3u8`, undefined, identity.token);
+        nftManifestAttempts.push({ at: Date.now(), status: response.status, tokenHash: hash(identity.token) });
+        return response;
+    };
+    let response = await request(current);
+    if (response.status !== 401) return { response, current };
+    // A real H5 refresh invalidates its previous JTI atomically. Only an
+    // observed replacement of this same admission permits one five-second retry.
+    const replacement = await state(), previous = claim(current.token), next = claim(replacement.token);
+    const fixed = ['sub', 'wallet_address', 'chain_id', 'account_kind', 'session_id', 'wallet_proof_id', 'wallet_session_exp', 'auth_epoch', 'restore_epoch'];
+    if (Date.now() - started > 5000 || replacement.token === current.token ||
+        !fixed.every(key => previous[key] != null && previous[key] === next[key]) ||
+        next.chain_id !== 31337 || next.account_kind !== 'erc1271' ||
+        !next.jti || next.jti === previous.jti || previous.exp * 1000 <= started + 5000 ||
+        !Number.isInteger(next.iat) || !Number.isInteger(next.exp) || next.exp <= next.iat || next.exp - next.iat > 60 ||
+        next.exp * 1000 <= Date.now() + 5000 || next.exp > next.wallet_session_exp) throw new Error('No bounded same-admission manifest rotation observed');
+    response = await request(replacement);
+    if (response.status === 401 || Date.now() - started > 5000) throw new Error('Manifest repeated 401 or exceeded the original observation budget');
+    return { response, current: replacement };
+}
 async function nftTransferCase(content, nft, wallet, recipient) {
     acceptGRPC(await grpcLogin(), undefined, grpcNFTSamples);
     const grpcBaseline = await grpcMediaBaseline(content);
@@ -126,15 +149,16 @@ async function nftTransferCase(content, nft, wallet, recipient) {
         const safeObservedAt = Date.now(); let httpDeniedAt, grpcDeniedAt, finished;
         while (Date.now() - safeObservedAt <= 70000) {
             if (Date.now() - grpcNFTSamples.at(-1).at >= 20000) acceptGRPC(await rpc('refresh', { token: grpcToken }), grpcToken, grpcNFTSamples);
-            const current = await state();
+            let current = await state();
             if (!current.claims || !same(current.claims.sub, fixture.contractWallet) || current.claims.session_id !== original.claims.session_id || current.claims.wallet_session_exp !== original.claims.wallet_session_exp || current.claims.exp * 1000 <= Date.now()) throw new Error('NFT transfer terminated the identity instead of its asset entitlement');
-            const httpManifest = await api('GET', `/api/v1/streaming/${content}/manifest.m3u8`, undefined, current.token);
+            const observedManifest = await nftManifest(content, current);
+            const httpManifest = observedManifest.response; current = observedManifest.current;
             const grpcManifest = await rpc('manifest', { token: grpcToken, content });
             const identityBefore = await rpc('verify', { token: grpcToken });
             const media = await rpc('segment', { token: grpcToken, content, segment: grpcBaseline.segment, capability: grpcBaseline.capability });
             const identityAfter = await rpc('verify', { token: grpcToken });
             const http = await fetch(mediaURL, { signal: AbortSignal.timeout(5000) }); await http.arrayBuffer();
-            if (![200, 403].includes(httpManifest.status) || !['OK', 'PermissionDenied'].includes(grpcManifest.code) || ![200, 401].includes(http.status) || !['OK', 'Unauthenticated', 'PermissionDenied'].includes(media.code)) throw new Error('NFT transfer produced a dependency/unexpected response, not authorization evidence');
+            if (![200, 403].includes(httpManifest.status) || !['OK', 'PermissionDenied'].includes(grpcManifest.code) || ![200, 401].includes(http.status) || !['OK', 'Unauthenticated', 'PermissionDenied'].includes(media.code)) throw new Error(`NFT transfer has no authorization evidence: HTTP manifest=${httpManifest.status}, media=${http.status}; gRPC manifest=${grpcManifest.code}, media=${media.code}`);
             if (identityBefore.code !== 'OK' || !identityBefore.data?.valid || identityAfter.code !== 'OK' || !identityAfter.data?.valid) throw new Error('gRPC identity is invalid; its media denial cannot prove an NFT transfer');
             const at = Date.now();
             if (http.status === 401 && !httpDeniedAt) httpDeniedAt = at;
@@ -262,6 +286,17 @@ try {
     check('CW09_MEDIA_REQUESTS_USE_NEW_CAPABILITY', new Set(mediaResponses.filter((r) => r.status === 200).map((r) => r.tokenHash)).size >= 2 && mediaResponses.every((r) => r.claims.exp <= r.claims.wallet_session_exp));
     const oldAccess = await api('GET', '/api/v1/auth/profile', undefined, initial.token);
     check('CW09_OLD_ACCESS_REJECTED', oldAccess.status === 401);
+    // Start the policy transition just after a real H5 renewal. A mid-lease
+    // baseline can expire at the next renewal and falsely stand in for revocation.
+    const policyLeaseDeadline = Date.now() + 35000;
+    let current = await state();
+    while (current.claims && current.claims.exp * 1000 - Date.now() < 55000 && Date.now() < policyLeaseDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        current = await state();
+    }
+    if (!current.claims || current.claims.session_id !== initial.claims.session_id ||
+        current.claims.wallet_proof_id !== initial.claims.wallet_proof_id ||
+        current.claims.wallet_session_exp !== initial.claims.wallet_session_exp) throw new Error('Policy baseline lost the original H5 admission');
     if (bridge) {
         acceptGRPC(await rpc('refresh', { token: grpcToken }), grpcToken);
         grpcMedia = await grpcMediaBaseline(content);
@@ -270,7 +305,7 @@ try {
     }
     // CW-10 changes only signature authority. Keep the NFT, live session and
     // issued capability intact; expiry/logout cannot substitute for revocation.
-    const current = await state();
+    current = await state();
     const freshManifest = await api('GET', `/api/v1/streaming/${content}/manifest.m3u8`);
     const capability = String(freshManifest.data).match(/playback_token=([^&\s]+)/)?.[1];
     if (!capability || !lastSegmentURL) throw new Error('Policy revocation needs a real issued media capability');
@@ -279,7 +314,7 @@ try {
     const baseline = await fetch(protectedSegment, { signal: AbortSignal.timeout(5000) });
     await baseline.arrayBuffer();
     check('CW10_LIVE_POLICY_BASELINE', baseline.status === 200 &&
-        Math.min(current.claims.exp, capabilityClaims.exp) * 1000 - Date.now() >= 20000,
+        Math.min(current.claims.exp, capabilityClaims.exp) * 1000 - Date.now() >= 50000,
         { accessExp: current.claims.exp, capabilityExp: capabilityClaims.exp, observedAt: Date.now(), tokenHash: hash(current.token), capabilityHash: hash(capability) });
     const walletContract = new ethers.Contract(fixture.contractWallet, ['function owner() view returns (address)', 'function setOwner(address)', 'function execute(address,uint256,bytes) returns (bytes)'], owner);
     const replacement = (await provider.send('eth_accounts', []))[1];
@@ -352,6 +387,7 @@ try {
     check('CW_H5_NO_PAGE_ERRORS', errors.length === 0, { errors });
     await page.screenshot({ path: `${output}/wallet-state.png`, fullPage: true });
 } catch (error) {
+    console.error(`FAIL ${mode} LOCAL_WALLET_BROWSER: ${error.message}`);
     errors.push(error.message); if (page) await page.screenshot({ path: `${output}/failure.png`, fullPage: true }).catch(() => {});
     process.exitCode = 1;
 } finally {
@@ -362,7 +398,7 @@ try {
     if (freshUpload) required.push('CW01_REAL_UPLOAD', 'CW01_CONTENT_CREATED', 'CW01_SERVER_POLICY_CREATED');
     const passed = !errors.length && required.every((id) => checks.some((c) => c.id === id && c.ok));
     if (!passed) process.exitCode = 1;
-    writeFileSync(`${output}/result.json`, JSON.stringify({ component: 'LOCAL_WALLET_BROWSER', candidateSHA, evidenceContext, mode, testAdapter: 'EIP1193_LOCAL_ANVIL_REAL_SIGNATURE', publicWalletSignoff: false, checks, samples, grpcSamples, grpcNFTSamples, nftProbes, grpcExits, grpcBridgeSHA256: bridge ? hash(readFileSync(bridge)) : null, signedMessages, mediaResponses, errors, required, passed }, null, 2));
+    writeFileSync(`${output}/result.json`, JSON.stringify({ component: 'LOCAL_WALLET_BROWSER', candidateSHA, evidenceContext, mode, testAdapter: 'EIP1193_LOCAL_ANVIL_REAL_SIGNATURE', publicWalletSignoff: false, checks, samples, grpcSamples, grpcNFTSamples, nftProbes, nftManifestAttempts, grpcExits, grpcBridgeSHA256: bridge ? hash(readFileSync(bridge)) : null, signedMessages, mediaResponses, errors, required, passed }, null, 2));
     await browser?.close(); for (const proxy of proxies) proxy.close();
     if (grpcPrivate) rmSync(grpcPrivate, { recursive: true, force: true });
 }

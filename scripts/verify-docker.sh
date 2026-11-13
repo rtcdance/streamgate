@@ -355,6 +355,14 @@ stage_unit() {
     go run scripts/cd/check_workflow_syntax.go .github/workflows/*.yml
     node scripts/cd/test_h5_contract_wallet.cjs
     node scripts/cd/test_h5_wallet_sepolia_tool.cjs
+    node scripts/cd/test_wallet_phase_network.cjs
+    node scripts/cd/test_wallet_cua_network.cjs
+    node scripts/cd/test_wallet_cua_bridge.cjs
+    node scripts/cd/test_wallet_cua_session.cjs
+    node scripts/cd/test_wallet_cua_filter.cjs
+    node scripts/cd/test_wallet_cua_peer.cjs
+    node scripts/cd/test_wallet_cua_control_contract.cjs
+    node scripts/cd/test_wallet_cua_control_session.cjs
     node scripts/cd/test_wallet_file_rpc.cjs
     node scripts/cd/test_wallet_public_controls.cjs
     node scripts/cd/test_h5_sepolia_fixture.cjs
@@ -1005,6 +1013,7 @@ run_fullchain() {
     W3_CANDIDATE_SHA="$VERIFY_SOURCE_REVISION"
     W3_EVIDENCE_CONTEXT=CANDIDATE
     W3_GRPC_EXPORT_DIR="$ARTIFACT_DIR/wallet-build"
+    W3_BROWSER_EXPORT_DIR="$ARTIFACT_DIR/wallet-browser"
     ANVIL_URL="http://localhost:${anvil_port}"
     ANVIL_BASE="http://localhost:${anvil_port}"
     MINIO_LIVENESS_URL="http://localhost:${minio_port}/minio/health/live"

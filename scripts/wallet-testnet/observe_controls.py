@@ -20,6 +20,15 @@ PINNED = (*launch.PINNED, 'scripts/wallet-testnet/observe_controls.py',
           'scripts/h5-demo-acceptance/wallet-sepolia-controls.mjs',
           'scripts/h5-demo-acceptance/lib/wallet_file_rpc.mjs',
           'scripts/h5-demo-acceptance/lib/wallet_public_controls.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_bridge.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_control_contract.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_control_session.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_peer.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_filter.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_network.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_session.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_cua_replay.mjs',
+          'scripts/h5-demo-acceptance/lib/wallet_phase_network.mjs',
           'scripts/h5-demo-acceptance/lib/wallet_sepolia_contract.mjs',
           'scripts/h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs',
           'scripts/cd/assert_sepolia_browser.mjs', 'scripts/cd/assert_public_controls.py')
@@ -27,6 +36,13 @@ PINNED = (*launch.PINNED, 'scripts/wallet-testnet/observe_controls.py',
 
 def require(ok, reason):
     if not ok: raise ValueError(reason)
+
+
+def browser_environment(args):
+    transport = getattr(args, 'transport', 'cdp')
+    cdp = getattr(args, 'cdp', None)
+    require(transport in ('cdp', 'cua') and (bool(cdp) if transport == 'cdp' else not cdp), 'explicit compatible browser transport required')
+    return {'W3_CDP_ENDPOINT': cdp} if transport == 'cdp' else {'W3_BROWSER_TRANSPORT': 'cua'}
 
 
 def private_json(path, value):
@@ -80,9 +96,9 @@ def context(args, prepared, identities):
                 egressAliases=detail['NetworkSettings']['Networks'][egress].get('Aliases') or [],
                 observerName=name, requestDirectory=str(io), command=command, sessionBinding=binding, oracle=str(args.oracle.resolve()), oracleExit=str(args.oracle_exit.resolve()),
                 environment=dict(W3_MODE=args.mode, W3_PHASE=args.phase, W3_CANDIDATE_SHA=args.candidate,
-                    W3_H5_BASE=origin, W3_CDP_ENDPOINT=args.cdp, W3_CONTROLLER=prepare.deployment.address(args.controller),
+                    W3_H5_BASE=origin, W3_CONTROLLER=prepare.deployment.address(args.controller),
                     W3_SUBJECT_C=wallet, W3_NFT=nft, W3_CONTENT_ID=args.content, W3_REPORT_DIR=str(args.output),
-                    W3_USER_GATE_TIMEOUT_MS=str(args.wait_seconds * 1000)))
+                    W3_USER_GATE_TIMEOUT_MS=str(args.wait_seconds * 1000), **browser_environment(args)))
 
 
 def merge_main():
@@ -181,8 +197,10 @@ def restore(ctx):
 def main():
     if sys.argv[1:2] == ['merge']: return merge_main()
     parser = argparse.ArgumentParser(description=__doc__)
-    for key in ('candidate', 'controller', 'recipient', 'repository', 'ci-run', 'wallet', 'nft', 'content', 'cdp'):
+    for key in ('candidate', 'controller', 'recipient', 'repository', 'ci-run', 'wallet', 'nft', 'content'):
         parser.add_argument('--' + key, required=True)
+    parser.add_argument('--transport', choices=('cdp', 'cua'), default='cdp')
+    parser.add_argument('--cdp')
     for key in ('producer', 'producer-root', 'ci-root', 'build-identity', 'directory', 'output', 'phase-directory', 'phase-exit', 'oracle', 'oracle-exit'):
         parser.add_argument('--' + key, required=True, type=Path)
     parser.add_argument('--mode', choices=('monolith', 'api-gateway'), required=True)
@@ -190,6 +208,8 @@ def main():
     parser.add_argument('--wait-seconds', type=int, default=1800)
     parser.add_argument('--source-root', type=Path, default=prepare.ROOT)
     args = parser.parse_args(); ctx = None; code = 2; lock = None
+    try: browser_environment(args)
+    except ValueError: parser.error('select cdp with --cdp or cua without --cdp')
     if args.output.exists(): print('FAIL: choose a fresh collector directory; originals preserved'); return 1
     args.output = args.output.absolute(); args.output.mkdir(parents=True, mode=0o700)
     summary = dict(scope='SEPOLIA_CONTROL_COLLECTOR', candidateSHA=args.candidate, status='BLOCKED', completeAcceptance=False)

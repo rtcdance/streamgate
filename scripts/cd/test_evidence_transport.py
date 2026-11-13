@@ -72,6 +72,26 @@ class EvidenceTransportTests(unittest.TestCase):
             "bundleSHA256": transport.bundle_hash(entries),
         }
 
+    def test_registry_header_timeout_retries_completed_daemon_error_with_existing_bounds(self):
+        message = 'docker push failed: failed commit on ref layer-sha256: net/http: timeout awaiting response headers'
+        with patch.object(transport, 'run_docker', side_effect=[transport.TransportError(message), 'ok']) as command, \
+                patch.object(transport.time, 'sleep') as sleep:
+            self.assertEqual(transport.run_registry('push', 'ghcr.io/x/y:t'), 'ok')
+        self.assertEqual(command.call_count, 2)
+        self.assertTrue(all(call.args == ('push', 'ghcr.io/x/y:t') for call in command.call_args_list))
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5])
+        with patch.object(transport, 'run_docker', side_effect=transport.TransportError(message)) as command, \
+                patch.object(transport.time, 'sleep') as sleep:
+            with self.assertRaises(transport.TransportError): transport.run_registry('push', 'ghcr.io/x/y:t')
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [5, 10, 15, 20])
+        for permanent in ('unauthorized', 'x509', 'digest mismatch'):
+            with self.subTest(permanent=permanent), patch.object(transport, 'run_docker', side_effect=transport.TransportError(permanent + ': ' + message)) as command, \
+                    patch.object(transport.time, 'sleep') as sleep:
+                with self.assertRaises(transport.TransportError): transport.run_registry('push', 'ghcr.io/x/y:t')
+            self.assertEqual(command.call_count, 1)
+            sleep.assert_not_called()
+
     def test_registry_push_retries_a_dropped_request(self):
         calls = []
 
@@ -104,6 +124,49 @@ class EvidenceTransportTests(unittest.TestCase):
             self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
         command.assert_called_once_with("push", "ghcr.io/x/y:t", timeout=17)
 
+    def test_pull_timeout_uses_the_registered_budget_and_retries(self):
+        # The acceptance env sets a 7200s budget and pulls legitimately need
+        # all of it: the cross-border uplink degrades to tens of KB/s for hours
+        # (nettop deltas of ~34KB/s on 2026-11-08 while every naive liveness
+        # signal read as a stall — the earlier 900s cap could never complete a
+        # large layer on that link). A pull timeout still retries instead of
+        # aborting, because the daemon keeps completed layers and a fresh
+        # client resumes cheaply.
+        timeout_error = transport.RegistryTimeoutError(
+            "docker pull timed out after 7200s; client terminated; "
+            "inspect daemon transfer activity before retrying")
+        with patch.dict(os.environ, {"STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS": "7200"}), \
+                patch.object(transport, "run_docker", side_effect=[timeout_error, timeout_error, "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("pull", "ghcr.io/x/y@sha256:" + "a" * 64), "ok")
+        self.assertEqual([call.kwargs["timeout"] for call in command.call_args_list], [7200, 7200, 7200])
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    def test_pull_timeout_budget_still_exhausts(self):
+        error = transport.RegistryTimeoutError("docker pull timed out after 900s; client terminated")
+        with patch.object(transport, "run_docker", side_effect=error) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            with self.assertRaises(transport.TransportError):
+                transport.run_registry("pull", "ghcr.io/x/y:t")
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10, 15, 20])
+
+    def test_killed_pull_client_is_retried(self):
+        # An operator killing a stalled docker client must read as a transient
+        # pull failure, not single-shot the download step.
+        killed = transport.TransportError("docker pull ghcr.io/x/y:t failed: terminated by signal 15")
+        with patch.object(transport, "run_docker", side_effect=[killed, "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("pull", "ghcr.io/x/y:t"), "ok")
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5])
+
+    def test_run_docker_names_signal_deaths(self):
+        with patch.object(transport.subprocess, "run") as command:
+            command.return_value = transport.subprocess.CompletedProcess(["docker", "pull"], -15, stdout="", stderr="")
+            with self.assertRaisesRegex(transport.TransportError, "terminated by signal 15"):
+                transport.run_docker("pull", "ghcr.io/x/y:t", timeout=5)
+
     def test_registry_rejects_invalid_timeout_before_starting(self):
         for value in ("0", "-1", "forever", "1.5"):
             with self.subTest(value=value), \
@@ -128,8 +191,20 @@ class EvidenceTransportTests(unittest.TestCase):
                 patch.object(transport.time, "sleep") as sleep:
             with self.assertRaises(transport.TransportError):
                 transport.run_registry("pull", "ghcr.io/x/y:t")
-        self.assertEqual(command.call_count, 3)
-        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+        self.assertEqual(command.call_count, 5)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10, 15, 20])
+
+    def test_registry_blob_rejection_400_is_retried_as_transient(self):
+        # GHCR blob PUTs intermittently answer 400 Bad Request to a valid push
+        # (run 42352481359 attempt 2); an unclassified status single-shots past
+        # the retry budget, so it must be treated like the other transient
+        # registry answers. Authentication failures keep their own test above.
+        message = "docker push failed: failed to push refs: unexpected status: 400 Bad Request"
+        with patch.object(transport, "run_docker", side_effect=[transport.TransportError(message), "ok"]) as command, \
+                patch.object(transport.time, "sleep") as sleep:
+            self.assertEqual(transport.run_registry("push", "ghcr.io/x/y:t"), "ok")
+        self.assertEqual(command.call_count, 2)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5])
 
     def test_registry_timeout_does_not_stack_background_transfers(self):
         with patch.object(transport.subprocess, "run", side_effect=transport.subprocess.TimeoutExpired(
@@ -148,6 +223,44 @@ class EvidenceTransportTests(unittest.TestCase):
             with self.assertRaisesRegex(transport.TransportError, "timed out"):
                 transport.run_docker("push", "ghcr.io/x/y:t", timeout=0.1)
             self.assertLess(transport.time.monotonic() - before, 5)
+
+    def test_extract_pulls_a_published_platform_when_the_host_arch_has_none(self):
+        # The acceptance host (arm64) must be able to restore evidence published
+        # by an amd64 CI job; the image is data-only, so the other published
+        # platform is enough and must be requested explicitly.
+        registry_calls = []
+        def fake_registry(*args):
+            registry_calls.append(args)
+            if "--platform" not in args:
+                raise transport.TransportError(
+                    "docker pull failed: Error response from daemon: no matching manifest for linux/arm64/v8 in the manifest list entries")
+            return "ok"
+        def fake_docker(*args, capture=True, timeout=None):
+            if args[0] == "cp" and args[1].endswith("transport.json"):
+                Path(args[2]).write_text(json.dumps({"schemaVersion": 1, "entries": []}))
+            return ""
+        reference = "ghcr.io/x/y@sha256:" + "a" * 64
+        with patch.object(transport, "run_registry", side_effect=fake_registry), \
+             patch.object(transport, "run_docker", side_effect=fake_docker), \
+             patch.object(transport.subprocess, "run", return_value=None):
+            manifest, _, _ = transport.extract(reference, False)
+        self.assertEqual(manifest["schemaVersion"], 1)
+        self.assertEqual(registry_calls[0], ("pull", reference))
+        self.assertEqual(registry_calls[1], ("pull", "--platform", "linux/amd64", reference))
+
+    def test_evidence_pull_does_not_retry_an_unrelated_failure_on_another_platform(self):
+        with patch.object(transport, "run_registry", side_effect=transport.TransportError(
+                "docker pull failed: unauthorized: authentication required")) as command:
+            with self.assertRaises(transport.TransportError):
+                transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
+        self.assertEqual(command.call_count, 1)
+
+    def test_evidence_pull_surfaces_the_last_platform_failure(self):
+        message = "docker pull failed: no matching manifest for linux/arm64/v8 in the manifest list entries"
+        with patch.object(transport, "run_registry", side_effect=transport.TransportError(message)) as command:
+            with self.assertRaises(transport.TransportError):
+                transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64)
+        self.assertEqual(command.call_count, 3)
 
     def test_verify_manifest_accepts_matching_bindings(self):
         manifest = self.manifest()

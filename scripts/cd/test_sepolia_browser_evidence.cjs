@@ -80,6 +80,143 @@ async function fixture(phase = 'contract') {
     return { config, report, proofsRaw };
 }
 
+// Test-only transcript with real ECDSA test signatures and synthetic browser
+// bytes; this never establishes a user wallet or a public-chain observation.
+async function cuaFixture(phase = 'eoa') {
+    const good = await fixture(phase), { config, report, proofsRaw } = good;
+    report.testAdapter = 'CUA_SCOPED_READ_ONLY';
+    const proofs = proofsRaw ? JSON.parse(proofsRaw) : [], credentials = proofs.flatMap(proof => proof.credentials);
+    const tokenFor = digest => credentials.find(credential => credential.tokenHash === digest)?.token;
+    const events = [];
+    const add = (at, pathname, body, requestBody = '', headers = {}, query = '') => events.push({ at, pathname, body, requestBody, headers, query });
+    if (phase === 'negative') {
+        for (const challenge of report.challenges) add(challenge.at, '/api/v1/auth/challenge', JSON.stringify({ chain_id: 11155111,
+            wallet: config.subject, signing_type: 'siwe', challenge_id: 'negative-' + challenge.sequence, message: 'negative-test-' + challenge.sequence }));
+    } else {
+        const proof = proofs[0];
+        add(report.challenges[0].at, '/api/v1/auth/challenge', JSON.stringify(proof.challenge));
+        add(report.admissions[0].at, '/api/v1/auth/login', JSON.stringify({ token: tokenFor(report.admissions[0].tokenHash) }),
+            JSON.stringify({ challenge_id: proof.challenge.challenge_id, wallet: config.subject, chain_id: 11155111, signature: proof.signature }));
+        for (const renewal of report.refreshes) add(renewal.at, '/api/v1/auth/refresh', JSON.stringify({ token: tokenFor(renewal.newTokenHash) }), JSON.stringify({ token: tokenFor(renewal.oldTokenHash) }));
+        for (const [index, issue] of report.issues.entries()) {
+            const capability = token(issue.capabilityClaims), prefix = `/api/v1/streaming/${config.content}/`;
+            const body = `#EXTM3U\n${prefix}segment/0.ts?playback_token=${capability}`;
+            issue.capabilityHash = hash(capability); issue.manifestSHA256 = hash(body);
+            const media = report.media[index]; media.tokenHash = issue.capabilityHash; media.size = Buffer.byteLength('unit-segment-bytes'); media.sha256 = hash('unit-segment-bytes');
+            add(issue.at, prefix + 'manifest.m3u8', body, '', { authorization: 'Bearer ' + tokenFor(issue.accessTokenHash) });
+            add(media.at, prefix + 'segment/0.ts', 'unit-segment-bytes', '', {}, '?playback_token=' + capability);
+        }
+    }
+    events.sort((a, b) => a.at - b.at);
+    const trace = { version: 1, candidateSHA: config.candidateSHA, mode: config.mode, phase, origin: config.origin, content: config.content, requests: [], calls: [] };
+    let sequence = 0, eventIndex = 0, current = now - 1000;
+    function call(kind, at, callback) {
+        const entry = { kind, first: trace.requests.length, startedAt: at };
+        current = at; callback(); entry.end = trace.requests.length; entry.finishedAt = at; trace.calls.push(entry);
+    }
+    function request(op, args, value) { trace.requests.push({ op, args, value, startedAt: current, finishedAt: current }); }
+    function pump() {
+        const afterSequence = sequence, batch = [], bodies = [];
+        while (eventIndex < events.length && events[eventIndex].at <= current) {
+            const event = events[eventIndex++], id = 'request-' + eventIndex, base = { requestId: id, timestamp: 100, wallTime: event.at / 1000 };
+            batch.push({ sequence: ++sequence, method: 'Network.requestWillBeSent', params: { ...base,
+                request: { url: config.origin + event.pathname + event.query, method: 'POST', postData: event.requestBody, headers: event.headers } } });
+            batch.push({ sequence: ++sequence, method: 'Network.responseReceived', params: { requestId: id, timestamp: 100, response: { status: 200 } } });
+            batch.push({ sequence: ++sequence, method: 'Network.loadingFinished', params: { requestId: id, timestamp: 100 } });
+            bodies.push({ id, body: event.body });
+        }
+        request('network-events', { afterSequence }, { cursor: sequence, events: batch, truncated: false, hasMore: false, unresolved: false });
+        for (const body of bodies) request('network-body', { requestId: body.id }, { body: body.body, base64Encoded: false });
+    }
+    function state(expected) {
+        call('state', expected.at, () => {
+            pump();
+            const { at, tokenHash, claims, ...rest } = expected;
+            request('state', {}, { origin: config.origin, token: tokenHash ? tokenFor(tokenHash) : null, ...rest });
+            pump();
+        });
+    }
+    call('start', current, () => request('network-enable', {}, { cursor: 0 }));
+    state(report.gates[0].state);
+    if (phase !== 'negative') call('profile', report.gates[0].state.at + 1, () => { pump(); request('profile', {}, { status: 200, data: { wallet_address: config.subject } }); });
+    state(report.gates[1].state);
+    for (const sample of report.samples) state(sample);
+    call('finish', report.samples.at(-1)?.at || report.gates.at(-1).state.at, pump);
+    assert.equal(eventIndex, events.length);
+    const traceRaw = JSON.stringify(trace) + '\n'; report.cuaTraceSHA256 = hash(traceRaw);
+    return { ...good, trace, traceRaw };
+}
+
+test('CUA phases require independent replay of original network and page observations', async () => {
+    const { validateCuaPhaseEvidence } = await load();
+    for (const phase of ['eoa', 'contract', 'negative']) {
+        const { report, proofsRaw, traceRaw, config } = await cuaFixture(phase);
+        const result = await validateCuaPhaseEvidence(report, proofsRaw, traceRaw, config, 0, ethers);
+        assert.equal(result.phaseVerified, true);
+        await assert.rejects(validateCuaPhaseEvidence(report, proofsRaw, null, config, 0, ethers));
+    }
+    // Negative collection does not require a content fixture, even when the
+    // final verifier also supplies the content used by the positive phases.
+    const negative = await cuaFixture('negative'); negative.trace.content = null;
+    const raw = JSON.stringify(negative.trace) + '\n'; negative.report.cuaTraceSHA256 = hash(raw);
+    assert.equal((await validateCuaPhaseEvidence(negative.report, null, raw, negative.config, 0, ethers)).phaseVerified, true);
+});
+
+test('CUA replay rejects recomputed hashes after changed events, clocks, credentials, origin or states', async () => {
+    const { validateCuaPhaseEvidence } = await load();
+    const changes = [
+        t => { t.requests.find(r => r.op === 'network-events' && r.value.events.length).value.truncated = true; },
+        t => { t.requests.find(r => r.op === 'network-events' && r.value.events.length).value.events[0].params.request.url = 'http://evil.example/api/v1/auth/challenge'; },
+        t => { t.requests.find(r => r.op === 'network-events' && r.value.events.length).value.events.reverse(); },
+        t => { t.requests.find(r => r.op === 'network-body').value.body = '{}'; },
+        t => { t.requests.find(r => r.op === 'state').value.identity.subject = '0x' + '9'.repeat(40); },
+        t => { t.requests.find(r => r.op === 'state').value.token += 'x'; },
+        t => { t.requests.find(r => r.op === 'network-events' && r.value.events.length).value.events[0].params.wallTime -= 100; },
+        t => { t.calls[1].first++; },
+        t => { t.requests.pop(); },
+        t => { t.origin = 'http://localhost:9999'; },
+    ];
+    for (const change of changes) {
+        const { report, proofsRaw, trace, config } = await cuaFixture(); change(trace);
+        const raw = JSON.stringify(trace) + '\n'; report.cuaTraceSHA256 = hash(raw);
+        await assert.rejects(validateCuaPhaseEvidence(report, proofsRaw, raw, config, 0, ethers));
+    }
+});
+
+test('CUA CLI requires the original private trace and rejects a changed transcript', async () => {
+    const good = await cuaFixture(), directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-cua-gate-'));
+    const script = path.join(__dirname, 'assert_sepolia_browser.mjs');
+    const args = [script, '--candidate', good.config.candidateSHA, '--mode', good.config.mode, '--phase', good.config.phase,
+        '--controller', good.config.controller, '--subject', good.config.subject, '--nft', N, '--content', good.config.content,
+        '--origin', good.config.origin, '--directory', directory, '--exit-file', path.join(directory, 'original.exit')];
+    try {
+        fs.writeFileSync(path.join(directory, 'original.exit'), '0\n');
+        fs.writeFileSync(path.join(directory, 'result.json'), JSON.stringify(good.report));
+        fs.writeFileSync(path.join(directory, 'siwe-proofs.private.json'), good.proofsRaw, { mode: 0o600 });
+        assert.equal(spawnSync(process.execPath, args).status, 2);
+        fs.writeFileSync(path.join(directory, 'cua-trace.private.json'), good.traceRaw, { mode: 0o600 });
+        assert.equal(spawnSync(process.execPath, args).status, 0);
+        fs.chmodSync(path.join(directory, 'cua-trace.private.json'), 0o644);
+        assert.equal(spawnSync(process.execPath, args).status, 1);
+        fs.chmodSync(path.join(directory, 'cua-trace.private.json'), 0o600);
+        fs.appendFileSync(path.join(directory, 'cua-trace.private.json'), 'tamper');
+        assert.equal(spawnSync(process.execPath, args).status, 1);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('wallet observer preserves an existing private trace before opening any browser', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-cua-preserve-'));
+    const file = path.join(directory, 'cua-trace.private.json'), original = 'original trace bytes\n';
+    try {
+        fs.writeFileSync(file, original, { mode: 0o600 });
+        const env = { ...process.env, W3_PHASE: 'negative', W3_MODE: 'monolith', W3_CANDIDATE_SHA: 'a'.repeat(40),
+            W3_H5_BASE: 'http://localhost:18500', W3_BROWSER_TRANSPORT: 'cua', W3_CONTROLLER: signer.address, W3_REPORT_DIR: directory };
+        const result = spawnSync(process.execPath, [path.join(__dirname, '../h5-demo-acceptance/wallet-sepolia.mjs')], { env, encoding: 'utf8' });
+        assert.equal(result.status, 2); assert.equal(fs.readFileSync(file, 'utf8'), original);
+        assert.equal(fs.existsSync(path.join(directory, 'result.json')), false);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('both positive wallet phases require actual proof and original exit, without claiming full acceptance', async () => {
     const { validatePhaseEvidence } = await load();
     for (const phase of ['eoa', 'contract', 'negative']) {
@@ -93,7 +230,8 @@ test('both positive wallet phases require actual proof and original exit, withou
 test('missing, failed, skipped, foreign and simulated reports cannot pass', async () => {
     const { validatePhaseEvidence } = await load(); const good = await fixture();
     for (const change of [r => r.checks.pop(), r => { r.checks[0].ok = 'SKIP'; }, r => r.checks.push({ ...r.checks[0] }), r => { r.candidateSHA = 'b'.repeat(40); },
-        r => { r.mode = 'api-gateway'; }, r => { r.testAdapter = 'INJECTED_PROVIDER'; }, r => { r.errors.push('late page error'); }, r => { r.publicWalletSignoff = true; }]) {
+        r => { r.mode = 'api-gateway'; }, r => { r.testAdapter = 'INJECTED_PROVIDER'; }, r => { r.testAdapter = 'CUA_SCOPED_READ_ONLY'; },
+        r => { r.errors.push('late page error'); }, r => { r.publicWalletSignoff = true; }]) {
         const bad = structuredClone(good.report); change(bad);
         assert.throws(() => validatePhaseEvidence(bad, good.proofsRaw, good.config, 0, ethers));
     }

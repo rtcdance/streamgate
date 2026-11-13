@@ -15,6 +15,29 @@ CANDIDATE = 'a' * 40
 
 
 class ExtensionCloseoutTests(unittest.TestCase):
+    def test_local_reports_survive_frozen_source_cleanup_and_keep_original_exit_gates(self):
+        from test_assert_wallet_browser import evidence
+        for mode in gate.MODES:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                capsule = Path(temporary)
+                directory = capsule / 'wallet-browser' / ('cw-' + mode)
+                directory.mkdir(parents=True)
+                report, fixture, content = evidence()
+                report['mode'] = mode; content['mode'] = mode
+                for name, value in [('result.json', report), ('wallet-fixture.json', fixture), ('content.json', content)]:
+                    (directory / name).write_text(json.dumps(value))
+                for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
+                    (directory / name).write_text('0\n')
+                self.assertFalse((capsule / 'source').exists())
+                gate.local_wallet(capsule, CANDIDATE, mode)
+                for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
+                    (directory / name).write_text('1\n')
+                    with self.subTest(failed=name), self.assertRaises(ValueError):
+                        gate.local_wallet(capsule, CANDIDATE, mode)
+                    (directory / name).write_text('0\n')
+                (directory / 'result.json').unlink()
+                with self.assertRaises(FileNotFoundError): gate.local_wallet(capsule, CANDIDATE, mode)
+
     def cost(self):
         proof = dict(method='eth_call', params=[dict(to='0x' + '1' * 40, input='0x1626ba7e', gas='0x7a120'), '0x10'],
             result='0x1626ba7e' + '00' * 28, upstreamStatus=200, inputRedacted=True, inputSHA256='a' * 64, inputBytes=196)

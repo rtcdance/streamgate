@@ -1,6 +1,5 @@
 // Observe existing user admissions and transfers. No wallet signing, provider
 // injection, transaction submission, approval clicks or browser creation.
-import { chromium } from 'playwright';
 import { readFile, writeFile, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -8,9 +7,11 @@ import { promisify } from 'node:util';
 import { PrivateFileRPC } from './lib/wallet_file_rpc.mjs';
 import { settings, validIdentity } from './lib/wallet_sepolia_contract.mjs';
 import { PublicControlJournal, claims, digest, chooseBaseline, playbackForWitness, readCompletedOracle, sameSession, sleep } from './lib/wallet_public_controls.mjs';
+import { CuaPageBridge } from './lib/wallet_cua_bridge.mjs';
+import { CuaControlSession } from './lib/wallet_cua_control_session.mjs';
 
 const execute = promisify(execFile);
-let context, config, browser, page, rpc, journal, disconnected = false;
+let context, config, browser, page, rpc, journal, cuaBridge, cuaControl, cuaConnected = false, disconnected = false;
 const result = { schemaVersion: 1, component: 'SEPOLIA_PUBLIC_CONTROL_PHASE', completeAcceptance: false, publicWalletSignoff: false, status: 'BLOCKED' };
 const privateWrite = (name, value) => writeFile(join(config.output, name), JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
 async function bounded(operation, ms) {
@@ -20,8 +21,8 @@ async function bounded(operation, ms) {
 }
 
 async function state() {
-    if (new URL(page.url()).origin !== config.origin) throw Error('Selected H5 navigated away');
-    const value = await bounded(page.evaluate(async () => {
+    if (!cuaControl && new URL(page.url()).origin !== config.origin) throw Error('Selected H5 navigated away');
+    const value = cuaControl ? await bounded(cuaControl.state(), 12000) : await bounded(page.evaluate(async () => {
         const video = document.getElementById('video-player');
         const p = window.ethereum?.providers?.find(item => item.isMetaMask) || (window.ethereum?.isMetaMask ? window.ethereum : null);
         const token = sessionStorage.getItem('streamgate_token'), identity = sessionStorage.getItem('streamgate_identity');
@@ -45,6 +46,7 @@ async function token() {
 async function http(url, options) {
     // Requests use the actual existing page origin. The browser is never given
     // a synthetic provider, token, response, fixture credential or signature.
+    if (cuaControl) return bounded(cuaControl.http(url, options), 15000);
     const observed = await bounded(page.evaluate(async ({ url, options }) => {
         const response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(12000) });
         const bytes = new Uint8Array(await response.arrayBuffer());
@@ -181,20 +183,30 @@ try {
     context = JSON.parse(await readFile(path, 'utf8')); config = settings(context.environment);
     Object.assign(result, { candidateSHA: config.candidateSHA, mode: config.mode, phase: config.phase, origin: config.origin,
         controller: config.controller, wallet: context.wallet, nft: config.nft, content: config.content, chainId: 11155111 });
-    browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000, noDefaults: true });
-    const matches = [];
-    for (const p of browser.contexts().flatMap(c => c.pages())) {
-        if (new URL(p.url()).origin === config.origin && await p.locator('#video-player').count() === 1) matches.push(p);
+    if (config.transport === 'cua') {
+        cuaBridge = new CuaPageBridge({ targetOrigin: config.origin, content: config.content });
+        await cuaBridge.start();
+        cuaControl = new CuaControlSession({ bridge: cuaBridge, origin: config.origin, content: config.content });
+        console.log('CUA_RELAY ' + JSON.stringify({ origin: cuaBridge.origin, sessionFile: cuaBridge.sessionFile, targetOrigin: config.origin }));
+        await cuaControl.state(); cuaConnected = true;
+    } else {
+        const { chromium } = await import('playwright');
+        browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000, noDefaults: true });
+        const matches = [];
+        for (const p of browser.contexts().flatMap(c => c.pages())) {
+            if (new URL(p.url()).origin === config.origin && await p.locator('#video-player').count() === 1) matches.push(p);
+        }
+        if (matches.length !== 1) throw Error('Exactly one existing MetaMask H5 player is required');
+        [page] = matches;
     }
-    if (matches.length !== 1) throw Error('Exactly one existing MetaMask H5 player is required');
-    [page] = matches;
     rpc = await new PrivateFileRPC(context.command, context.requestDirectory).start();
     journal = new PublicControlJournal(config, rpc, token, http);
     await token();
     if (config.phase === 'contract') result.dependencyOutage = await outage();
     result.transfer = await transfer();
     if (config.phase === 'contract') {
-        const startedAt = Date.now(); await page.reload({ waitUntil: 'domcontentloaded' });
+        const startedAt = Date.now();
+        if (cuaControl) await cuaControl.reload(); else await page.reload({ waitUntil: 'domcontentloaded' });
         let observed;
         for (let i = 0; i < 100; i++) {
             observed = await state();
@@ -212,7 +224,7 @@ try {
     }
     result.status = 'CONTROL_PHASE_OBSERVED';
 } catch (error) {
-    result.status = error.blocked || !browser ? 'BLOCKED' : 'FAIL';
+    result.status = error.blocked || !(browser || cuaConnected) ? 'BLOCKED' : 'FAIL';
     // Browser/network errors may contain a URL or credential. Original private
     // files remain available; public errors contain only a bounded category.
     result.reason = result.status === 'BLOCKED' ? 'Verified inputs, existing wallet browser or user transfer unavailable' : 'Original control observation failed';
@@ -224,6 +236,14 @@ try {
         result.clientEvents = rpc.events;
     }
     if (browser) await browser.close().catch(() => { result.status = 'FAIL'; });
+    if (cuaControl) {
+        try { await cuaControl.close(); }
+        catch { if (cuaConnected) result.status = 'FAIL'; }
+    }
+    if (cuaBridge) {
+        try { await cuaBridge.close(); }
+        catch { result.status = 'FAIL'; }
+    }
     if (config) {
         result.credentialRotations = journal?.credentialRotations || [];
         const raw = JSON.stringify(journal?.private || { credentials: {}, responses: {} }, null, 2) + '\n';

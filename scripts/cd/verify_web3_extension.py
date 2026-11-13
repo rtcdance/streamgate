@@ -43,6 +43,12 @@ FROZEN = ('scripts/cd/verify_web3_extension.py', 'scripts/cd/assert_public_contr
     'scripts/cd/required-tests.json', 'scripts/wallet-testnet/phase_evidence.py', 'scripts/wallet-testnet/transaction_oracle.py',
     'scripts/wallet-testnet/deployment_manifest.py', 'scripts/wallet-testnet/network_preflight.py', 'scripts/wallet-testnet/prepare_stack.py', 'scripts/wallet-testnet/launch_stack.py', 'scripts/wallet-testnet/verify_web3_testnet.py',
     'scripts/h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs', 'scripts/h5-demo-acceptance/lib/wallet_sepolia_contract.mjs',
+    'scripts/h5-demo-acceptance/wallet-sepolia.mjs', 'scripts/h5-demo-acceptance/lib/wallet_phase_network.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_network.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_bridge.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_session.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_filter.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_trace.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_replay.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_peer.mjs',
+    'scripts/h5-demo-acceptance/lib/wallet_cua_control_contract.mjs', 'scripts/h5-demo-acceptance/lib/wallet_cua_control_session.mjs',
     'scripts/wallet-testnet/observe_controls.py', 'scripts/h5-demo-acceptance/wallet-sepolia-controls.mjs',
     'scripts/h5-demo-acceptance/lib/wallet_file_rpc.mjs', 'scripts/h5-demo-acceptance/lib/wallet_public_controls.mjs',
     'h5-demo/vendor/ethers.umd.min.js', 'config/performance.acceptance.json')
@@ -144,6 +150,14 @@ def segment_cost_component(value):
             re.fullmatch('[0-9a-f]{64}', str(item.get('sha256'))) for item in segments), '100 actual successful C media deliveries required')
     require(all(sum(item.get('transport') == mode for item in segments) >= 100 for mode in ('http', 'grpc')),
             '100 real HTTP and 100 real gRPC deliveries required')
+
+
+def local_wallet(capsule, candidate, mode):
+    directory = capsule / 'wallet-browser' / ('cw-' + mode)
+    for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
+        require((directory / name).read_text().strip() == '0', 'original local wallet process failed')
+    assert_wallet_browser.validate(json.loads((directory / 'result.json').read_text()), json.loads((directory / 'wallet-fixture.json').read_text()),
+        json.loads((directory / 'content.json').read_text()), candidate, mode, 0)
 
 
 def verify(args):
@@ -253,11 +267,7 @@ def verify(args):
 
     for mode in MODES:
         def local(mode=mode):
-            directory = cached['capsule'] / 'source/scripts/h5-demo-acceptance/reports' / ('cw-' + mode)
-            for name in ('cw-browser.exit', 'cw-fixture.exit', 'cw-grpc-build.exit'):
-                require((directory / name).read_text().strip() == '0', 'original local wallet process failed')
-            assert_wallet_browser.validate(json.loads((directory / 'result.json').read_text()), json.loads((directory / 'wallet-fixture.json').read_text()),
-                json.loads((directory / 'content.json').read_text()), args.candidate, mode, 0)
+            local_wallet(cached['capsule'], args.candidate, mode)
         check('local-' + mode, local, ('ci',))
 
     def chain():

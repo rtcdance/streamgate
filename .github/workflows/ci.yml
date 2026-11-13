@@ -141,6 +141,14 @@ jobs:
           node --test scripts/cd/test_h5_api_base.cjs
           scripts/cd/test_h5_contract_wallet.cjs
           scripts/cd/test_h5_wallet_sepolia_tool.cjs
+          scripts/cd/test_wallet_phase_network.cjs
+          scripts/cd/test_wallet_cua_network.cjs
+          scripts/cd/test_wallet_cua_bridge.cjs
+          scripts/cd/test_wallet_cua_session.cjs
+          scripts/cd/test_wallet_cua_filter.cjs
+          scripts/cd/test_wallet_cua_peer.cjs
+          scripts/cd/test_wallet_cua_control_contract.cjs
+          scripts/cd/test_wallet_cua_control_session.cjs
           scripts/cd/test_wallet_file_rpc.cjs
           scripts/cd/test_wallet_public_controls.cjs
           scripts/cd/test_h5_sepolia_fixture.cjs
@@ -348,11 +356,16 @@ jobs:
         uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         # The action pip-installs slither deps at container runtime from
         # files.pythonhosted.org (Fastly), which this network drops mid-transfer
-        # (measured 2026-10-31: TLS EOF / ReadTimeout across attempts 3-6).
-        # Docker actions receive step env via -e, so route pip through the
-        # reachable TUNA mirror; same transport-harden class as the GOPROXY fix.
+        # (measured 2026-10-31: TLS EOF / ReadTimeout across attempts 3-6), so pip
+        # goes through a mirror. TUNA answered HTTP 403 for every path on
+        # 2026-11-06 (verified independently against /simple/, /simple/requests/
+        # and a wheel file), which failed this step twice in a row, so the mirror
+        # list now leads with a reachable index and keeps a second independent
+        # host as the fallback. Only the transport changes: the same pinned
+        # slither-action and the same detector arguments still run.
         env:
-          PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+          PIP_INDEX_URL: https://mirrors.aliyun.com/pypi/simple
+          PIP_EXTRA_INDEX_URL: https://pypi.org/simple
         with:
           target: contracts/
           # The job compiled the contracts above with the runner's native
@@ -402,6 +415,21 @@ jobs:
           rc=0
           go test -tags=anvil -race -count=1 -json ./test/integration/web3/... > anvil-tests.json || rc=$?
           python3 scripts/cd/assert_required_tests.py --suite wallet-account-tests --exit-code "$rc" anvil-tests.json
+      # The contract-wallet media-cost subtest shells out to ffmpeg to build its
+      # one-second fixture segment (test/integration/web3/
+      # contract_wallet_media_cost_anvil_test.go). The self-hosted image ships
+      # ffmpeg; GitHub-hosted Ubuntu images do not, so a runner swap failed the
+      # suite with "exec: ffmpeg: executable file not found in $PATH" instead of
+      # a product assertion. Install it only when it is missing, so the
+      # self-hosted path keeps using the image's own build.
+      - name: Ensure ffmpeg for the media-cost suite
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version | head -n 1
       - name: Required contract-wallet sessions on real Redis and Anvil
         env:
           W3_REDIS_ADDR: 127.0.0.1:6379
@@ -469,19 +497,11 @@ jobs:
         run: |
           set -euo pipefail
           docker load -i candidate-monolith.tar
-          actual="$(docker inspect --format '{{.Id}}' streamgate-monolith:candidate)"
-          expected="$(python3 -c "import json;print(json.load(open('meta/monolith.json'))['image_id'])")"
-          if [ "$actual" != "$expected" ]; then
-            echo "::error::loaded image ID $actual does not match the built candidate $expected"
-            exit 1
-          fi
-          rev="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' streamgate-monolith:candidate)"
-          if [ "$rev" != "${{ github.sha }}" ]; then
-            echo "::error::OCI revision label '$rev' does not match ${{ github.sha }}"
-            exit 1
-          fi
+          python3 scripts/cd/image_identity.py --verify \
+            --tag streamgate-monolith:candidate --archive candidate-monolith.tar \
+            --revision "${{ github.sha }}" --out meta/monolith.json
           docker tag streamgate-monolith:candidate streamgate-monolith:ci
-          echo "smoke-testing candidate ${actual} (revision ${rev})"
+          echo "smoke-testing candidate $(python3 -c 'import json; print(json.load(open("meta/monolith.json"))["imageID"])') (revision ${{ github.sha }})"
 
       - name: Smoke test monolith (real readiness, not "file exists")
         run: |
@@ -758,8 +778,11 @@ jobs:
     # 40403641459: ~620 MB of raw evidence at this runner's uplink needs ~4 h on
     # top of a ~2 h20m DAG. Self-hosted runners accept a longer bound; the stage
     # gates themselves are unchanged, so this only stops the clock from cutting
-    # an otherwise complete run short.
-    timeout-minutes: 600
+    # an otherwise complete run short. 900 minutes additionally covers the
+    # cross-border evenings where the evidence restore and the upload each
+    # stretch for hours at tens of KB/s (observed 2026-11-08/09, nettop deltas
+    # of 30-70KB/s) on top of the DAG and the transport.
+    timeout-minutes: 900
     env:
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
@@ -771,7 +794,11 @@ jobs:
       # 200). Keep a reachable mirror first and the upstream proxy as the fallback:
       # the acceptance must not lose a stage to a module download.
       VERIFY_GOPROXY: https://goproxy.cn,https://proxy.golang.org,direct
-      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.verify-artifacts/browser-cache
+      # One level above the checkout: actions/checkout cleans the workspace
+      # with `git clean -ffdx` on every rerun, which would discard a mid-download
+      # browser and force the slow CDN fetch onto every attempt.
+      VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/../browser-cache
+      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "7200"
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
       VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}

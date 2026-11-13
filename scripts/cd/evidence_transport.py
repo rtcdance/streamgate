@@ -18,7 +18,7 @@ import uuid
 SCHEMA = 1
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-REGISTRY_ATTEMPTS = 3
+REGISTRY_ATTEMPTS = 5
 REGISTRY_BACKOFF_SECONDS = 5
 REGISTRY_TIMEOUT_SECONDS = 900
 
@@ -232,32 +232,48 @@ def run_docker(*args, capture=True, timeout=None):
             "inspect daemon transfer activity before retrying"
         ) from error
     if result.returncode:
-        raise TransportError(f"docker {' '.join(args)} failed: {(result.stderr or result.stdout).strip()}")
+        detail = (result.stderr or result.stdout).strip()
+        if result.returncode < 0:
+            # Someone killed the client (an operator triaging a stalled
+            # transfer, or a supervisor). Name the death instead of publishing
+            # an empty stderr as the cause.
+            raise TransportError(f"docker {' '.join(args)} failed: terminated by signal {-result.returncode}")
+        raise TransportError(f"docker {' '.join(args)} failed: {detail}")
     return result.stdout
 
 
 def run_registry(*args):
     value = os.environ.get("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS", str(REGISTRY_TIMEOUT_SECONDS))
-    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 14400:
-        # 14400 matches the transfer budget injected by ci.yml; a lower cap here
-        # would reject the workflow's own env and abort the acceptance job.
-        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..14400")
+    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 7200:
+        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..7200")
     timeout = int(value)
+    # The long-network budget applies to pushes AND pulls: the cross-border
+    # uplink to the evidence registry degrades to tens of KB/s for hours at a
+    # time (observed 2026-11-08, nettop deltas of ~34KB/s while every naive
+    # liveness signal read as a stall), so a pull legitimately needs the whole
+    # window. A pull timeout still retries instead of aborting: the daemon
+    # keeps completed layers, so a fresh client resumes cheaply and a stuck
+    # one gets new connections within the existing attempt budget.
+    pull = args[0] == "pull"
     # Retry only transient failures. Authentication/identity failures cannot be
     # repaired by repeating a command; timeouts may leave daemon work in flight.
     for attempt in range(1, REGISTRY_ATTEMPTS + 1):
         try:
             return run_docker(*args, timeout=timeout)
-        except RegistryTimeoutError:
-            raise
+        except RegistryTimeoutError as error:
+            if not pull or attempt == REGISTRY_ATTEMPTS:
+                raise
+            print(f"evidence transport: {' '.join(args)} attempt {attempt} failed: {error}",
+                  file=sys.stderr)
+            time.sleep(REGISTRY_BACKOFF_SECONDS * attempt)
         except TransportError as error:
             transient = re.search(
                 r"\bEOF\b|connection reset|broken pipe|connection refused|"
-                r"TLS handshake timeout|i/o timeout|temporary failure|"
+                r"TLS handshake timeout|i/o timeout|timeout awaiting response headers|temporary failure|"
                 r"temporarily unavailable|unexpected status.*\b(?:429|5\d\d)\b|"
-                r"\b(?:502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)\b",
+                r"\b(?:400 Bad Request|502 Bad Gateway|503 Service Unavailable|504 Gateway Timeout)\b",
                 str(error), re.IGNORECASE,
-            )
+            ) or (pull and re.search(r"terminated by signal", str(error), re.IGNORECASE))
             permanent = re.search(
                 r"unauthorized|forbidden|authentication required|access denied|"
                 r"digest mismatch|manifest unknown|invalid reference|x509",
@@ -353,9 +369,35 @@ def verify_tree(root, entries):
         raise TransportError(f"missing restored files: {sorted(missing)}")
 
 
+EVIDENCE_PLATFORMS = ("linux/amd64", "linux/arm64")
+NO_MATCHING_MANIFEST = re.compile(r"no matching manifest for", re.IGNORECASE)
+
+
+def pull_image(reference):
+    try:
+        return run_registry("pull", reference)
+    except TransportError as error:
+        if not NO_MATCHING_MANIFEST.search(str(error)):
+            raise
+        # The evidence image is a data carrier: the payload is read with
+        # `docker cp` and the image is never executed. A host whose CPU
+        # architecture differs from the publishing job's therefore only needs
+        # the other published platform, which must be requested explicitly
+        # because `docker pull` filters a single-platform index by host arch.
+        last = error
+        for platform in EVIDENCE_PLATFORMS:
+            try:
+                return run_registry("pull", "--platform", platform, reference)
+            except TransportError as retry:
+                if not NO_MATCHING_MANIFEST.search(str(retry)):
+                    raise
+                last = retry
+        raise last
+
+
 def extract(reference, local):
     if not local:
-        run_registry("pull", reference)
+        pull_image(reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
     # Scratch images carry no command; create only records one and never runs it.
     run_docker("create", "--name", container, reference, "/nonexistent")

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +17,48 @@ def function(name, source=SOURCE):
 
 
 class VerifyShellTests(unittest.TestCase):
+    def test_wallet_failure_reports_survive_source_cleanup_in_both_modes(self):
+        fullchain = SOURCE.with_name("fullchain-acceptance.sh").read_text()
+        start = fullchain.index('if [ "${W3_REQUIRED_MEDIA:-0}" = 1 ]; then')
+        end = fullchain.index('# 11. Logout ends the whole session', start)
+        component = fullchain[start:end]
+        detail = function("playback_failure_detail", SOURCE.with_name("fullchain-acceptance.sh"))
+        for mode in ("monolith", "api-gateway"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source, durable = root / "source", root / "durable"
+                harness = source / "scripts/h5-demo-acceptance"
+                (harness / "node_modules/playwright").mkdir(parents=True)
+                artifact = source / "contracts/out/Study1271Wallet.sol/Study1271Wallet.json"
+                artifact.parent.mkdir(parents=True)
+                artifact.write_text("{}")
+                script = source / "scripts/fullchain-acceptance.sh"
+                script.write_text('\n'.join([
+                    'set -euo pipefail; FAIL=0; WORKDIR=$(mktemp -d)',
+                    "trap 'rm -rf \"$WORKDIR\"' EXIT",
+                    'W3_REQUIRED_MEDIA=1; MEDIA=unused; ANVIL_URL=http://unused; GRPC_TARGET=unused',
+                    'W3_BROWSER_EXPORT_DIR=' + shlex.quote(str(durable)),
+                    'MONOLITH_BASE=http://monolith; API_BASE=http://' + mode,
+                    'p() { :; }; f() { FAIL=$((FAIL + 1)); echo "FAIL: $*"; }',
+                    'go() { return 0; }; ffmpeg() { return 0; }',
+                    'python3() { echo "original browser process failed"; return 1; }',
+                    'node() {',
+                    '  if [[ "$1" == *prepare_wallet_anvil.cjs ]]; then echo \'{"fixture":true}\' > "$2"; return 0; fi',
+                    '  echo \'{"errors":["required observation failed"],"passed":false}\' > "$W3_REPORT_DIR/result.json"',
+                    '  echo \'{"contentId":"original"}\' > "$W3_REPORT_DIR/content.json"',
+                    '  echo "FAIL: original observation failed"; return 19',
+                    '}', detail, component, 'exit "$FAIL"',
+                ]))
+                result = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                shutil.rmtree(source)
+                saved = durable / ("cw-" + mode)
+                self.assertEqual((saved / "cw-browser.exit").read_text(), "19\n")
+                self.assertEqual(json.loads((saved / "result.json").read_text())["passed"], False)
+                self.assertIn("original observation failed", (saved / "cw-browser.log").read_text())
+                self.assertEqual((saved / "cw-fixture.exit").read_text(), "0\n")
+                self.assertEqual((saved / "cw-grpc-build.exit").read_text(), "0\n")
+
     def run_recovery_teardown(self, failure=""):
         with tempfile.TemporaryDirectory() as directory:
             commands = [
@@ -157,6 +200,119 @@ class VerifyShellTests(unittest.TestCase):
         # The tag already scopes the lookup to this run; without --expect-run an
         # image whose manifest names another producer would still be accepted.
         self.assertIn('--expect-run "$GITHUB_RUN_ID"', wrapper)
+
+    def test_evidence_upload_login_survives_a_transient_ghcr_denial(self):
+        root = SOURCE.parent.parent
+        wrapper = (root / ".github/actions/evidence-upload/action.yml").read_text()
+        start = wrapper.index("Store in the evidence registry")
+        block = wrapper[start:wrapper.index("evidence_transport.py put", start)]
+        # GHCR intermittently denies a token it accepts minutes earlier (run
+        # 42352481359 attempt 4: a same-attempt Retain-in-GHCR write succeeded
+        # while this login was denied once); the login must not single-shot.
+        self.assertIn("until", block, "the GHCR login must be retried, not single-shot")
+        self.assertGreaterEqual(block.count("docker login"), 2, "the last attempt must surface the real error verbosely")
+        self.assertIn("sleep 5", block, "login retries need a backoff")
+        self.assertIn("docker logout", wrapper, "credentials must still be dropped after the retries")
+
+    def test_acceptance_clock_and_browser_cache_survive_slow_link_reruns(self):
+        source = (SOURCE.parent.parent / ".github/workflows/ci.yml").read_text()
+        start = source.index("Complete Docker Acceptance")
+        # The cross-border evenings stretch the evidence restore and the upload
+        # to hours each at tens of KB/s (nettop deltas 30-70KB/s, 2026-11-08/09);
+        # a 600-minute clock cut a complete run short mid-perf on run
+        # 42460355401 attempt 2. The stage gates are unchanged — only the clock.
+        timeout = re.search(r"timeout-minutes:\s*(\d+)", source[start:])
+        self.assertIsNotNone(timeout, "the acceptance job must pin its own timeout")
+        self.assertGreaterEqual(int(timeout[1]), 900)
+        # The browser cache must live outside the checkout: every rerun runs
+        # `git clean -ffdx` over the workspace, which would discard a
+        # mid-download browser and repeat the slowest part of the bootstrap.
+        self.assertNotIn("${{ github.workspace }}/.verify-artifacts/browser-cache", source)
+        self.assertIn("${{ github.workspace }}/../browser-cache", source)
+
+    def test_frozen_source_populates_nested_submodules_offline(self):
+        controller = (SOURCE.parent / "verify-controller.sh").read_text()
+        # The URL override for the superproject's own .gitmodules does not
+        # reach submodule-level .gitmodules files: openzeppelin's nested libs
+        # (erc4626-tests, forge-std, halmos) then clone from GitHub, and the
+        # cross-border egress killed three acceptance attempts
+        # (2026-11-09, runs 42504506447 attempts 3/6/7). The frozen flow must
+        # rewrite every nested submodule URL to the local checkout the same
+        # way it rewrites the top level, before the recursive update.
+        frozen_start = controller.index("if [ \"$frozen_requested\" = 1 ]; then")
+        frozen_block = controller[frozen_start:controller.index("proxy_args=()", frozen_start)]
+        self.assertIn("find \"$FROZEN_SOURCE\" -name .gitmodules", frozen_block,
+                      "the frozen flow must discover submodule-level .gitmodules files")
+        self.assertGreaterEqual(frozen_block.count("submodule update --init"), 2,
+                                "nested URLs must be rewritten between the top-level and the recursive update")
+        self.assertIn("protocol.file.allow=always", frozen_block)
+        # The rewrite must also be *effective*: a field-mismatched read turns
+        # the nested loop into a silent no-op and the recursive update then
+        # clones the nested libs from GitHub anyway (run 42529439780 attempt 2,
+        # 2026-11-09: "could not populate the frozen source submodules"). The
+        # fixture's committed submodule URLs point at paths that cannot be
+        # cloned, so population can only succeed through the local-checkout
+        # rewrite — a textual pin cannot tell the difference.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            env = dict(os.environ,
+                       GIT_AUTHOR_NAME="fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                       GIT_COMMITTER_NAME="fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+
+            def git(*args, cwd):
+                return subprocess.run(["git", "-c", "protocol.file.allow=always", *args],
+                                      cwd=cwd, env=env, capture_output=True, text=True, check=True)
+
+            missing = "file://" + str(root / "does-not-exist")
+            git("init", "-q", str(root / "nested_src"), cwd=root)
+            (root / "nested_src" / "n.txt").write_text("nested\n")
+            git("add", ".", cwd=root / "nested_src")
+            git("commit", "-qm", "nested", cwd=root / "nested_src")
+            git("init", "-q", str(root / "sub_src"), cwd=root)
+            (root / "sub_src" / "s.txt").write_text("sub\n")
+            git("add", ".", cwd=root / "sub_src")
+            git("commit", "-qm", "sub", cwd=root / "sub_src")
+            git("submodule", "add", "-q", str(root / "nested_src"), "lib/nested", cwd=root / "sub_src")
+            git("commit", "-qm", "add nested", cwd=root / "sub_src")
+            git("init", "-q", str(source), cwd=root)
+            (source / "o.txt").write_text("source\n")
+            git("add", ".", cwd=source)
+            git("commit", "-qm", "source", cwd=source)
+            git("submodule", "add", "-q", str(root / "sub_src"), "sub", cwd=source)
+            git("commit", "-qm", "add sub", cwd=source)
+            git("submodule", "update", "--init", cwd=source)
+            # Rewriting only the committed URLs keeps both rewrite loops under
+            # test: the working checkouts below stay clonable as file paths.
+            git("config", "--file", ".gitmodules", "submodule.lib/nested.url", missing + "/nested.git", cwd=source / "sub")
+            git("add", ".gitmodules", cwd=source / "sub")
+            git("commit", "-qm", "unclonable nested URL", cwd=source / "sub")
+            git("add", "sub", cwd=source)
+            git("commit", "-qm", "pin nested URL rewrite", cwd=source)
+            git("config", "--file", ".gitmodules", "submodule.sub.url", missing + "/sub.git", cwd=source)
+            git("add", ".gitmodules", cwd=source)
+            git("commit", "-qm", "unclonable sub URL", cwd=source)
+            git("clone", "-q", str(root / "nested_src"), str(source / "sub" / "lib" / "nested"), cwd=root)
+            nested_sha = git("ls-tree", "HEAD", "lib/nested", cwd=source / "sub").stdout.split()[2]
+            git("checkout", "-q", nested_sha, cwd=source / "sub" / "lib" / "nested")
+
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            extraction = controller.index('SOURCE_REPO="$ROOT_DIR"')
+            runner = "\n".join([
+                "set -euo pipefail",
+                "ROOT_DIR=" + shlex.quote(str(source)),
+                "VERIFY_ARTIFACTS=" + shlex.quote(str(artifacts)),
+                "VERIFY_STAGE=all",
+                controller[extraction:controller.index("proxy_args=()", extraction)],
+            ])
+            result = subprocess.run(["bash", "-c", runner], capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((artifacts / "source/sub/lib/nested/n.txt").is_file(),
+                            "the nested submodule must be populated without network access")
+            rewritten = git("config", "--get", "submodule.lib/nested.url", cwd=artifacts / "source" / "sub")
+            self.assertEqual(rewritten.stdout.strip(), str(source / "sub" / "lib" / "nested"),
+                             "the nested URL override must point at the local checkout")
 
     def test_candidate_builds_do_not_export_the_layer_cache(self):
         source = (SOURCE.parent.parent / ".github/workflows/build.yml").read_text()

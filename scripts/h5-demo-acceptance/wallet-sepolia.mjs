@@ -2,24 +2,25 @@
 // approve, inject a provider, create a wallet context or broadcast a transaction.
 // Phase evidence does not replace canonical transfers, safe-time revocation,
 // real gRPC, RPC faults or the final TN-01..08 verifier.
-import { chromium } from 'playwright';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { settings, evmAddress, validateChallenge, validIdentity, validCapability, phaseVerified, capabilityFromManifest } from './lib/wallet_sepolia_contract.mjs';
+import { settings, evmAddress, validIdentity, phaseVerified } from './lib/wallet_sepolia_contract.mjs';
+import { WalletPhaseNetwork } from './lib/wallet_phase_network.mjs';
+import { CuaPageBridge } from './lib/wallet_cua_bridge.mjs';
+import { CuaPageSession } from './lib/wallet_cua_session.mjs';
+import { CuaTrace } from './lib/wallet_cua_trace.mjs';
 const require = createRequire(import.meta.url);
 const ethers = require('../../h5-demo/vendor/ethers.umd.min.js');
 const hash = (value) => createHash('sha256').update(value).digest('hex');
-const jwtClaims = (token) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
 const report = { component: 'SEPOLIA_REAL_WALLET_BROWSER_PHASE', phase: process.env.W3_PHASE || 'eoa',
     candidateSHA: process.env.W3_CANDIDATE_SHA || null, mode: process.env.W3_MODE || null,
-    testAdapter: 'EXISTING_METAMASK_CDP_READ_ONLY', publicWalletSignoff: false,
+    testAdapter: process.env.W3_BROWSER_TRANSPORT === 'cua' ? 'CUA_SCOPED_READ_ONLY' : 'EXISTING_METAMASK_CDP_READ_ONLY', publicWalletSignoff: false,
     completeAcceptance: false, checks: [], errors: [], blockers: [], gates: [], admissions: [], media: [], samples: [], challenges: [], issues: [], refreshes: [] };
-let config, browser, page, onResponse, onError;
-const challenges = new Map(), admissions = new Map(), pending = new Set();
-const privateProofs = [];
-const observedCapabilities = new Set();
+let config, browser, page, onResponse, onError, cuaBridge, cuaSession, cuaTrace, cuaStarted = false;
+let phaseNetwork, admissions = new Map(), privateProofs = [];
+const pending = new Set();
 const issuanceJobs = new Set();
 let challengeSequence = 0;
 let preserveExistingOutput = false;
@@ -33,6 +34,11 @@ const summarize = (s) => ({ at: Date.now(), tokenHash: s.token ? hash(s.token) :
     identity: s.identity, wallet: s.wallet, time: s.time, frames: s.frames, paused: s.paused, playbackState: s.playbackState, videoError: s.videoError, authError: s.authError });
 
 async function state() {
+    if (cuaSession) {
+        const value = await cuaTrace.run('state', () => cuaSession.state());
+        value.claims = value.token ? JSON.parse(Buffer.from(value.token.split('.')[1], 'base64url')) : null;
+        return value;
+    }
     if (new URL(page.url()).origin !== config.origin) throw new Error('The selected H5 page navigated away');
     const value = await page.evaluate(async () => {
         const video = document.getElementById('video-player');
@@ -68,65 +74,23 @@ async function userGate(id, instruction, predicate) {
 async function observeResponse(response) {
     const url = new URL(response.url());
     if (url.origin !== config.origin) return;
-    const at = Date.now();
-    if (url.pathname === '/api/v1/auth/challenge' && response.status() === 200) {
-        const challenge = await response.json();
-        challenges.set(challenge.challenge_id, challenge); challengeSequence++;
-        report.challenges.push({ sequence: challengeSequence, at, origin: url.origin, status: response.status(), chainId: challenge.chain_id,
-            subject: challenge.wallet || challenge.address, signingType: challenge.signing_type, messageSHA256: hash(challenge.message || '') });
-    } else if (url.pathname === '/api/v1/auth/login' && response.status() === 200) {
-        const request = response.request().postDataJSON(), result = await response.json();
-        const challenge = challenges.get(request.challenge_id);
-        // A pre-existing token cannot stand in for a fresh observed signature.
-        if (!challenge || evmAddress(request.wallet) !== config.subject) return;
-        validateChallenge(challenge, config);
-        let signer;
-        try { signer = evmAddress(ethers.utils.verifyMessage(challenge.message, request.signature)); }
-        catch { throw new Error('Observed SIWE signature has invalid encoding'); }
-        if (signer !== config.controller || request.chain_id !== 11155111) throw new Error('Observed wallet signature/controller or chain mismatch');
-        const admission = { at, controller: signer, subject: config.subject, chainId: 11155111, tokenHash: hash(result.token),
-            challengeIdSHA256: hash(request.challenge_id), messageSHA256: hash(challenge.message), signatureSHA256: hash(request.signature), originBound: true };
-        admissions.set(admission.tokenHash, admission); report.admissions.push(admission);
-        privateProofs.push({ challenge, signature: request.signature, controller: signer, tokenHash: admission.tokenHash,
-            credentials: [{ tokenHash: admission.tokenHash, token: result.token }] });
-    } else if (url.pathname === '/api/v1/auth/refresh' && response.status() === 200) {
-        const request = response.request().postDataJSON(), result = await response.json();
-        const proof = privateProofs.find(item => item.credentials.some(credential => credential.tokenHash === hash(request.token)));
-        // Existing tabs can still finish requests from an older login. Such
-        // traffic cannot prove this phase's fresh admission or its renewal.
-        if (!proof) return;
-        proof.credentials.push({ tokenHash: hash(result.token), token: result.token });
-        report.refreshes.push({ at, oldTokenHash: hash(request.token), newTokenHash: hash(result.token), oldClaims: jwtClaims(request.token), newClaims: jwtClaims(result.token) });
-    } else if (url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8` || url.pathname.startsWith(`/api/v1/streaming/${config.content}/segment/`)) {
-        const token = url.searchParams.get('playback_token');
-        if (!token && url.pathname.endsWith('/manifest.m3u8') && response.status() === 200) {
-            const headers = await response.request().allHeaders();
-            if (!headers.authorization?.startsWith('Bearer ')) throw new Error('Manifest issuance lacks its original access credential');
-            const access = headers.authorization.slice(7), body = await response.text();
-            if (!privateProofs.some(item => item.credentials.some(credential => credential.tokenHash === hash(access)))) return;
-            const capability = capabilityFromManifest(body, config);
-            observedCapabilities.add(hash(capability));
-            report.issues.push({ at, status: response.status(), accessTokenHash: hash(access), accessClaims: jwtClaims(access),
-                capabilityHash: hash(capability), capabilityClaims: jwtClaims(capability), manifestSHA256: hash(body) });
-        }
-        if (token) {
-            // The player's segment can finish before Playwright has delivered
-            // the master body. Wait only for issuance handlers, never for other
-            // segment handlers (which would introduce a dependency cycle).
-            await Promise.all([...issuanceJobs]);
-            if (!observedCapabilities.has(hash(token))) return;
-            const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url'));
-            if (!validCapability(claims, config)) throw new Error('Observed foreign or unbounded media capability');
-            const kind = url.pathname.includes('/segment/') ? 'segment' : 'manifest';
-            const payload = response.status() === 200 && kind === 'segment' ? await response.body() : null;
-            report.media.push({ at, kind, status: response.status(), tokenHash: hash(token), claims,
-                ...(payload ? { size: payload.length, sha256: hash(payload) } : {}) });
-        }
-    }
+    const auth = ['/api/v1/auth/challenge', '/api/v1/auth/login', '/api/v1/auth/refresh'].includes(url.pathname);
+    const manifest = url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8`;
+    const segment = url.pathname.startsWith(`/api/v1/streaming/${config.content}/segment/`);
+    if (!auth && !manifest && !segment) return;
+    const at = Date.now(), status = response.status(), token = url.searchParams.get('playback_token');
+    let body = Buffer.alloc(0), headers = {}, requestBody = '';
+    if (status === 200 && (auth || (manifest && !token) || (segment && token))) body = await response.body();
+    if (status === 200 && ['/api/v1/auth/login', '/api/v1/auth/refresh'].includes(url.pathname)) requestBody = response.request().postData() || '';
+    if (status === 200 && manifest && !token) headers = await response.request().allHeaders();
+    // An observed media response cannot outrun the corresponding issuance body.
+    if (token) await Promise.all([...issuanceJobs]);
+    await phaseNetwork.observe({ url: url.href, status, at, body, headers, requestBody });
+    challengeSequence = phaseNetwork.challengeSequence;
 }
 
 async function profile(current, prefix) {
-    const result = await page.evaluate(async () => {
+    const result = cuaSession ? await cuaTrace.run('profile', () => cuaSession.profile()) : await page.evaluate(async () => {
         const response = await fetch('/api/v1/auth/profile', { headers: { Authorization: `Bearer ${sessionStorage.getItem('streamgate_token')}` } });
         return { status: response.status, data: await response.json() };
     });
@@ -136,30 +100,46 @@ async function profile(current, prefix) {
 
 try {
     config = settings(process.env);
-    if (existsSync(join(config.output, 'result.json')) || existsSync(join(config.output, 'siwe-proofs.private.json'))) {
+    phaseNetwork = new WalletPhaseNetwork({ config, report, ethers });
+    admissions = phaseNetwork.admissions; privateProofs = phaseNetwork.privateProofs;
+    if (existsSync(join(config.output, 'result.json')) || existsSync(join(config.output, 'siwe-proofs.private.json')) || existsSync(join(config.output, 'cua-trace.private.json'))) {
         preserveExistingOutput = true;
         throw new Blocked('The report directory already contains original evidence; choose a new phase directory');
     }
-    browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000, noDefaults: true }).catch(() => { throw new Blocked('The existing MetaMask browser CDP endpoint is unavailable'); });
-    const candidates = browser.contexts().flatMap((context) => context.pages()).filter((candidate) => {
-        try { return new URL(candidate.url()).origin === config.origin; } catch { return false; }
-    });
-    const pages = [];
-    // The user's transaction panel shares this origin. Select the actual H5
-    // player without closing, navigating or claiming that other wallet tab.
-    for (const candidate of candidates) if (await candidate.locator('#video-player').count() === 1) pages.push(candidate);
-    if (pages.length !== 1) throw new Blocked('Exactly one existing H5 tab on the configured origin is required');
-    [page] = pages;
-    onError = (error) => report.errors.push(error.message);
-    onResponse = (response) => {
-        const url = new URL(response.url());
-        const issuance = url.origin === config.origin && url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8` && !url.searchParams.has('playback_token');
-        const operation = observeResponse(response).catch((error) => report.errors.push(error instanceof SyntaxError ? 'Malformed original HTTP/JWT evidence' : error.message))
-            .finally(() => { pending.delete(operation); issuanceJobs.delete(operation); });
-        if (issuance) issuanceJobs.add(operation);
-        pending.add(operation);
-    };
-    page.on('pageerror', onError); page.on('response', onResponse);
+    if (config.transport === 'cua') {
+        cuaBridge = new CuaPageBridge({ targetOrigin: config.origin });
+        await cuaBridge.start();
+        cuaTrace = new CuaTrace({ bridge: cuaBridge, candidateSHA: config.candidateSHA, mode: config.mode,
+            phase: config.phase, origin: config.origin, content: config.content });
+        cuaSession = new CuaPageSession({ bridge: cuaTrace, origin: config.origin, content: config.content,
+            onResponse: async row => { await phaseNetwork.observe(row); challengeSequence = phaseNetwork.challengeSequence; },
+            onPageError: reason => report.errors.push(reason) });
+        console.log('CUA_RELAY ' + JSON.stringify({ origin: cuaBridge.origin, sessionFile: cuaBridge.sessionFile, targetOrigin: config.origin }));
+        try { await cuaTrace.run('start', () => cuaSession.start()); cuaStarted = true; }
+        catch { throw new Blocked('The origin-scoped CUA observer did not connect'); }
+    } else {
+        const { chromium } = await import('playwright');
+        browser = await chromium.connectOverCDP(config.cdp, { timeout: 10000, noDefaults: true }).catch(() => { throw new Blocked('The existing MetaMask browser CDP endpoint is unavailable'); });
+        const candidates = browser.contexts().flatMap((context) => context.pages()).filter((candidate) => {
+            try { return new URL(candidate.url()).origin === config.origin; } catch { return false; }
+        });
+        const pages = [];
+        // The user's transaction panel shares this origin. Select the actual H5
+        // player without closing, navigating or claiming that other wallet tab.
+        for (const candidate of candidates) if (await candidate.locator('#video-player').count() === 1) pages.push(candidate);
+        if (pages.length !== 1) throw new Blocked('Exactly one existing H5 tab on the configured origin is required');
+        [page] = pages;
+        onError = (error) => report.errors.push(error.message);
+        onResponse = (response) => {
+            const url = new URL(response.url());
+            const issuance = url.origin === config.origin && url.pathname === `/api/v1/streaming/${config.content}/manifest.m3u8` && !url.searchParams.has('playback_token');
+            const operation = observeResponse(response).catch((error) => report.errors.push(error instanceof SyntaxError ? 'Malformed original HTTP/JWT evidence' : error.message))
+                .finally(() => { pending.delete(operation); issuanceJobs.delete(operation); });
+            if (issuance) issuanceJobs.add(operation);
+            pending.add(operation);
+        };
+        page.on('pageerror', onError); page.on('response', onResponse);
+    }
     const current = await state();
     if (!current.wallet?.metaMask) throw new Blocked('MetaMask was not found on the existing H5 page');
     if (config.phase === 'negative') {
@@ -208,6 +188,14 @@ try {
     if (page && onResponse) page.off('response', onResponse);
     if (page && onError) page.off('pageerror', onError);
     await Promise.all([...pending]);
+    if (cuaSession && cuaStarted) {
+        try { await cuaTrace.run('finish', () => cuaSession.finish()); }
+        catch { report.errors.push('CUA observer ended with incomplete original events'); }
+    }
+    if (cuaBridge) {
+        try { await cuaBridge.close(); }
+        catch { report.errors.push('CUA observer cleanup failed'); }
+    }
     // No contexts were created. This disconnects the CDP client and preserves
     // the user's pre-existing browser context, wallet and tabs.
     if (browser) await browser.close().catch((error) => report.errors.push(error.message));
@@ -221,6 +209,13 @@ try {
             const raw = JSON.stringify(privateProofs, null, 2) + '\n';
             writeFileSync(join(output, 'siwe-proofs.private.json'), raw, { mode: 0o600, flag: 'wx' });
             report.privateProofSHA256 = hash(raw);
+        }
+        if (cuaTrace && report.phaseVerified) {
+            try {
+                const raw = cuaTrace.serialize();
+                writeFileSync(join(output, 'cua-trace.private.json'), raw, { mode: 0o600, flag: 'wx' });
+                report.cuaTraceSHA256 = hash(raw);
+            } catch { report.errors.push('CUA private trace was incomplete or could not be saved'); report.phaseVerified = false; report.status = 'FAIL'; }
         }
         writeFileSync(join(output, 'result.json'), JSON.stringify(report, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     }

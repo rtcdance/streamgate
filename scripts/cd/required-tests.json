@@ -771,6 +771,26 @@
       {
         "package": "github.com/rtcdance/streamgate/test/walletgrpc",
         "test": "TestWalletGRPCBridge_PreservesOriginalOutput"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/holding_retained"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/holding_transferred"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/rule_changes_during_refresh"
+      },
+      {
+        "package": "github.com/rtcdance/streamgate/pkg/service",
+        "test": "TestAuthorizePlayback_RefreshesEvidenceExpiredDuringSecondSnapshot/refreshed_evidence_expires_at_third_snapshot"
       }
     ]
   }

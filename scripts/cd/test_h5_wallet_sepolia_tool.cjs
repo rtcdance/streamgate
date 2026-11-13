@@ -34,6 +34,17 @@ test('configuration rejects remote CDP, wrong chains, missing candidates and uns
     }
 });
 
+test('CUA transport is explicit and does not require a browser-wide debugging endpoint', async () => {
+    const { settings } = await load();
+    const cua = { ...env(), W3_BROWSER_TRANSPORT: 'cua' }; delete cua.W3_CDP_ENDPOINT;
+    assert.equal(settings(cua).transport, 'cua');
+    assert.throws(() => settings({ ...cua, W3_CDP_ENDPOINT: 'http://localhost:9222' }), /browser-wide/);
+    const negative = { ...cua, W3_PHASE: 'negative' }; delete negative.W3_CONTENT_ID;
+    assert.equal(settings(negative).content, null);
+    assert.equal(settings(env()).transport, 'cdp');
+    assert.throws(() => settings({ ...env(), W3_BROWSER_TRANSPORT: 'unknown' }), /transport/i);
+});
+
 test('SIWE requires the actual message origin, C address, unique chain and nonce', async () => {
     const { settings, validateChallenge } = await load(); const config = settings(env());
     const good = { wallet: C, chain_id: 11155111, signing_type: 'siwe', nonce: '12345678',

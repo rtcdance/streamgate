@@ -2,6 +2,7 @@
 // the original SIWE signature, live identities or decoded-media observations.
 import { createHash } from 'node:crypto';
 import { PHASE_CHECKS, evmAddress, phaseVerified, validIdentity, validCapability, validateChallenge } from './wallet_sepolia_contract.mjs';
+import { validateCuaTrace } from './wallet_cua_replay.mjs';
 const hash = value => createHash('sha256').update(value).digest('hex');
 const require = (ok, reason) => { if (!ok) throw Error(reason); };
 const digest = value => { require(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value), 'invalid evidence digest'); return value; };
@@ -10,13 +11,25 @@ const accessPurpose = claims => claims.token_type === 'access' && claims.iss ===
 const equalClaims = (left, right) => JSON.stringify(Object.fromEntries(Object.entries(left).sort())) === JSON.stringify(Object.fromEntries(Object.entries(right).sort()));
 
 export function validatePhaseEvidence(report, proofsRaw, config, originalExit, ethers) {
+    return validatePhaseEvidenceForAdapter(report, proofsRaw, config, originalExit, ethers, 'EXISTING_METAMASK_CDP_READ_ONLY');
+}
+
+export async function validateCuaPhaseEvidence(report, proofsRaw, traceRaw, config, originalExit, ethers) {
+    const result = validatePhaseEvidenceForAdapter(report, proofsRaw, config, originalExit, ethers, 'CUA_SCOPED_READ_ONLY');
+    const normalized = { ...config, controller: evmAddress(config.controller), subject: evmAddress(config.subject) };
+    if (config.phase !== 'negative') normalized.nft = evmAddress(config.nft);
+    await validateCuaTrace(traceRaw, report, proofsRaw, normalized, ethers);
+    return result;
+}
+
+function validatePhaseEvidenceForAdapter(report, proofsRaw, config, originalExit, ethers, adapter) {
     require(/^[0-9a-f]{40}$/.test(config.candidateSHA) && ['monolith', 'api-gateway'].includes(config.mode) && Object.hasOwn(PHASE_CHECKS, config.phase), 'explicit candidate, mode and phase are required');
     config = { ...config, controller: evmAddress(config.controller), subject: evmAddress(config.subject) };
     const origin = new URL(config.origin);
     require(['http:', 'https:'].includes(origin.protocol) && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname) && !origin.username && !origin.password && origin.origin === config.origin, 'explicit loopback H5 origin required');
     if (config.phase !== 'negative') { config.nft = evmAddress(config.nft); require(/^[0-9a-f-]{36}$/i.test(config.content || ''), 'explicit content fixture required'); }
     require(config.phase === 'contract' ? config.subject !== config.controller : config.subject === config.controller, 'wrong phase subject');
-    require(originalExit === 0 && report.component === 'SEPOLIA_REAL_WALLET_BROWSER_PHASE' && report.testAdapter === 'EXISTING_METAMASK_CDP_READ_ONLY' &&
+    require(originalExit === 0 && report.component === 'SEPOLIA_REAL_WALLET_BROWSER_PHASE' && report.testAdapter === adapter &&
         report.candidateSHA === config.candidateSHA && report.mode === config.mode && report.phase === config.phase &&
         report.publicWalletSignoff === false && report.completeAcceptance === false && report.status === 'WALLET_PHASE_OBSERVED' && report.phaseVerified === true && phaseVerified(report), 'missing, failed, foreign or simulated wallet phase');
     require(report.checks.length === PHASE_CHECKS[config.phase].length, 'phase check set differs from the fixed contract');

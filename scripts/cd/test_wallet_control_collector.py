@@ -20,6 +20,16 @@ CANDIDATE = 'a' * 40
 
 
 class PublicCollectorTests(unittest.TestCase):
+    def test_wallet_phase_replay_dependencies_are_pinned_to_the_candidate(self):
+        for name in ('wallet_cua_replay.mjs', 'wallet_cua_session.mjs', 'wallet_cua_network.mjs', 'wallet_phase_network.mjs'):
+            self.assertIn('scripts/h5-demo-acceptance/lib/' + name, tool.PINNED)
+
+    def test_browser_transport_is_explicit_and_cua_never_receives_a_browser_wide_endpoint(self):
+        self.assertEqual({'W3_BROWSER_TRANSPORT': 'cua'}, tool.browser_environment(SimpleNamespace(transport='cua', cdp=None)))
+        self.assertEqual({'W3_CDP_ENDPOINT': 'http://localhost:9222'}, tool.browser_environment(SimpleNamespace(transport='cdp', cdp='http://localhost:9222')))
+        for args in (SimpleNamespace(transport='cua', cdp='http://localhost:9222'), SimpleNamespace(transport='cdp', cdp=None), SimpleNamespace(transport='unknown', cdp=None)):
+            with self.subTest(transport=args.transport), self.assertRaises(ValueError): tool.browser_environment(args)
+
     def test_private_context_is_exclusive_and_does_not_replace_originals(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'context.json'

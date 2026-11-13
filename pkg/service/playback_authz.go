@@ -256,7 +256,10 @@ func (a *PlaybackAuthorizer) AuthorizePlayback(ctx context.Context, contentID, w
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to resolve the policy snapshot: %v", ErrAuthorizationUnavailable, err)
 	}
-	if second.Version != first.Version {
+	// A cached grant may cross the freshness bound while the final policy
+	// snapshot is read. Reuse this same single reauthorization budget to read
+	// fresh pinned evidence; never relabel its original observation time.
+	if second.Version != first.Version || (!decision.EvidenceObservedAt.IsZero() && time.Since(decision.EvidenceObservedAt) > middleware.EvidenceAgeBound(a.gate)) {
 		if len(second.Rules) == 0 {
 			if a.gate.GatingMode == "open" {
 				return publicAuthorization(contentID, wallet, session, second), nil
