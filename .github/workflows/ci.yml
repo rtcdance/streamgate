@@ -784,6 +784,11 @@ jobs:
     # of 30-70KB/s) on top of the DAG and the transport.
     timeout-minutes: 900
     env:
+      # The registry client otherwise stops each pull/push at 900s, far short of
+      # the ~4 h the evidence upload needs (run 42954136765 died at the old 3600s
+      # ceiling). Pulls retry a timeout, pushes do not, so the ~4 h evidence push
+      # sets the bound. This is a transfer budget, not a gate; the script caps it at 14400.
+      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
@@ -798,7 +803,6 @@ jobs:
       # with `git clean -ffdx` on every rerun, which would discard a mid-download
       # browser and force the slow CDN fetch onto every attempt.
       VERIFY_PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/../browser-cache
-      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "7200"
       VERIFY_STAGE: all
       VERIFY_MODE: candidate
       VERIFY_ENVIRONMENT_PROFILE: ${{ vars.STREAMGATE_ACCEPTANCE_PROFILE || 'native-linux' }}

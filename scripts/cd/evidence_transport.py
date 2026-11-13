@@ -21,6 +21,10 @@ SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REGISTRY_ATTEMPTS = 5
 REGISTRY_BACKOFF_SECONDS = 5
 REGISTRY_TIMEOUT_SECONDS = 900
+# The image is FROM scratch and never executed, but a single-arch manifest is
+# unresolvable on a runner of another architecture (amd64 hosted producers,
+# arm64 Mac consumer). Pin one platform at build, pull and create.
+TRANSPORT_PLATFORM = "linux/amd64"
 
 
 class TransportError(Exception):
@@ -244,8 +248,10 @@ def run_docker(*args, capture=True, timeout=None):
 
 def run_registry(*args):
     value = os.environ.get("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS", str(REGISTRY_TIMEOUT_SECONDS))
-    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 7200:
-        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..7200")
+    if not re.fullmatch(r"[1-9][0-9]*", value) or int(value) > 14400:
+        # 14400 matches the transfer budget injected by ci.yml: the ~620 MB
+        # evidence push needs ~4 h on this uplink and a push is not retried.
+        raise TransportError("STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS must be an integer in 1..14400")
     timeout = int(value)
     # The long-network budget applies to pushes AND pulls: the cross-border
     # uplink to the evidence registry degrades to tens of KB/s for hours at a
@@ -294,7 +300,7 @@ def push_image(context, image, tag, source_url, sha, name, bundle):
         f"io.streamgate.evidence.name={name}",
         f"io.streamgate.evidence.bundle={bundle}",
     ]
-    command = ["build", "-t", reference]
+    command = ["build", "--platform", TRANSPORT_PLATFORM, "-t", reference]
     for label in labels:
         command.extend(["--label", label])
     command.append(str(context))
@@ -374,8 +380,10 @@ NO_MATCHING_MANIFEST = re.compile(r"no matching manifest for", re.IGNORECASE)
 
 
 def pull_image(reference):
+    """Pull the evidence image; return the platform requested, or None."""
     try:
-        return run_registry("pull", reference)
+        run_registry("pull", reference)
+        return None
     except TransportError as error:
         if not NO_MATCHING_MANIFEST.search(str(error)):
             raise
@@ -387,7 +395,8 @@ def pull_image(reference):
         last = error
         for platform in EVIDENCE_PLATFORMS:
             try:
-                return run_registry("pull", "--platform", platform, reference)
+                run_registry("pull", "--platform", platform, reference)
+                return platform
             except TransportError as retry:
                 if not NO_MATCHING_MANIFEST.search(str(retry)):
                     raise
@@ -396,11 +405,14 @@ def pull_image(reference):
 
 
 def extract(reference, local):
-    if not local:
-        pull_image(reference)
+    # Locally built images were built for TRANSPORT_PLATFORM; a pulled one is
+    # created for whichever platform the pull resolved, or a containerd store
+    # on another architecture cannot find it.
+    platform = TRANSPORT_PLATFORM if local else pull_image(reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
+    platform_args = ("--platform", platform) if platform else ()
     # Scratch images carry no command; create only records one and never runs it.
-    run_docker("create", "--name", container, reference, "/nonexistent")
+    run_docker("create", *platform_args, "--name", container, reference, "/nonexistent")
     work = Path(tempfile.mkdtemp(prefix="sg-evidence-"))
     try:
         run_docker("cp", f"{container}:/transport.json", str(work / "transport.json"))
@@ -578,7 +590,7 @@ def command_put(args):
         return 0
     reference = f"{args.image}:{args.tag}"
     if args.no_push:
-        run_docker("build", "-t", reference, str(context))
+        run_docker("build", "--platform", TRANSPORT_PLATFORM, "-t", reference, str(context))
         info = json.loads(run_docker("image", "inspect", reference, "--format", "{{json .}}"))
         result.update({"image": reference, "imageID": info["Id"], "digest": None, "status": "built"})
     else:

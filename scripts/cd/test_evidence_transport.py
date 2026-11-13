@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -669,6 +670,69 @@ class EvidenceTransportTests(unittest.TestCase):
                 patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
                 contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(transport.main(argv), 2)
+
+    def test_push_image_builds_for_the_transport_platform(self):
+        calls = []
+
+        def fake_docker(*args, capture=True, timeout=None):
+            calls.append(args)
+            if args[:2] == ("image", "inspect"):
+                return json.dumps(["ghcr.io/x/y@sha256:" + "a" * 64])
+            return ""
+
+        with patch.object(transport, "run_docker", side_effect=fake_docker):
+            transport.push_image(
+                self.root, "ghcr.io/x/y", "t", "https://example.invalid", "a" * 40, "n", "b" * 64)
+        build = next(call for call in calls if call[0] == "build")
+        self.assertIn(("--platform", "linux/amd64"), list(zip(build, build[1:])))
+
+    def create_call(self, local, pulled_platform):
+        calls = []
+
+        def fake_docker(*args, capture=True, timeout=None):
+            calls.append(args)
+            if args[0] == "cp":
+                raise transport.TransportError("stop after create")
+            return ""
+
+        with patch.object(transport, "pull_image", return_value=pulled_platform), \
+                patch.object(transport, "run_docker", side_effect=fake_docker), \
+                patch.object(transport.subprocess, "run"):
+            with self.assertRaises(transport.TransportError):
+                transport.extract("ghcr.io/x/y@sha256:" + "1" * 64, local=local)
+        return next(call for call in calls if call[0] == "create")
+
+    def test_extract_creates_for_the_platform_the_pull_resolved(self):
+        create = self.create_call(False, "linux/amd64")
+        self.assertIn(("--platform", "linux/amd64"), list(zip(create, create[1:])))
+
+    def test_extract_creates_without_a_platform_after_a_native_pull(self):
+        self.assertNotIn("--platform", self.create_call(False, None))
+
+    def test_extract_creates_a_local_image_for_the_transport_platform(self):
+        create = self.create_call(True, None)
+        self.assertIn(("--platform", transport.TRANSPORT_PLATFORM), list(zip(create, create[1:])))
+
+    def test_pull_image_reports_the_platform_it_fell_back_to(self):
+        def fake_registry(*args):
+            if "--platform" not in args:
+                raise transport.TransportError("docker pull failed: no matching manifest for linux/arm64/v8")
+            return "ok"
+
+        with patch.object(transport, "run_registry", side_effect=fake_registry):
+            self.assertEqual(transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64), "linux/amd64")
+        with patch.object(transport, "run_registry", return_value="ok"):
+            self.assertIsNone(transport.pull_image("ghcr.io/x/y@sha256:" + "a" * 64))
+
+    def test_ci_injects_registry_timeout_within_the_cap(self):
+        workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        values = re.findall(r'STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS:\s*"(\d+)"', workflow)
+        # Exactly one: a second key in the same env map is a duplicate the
+        # workflow parser rejects.
+        self.assertEqual(len(values), 1, "ci.yml must inject the evidence transport budget once")
+        for value in values:
+            self.assertGreater(int(value), transport.REGISTRY_TIMEOUT_SECONDS)
+            self.assertLessEqual(int(value), 14400)
 
     def test_get_requires_digest_pinned_references(self):
         argv = [
