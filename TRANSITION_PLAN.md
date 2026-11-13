@@ -380,6 +380,8 @@ python3 scripts/cd/verify_web3_extension.py \
 
 **跨机协作分工（2026-11-13 起）：** 本计划可在低配机（无 Docker 验收能力）上由 AI 执行，验收由局域网 Mac（self-hosted runner）承担。分工约束：① 低配机端只做读计划、改代码/文档、commit/push、派发 CI、读结果与决策，绝不在本机跑验收栈，绝不并发派发同 SHA 的多个 run；② 工作走独立分支（不直接推 master），push 须有用户授权；③ 验收经 `gh workflow run ci.yml --ref <分支>` 派发，一次只允许一个在途验收 run，经 `gh run view` 跟踪；④ 失败必须先取日志归因（瞬态/确定性缺陷/外部阻塞三类），同签名连续 2 次失败即停止重试并报告，禁止无界重试循环（2026-11-12 曾因 14 次盲目重跑耗尽 attempt 被 GitHub 取消整个 run）；⑤ 需要定向回归、诊断或证据保全时明确列出请求项，由用户转到 Mac 端执行；⑥ 进度结论写回本文件对应小节，不新建过程文档。Mac 端保持 runner 在线、Docker 常驻与 caffeinate 防休眠（休眠曾致验收容器被杀、run 速败）。
 
+**CI 暂停决定（2026-11-13 owner 拍板）：** 验收执行改为**完全本机路线**：以 `make verify-docker`（含 `VERIFY_STAGE=all`）的完整九阶段 DAG 为准，原始退出与证据 hash 落 `.verify-artifacts/` 保全；**不再派发同 SHA CI / GHCR 存证 run**，M5 门中「远端同 SHA CI」部分暂缓，由本机 all 原始退出 + 证据目录 SHA256 清单替代。背景：620MB 证据经家庭宽带上行是历史故障主因，且求职项目对远端存证的需求由 owner 重新权衡后让位于迭代速度。约束：① 在途 run（如 `43375843333`）不受影响，跑完照常收证据；② 恢复 CI 需 owner 明确重新授权，恢复时 hosted 与本机属不同验收环境口径，须重建 reference 基线，不得混用历史结论；③ 本机 all 期间禁止修改 checkout、保持 caffeinate 防休眠（同 §10.5 单执行栈纪律）。
+
 ---
 
 ## §C 执行证据
