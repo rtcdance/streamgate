@@ -308,6 +308,17 @@ python3 scripts/wallet-testnet/observe_controls.py \
   --phase-directory "$W3_REPORT_DIR" --phase-exit "$W3_BROWSER_EXIT_FILE" \
   --oracle "$W3_PHASE_ORACLE" --oracle-exit "$W3_PHASE_ORACLE_EXIT" --output "$W3_CONTROLS_PHASE_DIR"
 
+# 媒体 fixture（候选分支 sg/w3-media-fixture-20261113 起提供）：A 在 H5 完成一次
+# MetaMask SIWE 登录后，把 sessionStorage 的 streamgate_token 写入 0600 私有文件；
+# 在 mint-a 已对账（A 持有 N）后、两模式浏览器阶段之前运行一次，两模式共用同一
+# 栈数据库，故只上传一次。不签名、不广播、不 mint、不读私钥；token 不入报告。
+# exit 0=PASS / 1=FAIL / 2=BLOCKED；输出每次新路径，已存在即拒绝。
+python3 scripts/wallet-testnet/media_fixture.py \
+  --base-url "$W3_MONOLITH_ORIGIN" --controller "$W3_SEPOLIA_ADDRESS" \
+  --token-file "$W3_A_TOKEN_FILE" --manifest "$W3_DEPLOYMENT_MANIFEST" \
+  --output "$W3_MEDIA_FIXTURE_REPORT"
+# 报告中的 contentID 即后续各阶段的 --content / W3_CONTENT_ID。
+
 # 每模式分别合并eoa/contract原件；仍非完整验收。
 python3 scripts/wallet-testnet/observe_controls.py merge \
   --candidate "$W3_CANDIDATE_SHA" --controller "$W3_SEPOLIA_ADDRESS" --recipient "$W3_SEPOLIA_RECIPIENT" \
@@ -572,7 +583,7 @@ sequenceDiagram
 - **与 C4/interim 对标：**C4 的 TN-01～07 全 BLOCKED（「真实 MetaMask 签名与 6 笔 Sepolia 交易未做」），public-runtime FAIL（容器未启动）。r7 已完成 6 笔交易 + oracle + 部分浏览器阶段，核心基础设施验证**强于 C4 交付时状态**。Fixture 缺失是 r7 specific 问题（preparation 脚本未调用 fixture 生成），非架构缺陷。
 - **判定：W3-08 = PASS WITH FIXTURE_BLOCKED。**理由：① 核心验证目标（交易上链能力、oracle 一致性、MetaMask 集成、NFT gating 逻辑）已达成并留证；② 播放测试的 BLOCKED 状态符合 W3-08 定义（「未就绪则明确 BLOCKED」）；③ 无 FAIL 或伪造证据；④ 已超越 C4 交付时的 testnet 验证深度。Fixture 恢复与完整 TN 矩阵补全列入后续优化（非交付阻塞项）。
 - **证据保全（`20261111T*-w3-08-r7-*/`）：**① 6 笔交易 hash + receipt；② 4 个 oracle 输出（eoa-held/pending/eoa-transferred/contract-held/contract-transferred）；③ deployment-manifest.json（NFT/C 地址、编译归档 SHA、交易记录）；④ ledger.json（6 操作全 confirmed）；⑤ 2 个浏览器阶段 result.json（negative-monolith/eoa-monolith）；⑥ controls.json（overall=INCOMPLETE 但详细记录完成项与 BLOCKED 项）；⑦ 自动化脚本（auto-phase.sh/guided-phase.sh）与执行日志。全部原件保留，未修改时间戳或状态码。
-- **W3-08 → W3-09 交接清单：**✅ Sepolia testnet 真实交易能力已证明（6 笔 deploy/mint/transfer）；✅ Oracle 链上验证逻辑已实现（eoa-held PASS）；✅ MetaMask SIWE 集成已验证（登录 + 签名拒绝）；✅ NFT ownership 检查已验证（链上查询正确）；⏸️ 媒体 fixture 缺口已定位（2026-11-13 复核，Windows 宿主只读核实）：交接清单原记的 `prepare-fixture.sh` **在任何分支都不存在**（master / `d267ad44` / HEAD 均 ABSENT，仅本计划文字引用）；媒体 fixture 的权威配方在 `scripts/fullchain-acceptance.sh:187–290`（10s testsrc 640x360@30 + 440Hz 正弦，H.264+AAC，编码器按本机在 `h264_videotoolbox`/`libx264` 中选取并记录，非占位媒体），以 Wallet A 经 `/api/v1/upload` → `/complete-upload` 上传后转码 HLS；而 Sepolia 入口 `scripts/wallet-testnet/verify_web3_testnet.py` 与 `prepare_stack.py` / `launch_stack.py` 均无媒体生成/上传步骤 —— r7 的 `BLOCKED_FIXTURE_MISSING` 即源于此。下一候选需把该媒体步骤并入 Sepolia 启动流程，方可在两模式补播放格（属代码变更，须按 §10.5 形成新候选并过 CI）；⏸️ 完整 TN 矩阵留待优化（14 格中 11 格 BLOCKED 可通过 fixture 恢复 + 跨模式自动化改进补全）。W3-09 可基于当前证据更新 README（Sepolia 支持已实证）、ARCHITECTURE（oracle 设计已验证）、求职材料（testnet 集成作为亮点）。
+- **W3-08 → W3-09 交接清单：**✅ Sepolia testnet 真实交易能力已证明（6 笔 deploy/mint/transfer）；✅ Oracle 链上验证逻辑已实现（eoa-held PASS）；✅ MetaMask SIWE 集成已验证（登录 + 签名拒绝）；✅ NFT ownership 检查已验证（链上查询正确）；⏸️ 媒体 fixture 缺口已定位（2026-11-13 复核，Windows 宿主只读核实）：交接清单原记的 `prepare-fixture.sh` **在任何分支都不存在**（master / `d267ad44` / HEAD 均 ABSENT，仅本计划文字引用）；媒体 fixture 的权威配方在 `scripts/fullchain-acceptance.sh:187–290`（10s testsrc 640x360@30 + 440Hz 正弦，H.264+AAC，编码器按本机在 `h264_videotoolbox`/`libx264` 中选取并记录，非占位媒体），以 Wallet A 经 `/api/v1/upload` → `/complete-upload` 上传后转码 HLS；而 Sepolia 入口 `scripts/wallet-testnet/verify_web3_testnet.py` 与 `prepare_stack.py` / `launch_stack.py` 均无媒体生成/上传步骤 —— r7 的 `BLOCKED_FIXTURE_MISSING` 即源于此。下一候选需把该媒体步骤并入 Sepolia 启动流程，方可在两模式补播放格（属代码变更，须按 §10.5 形成新候选并过 CI）。**已实现（2026-11-13，候选分支 `sg/w3-media-fixture-20261113` @ `d1f86fb`，基于 `d267ad44`，本地未推送）：**`scripts/wallet-testnet/media_fixture.py`——按 fullchain 同一配方生成 10s 片段，以控制者 A 自己的 SIWE 会话（owner 决定：A 签一次；原设想的密码账户不可行，`/auth/login` 仅接受钱包签名、`AuthService.Authenticate(username,password)` 无任何 HTTP/gRPC 调用方）上传 → complete-upload → 为部署清单中的 N 建 11155111 / erc721 / min_balance=1 服务器规则 → 轮询 `GET /api/v1/content/:id` 至 `ready`（A 稍后会转出 N，故不以 manifest 200 判就绪）。token 取自 0600 私有文件并先核对 `wallet_address`=A、`chain_id`、`token_type`，绝不写入报告；401/403=FAIL、依赖不可用/超时=BLOCKED、输出已存在即拒绝。15 个单测（`scripts/cd/test_wallet_media_fixture.py`，已接入 ci.yml 与 verify-docker unit），Windows 预检 14 OK + 1 POSIX 权限用例跳过；同分支另含两项 CI 修复的适配版：`7d08e82`（ci.yml 原有 7200 与新增 14400 为同一 env 映射的**重复键**，保留 14400 并把脚本上限提到 14400——证据 push 不重试；保留候选既有跨平台 pull 回退，create 使用 pull 实际解析的平台）、`1683b8e`（候选线 Scan/smoke 已调用 `image_identity.py --verify`，仅带入无注解单 manifest 回退与守卫测试）。各测试套件与 `d267ad44` 基线在本机失败集合一致。**尚需：**推送该分支、同 SHA CI、owner 在 Sepolia 栈上实跑本步骤；⏸️ 完整 TN 矩阵留待优化（14 格中 11 格 BLOCKED 可通过 fixture 恢复 + 跨模式自动化改进补全）。W3-09 可基于当前证据更新 README（Sepolia 支持已实证）、ARCHITECTURE（oracle 设计已验证）、求职材料（testnet 集成作为亮点）。
 - **状态：**W3-08 = **PASS WITH FIXTURE_BLOCKED**（核心目标达成，媒体测试 BLOCKED 符合定义，无 FAIL）。W3-09 文档收口与求职准备解除 BLOCKED，可立即开始。预计 W3-09 耗时 2～3 小时（README/ARCHITECTURE 更新 + 求职材料整理 + 最终 git tag）。
 
 #### C.3.3 证据传输预算修复（原 §8.59，2026-11-11T06:20Z；与 §C.5 中 cleanup 勘误的 §8.59 为原文编号冲突，以日期区分）
