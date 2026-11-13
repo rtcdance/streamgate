@@ -20,6 +20,7 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 
 - Deterministic exit: candidate `d267ad44`, CI run 42548083086 attempt 2, 55/55, complete Docker all exit 0, media 77/77 (plan §C.3.1).
 - Sepolia r7 (2026-11-11): 6 confirmed transactions (2 deploys, 2 mints, 2 transfers), holdings oracle, personal MetaMask SIWE login and signature rejection in monolith. Media fixture missing → playback BLOCKED; api-gateway mode and contract-wallet browser login not run; TN matrix 2/14 PASS, 12/14 BLOCKED, 0 FAIL (plan §C.3.2).
+- **W3 code is not on master.** It lives on `d267ad44` = remote `sg/w3-freshness-20261107` (34 commits ahead). The local clone is shallow; fetch that branch before reading W3 code. Merging needs the owner's decision.
 - Candidates `160f1804`, `4f68c8bf`, and the earlier W3-09 docs branch `sg/w3-delivery-docs-20261104` / `0e9cb338` are **not in the local repository**; cite their CI run ids, not the SHAs.
 
 ## Operational rules learned

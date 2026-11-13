@@ -33,7 +33,7 @@
 
 当前工程状态：候选 `d0f05152` 完整 Docker 门与同 SHA CI 已通过（run `41343759379`，55/55）；真实媒体两种入口各 77/77，HTTP/gRPC 转移拒绝在 monolith 实测 61.799s/62.403s、api-gateway 59.732s/60.193s，起点为 safe 视图确认，不包含链最终性等待。本机 warm demo 启动 57.14s、业务复验两腿各 77/77。来源：当前候选 `logs/media.log`、本轮 demo 原始日志与计划 §C.2（原 §8.86）。**未做**：生产、本人讲述/录屏/投递。
 
-合约钱包扩展：已部署 ERC-1271 钱包（仅演示用 `Study1271Wallet`，60s 授权租期、refresh 复验）的 SIWE 登录在候选 `d267ad44`、CI run `42548083086` 于 Anvil 通过。Ethereum Sepolia 上仅实证 6 笔真实交易、持仓 oracle 及本人 MetaMask SIWE 登录与拒签（monolith）；**Sepolia 媒体播放、api-gateway 模式与合约钱包浏览器登录未实证**（计划 §C.3.2）。不宣称 Safe、ERC-4337 或主网支持。
+合约钱包扩展：已部署 ERC-1271 钱包（仅演示用 `Study1271Wallet`，60s 授权租期、refresh 复验）的 SIWE 登录在候选 `d267ad44`（分支 `sg/w3-freshness-20261107`，尚未合入 master）、CI run `42548083086` 于 Anvil 通过。Ethereum Sepolia 上仅实证 6 笔真实交易、持仓 oracle 及本人 MetaMask SIWE 登录与拒签（monolith）；**Sepolia 媒体播放、api-gateway 模式与合约钱包浏览器登录未实证**（计划 §C.3.2）。不宣称 Safe、ERC-4337 或主网支持。
 
 **条目一:签名与资源授权**
 
