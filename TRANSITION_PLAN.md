@@ -378,6 +378,8 @@ python3 scripts/cd/verify_web3_extension.py \
 
 技术参考：[SIWE / EIP-4361](https://eips.ethereum.org/EIPS/eip-4361)、[HLS / RFC 8216](https://www.rfc-editor.org/rfc/rfc8216.html)、[GitHub 部署环境与门禁](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)。这些是实施规范依据，不是本项目已完成相应能力的证据。
 
+**跨机协作分工（2026-11-13 起）：** 本计划可在低配机（无 Docker 验收能力）上由 AI 执行，验收由局域网 Mac（self-hosted runner）承担。分工约束：① 低配机端只做读计划、改代码/文档、commit/push、派发 CI、读结果与决策，绝不在本机跑验收栈，绝不并发派发同 SHA 的多个 run；② 工作走独立分支（不直接推 master），push 须有用户授权；③ 验收经 `gh workflow run ci.yml --ref <分支>` 派发，一次只允许一个在途验收 run，经 `gh run view` 跟踪；④ 失败必须先取日志归因（瞬态/确定性缺陷/外部阻塞三类），同签名连续 2 次失败即停止重试并报告，禁止无界重试循环（2026-11-12 曾因 14 次盲目重跑耗尽 attempt 被 GitHub 取消整个 run）；⑤ 需要定向回归、诊断或证据保全时明确列出请求项，由用户转到 Mac 端执行；⑥ 进度结论写回本文件对应小节，不新建过程文档。Mac 端保持 runner 在线、Docker 常驻与 caffeinate 防休眠（休眠曾致验收容器被杀、run 速败）。
+
 ---
 
 ## §C 执行证据
