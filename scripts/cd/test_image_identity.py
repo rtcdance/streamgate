@@ -302,6 +302,42 @@ class ImageIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not a digest"):
                 identity({**self.info, "Id": "sha256:" + "c" * 64}, "revision", "archive-hash", digests)
 
+    def test_unannotated_single_manifest_index_still_binds_the_manifest_digest(self):
+        config, manifest = "sha256:" + "e" * 64, "sha256:" + "f" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            archive = self.write_archive(directory, {
+                "manifest.json": [{"Config": f"blobs/sha256/{config[7:]}",
+                                   "RepoTags": ["streamgate-monolith:candidate"]}],
+                "index.json": {"manifests": [{"digest": manifest}]},
+            })
+            self.assertEqual(archive_digests(archive), (config, manifest))
+            build = identity({**self.info, "Id": config}, "revision", "archive-hash", archive_digests(archive))
+            loaded = identity({**self.info, "Id": manifest}, "revision", "archive-hash", archive_digests(archive))
+            verify_identity(build, loaded)
+
+    def test_ambiguous_unannotated_index_does_not_guess_a_manifest(self):
+        config = "sha256:" + "e" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            archive = self.write_archive(directory, {
+                "manifest.json": [{"Config": f"blobs/sha256/{config[7:]}",
+                                   "RepoTags": ["streamgate-monolith:candidate"]}],
+                "index.json": {"manifests": [{"digest": "sha256:" + "1" * 64},
+                                             {"digest": "sha256:" + "2" * 64}]},
+            })
+            self.assertEqual(archive_digests(archive), (config, None))
+
+    def test_workflows_never_compare_a_raw_store_image_id(self):
+        # A classic store reports the config digest, a containerd store the
+        # manifest digest; hosted runners drift between them (run 43359158354).
+        # Every load-and-verify step must bind through the archive instead.
+        root = Path(__file__).resolve().parents[2] / ".github/workflows"
+        for workflow in ("build.yml", "ci.yml"):
+            source = (root / workflow).read_text(encoding="utf-8")
+            with self.subTest(workflow=workflow):
+                self.assertNotRegex(source, r"\['image_id'\]")
+                for step in re.findall(r"docker load -i (candidate-[^\s]+\.tar)\n(.*?)(?=\n\s*\n|\n\s+- )", source, re.S):
+                    self.assertIn("image_identity.py", step[1], step[0])
+
     def test_classic_store_archive_reports_only_the_config_digest(self):
         config = "sha256:" + "d" * 64
         with tempfile.TemporaryDirectory() as directory:
