@@ -27,6 +27,10 @@
 4. `golang-testing`
    - Table-driven tests, subtests, benchmarks, fuzzing and coverage.
 
+5. `sepolia-wallet-round`
+   - One complete Sepolia wallet round for an accepted candidate in a single owner session: fresh stack, six MetaMask transactions, media fixture, both modes, oracle per phase, final summary.
+   - Tooling never signs or broadcasts; per-round limits ≤ 8 tx / 0.02 ETH.
+
 ## How To Apply
 
 - Read `memory/README.md` and this file before a matching task; then pick the skills that match the task.
