@@ -669,6 +669,10 @@ jobs:
     # an otherwise complete run short.
     timeout-minutes: 600
     env:
+      # The registry client otherwise stops each pull/push at 900s, far short of
+      # the ~4 h the evidence upload needs (run 42954136765 died at the old 3600s
+      # ceiling). This is a transfer budget, not a gate; the script caps it at 14400.
+      STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"
       VERIFY_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all
       VERIFY_BUILD_ARTIFACTS: ${{ github.workspace }}/.verify-artifacts/ci-all/build-inputs
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate

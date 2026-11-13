@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -556,6 +557,47 @@ class EvidenceTransportTests(unittest.TestCase):
                 patch.object(transport, "resolve_digest", return_value="sha256:" + "1" * 64), \
                 contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(transport.main(argv), 2)
+
+    def test_push_image_builds_for_the_transport_platform(self):
+        calls = []
+
+        def fake_docker(*args, capture=True, timeout=None):
+            calls.append(args)
+            if args[:2] == ("image", "inspect"):
+                return json.dumps(["ghcr.io/x/y@sha256:" + "a" * 64])
+            return ""
+
+        with patch.object(transport, "run_docker", side_effect=fake_docker):
+            transport.push_image(
+                self.root, "ghcr.io/x/y", "t", "https://example.invalid", "a" * 40, "n", "b" * 64)
+        build = next(call for call in calls if call[0] == "build")
+        self.assertIn(("--platform", "linux/amd64"), list(zip(build, build[1:])))
+
+    def test_extract_pulls_and_creates_for_the_transport_platform(self):
+        calls = []
+
+        def fake_docker(*args, capture=True, timeout=None):
+            calls.append(args)
+            if args[0] == "cp":
+                raise transport.TransportError("stop after create")
+            return ""
+
+        with patch.object(transport, "run_docker", side_effect=fake_docker), \
+                patch.object(transport.subprocess, "run"):
+            with self.assertRaises(transport.TransportError):
+                transport.extract("ghcr.io/x/y@sha256:" + "1" * 64, local=False)
+        for verb in ("pull", "create"):
+            with self.subTest(verb=verb):
+                command = next(call for call in calls if call[0] == verb)
+                self.assertIn(("--platform", "linux/amd64"), list(zip(command, command[1:])))
+
+    def test_ci_injects_registry_timeout_within_the_cap(self):
+        workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text()
+        values = re.findall(r'STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS:\s*"(\d+)"', workflow)
+        self.assertTrue(values, "ci.yml must inject the evidence transport budget")
+        for value in values:
+            self.assertGreater(int(value), transport.REGISTRY_TIMEOUT_SECONDS)
+            self.assertLessEqual(int(value), 14400)
 
     def test_get_requires_digest_pinned_references(self):
         argv = [

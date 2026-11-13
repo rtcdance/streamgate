@@ -21,6 +21,10 @@ SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 REGISTRY_ATTEMPTS = 3
 REGISTRY_BACKOFF_SECONDS = 5
 REGISTRY_TIMEOUT_SECONDS = 900
+# The image is FROM scratch and never executed, but a single-arch manifest is
+# unresolvable on a runner of another architecture (amd64 hosted producers,
+# arm64 Mac consumer). Pin one platform at build, pull and create.
+TRANSPORT_PLATFORM = "linux/amd64"
 
 
 class TransportError(Exception):
@@ -278,7 +282,7 @@ def push_image(context, image, tag, source_url, sha, name, bundle):
         f"io.streamgate.evidence.name={name}",
         f"io.streamgate.evidence.bundle={bundle}",
     ]
-    command = ["build", "-t", reference]
+    command = ["build", "--platform", TRANSPORT_PLATFORM, "-t", reference]
     for label in labels:
         command.extend(["--label", label])
     command.append(str(context))
@@ -355,10 +359,10 @@ def verify_tree(root, entries):
 
 def extract(reference, local):
     if not local:
-        run_registry("pull", reference)
+        run_registry("pull", "--platform", TRANSPORT_PLATFORM, reference)
     container = "sg-evidence-" + uuid.uuid4().hex[:12]
     # Scratch images carry no command; create only records one and never runs it.
-    run_docker("create", "--name", container, reference, "/nonexistent")
+    run_docker("create", "--platform", TRANSPORT_PLATFORM, "--name", container, reference, "/nonexistent")
     work = Path(tempfile.mkdtemp(prefix="sg-evidence-"))
     try:
         run_docker("cp", f"{container}:/transport.json", str(work / "transport.json"))
@@ -536,7 +540,7 @@ def command_put(args):
         return 0
     reference = f"{args.image}:{args.tag}"
     if args.no_push:
-        run_docker("build", "-t", reference, str(context))
+        run_docker("build", "--platform", TRANSPORT_PLATFORM, "-t", reference, str(context))
         info = json.loads(run_docker("image", "inspect", reference, "--format", "{{json .}}"))
         result.update({"image": reference, "imageID": info["Id"], "digest": None, "status": "built"})
     else:
