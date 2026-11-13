@@ -196,7 +196,7 @@ material lives under `docs/`. This `memory/` tree holds recall, not status.
 
 ## D-013 — A page-scoped CUA transport observes, but never signs off
 
-**Status:** accepted · **Evidence:** `scripts/h5-demo-acceptance/lib/wallet_cua_*.mjs`,
+**Status:** historical C4 exclusion; superseded by D-016 for authenticated C12 observations · **Evidence:** `scripts/h5-demo-acceptance/lib/wallet_cua_*.mjs`,
 `scripts/cd/test_sepolia_browser_evidence.cjs`
 
 **Context:** The Sepolia phase collectors need a browser, and the desktop tool
@@ -216,6 +216,87 @@ be distinguished from a scripted page must not be able to produce a pass.
 **Consequences:** CUA runs are development observations. If they are ever to count,
 they need a new frozen candidate and the same CI/all cycle; the frozen C4 result
 stays valid and unchanged.
+
+---
+
+## D-014 — The local Sepolia profile runs with APP_DEBUG on purpose
+
+**Status:** accepted · **Evidence:** `deploy/docker/compose.w3sepolia.yml`,
+`test/testutil/profileguard/profileguard.go`
+
+**Context:** The w3sepolia stack binds storage to the internal Docker network
+without TLS. With `APP_DEBUG=false` both API mains refuse that storage and exit
+before serving, which is exactly how the first C4 launch failed.
+
+**Decision:** Set `APP_DEBUG=true` for the two auth/API services in the local
+Sepolia profile only, and pin the rest with a startup guard that asserts the
+real main still loads: durable storage, chain 11155111, safe/finalized reads, no
+development signer.
+
+**Why:** The flag is what unblocks loopback storage; the invariants that matter
+(demo signer, chain identity, durable storage) are enforced independently and
+would fail the guard if the flag ever bought more than that.
+
+**Consequences:** Do not copy this profile to any shared or production stack, and
+do not "fix" the flag back without re-running the profile guard.
+
+---
+
+## D-015 — Contract-wallet identity uses revalidated short leases
+
+**Status:** accepted for the ERC-1271 extension · **Evidence:** `pkg/web3/signature/account.go`,
+`pkg/service/auth_contract_wallet.go`, `pkg/storage/wallet_session.go`; acceptance boundaries in plan §10.
+
+**Context:** ERC-1271 signatures can change validity when contract state changes.
+An EOA owner and a contract at the same address on another chain cannot substitute
+for the admitted contract identity. A two-hour JWT without revalidation would
+outlive a revoked signing policy.
+
+**Decision:** Support deployed ERC-1271 wallets through server-selected chain/code
+classification and pinned safe reads. Persist the admitted proof separately from
+the existing Redis epoch string. Contract access leases are bounded by 60 seconds,
+proof observation age by 5 seconds and clock tolerance by 5 seconds; the absolute
+session lifetime is bounded by two hours. Refresh rechecks the admitted proof and
+uses Redis CAS across epoch, JTI and version. The `cw:` session namespace prevents
+missing wallet metadata from falling back to EOA compatibility. HTTP and gRPC
+propagate a private immutable credential binding so capability expiry cannot
+borrow a later session lease.
+
+**Why:** This preserves contract-defined authorization and bounded revocation
+without one chain call per video segment. Ordinary EOA session semantics remain
+separate. ERC-4337, ERC-6492, EIP-7702 and vendor-wide wallet compatibility remain
+outside this extension; the single-owner fixture is only a demo/test wallet.
+
+**Consequences:** A contract proof/authority outage denies renewal; a confirmed
+policy rejection revokes the shared session. Missing proof metadata denies use.
+Renewal is not a new login or another nonce consumption. Backend component proof
+is not browser, public-network or full-stack acceptance; those remain §10 gates.
+
+---
+
+## D-016 — Authenticated page observations do not replace owner approval
+
+**Status:** implemented in frozen C12; complete acceptance still pending · **Evidence:**
+`scripts/cd/assert_sepolia_browser.mjs`,
+`scripts/h5-demo-acceptance/lib/wallet_sepolia_evidence.mjs`; plan §10.
+
+**Context:** D-013 records C4's deliberate exclusion of unauthenticated CUA
+observations. C12 adds independent private-trace replay rather than accepting a
+transport label or a claimed PASS as proof.
+
+**Decision:** Permit the C12 page-scoped observation path only through the frozen
+validator: original fresh controller signatures, bound challenge/admission and
+credential bytes, authentic private trace, fixed origin/phase/candidate and
+decoded-media observations must all agree. The phase result continues to assert
+`publicWalletSignoff=false` and `completeAcceptance=false`.
+
+**Why:** The observation channel must never impersonate the owner, approve a
+wallet prompt or turn simulated provider responses into public acceptance.
+
+**Consequences:** The historical CDP-only sentence in D-013 is not the current
+C12 protocol. Its frozen C4 evidence remains historical. Same-C Docker/CI, the
+complete CW/TN matrix and actual owner-controlled actions are still required;
+C12's pending CI and available source alone do not close the extension.
 
 ---
 

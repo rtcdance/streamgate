@@ -46,6 +46,10 @@ Rungs 0–1 are pre-checks. Evidence is a CI run id or a commit hash, never a ho
 | Startup: `runtime code hash mismatch` | solc embedded absolute remappings | keep `bytecode_hash = "none"`; regenerate the manifest |
 | Microservice events error outside Docker | host `make build-all` lacks `-tags nats_integration` | run the service from its image |
 | NFT verification returns a wrong answer | `latest` block tag | use `safe` / `finalized` |
+| Sepolia gate anchors almost at `latest` (2026-11-10) | `sepolia.gateway.tenderly.co` answers `safe` as head−2; the RPC client's failover is sticky and never returns to endpoint 0; `network_preflight` only checks `finalized ≤ safe`, so the provider still qualifies | compare `eth_blockNumber` with `safe` (honest PoS lag is ≥ ~32 blocks) before trusting a provider; restart the service to return it to endpoint 0 |
+| Public Sepolia manifests 503 for a real holder: `NFT quantity evidence exceeded its freshness bound` (2026-11-10) | one gate read is ~4 serial RPCs, two of them full block headers (~15 KB each), inside the fixed 5 s evidence bound; from the CN dev host, header calls take ~1 s with multi-second tails on every free provider whose `safe` is honest | needs a low-latency RPC path or a keyed provider; never loosen the bound. Note that the public-controls collector treats a single gRPC `Unavailable` as fatal |
+| Sepolia 503 rate drops to ~0 with VPN (2026-11-10) | CN exit: monolith manifest 503 at 4～14% over 11 min. SG exit (VPN): 1/165 (5 min), then 0 over ~11 min | VPN to a low-latency region (Singapore worked) resolves the network bottleneck without changing RPC endpoints or code |
+| Round 7 RPC pair (2026-11-11) | publicnode (primary) + thirdweb (fallback). Both: honest consensus safe (head−safe ≥55), no eth_call rate limits, free tier, block header p50 ~1s. Tenderly removed (dishonest safe = head−2). VPN+publicnode: header p50 ~0.4s, manifest 503=0 | this pair passed network preflight with lowercase address B and supports the full W3-08 TN matrix |
 
 ## Evidence discipline
 

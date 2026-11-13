@@ -1,6 +1,6 @@
 # 50 — Status Snapshot
 
-> **Type:** status · **Snapshot:** 2026-11-05 · **Base-path candidate:** `d0f05152` (closed) · **Extension candidate:** `c38dc4bc` (deterministic, public path open)
+> **Type:** status · **Snapshot:** 2026-11-07 · **Base-path candidate:** `d0f05152` (closed) · **Extension candidate:** `685b6b97` (frozen C12, acceptance pending)
 > Documentation records candidates; a documentation commit does not inherit candidate CI. Recheck live state before new work.
 
 ## Current scope
@@ -17,12 +17,12 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 - Empty demo fixture volumes: warm startup 57.14s; real fullchain acceptance 77/77 per monolith and api-gateway mode.
 - Plan §8.86 owns commands, hashes, manifests, measurements and evidence locations.
 
-### W3 extension — deterministic only
+### W3 extension — historical deterministic evidence; C12 pending
 
 - Frozen candidate `c38dc4bc` (C4): default CI 41823377757 attempt 4, 55/55 success, no skip; complete nine-stage Docker all with original exit 0; originals independently preserved.
 - C4 replaced 9054cecf/run41758926448 attempt 3 (media and upload failures preserved, not reused).
 - Post-C4 development line `sg/w3-local-profile-20261105`: local Sepolia startup fixes at `37027d10`, page-scoped CUA observation transport at `80638738` (13 Node + 9 Python suites and workflow syntax, all original exit 0).
-- CUA is a development observation channel only — see D-013. Adopting it needs a new candidate C5 with its own all/CI.
+- D-013 is the historical C4 transport exclusion. Frozen C12 independently validates authenticated CUA traces, but observation still does not sign off for the owner — see D-016. C12 requires its own successful all/CI and the complete public matrix.
 - W3-09 material (README, resumes, project block, talk script, 13-unit study guide) is committed on `sg/w3-delivery-docs-20261104` (`0e9cb338`), not on master: its README source entry points do not exist on master.
 
 ## Operational rules learned
@@ -42,4 +42,4 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 
 ## Next action
 
-Candidate C5 is frozen at `80638738` and its default CI run 41966091151 is in flight; the next step is to prepare the Sepolia stack from that run's same-SHA producer payload once it succeeds. Dual-RPC qualification was re-verified read-only on 2026-11-05T04:01Z (exit 0, `NETWORK_READS_PASS`, controller still an EOA with 0.19176 ETH), so the network side is ready. What remains after the stack is up is the owner's part: enable `Allow access to file URLs` for the MetaMask Chrome extension, keep that page open, then sign the six-transaction fixture. Do not re-run green CI/all to refresh this snapshot, do not sign for the owner, and do not treat a port probe as acceptance. For the base path: keep `d0f05152` frozen.
+Use the current candidate and evidence gates in `TRANSITION_PLAN.md` §10. C12 is `685b6b9780daf03c4f3272728d08d6b1b169c16c`, CI run `42319609406` attempt 1; its final acceptance has not yet been verified. Preserve the existing run and verify its original outer exit, upload receipt, complete producer tree and final CI summary before preparing the public stack. Reuse only the private RPC inputs, never historical candidate artifacts. Real owner-controlled signatures/transactions, both public modes and the full CW/TN matrix remain required. Source or CI success alone does not accept the extension. Keep base candidate `d0f05152` frozen.
