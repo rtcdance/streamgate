@@ -30,7 +30,7 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 - A cancelled CI shell and its local controller can diverge; preserve original failures, inspect live state, and never relabel residual work as a successful CI job.
 - One dispatcher owns each frozen candidate. Do not reset retry budgets by changing an error classifier.
 - Timing-only failures with an empty `git diff --stat <green> <current> -- pkg/ cmd/ contracts/ test/ config/` are environment, not product.
-- A Windows workstation without Python/Docker can edit but cannot produce evidence; acceptance runs on the Mac Docker Desktop or CI.
+- The Windows workstation (Win10 Pro 19045, 16 GB) has no WSL/Hyper-V features in its image, so no Docker; it can pre-check Python suites (user-scope Python 3.12) and Foundry tests (pinned v1.8.5 zip) only. Its git identity `mylocc-coder` cannot push to `rtcdance/streamgate` (403). Acceptance runs on the Mac Docker Desktop or CI.
 
 ## Boundaries and separately scoped work
 
