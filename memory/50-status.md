@@ -21,7 +21,7 @@ SG-00 through SG-15 base-path engineering and M6 AI materials are complete with 
 
 - Authoritative deterministic candidate `d267ad44`: default CI 42548083086 attempt 2, 55/55 success, no skip; complete nine-stage Docker all with original exit 0 (plan §C.3.1). Historical C4 `c38dc4bc` (run 41823377757) remains preserved.
 - W3-08 r7 verdict (2026-11-11): PASS WITH FIXTURE_BLOCKED — six real Sepolia transactions (0.009153 ETH fees), dual-RPC holdings oracle (eoa-held PASS), real MetaMask SIWE login and one signature rejection; media fixture missing → 11/14 TN cells BLOCKED, no FAIL items (plan §C.3.2).
-- W3-09 material (README, resumes, project block, talk script, 13-unit study guide) lives on `sg/w3-delivery-docs-20261104` / its closeout successors, not on master: its README source entry points do not exist on master.
+- W3-09 material (README, resumes, project block, talk script, 13-unit study guide) is merged onto local master via `sg/w3-09-closeout-local-20261113` (fast-forward to `50df5775`, tagged `v1.0.7` locally on 2026-11-13). Not pushed; remote CI paused by owner decision.
 
 ## Operational rules learned
 
