@@ -40,11 +40,18 @@ def archive_digests(path):
                 for tag in entry.get("RepoTags") or []:
                     configs[tag.rsplit("/", 1)[-1]] = digest
             manifests = {}
+            sole_manifest = None
             if "index.json" in names:
-                for entry in json.load(archive.extractfile("index.json")).get("manifests", []):
+                entries = json.load(archive.extractfile("index.json")).get("manifests", [])
+                for entry in entries:
                     name = (entry.get("annotations") or {}).get("io.containerd.image.name")
                     if name:
                         manifests[name.rsplit("/", 1)[-1]] = entry["digest"]
+                # Exporters differ on the name annotation. A single-entry index
+                # can only describe the archive's one image; several cannot be
+                # attributed without it, so they bind nothing.
+                if len(entries) == 1 and not (entries[0].get("annotations") or {}).get("io.containerd.image.name"):
+                    sole_manifest = entries[0]["digest"]
     except (tarfile.TarError, OSError):
         return None
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
@@ -54,7 +61,7 @@ def archive_digests(path):
     if len(set(configs.values())) != 1:
         raise ValueError("archive must contain exactly one image")
     tag, config = next(iter(configs.items()))
-    manifest = manifests.get(tag)
+    manifest = manifests.get(tag, sole_manifest)
     if manifest is not None and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(manifest)):
         raise ValueError("archive records an invalid manifest digest")
     return config, manifest
