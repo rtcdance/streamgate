@@ -592,7 +592,7 @@ class EvidenceTransportTests(unittest.TestCase):
                 self.assertIn(("--platform", "linux/amd64"), list(zip(command, command[1:])))
 
     def test_ci_injects_registry_timeout_within_the_cap(self):
-        workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text()
+        workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         values = re.findall(r'STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS:\s*"(\d+)"', workflow)
         self.assertTrue(values, "ci.yml must inject the evidence transport budget")
         for value in values:

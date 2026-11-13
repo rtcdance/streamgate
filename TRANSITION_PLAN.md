@@ -17,7 +17,7 @@
 | W3-08（本人签名 + 6 笔 Sepolia 交易） | 🟡 **PASS WITH FIXTURE_BLOCKED**（6 笔交易 + oracle + SIWE + NFT 检查已实证；媒体 fixture 缺失，TN 矩阵 11/14 BLOCKED 留后续） | §8.91 |
 | W3-09（文档收口 + 求职材料 + 最终 tag） | 🟡 **文档边界部分完成（2026-11-13，工作区未提交）**：README 证据表新增 ERC-1271（Anvil，`d267ad44`/run 42548083086）行，Sepolia 行由「Not verified」改为「Partial — not acceptance」并写明 §10.9 边界；中英文简历与讲述稿同步边界；README 的 §8 锚点改指 §C。**未做**：只读扩展汇总验证器的实际运行（需 TN 原件）、本轮专用资源清理、最终 tag（扩展未关闭前不打） | §8.91 交接清单 |
 | **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
-| 证据传输预算修复（原候选 `160f1804`，run 42971359964） | 🟡 **三项已在工作区补齐，未提交、未验证**：① 校验上限 14400（`d151ae62`）；② `ci.yml` 验收 job 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`；③ build/pull/create 固定 `--platform linux/amd64`；新增 3 个单测。本机（Windows）无 Python/Docker，单测未运行；须经 Docker unit 阶段或 CI 验证后形成新候选 | §C.3.3 |
+| 证据传输预算修复（原候选 `160f1804`，run 42971359964） | 🟡 **三项已在工作区补齐，未提交、未验证**：① 校验上限 14400（`d151ae62`）；② `ci.yml` 验收 job 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`；③ build/pull/create 固定 `--platform linux/amd64`；新增 3 个单测，Windows 宿主预检红→绿（`b92aedc`，见 §C.3.3）；验收仍须 Docker unit 阶段或 CI，之后形成新候选 | §C.3.3 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
 **审核注记（2026-11-13）：**
@@ -599,7 +599,7 @@ evidence transport: docker pull timed out after 3600s; client terminated; inspec
 >
 > **再核对（2026-11-13，master `d151ae62`）：**只落地了三项中的一项。① `evidence_transport.py` 校验上限已为 14400 ✓；② `ci.yml` **没有** `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`，所以实际仍用默认 900s ✗（`d151ae62` 提交说明称 ci.yml 已注入，与 master 不符）；③ 证据传输镜像拉取的 `--platform linux/amd64` 未落地 ✗（`ci.yml:818` 的 `--platform` 属 `write_candidate_manifest.py`，与此无关）。`160f1804` / `4f68c8bf` 在本地仓库不可解析。派发新 run 前须补齐 ②③ 并按 §10.5 授权边界形成新候选。
 >
-> **补齐（2026-11-13，工作区未提交）：**② `ci.yml` acceptance job `env` 增加 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`（timeout 不重试，单次 ≤4h，落在 `timeout-minutes: 600` 内）；③ `evidence_transport.py` 新增 `TRANSPORT_PLATFORM = "linux/amd64"`，`push_image` 与 `--no-push` 的 `docker build`、`extract` 的 `docker pull` 与 `docker create` 全部带 `--platform`——只钉 pull 不够，arm64 上 `create` 仍会按本机架构解析而失败。新增单测 `test_push_image_builds_for_the_transport_platform`、`test_extract_pulls_and_creates_for_the_transport_platform`、`test_ci_injects_registry_timeout_within_the_cap`（后者防止注释与 ci.yml 再次脱节）。**验证状态：未运行**——执行机为 Windows，无 Python/Docker/WSL；须 `VERIFY_STAGE=unit make verify-docker` 或 CI `ci.yml:118` 步骤实跑，绿后才能按 §10.5 形成新候选。
+> **补齐（2026-11-13，工作区未提交）：**② `ci.yml` acceptance job `env` 增加 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`（timeout 不重试，单次 ≤4h，落在 `timeout-minutes: 600` 内）；③ `evidence_transport.py` 新增 `TRANSPORT_PLATFORM = "linux/amd64"`，`push_image` 与 `--no-push` 的 `docker build`、`extract` 的 `docker pull` 与 `docker create` 全部带 `--platform`——只钉 pull 不够，arm64 上 `create` 仍会按本机架构解析而失败。新增单测 `test_push_image_builds_for_the_transport_platform`、`test_extract_pulls_and_creates_for_the_transport_platform`、`test_ci_injects_registry_timeout_within_the_cap`（后者防止注释与 ci.yml 再次脱节）。**宿主预检（2026-11-13，Windows + Python 3.12.10，非验收）：**红→绿成立——同一新测试文件对 master 代码 4 项断言 FAIL（build/pull/create 无 `--platform`、ci.yml 无注入），对修复代码 3 个新测试全部 ok；全文件 50 tests 余 5 个 ERROR，与 master 在干净 worktree 上的 5 个 ERROR 相同（`os.O_DIRECTORY` 仅 POSIX、宿主无 `docker` 可执行文件），非本改动引入。测试读取 ci.yml 改为显式 UTF-8（Windows 默认 GBK 解码失败）。**验收仍须** `VERIFY_STAGE=unit make verify-docker` 或 CI `ci.yml:118` 实跑，绿后才能按 §10.5 形成新候选。
 
 ### C.4 主线执行证据索引（原 §8.2～§8.85；逐字表格与命令见 git 历史对应提交）
 
