@@ -15,7 +15,7 @@
 | W3-06（公开网络准备） | ✅ 双 RPC 资格 PASS | §8.61 |
 | W3-04（真人双钱包登录） | 🟡 EOA 完成；合约钱包路径已解阻（mint-c 完成），待浏览器观察 | §8.91 |
 | W3-08（本人签名 + 6 笔 Sepolia 交易） | 🟡 **PASS WITH FIXTURE_BLOCKED**（6 笔交易 + oracle + SIWE + NFT 检查已实证；媒体 fixture 缺失，TN 矩阵 11/14 BLOCKED 留后续） | §8.91 |
-| W3-09（文档收口 + 求职材料 + 最终 tag） | 🟡 材料已发布于交付线（README/简历/讲述稿/学习手册均已按 r7 口径更新）；**计划状态与最终 tag 未完成**，本分支 `sg/w3-09-closeout-local-20261113` 接续 | §8.91 交接清单 |
+| W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
 | 证据传输预算修复（`160f1804`，run 42971359964） | 🟡 timeout 3600→14400s + `--platform linux/amd64`，47 单测 OK；**未提交、未随新 run 验证** | §C.3 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
@@ -394,7 +394,7 @@ python3 scripts/cd/verify_web3_extension.py \
 
 **跨机协作分工（2026-11-13 起）：** 本计划可在低配机（无 Docker 验收能力）上由 AI 执行，验收由局域网 Mac（self-hosted runner）承担。分工约束：① 低配机端只做读计划、改代码/文档、commit/push、派发 CI、读结果与决策，绝不在本机跑验收栈，绝不并发派发同 SHA 的多个 run；② 工作走独立分支（不直接推 master），push 须有用户授权；③ 验收经 `gh workflow run ci.yml --ref <分支>` 派发，一次只允许一个在途验收 run，经 `gh run view` 跟踪；④ 失败必须先取日志归因（瞬态/确定性缺陷/外部阻塞三类），同签名连续 2 次失败即停止重试并报告，禁止无界重试循环（2026-11-12 曾因 14 次盲目重跑耗尽 attempt 被 GitHub 取消整个 run）；⑤ 需要定向回归、诊断或证据保全时明确列出请求项，由用户转到 Mac 端执行；⑥ 进度结论写回本文件对应小节，不新建过程文档。Mac 端保持 runner 在线、Docker 常驻与 caffeinate 防休眠（休眠曾致验收容器被杀、run 速败）。
 
-**CI 暂停决定（2026-11-13 owner 拍板）：** 验收执行改为**完全本机路线**：以 `make verify-docker`（含 `VERIFY_STAGE=all`）的完整九阶段 DAG 为准，原始退出与证据 hash 落 `.verify-artifacts/` 保全；**不再派发同 SHA CI / GHCR 存证 run**，M5 门中「远端同 SHA CI」部分暂缓，由本机 all 原始退出 + 证据目录 SHA256 清单替代。背景：620MB 证据经家庭宽带上行是历史故障主因，且求职项目对远端存证的需求由 owner 重新权衡后让位于迭代速度。约束：① 在途 run（如 `43375843333`）不受影响，跑完照常收证据；② 恢复 CI 需 owner 明确重新授权，恢复时 hosted 与本机属不同验收环境口径，须重建 reference 基线，不得混用历史结论；③ 本机 all 期间禁止修改 checkout、保持 caffeinate 防休眠（同 §10.5 单执行栈纪律）。
+**CI 暂停决定（2026-11-13 owner 拍板；同日 owner 复确认：计划整体目标已达成，GitHub CI 维持暂停）：** 验收执行改为**完全本机路线**：以 `make verify-docker`（含 `VERIFY_STAGE=all`）的完整九阶段 DAG 为准，原始退出与证据 hash 落 `.verify-artifacts/` 保全；**不再派发同 SHA CI / GHCR 存证 run**，M5 门中「远端同 SHA CI」部分暂缓，由本机 all 原始退出 + 证据目录 SHA256 清单替代。背景：620MB 证据经家庭宽带上行是历史故障主因，且求职项目对远端存证的需求由 owner 重新权衡后让位于迭代速度。约束：① 在途 run（如 `43375843333`）不受影响，跑完照常收证据；② 恢复 CI 需 owner 明确重新授权，恢复时 hosted 与本机属不同验收环境口径，须重建 reference 基线，不得混用历史结论；③ 本机 all 期间禁止修改 checkout、保持 caffeinate 防休眠（同 §10.5 单执行栈纪律）。
 
 ---
 
