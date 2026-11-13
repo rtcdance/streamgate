@@ -47,7 +47,7 @@ monolith on `:8080` (h5-demo then served at `http://localhost:8080/demo`). See [
 That is the entire loop: **wallet sign-in → on-chain NFT ownership check → protected HLS playback.**
 `make fullchain-deploy` starts Anvil and deploys `DemoNFT` for you — no chain setup needed to try it.
 
-The accepted candidate’s prepared local demo was independently started and exercised in both modes. Its replay commands and exact local artifact paths are in `TRANSITION_PLAN.md` §8.86; fresh checkouts still need the setup above. The measured 57.14-second warm startup excludes first downloads and source/submodule preparation.
+The accepted candidate’s prepared local demo was independently started and exercised in both modes. Its replay commands and exact local artifact paths are in `TRANSITION_PLAN.md` §C.2 (former §8.86); fresh checkouts still need the setup above. The measured 57.14-second warm startup excludes first downloads and source/submodule preparation.
 
 ### Acceptance Evidence
 
@@ -66,17 +66,18 @@ How far the evidence reaches, precisely:
 
 | Level | Status | What it means |
 |-------|--------|---------------|
-| **Docker (local runner)** | PASS WITH BOUNDARIES — `d0f05152` | One complete CI acceptance entry passed all nine stages and M0–M8 with raw outer exit 0. Independently revalidated original artifacts; see `TRANSITION_PLAN.md` §8.86. Shared Mac measurements do not establish production capacity. |
+| **Docker (local runner)** | PASS WITH BOUNDARIES — `d0f05152` | One complete CI acceptance entry passed all nine stages and M0–M8 with raw outer exit 0. Independently revalidated original artifacts; see `TRANSITION_PLAN.md` §C.2. Shared Mac measurements do not establish production capacity. |
 | **Anvil (local chain)** | Verified | Real chain end-to-end: wallet sign-in, pinned-block NFT evidence, transfer revocation, reorg, endpoint failover. `make test-anvil`. |
 | **GitHub CI** | PASS — [run 41343759379](https://github.com/rtcdance/streamgate/actions/runs/41343759379) | Exact candidate `d0f05152`, attempt 3, 55/55 success with no skipped jobs; Candidate Evidence and Publishable passed. Previous candidates retain their historical results. |
-| **Testnet (Sepolia)** | Not verified | Wired behind `make test-testnet`, requires `SEPOLIA_RPC`. Never claimed as acceptance. |
+| **ERC-1271 contract-wallet login (Anvil)** | PASS — [run 42548083086](https://github.com/rtcdance/streamgate/actions/runs/42548083086) | Candidate `d267ad44`: SIWE login with an already-deployed ERC-1271 wallet (the demo-only `Study1271Wallet`), 60s contract-wallet lease, re-verification on refresh, deterministic CW cases in both modes. Not a claim of Safe, ERC-4337, ERC-6492 or EIP-7702 support. |
+| **Testnet (Sepolia)** | Partial — not acceptance | Observed on Ethereum Sepolia (2026-11-11): 6 confirmed transactions (2 deploys, 2 mints, 2 transfers), the read-only holdings oracle, and a personal MetaMask SIWE login plus signature rejection in monolith mode. **Media playback, api-gateway mode and the contract-wallet browser login were not exercised on Sepolia**; 11 of 14 testnet matrix cells remain BLOCKED. See `TRANSITION_PLAN.md` §C.3.2. |
 | **Production** | Not deployed | No production secrets, no live public deployment. `deploy.yml` deliberately reports "not executed" when no target is selected. |
 
 Supporting numbers live where they can be re-run, not in this file: the performance matrix
 (1/10/50/100 viewers, three repeats per scenario, each viewer with its own real wallet), the fault matrix (cold cache, primary RPC
 stopped, every RPC stopped), the same-runner p95 comparison against a fixed reference
 (`PERF_REFERENCE_REF=<ref>`), and the recovery drill results are recorded in
-`TRANSITION_PLAN.md` §8.
+`TRANSITION_PLAN.md` §C (indexed by their former §8 numbers).
 
 ### Architecture
 
@@ -250,7 +251,7 @@ Features planned for future releases.
 ## 📊 Performance Metrics
 
 > **These are design targets, not measured results.** The table describes the shape of the design.
-> Measured results are recorded in `TRANSITION_PLAN.md` §8.16: fixed-budget local runs
+> Measured results are recorded in `TRANSITION_PLAN.md` §C (performance rows of the §C.4 index): fixed-budget local runs
 > (1/10/50/100 concurrent viewers, fault-injection matrix, p95 regression ratio) and the CI
 > perf-harness gate. No production capacity or soak test has been run.
 
@@ -347,7 +348,7 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 | **Observability stack** | `/metrics` (RED) on every service; the Grafana/Jaeger scrape stack was removed during simplification |
 | **IPFS** | Not wired into the upload path |
 | **Decentralization** | Self-hosted infrastructure, not a peer-to-peer network — ownership checks read the chain, the platform itself is centralized |
-| **Load testing** | No production capacity or soak test has been run; measured fixed-budget local runs are recorded in `TRANSITION_PLAN.md` §8 with their candidate identities |
+| **Load testing** | No production capacity or soak test has been run; measured fixed-budget local runs are recorded in `TRANSITION_PLAN.md` §C.4 with their candidate identities |
 
 See `TRANSITION_PLAN.md` for the engineering plan and `docs/ARCHITECTURE.md` for the architecture.
 

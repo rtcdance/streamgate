@@ -246,7 +246,7 @@ make test-ci                        # 60% coverage floor
 - `.verify-artifacts/coverage.out`
 - `fullchain-test` 日志（建议 `tee .verify-artifacts/logs/fullchain-acceptance.log`）
 - `scripts/h5-demo-acceptance/reports/<timestamp>/`
-- `TRANSITION_PLAN.md` §8（最终 `all` 记录）
+- `TRANSITION_PLAN.md` §C（最终 `all` 记录）
 - CI run URL / run id（同 SHA）
 
 报告只写三种：`PASS`、`PASS WITH BOUNDARIES`（列边界）、`BLOCKED`（列缺失）。不要手改 `.verify-artifacts`。

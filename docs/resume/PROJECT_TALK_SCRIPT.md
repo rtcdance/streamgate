@@ -12,6 +12,7 @@
 ## 零、状态速览（被问进度就照这个说）
 
 - 当前工程候选 `d0f05152`：完整九阶段 / M0～M8 原始退出 0，同 SHA CI run `41343759379` attempt 3 为 55/55 success。准备好的空卷 demo 启动 57.14s，两种部署模式复验各 77/77；均限本次 Mac/Docker Desktop 条件，生产/testnet 与本人事项另列。
+- 合约钱包扩展：已部署 ERC-1271 钱包的 SIWE 登录（仅演示用 `Study1271Wallet`，60s 租期、refresh 复验）在候选 `d267ad44`、CI run `42548083086` 于 Anvil 通过。Sepolia 只说到这一步：6 笔真实交易、持仓 oracle、本人 MetaMask SIWE 登录与拒签（monolith）；**Sepolia 播放、api-gateway 模式与合约钱包浏览器登录没做**，测试网矩阵 11/14 格 BLOCKED（计划 §C.3.2）。
 - 历史候选 `4eae43d6` 本机完整 Docker 门通过；同 SHA CI run `40608718226` attempt 10 已失败，后续修复须独立验收。后续历史记录仍按各自 SHA 解读，以 `TRANSITION_PLAN.md` 顶部状态及 §8.40 之后的候选记录为准。
 - 历史 CI：run `40608718226` attempt 10 的终态为 failure；当前候选及 CI 以计划的实际证据为准；旧 run `39005594931` / `ab172c2` 仍只算历史。生产 rollout、本人确认和演示事项另列。
 - 历史实测口径（仅适用于记录的旧 SHA）：双部署模式 **ALL 66 PASSED**（59 常规 + 7 独立 worker 归因）；能力自然过期历史观测为 67s（不是转移到拒绝的计时）；正证据 age ≤5s；能力 TTL 60s；容差 5s；依赖故障入口 **ALL 16 PASSED**；50 观众负载 **1400/1400 成功、ttfb_p95 61.7ms**（每观众独立钱包）。历史候选 `4eae43d6` 的本机媒体门两条腿各 77/77，其 same-SHA CI 已失败；这些结果不证明后续候选完成。

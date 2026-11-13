@@ -23,7 +23,7 @@ plan. Those already have owners:
 | What does the code actually do? | the code |
 | Which procedure should I follow? | `skills/INDEX.md` |
 
-If a memory file disagrees with the code, `CLAUDE.md`, or `TRANSITION_PLAN.md` §8,
+If a memory file disagrees with the code, `CLAUDE.md`, or `TRANSITION_PLAN.md` §C (evidence),
 those win. Fix the memory in the same change.
 
 ## Index
@@ -64,5 +64,5 @@ git log --oneline -10
 git status --short
 ```
 
-Then re-read the relevant `TRANSITION_PLAN.md` §8 subsection. The plan's checkbox
-state has historically lagged its own evidence sections — trust §8, not the box.
+Then re-read the relevant `TRANSITION_PLAN.md` §C subsection. The plan's checkbox
+state has historically lagged its own evidence sections — trust §C, not the box.

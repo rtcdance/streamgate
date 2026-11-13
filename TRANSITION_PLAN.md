@@ -4,9 +4,9 @@
 > 「当前状态 → 现行计划 → 关键判定原文 → 索引」结构：**现行计划（§10）、架构基线（§8.1）、三个终态判定
 > （§8.86 / §8.61 / §8.91）与进行中的传输预算修复**逐字保留；其余历史计划与执行日志压缩为索引表，
 > **所有关键 SHA / CI run / 证据目录 / 判定均保留在索引中**。逐字完整原文见 git 历史
-> （`git log --follow -- TRANSITION_PLAN.md`；重排版完整原文已存为 git 对象 `f0025548`，`git cat-file -p f0025548` 可取回）。
+> （`git log --follow -- TRANSITION_PLAN.md`；简化前最后完整版为提交 `be2e4e90` 中的本文件，`git show be2e4e90:TRANSITION_PLAN.md` 可取回，5577 行）。
 
-## 当前状态速览（2026-11-12）
+## 当前状态速览（2026-11-13 复核）
 
 | 阶段 | 状态 | 锚点 |
 |---|---|---|
@@ -15,9 +15,15 @@
 | W3-06（公开网络准备） | ✅ 双 RPC 资格 PASS | §8.61 |
 | W3-04（真人双钱包登录） | 🟡 EOA 完成；合约钱包路径已解阻（mint-c 完成），待浏览器观察 | §8.91 |
 | W3-08（本人签名 + 6 笔 Sepolia 交易） | 🟡 **PASS WITH FIXTURE_BLOCKED**（6 笔交易 + oracle + SIWE + NFT 检查已实证；媒体 fixture 缺失，TN 矩阵 11/14 BLOCKED 留后续） | §8.91 |
-| W3-09（文档收口 + 求职材料 + 最终 tag） | ⏳ 已解除阻塞，**未开始** | §8.91 交接清单 |
-| 证据传输预算修复（`160f1804`，run 42971359964） | 🟡 timeout 3600→14400s + `--platform linux/amd64`，47 单测 OK；**未提交、未随新 run 验证** | §C.3 |
+| W3-09（文档收口 + 求职材料 + 最终 tag） | 🟡 **文档边界部分完成（2026-11-13，工作区未提交）**：README 证据表新增 ERC-1271（Anvil，`d267ad44`/run 42548083086）行，Sepolia 行由「Not verified」改为「Partial — not acceptance」并写明 §10.9 边界；中英文简历与讲述稿同步边界；README 的 §8 锚点改指 §C。**未做**：只读扩展汇总验证器的实际运行（需 TN 原件）、本轮专用资源清理、最终 tag（扩展未关闭前不打） | §8.91 交接清单 |
+| **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
+| 证据传输预算修复（原候选 `160f1804`，run 42971359964） | 🟡 **三项已在工作区补齐，未提交、未验证**：① 校验上限 14400（`d151ae62`）；② `ci.yml` 验收 job 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`；③ build/pull/create 固定 `--platform linux/amd64`；新增 3 个单测。本机（Windows）无 Python/Docker，单测未运行；须经 Docker unit 阶段或 CI 验证后形成新候选 | §C.3.3 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
+
+**审核注记（2026-11-13）：**
+- §C.3.2 的「PASS WITH FIXTURE_BLOCKED」是 W3-08 单项判定，不在 §10.8 第 5 条状态词表内，也不改变 §10.9「仅公开 EOA 绿……均不能关闭本节」的规则。W3-09 可以先做文档与材料，但不能据此宣称扩展完成。
+- §C.3.2 交接清单中「README（Sepolia 支持已实证）」须按 §10.9 第 4 条写明边界：实证范围仅限 6 笔交易、oracle、MetaMask SIWE 与 NFT 检查；**媒体播放与 api-gateway 模式未在 Sepolia 实证**。
+- 候选 `160f1804`、`4f68c8bf` 与旧对象 `f0025548` 不在本地仓库（`git cat-file` 无法解析）；引用它们时以 CI run 号为准，派发新 run 前先确认对应提交可取得。
 
 ## 结构
 
@@ -34,7 +40,7 @@
 <a id="web3-wallet-testnet-plan"></a>
 ## §A 现行计划：合约钱包登录与公开测试网真实路径（原 §10）
 
-**日期：**2026-11-02启动，2026-11-03复审，2026-11-09 W3-07 出口达成，2026-11-11 W3-08 r7 判定。**状态：W3-07 出口达成（现行权威候选 `d267ad44`，权威 run 42548083086 全绿）；W3-08 = PASS WITH FIXTURE_BLOCKED（§C.3.2）；W3-09 未开始。** 本节实施两个增量：已部署 ERC-1271 合约钱包的 SIWE 登录闭环，以及本机应用连接 Sepolia 的真实钱包、真实资产与真实播放路径。2026-11-02已启动隔离开发与合约层Docker回归；尚未领取faucet、测试网部署、本人签名、公开链广播或新增CI。合约测试通过不代表登录、媒体或公开链闭环已通过。
+**日期：**2026-11-02启动，2026-11-03复审，2026-11-09 W3-07 出口达成，2026-11-11 W3-08 r7 判定。**状态：W3-07 出口达成（现行权威候选 `d267ad44`，权威 run 42548083086 全绿）；W3-08 = PASS WITH FIXTURE_BLOCKED（§C.3.2）；W3-09 未开始。** 本节实施两个增量：已部署 ERC-1271 合约钱包的 SIWE 登录闭环，以及本机应用连接 Sepolia 的真实钱包、真实资产与真实播放路径。截至 2026-11-11 r7：Sepolia 部署/mint/转移 6 笔已上链，本人 MetaMask SIWE 登录与签名拒绝已在 monolith 观察；**Sepolia 上的媒体播放、api-gateway 模式与完整 TN 矩阵仍未完成**（§C.3.2）。合约测试通过不代表登录、媒体或公开链闭环已通过。
 
 ### 10.1 目标、范围与不做项
 
@@ -51,7 +57,7 @@
 
 ### 10.2 已核实起点与必须修复的接线
 
-以下表格记录W3-00基座的起点；隔离分支中的进行中修改及证据见上方执行进展，不把开发组件当作已完成运行接线。
+以下表格记录W3-00基座的起点（历史快照，「当前事实」列指 W3-00 时点）；开发期组件证据见 §C.5.1，不把开发组件当作已完成运行接线。
 
 | 入口 | 当前事实 | 本轮动作 |
 |---|---|---|
@@ -138,7 +144,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 
 **授权边界（2026-11-07 owner 明确，仍有效）：** 仅允许在定向 Docker 回归通过且 C12 原失败上传原件保全后，推送一个修正后的隔离候选，并对其派发一次同 SHA CI（沿用既有 hosted-build / Mac-acceptance 路由，绿后恢复临时 runner 变量）。不授权 master push、force push、自动钱包批准或盲目整链重跑。
 
-**候选链摘要（C4 → 现行 `d267ad44`；本段为 2026-11-04～11-07 逐日执行日志的压缩，逐字原文见 git 历史与 git 对象 `f0025548`）：**
+**候选链摘要（C4 → 现行 `d267ad44`；本段为 2026-11-04～11-07 逐日执行日志的压缩，逐字原文见 `git show be2e4e90:TRANSITION_PLAN.md`）：**
 
 | 候选 | 关键改动 / 定位 | CI run 与结局 |
 |---|---|---|
@@ -153,7 +159,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | C12 `685b6b97` | 修复 `panel.mjs` MIME（nginx mime.types 无 mjs）；perf 新鲜度边界修复 `8132616c`+`66d7ea4e`；CVE 补丁 | run 42319609406 败于 `warm_cache-viewers-10` 98.31%<99%（freshness race，已定位）；后继 run 42338948599 / 42351689576 / 42352209782 相继败于证据下载超时（`65c09f32` timeout→7200、`88a863cd` 测试期望 3→5 修正） |
 | → `25d36ec9` / `d267ad44` | 七修复 / 十修复合并候选：`f8a41f13` harness 5s 窗口确定性硬化、`2981dff8`+`c69ee3a2` 冻结源嵌套子模块离线化、`d267ad44` fixture 时钟 | run 42504506447 media 5 项时序签名连续两次（产品零差异）→ 环境定责；**权威 run 42548083086 attempt2 全绿，W3-07 出口达成（§C.3.1）** |
 
-经验沉淀：验收工具自身缺陷与产品缺陷同等对待（红→绿后形成新候选）；同签名连续两次即停止重试转定位；产品零差异 + 同签名两次 → 优先环境定责（§8.60 附录十一判别准则）。双 RPC 资格、A 余额/nonce、面板状态等时点快照随日志归档，执行前按 §10.8 重新核实。
+经验沉淀：验收工具自身缺陷与产品缺陷同等对待（红→绿后形成新候选）；同签名连续两次即停止重试转定位；产品零差异 + 同签名两次 → 优先环境定责（§8.60 附录十一判别准则：时序类检查确定性失败时，先 `git diff --stat <曾绿候选> <现候选> -- pkg/ cmd/ contracts/ test/ config/`，空差异即环境，勿改代码）。双 RPC 资格、A 余额/nonce、面板状态等时点快照随日志归档，执行前按 §10.8 重新核实。
 
 | ID / 依赖 | 实施内容与主要文件 | 出口标准 |
 |---|---|---|
@@ -166,7 +172,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | [x] W3-06 / 00；与本地实现分开准备 | 测试网overlay、部署manifest、环境映射、严格preflight与真实H5检查工具；新增专用测试网验收入口 | 不启动Anvil、不读取31337默认部署、不启用开发签名/后台mint；两RPC/网络/合约身份/费用预检严格失败；缺条件不能跳过为绿。准备工作可先完成，真实广播仍等本轮候选冻结 |
 | [x] W3-07 / 05+06 | 将必要代码、合约、H5、配置与验证器一次集成，冻结C；复用现有CI原始构建、扫描、归档与GHCR证据链，执行同C完整all | 原M0～M8、R01～R12及新增确定性CW用例全部通过；原始outer exit0、必需CI job成功、源码/镜像/编译归档一致。只执行这一轮完整all；有同SHA有效run则接续，不再另开本机all |
 | [x] W3-08 / 07+公开条件齐备 | 使用C的原镜像和合约构建归档，执行§10.4的EOA/C两条公开用户路径及TN矩阵；每种模式独立留证 | **r7 判定 PASS WITH FIXTURE_BLOCKED（§C.3.2）**：6 笔交易 + oracle + MetaMask SIWE + NFT 检查已实证；媒体 fixture 缺失属 BLOCKED 非 FAIL，TN 矩阵 11/14 格与 fixture 恢复留后续轮次。用户操作、Google登录、资金或RPC未就绪则明确BLOCKED，不伪造人工完成 |
-| [ ] W3-09 / 07+08 | 实现/运行只读扩展汇总验证器；更新本节结果、README、简历及学习手册相关边界，清理本轮专用资源 | 确定性CI、公开链证据与本人钱包操作三类均满足；最终状态逐项列PASS/FAIL/BLOCKED。文档证据提交E只记录C，不因回填再生成代码候选或重跑CI |
+| [ ] W3-09 / 07+08（2026-11-13 文档边界部分完成，见顶部速览） | 实现/运行只读扩展汇总验证器；更新本节结果、README、简历及学习手册相关边界，清理本轮专用资源 | 确定性CI、公开链证据与本人钱包操作三类均满足；最终状态逐项列PASS/FAIL/BLOCKED。文档证据提交E只记录C，不因回填再生成代码候选或重跑CI |
 
 依赖路径：`W3-00 → 01 → 02 → 03 → 04 → 05`；`W3-00 → 06`；`05+06 → 07 → 08 → 09`。多个阅读/设计工作不等于允许在同一Mac并发跑验收；本轮默认单一集成者、单一执行栈。
 
@@ -316,7 +322,7 @@ python3 scripts/cd/verify_web3_extension.py \
   --recipient "$W3_SEPOLIA_RECIPIENT" --evidence "$W3_EVIDENCE_DIR"
 ```
 
-**历史接口边界（2026-11-04，C4 时期；后续演进见 §10.5 候选链摘要）：**当时冻结候选 C4 `c38dc4bc` 的 CI 上传曾因 GHCR 登录超时失败一次，仅对同 run 失败项恢复一次成功（attempt4 Retain 收据 bundle SHA256 `c56c67da…`）；期间 GitHub 官方公告 Actions 平台事故（id `h02n9572mx9y`）。**沉淀判据：平台事故不作为候选缺陷、不据此取消有效 run、不以滞后 API 的 0 失败表述完整健康**；该登录恢复步骤只允许一次，再同因失败必须停止重试并诊断。C4 九阶段完整 all 原件已独立保全于 `.verify-artifacts/w3-extension/supervision/c38dc4bc-run41823377757-acceptance-original/`（1405 文件 / 604618420 bytes，bundle SHA256 `53ea44aa…`，registry digest `sha256:1e1a376a…`）；当时 Chrome 工具连接不可用（`Browser is not available: chrome`），无真实钱包签名或广播。逐日过程记录见 git 历史与 git 对象 `f0025548`。
+**历史接口边界（2026-11-04，C4 时期；后续演进见 §10.5 候选链摘要）：**当时冻结候选 C4 `c38dc4bc` 的 CI 上传曾因 GHCR 登录超时失败一次，仅对同 run 失败项恢复一次成功（attempt4 Retain 收据 bundle SHA256 `c56c67da…`）；期间 GitHub 官方公告 Actions 平台事故（id `h02n9572mx9y`）。**沉淀判据：平台事故不作为候选缺陷、不据此取消有效 run、不以滞后 API 的 0 失败表述完整健康**；该登录恢复步骤只允许一次，再同因失败必须停止重试并诊断。C4 九阶段完整 all 原件已独立保全于 `.verify-artifacts/w3-extension/supervision/c38dc4bc-run41823377757-acceptance-original/`（1405 文件 / 604618420 bytes，bundle SHA256 `53ea44aa…`，registry digest `sha256:1e1a376a…`）；当时 Chrome 工具连接不可用（`Browser is not available: chrome`），无真实钱包签名或广播。逐日过程记录见 `git show be2e4e90:TRANSITION_PLAN.md`。
 
 最终汇总的`--evidence`目录下提供`extension.json`（只选择原始路径，不允许status/passed/required/completeAcceptance）。路径全部相对于该目录、不能用绝对路径、`..`或symlink；CI原payload置于独立子目录，公开准备与报告不得写入/污染原producer树。选择字段固定为：
 
@@ -331,7 +337,7 @@ python3 scripts/cd/verify_web3_extension.py \
 | `pending` | `phase`/`ledger`/`report`/`exit`；必须能从原双RPC读数复算尚未safe的真实交易，exit2且原hash不变，不能伪造延迟或新增交易 |
 | `browserModes.monolith`、`browserModes.api-gateway` | 各自`origin`/`content`；`eoa`/`contract`/`negative`分别选择`directory`/`exit`原观察；`controls`选择`report`/`private`/`exit`原控制观察 |
 
-- 公共controls的原始私有凭据及响应bytes必须与报告摘要吻合；两类转移分别关联原oracle，旧能力在safe时仍有效、两传输新manifest拒绝、旧媒体≤70s拒绝且持续身份有效，并包含依赖503/Unavailable恢复及真实reload状态。采集器已并入C4且确定性CI通过，实际公开观察未执行，**不能手填PASS或合成凭据满足正式验收**。公开真实签名、JWT仅保存在私有文件，汇总错误不回显原值。最终矩阵通过仍须完成W3-09文档边界与本轮资源清理后，才能关闭本节。
+- 公共controls的原始私有凭据及响应bytes必须与报告摘要吻合；两类转移分别关联原oracle，旧能力在safe时仍有效、两传输新manifest拒绝、旧媒体≤70s拒绝且持续身份有效，并包含依赖503/Unavailable恢复及真实reload状态。采集器已并入C4且确定性CI通过；r7 仅完成 monolith 的 negative/eoa 两个浏览器阶段，controls=INCOMPLETE（§C.3.2），**不能手填PASS或合成凭据满足正式验收**。公开真实签名、JWT仅保存在私有文件，汇总错误不回显原值。最终矩阵通过仍须完成W3-09文档边界与本轮资源清理后，才能关闭本节。
 
 - 统一使用 `SEPOLIA_RPC_URL` / `SEPOLIA_RPC_FALLBACK_URL` 作新profile的输入，并显式映射兼容旧诊断所用 `SEPOLIA_RPC`；不让两套变量指向不同链。文档只写变量名；值经环境/本机未追踪配置注入，不出现在CLI参数或共享日志。
 - 新测试网profile的具体配置键在W3-00/06落定，至少包括chain、两RPC、安全tag、SIWE origin、部署manifest、证明/授权预算、交易费用与数量上限。localhost两个H5 origin按真实部署分别绑定，不能硬编码 `streamgate.io`，也不能反射任意Host作为可信域。
@@ -349,7 +355,7 @@ python3 scripts/cd/verify_web3_extension.py \
 | 提供地址的网络、账户类型、余额与签名控制权 | 2026-11-02双RPC只读资格通过，A当时余额0.141763346860793075 ETH/code=0x；真实控制权未证，执行前刷新 | 不猜测、不索取明文私钥；公开阶段BLOCKED，必要时由本人更换合适的测试账户 |
 | 两个合格RPC及免费配额 | Tenderly/1RPC历史只读资格通过；当前可用性和免费限额执行前重新核实 | 验证器明确失败/阻塞；不使用单端点临时放行，不购买配额，不把协议要求改成latest |
 | 本机容量与已有CI/其他项目栈 | 执行前实时核对 | 有有效长跑则保留并等待；不重启/取消有效run，不清理ChainPulse资源；Mac保持开盖 |
-| 真实浏览器钱包签名/广播 | 尚未执行 | 由本人在钱包内完成；自动化可验证结果，不伪造provider响应、签名批准或“本人已确认” |
+| 真实浏览器钱包签名/广播 | r7 已完成 6 笔广播及 monolith 的 SIWE/拒签；contract 阶段、api-gateway 模式与媒体播放未执行（§C.3.2） | 由本人在钱包内完成；自动化可验证结果，不伪造provider响应、签名批准或“本人已确认” |
 | 观测通道（浏览器级CDP或页面级CUA） | 2026-11-06 Chrome 已连接，本地文件选择及合成 HTTP relay 往返通过；新候选真实钱包阶段未执行 | CI 原件就绪后使用页面级 CUA，本人操作 MetaMask；通道缺失时保持 BLOCKED，不代签、不合成观测、不以端口探测代替验收 |
 
 1. 先跑一个最小垂直切片：C接收一份NFT → 登录为C → 真实播放 → 策略变更/转移后拒绝。不要先建设Safe管理台、钱包连接器矩阵或多链框架。
@@ -386,7 +392,7 @@ python3 scripts/cd/verify_web3_extension.py \
 
 > 状态栏为 2026-10-11 基线 `6ded9771` 时点；原「F. 现有违例」清单（隐式内存回退、公开路由、条件接线、DASH 未接线等）已由 SG-03/12/14 修复并经 §8.86 验收；R01～R12 与正负例映射已并入 C.2 需求追溯与 CI 门，原文见 git。
 
-### 8.1 SG-10 架构基线：真实接线、权限矩阵与设计取舍
+**原标题：8.1 SG-10 架构基线：真实接线、权限矩阵与设计取舍**
 
 > **依据（2026-10-11 实读，基线 `6ded9771` + 工作区未提交变更）**：`pkg/gateway/{gateway,providers,resources,routes,grpc_server}.go`、`pkg/plugins/api/gateway.go`、`cmd/monolith/streamgate/main.go`、`pkg/core/microservice.go`、`pkg/core/event/*`、`deploy/docker/Dockerfile.*`。  
 > **状态口径**：**wired**=有生产调用方；**tested**=有回归测试；**scaffold**=代码在但无生产接线；**disabled**=无调用方或默认关闭。本清单只登记事实，修复留给对应 SG。
@@ -513,7 +519,7 @@ sequenceDiagram
 
 ### C.2 主线收口判定（原 §8.86 节选）
 
-### 8.86 2026-11-02 最终独立验收与交付冻结
+**原标题：8.86 2026-11-02 最终独立验收与交付冻结**
 
 **结论：PASS WITH BOUNDARIES。** SG-00～SG-15 的工程与 M6 AI 成品范围完成。代码候选为 `d0f05152edc1fb404cb2d78b734c95244e1a7a4e`，CI 为 [run 41343759379 / attempt 3](https://github.com/rtcdance/streamgate/actions/runs/41343759379)。本节是后续证据记录，文档提交不是新的代码候选、不继承或冒充它自己的 CI 绿灯；已验收的 C 不再修改，不因回填本节制造验证循环。
 
@@ -569,7 +575,7 @@ sequenceDiagram
 - **W3-08 → W3-09 交接清单：**✅ Sepolia testnet 真实交易能力已证明（6 笔 deploy/mint/transfer）；✅ Oracle 链上验证逻辑已实现（eoa-held PASS）；✅ MetaMask SIWE 集成已验证（登录 + 签名拒绝）；✅ NFT ownership 检查已验证（链上查询正确）；⏸️ Fixture 准备流程需文档化（后续轮次执行 prepare-fixture.sh）；⏸️ 完整 TN 矩阵留待优化（14 格中 11 格 BLOCKED 可通过 fixture 恢复 + 跨模式自动化改进补全）。W3-09 可基于当前证据更新 README（Sepolia 支持已实证）、ARCHITECTURE（oracle 设计已验证）、求职材料（testnet 集成作为亮点）。
 - **状态：**W3-08 = **PASS WITH FIXTURE_BLOCKED**（核心目标达成，媒体测试 BLOCKED 符合定义，无 FAIL）。W3-09 文档收口与求职准备解除 BLOCKED，可立即开始。预计 W3-09 耗时 2～3 小时（README/ARCHITECTURE 更新 + 求职材料整理 + 最终 git tag）。
 
-#### C.3.3 证据传输预算修复（原 §8.59，2026-11-11T06:20Z，未提交条目）
+#### C.3.3 证据传输预算修复（原 §8.59，2026-11-11T06:20Z；与 §C.5 中 cleanup 勘误的 §8.59 为原文编号冲突，以日期区分）
 
 **§8.59 证据传输预算（2026-11-11T06:20Z）：候选 `160f1804`，run `42971359964`。**
 
@@ -589,7 +595,11 @@ evidence transport: docker pull timed out after 3600s; client terminated; inspec
 
 本轮还修掉两个确定性阻塞：`4f68c8bf` 证据传输镜像是 `FROM scratch` 但仅 amd64 单架构，arm64 Mac runner 拉取报 `no matching manifest for linux/arm64/v8`，改为显式 `--platform linux/amd64`。
 
-> **落地位置核对（2026-11-12）：**上述修改仅存在于候选 `160f1804` 的隔离工作树（已核对 `git show 160f1804:scripts/cd/evidence_transport.py` 为上限 14400、其 ci.yml 已含 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`）；**主工作树与 HEAD 仍为默认 `REGISTRY_TIMEOUT_SECONDS=900`、校验上限 3600、`timeout-minutes: 600`**。上文 §A 候选链中 `65c09f32` 曾把超时提至 7200（属彼时候选）；派发新 run 前须先按 §10.8 授权路径将 `160f1804` 落地为当前候选。
+> **落地位置核对（2026-11-12）：**上述修改当时仅存在于候选 `160f1804` 的隔离工作树；主工作树为默认 `REGISTRY_TIMEOUT_SECONDS=900`、校验上限 3600、`timeout-minutes: 600`。上文 §A 候选链中 `65c09f32` 曾把超时提至 7200（属彼时候选）。
+>
+> **再核对（2026-11-13，master `d151ae62`）：**只落地了三项中的一项。① `evidence_transport.py` 校验上限已为 14400 ✓；② `ci.yml` **没有** `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`，所以实际仍用默认 900s ✗（`d151ae62` 提交说明称 ci.yml 已注入，与 master 不符）；③ 证据传输镜像拉取的 `--platform linux/amd64` 未落地 ✗（`ci.yml:818` 的 `--platform` 属 `write_candidate_manifest.py`，与此无关）。`160f1804` / `4f68c8bf` 在本地仓库不可解析。派发新 run 前须补齐 ②③ 并按 §10.5 授权边界形成新候选。
+>
+> **补齐（2026-11-13，工作区未提交）：**② `ci.yml` acceptance job `env` 增加 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS: "14400"`（timeout 不重试，单次 ≤4h，落在 `timeout-minutes: 600` 内）；③ `evidence_transport.py` 新增 `TRANSPORT_PLATFORM = "linux/amd64"`，`push_image` 与 `--no-push` 的 `docker build`、`extract` 的 `docker pull` 与 `docker create` 全部带 `--platform`——只钉 pull 不够，arm64 上 `create` 仍会按本机架构解析而失败。新增单测 `test_push_image_builds_for_the_transport_platform`、`test_extract_pulls_and_creates_for_the_transport_platform`、`test_ci_injects_registry_timeout_within_the_cap`（后者防止注释与 ci.yml 再次脱节）。**验证状态：未运行**——执行机为 Windows，无 Python/Docker/WSL；须 `VERIFY_STAGE=unit make verify-docker` 或 CI `ci.yml:118` 步骤实跑，绿后才能按 §10.5 形成新候选。
 
 ### C.4 主线执行证据索引（原 §8.2～§8.85；逐字表格与命令见 git 历史对应提交）
 
@@ -628,13 +638,13 @@ evidence transport: docker pull timed out after 3600s; client terminated; inspec
 | 8.44–8.45 | 同 SHA CI run 40608718226 | 52 job 成功但环境身份门 BLOCKED（非候选缺陷） |
 | 8.46–8.53 | Codex 接管收口（`sg/codex-closeout-20261030`） | 局部重试验证闭环；反向证明重做 `dadb019b`；GHCR 登录 TLS 超时首因 |
 | 8.85 | 多日低效根因复核 | 阶段历史，终态见 8.86 |
+| 8.84 | 主线收口复核 | `d0f05152` run 41343759379 attempt 3 全绿 + 原件保全校验 |
 
 
 ### C.5 W3 扩展执行证据索引（原 §8.58～§8.91 时序日志；原文见 git）
 
 | 条目 | 内容 | 关键结果 |
 |---|---|---|
-| §8.84 | 主线收口复核 | `d0f05152` run 41343759379 attempt 3 全绿 + 原件保全校验 |
 | §8.58 | 全部验收阶段通过 | run `42385020960` / `2a65a2ff`，仅败于收尾 git fetch |
 | §8.59 | cleanup 翻转勘误与同 SHA 接续 | run `42352481359` / `9823995c` |
 | §8.60 附录一～八 | 候选迭代：pull 挂死根治、cleanup 幂等 `7220616d`、pull 限时重试 `92c3a8b7`→`db29caac`、daemon 分发池重启、慢链路勘误回退、`17c14169` | 权威 run `42460355401` 等换代链 |
@@ -702,7 +712,7 @@ evidence transport: docker pull timed out after 3600s; client terminated; inspec
 | M7 合约与链外一致性 | 完整 ERC 接口 / 状态不变量 / ABI、原件 digest / creator、outbox / nonce / receipt / 事件恢复    | 合约 invariant 与 Anvil 实证；并发 / timeout / restart / reorg 无重复业务效果、无丢失的权威状态     | ERC-165 自报、URL 哈希、内存 tx map、日志 txHash、永不失效 checkpoint |
 | M8 架构与运行可靠性 | 实际组件 / 权限矩阵 / profile；SSRF / 上界 / 任务幂等；secret / API / SIGTERM / backup restore | 真实接线与承诺一致；必要依赖无隐式 fallback；任务恢复、权限恢复及原件 hash 复核通过                           | 九个二进制、只启动不接线、仅配置文件存在、blacklist 丢失后放行旧 JWT             |
 
-### 必需测试清单的落地要求
+#### D.2.1 必需测试清单的落地要求
 
 执行 AI 将以下场景做成稳定可检索 test ID（新用例按该名或在证据表映射真实名称）；CI 解析结果确认执行和通过，而非仅 grep 进程 exit 0：
 
@@ -764,7 +774,7 @@ make verify-docker
 
 ## §E 历史归档摘要
 
-### E. 历史归档摘要（原 EFF 方案 + 上一轮 Track A～D + 附录 A～F；逐字原文见 git 历史）
+原 EFF 方案 + 上一轮 Track A～D + 附录 A～F；逐字原文见 `git show be2e4e90:TRANSITION_PLAN.md`。
 
 - **EFF 提效实施方案（2026-10-24）**：EFF-00～04 全部收口，结果并入 §8.86；EFF-03/04-B 为可选优化未启用，不阻塞终验。任务表与执行命令原文见 git。
 - **上一轮计划**：P0 前置门（P0-1～3）、Track A 安全地基（A1～A10，含 G1 反向验证）、Track B 减法与诚实（B1～B7）、Track C 求职物料（C0～C3 完成；C4 投递 / C5 步骤 1 录屏属人工未启动）、Track D 差异化（D1/D2 未启动）。全部完成项的验收记录见 git 历史。
