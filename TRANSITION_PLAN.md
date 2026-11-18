@@ -19,7 +19,7 @@
 | W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；2026-11-18 并入 `sg/w3-09-transport-docs-20261113` 的文档提交（媒体 fixture 配方、r8 决定、`skills/sepolia-wallet-round`）；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
 | **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
 | 证据传输预算 / scan 身份修复 | ⏸️ **随 CI 暂停搁置**：master 已有独立实现（证据拉取按本机架构优先、`no matching manifest` 时按平台回退；scan/smoke 经 `image_identity.py --verify` 按归档绑定）。分支 `sg/w3-09-transport-docs-20261113` 的平行实现（`b92aedc` 固定 `--platform linux/amd64` + `ci.yml` 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`；`7c53907`）2026-11-18 合并时**未采用**，代码以 master 为准；master `ci.yml` 仍无该超时注入（默认 900s）。恢复 CI 前须重新核对，见 §C.3.3 | §C.3.3 |
-| **W3 收尾计划** | 📋 已制定、未执行：P0 本机准备 → P1 候选口径 → P2 本人 Sepolia r8 会话 → P3 关闭判定 → P4 文档/tag/清理 | §10.10 |
+| **W3 收尾计划** | 🟡 **P0 完成（2026-11-18）**，P1 起待 owner：P0 本机准备 → P1 候选口径 → P2 本人 Sepolia r8 会话 → P3 关闭判定 → P4 文档/tag/清理 | §10.10 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
 **审核注记（2026-11-13）：**
@@ -393,7 +393,7 @@ python3 scripts/cd/verify_web3_extension.py \
 **协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户确认的Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。6492与7702用于明确拒绝边界，不作为本轮实施功能。
 
 
-### 10.10 W3 收尾计划（2026-11-18 制定，未执行）
+### 10.10 W3 收尾计划（2026-11-18 制定；P0 已完成，P1 起待 owner）
 
 **目标：**按 §10.9 完成规则把 W3 扩展从 `TESTNET_BLOCKED` 关闭为 PASS WITH BOUNDARIES。唯一实质工作是一轮由本人签名的 Sepolia 回合（r8），用它补齐 TN 矩阵 11/14 BLOCKED 格并顺带关闭 W3-04；其余为小修与文档。CI 维持暂停（§10.8 CI 暂停决定），不派发 CI、不新增 GHCR 上传。
 
@@ -413,6 +413,14 @@ python3 scripts/cd/verify_web3_extension.py \
 3. 离线定位 public-network 门：通读 `scripts/cd/verify_web3_extension.py` 的重放/资格比较路径，对照 `20261113T085539-w3-09-stack-relaunch/launch-report.network.*` 原件的字段形状，产出「疑似根因 + 最小复现用例」或明确「需同环境复诊」。若是验证器缺陷，修复属代码变更，按 §10.5 形成新候选并在 P1 先回归。
 4. 把 `skills/sepolia-wallet-round` 清单落成本回合的逐条命令单（变量、端口、栈目录、证据路径前缀 `<日期>T*-w3-08-r8-*`），供 P2 照做。
 5. P0 改动走独立分支，合入 master；push 须 owner 授权。
+
+**P0 结果（2026-11-18，Windows 宿主，非验收）：**
+
+- ① `media_fixture.py` 及其测试已从 `d1f86fb` 取入并登记 unit 阶段（`621b198`）；宿主 `test_wallet_media_fixture` 15 tests OK（1 skip：POSIX 文件权限）。
+- ② public-network 门：用真实 `network_preflight.main()` 对本地伪 Sepolia 产出报告，再按验证器 `network()` 同序重放（同一模块实例）——**PASS**，字段逐项相等。结论：重放/资格比较逻辑对格式正确的原件成立，11-13 的 FAIL 取决于 Mac 上的真实原件，P0 无法离线定位到具体行。已补 `scripts/wallet-testnet/diagnose_network_replay.py`（`749936e`）：以验证器自身模块逐步重放原件，只输出失败步骤、异常类型与栈帧，不输出消息/URL/数值，禁止联网；5 项单测覆盖截断流→`qualify`、字段篡改→`fields`、多余响应→`complete`、外来端点→`stream-0` 且不泄露 URL。验证器本身属 `FROZEN`，未改动。
+- ③ 验证器 37 个 `FROZEN` 输入在 master 与 `d267ad44` 逐字节一致，可直接从 master 运行（source 门不受影响）。
+- ④ `skills/sepolia-wallet-round` 增补：前置核对 FROZEN 一致；`launch_stack.py` 后、本人签名前先跑诊断重放，非全 PASS 即停，避免 6 笔交易白费；收尾若 public-network FAIL 用同一工具记录步骤与异常类型（`9e583f3`）。
+- **Mac 端首个动作（P2 之前即可做）：**对 `20261113T085539-w3-09-stack-relaunch/launch-report.network.json/.exit` 运行诊断工具，环境变量用 11-13 当时的两条 RPC。输出的失败步骤即 11-13 FAIL 的定位；若为验证器缺陷，按 P1 第二条形成新候选。
 
 **P1 候选口径决定（无执行工作）**
 
