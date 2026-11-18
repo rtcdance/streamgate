@@ -19,6 +19,7 @@
 | W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；2026-11-18 并入 `sg/w3-09-transport-docs-20261113` 的文档提交（媒体 fixture 配方、r8 决定、`skills/sepolia-wallet-round`）；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
 | **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
 | 证据传输预算 / scan 身份修复 | ⏸️ **随 CI 暂停搁置**：master 已有独立实现（证据拉取按本机架构优先、`no matching manifest` 时按平台回退；scan/smoke 经 `image_identity.py --verify` 按归档绑定）。分支 `sg/w3-09-transport-docs-20261113` 的平行实现（`b92aedc` 固定 `--platform linux/amd64` + `ci.yml` 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`；`7c53907`）2026-11-18 合并时**未采用**，代码以 master 为准；master `ci.yml` 仍无该超时注入（默认 900s）。恢复 CI 前须重新核对，见 §C.3.3 | §C.3.3 |
+| **W3 收尾计划** | 📋 已制定、未执行：P0 本机准备 → P1 候选口径 → P2 本人 Sepolia r8 会话 → P3 关闭判定 → P4 文档/tag/清理 | §10.10 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
 **审核注记（2026-11-13）：**
@@ -390,6 +391,56 @@ python3 scripts/cd/verify_web3_extension.py \
 **完成规则：**W3-00～09出口及CW/TN必需矩阵全部满足，才将扩展标为PASS WITH BOUNDARIES；仅本地绿、仅公开EOA绿、仅1271 helper测试绿或仅CI绿，均不能关闭本节。本人尚未签名、资金/RPC不满足时，保留明确BLOCKED项，不再启动新的完整验收来等待它们。
 
 **协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户确认的Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。6492与7702用于明确拒绝边界，不作为本轮实施功能。
+
+
+### 10.10 W3 收尾计划（2026-11-18 制定，未执行）
+
+**目标：**按 §10.9 完成规则把 W3 扩展从 `TESTNET_BLOCKED` 关闭为 PASS WITH BOUNDARIES。唯一实质工作是一轮由本人签名的 Sepolia 回合（r8），用它补齐 TN 矩阵 11/14 BLOCKED 格并顺带关闭 W3-04；其余为小修与文档。CI 维持暂停（§10.8 CI 暂停决定），不派发 CI、不新增 GHCR 上传。
+
+**剩余项 → 关闭方式：**
+
+| 剩余项 | 现状 | 由哪一阶段关闭 |
+|---|---|---|
+| W3-04 合约钱包浏览器登录 | EOA 完成；C 路径未经浏览器观察 | P2 第 5 步（contract 阶段，两模式） |
+| W3-08 TN 11/14 BLOCKED | 媒体 fixture 缺失；api-gateway 模式与 contract 阶段未跑 | P0 合入 fixture 工具 + P2 |
+| public-network 门 FAIL 差异 | 重放/资格比较内部异常，单步复现不可触达 | P0 先离线定位，P3 同环境复诊 |
+| 汇总验证器、文档、tag、清理 | 待 TN 原件 | P3、P4 |
+
+**P0 本机准备（Windows 低配机，无 Docker、无钱包；可立即开始）**
+
+1. 从 `sg/w3-media-fixture-20261113`（`d1f86fb`）**只取** `scripts/wallet-testnet/media_fixture.py`、`scripts/cd/test_wallet_media_fixture.py` 与 `scripts/verify-docker.sh` 中登记该测试的一行；该分支的 `ci.yml` / `evidence_transport.py` / `image_identity.py` 改动与 master 现有实现平行（同 §C.3.3 合并处置），不取。已核对 `git diff d267ad44 d1f86fb -- pkg/ cmd/ contracts/ config/` 为空，即产品代码零差异。
+2. 宿主预检 `python -m unittest scripts.cd.test_wallet_media_fixture`（非验收；Windows 平台缺口按 §10.5 W3-09 的记录口径分类）。
+3. 离线定位 public-network 门：通读 `scripts/cd/verify_web3_extension.py` 的重放/资格比较路径，对照 `20261113T085539-w3-09-stack-relaunch/launch-report.network.*` 原件的字段形状，产出「疑似根因 + 最小复现用例」或明确「需同环境复诊」。若是验证器缺陷，修复属代码变更，按 §10.5 形成新候选并在 P1 先回归。
+4. 把 `skills/sepolia-wallet-round` 清单落成本回合的逐条命令单（变量、端口、栈目录、证据路径前缀 `<日期>T*-w3-08-r8-*`），供 P2 照做。
+5. P0 改动走独立分支，合入 master；push 须 owner 授权。
+
+**P1 候选口径决定（无执行工作）**
+
+- 默认沿用 r8 既定提效决定：复用 `d267ad44` 已全绿的镜像与合约构建归档，媒体 fixture 由 P0 合入的工具写入，并在报告中注明来源提交。镜像优先用 Mac 本地缓存，核对 digest 与 `candidate-manifest` 一致；缺失时从 GHCR `g42548083086-*` 拉取（下行快，不触发上行瓶颈）。
+- 若 P0 第 3 步产生验证器代码变更，或 owner 要求新鲜证据：在 Mac 上跑一次 `VERIFY_STAGE=all make verify-docker`（约 5h，干净树，caffeinate），原始退出与证据 SHA256 清单落 `.verify-artifacts/`，替代远端同 SHA CI（§10.8）。
+
+**P2 本人会话（Mac，约 2～3h，单一执行栈）**
+
+1. 预检：Docker 常驻、`caffeinate`、开盖；`network_preflight.py` 双 RPC 资格 exit 0；A 余额 ≥0.02 Sepolia ETH；浏览器观测通道可用（Chrome「Allow access to file URLs」开启或页面级 CUA 可达）。任一缺失即停在 BLOCKED。
+2. `prepare_stack.py` / `launch_stack.py` 起独立栈目录与 H5 端口；r7 账本、证据与栈不动。
+3. 本人在 MetaMask 依次签名广播 6 笔：`deploy-nft`、`deploy-wallet`、`mint-a`、（A 播放阶段后）`transfer-a`、`mint-c`、（C 播放阶段后）`transfer-c`。上限 ≤8 笔 / 0.02 ETH；每个必需状态确认等待 ≤30min，超时记 PENDING/BLOCKED，不改用 `latest`。
+4. `mint-a` 对账后，A 在 H5 SIWE 登录一次，token 写入 0600 私有文件，运行 `media_fixture.py` 一次（两模式共用数据库），记录 `contentID`。
+5. 依次执行 EOA 与 contract 阶段 × monolith / api-gateway 两模式：登录、持仓、播放、转移后拒绝（旧能力 ≤70s 失效）及拒签/错链/依赖中断/刷新等反例；每阶段后跑 `transaction_oracle.py` 只读对账，`observe_controls.py` 采集 controls。
+6. 工具全程不签名、不广播、不读私钥；会话中断则保留原件，按 §10.8 停止规则处理，不重开整轮。
+
+**P3 关闭判定**
+
+- 用 P2 原件运行 `verify_web3_extension.py`：全部 PASS → W3 扩展标 PASS WITH BOUNDARIES，勾选 W3-04，在 §C.3 新增 r8 判定（r7 原文不动）。
+- public-network 门若仍 FAIL：在同一 Mac 环境按 P0 结论复诊；不得改 selection 指针或手填 PASS。任何 BLOCKED/FAIL 如实保留，扩展维持 `TESTNET_BLOCKED`。
+
+**P4 文档与清理**
+
+- 更新本文件状态速览与 §10.5 任务表、`memory/50-status.md`、README 证据表、中英简历/项目条目/讲述稿、学习手册第 13 单元，边界按 §10.9 第 4 条。
+- 关闭后打 tag `v1.0.8`；清理 r8 专用容器/卷/网络与临时构建物，保留证据、可复跑配置与链上部署记录。push 与 tag 推送须 owner 授权。
+
+**需要 owner 提供：**Mac 可用（远程或本人代执行）；MetaMask 账户 A 与 ≥0.02 Sepolia ETH，并在钱包内逐笔批准 6 笔交易；浏览器观测通道；push 授权。
+
+**风险：**免费 RPC 限额或 Sepolia 拥堵导致确认超时（按 30min 上限记 BLOCKED）；Mac 休眠杀栈（开盖 + caffeinate）；public-network 门若为验证器缺陷，需新候选及一次本机 all；`media_fixture.py` 在 Mac 上优先 `h264_videotoolbox`，失败回退 `libx264` 并记录。
 
 ---
 
