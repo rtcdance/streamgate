@@ -18,11 +18,12 @@ arguments, logs or CI. A PASS flag in any file is a declaration, never evidence.
 
 | Check | How |
 |---|---|
-| C has a fully green same-SHA CI run with downloadable payload | `gh run view <run> --json conclusion` = success; artifacts within 30-day retention |
+| C has a fully green same-SHA CI run whose original payload can be downloaded | `gh run view <run> --json conclusion,attempt` = success; its GHCR evidence tags `g<run>-*` exist (registry, no TTL). Downloading only — CI stays paused (plan §10.8); r8 reuses `d267ad44` / run 42548083086 (plan §10.10 P1) |
 | Mac runner online, Docker Desktop running, sleep disabled | runners API; `docker info`; `pmset -g` (`sleep 0` on AC) |
 | Two qualified RPCs | `make verify-web3-testnet-preflight` (exit 0) |
 | A balance ≥ 0.02 ETH + gas headroom, code = `0x` | preflight report |
-| Media tool available | checkout containing `scripts/wallet-testnet/media_fixture.py` (from `sg/w3-media-fixture-20261113`); ffmpeg with libx264 or h264_videotoolbox |
+| Media tool available | `scripts/wallet-testnet/media_fixture.py` (on master since `621b198`); ffmpeg with libx264 or h264_videotoolbox |
+| The verifier checkout matches C | every `FROZEN` path in `scripts/cd/verify_web3_extension.py` is byte-identical to C: `git diff --quiet <C> HEAD -- <path>` for each, else the `source` gate FAILs. Master matched `d267ad44` on 2026-11-18 |
 
 **Fresh state per round.** The H5 panel keeps its ledger in browser storage
 keyed by candidate + controller, per origin. Never clear an earlier round's
@@ -35,6 +36,18 @@ storage: give the new round its own `W3_STACK_DIR`, its own evidence directory
 Run `prepare_stack.py`, then `launch_stack.py` with the plan §10.7 arguments
 (candidate, controller, recipient, repository, CI run, producer, CI root, build
 identity, the round's stack directory). Keep each tool's report and raw exit file.
+
+Before the owner signs anything, replay the network preflight that
+`launch_stack.py` just saved, exactly as the final verifier will:
+
+```bash
+python3 scripts/wallet-testnet/diagnose_network_replay.py   --report "${W3_LAUNCH_REPORT%.json}.network.json"   --exit-file "${W3_LAUNCH_REPORT%.json}.network.exit"   --controller "$W3_SEPOLIA_ADDRESS"
+```
+
+It runs offline with the same two `W3_SEPOLIA_RPC_*` variables the verifier will
+use. Every step must print PASS (exit 0). A FAIL names the step, exception type
+and frames (never URLs or values): stop there, because the `public-network` gate
+would FAIL at the end of the round and the six transactions would be wasted.
 
 ## 2. Owner session — order and the exact wallet actions
 
@@ -67,6 +80,9 @@ mode's collector instead of idling.
 2. Write `extension.json` that only **selects** original paths (plan §10.7 field
    table): no status/passed fields, no absolute paths, no `..`, no symlinks.
 3. `scripts/cd/verify_web3_extension.py --candidate --controller --recipient --evidence`.
+   If `public-network` is FAIL, rerun `diagnose_network_replay.py` on the selected
+   `networkReport` / `networkExit` and record its step and exception type; never
+   repoint the selection to make it pass.
 4. Record the result in `TRANSITION_PLAN.md` §C: PASS / FAIL / BLOCKED per TN cell
    with the original exits. Missing or skipped cells stay BLOCKED; never fill them by hand.
 
