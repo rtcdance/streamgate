@@ -6,8 +6,8 @@
 
 | ID | Meaning |
 |---|---|
-| `SG-00` … `SG-17` | Work items in `TRANSITION_PLAN.md` §5. P0 = blocking, P1 = required, P2 = conditional |
-| `§8.x` | Evidence sections of the plan. More trustworthy than the checkboxes |
+| `SG-00` … `SG-17` | Work items indexed in `TRANSITION_PLAN.md` §D.1 (full task text: `git show be2e4e90:TRANSITION_PLAN.md` §5). P0 = blocking, P1 = required, P2 = conditional |
+| `§8.x` | Legacy evidence numbers, now kept as anchors in plan §C (verdicts verbatim, the rest indexed). More trustworthy than the checkboxes |
 | `R01` … `R12` | Requirement traceability ids used by SG-15 |
 
 ## Domain terms
@@ -48,7 +48,7 @@ pkg/service/transcoding/transcoding.go  FFmpeg pipeline and worker pool
 |---|---|
 | Build, test, pitfalls | `CLAUDE.md` |
 | Architecture deep dives | `docs/ARCHITECTURE.md`, `docs/architecture/` |
-| Plan and evidence | `TRANSITION_PLAN.md` §5 and §8 |
+| Plan and evidence | `TRANSITION_PLAN.md` §A (active plan), §C (evidence), §D (completed mainline) |
 | API contract | `docs/api/openapi.yaml` |
 | Deployment | `DEPLOY.md` |
 | Operations | `docs/operations/` |
