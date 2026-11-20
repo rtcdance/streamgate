@@ -1,0 +1,41 @@
+name: Acceptance Runner Health
+
+# Read-only diagnostics for the self-hosted acceptance runner. Manual dispatch
+# only (admins), so fork PRs can never reach the self-hosted machine. Nothing
+# here changes Docker state, files or settings.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - name: Host
+        run: |
+          uname -a
+          uptime
+          df -h / "$HOME" 2>/dev/null || df -h
+          if command -v pmset >/dev/null; then pmset -g | grep -E ' sleep|disksleep|displaysleep|standby' || true; pmset -g assertions | grep -iE 'PreventUserIdleSystemSleep|PreventSystemSleep' || true; fi
+      - name: Docker daemon
+        run: |
+          docker context ls || true
+          docker info --format 'server={{.ServerVersion}} os={{.OperatingSystem}} arch={{.Architecture}} cpus={{.NCPU}} mem={{.MemTotal}} root={{.DockerRootDir}} driver={{.Driver}}' || true
+          docker system df || true
+          docker run --rm --pull never --network none alpine:3.20 df -h / 2>/dev/null || echo "alpine:3.20 not cached; VM filesystem not inspected (no pull, read-only)"
+      - name: Acceptance lock and leftovers
+        run: |
+          docker network inspect streamgate-verify-mutex --format 'mutex owner={{index .Labels "com.streamgate.verify.mutex.owner"}} at={{index .Labels "com.streamgate.verify.mutex.at"}}' 2>/dev/null || echo "mutex: absent"
+          echo "running containers: $(docker ps -q | wc -l)"
+          docker ps --format '{{.Names}} {{.Status}} {{.Label "com.docker.compose.project"}}' | head -30
+          echo "stopped containers: $(docker ps -aq --filter status=exited | wc -l)"
+          docker ps -a --format '{{.Label "com.docker.compose.project"}}' | sort | uniq -c | sort -rn | head -15
+          docker volume ls -q | wc -l | sed 's/^/volumes: /'
+      - name: Network reachability
+        run: |
+          for u in https://github.com https://api.github.com https://ghcr.io/v2/ https://goproxy.cn https://registry-1.docker.io/v2/; do
+            curl -s -o /dev/null -m 20 -w "$u %{http_code} %{time_total}s\n" "$u" || echo "$u FAILED"
+          done
