@@ -86,6 +86,21 @@ mode's collector instead of idling.
 4. Record the result in `TRANSITION_PLAN.md` §C: PASS / FAIL / BLOCKED per TN cell
    with the original exits. Missing or skipped cells stay BLOCKED; never fill them by hand.
 
+## Lessons from rounds r14–r32 (2026-11-18/19)
+
+Order that satisfies the oracle, the browser phases and controls at once:
+
+`network → deploy-nft → deploy-wallet → mint-a → manifest → eoa-held → eoa (both modes) → transfer-a → pending → eoa-transferred → mint-c → contract (both modes) → negative (both modes) → controls (both modes) → contract-held → transfer-c → contract-transferred → extension.json → verifier`
+
+- `eoa-transferred` expects C to hold nothing, so `mint-c` comes after it; controls need C to hold its token, so they run before `transfer-c`. A phase skipped before its transfer cannot be recovered in that round (r31 lost eoa-api-gateway this way).
+- Network evidence is generated before the round's first write, with the controller address in **lowercase** (the verifier normalises it; a checksum address changes the RPC parameter sequence and the gate FAILs). Keep one pair of distinct-host endpoints for the whole round.
+- Capture `pending` right after `transfer-a`, before safe. A single 429 or error in either provider stream makes `public-chain` FAIL permanently; retry the capture until both streams are clean, never later.
+- Browser phases: `Page.bringToFront` and an active lifecycle state, or Chrome pauses video-only media in the background; contract-phase playback with `loop=false` (a loop reset breaks the monotonic time/frames sample); each phase shares one login session with its controls (re-login → "admission was lost or replaced"). Play right after login: the 60 s lease leaves a short window.
+- MetaMask: keep the wallet profile outside `/tmp` (a cleaned profile lost the vault in r9); the unpacked extension ID derives from its load path, so never move the extension directory; `-32002` means a pending request — close every `notification.html` first. A clicked confirmation is not a broadcast: check the receipt on chain.
+- Calldata and gas for each operation must be byte-identical to what `transaction_oracle.py` rebuilds (transfer-c tail padding is `(-len) % 32`); use the contract build artifacts from the CI capsule, not a local forge rebuild (same code hash, different artifact SHA).
+- ethpandaops `safe` can lag 10–20 min: manifest/oracle BLOCKED there is a wait, not a failure.
+- Docker Desktop egress to Sepolia has dropped mid-round (`*url.Error` on both endpoints, r32): check it before each irreversible transfer.
+
 ## Stop rules
 
 - The same failure twice → stop and diagnose; do not retry blindly.

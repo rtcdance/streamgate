@@ -19,7 +19,7 @@
 | W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；2026-11-18 并入 `sg/w3-09-transport-docs-20261113` 的文档提交（媒体 fixture 配方、r8 决定、`skills/sepolia-wallet-round`）；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
 | **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
 | 证据传输预算 / scan 身份修复 | ⏸️ **随 CI 暂停搁置**：master 已有独立实现（证据拉取按本机架构优先、`no matching manifest` 时按平台回退；scan/smoke 经 `image_identity.py --verify` 按归档绑定）。分支 `sg/w3-09-transport-docs-20261113` 的平行实现（`b92aedc` 固定 `--platform linux/amd64` + `ci.yml` 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`；`7c53907`）2026-11-18 合并时**未采用**，代码以 master 为准；master `ci.yml` 仍无该超时注入（默认 900s）。恢复 CI 前须重新核对，见 §C.3.3 | §C.3.3 |
-| **W3 收尾计划** | 🟡 **P0 完成（2026-11-18）**，P1 起待 owner：P0 本机准备 → P1 候选口径 → P2 本人 Sepolia r8 会话 → P3 关闭判定 → P4 文档/tag/清理 | §10.10 |
+| **W3 收尾计划** | 🟡 P0 完成；r31/r32 public-network/public-chain PASS；controls 门禁缺陷已定位并在 `sg/w3-c2-gate-freshness-20261120` 修复（未编译）→ 待 Mac unit 验证、owner 授权 C2 的 CI、r33 本人钱包回合 | §10.10 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
 **审核注记（2026-11-13）：**
@@ -393,7 +393,7 @@ python3 scripts/cd/verify_web3_extension.py \
 **协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户确认的Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。6492与7702用于明确拒绝边界，不作为本轮实施功能。
 
 
-### 10.10 W3 收尾计划（2026-11-18 制定；P0 已完成，P1 起待 owner）
+### 10.10 W3 收尾计划（2026-11-18 制定；P0 完成；2026-11-20 接管，C2 待验证）
 
 **目标：**按 §10.9 完成规则把 W3 扩展从 `TESTNET_BLOCKED` 关闭为 PASS WITH BOUNDARIES。唯一实质工作是一轮由本人签名的 Sepolia 回合（r8），用它补齐 TN 矩阵 11/14 BLOCKED 格并顺带关闭 W3-04；其余为小修与文档。CI 维持暂停（§10.8 CI 暂停决定），不派发 CI、不新增 GHCR 上传。
 
@@ -456,6 +456,15 @@ python3 scripts/cd/verify_web3_extension.py \
 - **新发现的确定性要点**：① 浏览器阶段必须 `Page.bringToFront` + `setWebLifecycleState('active')`，否则 Chrome 后台省电会暂停 video-only 媒体；② contract 阶段样本要求 `time/frames` 单调，播放须 `loop=false`（loop 归零会让 `assert_sepolia_browser` 报 “playback sample uses an invalid identity, observation gap or undecoded video”）；③ 每个 phase 必须与 controls 共享**同一次登录会话**（`sameSession`），中途重登会让 controls 报 “admission was lost or replaced”。
 - **controls 的硬阻塞（代码级）**：`pkg/gateway/routes.go:340` 硬编码 `CacheTTL: 60s`，`pkg/middleware/nft_gate.go:752` 硬编码 `defaultMaxEvidenceAge = 5s`；缓存命中但证据 >5s 时直接 503 且不重抓（`nft_gate.go:672`）。controls 采集循环每 1.8s 请求一次 manifest/segment，`clientEvents` 末尾稳定出现 `manifest Unavailable`，monolith 同步记录 `NFT quantity evidence exceeded its freshness bound`。r30/r31/r32 均复现。该矛盾写死在 candidate 源码中，改代码会使验证器 `source` 组件 FAIL；当前 capsule 也无法重造。
 - **结论**：当前 `d267ad44` capsule 下 **无法达成 verifier exit=0**。要闭环需新候选 C2（令 `MaxEvidenceAge >= CacheTTL` 或放宽 controls 的响应语义）并重建 CI capsule，或改走 CUA/人工 controls；同时需修复 Docker Desktop 到 Sepolia 的容器 egress 稳定性。
+
+
+**2026-11-20 接管复核（Claude，Windows 宿主；代码阅读 + 文档收拢，未跑 Docker）**
+
+- **controls 阻塞的真实根因（修正 11-19 表述）：**`cachedQuantity` 本身已对 >5s 的缓存条目返回不可用并转去重读，所以「缓存命中但证据 >5s 直接 503 不重抓」并不成立。真正的缺陷有两处：① 条目在 `cachedQuantity` 的 reorg 校验里调用 `HeaderByNumber`（最长 5s 超时）期间跨过 5s 上限时，`nft_gate.go` 直接报 `exceeded its freshness bound`，不重读；② 新鲜读取的计时从请求开始算，包含了这段慢校验，Sepolia 慢 RPC 下新鲜读取本身也会超限。两处都会表现为 controls 1.8s 轮询下间歇 `manifest Unavailable`。`CacheTTL 60s` 与 `MaxEvidenceAge 5s` 并不矛盾（正证据本就只用 5s 内的）。
+- **修复（候选 C2 的唯一产品改动）：**分支 `sg/w3-c2-gate-freshness-20261120` @ `9b0f294`：条目在使用前过期则转新鲜读取；新鲜读取的计时紧贴链上查询之前开始（证据不会显得比实际读取更新，singleflight 等待者仍继承领头者时钟）。新增 `nft_gate_freshness_test.go` 两例。**本机无 Go，未编译；**须先 `VERIFY_STAGE=unit make verify-docker` 通过再合入并形成 C2。验证器 37 个 FROZEN 输入不受影响。
+- **未证实、待 Mac 现场确认：**① 交接称 api-gateway 容器内 `config.w3sepolia.yaml` 占位 RPC 导致 1271 登录 503——但 api-gateway 与 monolith 同走 `LoadConfig`，`applySepoliaInputs` 注入两条 RPC，且 `validateSepoliaProfile` 遇 `.invalid` 拒绝启动，代码上不应发生，需取当时日志；② 交接称 Sepolia 栈转码后 `streams`/`stream_qualities` 为空、MinIO 目录名需从 `360p/` 手改为 `640x360/`——若属实是产品缺陷（转码输出路径与 variant 命名不一致、栈内缺消费者），须在 C2 前确认并一并修复，否则 `media_fixture.py` 等待转码会 BLOCKED；③ Docker Desktop 到 Sepolia 的容器出站不稳定（r32 两端点 `*url.Error`）。
+- **交接文件处置：**`HANDOVER-public-chain.md` / `HANDOVER-public-chain-r23.md` 违反 CLAUDE.md（禁止交接类过程文档、禁止根目录新增文档），已删除；其中可复用的顺序与坑位并入 `skills/sepolia-wallet-round`「Lessons from rounds r14–r32」，状态并入本节。**安全：**前者在 `b429638` 以明文写入了本地 MetaMask 解锁密码，已随推送进入公开仓库历史；删除文件不清除历史，见 owner 待办。
+- **剩余路径：**① owner：轮换该密码（凡复用之处）并决定是否改写历史（需 force-push master，属 owner 决定）；② Mac：跑 C2 分支 unit 阶段 → 确认上面三项 → 合入；③ **C2 需要新的 CI capsule**——验证器 `ci` 门要求候选的默认 CI acceptance 原件，而 CI 处于暂停（§10.8），须 owner 授权一次 C2 的 CI；④ 按 skill 顺序跑 r33（本人钱包六笔），controls 双模式在 `transfer-c` 前；⑤ 验证器 exit 0 → P3/P4。
 
 ---
 
