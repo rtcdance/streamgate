@@ -55,6 +55,24 @@ exceptions — the gate keeps blocking on real, fixable findings.
 on that very commit (38112149624) reported `golang.org/x/net v0.57.0` as **still vulnerable**, fixed in
 `0.60.0`. The claim was not supported by its own artifact — corrected by this bump.
 
+## Resolved — Go toolchain 1.26.10 → 1.26.11 (2026-11-20)
+
+The Trivy gate (`severity CRITICAL,HIGH`, `exit-code 1`) failed all ten `Scan * (same digest)` jobs of
+CI run 44650216877 on `59ba551`, so no candidate could reach acceptance. Fixed by a patch-level
+toolchain bump; no `.trivyignore` exception.
+
+| CVE | Component | Was | Fixed by |
+|-----|-----------|-----|----------|
+| CVE-2026-97054 | stdlib (net/http `MaxBytesReader`, HTTP/1 servers) | go1.26.10 | Go toolchain 1.26.11 |
+
+Changed together: `go.mod` `toolchain go1.26.11`; `GO_VERSION` in `ci.yml` and `test.yml`; the root
+`Dockerfile` `ARG GO_VERSION`; every `deploy/docker/Dockerfile.*` builder pinned to
+`golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab`;
+`Dockerfile.verify` pinned to
+`golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0`
+with its `go env GOVERSION` self-check. Digests are the multi-arch index digests resolved with
+`docker buildx imagetools inspect` on 2026-11-20.
+
 ## Open — chainpulse alignment divergences (recorded 2026-10-11)
 
 The project was aligned to the sibling `chainpulse` module's Go version and dependency set
@@ -116,7 +134,7 @@ Remaining *non-security* divergences: `fsnotify` (v1.9.0 vs v1.6.0) and
 
 ### 3. `toolchain` directive
 
-`streamgate/go.mod` declares `toolchain go1.26.9`; `chainpulse/go.mod` declares only `go 1.26.0`.
+`streamgate/go.mod` declares a `toolchain go1.26.x` floor (go1.26.11 since 2026-11-20); `chainpulse/go.mod` declares only `go 1.26.0`.
 This is **not** a mismatch — it is the deliberate floor set by the Go 1.26 entry above. Recorded so
 the difference is not later mistaken for drift.
 
