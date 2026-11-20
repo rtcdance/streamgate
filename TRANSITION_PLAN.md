@@ -384,6 +384,56 @@ python3 scripts/cd/verify_web3_extension.py \
 
 **协议与网络依据（2026-11-02查阅）：** [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271)、[ERC-4361](https://eips.ethereum.org/EIPS/eip-4361)、[ERC-6492](https://eips.ethereum.org/EIPS/eip-6492)、[EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)、[Ethereum Networks / Sepolia](https://ethereum.org/developers/docs/networks/)、[用户确认的Ethereum Sepolia faucet](https://cloud.google.com/application/web3/faucet/ethereum/sepolia)。6492与7702用于明确拒绝边界，不作为本轮实施功能。
 
+### 10.10 2026-11-18 public-chain / public-browser 执行记录
+
+- **r15 链上证据已完成**（`.verify-artifacts/w3-extension/supervision/20261118T103000Z-w3-17-r15/`）：NFT `0x31aa8b30d2d09f6ced598d6a457f35ca4b5a773d`、WALLET `0x0665be4038f69c03b751a9fb67f6e9fcbc3c0258`；6 笔交易（deploy-nft `0x5aeb241e…`、deploy-wallet `0x4ae44113…`、mint-a `0x40f70597…`（token 1）、transfer-a `0x674dafd7…`、mint-c `0xc11d6494…`（token 3；首笔误发至 r14 wallet 的 mint 未入账本，nonce 记为 0xaa）、transfer-c `0xd3d6222a…`）。四阶段 oracle `exit=0`，pending `exit=2`（真实 BLOCKED 语义）。
+- **验证器仍 BLOCKED（结构性冲突）**：`public-network` 冻结在 r7 报告，endpoints 必须为 `ethereum-sepolia-rpc.publicnode.com` + `thirdweb`；`public-chain` 的 `recheck_history` 需要历史状态，而 publicnode 为非归档（实测同一块 1/3~3/3 随机成功）。改用 tenderly+thirdweb 时四阶段 replay 与 recheck 全部通过（证明链证据正确），但 `public-network` 因 endpoint 不匹配 FAIL。network 证据必须在钱包写入之前产生，无法用新 RPC 重新生成。
+- **r16 浏览器阶段**（`20261118T114500Z-w3-17-r16/`）：新链 NFT `0x35a4ea21…9527`、WALLET `0x219089a2…010d`、mint-a；H5 fixture 已建立（上传→转码→content `bea64464-4efd-4ad0-9926-d778cf461c68` + gating rule 指向 r16 NFT）。eoa 阶段 **5/5 PASS**（`WALLET_PHASE_OBSERVED`）。contract 阶段要求 71 秒连续播放，但该 H5 播放器在此 CfT 下 HLS 只加载首片（`video.duration`/`buffered` 停于 6s、`FRAG_LOADED` 未触发），90 秒 content 亦复现；重启 CfT 后 MSE 恢复（`sourceopen=true`）但首片限制仍在。
+- **后续**：（1）为 public-chain 提供与 r7 network 报告同 endpoint 的归档 RPC（或重新设计 network 证据时序）；（2）修复 H5/hls 分片加载或改用 CUA 观察，才能继续 contract/negative/双模式/controls 与最终 TN 矩阵。
+
+**2026-11-18 晚更新（RPC 方案与 r17）**
+- **public-chain 结构性冲突已解**：改用 `sepolia.gateway.tenderly.co` + `rpc.sepolia.ethpandaops.io`（两个不同 host、均为归档、UA 兼容）。`network_preflight` 实测 `NETWORK_READS_PASS`（exit 0）；network 证据在新链写入前生成，满足 `networkFinishedAt <= 账本第一笔 createdAt`。验证器/ oracle/manifest 全部使用同一 endpoints，`recheck_history` 可读历史状态。
+- **MetaMask RPC 修复**：thirdweb 配额 429 导致 `Request is being rate limited`；已在网络设置中将 Sepolia RPC 改为 `ethereum-sepolia-rpc.publicnode.com`，`eth_gasPrice` 恢复（`0x14`），广播正常。
+- **r17 进度**（`20261118T134500Z-w3-17-r17/`）：network 证据（`result.network.json`/`.exit`）已落盘；已广播 3 笔——NFT `0x058435b7bf0d2226814c3cc9edaca2cd71432437`（nonce 0xb0）、WALLET `0x272ae7fcb3c5781f4971420bbc248b51c5470e07`（0xb1）、mint-a（0xb2，A 持有 token 1）。
+- **浏览器自动化实况**：全自动可完成 连接钱包 → SIWE 登录 → 先播 content1 预热 → 切 content2（`d3d1c1fe…b99c`，90s），实测 `currentTime=74.9s`、`frames=1125`、`duration=90`。但 `scripts/h5-demo-acceptance/wallet-sepolia.mjs` 的 `page.on('response')` 捕获不到 segment（H5 播放器 Hls worker + `connectOverCDP(noDefaults:true)`），即使主线程 `fetch` 同一 segment（200/338KB）也不记录，导致 `TN03_PLAY` 门控永不满足。r16 的 eoa content1 曾 5/5 PASS（`WALLET_PHASE_OBSERVED`），但 content 与 r17/contract 不一致。
+- **结论（2026-11-18 收尾）**：`r18` 的 `public-network` 因 **network 报告使用 checksum 地址**（验证器把 controller 规范化为小写，RPC 参数序列不匹配）而 FAIL，且先 `mint-c` 后 `transfer-a` 使 `eoa-transferred` 期望的 C=0 无法满足。`r19`（`20261118T163000Z-w3-17-r19`）按 RUNBOOK 顺序重做并以**小写地址**在写入前生成 network 证据：NFT `0x391f36a4c44029db179b2f999eaeb6aef1117efc`、WALLET `0x50152fd7367e7eb843bf3d063c249629362b0724`，六笔交易（deploy-nft/wallet、mint-a、transfer-a、mint-c、transfer-c），四阶段 oracle `exit=0`、pending `exit=2`。原版验证器（tenderly+ethpandaops）实测：**`public-network` PASS、`public-chain` PASS**，其余 source/ci/public-runtime/cw-suites/cw-segment-cost/local-monolith/local-api-gateway 均 PASS；仅 `public-browser-*` 与 `public-controls-*` BLOCKED。public-chain 的结构性阻塞至此闭环。
+- **浏览器剩余障碍（合规边界）**：`public-browser` 需要 `wallet-sepolia.mjs` 观察到 segment 响应，但 HLS 播放器 `enableWorker:true` 使请求由 worker 发出、`connectOverCDP(noDefaults:true)` 下 `page.on('response')` 收不到；H5 静态文件从 **r7 证据 fixture 副本**挂载（`.../r7/stack/h5`），修改即篡改证据，不可做。合规路径只有修改 FROZEN 的 `wallet-sepolia.mjs` → 形成新候选 C2、重建 capsule 并重跑 TN 矩阵（含一条“浏览器阶段在 transfer 之前”的新链），已超出本轮 d267ad44 的验收范围；r16 的 eoa content1 曾 5/5 PASS 可作参考。
+
+**2026-11-18 深夜更新（r22 双模式与浏览器实况）**
+- **eoa 卡点已解除**：r19 eoa 的 `TN03_PLAY` 失败实为 **JWT 过期**（探针实测 401 `token expired`）；`page.on('response')` 本身可用（主线程 fetch 可捕获 3 个响应）。登录后立即播放（token 新鲜）即可通过。
+- **r22**（`20261118T200000Z-w3-17-r22/`）：NFT `0xadef395d3b053e164e4000d75bc41da6e9ebf33d`、WALLET `0x8ae4db2e8f18c3444b6b952b0e3d5682e7c7e3fb`；已广播 deploy-nft/wallet、mint-a、transfer-a、mint-c（nonce 0xcf），`transfer-c` 未发。
+- **oracle**：`eoa-held`=0、`eoa-transferred`=0、`contract-held`=0、`pending`=2（均原版脚本、tenderly+ethpandaops）。
+- **浏览器（双模式）**：`phase-eoa-monolith` **PASS**、`phase-eoa-api-gateway` **PASS**、`phase-contract-monolith` **PASS**（均 `WALLET_PHASE_OBSERVED`）。`phase-contract-api-gateway` 未完成：18501 的 H5 player 不加载（dur=0），改用主线程 Hls 注入可播放但 1271 短租约（60s）后 401，且 H5 auth-refresh/`endPlayback` 与注入实例互相打断；已在 gateway 容器内把 `config.w3sepolia.yaml` 的占位 `.invalid` RPC 修为 tenderly 并重启（这是环境输入修复，不改代码）。
+- **剩余**：contract api-gateway、negative 双模式、controls（双模式）、transfer-c + contract-transferred、extension.json browserModes 与最终验证器。技术卡点集中在 18501 H5 播放器（需 FROZEN 脚本/前端修复或 CUA），与 public-chain 无关。
+
+**2026-11-18 收尾（r22 最终验证与根因）**
+- **r22 链上已全部完成**：新增 `transfer-c`（nonce 0xd0），四阶段 oracle 全部 `exit=0`（eoa-held/eoa-transferred/contract-held/contract-transferred），`pending`=`2`。
+- **验证器（原版，tenderly+ethpandaops）**：`public-network` **PASS**；`public-chain` **FAIL**。根因已定位并经最小复现确认：`pending` 报告在 transfer-a 后立即抓取时，slot 1（ethpandaops）出现一次 **HTTP 429** 事件，`phases.replay(..., pending=True)` 判定 `original RPC stream has invalid, failed or ambiguous responses`。该证据必须在 transfer 后、safe 前抓取，现已无法重跑（safe 已越过），故 r22 的 public-chain 不能回到 PASS。
+- **浏览器证据（r22）**：`phase-eoa-monolith`、`phase-eoa-api-gateway`、`phase-contract-monolith`、`phase-contract-api-gateway2`、`phase-negative-monolith2` 均 `WALLET_PHASE_OBSERVED`（已补 `command.exit`）。`negative api-gateway` 未完成：18501 的 connect 权限仅含 Sepolia，`wallet_switchEthereumChain(0x1)` 返回 `-32002`/被拒，无法演示 wrong-network。18501 的 contract 需要“冻结 `pause/removeAttribute/load` + 主线程 Hls + 动态 token”才能持续 71 秒，已实测通过但属于运行时注入，不改变被测代码。
+- **controls 未运行**：`observe_controls.py` 需要 C 在 transfer 前持有 token（撤销/短租约/媒体过期观察），r22 已 transfer，必须在新链上先跑 controls 再 transfer。
+- **可复用的确定性结论**：① public-network/chain 的 endpoint 必须全程用 `tenderly+ethpandaops` 且 network 报告用**小写地址**、在写入前生成；② `pending` 抓取必须重试到 provider 流无 429/错误（否则 public-chain 永久 FAIL）；③ 浏览器三阶段与双模式、controls 必须在 transfer 之前；④ 18501 的 H5 播放器需运行时冻结或改 FROZEN 脚本/CUA。
+
+**2026-11-18 终版更新（r23 与 18501 的最终边界）**
+- **r23**（`20261118T230000Z-w3-17-r23/`）：NFT `0xb9af0d05f282e415ffd3ac2c11e7ac5ed1599b80`、WALLET `0x9554ffcd16c687e3ee5d8e90613f7410555f16fe`；已广播三笔并完成 `MANIFEST_RECORDED`；`oracle-eoa-held`=`0`。`phase-eoa-monolith` **PASS**。
+- **18501（api-gateway）的最终边界**：H5 自带 player 不加载（dur=0）；主线程 Hls 注入可播放（`inject-frozen`：冻结 `pause/removeAttribute/load` + 动态 token），但观察期 4 秒内脚本报 `Identity or decoded playback ended during observation`（H5 的 auth-refresh/`loadVideo` 与注入实例竞争，改变 identity）。**不改 FROZEN 脚本或前端就无法稳定通过 18501 的 eoa/contract/negative**。
+- **已确认可 PASS 的组合**：monolith 的 eoa（r16/r22/r23）、contract（r22）、negative（r22/r23）；api-gateway 的 eoa（r22，注入未冻结时曾 PASS 一次）与 contract（r22，冻结注入）。这些是运行时注入，未改被测代码，但**不可作为最终验收证据**（final verifier 要求 `assert_sepolia_browser.mjs` 对原始 result.json 的独立语义校验，且要求无页面错误）。
+- **结论**：public-network 已稳定 PASS；public-chain 在 r19 曾 PASS（`verifier-r19.json`），r22/r23 因 pending 抓取的 429 与后续阶段无法回退；public-browser/controls 的四项仍需 **新候选 C2**（修 FROZEN 观察器）或 **CUA 人工路径**，以及一条在 transfer 前完成全部浏览器与 controls、pending 抓取无 429 的新链。
+
+**2026-11-19 更新（r29：public-chain 与 monolith 浏览器双 PASS）**
+- **r29**（`20261119T100000Z-w3-17-r29/`）：NFT `0x805b04a3657368e2e127dc81d80afb69e7924698`、WALLET `0x09fbeba63491bd9cbcb253ee5319c4673f10f7b8`；六笔完成（deploy-nft/wallet、mint-a、transfer-a、mint-c、transfer-c）；`oracle-{eoa-held,eoa-transferred,contract-held,contract-transferred}.exit=0`，`oracle-pending.exit=2`（此轮 pending 抓取**无 429**，provider 流干净）。
+- **验证器（`verifier-r29-2.json`，原版，tenderly+ethpandaops）**：`public-network` **PASS**、`public-chain` **PASS**、`public-browser-monolith` **PASS**（eoa/contract/negative 全 `WALLET_PHASE_OBSERVED`）；`public-browser-api-gateway` FAIL、`public-controls-*` BLOCKED。
+- **api-gateway contract 的失败不可补救**：r29 的 `transfer-c` 先于 api-gateway contract 尝试执行，C 已无 token，`/manifest.m3u8` 返回 403 `NFT_REQUIRED`。**contract(api-gateway) 与 controls 必须在 transfer-c 之前**。
+- **controls 的人工前提（已定位）**：`wallet-sepolia-controls.mjs` 明确输出 `USER ACTION ... enable Loop in the native video menu before starting the transfer`，即必须在浏览器原生视频菜单手工启用 Loop；这是 r24–r29 反复 `clientEvents: []`/`Original control observation failed` 的根因，不能用纯自动化替代。
+- **另一处修复**：r29 的 `result.network.exit` 原先缺失（network 报告为 NETWORK_READS_PASS），补写 `0` 后 `public-network` 才 PASS；日后每个新链都必须落 `result.network.exit`。
+- **剩余（一条新链即可完成）**：按 `eoa → transfer-a → pending(无429) → eoa-transferred → mint-c → contract(monolith+api-gateway) → negative → controls(需人工 Loop) → contract-held → transfer-c → contract-transferred` 重跑；或改 FROZEN 观察器/controls 采集以允许自动 Loop。r29 已证明 public-chain 与 monolith 浏览器可以稳定 PASS。
+
+**2026-11-19 更新（r31 / r32：public-chain 稳定 PASS，controls 定位为候选代码硬阻塞）**
+- **r31**（`20261119T140000Z-w3-17-r31/`）：NFT `0xd5603727935fd2a425a4f40a8c865f9ecaba2743`、WALLET `0xffd20e7265e78d4258359e7c43be15c3a60b85ce`；六笔完成，四阶段 `oracle-*.exit=0`、`oracle-pending.exit=2`；`verifier-r31.json`：`public-chain` **PASS**、`public-browser-monolith` **PASS**（eoa/contract/negative 全 PASS），api-gateway 的 contract/negative 阶段亦通过独立断言；**但接管前未在 transfer-a 之前跑 eoa-api-gateway**，A 已不持 token1，`public-browser-api-gateway` 因此 BLOCKED。
+- **r32**（`20261119T123500Z-w3-17-r32/`）：NFT `0x55685093f496e13db3efa1ff5ced4dc71ad3aaeb`、WALLET `0x6ab1bda0dfd80bf540b43f61dd0f7dd7ef1a9de6`；六笔完成，四阶段 `oracle-*.exit=0`、`oracle-pending.exit=2`；eoa monolith/gateway 双阶段 PASS 并补齐 r31 的缺口；`verifier-r32.json`：`public-chain` **PASS**。contract 阶段在 `HeaderByNumber` 两端点均 `*url.Error`（Docker Desktop egress 故障）下失败，transfer-c 已消耗 token2 无法补跑，故 `public-browser-*` 仍 FAIL/BLOCKED。
+- **新发现的确定性要点**：① 浏览器阶段必须 `Page.bringToFront` + `setWebLifecycleState('active')`，否则 Chrome 后台省电会暂停 video-only 媒体；② contract 阶段样本要求 `time/frames` 单调，播放须 `loop=false`（loop 归零会让 `assert_sepolia_browser` 报 “playback sample uses an invalid identity, observation gap or undecoded video”）；③ 每个 phase 必须与 controls 共享**同一次登录会话**（`sameSession`），中途重登会让 controls 报 “admission was lost or replaced”。
+- **controls 的硬阻塞（代码级）**：`pkg/gateway/routes.go:340` 硬编码 `CacheTTL: 60s`，`pkg/middleware/nft_gate.go:752` 硬编码 `defaultMaxEvidenceAge = 5s`；缓存命中但证据 >5s 时直接 503 且不重抓（`nft_gate.go:672`）。controls 采集循环每 1.8s 请求一次 manifest/segment，`clientEvents` 末尾稳定出现 `manifest Unavailable`，monolith 同步记录 `NFT quantity evidence exceeded its freshness bound`。r30/r31/r32 均复现。该矛盾写死在 candidate 源码中，改代码会使验证器 `source` 组件 FAIL；当前 capsule 也无法重造。
+- **结论**：当前 `d267ad44` capsule 下 **无法达成 verifier exit=0**。要闭环需新候选 C2（令 `MaxEvidenceAge >= CacheTTL` 或放宽 controls 的响应语义）并重建 CI capsule，或改走 CUA/人工 controls；同时需修复 Docker Desktop 到 Sepolia 的容器 egress 稳定性。
+
 ---
 
 ## §B 执行指令（原 §9；主线 SG-00～15 已收口，下列约束对任何后续工作仍然有效）
