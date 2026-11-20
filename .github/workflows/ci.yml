@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      mutex_takeover:
+        description: "Take over a stale acceptance daemon lock (refused while the owning run still has running containers)"
+        type: boolean
+        default: false
   push:
     branches: [master, main]
   pull_request:
@@ -789,6 +794,10 @@ jobs:
       VERIFY_CANDIDATE_PREFIX: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}-candidate
       VERIFY_PROJECT: sg-ci-${{ github.run_id }}-${{ github.run_attempt }}
       VERIFY_PLATFORM: linux/amd64
+      # A SIGKILLed acceptance leaves its daemon lock behind on purpose. Only a
+      # manual dispatch may ask verify-controller.sh to take it over, and the
+      # script still refuses while the owning run has running containers.
+      VERIFY_MUTEX_TAKEOVER: ${{ github.event_name == 'workflow_dispatch' && inputs.mutex_takeover && '1' || '0' }}
       # proxy.golang.org is intermittently unreachable from this network (measured
       # 2026-10-30T15:24Z: i/o timeout on the module zip, while goproxy.cn answered
       # 200). Keep a reachable mirror first and the upstream proxy as the fallback:
