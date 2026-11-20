@@ -467,6 +467,14 @@ python3 scripts/cd/verify_web3_extension.py \
 - **交接文件处置：**`HANDOVER-public-chain.md` / `HANDOVER-public-chain-r23.md` 违反 CLAUDE.md（禁止交接类过程文档、禁止根目录新增文档），已删除；其中可复用的顺序与坑位并入 `skills/sepolia-wallet-round`「Lessons from rounds r14–r32」，状态并入本节。**安全：**前者在 `b429638` 以明文写入了本地 MetaMask 解锁密码，已随推送进入公开仓库历史；删除文件不清除历史。**owner 已于 2026-11-20 轮换该密码**；是否改写历史仍由 owner 决定（需 force-push master）。
 - **剩余路径：**① ~~owner 轮换密码~~（2026-11-20 已完成；历史改写为 owner 可选项）；② Mac：跑 C2 分支 unit 阶段 → 确认上面三项 → 合入；③ **C2 需要新的 CI capsule**——验证器 `ci` 门要求候选的默认 CI acceptance 原件，而 CI 处于暂停（§10.8），须 owner 授权一次 C2 的 CI；④ 按 skill 顺序跑 r33（本人钱包六笔），controls 双模式在 `transfer-c` 前；⑤ 验证器 exit 0 → P3/P4。
 
+
+**2026-11-20 VM 验证与 CI 阻塞（Claude，经 owner 同意改用本机 VMware VM `srs-ubuntu`）**
+
+- **执行环境：**本 Windows 宿主上的 VMware VM `srs-ubuntu`（Ubuntu 22.04，原 linux/amd64，8 vCPU；内存 6→8 GB；新增 D: 上 40 GB 数据盘承载 `/var/lib/containerd`，迁移前后 432,498 项与 11 个镜像一致）。该 VM 与 SRS 项目共用，owner 已确认可继续使用；SRS 的 `abr-local-*` 已退出容器在验证期间由另一会话删除（非 StreamGate 清理所致，后者只按自身 `streamgate-verify-<pid>` 项目清理）。这是非 Mac 的验证环境，结论只作 unit 阶段证据，不替代候选 CI。
+- **C2 unit 阶段 PASS：**`VERIFY_STAGE=unit make verify-docker`（`VERIFY_GOPROXY=https://goproxy.cn,direct`）在 `cb94386` exit 0：7,055 pass / 0 fail / 104 skip，工具链 `go1.26.11`，`TestResolveQuantity_EntryExpiringDuringReorgCheckIsReRead` 与 `..._FreshCachedEntryIsServedWithoutChainRead` 通过，原有 freshness/singleflight 用例通过。过程中两次非代码失败已归因：`goproxy.cn` 连接重置（瞬态，重试一次即过）、VM 磁盘写满（`No space left on device`，加盘后解决）；另修正一处仅 Windows 时钟掩盖的诊断单测（`96c1985`）。
+- **CI 阻塞（与 C2 无关，所有候选共有）：**master 的 CI run 44650216877 十个 `Scan * (same digest)` 全败于 Trivy HIGH `CVE-2026-97054`（Go stdlib `net/http` `MaxBytesReader`，go1.26.10，修复于 1.26.11），验收阶段因此全部跳过。已在 master `5dbca83` 将 Go 升至 1.26.11（15 处钉定，含镜像 index digest，记入 `DEPENDENCY_APPROVAL.md`），并合入 C2 分支；上面的 unit PASS 即在 1.26.11 上取得。镜像扫描结果待 master 推送后的 CI 确认。
+- **下一步：**① 推送 master，确认 CI 扫描转绿；② owner 授权 C2 的 CI（验收 job 路由到 `STREAMGATE_ACCEPTANCE_RUNNER`，需该 runner 在线，或经 owner 调整路由）以产出 C2 capsule；③ r33 本人钱包回合（栈可在 `srs-ubuntu` 运行，H5 经 SSH 端口转发以 `localhost` 打开）；④ 验证器 exit 0 → P3/P4。
+
 ---
 
 ## §B 执行指令（原 §9；主线 SG-00～15 已收口，下列约束对任何后续工作仍然有效）
