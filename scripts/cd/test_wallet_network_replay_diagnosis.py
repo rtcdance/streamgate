@@ -108,7 +108,8 @@ class NetworkReplayDiagnosisTest(unittest.TestCase):
     def test_diagnose_ExtraResponseFailsAtComplete(self):
         report = copy.deepcopy(self.report)
         events = report['providers'][0]['events']
-        extra = dict(events[-1], id=len(events) + 1)
+        last = events[-1]
+        extra = dict(last, id=len(events) + 1, at=last['completedAt'], completedAt=last['completedAt'])
         events.append(extra)
         code, text = self.run_diagnosis(report)
         self.assertEqual(code, 1)

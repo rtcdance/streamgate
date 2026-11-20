@@ -660,23 +660,24 @@ func resolveQuantity(ctx context.Context, config *NFTGateConfig, logger *zap.Log
 
 func resolveQuantityObserved(ctx context.Context, config *NFTGateConfig, logger *zap.Logger, cacheKey string, chainID int64, contract, tokenID, walletAddress string) (*big.Int, *BlockHeaderInfo, time.Time, error) {
 	start := time.Now()
-	// The freshness clock for whatever evidence this request ends up using
-	// starts HERE, before any cache is consulted, so a cache write further down
-	// the stack cannot make the evidence look younger than it is.
-	observedAt := start
 
 	if config.Cache != nil {
 		if entry, ok := config.Cache.Get(ctx, cacheKey); ok && entry.Expires.After(time.Now()) {
-			if quantity, usable := cachedQuantity(config, logger, cacheKey, chainID, entry); usable {
+			// The reorg check inside cachedQuantity can spend up to its RPC
+			// timeout, so an entry that was fresh when checked may expire before
+			// use. Such an entry is not evidence; fall through to a fresh read.
+			if quantity, usable := cachedQuantity(config, logger, cacheKey, chainID, entry); usable &&
+				time.Since(entry.ObservedAt) <= evidenceAgeBound(config) {
 				nftCacheHits.WithLabelValues("l1_l2").Inc()
-				if time.Since(entry.ObservedAt) > evidenceAgeBound(config) {
-					return nil, nil, time.Time{}, fmt.Errorf("NFT quantity evidence exceeded its freshness bound")
-				}
 				return quantity, entryAnchor(entry), entry.ObservedAt, nil
 			}
 		}
 	}
 
+	// The freshness clock for a fresh read starts here, before any chain query,
+	// so the evidence can never look younger than the reads behind it. A
+	// singleflight waiter inherits the leader's clock, not its own.
+	observedAt := time.Now()
 	v, err, _ := nftSF.Do(cacheKey, func() (interface{}, error) {
 		metricChain := nftMetricChainID(chainID)
 		if config.CircuitBreaker != nil && !config.CircuitBreaker.Allow() {
