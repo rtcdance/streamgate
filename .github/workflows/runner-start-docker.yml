@@ -1,0 +1,31 @@
+name: Acceptance Runner Start Docker
+
+# Starts Docker Desktop on the self-hosted macOS acceptance runner after a
+# reboot left it stopped, then waits for the daemon. Manual dispatch only
+# (admins). It does nothing else: no images, containers or settings change.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  start-docker:
+    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Start Docker Desktop and wait for the daemon
+        run: |
+          if docker info >/dev/null 2>&1; then echo "daemon already running"; exit 0; fi
+          [ "$(uname -s)" = Darwin ] || { echo "not a macOS runner; nothing to start"; exit 1; }
+          open -a Docker
+          for i in $(seq 1 60); do
+            if docker info >/dev/null 2>&1; then
+              echo "daemon up after $((i * 5))s"
+              docker info --format 'server={{.ServerVersion}} os={{.OperatingSystem}} cpus={{.NCPU}} mem={{.MemTotal}}'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Docker Desktop did not answer within 5 minutes"
+          exit 1
