@@ -477,6 +477,15 @@ python3 scripts/cd/verify_web3_extension.py \
 - **候选 C2 = master `be038e2`**（`merge: take candidate C2`；相对 `a40a40f` 仅 `pkg/middleware/nft_gate.go`、`nft_gate_freshness_test.go` 与一处诊断单测修正）。owner 于 2026-11-20 授权其 CI：run **44683962855**，Complete Docker Acceptance 于 06:21Z 取得 runner 开始执行。**该 run 结束前不得向 master 推送**（`ci.yml` 同 ref `cancel-in-progress`）。
 - **下一步：**① ~~推送 master，确认 CI 扫描转绿~~（已完成）；② owner 授权 C2 的 CI（验收 job 路由到 `STREAMGATE_ACCEPTANCE_RUNNER`，需该 runner 在线，或经 owner 调整路由）以产出 C2 capsule；③ r33 本人钱包回合（栈可在 `srs-ubuntu` 运行，H5 经 SSH 端口转发以 `localhost` 打开）；④ 验证器 exit 0 → P3/P4。
 
+
+**2026-11-20 r33 就绪检查（`srs-ubuntu`，只读，无链上操作）**
+
+- **C2 CI run 44683962855 attempt 1 失败于环境：**Mac runner `streamgate-mac-01` 在线，但 Docker 上遗留旧 run `sg-ci-43255607450-12` 的验收互斥锁（`streamgate-verify-mutex` 网络），verify-docker 启动即拒绝；非 C2 代码问题。owner 已清锁；`rerun-failed-jobs` 需仓库 admin（`codex689` 403），待 owner 账户发起，同 SHA 续跑。
+- **网络资格（预演，非正式证据）：**`network_preflight.py` 以 Tenderly 公共网关 + ethpandaops、controller A（小写地址）只读预检 exit 0 / `NETWORK_READS_PASS`，A 余额 0.473 Sepolia ETH（门槛 0.024）；`diagnose_network_replay.py` 对该真实报告十步全 PASS（首次真实数据端到端验证）。
+- **容器出站：**VM 内容器访问两条 RPC 各 5/5 成功（对比 r32 Docker Desktop 出站中断）。
+- **H5 访问：**Windows `ssh -L 127.0.0.1:18500:127.0.0.1:18500`（18501 同理）转发经实测可用，浏览器以 `localhost` 打开满足 SIWE loopback 要求；钱包签名在本机浏览器 MetaMask 完成，私钥不进 VM。
+- **证据下载前置：**`rtcdance/streamgate-evidence` 与镜像包为私有 GHCR 包，匿名拉取被拒；`prepare_stack.py` 需要 C2 run 的原始 payload。须 owner 在 VM 内自行 `docker login ghcr.io`（`read:packages`），AI 不经手令牌。
+
 ---
 
 ## §B 执行指令（原 §9；主线 SG-00～15 已收口，下列约束对任何后续工作仍然有效）
