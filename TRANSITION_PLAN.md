@@ -486,6 +486,7 @@ python3 scripts/cd/verify_web3_extension.py \
 - **H5 访问：**Windows `ssh -L 127.0.0.1:18500:127.0.0.1:18500`（18501 同理）转发经实测可用，浏览器以 `localhost` 打开满足 SIWE loopback 要求；钱包签名在本机浏览器 MetaMask 完成，私钥不进 VM。
 - **attempt 2 同签名失败（07:03Z，同一遗留锁）→ 按停止规则不再盲目重跑。**锁位于 runner 实际使用的 Docker daemon 上，owner 清理未作用到该 daemon。改用脚本自带的安全接管：`ci.yml` 新增 `workflow_dispatch` 布尔输入 `mutex_takeover`（默认 false，仅手动派发生效；`verify-controller.sh` 在原 owner 仍有运行中容器时拒绝接管）。因 `ci.yml` 变更，**C2 候选随之改为包含该提交的 master HEAD（产品代码与 `be038e2` 相同）**，以其派发 run 为准。
 - **接管派发 run 44700402574（`4873f4c`）：**`VERIFY_MUTEX_TAKEOVER=1` 生效，越过遗留锁；但「Run the complete candidate DAG」08:46→09:17Z 以 exit 1 失败，其步骤日志未上传到 GitHub，随后证据上传在 09:21Z 被 SIGTERM 终止（09:17Z runner 访问 GitHub 超时 100s，疑 Mac 网络/休眠）。失败原件只在 Mac runner 工作区，**owner 选择不取回、直接重跑**——该次失败的原始日志未保全，根因未知，如实记录为「未归因」。同签名再次失败即停止。
+- **重跑 run 44712056521（`4873f4c`，接管派发）：**未进入 DAG——「Download the original scanned build archives」在 Mac 上 `docker cp … failed: unexpected EOF`（10:02Z），exit 2。**至此 C2 在 Mac runner 上连续四次环境失败**（遗留锁 ×2、无日志的 DAG exit 1 伴随 GitHub 访问超时、Docker Desktop `docker cp` EOF），均未触及 C2 代码。按停止规则停止重跑：**C2 验收未取得，W3 扩展维持 `TESTNET_BLOCKED`**。恢复条件：Mac 的 Docker Desktop 健康（磁盘/VM）且 runner 网络稳定后再派发一次；或 owner 提供满足 `native-linux`（amd64、≥32 GiB、独占 daemon）的验收 runner。`srs-ubuntu`（8 GB）不满足该门，不能替代。
 - **证据下载前置：**`rtcdance/streamgate-evidence` 与镜像包为私有 GHCR 包，匿名拉取被拒；`prepare_stack.py` 需要 C2 run 的原始 payload。须 owner 在 VM 内自行 `docker login ghcr.io`（`read:packages`），AI 不经手令牌。
 
 ---
