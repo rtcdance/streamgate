@@ -81,6 +81,21 @@ jobs:
           echo "=== inode/dev comparison:"
           python3 -c "import os; st=os.stat('$S'); print('host dev,ino:', st.st_dev, st.st_ino)" 2>/dev/null || true
           docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local python3 -c "import os; st=os.stat('$A/source'); print('container dev,ino:', st.st_dev, st.st_ino)" 2>&1 || echo "(no python3 in tools image)"
+      - name: The clone directory contents
+        run: |
+          W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
+          A=$W/.verify-artifacts/ci-all
+          S=$A/source
+          echo "ls -la $S (top):"
+          ls -la "$S" 2>&1 | head -16
+          echo "du -sh $S:"
+          du -sh "$S" 2>&1
+          echo "re-clone attempt into a SIBLING dir:"
+          rm -rf "$A/source-probe"
+          git clone --quiet --no-checkout "$W" "$A/source-probe" 2>&1 | head -4 || true
+          ls -la "$A/source-probe/.git" 2>&1 | head -6
+          echo "container view of source-probe:"
+          docker run --rm --pull never -v "$A/source-probe:$A/source-probe" -w "$A/source-probe" sg-ci-44855804275-1-tools:local bash -c 'ls -la .git 2>&1 | head -6; git status --porcelain 2>&1 | head -3; git rev-parse HEAD 2>&1' || true
       - name: Docker daemon state
         run: |
           docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
