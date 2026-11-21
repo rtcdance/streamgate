@@ -53,9 +53,9 @@ jobs:
           git rev-parse HEAD 2>&1
           echo "reproduce inside the tools image:"
           TOOLS=sg-ci-44855804275-1-tools:local
-          docker run --rm --pull never -v "$S:$S" -v "$A:$A" -w "$S" $TOOLS bash -c 'echo HOME=$HOME; git config --global --add safe.directory "$PWD" 2>&1; git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1'
+          docker run --rm --pull never -v "$S:$S" -v "$A:$A" -w "$S" $TOOLS bash -c 'echo HOME=$HOME; git config --global --add safe.directory "$PWD" 2>&1; git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1' || true
           echo "reproduce WITHOUT the parent mount (only the source mount):"
-          docker run --rm --pull never -v "$S:$S" -w "$S" $TOOLS bash -c 'git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1'
+          docker run --rm --pull never -v "$S:$S" -w "$S" $TOOLS bash -c 'git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1' || true
       - name: Inspect .git from the container side
         run: |
           W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
@@ -80,7 +80,7 @@ jobs:
           docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local bash -c 'echo "-- $A:"; ls -la "$A" | head -12; echo "-- $A/source:"; ls -la "$A/source" 2>&1 | head -20'
           echo "=== inode/dev comparison:"
           python3 -c "import os; st=os.stat('$S'); print('host dev,ino:', st.st_dev, st.st_ino)" 2>/dev/null || true
-          docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local python3 -c "import os; st=os.stat('$A/source'); print('container dev,ino:', st.st_dev, st.st_ino)" 2>/dev/null || echo "(no python3 in tools image)"
+          docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local python3 -c "import os; st=os.stat('$A/source'); print('container dev,ino:', st.st_dev, st.st_ino)" 2>&1 || echo "(no python3 in tools image)"
       - name: Docker daemon state
         run: |
           docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
