@@ -29,6 +29,18 @@ jobs:
             echo "-- last 60 log lines:"
             docker logs --tail 60 "$c" 2>&1 | tail -60 || true
           done
+      - name: Bind-mount visibility probe (the runner _work tree)
+        run: |
+          W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
+          echo "host view of $W:"
+          ls -la "$W" 2>&1 | head -8
+          echo "host .git:"
+          ls -d "$W/.git" 2>&1
+          docker run --rm --pull never -v "$W":/probe alpine:3.20 sh -c 'echo "container view of /probe:"; ls -la /probe | head -10; echo "container .git:"; ls -d /probe/.git 2>&1'
+          echo "nested parent/child probe:"
+          mkdir -p "$W/.verify-artifacts/ci-all/source" 2>/dev/null || true
+          echo marker > "$W/.verify-artifacts/ci-all/source/.probe" 2>/dev/null || true
+          docker run --rm --pull never -v "$W/.verify-artifacts/ci-all/source:/src" -v "$W/.verify-artifacts/ci-all:/ci" alpine:3.20 sh -c 'ls -la /src 2>&1 | head -4; cat /src/.probe 2>&1'
       - name: Docker daemon state
         run: |
           docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
