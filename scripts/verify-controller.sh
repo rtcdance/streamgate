@@ -316,11 +316,21 @@ trap 'exit 143' TERM
 # keep its containers, volumes and networks alive, which is exactly what the
 # plan forbids. `--rm` is dropped for the same reason: the exit code must still
 # be readable from the stopped container, and cleanup removes it by name.
+# A nested bind mount of ROOT_DIR under the VERIFY_ARTIFACTS mount is
+# shadowed by the parent on Docker Desktop 29.9.1 (the container then sees an
+# empty frozen clone and git fails with "not a git repository"). The parent
+# mount already exposes the frozen source at VERIFY_ARTIFACTS/source, so the
+# extra ROOT_DIR mount is only added when it is outside VERIFY_ARTIFACTS.
+controller_mounts=(-v "${socket}:/var/run/docker.sock" -v "${VERIFY_ARTIFACTS}:${VERIFY_ARTIFACTS}")
+case "$ROOT_DIR" in
+  "$VERIFY_ARTIFACTS") ;;
+  "$VERIFY_ARTIFACTS"/*) ;;
+  *) controller_mounts+=(-v "${ROOT_DIR}:${ROOT_DIR}") ;;
+esac
 docker run -d --init --platform "$VERIFY_PLATFORM" --name "$VERIFY_CONTROLLER" \
   --label "com.streamgate.verify.run=${VERIFY_PROJECT}" \
   --label "com.docker.compose.project=${VERIFY_PROJECT}" \
-  -v "${socket}:/var/run/docker.sock" \
-  -v "${ROOT_DIR}:${ROOT_DIR}" -v "${VERIFY_ARTIFACTS}:${VERIFY_ARTIFACTS}" \
+  ${controller_mounts[@]+"${controller_mounts[@]}"} \
   ${controller_cache_args[@]+"${controller_cache_args[@]}"} \
   -w "$ROOT_DIR" "${forward_env[@]}" \
   -e VERIFY_IN_CONTROLLER=1 -e VERIFY_TOOLS_READY=1 \
@@ -329,7 +339,7 @@ docker run -d --init --platform "$VERIFY_PLATFORM" --name "$VERIFY_CONTROLLER" \
 state="" tries=0
 # A failed `docker run` must surface as an error rather than as an endless poll,
 # so its stderr is kept instead of discarded.
-while [ "$tries" -lt 60 ]; do
+while [ "$tries" -lt 180 ]; do
   state="$(docker inspect --format '{{.State.Status}}' "$VERIFY_CONTROLLER" 2>/dev/null)" || state=""
   # Docker exposes the name while still created; logs -f can then exit before
   # start and silently lose the entire run. Wait for an executable/terminal state.
