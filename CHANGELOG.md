@@ -5,6 +5,21 @@ All notable changes to StreamGate are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/rtcdance/streamgate/compare/v1.0.7...v1.1.0) (2026-11-21)
+
+
+### Features
+
+* **wallet-testnet:** bring the Sepolia media fixture tool onto master ([621b198](https://github.com/rtcdance/streamgate/commit/621b1984390d3bf60b01d26896823d8e2446c16b))
+* **wallet-testnet:** localise a public-network gate FAIL offline ([749936e](https://github.com/rtcdance/streamgate/commit/749936e8862c57f62437dff7d7f20a0c6bd4120a))
+
+
+### Bug Fixes
+
+* **ci:** drop the shadowed nested ROOT_DIR mount in frozen mode and widen the controller start poll ([cbd51fe](https://github.com/rtcdance/streamgate/commit/cbd51fea775e7bf9afcc67d8d68f443fcc7439ae))
+* **deps:** raise the Go toolchain to 1.26.11 for CVE-2026-97054 ([5dbca83](https://github.com/rtcdance/streamgate/commit/5dbca83ea0d979395e2a041e4f7ad82ef56a82e8))
+* **middleware:** re-read NFT evidence that expires during its cache check ([9b0f294](https://github.com/rtcdance/streamgate/commit/9b0f294e0ec2cdc59157d9f86a5dd86ff23f60ec))
+
 ## [1.0.6] — 2026-10-11
 
 ### Security
