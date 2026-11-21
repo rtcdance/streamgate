@@ -921,3 +921,8 @@ make verify-docker
 - 6 个 FAIL 的具体机制：transfer 后 NFT balance 变 0，gRPC evidence cache 仍持有旧值（balance=1），需要一次新的 RPC `eth_call balanceOf` 刷新。在 Mac runner 负载 ~10 的环境下，该 RPC 调用超过 5s → 测试的 gRPC 调用被 `DeadlineExceeded`（或旧 cache 仍返回 200）。
 - **这是 Mac 环境性能与产品 5s 门槛的交叉问题**：native Linux（更低负载、无 Rosetta）可能 PASS；Mac 上当前负载大概率持续 FAIL。修复选项：①产品减少 evidence cache 的 freshness 窗口（降低 5s 依赖）；②测试门槛放宽到 10-15s；③提供 native-linux runner。
 - 停止规则：同一失败不盲目重试。owner 决定修复路径。
+
+**2026-11-21 run 44897361278 取消（AI 恢复会话）：**
+- 同一 SHA (cc391582) 的第二次派发（push 触发），Download 步骤运行 2h42m 后被 SIGTERM 取消（evidence_transport.py `Terminated: 15`）。GHCR 证据下载从 Mac 的网络吞吐持续恶化——第一次 run 的 Download 步骤 55 分钟完成，本次 2h42m 仍未完成。
+- Docker Desktop 运行正常（29.9.1），磁盘充足（201Gi 可用），负载 ~10 持续。取消原因待确认（可能是 GitHub Actions 的内部超时或 runner 进程清理）。
+- **结论：GHCR 证据下载是当前 C2 验收的硬瓶颈。** Mac→GHCR 的网络吞吐不足以在合理时间内完成 ~20 个 evidence 镜像的拉取（~2-3 GB 总量，有效吞吐 <200 KB/s）。需要：①修复 Mac→GHCR 的网络路径；②使用更近的 GHCR 代理或镜像；③提供能快速拉取 GHCR 的 acceptance runner。
