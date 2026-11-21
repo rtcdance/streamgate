@@ -915,3 +915,9 @@ make verify-docker
   6. gRPC transfer capability refused within 70s of safe-view — remained accepted
 - **诊断**：这些是 gRPC StreamingService 的策略执法实时性测试。C2 修复的是 HTTP NFT gate freshness（nft_gate.go），gRPC 路径的 evidence 缓存不在该修复范围内。**这是一个真实的产品测试发现，需产品级修复**（gRPC StreamingService 的 authz 缓存 TTL/刷新策略）。recovery/perf/release 阶段因 media 失败未到达。
 - **下一步：**owner 看 gRPC evidence 缓存延迟的修复方案（可能需要 C3），或 owner 确认 5s/70s 门槛在 Mac 环境下的宽松化。
+
+**2026-11-21 gRPC 执法延迟根因分析（AI 恢复会话补充）：**
+- gRPC `GetSegment` 与 HTTP 共享 `PlaybackAuthorizer`（`NewPlaybackAuthorizer(gate, resolver, logger)`），gate 含共享 evidence cache。C2 的 `resolveQuantityObserved` 修复（9b0f294e）理论上覆盖两个入口。
+- 6 个 FAIL 的具体机制：transfer 后 NFT balance 变 0，gRPC evidence cache 仍持有旧值（balance=1），需要一次新的 RPC `eth_call balanceOf` 刷新。在 Mac runner 负载 ~10 的环境下，该 RPC 调用超过 5s → 测试的 gRPC 调用被 `DeadlineExceeded`（或旧 cache 仍返回 200）。
+- **这是 Mac 环境性能与产品 5s 门槛的交叉问题**：native Linux（更低负载、无 Rosetta）可能 PASS；Mac 上当前负载大概率持续 FAIL。修复选项：①产品减少 evidence cache 的 freshness 窗口（降低 5s 依赖）；②测试门槛放宽到 10-15s；③提供 native-linux runner。
+- 停止规则：同一失败不盲目重试。owner 决定修复路径。
