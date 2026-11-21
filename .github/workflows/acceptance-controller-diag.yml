@@ -41,6 +41,21 @@ jobs:
           mkdir -p "$W/.verify-artifacts/ci-all/source" 2>/dev/null || true
           echo marker > "$W/.verify-artifacts/ci-all/source/.probe" 2>/dev/null || true
           docker run --rm --pull never -v "$W/.verify-artifacts/ci-all/source:/src" -v "$W/.verify-artifacts/ci-all:/ci" alpine:3.20 sh -c 'ls -la /src 2>&1 | head -4; cat /src/.probe 2>&1'
+      - name: Reproduce the controller git call
+        run: |
+          W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
+          A=$W/.verify-artifacts/ci-all
+          S=$A/source
+          echo "controller-start.err:"
+          cat "$W/.verify-artifacts/ci-all/controller-start.err" 2>&1 || echo "(absent)"
+          echo "host git status in the frozen clone:"
+          cd "$S" && git status --porcelain --untracked-files=normal 2>&1 | head -6
+          git rev-parse HEAD 2>&1
+          echo "reproduce inside the tools image:"
+          TOOLS=sg-ci-44855804275-1-tools:local
+          docker run --rm --pull never -v "$S:$S" -v "$A:$A" -w "$S" $TOOLS bash -c 'echo HOME=$HOME; git config --global --add safe.directory "$PWD" 2>&1; git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1'
+          echo "reproduce WITHOUT the parent mount (only the source mount):"
+          docker run --rm --pull never -v "$S:$S" -w "$S" $TOOLS bash -c 'git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1'
       - name: Docker daemon state
         run: |
           docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
