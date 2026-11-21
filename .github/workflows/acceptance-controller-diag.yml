@@ -1,0 +1,36 @@
+name: Acceptance Controller Diagnostic
+
+# Read-only post-mortem for a failed verify-docker controller. Manual dispatch
+# only. Inspects the failed run's leftover containers and their logs; changes
+# nothing on the runner.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "CI run id whose controller failed"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ${{ vars.STREAMGATE_ACCEPTANCE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - name: Failed controller containers
+        run: |
+          RUN="${{ inputs.run_id }}"
+          echo "containers for run $RUN:"
+          docker ps -a --filter "name=sg-ci-$RUN" --format '{{.Names}} {{.Status}} {{.Image}}'
+          for c in $(docker ps -aq --filter "name=sg-ci-$RUN"); do
+            echo "== container $c"
+            docker inspect --format 'image={{.Config.Image}} state={{.State.Status}} exit={{.State.ExitCode}} err={{.State.Error}} oom={{.State.OOMKilled}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "$c" || true
+            echo "-- last 60 log lines:"
+            docker logs --tail 60 "$c" 2>&1 | tail -60 || true
+          done
+      - name: Docker daemon state
+        run: |
+          docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
+          docker events --since 4h --until 1s --filter type=container 2>/dev/null | grep -iE "die|kill|oom|start: sg-ci-$RUN" | tail -20 || true
+          uptime
