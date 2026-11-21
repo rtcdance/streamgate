@@ -19,7 +19,7 @@
 | W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；2026-11-18 并入 `sg/w3-09-transport-docs-20261113` 的文档提交（媒体 fixture 配方、r8 决定、`skills/sepolia-wallet-round`）；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
 | **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
 | 证据传输预算 / scan 身份修复 | ⏸️ **随 CI 暂停搁置**：master 已有独立实现（证据拉取按本机架构优先、`no matching manifest` 时按平台回退；scan/smoke 经 `image_identity.py --verify` 按归档绑定）。分支 `sg/w3-09-transport-docs-20261113` 的平行实现（`b92aedc` 固定 `--platform linux/amd64` + `ci.yml` 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`；`7c53907`）2026-11-18 合并时**未采用**，代码以 master 为准；master `ci.yml` 仍无该超时注入（默认 900s）。恢复 CI 前须重新核对，见 §C.3.3 | §C.3.3 |
-| **W3 收尾计划** | 🟡 P0 完成；r31/r32 public-network/public-chain PASS；controls 门禁缺陷已定位并在 `sg/w3-c2-gate-freshness-20261120` 修复（未编译）→ 待 Mac unit 验证、owner 授权 C2 的 CI、r33 本人钱包回合 | §10.10 |
+| **W3 收尾计划** | 🟡 C2 已合入 master（unit PASS、镜像扫描 green）；完整验收因 Mac Docker Desktop 崩溃连续 4 次环境失败，未取得 C2 capsule；r33 需 owner 钱包回合 | §10.10 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
 **审核注记（2026-11-13）：**
@@ -466,6 +466,7 @@ python3 scripts/cd/verify_web3_extension.py \
 - **两项待证实声明的代码复核（2026-11-20，结论：均不构成 C2 阻塞）：**① 转码命名/空表：正常管线从不写 `streams`/`stream_qualities`（`AddStreamQuality` 无调用方），manifest 由 `lookupSegmentIndex` 按已发布 generation 列举对象存储生成，子目录即 quality 键（单档时为 `360p/`，与 manifest 一致）；outbox 仅为转码器自身消费的 DLQ，Sepolia 栈无需 worker/metadata。本地 fullchain 走同一上传→转码→发布路径 77/77，`media_fixture.py` 亦走此公开 API。交接中的手工插表与改目录名应是其手工转码绕行的产物，非产品缺陷；r33 中 `media_fixture.py` 若等不到 ready 会 BLOCKED，届时再定位。② gateway 占位 RPC：api-gateway 与 monolith 同走 `LoadConfig`→`applySepoliaInputs`→`validateSepoliaProfile`（`.invalid` 拒绝启动），1271 校验经同一 `ChainReader.GetClient`；r31 已记录 api-gateway contract 阶段通过。容器内改配置属 r22 现场操作，r33 预检时确认栈配置未被手改即可。
 - **交接文件处置：**`HANDOVER-public-chain.md` / `HANDOVER-public-chain-r23.md` 违反 CLAUDE.md（禁止交接类过程文档、禁止根目录新增文档），已删除；其中可复用的顺序与坑位并入 `skills/sepolia-wallet-round`「Lessons from rounds r14–r32」，状态并入本节。**安全：**前者在 `b429638` 以明文写入了本地 MetaMask 解锁密码，已随推送进入公开仓库历史；删除文件不清除历史。**owner 已于 2026-11-20 轮换该密码**；是否改写历史仍由 owner 决定（需 force-push master）。
 - **剩余路径：**① ~~owner 轮换密码~~（2026-11-20 已完成；历史改写为 owner 可选项）；② Mac：跑 C2 分支 unit 阶段 → 确认上面三项 → 合入；③ **C2 需要新的 CI capsule**——验证器 `ci` 门要求候选的默认 CI acceptance 原件，而 CI 处于暂停（§10.8），须 owner 授权一次 C2 的 CI；④ 按 skill 顺序跑 r33（本人钱包六笔），controls 双模式在 `transfer-c` 前；⑤ 验证器 exit 0 → P3/P4。
+- **public-network 门复诊完成（2026-11-20，Mac 本机，离线重放）**：对 `20261113T085539-w3-09-stack-relaunch/launch-report.network.json/.exit` 运行 `diagnose_network_replay.py`（环境变量用 11-13 当时的 publicnode + thirdweb）：boundary、original-exit、endpoints、window、stream-0/1 全 PASS，`qualify` 抛 `ValueError`。逐字段核对原件后定位根因：原件的 `eth_getCode`/`eth_getBalance` params 使用 **checksum 地址** `0x853599Cc…942A`，而验证器 `deployment_manifest.address()` 强制 `value.lower()`，`OriginalResponses.call` 的 `event['params'] == params` 必然不匹配。**结论：11-13 的 public-network FAIL 是 network 证据用 checksum 地址生成、验证器按小写重放所致，非产品缺陷、无需新候选；生成 network 证据必须用 controller 小写地址（r19 起已执行，r29/r31/r32/r33 均 PASS）。**
 
 
 **2026-11-20 VM 验证与 CI 阻塞（Claude，经 owner 同意改用本机 VMware VM `srs-ubuntu`）**
@@ -902,3 +903,15 @@ make verify-docker
 - **硬规则（不可协商，沿袭自上一轮 §0.3 并持续有效）**：真实失败才算通过，禁止 skip/宽松判据/未执行门冒充完成；安全语义变更须重新绑定候选；生产/testnet/真机/投递不代填。
 
 ---
+
+**2026-11-21 C2 验收 DAG 首次完整执行（AI 恢复会话）：**
+- **verify-controller.sh 嵌套挂载修复**（cbd51fea）：frozen 模式下 ROOT_DIR 是 VERIFY_ARTIFACTS 的子目录，Docker Desktop 29.9.1 的父挂载遮蔽子挂载导致容器内 git 报 "not a git repository"。改为仅在 ROOT_DIR 不在 VERIFY_ARTIFACTS 下时才挂载；启动轮询 60s→180s（Rosetta 下容器创建耗时 87s）。工作流增加 `Acceptance Controller Diagnostic`（只读事后诊断）。
+- **run 44866963294（cbd51fea，mutex_takeover=true）**：GHCR 证据下载耗时 ~3.5h（Mac→GHCR 慢链路）后 DAG **首次完整执行**——unit/chain/durability/ops/faults 全 PASS，acceptance 进入 **media 阶段**：81 项检查 75 PASS / 6 FAIL。6 个 FAIL 均为 gRPC 执法延迟类：
+  1. gRPC independently denies within 5s — DeadlineExceeded
+  2. gRPC did not enforce changed threshold within 5 seconds
+  3. CW10_LIVE_POLICY_BASELINE — capability/access 剩余寿命 <50s
+  4. Contract-wallet browser component contract failed（由 3 连锁）
+  5. gRPC capability revoked after logout within 5s — remained accepted
+  6. gRPC transfer capability refused within 70s of safe-view — remained accepted
+- **诊断**：这些是 gRPC StreamingService 的策略执法实时性测试。C2 修复的是 HTTP NFT gate freshness（nft_gate.go），gRPC 路径的 evidence 缓存不在该修复范围内。**这是一个真实的产品测试发现，需产品级修复**（gRPC StreamingService 的 authz 缓存 TTL/刷新策略）。recovery/perf/release 阶段因 media 失败未到达。
+- **下一步：**owner 看 gRPC evidence 缓存延迟的修复方案（可能需要 C3），或 owner 确认 5s/70s 门槛在 Mac 环境下的宽松化。
