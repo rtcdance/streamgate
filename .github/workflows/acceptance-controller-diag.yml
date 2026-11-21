@@ -58,9 +58,12 @@ jobs:
           docker run --rm --pull never -v "$S:$S" -w "$S" $TOOLS bash -c 'git status --porcelain --untracked-files=normal 2>&1 | head -4; git rev-parse HEAD 2>&1' || true
       - name: Inspect .git from the container side
         run: |
+          set +e
           W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
           S=$W/.verify-artifacts/ci-all/source
           TOOLS=sg-ci-44855804275-1-tools:local
+          echo "host: ls -la $S (the clone dir itself):"
+          ls -la "$S" 2>&1 | head -20
           echo "host: ls $S/.git:"
           ls -la "$S/.git" 2>&1 | head -14
           echo "host: file type of $S/.git:"
