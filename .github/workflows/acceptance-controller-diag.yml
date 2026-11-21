@@ -67,6 +67,20 @@ jobs:
           stat -f "%HT %p" "$S/.git" 2>&1
           echo "container: ls $S/.git:"
           docker run --rm --pull never -v "$S:$S" -w "$S" $TOOLS bash -c 'ls -la .git 2>&1 | head -14; echo "stat .git:"; stat .git 2>&1 | head -3; echo "mount table for cwd:"; df -P . 2>&1 | head -3; echo "mounts containing source:"; cat /proc/mounts | grep -E "verify-artifacts|source" | head -5'
+      - name: Full visibility comparison
+        run: |
+          W=/Users/mingo/actions-runner-streamgate/_work/streamgate/streamgate
+          A=$W/.verify-artifacts/ci-all
+          S=$A/source
+          echo "=== HOST ls -la of $S (full):"
+          ls -la "$S" 2>&1 | head -20
+          echo "=== HOST ls of $A (parent):"
+          ls -la "$A" 2>&1 | head -10
+          echo "=== CONTAINER ls of the SAME path (parent mount only):"
+          docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local bash -c 'echo "-- $A:"; ls -la "$A" | head -12; echo "-- $A/source:"; ls -la "$A/source" 2>&1 | head -20'
+          echo "=== inode/dev comparison:"
+          python3 -c "import os; st=os.stat('$S'); print('host dev,ino:', st.st_dev, st.st_ino)" 2>/dev/null || true
+          docker run --rm --pull never -v "$A:$A" sg-ci-44855804275-1-tools:local python3 -c "import os; st=os.stat('$A/source'); print('container dev,ino:', st.st_dev, st.st_ino)" 2>/dev/null || echo "(no python3 in tools image)"
       - name: Docker daemon state
         run: |
           docker info --format 'server={{.ServerVersion}} up={{.NCPU}}cpus mem={{.MemTotal}}' || true
