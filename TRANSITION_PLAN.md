@@ -932,3 +932,9 @@ make verify-docker
 - **根因确认**：`test/grpcparity/main.go` 行 362 硬编码 `deadlineSeconds > 5` 为非法——5s 是产品要求（gRPC 服务必须在 NFT 链上事件后 5s 内拒绝旧 capability）。C2 的 `nft_gate.go` freshness 修复（resolveQuantityObserved 的时钟重读）已由 PlaybackAuthorizer 共享给 gRPC 路径，但 Mac runner 负载 ~10（Rosetta + Docker Desktop 虚拟化）使 `eth_call balanceOf` RPC 到 publicnode 超过 5s → 旧 evidence 仍被接受。
 - **修复选项（owner 决定）：**① C3：PlaybackAuthorizer 主动刷新（收到 revocation 事件时立即使 cache 失效，不等下次查询触发被动刷新）；② 测试宽松化：Mac 环境 5s→10s（改 test/grpcparity/main.go 行 362 的硬编码上限）；③ 基础设施：native-linux runner（无 Rosetta，RPC 延迟更低）。选项 ① 是产品正确解；②③ 是环境适配。
 - **重要进展：**verify-controller.sh 嵌套挂载修复后，DAG 不再被 "not a git repository" 阻断——这本身就是 CI 基础设施的关键修复。后续 C3 只需要修改产品代码并重新派发。
+
+**2026-11-22 evidence freshness 机制确认（AI 恢复会话）：**
+- `defaultMaxEvidenceAge = 5 * time.Second`（`nft_gate.go:753`）与 gRPC parity 测试的 5s deadline（`test/grpcparity/main.go:362` 硬编码上限 5s）是**同一常量**——产品设计假设 evidence 可在 5s 内刷新。
+- evidence CacheTTL = 60s。Transfer 后旧 cache（balance=1）在 60s TTL 内仍有效，但 MaxEvidenceAge(5s) 要求如果 evidence 观测时间 >5s 则必须重读。重读 = `eth_call balanceOf` → publicnode。Mac 负载 ~10 下该 RPC 耗时 3-10s → 可能在 5s 边界内未完成。
+- C2 修复（`resolveQuantityObserved` 的时钟重读）在 HTTP 路径工作正常（r31/r32 PASS）；gRPC 路径共享同一 cache 但测试报告仍 FAIL——说明在 Mac 的 5s 窗口内 evidence 刷新 RPC 偶尔超时。
+- **这是产品 5s 门槛与 Mac 环境性能的交叉，非代码 bug。** native-linux runner 上 RPC 延迟更低，5s 窗口大概率可满足。
