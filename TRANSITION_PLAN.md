@@ -926,3 +926,9 @@ make verify-docker
 - 同一 SHA (cc391582) 的第二次派发（push 触发），Download 步骤运行 2h42m 后被 SIGTERM 取消（evidence_transport.py `Terminated: 15`）。GHCR 证据下载从 Mac 的网络吞吐持续恶化——第一次 run 的 Download 步骤 55 分钟完成，本次 2h42m 仍未完成。
 - Docker Desktop 运行正常（29.9.1），磁盘充足（201Gi 可用），负载 ~10 持续。取消原因待确认（可能是 GitHub Actions 的内部超时或 runner 进程清理）。
 - **结论：GHCR 证据下载是当前 C2 验收的硬瓶颈。** Mac→GHCR 的网络吞吐不足以在合理时间内完成 ~20 个 evidence 镜像的拉取（~2-3 GB 总量，有效吞吐 <200 KB/s）。需要：①修复 Mac→GHCR 的网络路径；②使用更近的 GHCR 代理或镜像；③提供能快速拉取 GHCR 的 acceptance runner。
+
+**2026-11-21 run 44913426835 确认 gRPC 执法延迟为可复现的系统性问题（AI 恢复会话）：**
+- Download 步骤成功（~2h），DAG 跑到 media：76 PASS / 5 FAIL（比 run 44866963294 少 1 个 FAIL）。5 个 FAIL 与前次完全一致——gRPC StreamingService 的 5s 执法延迟。
+- **根因确认**：`test/grpcparity/main.go` 行 362 硬编码 `deadlineSeconds > 5` 为非法——5s 是产品要求（gRPC 服务必须在 NFT 链上事件后 5s 内拒绝旧 capability）。C2 的 `nft_gate.go` freshness 修复（resolveQuantityObserved 的时钟重读）已由 PlaybackAuthorizer 共享给 gRPC 路径，但 Mac runner 负载 ~10（Rosetta + Docker Desktop 虚拟化）使 `eth_call balanceOf` RPC 到 publicnode 超过 5s → 旧 evidence 仍被接受。
+- **修复选项（owner 决定）：**① C3：PlaybackAuthorizer 主动刷新（收到 revocation 事件时立即使 cache 失效，不等下次查询触发被动刷新）；② 测试宽松化：Mac 环境 5s→10s（改 test/grpcparity/main.go 行 362 的硬编码上限）；③ 基础设施：native-linux runner（无 Rosetta，RPC 延迟更低）。选项 ① 是产品正确解；②③ 是环境适配。
+- **重要进展：**verify-controller.sh 嵌套挂载修复后，DAG 不再被 "not a git repository" 阻断——这本身就是 CI 基础设施的关键修复。后续 C3 只需要修改产品代码并重新派发。
