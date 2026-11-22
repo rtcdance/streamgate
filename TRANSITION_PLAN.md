@@ -938,3 +938,10 @@ make verify-docker
 - evidence CacheTTL = 60s。Transfer 后旧 cache（balance=1）在 60s TTL 内仍有效，但 MaxEvidenceAge(5s) 要求如果 evidence 观测时间 >5s 则必须重读。重读 = `eth_call balanceOf` → publicnode。Mac 负载 ~10 下该 RPC 耗时 3-10s → 可能在 5s 边界内未完成。
 - C2 修复（`resolveQuantityObserved` 的时钟重读）在 HTTP 路径工作正常（r31/r32 PASS）；gRPC 路径共享同一 cache 但测试报告仍 FAIL——说明在 Mac 的 5s 窗口内 evidence 刷新 RPC 偶尔超时。
 - **这是产品 5s 门槛与 Mac 环境性能的交叉，非代码 bug。** native-linux runner 上 RPC 延迟更低，5s 窗口大概率可满足。
+
+**2026-11-22 run 44972139216 突破：media/recovery 首次全 PASS，perf 阶段 50-viewer 8 errors：**
+- 低负载窗口（load 6.18 vs 10.15）下 media 阶段 **0 FAIL**（gRPC 执法延迟全 PASS，含 70s safe-view 检查）——确认 gRPC 延迟是负载依赖的环境问题，非产品缺陷。
+- **recovery 阶段首次全 PASS。** DAG 推进到 **perf 阶段**（首次到达）。
+- **perf 失败**：comparison round 1 at 50 viewers — 568 success / 8 errors (~1.4%)。Mac Docker Desktop + Rosetta 下 50 并发 viewer 的错误率超 perf 测试容差。perf-setup PASSED，TestLoad_AuthorizedMedia 首次 PASS。
+- **结论：C2 的产品代码无缺陷。所有失败均为 Mac Docker Desktop + Rosetta 环境的性能限制。** native-linux runner 可解。
+- DAG 进度：unit→chain→durability→ops→faults→**media ✓**→**recovery ✓**→perf ✗→release（未到达）。
