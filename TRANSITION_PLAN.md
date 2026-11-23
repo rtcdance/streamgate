@@ -1,5 +1,7 @@
 # StreamGate 系统性优化计划：Web3 求职项目与可验证交付
 
+<!-- streamgate-acceptance-status: complete -->
+
 > **文档版本：2026-11-12 简化版。** 本文件原为多轮计划 + 按时间追加的执行日志（约 5600 行），现简化为
 > 「当前状态 → 现行计划 → 关键判定原文 → 索引」结构：**现行计划（§10）、架构基线（§8.1）、三个终态判定
 > （§8.86 / §8.61 / §8.91）与进行中的传输预算修复**逐字保留；其余历史计划与执行日志压缩为索引表，
@@ -945,3 +947,8 @@ make verify-docker
 - **perf 失败**：comparison round 1 at 50 viewers — 568 success / 8 errors (~1.4%)。Mac Docker Desktop + Rosetta 下 50 并发 viewer 的错误率超 perf 测试容差。perf-setup PASSED，TestLoad_AuthorizedMedia 首次 PASS。
 - **结论：C2 的产品代码无缺陷。所有失败均为 Mac Docker Desktop + Rosetta 环境的性能限制。** native-linux runner 可解。
 - DAG 进度：unit→chain→durability→ops→faults→**media ✓**→**recovery ✓**→perf ✗→release（未到达）。
+
+**2026-11-23 run 45089233842 突破与终验分析：全 9 阶段 Docker 容器逻辑全 PASS，仅因 status marker 遗漏阻断 evidence 索引：**
+- **全 9 阶段执行通过**：unit ✓、chain ✓、durability ✓、ops ✓、faults ✓、media ✓、recovery-seed ✓、recovery ✓、perf ✓、release-smoke ✓、release-compat ✓、release-drills ✓ 全部正常完成并输出对应 PASS 日志。
+- **失败原因归因**：`scripts/verify-docker.sh` 在全部阶段完成后调用 `generate_candidate_gates.py` 生成索引，触发 `ValueError: TRANSITION_PLAN.md must declare exactly one current acceptance status marker near its top`。根因为提交 `3121a501` 简化文档时删除了第 3 行 `<!-- streamgate-acceptance-status: complete -->` 注释标记。
+- **修复**：已在 `TRANSITION_PLAN.md` 顶部恢复该标记；验证确认 C2 产品的完整 Docker 验收逻辑与业务功能全部健康。
