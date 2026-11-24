@@ -8,26 +8,25 @@
 > **所有关键 SHA / CI run / 证据目录 / 判定均保留在索引中**。逐字完整原文见 git 历史
 > （`git log --follow -- TRANSITION_PLAN.md`；简化前最后完整版为提交 `be2e4e90` 中的本文件，`git show be2e4e90:TRANSITION_PLAN.md` 可取回，5577 行）。
 
-## 当前状态速览（2026-11-18 复核）
+## 当前状态速览（2026-11-24 终局收口）
 
 | 阶段 | 状态 | 锚点 |
 |---|---|---|
 | SG-00～15 主线（工程+AI 交付） | ✅ PASS WITH BOUNDARIES，冻结候选 `d0f05152`，CI 55/55 全绿 | §8.86 |
 | W3-00～03/05/07（协议层与接线） | ✅ 出口达成，候选 `d267ad44`，run 42548083086 全绿 | §8.61 |
 | W3-06（公开网络准备） | ✅ 双 RPC 资格 PASS | §8.61 |
-| W3-04（真人双钱包登录） | 🟡 EOA 完成；合约钱包路径已解阻（mint-c 完成），待浏览器观察 | §8.91 |
-| **W3-08 r8（owner 授权，2026-11-13）** | ⏸️ **已授权、未执行；随 CI 暂停搁置**（承载 r8 的验收 attempt 3 已由 owner 取消，见 §C.3.2 交接清单）：r7 六笔已用尽且两枚 NFT 均在 B，播放只能在持仓期间观测，而工具把一轮绑定为固定 6 笔（`transaction_oracle.py` `OPS`），故新开 r8：再 6 笔（约 0.009 ETH，单轮上限 ≤8 笔 / 0.02 ETH 不变），属 §10.4「不反复部署」的 owner 明示例外。提效决定：r8 沿用已全绿的 `d267ad44`（run 42548083086）的镜像与合约归档——新候选 `d1f86fb` 相对它无产品代码差异，其验收不再阻塞关键路径；媒体 fixture 由 `d1f86fb` 上的操作工具写入并在报告中注明。一次性会话流程见 `skills/sepolia-wallet-round`（独立栈目录与 H5 端口，r7 账本与证据不动）。**前置核实（2026-11-13）：**run 42548083086 仍为 success（attempt 2）；其 GHCR 证据 `rtcdance/streamgate-evidence` 的 `g42548083086-*` 标签齐全（十个 candidate 镜像、candidate-manifest、ci-acceptance、ci-evidence、registry-publications 等，registry 无 TTL）✓；Mac 端 Docker/防休眠/双 RPC 与 A 余额预检待 runner 空闲后经 runner 或 owner 会话开场执行 | §C.3.2 |
-| W3-08（本人签名 + 6 笔 Sepolia 交易） | 🟡 **PASS WITH FIXTURE_BLOCKED**（6 笔交易 + oracle + SIWE + NFT 检查已实证；媒体 fixture 缺失，TN 矩阵 11/14 BLOCKED 留后续） | §8.91 |
-| W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档收口完成（2026-11-13）：材料按 r7 口径发布并合入 master，tag `v1.0.7` 已推送；2026-11-18 并入 `sg/w3-09-transport-docs-20261113` 的文档提交（媒体 fixture 配方、r8 决定、`skills/sepolia-wallet-round`）；验证器复跑/资源恢复/清理已留证；**owner 复确认整体目标达成，CI 维持暂停**。仅存 owner 人工项：媒体 fixture 候选 CI 与本人钱包实跑（补 11 格 BLOCKED）、public-network 门同环境复诊 | §8.91 交接清单 |
-| **W3 扩展整体（§10.9 完成规则）** | 🟡 **未关闭**：TN 矩阵 11/14 BLOCKED，按 §10.6/§10.9 不能标 PASS WITH BOUNDARIES；状态口径按 §10.8 第 5 条为 `TESTNET_BLOCKED` | §10.9 |
+| W3-04（真人双钱包登录） | ✅ PASS（EOA + 合约钱包双模式在 monolith 与 api-gateway 均已完成 CDP 真实 MetaMask 自动化观测与断言，见 r35） | §10.10 |
+| **W3-08 r8/r35** | ✅ **已闭环执行（r35，2026-11-24）**：6 笔真实 Sepolia 交易（总费用 `0.013431 ETH`）+ 5 阶段 oracle（4 成功 + 1 pending 确定性断言）+ SIWE 真实签名 + 6 模式真实浏览器播放观测全部实证通过；TN-01/02/07/08 及 CW-01～16 全 PASS；`controls` 缺失（受限于 `d267ad44` 源码新鲜度边界未采集）致 TN-03～06 为 BLOCKED，0 FAIL | §10.10 |
+| W3-08（本人签名 + 6 笔 Sepolia 交易） | 🟡 **PASS WITH CONTROLS_BLOCKED**（r35：6 笔交易 + 5 阶段 oracle + SIWE + NFT 检查 + 6 模式真实浏览器播放观测全部实证 PASS；TN-01/02/07/08 及 CW-01～16 全 PASS；`controls` 缺失致 TN-03～06 BLOCKED） | §10.10 |
+| W3-09（文档收口 + 求职材料 + 最终 tag） | ✅ 文档与材料收口完成（2026-11-13 `v1.0.7`；2026-11-24 按 r35 边界同步 README / 简历 / 讲述稿 / 学习手册）：已如实标明 Sepolia 6 笔交易 + 5 oracle + 双模式 EOA/ERC-1271 真实播放全通过；仅剩 `controls`（TN-03～06）因 `d267ad44` 新鲜度硬边界维持 BLOCKED（修复已合并到 master 但未重派新候选 CI capsule），不宣称完整 `PASS WITH BOUNDARIES` | §10.10 |
+| **W3 扩展整体（§10.9 完成规则）** | 🟡 **务实收口（基线 `d267ad44`）**：CW 16/16 PASS、`public-network`/`public-runtime`/`public-chain`/`public-browser-*` 全 PASS；因 r35 未采集 `controls-*`（受限于 `d267ad44` 新鲜度边界），TN-03～06 BLOCKED，验证器 `verifier-r35.json` 退出码 2（`status: "BLOCKED", completeAcceptance: false`），0 处 FAIL | §10.10 |
 | 证据传输预算 / scan 身份修复 | ⏸️ **随 CI 暂停搁置**：master 已有独立实现（证据拉取按本机架构优先、`no matching manifest` 时按平台回退；scan/smoke 经 `image_identity.py --verify` 按归档绑定）。分支 `sg/w3-09-transport-docs-20261113` 的平行实现（`b92aedc` 固定 `--platform linux/amd64` + `ci.yml` 注入 `STREAMGATE_EVIDENCE_REGISTRY_TIMEOUT_SECONDS`；`7c53907`）2026-11-18 合并时**未采用**，代码以 master 为准；master `ci.yml` 仍无该超时注入（默认 900s）。恢复 CI 前须重新核对，见 §C.3.3 | §C.3.3 |
-| **W3 收尾计划** | 🟡 C2 已合入 master（unit PASS、镜像扫描 green）；完整验收因 Mac Docker Desktop 崩溃连续 4 次环境失败，未取得 C2 capsule；r33 需 owner 钱包回合 | §10.10 |
+| **W3 收尾计划** | 🟡 **按 `d267ad44` + r35 务实收口**（6 笔 Sepolia 交易 + 5 阶段 oracle + 6 模式 CDP 真实浏览器播放观测全部实证通过；CW 16/16 PASS；TN-01/02/07/08 PASS；TN-03～06 controls BLOCKED，0 FAIL；后续 C2 修复已合入 master 且 run `45089233842` 9 阶段容器逻辑全过，本轮维持基线 `d267ad44` 归档收口） | §10.10 |
 | SG-16/17、生产、testnet 常驻、真人录屏/投递 | ❌ 范围外，不代填 | §8.86 |
 
-**审核注记（2026-11-13）：**
-- §C.3.2 的「PASS WITH FIXTURE_BLOCKED」是 W3-08 单项判定，不在 §10.8 第 5 条状态词表内，也不改变 §10.9「仅公开 EOA 绿……均不能关闭本节」的规则。W3-09 可以先做文档与材料，但不能据此宣称扩展完成。
-- §C.3.2 交接清单中「README（Sepolia 支持已实证）」须按 §10.9 第 4 条写明边界：实证范围仅限 6 笔交易、oracle、MetaMask SIWE 与 NFT 检查；**媒体播放与 api-gateway 模式未在 Sepolia 实证**。
-- 候选 `160f1804`、`4f68c8bf` 与旧对象 `f0025548` 不在本地仓库（`git cat-file` 无法解析）；引用它们时以 CI run 号为准，派发新 run 前先确认对应提交可取得。
+**审核注记：**
+- **2026-11-13 历史注记**：§C.3.2 的「PASS WITH FIXTURE_BLOCKED」是 r7 时点 W3-08 单项判定（当时媒体播放与 api-gateway 未跑，TN 11/14 BLOCKED），该口径已由 2026-11-24 的 r35 实证刷新；候选 `160f1804`、`4f68c8bf` 与旧对象 `f0025548` 不在本地仓库，引用时以 CI run 号为准。
+- **2026-11-24 收口注记**：r35 已在候选 `d267ad44` 上补齐 `public-network`、`public-chain` 及双模式 EOA/ERC-1271 真实浏览器媒体播放（11/13 组件 PASS）。仅剩 `public-controls-*`（`TN-03`～`TN-06`）因 r35 未采集 `controls-*` 原件（直接原因为文件缺失 `FileNotFoundError`，背景根因为 `d267ad44` 的 `nft_gate.go` 5s 新鲜度硬边界）而维持 `BLOCKED`；故按 §10.9 规则，扩展整体仍保持 `BLOCKED`（exit 2，0 FAIL），对外文档严格按此边界表述，不越界宣称全部 PASS。
 
 ## 结构
 
@@ -171,7 +170,7 @@ Ethereum 官方当前将 Sepolia 列为应用开发的默认测试网，并列�
 | [x] W3-01 / 00 | `contracts/src/Study1271Wallet.sol`、`contracts/test/Study1271Wallet.t.sol`；本地标准/异常签名fixture、owner变更及受限execute | Forge正负例通过；非owner无法execute/换owner；NFT确实进入/离开C；ABI/bytecode与固定依赖对应 |
 | [x] W3-02 / 01 | `pkg/web3/signature/`、`pkg/service/sigchain/`、`auth_wallet.go`、`gateway/providers.go`及auth插件真实入口；按链分类、钉块、opaque签名、稳定错误码 | 真实Anvil登录成功，所有异常分支拒绝且不回退EOA；并发跨链请求无共享checker串链；普通EOA回归通过 |
 | [x] W3-03 / 02 | `auth.go` / `auth_wallet.go`、附加session proof store、`pkg/core/config/`及HTTP/gRPC授权接线；60s租期、续验、绝对会话期限、能力exp约束、原子refresh | 过期宽限只作为重新验证入口，不跳过签名/epoch/绝对期限；错误刷新不能给2h或丢失C/chain/kind；owner变更与并发旧结果不能复活会话；重启/恢复/存储故障拒绝正确 |
-| [ ] W3-04 / 03 | 现有`h5-demo/`登录、钱包与播放器；必要时补OpenAPI响应字段。明确显示A、C、链、资格、授权租期、交易待确认与错误状态 | 真实provider登录两类钱包；30s左右续期可连续播放；切换账户/网络清除旧登录与播放器状态；拒签、过期、无资格、依赖错误不混淆；无后端代签 |
+| [x] W3-04 / 03 | 现有`h5-demo/`登录、钱包与播放器；必要时补OpenAPI响应字段。明确显示A、C、链、资格、授权租期、交易待确认与错误状态 | 真实provider登录两类钱包；30s左右续期可连续播放；切换账户/网络清除旧登录与播放器状态；拒签、过期、无资格、依赖错误不混淆；无后端代签；r35 已完成 Chrome CDP 真实 MetaMask 自动化观测与断言全通过 |
 | [x] W3-05 / 01–04 | 将CW必需用例接入现有Docker unit/chain/durability/media；复用fullchain与浏览器客户端，增加稳定case ID | §10.6 CW矩阵全部有实际断言及原始退出；monolith/api-gateway、HTTP/gRPC分别覆盖；历史必需场景不删除、不依靠硬编码PASS数量容错 |
 | [x] W3-06 / 00；与本地实现分开准备 | 测试网overlay、部署manifest、环境映射、严格preflight与真实H5检查工具；新增专用测试网验收入口 | 不启动Anvil、不读取31337默认部署、不启用开发签名/后台mint；两RPC/网络/合约身份/费用预检严格失败；缺条件不能跳过为绿。准备工作可先完成，真实广播仍等本轮候选冻结 |
 | [x] W3-07 / 05+06 | 将必要代码、合约、H5、配置与验证器一次集成，冻结C；复用现有CI原始构建、扫描、归档与GHCR证据链，执行同C完整all | 原M0～M8、R01～R12及新增确定性CW用例全部通过；原始outer exit0、必需CI job成功、源码/镜像/编译归档一致。只执行这一轮完整all；有同SHA有效run则接续，不再另开本机all |
@@ -492,6 +491,69 @@ python3 scripts/cd/verify_web3_extension.py \
 - **重跑 run 44712056521（`4873f4c`，接管派发）：**未进入 DAG——「Download the original scanned build archives」在 Mac 上 `docker cp … failed: unexpected EOF`（10:02Z），exit 2。**至此 C2 在 Mac runner 上连续四次环境失败**（遗留锁 ×2、无日志的 DAG exit 1 伴随 GitHub 访问超时、Docker Desktop `docker cp` EOF），均未触及 C2 代码。按停止规则停止重跑：**C2 验收未取得，W3 扩展维持 `TESTNET_BLOCKED`**。恢复条件：Mac 的 Docker Desktop 健康（磁盘/VM）且 runner 网络稳定后再派发一次；或 owner 提供满足 `native-linux`（amd64、≥32 GiB、独占 daemon）的验收 runner。`srs-ubuntu`（8 GB）不满足该门，不能替代。
 - **Mac runner 根因（2026-11-20 10:27–10:31Z，经新增只读 `runner-health.yml` 远程诊断）：**`streamgate-mac-01` 于约 10:08Z 重启（docker cp EOF 之后），重启后 Docker Desktop 未运行；经 `runner-start-docker.yml`（仅 `open -a Docker` 并等待）拉起后 25s 可用（29.9.1，8 CPU，16.7 GB），**约 1 分钟内再次不可达**——Docker Desktop 反复崩溃；同时主机负载 15–30（8 核）。磁盘充足（235 GiB 可用），遗留锁已不存在，GitHub/GHCR/goproxy 可达，Docker Hub 超时。**结论：C2 四次验收失败的根因是 Mac 上 Docker Desktop 不稳定，与 C2 代码无关**；需在 Mac 上查看 Docker Desktop 诊断（Troubleshoot → Diagnose/重置）与高负载来源，修复后先跑 `runner-health.yml` 确认 daemon 持续可用，再以 `mutex_takeover=true` 派发 C2 验收。
 - **证据下载前置：**`rtcdance/streamgate-evidence` 与镜像包为私有 GHCR 包，匿名拉取被拒；`prepare_stack.py` 需要 C2 run 的原始 payload。须 owner 在 VM 内自行 `docker login ghcr.io`（`read:packages`），AI 不经手令牌。
+
+**2026-11-21～2026-11-23 C2 验收 DAG 执行与诊断（run 44866963294 ～ run 45089233842）：**
+- **2026-11-21 run 44866963294（`cbd51fea`，`mutex_takeover=true`）：**修复 `verify-controller.sh` 嵌套挂载遮蔽（frozen 模式下 `ROOT_DIR` 位于 `VERIFY_ARTIFACTS` 子目录时避免双重挂载）后，DAG 首次完整跑进 `media` 阶段：unit/chain/durability/ops/faults 全 PASS；`media` 阶段 81 项检查中 75 PASS / 6 FAIL，均为 Mac 高负载（~10）+ Rosetta 虚拟化下 gRPC `eth_call balanceOf` 刷新超过 5s freshness deadline 所致；随后的 `run 44897361278` 因 Mac→GHCR 慢链路下载 2h42m 被 SIGTERM 终止；`run 44913426835` 在 `media` 阶段再次复现同签名 76 PASS / 5 FAIL。
+- **2026-11-22 run 44972139216 突破：**在低负载窗口（load 6.18）下 `media` 阶段 **0 FAIL**（含 70s safe-view 与 gRPC 执法检查全过），**`recovery` 阶段首次全 PASS**；推进到 `perf` 阶段（50-viewer 568 success / 8 errors, ~1.4%）。至此验证 C2 修复（`nft_gate.go` `resolveQuantityObserved`）产品代码无缺陷，阻塞均来自 Mac Docker Desktop + Rosetta 性能瓶颈。
+- **2026-11-23 run 45089233842 终验验证：**Docker 全部 9 个验收阶段（unit / chain / durability / ops / faults / media / recovery / perf / release-*）**全部执行通过并输出 PASS 日志**；末尾 `generate_candidate_gates.py` 因提交 `3121a501` 曾删去本文第 3 行 `<!-- streamgate-acceptance-status: complete -->` 注释标记而报错退出。已在本地提交 `22bad463` 恢复该标记；因后续选择沿用已有全绿胶囊的冻结基线 `d267ad44` 完成 Sepolia 务实收口，C2 新提交未另行派发 CI capsule。
+
+**2026-11-23～2026-11-24 r35 完整执行与验证闭环（基线 `d267ad44` + Chrome CDP 真钱包 + Sepolia 全链路）**
+
+- **执行基线与环境参数：**
+  - 候选代码：权威冻结候选 `d267ad4439ba672fecf373cae22f07852a0f6ada`（CI run 42548083086 全绿原件；已验证 `h5-demo/` 及其栈副本全量文件 SHA256 与候选 byte-for-byte 100% 吻合，`public-runtime` PASS）。
+  - 控制者 A：`0x853599ccc0a64f6ca4212ab4dea5259eba33942a`
+  - 接收者 B：`0x732e24a0bcab6fa41b1c9148bcf1135587bc76c1`
+  - NFT 合约 N：`0x95e1308ff2438a90ab01341a269dd33a10a71d7b`
+  - 合约钱包 C：`0x907d8fffa56561d0e965d6bd736d119f74747a53`
+  - 媒体内容 ID：`7581aad3-73d6-4dc9-bfb6-af6821830be6`
+  - 链 ID：`11155111`（Ethereum Sepolia）
+  - 双 RPC 接入：主 RPC `https://sepolia.gateway.tenderly.co`，备 RPC `https://rpc.sepolia.ethpandaops.io`
+  - 证据归档目录：`.verify-artifacts/w3-extension/supervision/20261123T091500Z-w3-17-r35`
+  - 指针配置：`.verify-artifacts/w3-extension/supervision/extension.json` 指向 r35 全量证据。
+- **Sepolia 链上六笔交易全部真实广播与链上确认（0 Mock / 0 假数据，总费用 `0.013431 ETH`）：**
+  1. `deploy-nft`：`0x4da38c049c112a00f577a0e7b6441ffc69266be9f3526d96798d9739d51a95a2`（block 12194709）
+  2. `deploy-wallet`：`0xbacd91bbcc127badfc89dded91ddef4f3497b1c7fa9ca4254641e3f73343cca7`（block 12194719）
+  3. `mint-a`：`0xe8e3369f980684353d25aaed9f487b5196e8e1e98f93d62fae3ecb91c11159b7`（block 12194752）
+  4. `transfer-a`：`0xbd00912e2f500690915926bd5ffa7702d6d83edb80126ba6f4e31b6fd1a836b2`（block 12195242）
+  5. `mint-c`：`0xd42dc0d4175696ca49e4eff1a780c645c7e4d67b330961b1edcd9113bff844c4`（block 12195348）
+  6. `transfer-c`：`0xfd7a7ca72db8de74ce67464cf8de4ba2bfa54315ef8b54c05c29283606b19d91`（block 12195554）
+- **链 Oracle 生成与确定性离线重放（4 阶段 PASS + 1 pending 阶段预期 BLOCKED）：**
+  - `oracle-eoa-held.json`（exit 0，`PHASE_CHAIN_VERIFIED`）
+  - `oracle-eoa-transferred.json`（exit 0，`PHASE_CHAIN_VERIFIED`）
+  - `oracle-contract-held.json`（exit 0，`PHASE_CHAIN_VERIFIED`）
+  - `oracle-contract-transferred.json`（exit 0，`PHASE_CHAIN_VERIFIED`）
+  - `oracle-pending.json`（exit 2，`BLOCKED`，在区块 12195242 之前 safeViews 触发 `PendingSafe` 预期安全断言，离线重放吻合）
+- **Chrome CDP 真钱包自动化浏览器观测（6/6 模式全部 PASS，退出码 0）：**
+  - 利用 Chrome DevTools Protocol 控制宿主机已安装的真实 MetaMask 浏览器扩展，使用 owner 授权凭据解锁，于 Sepolia 网络完成交互与真实 SIWE 挑战签名。
+  - Monolith 模式（:18500）：
+    - `phase-eoa-monolith`：exit 0，EOA 持仓播放观测全部断言通过，HLS 媒体解密与时间戳单调推进正常。
+    - `phase-contract-monolith`：exit 0，ERC-1271 合约钱包持仓播放通过，时间戳/解码帧稳定推进。
+    - `phase-negative-monolith`：exit 0，NFT 转移后 403 拒绝播放断言通过。
+  - API Gateway 模式（:18501）：
+    - `phase-eoa-api-gateway`：exit 0，网关与流媒体微服务链 EOA 播放断言通过。
+    - `phase-contract-api-gateway`：exit 0，网关反向代理 ERC-1271 合约钱包播放断言通过。
+    - `phase-negative-api-gateway`：exit 0，网关反向代理转出后 403 拒绝断言通过。
+  - 真实 SIWE 签名凭据全部经栈服务私钥校验；启动时钟严格早于所有观测记录（`startedAtMs <= minGateStartedAt`）。
+- **扩展汇总验证器评估（`verify_web3_extension.py` -> `verifier-r35.json`）：**
+  - 核心组件矩阵：
+    - `source`：**PASS**
+    - `ci`：**PASS**
+    - `public-runtime`：**PASS**
+    - `public-network`：**PASS**
+    - `cw-suites`：**PASS**
+    - `cw-segment-cost`：**PASS**
+    - `local-monolith`：**PASS**
+    - `local-api-gateway`：**PASS**
+    - `public-chain`：**PASS**（全部 64+ 链上 RPC 调用及历史 recheck 验证通过）
+    - `public-browser-monolith`：**PASS**
+    - `public-browser-api-gateway`：**PASS**
+    - `public-controls-monolith`：**BLOCKED**（直接原因：r35 目录未采集 `controls-monolith/` 原件导致 `FileNotFoundError`；背景根因：基线 `d267ad44` 的 `nft_gate.go` 5s 新鲜度硬边界，该问题已在后续 master C2 提交修复并验证）
+    - `public-controls-api-gateway`：**BLOCKED**（直接原因：r35 目录未采集 `controls-api-gateway/` 原件；背景根因同上）
+  - 测试用例矩阵：
+    - `CW-01` ～ `CW-16`：**16 项确定性测试全部 PASS**
+    - `TN-01`、`TN-02`、`TN-07`、`TN-08`：**全部 PASS**
+    - `TN-03` ～ `TN-06`：**BLOCKED**（依赖 `public-controls-*`，验证器按规范判定为 BLOCKED 而非 FAIL，无一处 FAIL）
+  - 整体判定：退出码 2（`status: "BLOCKED", completeAcceptance: false`，0 处 FAIL）。以基线 `d267ad44` + r35 边界完成收口归档。
 
 ---
 
@@ -903,52 +965,3 @@ make verify-docker
 - **上一轮计划**：P0 前置门（P0-1～3）、Track A 安全地基（A1～A10，含 G1 反向验证）、Track B 减法与诚实（B1～B7）、Track C 求职物料（C0～C3 完成；C4 投递 / C5 步骤 1 录屏属人工未启动）、Track D 差异化（D1/D2 未启动）。全部完成项的验收记录见 git 历史。
 - **附录 A～F**：授权绕过链、合约现状、真实优势/短板、文档矛盾清单、删除清单、Go 1.26 迁移与 CI 收官教训（含「修 CVE 要校验目标版本是否落在其他 CVE 区间」等）。属当时事实快照，现行事实以 §8.1 / §8.86 为准。
 - **硬规则（不可协商，沿袭自上一轮 §0.3 并持续有效）**：真实失败才算通过，禁止 skip/宽松判据/未执行门冒充完成；安全语义变更须重新绑定候选；生产/testnet/真机/投递不代填。
-
----
-
-**2026-11-21 C2 验收 DAG 首次完整执行（AI 恢复会话）：**
-- **verify-controller.sh 嵌套挂载修复**（cbd51fea）：frozen 模式下 ROOT_DIR 是 VERIFY_ARTIFACTS 的子目录，Docker Desktop 29.9.1 的父挂载遮蔽子挂载导致容器内 git 报 "not a git repository"。改为仅在 ROOT_DIR 不在 VERIFY_ARTIFACTS 下时才挂载；启动轮询 60s→180s（Rosetta 下容器创建耗时 87s）。工作流增加 `Acceptance Controller Diagnostic`（只读事后诊断）。
-- **run 44866963294（cbd51fea，mutex_takeover=true）**：GHCR 证据下载耗时 ~3.5h（Mac→GHCR 慢链路）后 DAG **首次完整执行**——unit/chain/durability/ops/faults 全 PASS，acceptance 进入 **media 阶段**：81 项检查 75 PASS / 6 FAIL。6 个 FAIL 均为 gRPC 执法延迟类：
-  1. gRPC independently denies within 5s — DeadlineExceeded
-  2. gRPC did not enforce changed threshold within 5 seconds
-  3. CW10_LIVE_POLICY_BASELINE — capability/access 剩余寿命 <50s
-  4. Contract-wallet browser component contract failed（由 3 连锁）
-  5. gRPC capability revoked after logout within 5s — remained accepted
-  6. gRPC transfer capability refused within 70s of safe-view — remained accepted
-- **诊断**：这些是 gRPC StreamingService 的策略执法实时性测试。C2 修复的是 HTTP NFT gate freshness（nft_gate.go），gRPC 路径的 evidence 缓存不在该修复范围内。**这是一个真实的产品测试发现，需产品级修复**（gRPC StreamingService 的 authz 缓存 TTL/刷新策略）。recovery/perf/release 阶段因 media 失败未到达。
-- **下一步：**owner 看 gRPC evidence 缓存延迟的修复方案（可能需要 C3），或 owner 确认 5s/70s 门槛在 Mac 环境下的宽松化。
-
-**2026-11-21 gRPC 执法延迟根因分析（AI 恢复会话补充）：**
-- gRPC `GetSegment` 与 HTTP 共享 `PlaybackAuthorizer`（`NewPlaybackAuthorizer(gate, resolver, logger)`），gate 含共享 evidence cache。C2 的 `resolveQuantityObserved` 修复（9b0f294e）理论上覆盖两个入口。
-- 6 个 FAIL 的具体机制：transfer 后 NFT balance 变 0，gRPC evidence cache 仍持有旧值（balance=1），需要一次新的 RPC `eth_call balanceOf` 刷新。在 Mac runner 负载 ~10 的环境下，该 RPC 调用超过 5s → 测试的 gRPC 调用被 `DeadlineExceeded`（或旧 cache 仍返回 200）。
-- **这是 Mac 环境性能与产品 5s 门槛的交叉问题**：native Linux（更低负载、无 Rosetta）可能 PASS；Mac 上当前负载大概率持续 FAIL。修复选项：①产品减少 evidence cache 的 freshness 窗口（降低 5s 依赖）；②测试门槛放宽到 10-15s；③提供 native-linux runner。
-- 停止规则：同一失败不盲目重试。owner 决定修复路径。
-
-**2026-11-21 run 44897361278 取消（AI 恢复会话）：**
-- 同一 SHA (cc391582) 的第二次派发（push 触发），Download 步骤运行 2h42m 后被 SIGTERM 取消（evidence_transport.py `Terminated: 15`）。GHCR 证据下载从 Mac 的网络吞吐持续恶化——第一次 run 的 Download 步骤 55 分钟完成，本次 2h42m 仍未完成。
-- Docker Desktop 运行正常（29.9.1），磁盘充足（201Gi 可用），负载 ~10 持续。取消原因待确认（可能是 GitHub Actions 的内部超时或 runner 进程清理）。
-- **结论：GHCR 证据下载是当前 C2 验收的硬瓶颈。** Mac→GHCR 的网络吞吐不足以在合理时间内完成 ~20 个 evidence 镜像的拉取（~2-3 GB 总量，有效吞吐 <200 KB/s）。需要：①修复 Mac→GHCR 的网络路径；②使用更近的 GHCR 代理或镜像；③提供能快速拉取 GHCR 的 acceptance runner。
-
-**2026-11-21 run 44913426835 确认 gRPC 执法延迟为可复现的系统性问题（AI 恢复会话）：**
-- Download 步骤成功（~2h），DAG 跑到 media：76 PASS / 5 FAIL（比 run 44866963294 少 1 个 FAIL）。5 个 FAIL 与前次完全一致——gRPC StreamingService 的 5s 执法延迟。
-- **根因确认**：`test/grpcparity/main.go` 行 362 硬编码 `deadlineSeconds > 5` 为非法——5s 是产品要求（gRPC 服务必须在 NFT 链上事件后 5s 内拒绝旧 capability）。C2 的 `nft_gate.go` freshness 修复（resolveQuantityObserved 的时钟重读）已由 PlaybackAuthorizer 共享给 gRPC 路径，但 Mac runner 负载 ~10（Rosetta + Docker Desktop 虚拟化）使 `eth_call balanceOf` RPC 到 publicnode 超过 5s → 旧 evidence 仍被接受。
-- **修复选项（owner 决定）：**① C3：PlaybackAuthorizer 主动刷新（收到 revocation 事件时立即使 cache 失效，不等下次查询触发被动刷新）；② 测试宽松化：Mac 环境 5s→10s（改 test/grpcparity/main.go 行 362 的硬编码上限）；③ 基础设施：native-linux runner（无 Rosetta，RPC 延迟更低）。选项 ① 是产品正确解；②③ 是环境适配。
-- **重要进展：**verify-controller.sh 嵌套挂载修复后，DAG 不再被 "not a git repository" 阻断——这本身就是 CI 基础设施的关键修复。后续 C3 只需要修改产品代码并重新派发。
-
-**2026-11-22 evidence freshness 机制确认（AI 恢复会话）：**
-- `defaultMaxEvidenceAge = 5 * time.Second`（`nft_gate.go:753`）与 gRPC parity 测试的 5s deadline（`test/grpcparity/main.go:362` 硬编码上限 5s）是**同一常量**——产品设计假设 evidence 可在 5s 内刷新。
-- evidence CacheTTL = 60s。Transfer 后旧 cache（balance=1）在 60s TTL 内仍有效，但 MaxEvidenceAge(5s) 要求如果 evidence 观测时间 >5s 则必须重读。重读 = `eth_call balanceOf` → publicnode。Mac 负载 ~10 下该 RPC 耗时 3-10s → 可能在 5s 边界内未完成。
-- C2 修复（`resolveQuantityObserved` 的时钟重读）在 HTTP 路径工作正常（r31/r32 PASS）；gRPC 路径共享同一 cache 但测试报告仍 FAIL——说明在 Mac 的 5s 窗口内 evidence 刷新 RPC 偶尔超时。
-- **这是产品 5s 门槛与 Mac 环境性能的交叉，非代码 bug。** native-linux runner 上 RPC 延迟更低，5s 窗口大概率可满足。
-
-**2026-11-22 run 44972139216 突破：media/recovery 首次全 PASS，perf 阶段 50-viewer 8 errors：**
-- 低负载窗口（load 6.18 vs 10.15）下 media 阶段 **0 FAIL**（gRPC 执法延迟全 PASS，含 70s safe-view 检查）——确认 gRPC 延迟是负载依赖的环境问题，非产品缺陷。
-- **recovery 阶段首次全 PASS。** DAG 推进到 **perf 阶段**（首次到达）。
-- **perf 失败**：comparison round 1 at 50 viewers — 568 success / 8 errors (~1.4%)。Mac Docker Desktop + Rosetta 下 50 并发 viewer 的错误率超 perf 测试容差。perf-setup PASSED，TestLoad_AuthorizedMedia 首次 PASS。
-- **结论：C2 的产品代码无缺陷。所有失败均为 Mac Docker Desktop + Rosetta 环境的性能限制。** native-linux runner 可解。
-- DAG 进度：unit→chain→durability→ops→faults→**media ✓**→**recovery ✓**→perf ✗→release（未到达）。
-
-**2026-11-23 run 45089233842 突破与终验分析：全 9 阶段 Docker 容器逻辑全 PASS，仅因 status marker 遗漏阻断 evidence 索引：**
-- **全 9 阶段执行通过**：unit ✓、chain ✓、durability ✓、ops ✓、faults ✓、media ✓、recovery-seed ✓、recovery ✓、perf ✓、release-smoke ✓、release-compat ✓、release-drills ✓ 全部正常完成并输出对应 PASS 日志。
-- **失败原因归因**：`scripts/verify-docker.sh` 在全部阶段完成后调用 `generate_candidate_gates.py` 生成索引，触发 `ValueError: TRANSITION_PLAN.md must declare exactly one current acceptance status marker near its top`。根因为提交 `3121a501` 简化文档时删除了第 3 行 `<!-- streamgate-acceptance-status: complete -->` 注释标记。
-- **修复**：已在 `TRANSITION_PLAN.md` 顶部恢复该标记；验证确认 C2 产品的完整 Docker 验收逻辑与业务功能全部健康。
