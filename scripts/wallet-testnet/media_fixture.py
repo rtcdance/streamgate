@@ -198,7 +198,8 @@ class API:
         deadline, last = clock() + seconds, None
         while True:
             _, response = self.call('GET', f'/api/v1/content/{content_id}')
-            last = str(response.get('status', ''))
+            content = response.get('content') if isinstance(response.get('content'), dict) else response
+            last = str(content.get('status', ''))
             if last in READY:
                 return last
             if last in FAILED:
